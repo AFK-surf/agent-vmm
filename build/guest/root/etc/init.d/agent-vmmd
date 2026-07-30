@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+
+name="agent-vmmd"
+command="/usr/bin/agent-vmmd"
+command_background="yes"
+pidfile="/run/agent-vmmd.pid"
+output_log="/dev/hvc0"
+error_log="/dev/hvc0"
+
+depend() {
+  need devfs procfs sysfs cgroups
+  before shutdown
+}

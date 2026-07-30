@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package agentvmm.host.v1;
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
+
+service HostService {
+  rpc StartVM(StartVMRequest) returns (StartVMResponse);
+  rpc GetVM(GetVMRequest) returns (GetVMResponse);
+  rpc StopVM(StopVMRequest) returns (StopVMResponse);
+}
+
+message StartVMRequest {}
+
+message StartVMResponse {
+  VM vm = 1;
+}
+
+message GetVMRequest {}
+
+message GetVMResponse {
+  VM vm = 1;
+}
+
+message StopVMRequest {
+  StopMode mode = 1;
+}
+
+message StopVMResponse {
+  VM vm = 1;
+}
+
+message VM {
+  VMState state = 1;
+  string boot_id = 2;
+  string error = 3;
+}
+
+enum VMState {
+  VM_STATE_UNSPECIFIED = 0;
+  VM_STATE_STOPPED = 1;
+  VM_STATE_STARTING = 2;
+  VM_STATE_RUNNING = 3;
+  VM_STATE_STOPPING = 4;
+  VM_STATE_FAILED = 5;
+}
+
+enum StopMode {
+  STOP_MODE_UNSPECIFIED = 0;
+  STOP_MODE_GRACEFUL = 1;
+  STOP_MODE_FORCE = 2;
+}
