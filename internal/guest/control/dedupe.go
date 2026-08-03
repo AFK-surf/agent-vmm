@@ -56,7 +56,7 @@ func (d *deduper) do(ctx context.Context, key, fingerprint string, operation fun
 	}
 	if len(d.pending) >= 64 {
 		d.mu.Unlock()
-		return nil, errors.New("too many concurrent mutations")
+		return nil, resourceExhausted("too many concurrent mutations")
 	}
 	call := &pendingCall{fingerprint: fingerprint, done: make(chan struct{})}
 	d.pending[key] = call

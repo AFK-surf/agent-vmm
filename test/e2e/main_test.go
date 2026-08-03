@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 		}
 		reportPath := filepath.Join(repository, ".context/e2e/report.md")
 		if reportErr := reporting.Render(repository, bundleDirectory, "", reportPath, status); reportErr != nil {
-			_ = os.WriteFile(reportPath, []byte("# Agent VMM V0 E2E report\n\nReport metadata unavailable: "+reportErr.Error()+"\n"), 0o644)
+			_ = os.WriteFile(reportPath, []byte("# Agent VMM product E2E report\n\nReport metadata unavailable: "+reportErr.Error()+"\n"), 0o644)
 		}
 	}
 	os.Exit(status)

@@ -43,6 +43,7 @@ Do not record temporary failures or narrow implementation mistakes.
 
 - This project is new and has no production release. Report code that does not follow current best practices.
 - Build guest artifacts on Linux arm64 and a case-sensitive file system.
+- Alpine stable repositories remove superseded kernel package revisions; keep the locked kernel package and digest current or retain it in `AGENT_VMM_DOWNLOAD_CACHE`.
 - Install the complete gVisor release directory.
 - Select `linux/arm64` when an image index contains multiple platforms.
 - Verify the digest of each final guest component.
@@ -68,3 +69,4 @@ Do not record temporary failures or narrow implementation mistakes.
 - Do not replace the supervisor with a delay, a CRI pause container, or exit-code substitution.
 - Reject new public relay connections after the VM enters `STOPPING`.
 - Permit the internal `PrepareShutdown` connection during `STOPPING` so the guest can finish cleanup.
+- Package development-signed guest bundles only with an ad-hoc-signed helper built with the development trust root. A release-signed helper requires a release-signed guest bundle.

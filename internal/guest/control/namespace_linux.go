@@ -51,6 +51,18 @@ func (r *Runtime) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		if err != nil {
 			return nil, err
 		}
+		projectID, current, err := namespaceFromLabels(request.GetNamespaceId(), labels)
+		if err != nil {
+			return nil, err
+		}
+		if !sameLimits(current.GetLimits(), request.GetLimits()) || current.GetEgressMode() != request.GetEgressMode() {
+			labels = namespaceLabels(request.GetLimits(), request.GetEgressMode(), projectID, current.GetSubnet())
+			for key, value := range labels {
+				if err := store.SetLabel(ctx, request.GetNamespaceId(), key, value); err != nil {
+					return nil, err
+				}
+			}
+		}
 	} else {
 		projectID, subnet, allocationErr := r.allocateNamespace(ctx, request.GetNamespaceId())
 		if allocationErr != nil {
@@ -64,9 +76,6 @@ func (r *Runtime) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	projectID, namespace, err := namespaceFromLabels(request.GetNamespaceId(), labels)
 	if err != nil {
 		return nil, err
-	}
-	if !sameLimits(namespace.GetLimits(), request.GetLimits()) || namespace.GetEgressMode() != request.GetEgressMode() {
-		return nil, errors.New("namespace already exists with different limits or egress mode")
 	}
 	for _, directory := range []string{
 		volumePath(request.GetNamespaceId(), ""),
@@ -116,7 +125,7 @@ func (r *Runtime) DeleteNamespace(ctx context.Context, namespaceID string) error
 		return err
 	}
 	if len(containers) != 0 || len(volumes) != 0 {
-		return errors.New("namespace is not empty")
+		return failedPrecondition("namespace is not empty")
 	}
 	if err := r.network.CanDeleteNamespace(namespaceID); err != nil {
 		return err

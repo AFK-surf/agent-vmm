@@ -74,14 +74,8 @@ func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID s
 		_ = r.network.Detach(context.Background(), namespaceID, containerID)
 		return nil, err
 	}
-	stdout, err := newCappedLog(logPath(namespaceID, containerID, "stdout"), limit)
+	stdout, stderr, err := newRecordLog(logPath(namespaceID, containerID), logMetaPath(namespaceID, containerID), limit)
 	if err != nil {
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
-		return nil, err
-	}
-	stderr, err := newCappedLog(logPath(namespaceID, containerID, "stderr"), limit)
-	if err != nil {
-		stdout.Close()
 		_ = r.network.Detach(context.Background(), namespaceID, containerID)
 		return nil, err
 	}
@@ -326,7 +320,7 @@ func (r *Runtime) DeleteContainer(ctx context.Context, namespaceID, containerID 
 		return err
 	}
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-		return errors.New("running container cannot be deleted")
+		return failedPrecondition("running container cannot be deleted")
 	}
 	if task, err := container.Task(nsctx, nil); err == nil {
 		cleanup, cancel := context.WithTimeout(nsctx, 10*time.Second)
@@ -341,7 +335,7 @@ func (r *Runtime) DeleteContainer(ctx context.Context, namespaceID, containerID 
 	if err := container.Delete(nsctx, containerd.WithSnapshotCleanup); err != nil {
 		return err
 	}
-	return os.RemoveAll(filepath.Dir(logPath(namespaceID, containerID, "stdout")))
+	return os.RemoveAll(filepath.Dir(logPath(namespaceID, containerID)))
 }
 
 func (r *Runtime) InspectContainer(ctx context.Context, namespaceID, containerID string) (*vmmdv1.Container, error) {
@@ -411,6 +405,21 @@ func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, cont
 		state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
 	}
 	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state}
+	process, err := containerMainProcess(ctx, container)
+	if err != nil {
+		return nil, err
+	}
+	result.Argv = append([]string(nil), process.Args...)
+	result.Env = append([]string(nil), process.Env...)
+	if process.Cwd != "" {
+		workdir := process.Cwd
+		result.Workdir = &workdir
+	}
+	user := process.User.Username
+	if user == "" {
+		user = strconv.FormatUint(uint64(process.User.UID), 10) + ":" + strconv.FormatUint(uint64(process.User.GID), 10)
+	}
+	result.User = &user
 	if value := info.Labels[containerExitLabel]; value != "" {
 		code, err := strconv.ParseUint(value, 10, 32)
 		if err != nil {

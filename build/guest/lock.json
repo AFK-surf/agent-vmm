@@ -8,8 +8,8 @@
   },
   "kernel": {
     "package": "linux-virt",
-    "version": "6.18.40-r0",
-    "apk_sha256": "14daab296e8efc429d96ea9e00bccf4f6d7ebfeb7fd23b13fc1064a026b0a128",
+    "version": "6.18.41-r0",
+    "apk_sha256": "c9cd274e73a590ec9c994119bd2737420177086310ce59085aefaa47965e7257",
     "extract_vmlinux_version": "v6.18",
     "extract_vmlinux_sha256": "aacb6bb09af227a6cf508f5283458f001722a39abd9c4cfb026bc97c31624910"
   },

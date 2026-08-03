@@ -53,7 +53,7 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 		result = "FAIL"
 	}
 	var output strings.Builder
-	fmt.Fprintln(&output, "# Agent VMM V0 E2E report")
+	fmt.Fprintln(&output, "# Agent VMM product E2E report")
 	fmt.Fprintf(&output, "\n- Result: `%s`\n", result)
 	fmt.Fprintf(&output, "- Revision: `%s`\n", command(repository, "git", "rev-parse", "HEAD"))
 	fmt.Fprintf(&output, "- Host: `%s %s`\n", command(repository, "sw_vers", "-productVersion"), runtime.GOARCH)
@@ -81,7 +81,7 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 		}
 	}
 	fmt.Fprintln(&output, "\n## Isolation and cleanup assertions")
-	fmt.Fprintln(&output, "\nThe suite checks namespace enumeration and volume ownership, project quotas, default cross-namespace denial, selector/port-limited Link rules, Link revocation, filtered public egress, build context/cache/secret isolation, cancellation cleanup, restart policy replay, forced-stop persistence boundaries, and a final residual namespace scan. The report contains no environment values, build context, secret bytes, or full workload logs.")
+	fmt.Fprintln(&output, "\nThe suite checks guest network counter propagation, namespace enumeration and volume ownership, mounted-volume deletion guards, project quotas, bounded-log truncation, default cross-namespace denial, selector/port-limited Link rules, Link revocation, filtered public egress, build context/cache/secret isolation, cancellation cleanup, host policy replay and snapshot-first event reconnection after VM restart, forced-stop UNKNOWN/stale semantics, revision-bound and interrupted cleanup recovery, and a final residual namespace scan. The report contains no environment values, build context, secret bytes, or full workload logs.")
 	if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
 		return err
 	}

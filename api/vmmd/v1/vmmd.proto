@@ -10,10 +10,19 @@ service VMMDService {
 
   rpc EnsureNamespace(EnsureNamespaceRequest) returns (EnsureNamespaceResponse);
   rpc DeleteNamespace(DeleteNamespaceRequest) returns (DeleteNamespaceResponse);
+  rpc GetNamespace(GetNamespaceRequest) returns (GetNamespaceResponse);
+  rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
+  rpc GetNamespaceUsage(GetNamespaceUsageRequest) returns (GetUsageResponse);
+  rpc GetSystemUsage(GetSystemUsageRequest) returns (GetUsageResponse);
   rpc PullImage(PullImageRequest) returns (stream PullImageResponse);
 
   rpc CreateVolume(CreateVolumeRequest) returns (CreateVolumeResponse);
   rpc DeleteVolume(DeleteVolumeRequest) returns (DeleteVolumeResponse);
+  rpc GetVolume(GetVolumeRequest) returns (GetVolumeResponse);
+  rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
+
+  rpc GetImage(GetImageRequest) returns (GetImageResponse);
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
 
   rpc CreateContainer(CreateContainerRequest) returns (CreateContainerResponse);
   rpc StartContainer(StartContainerRequest) returns (StartContainerResponse);
@@ -22,6 +31,7 @@ service VMMDService {
   rpc DeleteContainer(DeleteContainerRequest) returns (DeleteContainerResponse);
   rpc InspectContainer(InspectContainerRequest) returns (InspectContainerResponse);
   rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
+  rpc GetContainerUsage(GetContainerUsageRequest) returns (GetUsageResponse);
   rpc Logs(LogsRequest) returns (stream LogsResponse);
 
   rpc Exec(stream ExecRequest) returns (stream ExecResponse);
@@ -31,6 +41,8 @@ service VMMDService {
   rpc DeleteNetworkLink(DeleteNetworkLinkRequest) returns (DeleteNetworkLinkResponse);
   rpc ForwardTCP(stream ForwardTCPRequest) returns (stream ForwardTCPResponse);
   rpc BuildImage(stream BuildImageRequest) returns (stream BuildImageResponse);
+  rpc ComponentHealth(ComponentHealthRequest) returns (ComponentHealthResponse);
+  rpc WatchEvents(WatchEventsRequest) returns (stream RuntimeEvent);
 }
 
 message HealthRequest {}
@@ -44,7 +56,9 @@ message HealthResponse {
   map<string, string> runtime_versions = 6;
 }
 
-message PrepareShutdownRequest { string request_id = 1; }
+message PrepareShutdownRequest {
+  string request_id = 1;
+}
 message PrepareShutdownResponse {}
 
 enum EgressMode {
@@ -66,6 +80,7 @@ message Namespace {
   EgressMode egress_mode = 3;
   uint32 project_id = 4;
   string subnet = 5;
+  string observed_status = 6;
 }
 
 message EnsureNamespaceRequest {
@@ -74,13 +89,29 @@ message EnsureNamespaceRequest {
   NamespaceLimits limits = 3;
   EgressMode egress_mode = 4;
 }
-message EnsureNamespaceResponse { Namespace namespace = 1; }
+message EnsureNamespaceResponse {
+  Namespace namespace = 1;
+}
 
 message DeleteNamespaceRequest {
   string request_id = 1;
   string namespace_id = 2;
 }
 message DeleteNamespaceResponse {}
+message GetNamespaceRequest {
+  string namespace_id = 1;
+}
+message GetNamespaceResponse {
+  Namespace namespace = 1;
+}
+message ListNamespacesRequest {}
+message ListNamespacesResponse {
+  repeated Namespace namespaces = 1;
+}
+message GetNamespaceUsageRequest {
+  string namespace_id = 1;
+}
+message GetSystemUsageRequest {}
 
 message PullImageRequest {
   string request_id = 1;
@@ -96,19 +127,57 @@ message PullImageResponse {
 message Volume {
   string id = 1;
   string namespace_id = 2;
+  uint64 current_bytes = 3;
+  uint64 limit_bytes = 4;
+  repeated string mounted_by = 5;
 }
 message CreateVolumeRequest {
   string request_id = 1;
   string actor_namespace_id = 2;
   string volume_id = 3;
 }
-message CreateVolumeResponse { Volume volume = 1; }
+message CreateVolumeResponse {
+  Volume volume = 1;
+}
 message DeleteVolumeRequest {
   string request_id = 1;
   string actor_namespace_id = 2;
   string volume_id = 3;
 }
 message DeleteVolumeResponse {}
+message GetVolumeRequest {
+  string actor_namespace_id = 1;
+  string volume_id = 2;
+}
+message GetVolumeResponse {
+  Volume volume = 1;
+}
+message ListVolumesRequest {
+  string actor_namespace_id = 1;
+}
+message ListVolumesResponse {
+  repeated Volume volumes = 1;
+}
+
+message Image {
+  string reference = 1;
+  string digest = 2;
+  uint64 logical_bytes = 3;
+  repeated string platforms = 4;
+}
+message GetImageRequest {
+  string actor_namespace_id = 1;
+  string reference = 2;
+}
+message GetImageResponse {
+  Image image = 1;
+}
+message ListImagesRequest {
+  string actor_namespace_id = 1;
+}
+message ListImagesResponse {
+  repeated Image images = 1;
+}
 
 message ResourceLimits {
   optional uint32 cpu_millis = 1;
@@ -136,6 +205,10 @@ message Container {
   ContainerState state = 4;
   optional uint32 exit_code = 5;
   repeated VolumeMount volumes = 6;
+	repeated string argv = 7;
+	repeated string env = 8;
+	optional string workdir = 9;
+	optional string user = 10;
 }
 
 message CreateContainerRequest {
@@ -152,14 +225,18 @@ message CreateContainerRequest {
   bool read_only_root = 11;
   uint64 log_limit_bytes = 12;
 }
-message CreateContainerResponse { Container container = 1; }
+message CreateContainerResponse {
+  Container container = 1;
+}
 
 message StartContainerRequest {
   string request_id = 1;
   string actor_namespace_id = 2;
   string container_id = 3;
 }
-message StartContainerResponse { Container container = 1; }
+message StartContainerResponse {
+  Container container = 1;
+}
 
 message StopContainerRequest {
   string request_id = 1;
@@ -167,13 +244,17 @@ message StopContainerRequest {
   string container_id = 3;
   optional uint32 timeout_seconds = 4;
 }
-message StopContainerResponse { Container container = 1; }
+message StopContainerResponse {
+  Container container = 1;
+}
 
 message WaitContainerRequest {
   string actor_namespace_id = 1;
   string container_id = 2;
 }
-message WaitContainerResponse { uint32 exit_code = 1; }
+message WaitContainerResponse {
+  uint32 exit_code = 1;
+}
 
 message DeleteContainerRequest {
   string request_id = 1;
@@ -186,9 +267,36 @@ message InspectContainerRequest {
   string actor_namespace_id = 1;
   string container_id = 2;
 }
-message InspectContainerResponse { Container container = 1; }
-message ListContainersRequest { string actor_namespace_id = 1; }
-message ListContainersResponse { repeated Container containers = 1; }
+message InspectContainerResponse {
+  Container container = 1;
+}
+message ListContainersRequest {
+  string actor_namespace_id = 1;
+}
+message ListContainersResponse {
+  repeated Container containers = 1;
+}
+message GetContainerUsageRequest {
+  string actor_namespace_id = 1;
+  string container_id = 2;
+}
+
+message Usage {
+  uint64 cpu_nanos = 1;
+  uint64 memory_bytes = 2;
+  uint32 pids = 3;
+  uint64 read_bytes = 4;
+  uint64 write_bytes = 5;
+  uint64 disk_bytes = 6;
+  int64 sampled_at_unix_nano = 7;
+  bool unavailable = 8;
+  string unavailable_reason = 9;
+  uint64 network_rx_bytes = 10;
+  uint64 network_tx_bytes = 11;
+}
+message GetUsageResponse {
+  Usage usage = 1;
+}
 
 enum LogStream {
   LOG_STREAM_UNSPECIFIED = 0;
@@ -198,12 +306,18 @@ enum LogStream {
 message LogsRequest {
   string actor_namespace_id = 1;
   string container_id = 2;
-  uint64 tail_bytes = 3;
-  bool follow = 4;
+  uint64 tail_records = 3;
+  int64 since_unix_nano = 4;
+  string after_cursor = 5;
+  bool follow = 6;
 }
 message LogsResponse {
-  LogStream stream = 1;
-  bytes data = 2;
+  string cursor = 1;
+  int64 timestamp_unix_nano = 2;
+  LogStream stream = 3;
+  bytes data = 4;
+  bool truncated = 5;
+  uint64 dropped_records = 6;
 }
 
 enum ProcessSignal {
@@ -232,7 +346,10 @@ message ExecStart {
   uint32 rows = 9;
   uint32 columns = 10;
 }
-message ExecResize { uint32 rows = 1; uint32 columns = 2; }
+message ExecResize {
+  uint32 rows = 1;
+  uint32 columns = 2;
+}
 message ExecRequest {
   oneof event {
     ExecStart start = 1;
@@ -250,7 +367,9 @@ message ExecResponse {
   }
 }
 
-message ContainerIDList { repeated string ids = 1; }
+message ContainerIDList {
+  repeated string ids = 1;
+}
 message ContainerSelector {
   oneof selection {
     bool all_containers = 1;
@@ -343,4 +462,39 @@ message BuildImageResponse {
     string progress = 1;
     BuildImageResult result = 2;
   }
+}
+
+enum ComponentState {
+  COMPONENT_STATE_UNSPECIFIED = 0;
+  COMPONENT_STATE_HEALTHY = 1;
+  COMPONENT_STATE_DEGRADED = 2;
+  COMPONENT_STATE_UNAVAILABLE = 3;
+}
+message ComponentStatus {
+  string component = 1;
+  ComponentState state = 2;
+  string reason = 3;
+  int64 observed_at_unix_nano = 4;
+}
+message ComponentHealthRequest {}
+message ComponentHealthResponse {
+  repeated ComponentStatus components = 1;
+}
+
+message ResourceReference {
+  string kind = 1;
+  string namespace_id = 2;
+  string resource_id = 3;
+}
+message WatchEventsRequest {
+  uint64 after_sequence = 1;
+}
+message RuntimeEvent {
+  uint64 sequence = 1;
+  string type = 2;
+  ResourceReference resource = 3;
+  string guest_boot_id = 4;
+  string request_id = 5;
+  string operation_id = 6;
+  int64 timestamp_unix_nano = 7;
 }

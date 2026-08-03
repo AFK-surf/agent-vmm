@@ -78,6 +78,15 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+func (m *Manager) Health() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return errors.New("network manager is closed")
+	}
+	return m.reconcileLocked()
+}
+
 func (m *Manager) EnsureNamespace(id, subnet string, egress vmmdv1.EgressMode) error {
 	prefix, err := netip.ParsePrefix(subnet)
 	if err != nil || !prefix.Addr().Is4() || prefix.Bits() != 24 {
@@ -92,8 +101,8 @@ func (m *Manager) EnsureNamespace(id, subnet string, egress vmmdv1.EgressMode) e
 	if m.closed {
 		return errors.New("network manager is closed")
 	}
-	if current, ok := m.namespaces[id]; ok && current != namespace {
-		return errors.New("namespace network configuration changed")
+	if current, ok := m.namespaces[id]; ok && (current.ID != namespace.ID || current.Subnet != namespace.Subnet || current.Gateway != namespace.Gateway || current.Bridge != namespace.Bridge) {
+		return errors.New("namespace network allocation changed")
 	}
 	m.namespaces[id] = namespace
 	if m.endpoints[id] == nil {

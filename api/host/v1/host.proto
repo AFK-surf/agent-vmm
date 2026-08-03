@@ -2,38 +2,63 @@ syntax = "proto3";
 
 package agentvmm.host.v1;
 
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
 
-service HostService {
-  rpc StartVM(StartVMRequest) returns (StartVMResponse);
-  rpc GetVM(GetVMRequest) returns (GetVMResponse);
-  rpc StopVM(StopVMRequest) returns (StopVMResponse);
+service AgentRuntimeService {
+  rpc GetEnvironment(GetOwnEnvironmentRequest) returns (GetEnvironmentResponse);
+  rpc PullImage(PullImageRequest) returns (stream PullImageResponse);
+  rpc CreateContainer(CreateContainerRequest) returns (ContainerResponse);
+  rpc StartContainer(ContainerMutationRequest) returns (ContainerResponse);
+  rpc StopContainer(StopContainerRequest) returns (ContainerResponse);
+  rpc WaitContainer(ContainerRequest) returns (WaitContainerResponse);
+  rpc DeleteContainer(ContainerMutationRequest) returns (google.protobuf.Empty);
+  rpc GetContainer(ContainerRequest) returns (ContainerResponse);
+  rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
+  rpc Logs(LogsRequest) returns (stream LogRecord);
+  rpc Exec(stream ExecRequest) returns (stream ExecResponse);
+  rpc SignalContainer(SignalContainerRequest) returns (google.protobuf.Empty);
+  rpc CreateVolume(CreateVolumeRequest) returns (VolumeResponse);
+  rpc DeleteVolume(DeleteVolumeRequest) returns (google.protobuf.Empty);
+  rpc GetVolume(VolumeRequest) returns (VolumeResponse);
+  rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
+  rpc ForwardTCP(stream ForwardTCPRequest) returns (stream ForwardTCPResponse);
+  rpc BuildImage(stream BuildImageRequest) returns (stream BuildImageResponse);
+  rpc ReleaseSession(ReleaseSessionRequest) returns (google.protobuf.Empty);
+  rpc PlanResetEnvironment(GetOwnEnvironmentRequest) returns (CleanupPlanResponse);
+  rpc PlanDiscardEnvironment(GetOwnEnvironmentRequest) returns (CleanupPlanResponse);
+  rpc RequestReset(EnvironmentOperationRequest) returns (OperationResponse);
+  rpc RequestDiscard(EnvironmentOperationRequest) returns (OperationResponse);
 }
 
-message StartVMRequest {}
-
-message StartVMResponse {
-  VM vm = 1;
-}
-
-message GetVMRequest {}
-
-message GetVMResponse {
-  VM vm = 1;
-}
-
-message StopVMRequest {
-  StopMode mode = 1;
-}
-
-message StopVMResponse {
-  VM vm = 1;
-}
-
-message VM {
-  VMState state = 1;
-  string boot_id = 2;
-  string error = 3;
+service OperatorService {
+  rpc StartVM(StartVMRequest) returns (OperationResponse);
+  rpc GetVM(GetVMRequest) returns (VMResponse);
+  rpc StopVM(StopVMRequest) returns (OperationResponse);
+  rpc CreateAgentSession(CreateAgentSessionRequest) returns (CreateAgentSessionResponse);
+  rpc RevokeAgentSession(RevokeAgentSessionRequest) returns (google.protobuf.Empty);
+  rpc GetSystemSnapshot(GetSystemSnapshotRequest) returns (GetSystemSnapshotResponse);
+  rpc ListEnvironments(ListEnvironmentsRequest) returns (ListEnvironmentsResponse);
+  rpc GetEnvironment(GetEnvironmentRequest) returns (GetEnvironmentResponse);
+  rpc WatchEvents(WatchEventsRequest) returns (stream RuntimeEvent);
+  rpc WatchMetrics(WatchMetricsRequest) returns (stream MetricsSample);
+  rpc Logs(OperatorLogsRequest) returns (stream LogRecord);
+  rpc StopContainer(OperatorStopContainerRequest) returns (ContainerResponse);
+  rpc ContinueContainer(OperatorContainerMutationRequest) returns (ContainerResponse);
+  rpc SignalContainer(OperatorSignalContainerRequest) returns (google.protobuf.Empty);
+  rpc UpdateEnvironmentPolicy(UpdateEnvironmentPolicyRequest) returns (GetEnvironmentResponse);
+  rpc ApplyNetworkLink(ApplyNetworkLinkRequest) returns (google.protobuf.Empty);
+  rpc DeleteNetworkLink(DeleteNetworkLinkRequest) returns (google.protobuf.Empty);
+  rpc PlanResetEnvironment(PlanEnvironmentRequest) returns (CleanupPlanResponse);
+  rpc PlanDiscardEnvironment(PlanEnvironmentRequest) returns (CleanupPlanResponse);
+  rpc ExecuteCleanup(ExecuteCleanupRequest) returns (OperationResponse);
+  rpc GetOperation(GetOperationRequest) returns (OperationResponse);
+  rpc RunDiagnostics(RunDiagnosticsRequest) returns (OperationResponse);
+  rpc PreviewSupportBundle(PreviewSupportBundleRequest) returns (SupportBundlePreview);
+  rpc ExportSupportBundle(ExportSupportBundleRequest) returns (OperationResponse);
 }
 
 enum VMState {
@@ -45,8 +70,509 @@ enum VMState {
   VM_STATE_FAILED = 5;
 }
 
-enum StopMode {
-  STOP_MODE_UNSPECIFIED = 0;
-  STOP_MODE_GRACEFUL = 1;
-  STOP_MODE_FORCE = 2;
+message VM {
+  VMState state = 1;
+  string boot_id = 2;
+  string error = 3;
+}
+
+message StartVMRequest {
+  string request_id = 1;
+}
+message GetVMRequest {}
+message StopVMRequest {
+  string request_id = 1;
+  bool force = 2;
+}
+message VMResponse {
+  VM vm = 1;
+}
+
+enum EgressMode {
+  EGRESS_MODE_UNSPECIFIED = 0;
+  EGRESS_MODE_DENY_ALL = 1;
+  EGRESS_MODE_PUBLIC_INTERNET = 2;
+}
+
+message ResourceLimits {
+  optional uint32 cpu_millis = 1;
+  optional uint64 memory_bytes = 2;
+  optional uint32 pids = 3;
+  optional uint64 disk_bytes = 4;
+}
+
+message AgentEnvironment {
+  string id = 1;
+  string display_name = 2;
+  string namespace_id = 3;
+  ResourceLimits limits = 4;
+  EgressMode egress_mode = 5;
+  HealthStatus health = 6;
+  Usage usage = 7;
+  repeated Container containers = 8;
+  repeated Volume volumes = 9;
+  uint64 policy_revision = 10;
+}
+
+message CreateAgentSessionRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string display_name = 3;
+}
+message CreateAgentSessionResponse {
+  string session_id = 1;
+  string socket_path = 2;
+  AgentEnvironment environment = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+message RevokeAgentSessionRequest {
+  string request_id = 1;
+  string session_id = 2;
+}
+message ReleaseSessionRequest {
+  string request_id = 1;
+}
+
+message GetOwnEnvironmentRequest {}
+message GetEnvironmentRequest {
+  string environment_id = 1;
+}
+message GetEnvironmentResponse {
+  AgentEnvironment environment = 1;
+}
+message ListEnvironmentsRequest {}
+message ListEnvironmentsResponse {
+  repeated AgentEnvironment environments = 1;
+}
+
+enum ContainerState {
+  CONTAINER_STATE_UNSPECIFIED = 0;
+  CONTAINER_STATE_CREATED = 1;
+  CONTAINER_STATE_RUNNING = 2;
+  CONTAINER_STATE_STOPPED = 3;
+  CONTAINER_STATE_UNKNOWN = 4;
+}
+
+message VolumeMount {
+  string volume_id = 1;
+  string destination = 2;
+  bool read_only = 3;
+}
+
+message Container {
+  string id = 1;
+  string image = 2;
+  ContainerState state = 3;
+  optional uint32 exit_code = 4;
+  repeated VolumeMount volumes = 5;
+  Usage usage = 6;
+	repeated string argv = 7;
+	repeated string environment_keys = 8;
+	optional string workdir = 9;
+	optional string user = 10;
+}
+
+message CreateContainerRequest {
+  string request_id = 1;
+  string container_id = 2;
+  string image = 3;
+  repeated string argv = 4;
+  repeated string env = 5;
+  optional string workdir = 6;
+  optional string user = 7;
+  ResourceLimits limits = 8;
+  repeated VolumeMount volumes = 9;
+  bool read_only_root = 10;
+  uint64 log_limit_bytes = 11;
+}
+message ContainerRequest {
+  string container_id = 1;
+}
+message ContainerMutationRequest {
+  string request_id = 1;
+  string container_id = 2;
+}
+message StopContainerRequest {
+  string request_id = 1;
+  string container_id = 2;
+  optional uint32 timeout_seconds = 3;
+}
+message ContainerResponse {
+  Container container = 1;
+}
+message WaitContainerResponse {
+  uint32 exit_code = 1;
+}
+message ListContainersRequest {}
+message ListContainersResponse {
+  repeated Container containers = 1;
+}
+
+message PullImageRequest {
+  string request_id = 1;
+  string reference = 2;
+}
+message PullImageResponse {
+  string status = 1;
+  optional string digest = 2;
+  uint64 logical_bytes = 3;
+}
+
+enum LogStream {
+  LOG_STREAM_UNSPECIFIED = 0;
+  LOG_STREAM_STDOUT = 1;
+  LOG_STREAM_STDERR = 2;
+}
+message LogsRequest {
+  string container_id = 1;
+  uint64 tail_records = 2;
+  google.protobuf.Timestamp since = 3;
+  string after_cursor = 4;
+  bool follow = 5;
+}
+message OperatorLogsRequest {
+  string environment_id = 1;
+  LogsRequest query = 2;
+}
+message LogRecord {
+  string cursor = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  LogStream stream = 3;
+  bytes data = 4;
+  bool truncated = 5;
+  uint64 dropped_records = 6;
+}
+
+enum ProcessSignal {
+  PROCESS_SIGNAL_UNSPECIFIED = 0;
+  PROCESS_SIGNAL_TERM = 1;
+  PROCESS_SIGNAL_KILL = 2;
+  PROCESS_SIGNAL_INT = 3;
+}
+message SignalContainerRequest {
+  string request_id = 1;
+  string container_id = 2;
+  ProcessSignal signal = 3;
+}
+message ExecStart {
+  string request_id = 1;
+  string container_id = 2;
+  repeated string argv = 3;
+  repeated string env = 4;
+  optional string workdir = 5;
+  optional string user = 6;
+  bool tty = 7;
+  uint32 rows = 8;
+  uint32 columns = 9;
+}
+message ExecResize {
+  uint32 rows = 1;
+  uint32 columns = 2;
+}
+message ExecRequest {
+  oneof event {
+    ExecStart start = 1;
+    bytes stdin = 2;
+    bool close_stdin = 3;
+    ExecResize resize = 4;
+    ProcessSignal signal = 5;
+  }
+}
+message ExecResponse {
+  oneof event {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    uint32 exit_code = 3;
+  }
+}
+
+message Volume {
+  string id = 1;
+  Usage usage = 2;
+  uint64 limit_bytes = 3;
+  repeated string mounted_by = 4;
+}
+message CreateVolumeRequest {
+  string request_id = 1;
+  string volume_id = 2;
+}
+message DeleteVolumeRequest {
+  string request_id = 1;
+  string volume_id = 2;
+}
+message VolumeRequest {
+  string volume_id = 1;
+}
+message VolumeResponse {
+  Volume volume = 1;
+}
+message ListVolumesRequest {}
+message ListVolumesResponse {
+  repeated Volume volumes = 1;
+}
+
+message ForwardTCPHeader {
+  string container_id = 1;
+  uint32 port = 2;
+}
+message ForwardTCPRequest {
+  oneof event {
+    ForwardTCPHeader header = 1;
+    bytes data = 2;
+    bool close_write = 3;
+  }
+}
+message ForwardTCPResponse {
+  oneof event {
+    bytes data = 1;
+    bool close_read = 2;
+  }
+}
+
+enum BuildNetworkMode {
+  BUILD_NETWORK_MODE_UNSPECIFIED = 0;
+  BUILD_NETWORK_MODE_NONE = 1;
+  BUILD_NETWORK_MODE_NAMESPACE_EGRESS = 2;
+}
+message BuildArgument {
+  string name = 1;
+  string value = 2;
+}
+message BuildSecret {
+  string id = 1;
+}
+message BuildImageHeader {
+  string request_id = 1;
+  string dockerfile_path = 2;
+  string image = 3;
+  optional string target = 4;
+  repeated BuildArgument build_args = 5;
+  BuildNetworkMode network_mode = 6;
+  repeated BuildSecret secrets = 7;
+}
+message BuildContextChunk {
+  bytes data = 1;
+  bool final = 2;
+}
+message BuildSecretChunk {
+  string id = 1;
+  bytes data = 2;
+  bool final = 3;
+}
+message BuildImageRequest {
+  oneof event {
+    BuildImageHeader header = 1;
+    BuildContextChunk context = 2;
+    BuildSecretChunk secret = 3;
+  }
+}
+message BuildImageResult {
+  string image = 1;
+  string digest = 2;
+}
+message BuildImageResponse {
+  oneof event {
+    string progress = 1;
+    BuildImageResult result = 2;
+  }
+}
+
+enum HealthState {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_HEALTHY = 1;
+  HEALTH_STATE_DEGRADED = 2;
+  HEALTH_STATE_UNAVAILABLE = 3;
+}
+message ComponentHealth {
+  string component = 1;
+  HealthState state = 2;
+  string reason = 3;
+  google.protobuf.Timestamp observed_at = 4;
+}
+message HealthStatus {
+  HealthState state = 1;
+  repeated ComponentHealth components = 2;
+}
+message Usage {
+  uint64 cpu_nanos = 1;
+  uint64 memory_bytes = 2;
+  uint32 pids = 3;
+  uint64 read_bytes = 4;
+  uint64 write_bytes = 5;
+  uint64 disk_bytes = 6;
+  google.protobuf.Timestamp sampled_at = 7;
+  bool stale = 8;
+  uint64 network_rx_bytes = 9;
+  uint64 network_tx_bytes = 10;
+}
+message GetSystemSnapshotRequest {}
+message GetSystemSnapshotResponse {
+  VM vm = 1;
+  HealthStatus health = 2;
+  Usage usage = 3;
+  repeated AgentEnvironment environments = 4;
+  google.protobuf.Timestamp collected_at = 5;
+}
+message WatchEventsRequest {
+  uint64 after_sequence = 1;
+}
+message ResourceReference {
+  string kind = 1;
+  string environment_id = 2;
+  string resource_id = 3;
+}
+message RuntimeEvent {
+  uint64 sequence = 1;
+  string type = 2;
+  ResourceReference resource = 3;
+  string guest_boot_id = 4;
+  string request_id = 5;
+  string operation_id = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
+message WatchMetricsRequest {
+  ResourceReference scope = 1;
+  google.protobuf.Duration interval = 2;
+}
+message MetricsSample {
+  ResourceReference scope = 1;
+  Usage usage = 2;
+}
+
+message UpdateEnvironmentPolicyRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  ResourceLimits limits = 3;
+  EgressMode egress_mode = 4;
+  uint64 expected_revision = 5;
+}
+message OperatorContainerMutationRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+}
+message OperatorStopContainerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  optional uint32 timeout_seconds = 4;
+}
+message OperatorSignalContainerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  ProcessSignal signal = 4;
+}
+
+message ContainerIDList {
+  repeated string ids = 1;
+}
+message ContainerSelector {
+  oneof selection {
+    bool all_containers = 1;
+    ContainerIDList container_ids = 2;
+  }
+}
+message NetworkLink {
+  string id = 1;
+  string source_environment_id = 2;
+  string destination_environment_id = 3;
+  ContainerSelector source = 4;
+  ContainerSelector destination = 5;
+  repeated uint32 tcp_ports = 6;
+  string dns_alias = 7;
+}
+message ApplyNetworkLinkRequest {
+  string request_id = 1;
+  NetworkLink link = 2;
+}
+message DeleteNetworkLinkRequest {
+  string request_id = 1;
+  string link_id = 2;
+}
+
+enum CleanupKind {
+  CLEANUP_KIND_UNSPECIFIED = 0;
+  CLEANUP_KIND_RESET = 1;
+  CLEANUP_KIND_DISCARD = 2;
+}
+message PlanEnvironmentRequest {
+  string environment_id = 1;
+}
+message CleanupImpact {
+  ResourceReference resource = 1;
+  string effect = 2;
+  bool irreversible = 3;
+  bool blocker = 4;
+}
+message CleanupPlan {
+  string environment_id = 1;
+  CleanupKind kind = 2;
+  uint64 revision = 3;
+  repeated CleanupImpact impacts = 4;
+}
+message CleanupPlanResponse {
+  CleanupPlan plan = 1;
+}
+message ExecuteCleanupRequest {
+  string request_id = 1;
+  CleanupPlan plan = 2;
+  repeated string confirmed_volume_ids = 3;
+}
+message EnvironmentOperationRequest {
+  string request_id = 1;
+  uint64 plan_revision = 2;
+}
+
+enum OperationState {
+  OPERATION_STATE_UNSPECIFIED = 0;
+  OPERATION_STATE_RUNNING = 1;
+  OPERATION_STATE_SUCCEEDED = 2;
+  OPERATION_STATE_FAILED = 3;
+  OPERATION_STATE_INTERRUPTED = 4;
+}
+message OperationError {
+  string reason = 1;
+  string message = 2;
+  ResourceReference resource = 3;
+}
+message Operation {
+  string id = 1;
+  string kind = 2;
+  ResourceReference resource = 3;
+  OperationState state = 4;
+  string stage = 5;
+  string request_id = 6;
+  google.protobuf.Timestamp started_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  OperationError error = 9;
+  string output_path = 10;
+}
+message OperationResponse {
+  Operation operation = 1;
+}
+message GetOperationRequest {
+  string operation_id = 1;
+}
+
+message RunDiagnosticsRequest {
+  string request_id = 1;
+  optional string environment_id = 2;
+}
+message PreviewSupportBundleRequest {
+  optional string environment_id = 1;
+}
+message SupportBundleItem {
+  string name = 1;
+  string description = 2;
+  bool sensitive = 3;
+  bool included_by_default = 4;
+}
+message SupportBundlePreview {
+  repeated SupportBundleItem items = 1;
+}
+message ExportSupportBundleRequest {
+  string request_id = 1;
+  optional string environment_id = 2;
+  repeated string include_sensitive_items = 3;
 }

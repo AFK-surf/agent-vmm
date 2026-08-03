@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -135,25 +134,33 @@ func TestFixedSpecPolicy(t *testing.T) {
 	}
 }
 
-func TestCappedLog(t *testing.T) {
+func TestStructuredLogReportsTruncation(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "stdout.log")
-	writer, err := newCappedLog(path, 5)
+	directory := t.TempDir()
+	path := filepath.Join(directory, "records.log")
+	stdout, stderr, err := newRecordLog(path, filepath.Join(directory, "records.meta"), logHeaderBytes+5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, err := writer.Write([]byte("abcdefgh")); err != nil || count != 8 {
+	if count, err := stdout.Write([]byte("abcdefgh")); err != nil || count != 8 {
 		t.Fatalf("write = %d, %v", count, err)
 	}
-	if err := writer.Close(); err != nil {
+	if err := stdout.Close(); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	if err := stderr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := readLogRecords(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "abcde" {
-		t.Fatalf("log = %q", data)
+	if len(records) != 1 || string(records[0].data) != "abcde" {
+		t.Fatalf("records = %+v", records)
+	}
+	_, dropped, err := readLogMeta(filepath.Join(directory, "records.meta"))
+	if err != nil || dropped != 1 {
+		t.Fatalf("dropped = %d, %v", dropped, err)
 	}
 }
 

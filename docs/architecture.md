@@ -1,8 +1,8 @@
 # Agent VMM Architecture
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-29
-- Scope: Apple Silicon with macOS 14 or later
+- Scope: Apple Silicon with macOS 15 or later
 
 ## Decision
 
@@ -135,6 +135,10 @@ The sandbox mounts only the current context, temporary secrets, one cache, and o
 ## Components
 
 ### macOS host controller
+
+`agent-vmm-host` is the sole VM owner and host control plane. It stores policy facts in one SQLite database, exposes a private operator Unix socket, and creates one revocable `0600` Unix socket per agent session. The session identity fixes the environment and guest namespace; request messages cannot replace either identity.
+
+The SwiftUI app is an optional operator client. It consumes snapshots and bounded event, metric, and log streams. Its lifecycle is independent of the sidecar, VM, and agent sessions.
 
 The host controller has these responsibilities:
 

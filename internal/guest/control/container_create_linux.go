@@ -89,7 +89,7 @@ func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateCon
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
 		return nil, err
 	}
-	if err := ensureDirectory(filepath.Dir(logPath(namespaceID, request.GetContainerId(), "stdout")), 0o700); err != nil {
+	if err := ensureDirectory(filepath.Dir(logPath(namespaceID, request.GetContainerId())), 0o700); err != nil {
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
 		return nil, err
 	}

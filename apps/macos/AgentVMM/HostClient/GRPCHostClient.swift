@@ -1,0 +1,313 @@
+import Foundation
+import GRPCCore
+import GRPCNIOTransportHTTP2
+
+actor GRPCHostClient: HostServing {
+    private let client: GRPCClient<HTTP2ClientTransport.Posix>
+    private let service: Agentvmm_Host_V1_OperatorService.Client<HTTP2ClientTransport.Posix>
+    private var runTask: Task<Void, Error>?
+
+    init(socketPath: String) throws {
+        let transport = try HTTP2ClientTransport.Posix(
+            target: .unixDomainSocket(path: socketPath),
+            transportSecurity: .plaintext
+        )
+        let client = GRPCClient(transport: transport)
+        self.client = client
+        self.service = Agentvmm_Host_V1_OperatorService.Client(wrapping: client)
+        self.runTask = Task { try await client.runConnections() }
+    }
+
+    deinit {
+        client.beginGracefulShutdown()
+        runTask?.cancel()
+    }
+
+    func snapshot() async throws -> SystemSnapshotModel {
+        let response = try await service.getSystemSnapshot(.init())
+        return map(response)
+    }
+
+    nonisolated func events(after sequence: UInt64) -> AsyncThrowingStream<ActivityEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = Agentvmm_Host_V1_WatchEventsRequest()
+                    request.afterSequence = sequence
+                    try await self.service.watchEvents(request) { response in
+                        for try await event in response.messages {
+                            continuation.yield(self.map(event))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    nonisolated func logs(environmentID: String, containerID: String, after cursor: String?) -> AsyncThrowingStream<LogEntry, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var query = Agentvmm_Host_V1_LogsRequest()
+                    query.containerID = containerID
+                    query.tailRecords = cursor == nil ? 500 : 0
+                    query.follow = true
+                    query.afterCursor = cursor ?? ""
+                    var request = Agentvmm_Host_V1_OperatorLogsRequest()
+                    request.environmentID = environmentID
+                    request.query = query
+                    try await self.service.logs(request) { response in
+                        for try await record in response.messages {
+                            continuation.yield(self.map(record))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    nonisolated func metrics(environmentID: String?) -> AsyncThrowingStream<UsageSnapshot, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = Agentvmm_Host_V1_WatchMetricsRequest()
+                    request.interval.seconds = 1
+                    if let environmentID {
+                        request.scope.kind = "environment"
+                        request.scope.environmentID = environmentID
+                    }
+                    try await self.service.watchMetrics(request) { response in
+                        for try await sample in response.messages {
+                            if let value = self.usage(sample.usage) { continuation.yield(value) }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func startVM() async throws -> OperationModel {
+        var request = Agentvmm_Host_V1_StartVMRequest()
+        request.requestID = UUID().uuidString
+        return operation(try await service.startVM(request).operation)
+    }
+
+    func stopVM(force: Bool) async throws -> OperationModel {
+        var request = Agentvmm_Host_V1_StopVMRequest()
+        request.requestID = UUID().uuidString
+        request.force = force
+        return operation(try await service.stopVM(request).operation)
+    }
+
+    func stopContainer(environmentID: String, containerID: String) async throws {
+        var request = Agentvmm_Host_V1_OperatorStopContainerRequest()
+        request.requestID = UUID().uuidString
+        request.environmentID = environmentID
+        request.containerID = containerID
+        _ = try await service.stopContainer(request)
+    }
+
+    func continueContainer(environmentID: String, containerID: String) async throws {
+        var request = Agentvmm_Host_V1_OperatorContainerMutationRequest()
+        request.requestID = UUID().uuidString
+        request.environmentID = environmentID
+        request.containerID = containerID
+        _ = try await service.continueContainer(request)
+    }
+
+    func signalContainer(environmentID: String, containerID: String, signal: ContainerSignal) async throws {
+        var request = Agentvmm_Host_V1_OperatorSignalContainerRequest()
+        request.requestID = UUID().uuidString
+        request.environmentID = environmentID
+        request.containerID = containerID
+        request.signal = signal == .kill ? .kill : .int
+        _ = try await service.signalContainer(request)
+    }
+
+    func updatePolicy(environmentID: String, limits: EnvironmentLimits, allowsPublicEgress: Bool, expectedRevision: UInt64) async throws {
+        var request = Agentvmm_Host_V1_UpdateEnvironmentPolicyRequest()
+        request.requestID = UUID().uuidString
+        request.environmentID = environmentID
+        request.limits.cpuMillis = limits.cpuMillis
+        request.limits.memoryBytes = limits.memoryBytes
+        request.limits.pids = limits.pids
+        request.limits.diskBytes = limits.diskBytes
+        request.egressMode = allowsPublicEgress ? .publicInternet : .denyAll
+        request.expectedRevision = expectedRevision
+        _ = try await service.updateEnvironmentPolicy(request)
+    }
+
+    func cleanupPreview(environmentID: String, mode: CleanupMode) async throws -> CleanupPreview {
+        var request = Agentvmm_Host_V1_PlanEnvironmentRequest()
+        request.environmentID = environmentID
+        let response = switch mode {
+        case .reset: try await service.planResetEnvironment(request)
+        case .discard: try await service.planDiscardEnvironment(request)
+        }
+        return CleanupPreview(
+            mode: mode,
+            environmentID: environmentID,
+            revision: response.plan.revision,
+            impacts: response.plan.impacts.map(\.effect),
+            volumeIDs: response.plan.impacts.filter { $0.resource.kind == "volume" }.map { $0.resource.resourceID }
+        )
+    }
+
+    func executeCleanup(_ preview: CleanupPreview) async throws -> OperationModel {
+        var plan = Agentvmm_Host_V1_CleanupPlan()
+        plan.environmentID = preview.environmentID
+        plan.kind = preview.mode == .reset ? .reset : .discard
+        plan.revision = preview.revision
+        var request = Agentvmm_Host_V1_ExecuteCleanupRequest()
+        request.requestID = UUID().uuidString
+        request.plan = plan
+        request.confirmedVolumeIds = preview.mode == .discard ? preview.volumeIDs : []
+        let response = try await service.executeCleanup(request)
+        return operation(response.operation)
+    }
+
+    func getOperation(id: String) async throws -> OperationModel {
+        var request = Agentvmm_Host_V1_GetOperationRequest()
+        request.operationID = id
+        return operation(try await service.getOperation(request).operation)
+    }
+
+    func runDiagnostics(environmentID: String?) async throws -> OperationModel {
+        var request = Agentvmm_Host_V1_RunDiagnosticsRequest()
+        request.requestID = UUID().uuidString
+        if let environmentID { request.environmentID = environmentID }
+        return operation(try await service.runDiagnostics(request).operation)
+    }
+
+    func supportPreview(environmentID: String?) async throws -> [SupportItem] {
+        var request = Agentvmm_Host_V1_PreviewSupportBundleRequest()
+        if let environmentID { request.environmentID = environmentID }
+        return try await service.previewSupportBundle(request).items.map {
+            SupportItem(name: $0.name, description: $0.description_p, sensitive: $0.sensitive, includedByDefault: $0.includedByDefault)
+        }
+    }
+
+    func exportSupportBundle(environmentID: String?, sensitiveItems: [String]) async throws -> OperationModel {
+        var request = Agentvmm_Host_V1_ExportSupportBundleRequest()
+        request.requestID = UUID().uuidString
+        if let environmentID { request.environmentID = environmentID }
+        request.includeSensitiveItems = sensitiveItems
+        return operation(try await service.exportSupportBundle(request).operation)
+    }
+}
+
+private extension GRPCHostClient {
+    nonisolated func map(_ response: Agentvmm_Host_V1_GetSystemSnapshotResponse) -> SystemSnapshotModel {
+        SystemSnapshotModel(
+            vmState: vmState(response.vm.state),
+            bootID: response.vm.bootID,
+            health: health(response.health.state),
+            components: response.health.components.map {
+                ComponentStatus(id: $0.component, level: health($0.state), reason: $0.reason.isEmpty ? nil : $0.reason, observedAt: $0.observedAt.date)
+            },
+            usage: usage(response.usage),
+            environments: response.environments.map(environment),
+            collectedAt: response.collectedAt.date
+        )
+    }
+
+    nonisolated func environment(_ value: Agentvmm_Host_V1_AgentEnvironment) -> AgentEnvironmentModel {
+        AgentEnvironmentModel(
+            id: value.id,
+            name: value.displayName,
+            namespaceID: value.namespaceID,
+            health: health(value.health.state),
+            usage: usage(value.usage),
+            workloads: value.containers.map {
+                let state: Workload.State = switch $0.state {
+                case .created: .created
+                case .running: .running
+                case .stopped: .stopped
+                default: .unknown
+                }
+                return Workload(
+                    id: $0.id, image: $0.image, state: state, exitCode: $0.hasExitCode ? $0.exitCode : nil,
+                    argv: $0.argv, environmentKeys: $0.environmentKeys, workdir: $0.hasWorkdir ? $0.workdir : nil,
+                    user: $0.hasUser ? $0.user : nil, mounts: $0.volumes.map { "\($0.volumeID) → \($0.destination)" }
+                )
+            },
+            volumes: value.volumes.map { RetainedVolume(id: $0.id, bytesUsed: $0.usage.diskBytes, byteLimit: $0.limitBytes, mountedBy: $0.mountedBy) },
+            limits: EnvironmentLimits(cpuMillis: value.limits.cpuMillis, memoryBytes: value.limits.memoryBytes, pids: value.limits.pids, diskBytes: value.limits.diskBytes),
+            egressSummary: value.egressMode == .publicInternet ? "Public internet" : "Blocked by default",
+            allowsPublicEgress: value.egressMode == .publicInternet,
+            policyRevision: value.policyRevision
+        )
+    }
+
+    nonisolated func usage(_ value: Agentvmm_Host_V1_Usage) -> UsageSnapshot? {
+        guard value.sampledAt.seconds != 0 else { return nil }
+        return UsageSnapshot(
+            cpuNanos: value.cpuNanos,
+            memoryBytes: value.memoryBytes,
+            pids: value.pids,
+            readBytes: value.readBytes,
+            writeBytes: value.writeBytes,
+            networkRXBytes: value.networkRxBytes,
+            networkTXBytes: value.networkTxBytes,
+            diskBytes: value.diskBytes,
+            sampledAt: value.sampledAt.date,
+            isStale: value.stale
+        )
+    }
+
+    nonisolated func health(_ value: Agentvmm_Host_V1_HealthState) -> HealthLevel {
+        switch value {
+        case .healthy: .healthy
+        case .degraded: .degraded
+        default: .unavailable
+        }
+    }
+
+    nonisolated func vmState(_ value: Agentvmm_Host_V1_VMState) -> String {
+        switch value {
+        case .stopped: "Stopped"
+        case .starting: "Starting"
+        case .running: "Running"
+        case .stopping: "Stopping"
+        case .failed: "Failed"
+        default: "Unavailable"
+        }
+    }
+
+    nonisolated func map(_ event: Agentvmm_Host_V1_RuntimeEvent) -> ActivityEvent {
+        ActivityEvent(id: event.sequence, type: event.type, environmentID: event.resource.environmentID.nilIfEmpty, resourceID: event.resource.resourceID.nilIfEmpty, bootID: event.guestBootID, timestamp: event.timestamp.date)
+    }
+
+    nonisolated func map(_ record: Agentvmm_Host_V1_LogRecord) -> LogEntry {
+        LogEntry(id: record.cursor, timestamp: record.timestamp.date, stream: record.stream == .stderr ? "stderr" : "stdout", text: String(decoding: record.data, as: UTF8.self), truncated: record.truncated, droppedRecords: record.droppedRecords)
+    }
+
+    nonisolated func operation(_ value: Agentvmm_Host_V1_Operation) -> OperationModel {
+        let state: String = switch value.state {
+        case .running: "Running"
+        case .succeeded: "Succeeded"
+        case .failed: "Failed"
+        case .interrupted: "Interrupted"
+        default: "Unavailable"
+        }
+        let resource = [value.resource.kind, value.resource.environmentID, value.resource.resourceID]
+            .filter { !$0.isEmpty }.joined(separator: "/").nilIfEmpty
+        return OperationModel(id: value.id, kind: value.kind, state: state, stage: value.stage, reason: value.error.reason.nilIfEmpty, resource: resource)
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}

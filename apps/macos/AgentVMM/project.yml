@@ -1,0 +1,69 @@
+name: AgentVMM
+options:
+  minimumXcodeGenVersion: 2.46.0
+  deploymentTarget:
+    macOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    MACOSX_DEPLOYMENT_TARGET: 15.0
+    PRODUCT_BUNDLE_IDENTIFIER: surf.afk.AgentVMM
+    CODE_SIGN_STYLE: Automatic
+packages:
+  GRPCSwift:
+    url: https://github.com/grpc/grpc-swift-2.git
+    exactVersion: 2.4.2
+  GRPCNIOTransport:
+    url: https://github.com/grpc/grpc-swift-nio-transport.git
+    exactVersion: 2.9.0
+  GRPCProtobuf:
+    url: https://github.com/grpc/grpc-swift-protobuf.git
+    exactVersion: 2.4.1
+  SwiftProtobuf:
+    url: https://github.com/apple/swift-protobuf.git
+    exactVersion: 1.38.1
+targets:
+  AgentVMM:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Domain
+      - HostClient
+      - Features
+      - DesignSystem
+      - Generated
+    dependencies:
+      - package: GRPCSwift
+        product: GRPCCore
+      - package: GRPCNIOTransport
+        product: GRPCNIOTransportHTTP2
+      - package: GRPCProtobuf
+        product: GRPCProtobuf
+      - package: SwiftProtobuf
+        product: SwiftProtobuf
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Agent VMM
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: Copyright AFK Surf
+        ENABLE_HARDENED_RUNTIME: YES
+  AgentVMMTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: AgentVMM
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  AgentVMM:
+    build:
+      targets:
+        AgentVMM: all
+        AgentVMMTests: [test]
+    test:
+      targets:
+        - AgentVMMTests

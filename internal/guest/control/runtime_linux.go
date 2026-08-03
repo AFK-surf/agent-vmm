@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -72,7 +73,10 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := r.network.EnsureNamespace(name, namespace.GetSubnet(), namespace.GetEgressMode()); err != nil {
+		if err := r.client.NamespaceService().SetLabel(ctx, name, labelPrefix+"egress", fmt.Sprint(int32(vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL))); err != nil {
+			return err
+		}
+		if err := r.network.EnsureNamespace(name, namespace.GetSubnet(), vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
 			return err
 		}
 		containers, err := r.client.Containers(namespaceContext(ctx, name))
@@ -98,8 +102,12 @@ func volumePath(namespaceID, volumeID string) string {
 	return filepath.Join(stateRoot, "volumes", namespaceID, volumeID)
 }
 
-func logPath(namespaceID, containerID, stream string) string {
-	return filepath.Join(stateRoot, "logs", namespaceID, containerID, stream+".log")
+func logPath(namespaceID, containerID string) string {
+	return filepath.Join(stateRoot, "logs", namespaceID, containerID, "records.log")
+}
+
+func logMetaPath(namespaceID, containerID string) string {
+	return filepath.Join(stateRoot, "logs", namespaceID, containerID, "records.meta")
 }
 
 func (r *Runtime) namespaceExists(ctx context.Context, namespaceID string) error {

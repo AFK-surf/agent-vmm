@@ -20,6 +20,10 @@ func setProjectQuota(device string, projectID uint32, bytes uint64) error {
 	return guestquota.SetLimit(device, projectID, bytes)
 }
 
+func projectUsage(device string, projectID uint32) (uint64, error) {
+	return guestquota.Usage(device, projectID)
+}
+
 func applyNamespaceCgroup(namespaceID string, limits *vmmdv1.NamespaceLimits) error {
 	root := "/sys/fs/cgroup/agent-vmm"
 	if err := enableControllers("/sys/fs/cgroup"); err != nil {

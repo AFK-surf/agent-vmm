@@ -15,6 +15,7 @@ const (
 	fsIOCFSSetXAttr    = 0x401c5820
 	fsXFlagProjInherit = 0x00000200
 	quotaSetQuota      = 0x800008
+	quotaGetQuota      = 0x800007
 	projectQuota       = 2
 	quotaValidLimits   = 1
 )
@@ -26,6 +27,20 @@ type fsXAttr struct {
 	ProjectID  uint32
 	CowExtSize uint32
 	Pad        [8]byte
+}
+
+func Usage(device string, projectID uint32) (uint64, error) {
+	devicePointer, err := unix.BytePtrFromString(device)
+	if err != nil {
+		return 0, err
+	}
+	quota := quotaBlock{}
+	command := uintptr(quotaGetQuota<<8 | projectQuota)
+	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, command, uintptr(unsafe.Pointer(devicePointer)), uintptr(projectID), uintptr(unsafe.Pointer(&quota)), 0, 0)
+	if errno != 0 {
+		return 0, fmt.Errorf("read project quota %d: %w", projectID, errno)
+	}
+	return quota.CurrentSpace, nil
 }
 
 type quotaBlock struct {

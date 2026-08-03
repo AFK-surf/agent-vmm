@@ -69,7 +69,7 @@ func (r *Runtime) PullImage(ctx context.Context, namespaceID, imageReference str
 		return "", 0, err
 	}
 	if currentBytes+remoteBytes > namespace.GetLimits().GetDiskBytes() {
-		return "", 0, errors.New("image logical size exceeds namespace disk quota")
+		return "", 0, resourceExhausted("image logical size exceeds namespace disk quota")
 	}
 	image, err := r.client.Pull(nsctx, canonical, containerd.WithResolver(resolver), containerd.WithPlatform("linux/arm64"), containerd.WithPullSnapshotter(containerSnapshotter), containerd.WithPullUnpack)
 	if err != nil {
@@ -85,7 +85,7 @@ func (r *Runtime) PullImage(ctx context.Context, namespaceID, imageReference str
 	}
 	if logicalBytes > namespace.GetLimits().GetDiskBytes() {
 		_ = r.client.ImageService().Delete(nsctx, image.Name(), coreimages.SynchronousDelete())
-		return "", 0, errors.New("image logical size exceeds namespace disk quota")
+		return "", 0, resourceExhausted("image logical size exceeds namespace disk quota")
 	}
 	return image.Target().Digest.String(), uint64(size), nil
 }

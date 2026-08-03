@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -20,9 +21,13 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	_ "modernc.org/sqlite"
 )
 
 func TestE2E(t *testing.T) {
@@ -31,10 +36,11 @@ func TestE2E(t *testing.T) {
 
 	harness := startHostWithState(t, 8<<30)
 	harness.start(t)
-	client := harness.vmmd(t)
+	client := harness.runtime(t)
+	t.Run("session_auth_and_revocation", func(t *testing.T) { testSessionAuthAndRevocation(t, harness, client) })
 	parallel := []struct {
 		name string
-		run  func(*testing.T, vmmdv1.VMMDServiceClient)
+		run  func(*testing.T, *productClient)
 	}{
 		{"container_lifecycle", testContainerLifecycle},
 		{"named_volume", testNamedVolume},
@@ -67,8 +73,179 @@ func TestE2E(t *testing.T) {
 	t.Run("egress", func(t *testing.T) { testEgress(t, client) })
 	t.Run("VM_restart", func(t *testing.T) { testVMRestart(t, harness) })
 	t.Run("forced_VM_stop", func(t *testing.T) { testForcedVMStop(t, harness) })
-	t.Run("residual_scan", func(t *testing.T) { testResidualScan(t, harness.vmmd(t)) })
-	harness.stop(t, hostv1.StopMode_STOP_MODE_GRACEFUL)
+	t.Run("cleanup_contract", func(t *testing.T) { testCleanupContract(t, harness, client) })
+	t.Run("residual_scan", func(t *testing.T) { testResidualScan(t, harness.runtime(t)) })
+	harness.stop(t, false)
+}
+
+func testCleanupContract(t *testing.T, harness *hostHarness, client *productClient) {
+	ensureNamespace(t, client, "cleanup-source", 64<<20)
+	ensureNamespace(t, client, "cleanup-target", 64<<20)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	beforePolicy, err := client.operator.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: "cleanup-source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidLimits := &hostv1.ResourceLimits{CpuMillis: optional(uint32(1000))}
+	if _, err := client.operator.UpdateEnvironmentPolicy(ctx, &hostv1.UpdateEnvironmentPolicyRequest{
+		RequestId: "cleanup-invalid-policy", EnvironmentId: "cleanup-source", Limits: invalidLimits,
+		EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, ExpectedRevision: beforePolicy.GetEnvironment().GetPolicyRevision(),
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("invalid policy error = %v", err)
+	}
+	afterPolicy, err := client.operator.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: "cleanup-source"})
+	if err != nil || afterPolicy.GetEnvironment().GetPolicyRevision() != beforePolicy.GetEnvironment().GetPolicyRevision() {
+		t.Fatalf("invalid policy changed revision: before=%v after=%v err=%v", beforePolicy.GetEnvironment().GetPolicyRevision(), afterPolicy.GetEnvironment().GetPolicyRevision(), err)
+	}
+	database, err := sql.Open("sqlite", harness.database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	link := &hostv1.NetworkLink{Id: "cleanup-link", SourceEnvironmentId: "cleanup-source", DestinationEnvironmentId: "cleanup-target", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{8080}, DnsAlias: "cleanup-service"}
+	invalidLink := proto.Clone(link).(*hostv1.NetworkLink)
+	invalidLink.Id = "cleanup-invalid-link"
+	invalidLink.DnsAlias = "Invalid_Alias"
+	if err := client.ApplyNetworkLink(ctx, &hostv1.ApplyNetworkLinkRequest{RequestId: "cleanup-invalid-link", Link: invalidLink}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("invalid network link error = %v", err)
+	}
+	var invalidGrantCount int
+	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM grants WHERE id='cleanup-invalid-link'").Scan(&invalidGrantCount); err != nil || invalidGrantCount != 0 {
+		t.Fatalf("invalid network link persisted: count=%d err=%v", invalidGrantCount, err)
+	}
+	if err := client.ApplyNetworkLink(ctx, &hostv1.ApplyNetworkLinkRequest{RequestId: "cleanup-link-apply", Link: link}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := database.ExecContext(ctx, "UPDATE grants SET revoked_at=1 WHERE id='cleanup-link'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		t.Fatalf("mark cleanup grant tombstone: rows=%d err=%v", rows, err)
+	}
+	session, err := client.session("cleanup-source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentPlan, err := session.client.PlanResetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+	if err != nil || agentPlan.GetPlan().GetKind() != hostv1.CleanupKind_CLEANUP_KIND_RESET {
+		t.Fatalf("agent reset plan = %v, %v", agentPlan, err)
+	}
+	malformed := proto.Clone(agentPlan.GetPlan()).(*hostv1.CleanupPlan)
+	malformed.Kind = hostv1.CleanupKind_CLEANUP_KIND_UNSPECIFIED
+	if _, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-malformed", Plan: malformed}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("malformed cleanup error = %v", err)
+	}
+	reset, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-reset", Plan: agentPlan.GetPlan()})
+	if err != nil || reset.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
+		t.Fatalf("reset = %v, %v", reset, err)
+	}
+	if _, err := database.ExecContext(ctx, "UPDATE operations SET state=?, stage='failed', error_reason='TEST_FAILURE' WHERE request_id='cleanup-reset'", int32(hostv1.OperationState_OPERATION_STATE_FAILED)); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-reset", Plan: agentPlan.GetPlan()})
+	if err != nil || retried.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED || retried.GetOperation().GetId() != reset.GetOperation().GetId() {
+		t.Fatalf("cleanup retry = %v, %v", retried, err)
+	}
+	client.forgetSession("cleanup-source")
+	if _, err := client.EnsureEnvironment(ctx, "cleanup-source", "cleanup-reconnect", &hostv1.ResourceLimits{CpuMillis: optional(uint32(1000)), MemoryBytes: optional(uint64(3 << 30)), Pids: optional(uint32(512)), DiskBytes: optional(uint64(64 << 20))}, hostv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
+		t.Fatal(err)
+	}
+	link.TcpPorts = []uint32{9090}
+	if err := client.ApplyNetworkLink(ctx, &hostv1.ApplyNetworkLinkRequest{RequestId: "cleanup-link-reapply", Link: link}); err != nil {
+		t.Fatalf("stale guest link survived reset: %v", err)
+	}
+	if _, err := client.CreateVolume(ctx, "cleanup-source", &hostv1.CreateVolumeRequest{RequestId: "cleanup-volume", VolumeId: "retained"}); err != nil {
+		t.Fatal(err)
+	}
+	stalePlan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: "cleanup-source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateVolume(ctx, "cleanup-source", &hostv1.CreateVolumeRequest{RequestId: "cleanup-plan-change", VolumeId: "plan-change"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-stale-plan", Plan: stalePlan.GetPlan(), ConfirmedVolumeIds: []string{"retained", "plan-change"}}); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale cleanup plan error = %v", err)
+	}
+	if err := client.DeleteVolume(ctx, "cleanup-source", &hostv1.DeleteVolumeRequest{RequestId: "cleanup-delete-plan-change", VolumeId: "plan-change"}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: "cleanup-source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-discard", Plan: plan.GetPlan()}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("discard without volume confirmation error = %v", err)
+	}
+	discard, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-discard", Plan: plan.GetPlan(), ConfirmedVolumeIds: []string{"retained"}})
+	if err != nil || discard.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
+		t.Fatalf("discard with active link = %v, %v", discard, err)
+	}
+	client.forgetSession("cleanup-source")
+	environment := afterPolicy.GetEnvironment()
+	now := time.Now().UnixNano()
+	if _, err := database.ExecContext(ctx, `INSERT INTO environments
+		(id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, policy_revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, environment.GetId(), environment.GetNamespaceId(), environment.GetDisplayName(),
+		environment.GetLimits().GetCpuMillis(), environment.GetLimits().GetMemoryBytes(), environment.GetLimits().GetPids(), environment.GetLimits().GetDiskBytes(),
+		int32(environment.GetEgressMode()), environment.GetPolicyRevision(), now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, "UPDATE operations SET state=?, stage='namespace-deleted', error_reason='TEST_INTERRUPTION' WHERE request_id='cleanup-discard'", int32(hostv1.OperationState_OPERATION_STATE_FAILED)); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-discard", Plan: plan.GetPlan(), ConfirmedVolumeIds: []string{"retained"}})
+	if err != nil || recovered.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED || recovered.GetOperation().GetId() != discard.GetOperation().GetId() {
+		t.Fatalf("partial discard recovery = %v, %v", recovered, err)
+	}
+	if _, err := client.operator.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: "cleanup-source"}); status.Code(err) != codes.NotFound {
+		t.Fatalf("partial discard left host environment: %v", err)
+	}
+	var failed, succeeded int
+	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit WHERE method='ExecuteCleanup' AND result_code=?", int32(codes.InvalidArgument)).Scan(&failed); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit WHERE method='ExecuteCleanup' AND result_code=?", int32(codes.OK)).Scan(&succeeded); err != nil {
+		t.Fatal(err)
+	}
+	if failed == 0 || succeeded == 0 {
+		t.Fatalf("cleanup audit failure/success rows = %d/%d", failed, succeeded)
+	}
+}
+
+func testSessionAuthAndRevocation(t *testing.T, harness *hostHarness, client *productClient) {
+	ensureNamespace(t, client, "session-auth", 64<<20)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	created, err := harness.client.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: "second-session", EnvironmentId: "session-auth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := grpc.NewClient("passthrough:///agent", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", created.GetSocketPath())
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	agent := hostv1.NewAgentRuntimeServiceClient(connection)
+	forged := metadata.NewOutgoingContext(ctx, metadata.Pairs("actor_namespace_id", "forged", "role", "operator"))
+	environment, err := agent.GetEnvironment(forged, &hostv1.GetOwnEnvironmentRequest{})
+	if err != nil || environment.GetEnvironment().GetId() != "session-auth" {
+		t.Fatalf("session identity = %+v, %v", environment, err)
+	}
+	if _, err := hostv1.NewOperatorServiceClient(connection).GetVM(ctx, &hostv1.GetVMRequest{}); status.Code(err) != codes.Unimplemented {
+		t.Fatalf("operator API exposed on agent socket: %v", err)
+	}
+	if _, err := harness.client.RevokeAgentSession(ctx, &hostv1.RevokeAgentSessionRequest{RequestId: "revoke-second-session", SessionId: created.GetSessionId()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.GetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{}); err == nil {
+		t.Fatal("revoked session remained usable")
+	}
+	deleteNamespace(t, client, "session-auth")
 }
 
 func testBoot(t *testing.T) {
@@ -77,20 +254,28 @@ func testBoot(t *testing.T) {
 	if vm.GetState() != hostv1.VMState_VM_STATE_RUNNING || vm.GetBootId() == "" {
 		t.Fatalf("StartVM() = %+v", vm)
 	}
-	info, err := os.Stat(harness.relaySocket)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("relay socket = %v, %v", info, err)
+	if _, err := os.Stat(harness.runtimeSocket); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("raw runtime socket is exposed: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	snapshot, err := harness.client.GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})
+	cancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.GetUsage().GetNetworkRxBytes() == 0 || snapshot.GetUsage().GetNetworkTxBytes() == 0 {
+		t.Fatalf("system network counters = %+v", snapshot.GetUsage())
 	}
 	previousBootID := vm.GetBootId()
 	for cycle := 1; cycle < 20; cycle++ {
-		harness.stop(t, hostv1.StopMode_STOP_MODE_GRACEFUL)
+		harness.stop(t, false)
 		vm = harness.start(t)
 		if vm.GetBootId() == previousBootID {
 			t.Fatalf("cycle %d reused boot ID", cycle)
 		}
 		previousBootID = vm.GetBootId()
 	}
-	harness.stop(t, hostv1.StopMode_STOP_MODE_GRACEFUL)
+	harness.stop(t, false)
 }
 
 func testStateInitialization(t *testing.T) {
@@ -123,7 +308,7 @@ func testStateInitialization(t *testing.T) {
 	if err != nil || info.Size() != 1<<30 {
 		t.Fatalf("state disk = %v, %v", info, err)
 	}
-	harness.stop(t, hostv1.StopMode_STOP_MODE_FORCE)
+	harness.stop(t, true)
 
 	state, err = os.OpenFile(filepath.Join(harness.instance, "state.raw"), os.O_WRONLY, 0)
 	if err != nil {
@@ -148,7 +333,7 @@ func testStateInitialization(t *testing.T) {
 	}
 }
 
-func testContainerLifecycle(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testContainerLifecycle(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "lifecycle", 128<<20)
 	pullImage(t, client, "lifecycle")
 	container := createContainer(t, client, "lifecycle", "persistent", []string{"/bin/sh", "-c", "trap 'exit 0' TERM; while :; do sleep 1; done"}, nil)
@@ -166,10 +351,40 @@ func testContainerLifecycle(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	}
 	stopContainer(t, client, "lifecycle", container.GetId())
 	deleteContainer(t, client, "lifecycle", container.GetId())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	limited, err := client.CreateContainer(ctx, "lifecycle", &hostv1.CreateContainerRequest{
+		RequestId: "create-limited-log", ContainerId: "limited-log", Image: workloadImage,
+		Argv: []string{"/bin/sh", "-c", "dd if=/dev/zero bs=8192 count=1 2>/dev/null | tr '\\000' x"}, LogLimitBytes: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startContainer(t, client, "lifecycle", limited.GetContainer().GetId())
+	waitContainer(t, client, "lifecycle", limited.GetContainer().GetId(), 0)
+	stream, err := client.Logs(ctx, "lifecycle", &hostv1.LogsRequest{ContainerId: limited.GetContainer().GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	truncated := false
+	for {
+		record, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		truncated = truncated || record.GetTruncated() && record.GetDroppedRecords() > 0
+	}
+	if !truncated {
+		t.Fatal("bounded log did not report truncation and dropped records")
+	}
+	deleteContainer(t, client, "lifecycle", limited.GetContainer().GetId())
 	deleteNamespace(t, client, "lifecycle")
 }
 
-func testNamedVolume(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testNamedVolume(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "volume-owner", 128<<20)
 	ensureNamespace(t, client, "volume-other", 128<<20)
 	pullImage(t, client, "volume-owner")
@@ -177,7 +392,7 @@ func testNamedVolume(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	createVolume(t, client, "volume-owner", "data")
-	mount := []*vmmdv1.VolumeMount{{VolumeId: "data", Destination: "/data"}}
+	mount := []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}}
 	writer := createContainer(t, client, "volume-owner", "writer", []string{"/bin/sh", "-c", "echo durable > /data/value"}, mount)
 	startContainer(t, client, "volume-owner", writer.GetId())
 	waitContainer(t, client, "volume-owner", writer.GetId(), 0)
@@ -188,11 +403,14 @@ func testNamedVolume(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	if logs := readLogs(t, client, "volume-owner", reader.GetId()); !bytes.Contains(logs, []byte("durable")) {
 		t.Fatalf("volume contents = %q", logs)
 	}
+	if err := client.DeleteVolume(ctx, "volume-owner", &hostv1.DeleteVolumeRequest{RequestId: "delete-mounted-data", VolumeId: "data"}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("mounted volume delete error = %v", err)
+	}
 	deleteContainer(t, client, "volume-owner", reader.GetId())
-	if _, err := client.CreateContainer(ctx, &vmmdv1.CreateContainerRequest{RequestId: "cross-mount", ActorNamespaceId: "volume-other", ContainerId: "cross", Image: workloadImage, Argv: []string{"true"}, Volumes: mount, LogLimitBytes: 1 << 20}); err == nil {
+	if _, err := client.CreateContainer(ctx, "volume-other", &hostv1.CreateContainerRequest{RequestId: "cross-mount", ContainerId: "cross", Image: workloadImage, Argv: []string{"true"}, Volumes: mount, LogLimitBytes: 1 << 20}); err == nil {
 		t.Fatal("cross-namespace volume mount succeeded")
 	}
-	listed, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: "volume-other"})
+	listed, err := client.ListContainers(ctx, "volume-other")
 	if err != nil || len(listed.GetContainers()) != 0 {
 		t.Fatalf("other namespace containers = %+v, %v", listed, err)
 	}
@@ -201,7 +419,7 @@ func testNamedVolume(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "volume-other")
 }
 
-func testDiskQuota(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testDiskQuota(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "quota", 32<<20)
 	ensureNamespace(t, client, "healthy", 64<<20)
 	ensureNamespace(t, client, "shared-small", 2<<20)
@@ -211,7 +429,7 @@ func testDiskQuota(t *testing.T, client vmmdv1.VMMDServiceClient) {
 		t.Fatalf("shared content bypassed logical quota: %v", err)
 	}
 	createVolume(t, client, "quota", "data")
-	full := createContainer(t, client, "quota", "full", []string{"dd", "if=/dev/zero", "of=/data/blob", "bs=1048576", "count=64"}, []*vmmdv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	full := createContainer(t, client, "quota", "full", []string{"dd", "if=/dev/zero", "of=/data/blob", "bs=1048576", "count=64"}, []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
 	startContainer(t, client, "quota", full.GetId())
 	if code := waitContainer(t, client, "quota", full.GetId(), 1); code == 0 {
 		t.Fatal("write beyond project quota succeeded")
@@ -230,14 +448,14 @@ func testDiskQuota(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "shared-small")
 }
 
-func testSameNamespace(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testSameNamespace(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "same", 128<<20)
 	pullImage(t, client, "same")
 	server := createContainer(t, client, "same", "server", echoServer(8080), nil)
 	caller := createContainer(t, client, "same", "caller", idleProcess(), nil)
 	startContainer(t, client, "same", server.GetId())
 	startContainer(t, client, "same", caller.GetId())
-	if output, code := execContainer(t, client, "same", caller.GetId(), []string{"sh", "-c", "printf same | nc -w 5 server.same.agent 8080"}); code != 0 || string(output) != "same" {
+	if output, code := execContainer(t, client, "same", caller.GetId(), []string{"sh", "-c", "printf same | nc -w 5 server 8080"}); code != 0 || string(output) != "same" {
 		t.Fatalf("same namespace request = %q, exit %d", output, code)
 	}
 	stopDeleteContainer(t, client, "same", caller.GetId())
@@ -245,7 +463,7 @@ func testSameNamespace(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "same")
 }
 
-func testDefaultIsolation(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testDefaultIsolation(t *testing.T, client *productClient) {
 	for _, namespaceID := range []string{"isolated-source", "isolated-destination"} {
 		ensureNamespace(t, client, namespaceID, 128<<20)
 		pullImage(t, client, namespaceID)
@@ -264,7 +482,7 @@ func testDefaultIsolation(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "isolated-destination")
 }
 
-func testPartialLink(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testPartialLink(t *testing.T, client *productClient) {
 	for _, namespaceID := range []string{"link-source", "link-destination"} {
 		ensureNamespace(t, client, namespaceID, 128<<20)
 		pullImage(t, client, namespaceID)
@@ -276,8 +494,8 @@ func testPartialLink(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	for _, item := range []struct{ namespace, id string }{{"link-destination", server.GetId()}, {"link-destination", other.GetId()}, {"link-source", caller.GetId()}, {"link-source", unselected.GetId()}} {
 		startContainer(t, client, item.namespace, item.id)
 	}
-	applyLink(t, client, &vmmdv1.NetworkLink{Id: "partial", SourceNamespaceId: "link-source", DestinationNamespaceId: "link-destination", Source: idsSelector(caller.GetId()), Destination: idsSelector(server.GetId()), TcpPorts: []uint32{8080}, DnsAlias: "service"})
-	if output, code := execContainer(t, client, "link-source", caller.GetId(), []string{"sh", "-c", "printf linked | nc -w 5 service.link-source.agent 8080"}); code != 0 || string(output) != "linked" {
+	applyLink(t, client, &hostv1.NetworkLink{Id: "partial", SourceEnvironmentId: "link-source", DestinationEnvironmentId: "link-destination", Source: idsSelector(caller.GetId()), Destination: idsSelector(server.GetId()), TcpPorts: []uint32{8080}, DnsAlias: "service"})
+	if output, code := execContainer(t, client, "link-source", caller.GetId(), []string{"sh", "-c", "printf linked | nc -w 5 service 8080"}); code != 0 || string(output) != "linked" {
 		t.Fatalf("allowed link = %q, exit %d", output, code)
 	}
 	serverIP := containerAddress(t, client, "link-destination", server.GetId())
@@ -295,7 +513,7 @@ func testPartialLink(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "link-destination")
 }
 
-func testLinkRevoke(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testLinkRevoke(t *testing.T, client *productClient) {
 	for _, namespaceID := range []string{"revoke-source", "revoke-destination"} {
 		ensureNamespace(t, client, namespaceID, 128<<20)
 		pullImage(t, client, namespaceID)
@@ -304,17 +522,17 @@ func testLinkRevoke(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	caller := createContainer(t, client, "revoke-source", "caller", idleProcess(), nil)
 	startContainer(t, client, "revoke-destination", server.GetId())
 	startContainer(t, client, "revoke-source", caller.GetId())
-	applyLink(t, client, &vmmdv1.NetworkLink{Id: "revocable", SourceNamespaceId: "revoke-source", DestinationNamespaceId: "revoke-destination", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{8080}, DnsAlias: "service"})
+	applyLink(t, client, &hostv1.NetworkLink{Id: "revocable", SourceEnvironmentId: "revoke-source", DestinationEnvironmentId: "revoke-destination", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{8080}, DnsAlias: "service"})
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	stream, err := client.Exec(ctx)
+	stream, err := client.Exec(ctx, "revoke-source")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Start{Start: &vmmdv1.ExecStart{RequestId: "revoke-exec", ActorNamespaceId: "revoke-source", ContainerId: caller.GetId(), Argv: []string{"nc", "service.revoke-source.agent", "8080"}}}}); err != nil {
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "revoke-exec", ContainerId: caller.GetId(), Argv: []string{"nc", "service", "8080"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Stdin{Stdin: []byte("before")}}); err != nil {
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: []byte("before")}}); err != nil {
 		t.Fatal(err)
 	}
 	response, err := stream.Recv()
@@ -322,7 +540,7 @@ func testLinkRevoke(t *testing.T, client vmmdv1.VMMDServiceClient) {
 		t.Fatalf("established link = %q, %v", response.GetStdout(), err)
 	}
 	deleteLink(t, client, "revocable")
-	_ = stream.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Stdin{Stdin: []byte("after")}})
+	_ = stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: []byte("after")}})
 	if response, err := stream.Recv(); err == nil && bytes.Contains(response.GetStdout(), []byte("after")) {
 		t.Fatal("established connection remained usable after link deletion")
 	}
@@ -332,9 +550,9 @@ func testLinkRevoke(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "revoke-destination")
 }
 
-func testEgress(t *testing.T, client vmmdv1.VMMDServiceClient) {
-	ensureNamespaceWithEgress(t, client, "egress-deny", 128<<20, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL)
-	ensureNamespaceWithEgress(t, client, "egress-public", 128<<20, vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET)
+func testEgress(t *testing.T, client *productClient) {
+	ensureNamespaceWithEgress(t, client, "egress-deny", 128<<20, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)
+	ensureNamespaceWithEgress(t, client, "egress-public", 128<<20, hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET)
 	for _, namespaceID := range []string{"egress-deny", "egress-public"} {
 		pullImage(t, client, namespaceID)
 	}
@@ -357,7 +575,7 @@ func testEgress(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "egress-public")
 }
 
-func testPortForward(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testPortForward(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "forward", 128<<20)
 	pullImage(t, client, "forward")
 	server := createContainer(t, client, "forward", "server", echoServer(8080), nil)
@@ -365,22 +583,22 @@ func testPortForward(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	waitForContainerPort(t, client, "forward", server.GetId(), 8080)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	stream, err := client.ForwardTCP(ctx)
+	stream, err := client.ForwardTCP(ctx, "forward")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&vmmdv1.ForwardTCPRequest{Event: &vmmdv1.ForwardTCPRequest_Header{Header: &vmmdv1.ForwardTCPHeader{ActorNamespaceId: "forward", ContainerId: server.GetId(), Port: 8080}}}); err != nil {
+	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Header{Header: &hostv1.ForwardTCPHeader{ContainerId: server.GetId(), Port: 8080}}}); err != nil {
 		t.Fatal(err)
 	}
 	payload := bytes.Repeat([]byte("forward-data-"), 8192)
 	for len(payload) != 0 {
 		count := min(len(payload), 32<<10)
-		if err := stream.Send(&vmmdv1.ForwardTCPRequest{Event: &vmmdv1.ForwardTCPRequest_Data{Data: payload[:count]}}); err != nil {
+		if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Data{Data: payload[:count]}}); err != nil {
 			t.Fatal(err)
 		}
 		payload = payload[count:]
 	}
-	if err := stream.Send(&vmmdv1.ForwardTCPRequest{Event: &vmmdv1.ForwardTCPRequest_CloseWrite{CloseWrite: true}}); err != nil {
+	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_CloseWrite{CloseWrite: true}}); err != nil {
 		t.Fatal(err)
 	}
 	var received bytes.Buffer
@@ -405,7 +623,7 @@ func testPortForward(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "forward")
 }
 
-func testDockerfileBuild(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testDockerfileBuild(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "dockerfile-build", 768<<20)
 	tool := buildShell(t)
 	contextArchive := dockerfileContext(t, tool)
@@ -429,7 +647,7 @@ func testDockerfileBuild(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	deleteNamespace(t, client, "dockerfile-build")
 }
 
-func testParallelAgents(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testParallelAgents(t *testing.T, client *productClient) {
 	namespaces := []string{"parallel-a", "parallel-b"}
 	for _, namespaceID := range namespaces {
 		ensureNamespace(t, client, namespaceID, 1<<30)
@@ -446,7 +664,7 @@ func testParallelAgents(t *testing.T, client vmmdv1.VMMDServiceClient) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer cancel()
-			result, err := buildImageRequest(ctx, client, namespaceID, "agent.local/shared-name:latest", "build-ok", vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, secret)
+			result, err := buildImageRequest(ctx, client, namespaceID, "agent.local/shared-name:latest", "build-ok", hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, secret)
 			outcomes <- outcome{namespaceID: namespaceID, result: result, err: err}
 		}()
 	}
@@ -478,19 +696,19 @@ func testParallelAgents(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	}
 }
 
-func testCancellationCleanup(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testCancellationCleanup(t *testing.T, client *productClient) {
 	namespaceID := "cancel-build"
 	ensureNamespace(t, client, namespaceID, 768<<20)
 	contextArchive := dockerfileContext(t, buildShell(t))
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := client.BuildImage(ctx)
+	stream, err := client.BuildImage(ctx, namespaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	header := &vmmdv1.BuildImageHeader{
-		RequestId: "cancel-build", ActorNamespaceId: namespaceID, DockerfilePath: "Dockerfile",
-		Image: "agent.local/cancelled:latest", NetworkMode: vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NAMESPACE_EGRESS,
-		BuildArgs: []*vmmdv1.BuildArgument{{Name: "MESSAGE", Value: "build-cancel"}}, Secrets: []*vmmdv1.BuildSecret{{Id: "token"}},
+	header := &hostv1.BuildImageHeader{
+		RequestId: "cancel-build", DockerfilePath: "Dockerfile",
+		Image: "agent.local/cancelled:latest", NetworkMode: hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NAMESPACE_EGRESS,
+		BuildArgs: []*hostv1.BuildArgument{{Name: "MESSAGE", Value: "build-cancel"}}, Secrets: []*hostv1.BuildSecret{{Id: "token"}},
 	}
 	if err := sendBuildInput(stream, header, contextArchive, []byte("build-cancel-secret-053f")); err != nil {
 		t.Fatal(err)
@@ -513,19 +731,19 @@ func testCancellationCleanup(t *testing.T, client vmmdv1.VMMDServiceClient) {
 	}
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer checkCancel()
-	listed, err := client.ListContainers(checkCtx, &vmmdv1.ListContainersRequest{ActorNamespaceId: namespaceID})
+	listed, err := client.ListContainers(checkCtx, namespaceID)
 	if err != nil || len(listed.GetContainers()) != 0 {
 		t.Fatalf("containers after cancellation = %+v, %v", listed.GetContainers(), err)
 	}
-	if _, err := client.CreateContainer(checkCtx, &vmmdv1.CreateContainerRequest{
-		RequestId: "cancelled-image", ActorNamespaceId: namespaceID, ContainerId: "partial", Image: "agent.local/cancelled:latest", Argv: []string{"/bin/result"}, LogLimitBytes: 1 << 20,
+	if _, err := client.CreateContainer(checkCtx, namespaceID, &hostv1.CreateContainerRequest{
+		RequestId: "cancelled-image", ContainerId: "partial", Image: "agent.local/cancelled:latest", Argv: []string{"/bin/result"}, LogLimitBytes: 1 << 20,
 	}); err == nil {
 		t.Fatal("cancelled image was imported")
 	}
 	deleteNamespaceEventually(t, client, namespaceID)
 	ensureNamespace(t, client, "quota-build", 4<<20)
 	quotaCtx, quotaCancel := context.WithTimeout(context.Background(), time.Minute)
-	_, err = buildImageRequest(quotaCtx, client, "quota-build", "agent.local/quota:latest", "build-ok", vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, []byte("quota-secret"))
+	_, err = buildImageRequest(quotaCtx, client, "quota-build", "agent.local/quota:latest", "build-ok", hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, []byte("quota-secret"))
 	quotaCancel()
 	if err == nil {
 		t.Fatal("build exceeded its namespace disk quota")
@@ -534,13 +752,13 @@ func testCancellationCleanup(t *testing.T, client vmmdv1.VMMDServiceClient) {
 }
 
 func testVMRestart(t *testing.T, harness *hostHarness) {
-	client := harness.vmmd(t)
+	client := harness.runtime(t)
 	for _, namespaceID := range []string{"restart-source", "restart-destination"} {
 		ensureNamespace(t, client, namespaceID, 256<<20)
 		pullImage(t, client, namespaceID)
 	}
 	createVolume(t, client, "restart-source", "data")
-	caller := createContainer(t, client, "restart-source", "caller", idleProcess(), []*vmmdv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	caller := createContainer(t, client, "restart-source", "caller", idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
 	server := createContainer(t, client, "restart-destination", "server", idleProcess(), nil)
 	startContainer(t, client, "restart-source", caller.GetId())
 	startContainer(t, client, "restart-destination", server.GetId())
@@ -548,34 +766,45 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 	if output, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"sh", "-c", "echo restart-durable > /data/value; echo root-durable > /root/value; sync; cat /data/value"}); code != 0 || string(output) != "restart-durable\n" {
 		t.Fatalf("fsync volume write = %q, exit %d", output, code)
 	}
-	link := &vmmdv1.NetworkLink{Id: "restart-link", SourceNamespaceId: "restart-source", DestinationNamespaceId: "restart-destination", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{8080}, DnsAlias: "service"}
+	link := &hostv1.NetworkLink{Id: "restart-link", SourceEnvironmentId: "restart-source", DestinationEnvironmentId: "restart-destination", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{8080}, DnsAlias: "service"}
 	applyLink(t, client, link)
-	if output, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"sh", "-c", "printf before | nc -w 5 service.restart-source.agent 8080"}); code != 0 || string(output) != "before" {
+	if output, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"sh", "-c", "printf before | nc -w 5 service 8080"}); code != 0 || string(output) != "before" {
 		t.Fatalf("link before restart = %q, exit %d", output, code)
+	}
+	eventCtx, eventCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	events, err := harness.client.WatchEvents(eventCtx, &hostv1.WatchEventsRequest{})
+	if err != nil {
+		eventCancel()
+		t.Fatal(err)
+	}
+	beforeRestartEvent, err := events.Recv()
+	if err != nil || beforeRestartEvent.GetGuestBootId() == "" || beforeRestartEvent.GetSequence() == 0 {
+		eventCancel()
+		t.Fatalf("event before restart = %+v, %v", beforeRestartEvent, err)
 	}
 	streamCtx, streamCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer streamCancel()
-	stream, err := client.Exec(streamCtx)
+	stream, err := client.Exec(streamCtx, "restart-source")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Start{Start: &vmmdv1.ExecStart{RequestId: "restart-connection", ActorNamespaceId: "restart-source", ContainerId: caller.GetId(), Argv: []string{"nc", "service.restart-source.agent", "8080"}}}}); err != nil {
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "restart-connection", ContainerId: caller.GetId(), Argv: []string{"nc", "service", "8080"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Stdin{Stdin: []byte("open")}}); err != nil {
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: []byte("open")}}); err != nil {
 		t.Fatal(err)
 	}
 	if response, err := stream.Recv(); err != nil || string(response.GetStdout()) != "open" {
 		t.Fatalf("connection before restart = %q, %v", response.GetStdout(), err)
 	}
-	tty, err := client.Exec(streamCtx)
+	tty, err := client.Exec(streamCtx, "restart-source")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := tty.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Start{Start: &vmmdv1.ExecStart{RequestId: "restart-tty", ActorNamespaceId: "restart-source", ContainerId: caller.GetId(), Argv: []string{"sh"}, Tty: true, Rows: 24, Columns: 80}}}); err != nil {
+	if err := tty.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "restart-tty", ContainerId: caller.GetId(), Argv: []string{"sh"}, Tty: true, Rows: 24, Columns: 80}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := tty.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Stdin{Stdin: []byte("echo tty-open\n")}}); err != nil {
+	if err := tty.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: []byte("echo tty-open\n")}}); err != nil {
 		t.Fatal(err)
 	}
 	for {
@@ -587,11 +816,33 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 			break
 		}
 	}
-	harness.stop(t, hostv1.StopMode_STOP_MODE_GRACEFUL)
+	harness.stop(t, false)
+	for {
+		if _, err := events.Recv(); err != nil {
+			break
+		}
+	}
+	eventCancel()
 	harness.start(t)
-	for name, oldStream := range map[string]grpc.BidiStreamingClient[vmmdv1.ExecRequest, vmmdv1.ExecResponse]{"exec connection": stream, "TTY": tty} {
+	snapshotCtx, snapshotCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	snapshot, err := client.Snapshot(snapshotCtx)
+	snapshotCancel()
+	if err != nil || snapshot.GetVm().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		t.Fatalf("snapshot after event disconnect = %+v, %v", snapshot.GetVm(), err)
+	}
+	reconnectCtx, reconnectCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer reconnectCancel()
+	reconnected, err := harness.client.WatchEvents(reconnectCtx, &hostv1.WatchEventsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterRestartEvent, err := reconnected.Recv()
+	if err != nil || afterRestartEvent.GetGuestBootId() == "" || afterRestartEvent.GetGuestBootId() == beforeRestartEvent.GetGuestBootId() || afterRestartEvent.GetSequence() == 0 {
+		t.Fatalf("event after snapshot-first reconnect = %+v, %v", afterRestartEvent, err)
+	}
+	for name, oldStream := range map[string]grpc.BidiStreamingClient[hostv1.ExecRequest, hostv1.ExecResponse]{"exec connection": stream, "TTY": tty} {
 		marker := []byte("recovered-" + strings.ReplaceAll(name, " ", "-"))
-		_ = oldStream.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Stdin{Stdin: append([]byte("echo "), append(marker, '\n')...)}})
+		_ = oldStream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: append([]byte("echo "), append(marker, '\n')...)}})
 		for {
 			response, err := oldStream.Recv()
 			if err != nil {
@@ -602,12 +853,12 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 			}
 		}
 	}
-	client = harness.vmmd(t)
+	client = harness.runtime(t)
 	for _, item := range []struct{ namespaceID, containerID string }{{"restart-source", caller.GetId()}, {"restart-destination", server.GetId()}} {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		response, err := client.InspectContainer(ctx, &vmmdv1.InspectContainerRequest{ActorNamespaceId: item.namespaceID, ContainerId: item.containerID})
+		response, err := client.GetContainer(ctx, item.namespaceID, &hostv1.ContainerRequest{ContainerId: item.containerID})
 		cancel()
-		if err != nil || response.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+		if err != nil || response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_STOPPED {
 			t.Fatalf("process restored after restart: %+v, %v", response.GetContainer(), err)
 		}
 	}
@@ -617,11 +868,10 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 	if output, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"sh", "-c", "cat /data/value /root/value"}); code != 0 || string(output) != "restart-durable\nroot-durable\n" {
 		t.Fatalf("filesystem and volume after restart = %q, exit %d", output, code)
 	}
-	if _, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"nc", "-z", "-w", "2", containerAddress(t, client, "restart-destination", server.GetId()), "8080"}); code == 0 {
-		t.Fatal("network policy survived without host replay")
+	if _, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"nc", "-z", "-w", "2", containerAddress(t, client, "restart-destination", server.GetId()), "8080"}); code != 0 {
+		t.Fatal("host policy was not replayed after restart")
 	}
-	applyLink(t, client, link)
-	if output, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"sh", "-c", "printf replayed | nc -w 5 service.restart-source.agent 8080"}); code != 0 || string(output) != "replayed" {
+	if output, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"sh", "-c", "printf replayed | nc -w 5 service 8080"}); code != 0 || string(output) != "replayed" {
 		t.Fatalf("replayed link = %q, exit %d", output, code)
 	}
 	deleteLink(t, client, link.GetId())
@@ -633,13 +883,13 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 }
 
 func testForcedVMStop(t *testing.T, harness *hostHarness) {
-	client := harness.vmmd(t)
+	client := harness.runtime(t)
 	for _, namespaceID := range []string{"force-source", "force-destination"} {
 		ensureNamespace(t, client, namespaceID, 256<<20)
 		pullImage(t, client, namespaceID)
 	}
 	createVolume(t, client, "force-source", "data")
-	caller := createContainer(t, client, "force-source", "caller", idleProcess(), []*vmmdv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	caller := createContainer(t, client, "force-source", "caller", idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
 	server := createContainer(t, client, "force-destination", "server", idleProcess(), nil)
 	startContainer(t, client, "force-source", caller.GetId())
 	startContainer(t, client, "force-destination", server.GetId())
@@ -650,15 +900,33 @@ func testForcedVMStop(t *testing.T, harness *hostHarness) {
 	if _, code := execContainer(t, client, "force-destination", server.GetId(), []string{"sync"}); code != 0 {
 		t.Fatalf("server fsync before forced stop exited %d", code)
 	}
-	applyLink(t, client, &vmmdv1.NetworkLink{Id: "force-link", SourceNamespaceId: "force-source", DestinationNamespaceId: "force-destination", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{8080}, DnsAlias: "service"})
-	harness.stop(t, hostv1.StopMode_STOP_MODE_FORCE)
+	applyLink(t, client, &hostv1.NetworkLink{Id: "force-link", SourceEnvironmentId: "force-source", DestinationEnvironmentId: "force-destination", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{8080}, DnsAlias: "service"})
+	if _, err := client.Snapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	harness.stop(t, true)
+	stopped, err := client.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, environmentID := range []string{"force-source", "force-destination"} {
+		found := false
+		for _, environment := range stopped.GetEnvironments() {
+			if environment.GetId() == environmentID {
+				found = len(environment.GetContainers()) == 1 && environment.GetContainers()[0].GetState() == hostv1.ContainerState_CONTAINER_STATE_UNKNOWN && environment.GetUsage().GetStale()
+			}
+		}
+		if !found {
+			t.Fatalf("forced-stop snapshot did not expose %s container as UNKNOWN with stale usage", environmentID)
+		}
+	}
 	harness.start(t)
-	client = harness.vmmd(t)
+	client = harness.runtime(t)
 	startContainer(t, client, "force-source", caller.GetId())
 	inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	response, err := client.InspectContainer(inspectCtx, &vmmdv1.InspectContainerRequest{ActorNamespaceId: "force-destination", ContainerId: server.GetId()})
+	response, err := client.GetContainer(inspectCtx, "force-destination", &hostv1.ContainerRequest{ContainerId: server.GetId()})
 	inspectCancel()
-	if err != nil || response.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+	if err != nil || response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_STOPPED {
 		t.Fatalf("process restored after forced stop: %+v, %v", response.GetContainer(), err)
 	}
 	startContainer(t, client, "force-destination", server.GetId())
@@ -666,9 +934,10 @@ func testForcedVMStop(t *testing.T, harness *hostHarness) {
 	if output, code := execContainer(t, client, "force-source", caller.GetId(), []string{"cat", "/data/value"}); code != 0 || string(output) != "force-durable\n" {
 		t.Fatalf("fsync data after forced stop = %q, exit %d", output, code)
 	}
-	if _, code := execContainer(t, client, "force-source", caller.GetId(), []string{"nc", "-z", "-w", "2", containerAddress(t, client, "force-destination", server.GetId()), "8080"}); code == 0 {
-		t.Fatal("network policy survived forced restart")
+	if _, code := execContainer(t, client, "force-source", caller.GetId(), []string{"nc", "-z", "-w", "2", containerAddress(t, client, "force-destination", server.GetId()), "8080"}); code != 0 {
+		t.Fatal("host policy was not replayed after forced restart")
 	}
+	deleteLink(t, client, "force-link")
 	stopDeleteContainer(t, client, "force-source", caller.GetId())
 	stopDeleteContainer(t, client, "force-destination", server.GetId())
 	deleteVolume(t, client, "force-source", "data")
@@ -676,10 +945,10 @@ func testForcedVMStop(t *testing.T, harness *hostHarness) {
 	deleteNamespace(t, client, "force-destination")
 }
 
-func testResidualScan(t *testing.T, client vmmdv1.VMMDServiceClient) {
+func testResidualScan(t *testing.T, client *productClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := client.Health(ctx, &vmmdv1.HealthRequest{}); err != nil {
+	if _, err := client.Snapshot(ctx); err != nil {
 		t.Fatal(err)
 	}
 	for _, namespaceID := range []string{
@@ -688,7 +957,7 @@ func testResidualScan(t *testing.T, client vmmdv1.VMMDServiceClient) {
 		"revoke-destination", "egress-deny", "egress-public", "forward", "dockerfile-build", "parallel-a",
 		"parallel-b", "cancel-build", "quota-build", "restart-source", "restart-destination", "force-source", "force-destination",
 	} {
-		response, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: namespaceID})
+		response, err := client.ListContainers(ctx, namespaceID)
 		if err == nil && len(response.GetContainers()) != 0 {
 			t.Fatalf("residual namespace %q has %d visible containers", namespaceID, len(response.GetContainers()))
 		}
@@ -698,12 +967,14 @@ func testResidualScan(t *testing.T, client vmmdv1.VMMDServiceClient) {
 const workloadImage = "docker.io/library/alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
 
 type hostHarness struct {
-	client      hostv1.HostServiceClient
-	connection  *grpc.ClientConn
-	process     *exec.Cmd
-	instance    string
-	relaySocket string
-	starts      int
+	client        hostv1.OperatorServiceClient
+	connection    *grpc.ClientConn
+	process       *exec.Cmd
+	instance      string
+	database      string
+	runtimeSocket string
+	runtimeClient *productClient
+	starts        int
 }
 
 func startHost(t *testing.T) *hostHarness {
@@ -716,21 +987,27 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	if bundle == "" {
 		bundle = "/tmp/agent-vmm-e2e-bundle"
 	}
-	directory := t.TempDir()
+	directory, err := os.MkdirTemp("/tmp", "agent-vmm-e2e-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
 	binary := os.Getenv("AGENT_VMM_E2E_HOST_BINARY")
 	if binary == "" {
 		binary = filepath.Join(directory, "agent-vmm-host")
 		runCommand(t, 2*time.Minute, "go", "build", "-tags=e2e", "-o", binary, "../../cmd/agent-vmm-host")
 		runCommand(t, time.Minute, "codesign", "--force", "--sign", "-", "--entitlements", "../../build/host/vz.entitlements.plist", binary)
 	}
-	control := filepath.Join(directory, "control.sock")
-	relay := filepath.Join(directory, "relay.sock")
+	operatorSocket := filepath.Join(directory, "operator.sock")
+	runtimeSocket := filepath.Join(directory, "runtime.sock")
+	database := filepath.Join(directory, "host.sqlite")
+	sessions := filepath.Join(directory, "sessions")
 	instance := filepath.Join(directory, "instance")
 	serial := filepath.Join(directory, "serial.log")
 	process := exec.Command(binary,
 		"--bundle", bundle, "--instance", instance, "--state-size", fmt.Sprint(stateBytes),
 		"--memory", "4294967296",
-		"--serial-log", serial, "--control-socket", control, "--relay-socket", relay,
+		"--serial-log", serial, "--operator-socket", operatorSocket, "--database", database, "--session-directory", sessions,
 	)
 	process.Stdout = os.Stdout
 	process.Stderr = os.Stderr
@@ -755,15 +1032,18 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 			}
 		}
 	})
-	waitForPath(t, control, 10*time.Second)
+	waitForPath(t, operatorSocket, 10*time.Second)
 	connection, err := grpc.NewClient("passthrough:///host", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", control)
+		return (&net.Dialer{}).DialContext(ctx, "unix", operatorSocket)
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { connection.Close() })
-	return &hostHarness{client: hostv1.NewHostServiceClient(connection), connection: connection, process: process, instance: instance, relaySocket: relay}
+	operator := hostv1.NewOperatorServiceClient(connection)
+	runtimeClient := newProductClient(operator)
+	t.Cleanup(runtimeClient.close)
+	return &hostHarness{client: operator, connection: connection, process: process, instance: instance, database: database, runtimeSocket: runtimeSocket, runtimeClient: runtimeClient}
 }
 
 func readFileTail(path string, limit int64) []byte {
@@ -784,7 +1064,7 @@ func (harness *hostHarness) start(t *testing.T) *hostv1.VM {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	response, err := harness.client.StartVM(ctx, &hostv1.StartVMRequest{})
+	_, err := harness.client.StartVM(ctx, &hostv1.StartVMRequest{RequestId: fmt.Sprintf("start-%d", time.Now().UnixNano())})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -792,14 +1072,22 @@ func (harness *hostHarness) start(t *testing.T) *hostv1.VM {
 		t.Logf("E2E_COLD_START_MS=%d", time.Since(started).Milliseconds())
 	}
 	harness.starts++
+	response, err := harness.client.GetVM(ctx, &hostv1.GetVMRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return response.GetVm()
 }
 
-func (harness *hostHarness) stop(t *testing.T, mode hostv1.StopMode) {
+func (harness *hostHarness) stop(t *testing.T, force bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	response, err := harness.client.StopVM(ctx, &hostv1.StopVMRequest{Mode: mode})
+	_, err := harness.client.StopVM(ctx, &hostv1.StopVMRequest{RequestId: fmt.Sprintf("stop-%d", time.Now().UnixNano()), Force: force})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := harness.client.GetVM(ctx, &hostv1.GetVMRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,64 +1096,54 @@ func (harness *hostHarness) stop(t *testing.T, mode hostv1.StopMode) {
 	}
 }
 
-func (harness *hostHarness) vmmd(t *testing.T) vmmdv1.VMMDServiceClient {
+func (harness *hostHarness) runtime(t *testing.T) *productClient {
 	t.Helper()
-	waitForPath(t, harness.relaySocket, 10*time.Second)
-	connection, err := grpc.NewClient("passthrough:///vmmd", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", harness.relaySocket)
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { connection.Close() })
-	return vmmdv1.NewVMMDServiceClient(connection)
+	return harness.runtimeClient
 }
 
-func ensureNamespace(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID string, diskBytes uint64) {
-	ensureNamespaceWithEgress(t, client, namespaceID, diskBytes, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL)
+func ensureNamespace(t *testing.T, client *productClient, namespaceID string, diskBytes uint64) {
+	ensureNamespaceWithEgress(t, client, namespaceID, diskBytes, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)
 }
 
-func ensureNamespaceWithEgress(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID string, diskBytes uint64, egress vmmdv1.EgressMode) {
+func ensureNamespaceWithEgress(t *testing.T, client *productClient, namespaceID string, diskBytes uint64, egress hostv1.EgressMode) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	response, err := client.EnsureNamespace(ctx, &vmmdv1.EnsureNamespaceRequest{
-		RequestId: "ensure-" + namespaceID, NamespaceId: namespaceID,
-		Limits:     &vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 3 << 30, Pids: 512, DiskBytes: diskBytes},
-		EgressMode: egress,
-	})
+	response, err := client.EnsureEnvironment(ctx, namespaceID, "ensure-"+namespaceID, &hostv1.ResourceLimits{
+		CpuMillis: optional(uint32(1000)), MemoryBytes: optional(uint64(3 << 30)), Pids: optional(uint32(512)), DiskBytes: optional(diskBytes),
+	}, egress)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.GetNamespace().GetProjectId() == 0 || response.GetNamespace().GetSubnet() == "" {
-		t.Fatalf("namespace allocation = %+v", response.GetNamespace())
+	if response.GetNamespaceId() == "" {
+		t.Fatalf("environment allocation = %+v", response)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = client.DeleteNamespace(ctx, &vmmdv1.DeleteNamespaceRequest{RequestId: "cleanup-" + namespaceID, NamespaceId: namespaceID})
+		_ = client.DeleteEnvironment(ctx, namespaceID, "cleanup-"+namespaceID)
 	})
 }
 
-func createVolume(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, volumeID string) {
+func createVolume(t *testing.T, client *productClient, namespaceID, volumeID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := client.CreateVolume(ctx, &vmmdv1.CreateVolumeRequest{RequestId: "create-" + namespaceID + "-" + volumeID, ActorNamespaceId: namespaceID, VolumeId: volumeID}); err != nil {
+	if _, err := client.CreateVolume(ctx, namespaceID, &hostv1.CreateVolumeRequest{RequestId: "create-" + namespaceID + "-" + volumeID, VolumeId: volumeID}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = client.DeleteVolume(ctx, &vmmdv1.DeleteVolumeRequest{RequestId: "cleanup-" + namespaceID + "-" + volumeID, ActorNamespaceId: namespaceID, VolumeId: volumeID})
+		_ = client.DeleteVolume(ctx, namespaceID, &hostv1.DeleteVolumeRequest{RequestId: "cleanup-" + namespaceID + "-" + volumeID, VolumeId: volumeID})
 	})
 }
 
-func deleteVolume(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, volumeID string) {
+func deleteVolume(t *testing.T, client *productClient, namespaceID, volumeID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := client.DeleteVolume(ctx, &vmmdv1.DeleteVolumeRequest{RequestId: "delete-" + namespaceID + "-" + volumeID, ActorNamespaceId: namespaceID, VolumeId: volumeID}); err != nil {
+	if err := client.DeleteVolume(ctx, namespaceID, &hostv1.DeleteVolumeRequest{RequestId: "delete-" + namespaceID + "-" + volumeID, VolumeId: volumeID}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -878,38 +1156,38 @@ func echoServer(port uint32) []string {
 	return []string{"nc", "-lk", "-p", fmt.Sprint(port), "-e", "/bin/cat"}
 }
 
-func allSelector() *vmmdv1.ContainerSelector {
-	return &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_AllContainers{AllContainers: true}}
+func allSelector() *hostv1.ContainerSelector {
+	return &hostv1.ContainerSelector{Selection: &hostv1.ContainerSelector_AllContainers{AllContainers: true}}
 }
 
-func idsSelector(ids ...string) *vmmdv1.ContainerSelector {
-	return &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_ContainerIds{ContainerIds: &vmmdv1.ContainerIDList{Ids: ids}}}
+func idsSelector(ids ...string) *hostv1.ContainerSelector {
+	return &hostv1.ContainerSelector{Selection: &hostv1.ContainerSelector_ContainerIds{ContainerIds: &hostv1.ContainerIDList{Ids: ids}}}
 }
 
-func applyLink(t *testing.T, client vmmdv1.VMMDServiceClient, link *vmmdv1.NetworkLink) {
+func applyLink(t *testing.T, client *productClient, link *hostv1.NetworkLink) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := client.ApplyNetworkLink(ctx, &vmmdv1.ApplyNetworkLinkRequest{RequestId: "apply-" + link.GetId(), Link: link}); err != nil {
+	if err := client.ApplyNetworkLink(ctx, &hostv1.ApplyNetworkLinkRequest{RequestId: "apply-" + link.GetId(), Link: link}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: "cleanup-" + link.GetId(), LinkId: link.GetId()})
+		_ = client.DeleteNetworkLink(ctx, &hostv1.DeleteNetworkLinkRequest{RequestId: "cleanup-" + link.GetId(), LinkId: link.GetId()})
 	})
 }
 
-func deleteLink(t *testing.T, client vmmdv1.VMMDServiceClient, linkID string) {
+func deleteLink(t *testing.T, client *productClient, linkID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: "delete-" + linkID, LinkId: linkID}); err != nil {
+	if err := client.DeleteNetworkLink(ctx, &hostv1.DeleteNetworkLinkRequest{RequestId: "delete-" + linkID, LinkId: linkID}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func containerAddress(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string) string {
+func containerAddress(t *testing.T, client *productClient, namespaceID, containerID string) string {
 	t.Helper()
 	output, code := execContainer(t, client, namespaceID, containerID, []string{"sh", "-c", "ip -4 -o addr show dev eth0 | awk '{split($4,a,\"/\"); print a[1]}'"})
 	address := strings.TrimSpace(string(output))
@@ -919,7 +1197,7 @@ func containerAddress(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID
 	return address
 }
 
-func waitForContainerPort(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string, port uint32) {
+func waitForContainerPort(t *testing.T, client *productClient, namespaceID, containerID string, port uint32) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -931,7 +1209,7 @@ func waitForContainerPort(t *testing.T, client vmmdv1.VMMDServiceClient, namespa
 	t.Fatalf("container %s/%s did not listen on TCP %d", namespaceID, containerID, port)
 }
 
-func startEchoServer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string, port uint32) {
+func startEchoServer(t *testing.T, client *productClient, namespaceID, containerID string, port uint32) {
 	t.Helper()
 	if output, code := execContainer(t, client, namespaceID, containerID, []string{"sh", "-c", fmt.Sprintf("nc -lk -p %d -e /bin/cat >/dev/null 2>&1 &", port)}); code != 0 {
 		t.Fatalf("start echo server = %q, exit %d", output, code)
@@ -939,13 +1217,13 @@ func startEchoServer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID,
 	waitForContainerPort(t, client, namespaceID, containerID, port)
 }
 
-func stopDeleteContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string) {
+func stopDeleteContainer(t *testing.T, client *productClient, namespaceID, containerID string) {
 	t.Helper()
 	stopContainer(t, client, namespaceID, containerID)
 	deleteContainerEventually(t, client, namespaceID, containerID)
 }
 
-func pullImage(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID string) {
+func pullImage(t *testing.T, client *productClient, namespaceID string) {
 	t.Helper()
 	var digest string
 	var err error
@@ -965,8 +1243,8 @@ func pullImage(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID string
 	}
 }
 
-func pullImageAttempt(ctx context.Context, client vmmdv1.VMMDServiceClient, namespaceID, requestID string) (string, error) {
-	stream, err := client.PullImage(ctx, &vmmdv1.PullImageRequest{RequestId: requestID, ActorNamespaceId: namespaceID, Reference: workloadImage})
+func pullImageAttempt(ctx context.Context, client *productClient, namespaceID, requestID string) (string, error) {
+	stream, err := client.PullImage(ctx, namespaceID, &hostv1.PullImageRequest{RequestId: requestID, Reference: workloadImage})
 	if err != nil {
 		return "", err
 	}
@@ -985,10 +1263,10 @@ func pullImageAttempt(ctx context.Context, client vmmdv1.VMMDServiceClient, name
 	}
 }
 
-func pullImageError(client vmmdv1.VMMDServiceClient, namespaceID string) error {
+func pullImageError(client *productClient, namespaceID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	stream, err := client.PullImage(ctx, &vmmdv1.PullImageRequest{RequestId: "pull-" + namespaceID, ActorNamespaceId: namespaceID, Reference: workloadImage})
+	stream, err := client.PullImage(ctx, namespaceID, &hostv1.PullImageRequest{RequestId: "pull-" + namespaceID, Reference: workloadImage})
 	if err != nil {
 		return err
 	}
@@ -1000,20 +1278,20 @@ func pullImageError(client vmmdv1.VMMDServiceClient, namespaceID string) error {
 	}
 }
 
-func createContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string, argv []string, volumes []*vmmdv1.VolumeMount) *vmmdv1.Container {
+func createContainer(t *testing.T, client *productClient, namespaceID, containerID string, argv []string, volumes []*hostv1.VolumeMount) *hostv1.Container {
 	return createContainerWithImageAndVolumes(t, client, namespaceID, containerID, workloadImage, argv, volumes)
 }
 
-func createContainerWithImage(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID, image string, argv []string) *vmmdv1.Container {
+func createContainerWithImage(t *testing.T, client *productClient, namespaceID, containerID, image string, argv []string) *hostv1.Container {
 	return createContainerWithImageAndVolumes(t, client, namespaceID, containerID, image, argv, nil)
 }
 
-func createContainerWithImageAndVolumes(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID, image string, argv []string, volumes []*vmmdv1.VolumeMount) *vmmdv1.Container {
+func createContainerWithImageAndVolumes(t *testing.T, client *productClient, namespaceID, containerID, image string, argv []string, volumes []*hostv1.VolumeMount) *hostv1.Container {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	response, err := client.CreateContainer(ctx, &vmmdv1.CreateContainerRequest{
-		RequestId: "create-" + namespaceID + "-" + containerID, ActorNamespaceId: namespaceID,
+	response, err := client.CreateContainer(ctx, namespaceID, &hostv1.CreateContainerRequest{
+		RequestId:   "create-" + namespaceID + "-" + containerID,
 		ContainerId: containerID, Image: image, Argv: argv, Volumes: volumes, LogLimitBytes: 1 << 20,
 	})
 	if err != nil {
@@ -1023,8 +1301,8 @@ func createContainerWithImageAndVolumes(t *testing.T, client vmmdv1.VMMDServiceC
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		seconds := uint32(1)
-		_, _ = client.StopContainer(ctx, &vmmdv1.StopContainerRequest{RequestId: "cleanup-stop-" + namespaceID + "-" + containerID, ActorNamespaceId: namespaceID, ContainerId: containerID, TimeoutSeconds: &seconds})
-		_, _ = client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: "cleanup-delete-" + namespaceID + "-" + containerID, ActorNamespaceId: namespaceID, ContainerId: containerID})
+		_, _ = client.StopContainer(ctx, namespaceID, &hostv1.StopContainerRequest{RequestId: "cleanup-stop-" + namespaceID + "-" + containerID, ContainerId: containerID, TimeoutSeconds: &seconds})
+		_ = client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "cleanup-delete-" + namespaceID + "-" + containerID, ContainerId: containerID})
 	})
 	return response.GetContainer()
 }
@@ -1074,11 +1352,11 @@ type imageBuildResult struct {
 	progress []string
 }
 
-func buildImage(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, image string, contextArchive, secret []byte) imageBuildResult {
+func buildImage(t *testing.T, client *productClient, namespaceID, image string, contextArchive, secret []byte) imageBuildResult {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	result, err := buildImageRequest(ctx, client, namespaceID, image, "build-ok", vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, secret)
+	result, err := buildImageRequest(ctx, client, namespaceID, image, "build-ok", hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, secret)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1088,15 +1366,15 @@ func buildImage(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, imag
 	return result
 }
 
-func buildImageRequest(ctx context.Context, client vmmdv1.VMMDServiceClient, namespaceID, image, message string, networkMode vmmdv1.BuildNetworkMode, contextArchive, secret []byte) (imageBuildResult, error) {
-	stream, err := client.BuildImage(ctx)
+func buildImageRequest(ctx context.Context, client *productClient, namespaceID, image, message string, networkMode hostv1.BuildNetworkMode, contextArchive, secret []byte) (imageBuildResult, error) {
+	stream, err := client.BuildImage(ctx, namespaceID)
 	if err != nil {
 		return imageBuildResult{}, err
 	}
-	header := &vmmdv1.BuildImageHeader{
-		RequestId: "build-" + namespaceID + "-" + time.Now().Format("150405.000000000"), ActorNamespaceId: namespaceID,
+	header := &hostv1.BuildImageHeader{
+		RequestId:      "build-" + namespaceID + "-" + time.Now().Format("150405.000000000"),
 		DockerfilePath: "Dockerfile", Image: image, NetworkMode: networkMode,
-		BuildArgs: []*vmmdv1.BuildArgument{{Name: "MESSAGE", Value: message}}, Secrets: []*vmmdv1.BuildSecret{{Id: "token"}},
+		BuildArgs: []*hostv1.BuildArgument{{Name: "MESSAGE", Value: message}}, Secrets: []*hostv1.BuildSecret{{Id: "token"}},
 	}
 	if err := sendBuildInput(stream, header, contextArchive, secret); err != nil {
 		return imageBuildResult{}, err
@@ -1120,56 +1398,56 @@ func buildImageRequest(ctx context.Context, client vmmdv1.VMMDServiceClient, nam
 	return result, nil
 }
 
-func sendBuildInput(stream grpc.BidiStreamingClient[vmmdv1.BuildImageRequest, vmmdv1.BuildImageResponse], header *vmmdv1.BuildImageHeader, contextArchive, secret []byte) error {
-	if err := stream.Send(&vmmdv1.BuildImageRequest{Event: &vmmdv1.BuildImageRequest_Header{Header: header}}); err != nil {
+func sendBuildInput(stream grpc.BidiStreamingClient[hostv1.BuildImageRequest, hostv1.BuildImageResponse], header *hostv1.BuildImageHeader, contextArchive, secret []byte) error {
+	if err := stream.Send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Header{Header: header}}); err != nil {
 		return err
 	}
 	for len(contextArchive) > 0 {
 		count := min(len(contextArchive), 1<<20)
-		chunk := &vmmdv1.BuildContextChunk{Data: contextArchive[:count], Final: count == len(contextArchive)}
-		if err := stream.Send(&vmmdv1.BuildImageRequest{Event: &vmmdv1.BuildImageRequest_Context{Context: chunk}}); err != nil {
+		chunk := &hostv1.BuildContextChunk{Data: contextArchive[:count], Final: count == len(contextArchive)}
+		if err := stream.Send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Context{Context: chunk}}); err != nil {
 			return err
 		}
 		contextArchive = contextArchive[count:]
 	}
-	if err := stream.Send(&vmmdv1.BuildImageRequest{Event: &vmmdv1.BuildImageRequest_Secret{Secret: &vmmdv1.BuildSecretChunk{Id: "token", Data: secret, Final: true}}}); err != nil {
+	if err := stream.Send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Secret{Secret: &hostv1.BuildSecretChunk{Id: "token", Data: secret, Final: true}}}); err != nil {
 		return err
 	}
 	return stream.CloseSend()
 }
 
-func startContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string) {
+func startContainer(t *testing.T, client *productClient, namespaceID, containerID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	response, err := client.StartContainer(ctx, &vmmdv1.StartContainerRequest{RequestId: "start-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000"), ActorNamespaceId: namespaceID, ContainerId: containerID})
+	response, err := client.StartContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "start-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000"), ContainerId: containerID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+	if response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_RUNNING {
 		t.Fatalf("StartContainer() = %+v", response.GetContainer())
 	}
 }
 
-func stopContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string) {
+func stopContainer(t *testing.T, client *productClient, namespaceID, containerID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	timeout := uint32(3)
-	response, err := client.StopContainer(ctx, &vmmdv1.StopContainerRequest{RequestId: "stop-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000"), ActorNamespaceId: namespaceID, ContainerId: containerID, TimeoutSeconds: &timeout})
+	response, err := client.StopContainer(ctx, namespaceID, &hostv1.StopContainerRequest{RequestId: "stop-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000"), ContainerId: containerID, TimeoutSeconds: &timeout})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+	if response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_STOPPED {
 		t.Fatalf("StopContainer() = %+v", response.GetContainer())
 	}
 }
 
-func waitContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string, expected uint32) uint32 {
+func waitContainer(t *testing.T, client *productClient, namespaceID, containerID string, expected uint32) uint32 {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	response, err := client.WaitContainer(ctx, &vmmdv1.WaitContainerRequest{ActorNamespaceId: namespaceID, ContainerId: containerID})
+	response, err := client.WaitContainer(ctx, namespaceID, &hostv1.ContainerRequest{ContainerId: containerID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1179,16 +1457,16 @@ func waitContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, c
 	return response.GetExitCode()
 }
 
-func deleteContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string) {
+func deleteContainer(t *testing.T, client *productClient, namespaceID, containerID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: "delete-" + namespaceID + "-" + containerID, ActorNamespaceId: namespaceID, ContainerId: containerID}); err != nil {
+	if err := client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "delete-" + namespaceID + "-" + containerID, ContainerId: containerID}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func deleteContainerEventually(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string) {
+func deleteContainerEventually(t *testing.T, client *productClient, namespaceID, containerID string) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -1196,7 +1474,7 @@ func deleteContainerEventually(t *testing.T, client vmmdv1.VMMDServiceClient, na
 	var lastErr error
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, lastErr = client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: fmt.Sprintf("delete-%d", time.Now().UnixNano()), ActorNamespaceId: namespaceID, ContainerId: containerID})
+		lastErr = client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: fmt.Sprintf("delete-%d", time.Now().UnixNano()), ContainerId: containerID})
 		cancel()
 		if lastErr == nil {
 			return
@@ -1208,22 +1486,22 @@ func deleteContainerEventually(t *testing.T, client vmmdv1.VMMDServiceClient, na
 	}
 }
 
-func deleteNamespace(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID string) {
+func deleteNamespace(t *testing.T, client *productClient, namespaceID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := client.DeleteNamespace(ctx, &vmmdv1.DeleteNamespaceRequest{RequestId: "delete-" + namespaceID, NamespaceId: namespaceID}); err != nil {
+	if err := client.DeleteEnvironment(ctx, namespaceID, "delete-"+namespaceID); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func deleteNamespaceEventually(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID string) {
+func deleteNamespaceEventually(t *testing.T, client *productClient, namespaceID string) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, lastErr = client.DeleteNamespace(ctx, &vmmdv1.DeleteNamespaceRequest{RequestId: "delete-" + namespaceID, NamespaceId: namespaceID})
+		lastErr = client.DeleteEnvironment(ctx, namespaceID, "delete-"+namespaceID)
 		cancel()
 		if lastErr == nil {
 			return
@@ -1233,16 +1511,16 @@ func deleteNamespaceEventually(t *testing.T, client vmmdv1.VMMDServiceClient, na
 	t.Fatalf("DeleteNamespace(%q): %v", namespaceID, lastErr)
 }
 
-func execContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string, argv []string) ([]byte, uint32) {
+func execContainer(t *testing.T, client *productClient, namespaceID, containerID string, argv []string) ([]byte, uint32) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	stream, err := client.Exec(ctx)
+	stream, err := client.Exec(ctx, namespaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	requestID := "exec-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000")
-	if err := stream.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_Start{Start: &vmmdv1.ExecStart{RequestId: requestID, ActorNamespaceId: namespaceID, ContainerId: containerID, Argv: argv}}}); err != nil {
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: requestID, ContainerId: containerID, Argv: argv}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := stream.CloseSend(); err != nil {
@@ -1260,17 +1538,17 @@ func execContainer(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, c
 		}
 		output.Write(response.GetStdout())
 		output.Write(response.GetStderr())
-		if _, ok := response.Event.(*vmmdv1.ExecResponse_ExitCode); ok {
+		if _, ok := response.Event.(*hostv1.ExecResponse_ExitCode); ok {
 			exitCode = response.GetExitCode()
 		}
 	}
 }
 
-func readLogs(t *testing.T, client vmmdv1.VMMDServiceClient, namespaceID, containerID string) []byte {
+func readLogs(t *testing.T, client *productClient, namespaceID, containerID string) []byte {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	stream, err := client.Logs(ctx, &vmmdv1.LogsRequest{ActorNamespaceId: namespaceID, ContainerId: containerID, TailBytes: 1 << 20})
+	stream, err := client.Logs(ctx, namespaceID, &hostv1.LogsRequest{ContainerId: containerID, TailRecords: 4096})
 	if err != nil {
 		t.Fatal(err)
 	}

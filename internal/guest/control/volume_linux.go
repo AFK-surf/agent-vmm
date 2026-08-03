@@ -4,7 +4,6 @@ package control
 
 import (
 	"context"
-	"errors"
 	"os"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -65,7 +64,7 @@ func (r *Runtime) DeleteVolume(ctx context.Context, namespaceID, volumeID string
 	for _, container := range containers {
 		for _, mount := range container.GetVolumes() {
 			if mount.GetVolumeId() == volumeID {
-				return errors.New("volume is referenced by a container")
+				return failedPrecondition("volume is referenced by a container")
 			}
 		}
 	}

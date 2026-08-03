@@ -1,4 +1,4 @@
-//go:build darwin && e2e
+//go:build darwin && (development || e2e)
 
 package main
 

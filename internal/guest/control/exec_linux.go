@@ -133,7 +133,7 @@ func (r *Runtime) exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv
 		return 0, err
 	}
 	if current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-		return 0, errors.New("container is not running")
+		return 0, failedPrecondition("container is not running")
 	}
 	task, err := container.Task(nsctx, nil)
 	if err != nil {

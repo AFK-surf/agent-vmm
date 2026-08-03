@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -39,10 +38,14 @@ type Server struct {
 	execMu       sync.Mutex
 	executions   map[string]*execRecord
 	prepareHost  func(context.Context) error
+	healthProbe  func(context.Context) healthProbeResult
+	events       eventBuffer
 }
 
 func NewServer(runtime *Runtime, health HealthState, prepareHost func(context.Context) error) *Server {
-	return &Server{runtime: runtime, health: health, prepareHost: prepareHost}
+	server := &Server{runtime: runtime, health: health, prepareHost: prepareHost, events: newEventBuffer()}
+	server.healthProbe = server.probeComponents
+	return server
 }
 
 func NewGRPCServer() *grpc.Server {
@@ -82,6 +85,10 @@ func (s *Server) PrepareShutdown(ctx context.Context, request *vmmdv1.PrepareShu
 	if err := s.prepareHost(ctx); err != nil {
 		return nil, rpcError(err)
 	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF)
+	}()
 	return &vmmdv1.PrepareShutdownResponse{}, nil
 }
 
@@ -256,7 +263,13 @@ func (s *Server) mutate(ctx context.Context, operation string, request proto.Mes
 		return nil, err
 	}
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256(bytes))
-	return s.dedupe.do(ctx, operation+"/"+requestID, fingerprint, function)
+	return s.dedupe.do(ctx, operation+"/"+requestID, fingerprint, func() (any, error) {
+		value, err := function()
+		if err == nil {
+			s.events.publish(&vmmdv1.RuntimeEvent{Type: operation, GuestBootId: s.health.BootID, RequestId: requestID, TimestampUnixNano: time.Now().UnixNano()})
+		}
+		return value, err
+	})
 }
 
 func (s *Server) beginShutdown(ctx context.Context) error {
@@ -367,9 +380,9 @@ func rpcError(err error) error {
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errdefs.IsFailedPrecondition(err):
 		return status.Error(codes.FailedPrecondition, err.Error())
-	case strings.Contains(err.Error(), "quota") || strings.Contains(err.Error(), "too many concurrent"):
+	case errors.Is(err, errResourceExhausted):
 		return status.Error(codes.ResourceExhausted, err.Error())
-	case strings.Contains(err.Error(), "not empty") || strings.Contains(err.Error(), "is referenced") || strings.Contains(err.Error(), "is not running") || strings.Contains(err.Error(), "cannot be deleted"):
+	case errors.Is(err, errPrecondition):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, err.Error())
