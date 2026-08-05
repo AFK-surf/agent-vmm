@@ -12,11 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/egress"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
@@ -55,6 +57,12 @@ type Controller struct {
 	sessions         map[string]*sessionServer
 	observed         map[string][]*hostv1.Container
 	environmentLocks sync.Map
+	projectionMu     sync.Mutex
+	egress           *egress.Subsystem
+	egressCancel     context.CancelFunc
+	egressAcceptWG   sync.WaitGroup
+	egressSessionWG  sync.WaitGroup
+	policyRevision   atomic.Uint64
 }
 
 type sessionServer struct {
@@ -114,10 +122,11 @@ func New(config Config) (*Controller, error) {
 		database.Close()
 		return nil, err
 	}
-	return &Controller{manager: config.Manager, store: database, sessionDirectory: config.SessionDirectory, supportDirectory: supportDirectory, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container)}, nil
+	return &Controller{manager: config.Manager, store: database, sessionDirectory: config.SessionDirectory, supportDirectory: supportDirectory, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container), egress: egress.New()}, nil
 }
 
 func (controller *Controller) Close() error {
+	controller.stopEgress()
 	controller.mu.Lock()
 	sessions := controller.sessions
 	controller.sessions = make(map[string]*sessionServer)
@@ -199,10 +208,12 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 }
 
 func (controller *Controller) ensureEnvironment(ctx context.Context, environmentID, displayName string) (store.Environment, error) {
+	controller.projectionMu.Lock()
+	defer controller.projectionMu.Unlock()
 	if environmentID != "" {
 		environment, err := controller.store.GetEnvironment(ctx, environmentID)
 		if err == nil {
-			return environment, controller.reconcileEnvironment(ctx, environment)
+			return environment, controller.reconcileEnvironmentLocked(ctx, environment)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return store.Environment{}, err
@@ -223,7 +234,7 @@ func (controller *Controller) ensureEnvironment(ctx context.Context, environment
 	if err != nil {
 		return store.Environment{}, err
 	}
-	return environment, controller.reconcileEnvironment(ctx, environment)
+	return environment, controller.reconcileEnvironmentLocked(ctx, environment)
 }
 
 func (controller *Controller) lockEnvironment(environmentID string) func() {
@@ -234,6 +245,12 @@ func (controller *Controller) lockEnvironment(environmentID string) func() {
 }
 
 func (controller *Controller) reconcileEnvironment(ctx context.Context, environment store.Environment) error {
+	controller.projectionMu.Lock()
+	defer controller.projectionMu.Unlock()
+	return controller.reconcileEnvironmentLocked(ctx, environment)
+}
+
+func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, environment store.Environment) error {
 	started := false
 	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
 		if _, err := controller.manager.Start(ctx); err != nil {
@@ -242,9 +259,16 @@ func (controller *Controller) reconcileEnvironment(ctx context.Context, environm
 		started = true
 	}
 	if started {
-		return controller.reconcilePolicies(ctx)
+		if err := controller.startEgress(); err != nil {
+			return err
+		}
+		return controller.reconcilePoliciesLocked(ctx)
 	}
-	return controller.projectEnvironment(ctx, environment)
+	controller.egress.Policies.Clear()
+	if err := controller.projectEnvironment(ctx, environment); err != nil {
+		return err
+	}
+	return controller.publishSourcePolicies(ctx)
 }
 
 func (controller *Controller) projectEnvironment(ctx context.Context, environment store.Environment) error {
@@ -266,6 +290,13 @@ func (controller *Controller) projectEnvironment(ctx context.Context, environmen
 }
 
 func (controller *Controller) reconcilePolicies(ctx context.Context) error {
+	controller.projectionMu.Lock()
+	defer controller.projectionMu.Unlock()
+	return controller.reconcilePoliciesLocked(ctx)
+}
+
+func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error {
+	controller.egress.Policies.Clear()
 	environments, err := controller.store.ListEnvironments(ctx)
 	if err != nil {
 		return err
@@ -304,7 +335,7 @@ func (controller *Controller) reconcilePolicies(ctx context.Context) error {
 			return applyErr
 		}
 	}
-	return nil
+	return controller.publishSourcePolicies(ctx)
 }
 
 func randomRequestIDFor(value string) string {

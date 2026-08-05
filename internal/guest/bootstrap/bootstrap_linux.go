@@ -16,8 +16,6 @@ import (
 
 const StateMount = "/state"
 
-const publicDNSServer = "192.168.88.2"
-
 type Result struct {
 	ManifestDigest   string
 	StateDevice      string
@@ -68,9 +66,6 @@ func Prepare() (*Result, error) {
 	}
 	if err := unix.Mount(filepath.Join(StateMount, "cni"), "/var/lib/cni", "", unix.MS_BIND, ""); err != nil {
 		return nil, fmt.Errorf("mount CNI state: %w", err)
-	}
-	if err := os.WriteFile("/run/resolv.conf", []byte("nameserver "+publicDNSServer+"\n"), 0o644); err != nil {
-		return nil, fmt.Errorf("configure public DNS: %w", err)
 	}
 	return &Result{ManifestDigest: manifestDigest, StateDevice: stateDevice, StateInitialized: true, RootReadOnly: rootReadOnly()}, nil
 }

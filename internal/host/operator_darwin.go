@@ -40,12 +40,25 @@ func (server *operatorServer) StartVM(ctx context.Context, request *hostv1.Start
 		server.controller.failOperation(ctx, &operation, "VM_START_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "VM_START_FAILED", "vm", "local", err.Error())
 	}
+	if err := server.controller.startEgress(); err != nil {
+		server.controller.rollbackStartedVM()
+		server.controller.failOperation(ctx, &operation, "EGRESS_START_FAILED", err)
+		return nil, resourceError(codes.FailedPrecondition, "EGRESS_START_FAILED", "vm", "local", err.Error())
+	}
 	if err := server.controller.reconcilePolicies(ctx); err != nil {
+		server.controller.rollbackStartedVM()
 		server.controller.failOperation(ctx, &operation, "POLICY_RECONCILE_FAILED", err)
 		return nil, retryable("POLICY_RECONCILE_FAILED", "VM started but policy projection failed", time.Second)
 	}
 	server.controller.completeOperation(ctx, &operation, "running")
 	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+}
+
+func (controller *Controller) rollbackStartedVM() {
+	controller.stopEgress()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, _ = controller.manager.Stop(ctx, true)
 }
 
 func (server *operatorServer) GetVM(ctx context.Context, _ *hostv1.GetVMRequest) (*hostv1.VMResponse, error) {
@@ -69,8 +82,13 @@ func (server *operatorServer) StopVM(ctx context.Context, request *hostv1.StopVM
 	if existing {
 		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 	}
+	server.controller.stopEgress()
 	_, err = server.controller.manager.Stop(ctx, request.GetForce())
 	if err != nil {
+		if server.controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+			_ = server.controller.startEgress()
+			_ = server.controller.reconcilePolicies(context.Background())
+		}
 		server.controller.failOperation(ctx, &operation, "VM_STOP_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "VM_STOP_FAILED", "vm", "local", err.Error())
 	}
@@ -147,13 +165,15 @@ func (server *operatorServer) UpdateEnvironmentPolicy(ctx context.Context, reque
 	if err := validatePolicy(limits, request.GetEgressMode()); err != nil {
 		return nil, err
 	}
+	server.controller.projectionMu.Lock()
+	defer server.controller.projectionMu.Unlock()
 	environment, err := server.controller.store.UpdatePolicy(ctx, request.GetEnvironmentId(), request.GetExpectedRevision(), store.Environment{
 		CPUMillis: limits.GetCpuMillis(), MemoryBytes: limits.GetMemoryBytes(), PIDs: limits.GetPids(), DiskBytes: limits.GetDiskBytes(), EgressMode: int32(request.GetEgressMode()),
 	})
 	if err != nil {
 		return nil, resourceError(codes.Aborted, "POLICY_REVISION_CONFLICT", "environment", request.GetEnvironmentId(), err.Error())
 	}
-	if err := server.controller.reconcileEnvironment(ctx, environment); err != nil {
+	if err := server.controller.reconcileEnvironmentLocked(ctx, environment); err != nil {
 		return &hostv1.GetEnvironmentResponse{Environment: environmentFromStore(environment)}, retryable("POLICY_PROJECTION_FAILED", "host policy was saved but guest projection failed", time.Second)
 	}
 	return &hostv1.GetEnvironmentResponse{Environment: environmentFromStore(environment)}, nil

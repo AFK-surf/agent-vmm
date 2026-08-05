@@ -157,8 +157,7 @@ The Virtualization.framework configuration contains these devices:
 - one native Linux kernel and one immutable guest image
 - one writable state disk
 - one VirtioFS device for approved host directories
-- one NAT network device
-- one virtio-vsock device for control and byte streams
+- one virtio-vsock device for control, byte streams, and the dedicated egress packet session
 - entropy and memory balloon devices
 
 ### `agent-vmmd`
@@ -330,11 +329,25 @@ The connection uses only the validated IP address.
 TLS still uses the original hostname for SNI and certificate checks.
 
 Product code ignores `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`.
-It does not add a host proxy or a vsock egress relay.
+The guest keeps namespace bridge, policy DNS, nftables, and `NetworkLink`
+ownership. Public IPv4 packets retain their namespace source address and
+follow one guest TUN over a dedicated vsock session to the host controller.
+One boot-scoped gVisor netstack terminates permitted TCP and UDP flows
+through validated macOS sockets; the host never installs a route to
+a guest namespace.
 
-The guest uses `192.168.88.2` as its recursive public DNS server.
-V0 requests IPv4 results because VZ can synthesize IPv6 results.
-This DNS setting does not permit workload access to the LAN.
+Public A and CNAME queries use the namespace gateway source and the fixed
+TUN virtual DNS endpoint. The host system resolver supplies results,
+and the host filters every returned address before sending it to the guest.
+`DENY_ALL`, unknown or stale sources, private addresses, metadata, host
+virtual addresses, and namespace ranges fail closed. The guest infrastructure
+source is denied unless the host holds a short-lived lease for an authorized
+operation such as image pull.
+
+Sleep, wake, and host network changes may terminate existing flows. The guest
+pump reconnects with bounded backoff, and new DNS and TCP connections must
+recover within 30 seconds. Host-to-container traffic remains a separate authorized
+`ForwardTCP` stream and never uses reverse egress routing.
 
 The public E2E runner tests a fixed TLS service from the host and guest.
 The target can use a public address or the approved transparent mapping.

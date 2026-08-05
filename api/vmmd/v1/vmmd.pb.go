@@ -5170,6 +5170,134 @@ func (x *ComponentHealthResponse) GetComponents() []*ComponentStatus {
 	return nil
 }
 
+type ProbeEgressRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NamespaceId   string                 `protobuf:"bytes,1,opt,name=namespace_id,json=namespaceId,proto3" json:"namespace_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProbeEgressRequest) Reset() {
+	*x = ProbeEgressRequest{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeEgressRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeEgressRequest) ProtoMessage() {}
+
+func (x *ProbeEgressRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeEgressRequest.ProtoReflect.Descriptor instead.
+func (*ProbeEgressRequest) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{81}
+}
+
+func (x *ProbeEgressRequest) GetNamespaceId() string {
+	if x != nil {
+		return x.NamespaceId
+	}
+	return ""
+}
+
+type ProbeEgressResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	PolicyEnforced bool                   `protobuf:"varint,1,opt,name=policy_enforced,json=policyEnforced,proto3" json:"policy_enforced,omitempty"`
+	DnsOk          bool                   `protobuf:"varint,2,opt,name=dns_ok,json=dnsOk,proto3" json:"dns_ok,omitempty"`
+	TcpOk          bool                   `protobuf:"varint,3,opt,name=tcp_ok,json=tcpOk,proto3" json:"tcp_ok,omitempty"`
+	PrivateDenied  bool                   `protobuf:"varint,4,opt,name=private_denied,json=privateDenied,proto3" json:"private_denied,omitempty"`
+	FailureLayer   string                 `protobuf:"bytes,5,opt,name=failure_layer,json=failureLayer,proto3" json:"failure_layer,omitempty"`
+	Reason         string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ProbeEgressResponse) Reset() {
+	*x = ProbeEgressResponse{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeEgressResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeEgressResponse) ProtoMessage() {}
+
+func (x *ProbeEgressResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeEgressResponse.ProtoReflect.Descriptor instead.
+func (*ProbeEgressResponse) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{82}
+}
+
+func (x *ProbeEgressResponse) GetPolicyEnforced() bool {
+	if x != nil {
+		return x.PolicyEnforced
+	}
+	return false
+}
+
+func (x *ProbeEgressResponse) GetDnsOk() bool {
+	if x != nil {
+		return x.DnsOk
+	}
+	return false
+}
+
+func (x *ProbeEgressResponse) GetTcpOk() bool {
+	if x != nil {
+		return x.TcpOk
+	}
+	return false
+}
+
+func (x *ProbeEgressResponse) GetPrivateDenied() bool {
+	if x != nil {
+		return x.PrivateDenied
+	}
+	return false
+}
+
+func (x *ProbeEgressResponse) GetFailureLayer() string {
+	if x != nil {
+		return x.FailureLayer
+	}
+	return ""
+}
+
+func (x *ProbeEgressResponse) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 type ResourceReference struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
@@ -5181,7 +5309,7 @@ type ResourceReference struct {
 
 func (x *ResourceReference) Reset() {
 	*x = ResourceReference{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5193,7 +5321,7 @@ func (x *ResourceReference) String() string {
 func (*ResourceReference) ProtoMessage() {}
 
 func (x *ResourceReference) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5206,7 +5334,7 @@ func (x *ResourceReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceReference.ProtoReflect.Descriptor instead.
 func (*ResourceReference) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{81}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *ResourceReference) GetKind() string {
@@ -5239,7 +5367,7 @@ type WatchEventsRequest struct {
 
 func (x *WatchEventsRequest) Reset() {
 	*x = WatchEventsRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5251,7 +5379,7 @@ func (x *WatchEventsRequest) String() string {
 func (*WatchEventsRequest) ProtoMessage() {}
 
 func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5264,7 +5392,7 @@ func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{82}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *WatchEventsRequest) GetAfterSequence() uint64 {
@@ -5289,7 +5417,7 @@ type RuntimeEvent struct {
 
 func (x *RuntimeEvent) Reset() {
 	*x = RuntimeEvent{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5301,7 +5429,7 @@ func (x *RuntimeEvent) String() string {
 func (*RuntimeEvent) ProtoMessage() {}
 
 func (x *RuntimeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5314,7 +5442,7 @@ func (x *RuntimeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeEvent.ProtoReflect.Descriptor instead.
 func (*RuntimeEvent) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{83}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *RuntimeEvent) GetSequence() uint64 {
@@ -5728,7 +5856,16 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x17ComponentHealthResponse\x12A\n" +
 	"\n" +
 	"components\x18\x01 \x03(\v2!.agentvmm.vmmd.v1.ComponentStatusR\n" +
-	"components\"k\n" +
+	"components\"7\n" +
+	"\x12ProbeEgressRequest\x12!\n" +
+	"\fnamespace_id\x18\x01 \x01(\tR\vnamespaceId\"\xd0\x01\n" +
+	"\x13ProbeEgressResponse\x12'\n" +
+	"\x0fpolicy_enforced\x18\x01 \x01(\bR\x0epolicyEnforced\x12\x15\n" +
+	"\x06dns_ok\x18\x02 \x01(\bR\x05dnsOk\x12\x15\n" +
+	"\x06tcp_ok\x18\x03 \x01(\bR\x05tcpOk\x12%\n" +
+	"\x0eprivate_denied\x18\x04 \x01(\bR\rprivateDenied\x12#\n" +
+	"\rfailure_layer\x18\x05 \x01(\tR\ffailureLayer\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"k\n" +
 	"\x11ResourceReference\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12!\n" +
 	"\fnamespace_id\x18\x02 \x01(\tR\vnamespaceId\x12\x1f\n" +
@@ -5772,7 +5909,7 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x1bCOMPONENT_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17COMPONENT_STATE_HEALTHY\x10\x01\x12\x1c\n" +
 	"\x18COMPONENT_STATE_DEGRADED\x10\x02\x12\x1f\n" +
-	"\x1bCOMPONENT_STATE_UNAVAILABLE\x10\x032\x8a\x18\n" +
+	"\x1bCOMPONENT_STATE_UNAVAILABLE\x10\x032\xe6\x18\n" +
 	"\vVMMDService\x12K\n" +
 	"\x06Health\x12\x1f.agentvmm.vmmd.v1.HealthRequest\x1a .agentvmm.vmmd.v1.HealthResponse\x12f\n" +
 	"\x0fPrepareShutdown\x12(.agentvmm.vmmd.v1.PrepareShutdownRequest\x1a).agentvmm.vmmd.v1.PrepareShutdownResponse\x12f\n" +
@@ -5807,7 +5944,8 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"ForwardTCP\x12#.agentvmm.vmmd.v1.ForwardTCPRequest\x1a$.agentvmm.vmmd.v1.ForwardTCPResponse(\x010\x01\x12[\n" +
 	"\n" +
 	"BuildImage\x12#.agentvmm.vmmd.v1.BuildImageRequest\x1a$.agentvmm.vmmd.v1.BuildImageResponse(\x010\x01\x12f\n" +
-	"\x0fComponentHealth\x12(.agentvmm.vmmd.v1.ComponentHealthRequest\x1a).agentvmm.vmmd.v1.ComponentHealthResponse\x12U\n" +
+	"\x0fComponentHealth\x12(.agentvmm.vmmd.v1.ComponentHealthRequest\x1a).agentvmm.vmmd.v1.ComponentHealthResponse\x12Z\n" +
+	"\vProbeEgress\x12$.agentvmm.vmmd.v1.ProbeEgressRequest\x1a%.agentvmm.vmmd.v1.ProbeEgressResponse\x12U\n" +
 	"\vWatchEvents\x12$.agentvmm.vmmd.v1.WatchEventsRequest\x1a\x1e.agentvmm.vmmd.v1.RuntimeEvent0\x01B2Z0github.com/AFK-surf/agent-vmm/api/vmmd/v1;vmmdv1b\x06proto3"
 
 var (
@@ -5823,7 +5961,7 @@ func file_vmmd_v1_vmmd_proto_rawDescGZIP() []byte {
 }
 
 var file_vmmd_v1_vmmd_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_vmmd_v1_vmmd_proto_msgTypes = make([]protoimpl.MessageInfo, 85)
+var file_vmmd_v1_vmmd_proto_msgTypes = make([]protoimpl.MessageInfo, 87)
 var file_vmmd_v1_vmmd_proto_goTypes = []any{
 	(EgressMode)(0),                   // 0: agentvmm.vmmd.v1.EgressMode
 	(ContainerState)(0),               // 1: agentvmm.vmmd.v1.ContainerState
@@ -5912,13 +6050,15 @@ var file_vmmd_v1_vmmd_proto_goTypes = []any{
 	(*ComponentStatus)(nil),           // 84: agentvmm.vmmd.v1.ComponentStatus
 	(*ComponentHealthRequest)(nil),    // 85: agentvmm.vmmd.v1.ComponentHealthRequest
 	(*ComponentHealthResponse)(nil),   // 86: agentvmm.vmmd.v1.ComponentHealthResponse
-	(*ResourceReference)(nil),         // 87: agentvmm.vmmd.v1.ResourceReference
-	(*WatchEventsRequest)(nil),        // 88: agentvmm.vmmd.v1.WatchEventsRequest
-	(*RuntimeEvent)(nil),              // 89: agentvmm.vmmd.v1.RuntimeEvent
-	nil,                               // 90: agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
+	(*ProbeEgressRequest)(nil),        // 87: agentvmm.vmmd.v1.ProbeEgressRequest
+	(*ProbeEgressResponse)(nil),       // 88: agentvmm.vmmd.v1.ProbeEgressResponse
+	(*ResourceReference)(nil),         // 89: agentvmm.vmmd.v1.ResourceReference
+	(*WatchEventsRequest)(nil),        // 90: agentvmm.vmmd.v1.WatchEventsRequest
+	(*RuntimeEvent)(nil),              // 91: agentvmm.vmmd.v1.RuntimeEvent
+	nil,                               // 92: agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
 }
 var file_vmmd_v1_vmmd_proto_depIdxs = []int32{
-	90, // 0: agentvmm.vmmd.v1.HealthResponse.runtime_versions:type_name -> agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
+	92, // 0: agentvmm.vmmd.v1.HealthResponse.runtime_versions:type_name -> agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
 	10, // 1: agentvmm.vmmd.v1.Namespace.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
 	0,  // 2: agentvmm.vmmd.v1.Namespace.egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
 	10, // 3: agentvmm.vmmd.v1.EnsureNamespaceRequest.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
@@ -5960,7 +6100,7 @@ var file_vmmd_v1_vmmd_proto_depIdxs = []int32{
 	82, // 39: agentvmm.vmmd.v1.BuildImageResponse.result:type_name -> agentvmm.vmmd.v1.BuildImageResult
 	5,  // 40: agentvmm.vmmd.v1.ComponentStatus.state:type_name -> agentvmm.vmmd.v1.ComponentState
 	84, // 41: agentvmm.vmmd.v1.ComponentHealthResponse.components:type_name -> agentvmm.vmmd.v1.ComponentStatus
-	87, // 42: agentvmm.vmmd.v1.RuntimeEvent.resource:type_name -> agentvmm.vmmd.v1.ResourceReference
+	89, // 42: agentvmm.vmmd.v1.RuntimeEvent.resource:type_name -> agentvmm.vmmd.v1.ResourceReference
 	6,  // 43: agentvmm.vmmd.v1.VMMDService.Health:input_type -> agentvmm.vmmd.v1.HealthRequest
 	8,  // 44: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:input_type -> agentvmm.vmmd.v1.PrepareShutdownRequest
 	12, // 45: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:input_type -> agentvmm.vmmd.v1.EnsureNamespaceRequest
@@ -5992,41 +6132,43 @@ var file_vmmd_v1_vmmd_proto_depIdxs = []int32{
 	74, // 71: agentvmm.vmmd.v1.VMMDService.ForwardTCP:input_type -> agentvmm.vmmd.v1.ForwardTCPRequest
 	81, // 72: agentvmm.vmmd.v1.VMMDService.BuildImage:input_type -> agentvmm.vmmd.v1.BuildImageRequest
 	85, // 73: agentvmm.vmmd.v1.VMMDService.ComponentHealth:input_type -> agentvmm.vmmd.v1.ComponentHealthRequest
-	88, // 74: agentvmm.vmmd.v1.VMMDService.WatchEvents:input_type -> agentvmm.vmmd.v1.WatchEventsRequest
-	7,  // 75: agentvmm.vmmd.v1.VMMDService.Health:output_type -> agentvmm.vmmd.v1.HealthResponse
-	9,  // 76: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:output_type -> agentvmm.vmmd.v1.PrepareShutdownResponse
-	13, // 77: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:output_type -> agentvmm.vmmd.v1.EnsureNamespaceResponse
-	15, // 78: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:output_type -> agentvmm.vmmd.v1.DeleteNamespaceResponse
-	17, // 79: agentvmm.vmmd.v1.VMMDService.GetNamespace:output_type -> agentvmm.vmmd.v1.GetNamespaceResponse
-	19, // 80: agentvmm.vmmd.v1.VMMDService.ListNamespaces:output_type -> agentvmm.vmmd.v1.ListNamespacesResponse
-	57, // 81: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	57, // 82: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	23, // 83: agentvmm.vmmd.v1.VMMDService.PullImage:output_type -> agentvmm.vmmd.v1.PullImageResponse
-	26, // 84: agentvmm.vmmd.v1.VMMDService.CreateVolume:output_type -> agentvmm.vmmd.v1.CreateVolumeResponse
-	28, // 85: agentvmm.vmmd.v1.VMMDService.DeleteVolume:output_type -> agentvmm.vmmd.v1.DeleteVolumeResponse
-	30, // 86: agentvmm.vmmd.v1.VMMDService.GetVolume:output_type -> agentvmm.vmmd.v1.GetVolumeResponse
-	32, // 87: agentvmm.vmmd.v1.VMMDService.ListVolumes:output_type -> agentvmm.vmmd.v1.ListVolumesResponse
-	35, // 88: agentvmm.vmmd.v1.VMMDService.GetImage:output_type -> agentvmm.vmmd.v1.GetImageResponse
-	37, // 89: agentvmm.vmmd.v1.VMMDService.ListImages:output_type -> agentvmm.vmmd.v1.ListImagesResponse
-	42, // 90: agentvmm.vmmd.v1.VMMDService.CreateContainer:output_type -> agentvmm.vmmd.v1.CreateContainerResponse
-	44, // 91: agentvmm.vmmd.v1.VMMDService.StartContainer:output_type -> agentvmm.vmmd.v1.StartContainerResponse
-	46, // 92: agentvmm.vmmd.v1.VMMDService.StopContainer:output_type -> agentvmm.vmmd.v1.StopContainerResponse
-	48, // 93: agentvmm.vmmd.v1.VMMDService.WaitContainer:output_type -> agentvmm.vmmd.v1.WaitContainerResponse
-	50, // 94: agentvmm.vmmd.v1.VMMDService.DeleteContainer:output_type -> agentvmm.vmmd.v1.DeleteContainerResponse
-	52, // 95: agentvmm.vmmd.v1.VMMDService.InspectContainer:output_type -> agentvmm.vmmd.v1.InspectContainerResponse
-	54, // 96: agentvmm.vmmd.v1.VMMDService.ListContainers:output_type -> agentvmm.vmmd.v1.ListContainersResponse
-	57, // 97: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	59, // 98: agentvmm.vmmd.v1.VMMDService.Logs:output_type -> agentvmm.vmmd.v1.LogsResponse
-	65, // 99: agentvmm.vmmd.v1.VMMDService.Exec:output_type -> agentvmm.vmmd.v1.ExecResponse
-	61, // 100: agentvmm.vmmd.v1.VMMDService.SignalContainer:output_type -> agentvmm.vmmd.v1.SignalContainerResponse
-	70, // 101: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:output_type -> agentvmm.vmmd.v1.ApplyNetworkLinkResponse
-	72, // 102: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:output_type -> agentvmm.vmmd.v1.DeleteNetworkLinkResponse
-	75, // 103: agentvmm.vmmd.v1.VMMDService.ForwardTCP:output_type -> agentvmm.vmmd.v1.ForwardTCPResponse
-	83, // 104: agentvmm.vmmd.v1.VMMDService.BuildImage:output_type -> agentvmm.vmmd.v1.BuildImageResponse
-	86, // 105: agentvmm.vmmd.v1.VMMDService.ComponentHealth:output_type -> agentvmm.vmmd.v1.ComponentHealthResponse
-	89, // 106: agentvmm.vmmd.v1.VMMDService.WatchEvents:output_type -> agentvmm.vmmd.v1.RuntimeEvent
-	75, // [75:107] is the sub-list for method output_type
-	43, // [43:75] is the sub-list for method input_type
+	87, // 74: agentvmm.vmmd.v1.VMMDService.ProbeEgress:input_type -> agentvmm.vmmd.v1.ProbeEgressRequest
+	90, // 75: agentvmm.vmmd.v1.VMMDService.WatchEvents:input_type -> agentvmm.vmmd.v1.WatchEventsRequest
+	7,  // 76: agentvmm.vmmd.v1.VMMDService.Health:output_type -> agentvmm.vmmd.v1.HealthResponse
+	9,  // 77: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:output_type -> agentvmm.vmmd.v1.PrepareShutdownResponse
+	13, // 78: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:output_type -> agentvmm.vmmd.v1.EnsureNamespaceResponse
+	15, // 79: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:output_type -> agentvmm.vmmd.v1.DeleteNamespaceResponse
+	17, // 80: agentvmm.vmmd.v1.VMMDService.GetNamespace:output_type -> agentvmm.vmmd.v1.GetNamespaceResponse
+	19, // 81: agentvmm.vmmd.v1.VMMDService.ListNamespaces:output_type -> agentvmm.vmmd.v1.ListNamespacesResponse
+	57, // 82: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	57, // 83: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	23, // 84: agentvmm.vmmd.v1.VMMDService.PullImage:output_type -> agentvmm.vmmd.v1.PullImageResponse
+	26, // 85: agentvmm.vmmd.v1.VMMDService.CreateVolume:output_type -> agentvmm.vmmd.v1.CreateVolumeResponse
+	28, // 86: agentvmm.vmmd.v1.VMMDService.DeleteVolume:output_type -> agentvmm.vmmd.v1.DeleteVolumeResponse
+	30, // 87: agentvmm.vmmd.v1.VMMDService.GetVolume:output_type -> agentvmm.vmmd.v1.GetVolumeResponse
+	32, // 88: agentvmm.vmmd.v1.VMMDService.ListVolumes:output_type -> agentvmm.vmmd.v1.ListVolumesResponse
+	35, // 89: agentvmm.vmmd.v1.VMMDService.GetImage:output_type -> agentvmm.vmmd.v1.GetImageResponse
+	37, // 90: agentvmm.vmmd.v1.VMMDService.ListImages:output_type -> agentvmm.vmmd.v1.ListImagesResponse
+	42, // 91: agentvmm.vmmd.v1.VMMDService.CreateContainer:output_type -> agentvmm.vmmd.v1.CreateContainerResponse
+	44, // 92: agentvmm.vmmd.v1.VMMDService.StartContainer:output_type -> agentvmm.vmmd.v1.StartContainerResponse
+	46, // 93: agentvmm.vmmd.v1.VMMDService.StopContainer:output_type -> agentvmm.vmmd.v1.StopContainerResponse
+	48, // 94: agentvmm.vmmd.v1.VMMDService.WaitContainer:output_type -> agentvmm.vmmd.v1.WaitContainerResponse
+	50, // 95: agentvmm.vmmd.v1.VMMDService.DeleteContainer:output_type -> agentvmm.vmmd.v1.DeleteContainerResponse
+	52, // 96: agentvmm.vmmd.v1.VMMDService.InspectContainer:output_type -> agentvmm.vmmd.v1.InspectContainerResponse
+	54, // 97: agentvmm.vmmd.v1.VMMDService.ListContainers:output_type -> agentvmm.vmmd.v1.ListContainersResponse
+	57, // 98: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	59, // 99: agentvmm.vmmd.v1.VMMDService.Logs:output_type -> agentvmm.vmmd.v1.LogsResponse
+	65, // 100: agentvmm.vmmd.v1.VMMDService.Exec:output_type -> agentvmm.vmmd.v1.ExecResponse
+	61, // 101: agentvmm.vmmd.v1.VMMDService.SignalContainer:output_type -> agentvmm.vmmd.v1.SignalContainerResponse
+	70, // 102: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:output_type -> agentvmm.vmmd.v1.ApplyNetworkLinkResponse
+	72, // 103: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:output_type -> agentvmm.vmmd.v1.DeleteNetworkLinkResponse
+	75, // 104: agentvmm.vmmd.v1.VMMDService.ForwardTCP:output_type -> agentvmm.vmmd.v1.ForwardTCPResponse
+	83, // 105: agentvmm.vmmd.v1.VMMDService.BuildImage:output_type -> agentvmm.vmmd.v1.BuildImageResponse
+	86, // 106: agentvmm.vmmd.v1.VMMDService.ComponentHealth:output_type -> agentvmm.vmmd.v1.ComponentHealthResponse
+	88, // 107: agentvmm.vmmd.v1.VMMDService.ProbeEgress:output_type -> agentvmm.vmmd.v1.ProbeEgressResponse
+	91, // 108: agentvmm.vmmd.v1.VMMDService.WatchEvents:output_type -> agentvmm.vmmd.v1.RuntimeEvent
+	76, // [76:109] is the sub-list for method output_type
+	43, // [43:76] is the sub-list for method input_type
 	43, // [43:43] is the sub-list for extension type_name
 	43, // [43:43] is the sub-list for extension extendee
 	0,  // [0:43] is the sub-list for field type_name
@@ -6084,7 +6226,7 @@ func file_vmmd_v1_vmmd_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vmmd_v1_vmmd_proto_rawDesc), len(file_vmmd_v1_vmmd_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   85,
+			NumMessages:   87,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

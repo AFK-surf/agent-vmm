@@ -25,6 +25,8 @@ type HealthState struct {
 	ManifestDigest string
 	RootReadOnly   bool
 	Versions       map[string]string
+	EgressHealth   func() error
+	EgressStatus   func() string
 }
 
 type Server struct {

@@ -263,8 +263,8 @@ func testBoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.GetUsage().GetNetworkRxBytes() == 0 || snapshot.GetUsage().GetNetworkTxBytes() == 0 {
-		t.Fatalf("system network counters = %+v", snapshot.GetUsage())
+	if snapshot.GetUsage().GetSampledAt() == nil || snapshot.GetUsage().GetStale() {
+		t.Fatalf("system network usage = %+v", snapshot.GetUsage())
 	}
 	previousBootID := vm.GetBootId()
 	for cycle := 1; cycle < 20; cycle++ {
@@ -563,11 +563,22 @@ func testEgress(t *testing.T, client *productClient) {
 	if _, code := execContainer(t, client, "egress-deny", deny.GetId(), []string{"wget", "-qO-", "-T", "3", "https://example.com"}); code == 0 {
 		t.Fatal("DENY_ALL reached the public internet")
 	}
+	if _, code := execContainer(t, client, "egress-deny", deny.GetId(), []string{"nslookup", "example.com", "1.1.1.1"}); code == 0 {
+		t.Fatal("DENY_ALL reached public DNS over UDP")
+	}
 	if output, code := execContainer(t, client, "egress-public", public.GetId(), []string{"sh", "-c", "for attempt in 1 2 3; do wget -qO- -T 10 https://example.com && exit 0; done; exit 1"}); code != 0 || !bytes.Contains(output, []byte("Example Domain")) {
 		t.Fatalf("PUBLIC_INTERNET request = %q, exit %d", output, code)
 	}
-	if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"nc", "-z", "-w", "2", "192.168.88.2", "53"}); code == 0 {
-		t.Fatal("PUBLIC_INTERNET reached the LAN resolver directly")
+	if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"nslookup", "example.com"}); code != 0 {
+		t.Fatal("PUBLIC_INTERNET could not use virtual DNS over UDP")
+	}
+	if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"nslookup", "example.com", "1.1.1.1"}); code != 0 {
+		t.Fatal("PUBLIC_INTERNET could not reach public DNS over UDP")
+	}
+	for _, address := range []string{"192.168.1.1", "169.254.169.254", "100.127.255.1"} {
+		if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"nc", "-z", "-w", "2", address, "80"}); code == 0 {
+			t.Fatalf("PUBLIC_INTERNET reached blocked destination %s", address)
+		}
 	}
 	stopDeleteContainer(t, client, "egress-deny", deny.GetId())
 	stopDeleteContainer(t, client, "egress-public", public.GetId())
@@ -964,7 +975,7 @@ func testResidualScan(t *testing.T, client *productClient) {
 	}
 }
 
-const workloadImage = "docker.io/library/alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+const workloadImage = "mirror.gcr.io/library/alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce"
 
 type hostHarness struct {
 	client        hostv1.OperatorServiceClient

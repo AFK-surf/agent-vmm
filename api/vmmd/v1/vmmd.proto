@@ -42,6 +42,7 @@ service VMMDService {
   rpc ForwardTCP(stream ForwardTCPRequest) returns (stream ForwardTCPResponse);
   rpc BuildImage(stream BuildImageRequest) returns (stream BuildImageResponse);
   rpc ComponentHealth(ComponentHealthRequest) returns (ComponentHealthResponse);
+  rpc ProbeEgress(ProbeEgressRequest) returns (ProbeEgressResponse);
   rpc WatchEvents(WatchEventsRequest) returns (stream RuntimeEvent);
 }
 
@@ -479,6 +480,19 @@ message ComponentStatus {
 message ComponentHealthRequest {}
 message ComponentHealthResponse {
   repeated ComponentStatus components = 1;
+}
+
+message ProbeEgressRequest {
+  string namespace_id = 1;
+}
+
+message ProbeEgressResponse {
+  bool policy_enforced = 1;
+  bool dns_ok = 2;
+  bool tcp_ok = 3;
+  bool private_denied = 4;
+  string failure_layer = 5;
+  string reason = 6;
 }
 
 message ResourceReference {

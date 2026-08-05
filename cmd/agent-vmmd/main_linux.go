@@ -16,6 +16,7 @@ import (
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guest/bootstrap"
 	"github.com/AFK-surf/agent-vmm/internal/guest/control"
+	"github.com/AFK-surf/agent-vmm/internal/guest/egress"
 	"github.com/AFK-surf/agent-vmm/internal/guest/network"
 	"github.com/AFK-surf/agent-vmm/internal/guest/vsock"
 	"google.golang.org/grpc"
@@ -28,6 +29,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pump, err := egress.New(strings.TrimSpace(string(bootID)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	pumpContext, stopPump := context.WithCancel(context.Background())
+	defer stopPump()
+	defer pump.Close()
+	go func() {
+		if err := pump.Run(pumpContext); err != nil {
+			log.Printf("egress pump stopped: %v", err)
+		}
+	}()
 	networkManager, err := network.NewManager()
 	if err != nil {
 		log.Fatal(err)
@@ -46,10 +63,6 @@ func main() {
 		log.Fatal(err)
 	}
 	defer runtime.Close()
-	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
-	if err != nil {
-		log.Fatal(err)
-	}
 	listener, err := vsock.Listen(vmmdPort)
 	if err != nil {
 		log.Fatal(err)
@@ -63,7 +76,13 @@ func main() {
 			"runsc":      version("/usr/bin/runsc", "--version"),
 			"shim":       version("/usr/bin/containerd-shim-runsc-v1", "-v"),
 		},
+		EgressHealth: pump.Ready,
+		EgressStatus: pump.Status,
 	}, func(ctx context.Context) error {
+		stopPump()
+		if err := pump.Close(); err != nil {
+			return err
+		}
 		if err := networkManager.Close(); err != nil {
 			return err
 		}

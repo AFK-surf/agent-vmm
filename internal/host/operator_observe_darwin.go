@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"time"
 
@@ -54,7 +55,24 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 			response.Health.State = state
 		}
 	}
+	hostEgress := server.controller.hostEgressHealth(response.Vm, response.CollectedAt)
+	response.Health.Components = append(response.Health.Components, hostEgress)
+	if hostEgress.GetState() > response.Health.State {
+		response.Health.State = hostEgress.GetState()
+	}
 	return response, nil
+}
+
+func (controller *Controller) hostEgressHealth(vm *hostv1.VM, observedAt *timestamppb.Timestamp) *hostv1.ComponentHealth {
+	active, bootID, revision, sources := controller.egress.Status()
+	metrics := controller.egress.Metrics()
+	state := hostv1.HealthState_HEALTH_STATE_HEALTHY
+	reason := fmt.Sprintf("policy_revision=%d sources=%d packets_rx=%d packets_tx=%d drops=%d rejected=%d active_tcp=%d active_udp=%d active_dns=%d", revision, sources, metrics.PacketsReceived, metrics.PacketsSent, metrics.PacketDrops, metrics.RejectedFlows, metrics.ActiveTCP, metrics.ActiveUDP, metrics.ActiveDNS)
+	if !active || bootID != vm.GetBootId() || revision == 0 {
+		state = hostv1.HealthState_HEALTH_STATE_DEGRADED
+		reason = "egress session or source policy is not ready"
+	}
+	return &hostv1.ComponentHealth{Component: "host-egress", State: state, Reason: reason, ObservedAt: observedAt}
 }
 
 func markUsageStale(response *hostv1.GetSystemSnapshotResponse) {

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
 
 func TestStateInitializationMarker(t *testing.T) {
@@ -32,6 +34,31 @@ func TestStateInitializationMarker(t *testing.T) {
 	initializing, err = prepareState(directory, size)
 	if err != nil || initializing {
 		t.Fatalf("prepare initialized state = %t, %v", initializing, err)
+	}
+}
+
+func TestConfigurationHasNoNetworkDevice(t *testing.T) {
+	directory := t.TempDir()
+	for _, name := range []string{"kernel", "initramfs", "rootfs", "state.raw"} {
+		if err := os.WriteFile(filepath.Join(directory, name), make([]byte, 4096), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serial, err := os.OpenFile(filepath.Join(directory, "serial.log"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serial.Close()
+	manager := &Manager{config: Config{CPUCount: 2, MemoryBytes: 1 << 30, InstanceDirectory: directory}}
+	verified := &bundle.Verified{Directory: directory, Manifest: bundle.Manifest{Artifacts: map[string]bundle.Artifact{
+		"kernel": {Path: "kernel"}, "initramfs": {Path: "initramfs"}, "rootfs": {Path: "rootfs"},
+	}}}
+	configuration, err := manager.configuration(verified, serial, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if devices := configuration.NetworkDevices(); len(devices) != 0 {
+		t.Fatalf("configuration has %d network devices", len(devices))
 	}
 }
 

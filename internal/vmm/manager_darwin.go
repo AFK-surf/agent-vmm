@@ -5,8 +5,6 @@ package vmm
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -17,6 +15,7 @@ import (
 	"github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
 	"github.com/Code-Hex/vz/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -37,13 +36,14 @@ type Config struct {
 type Manager struct {
 	config Config
 
-	mu       sync.Mutex
-	state    hostv1.VMState
-	bootID   string
-	lastErr  string
-	machine  *vz.VirtualMachine
-	socket   *vz.VirtioSocketDevice
-	verified *bundle.Verified
+	mu             sync.Mutex
+	state          hostv1.VMState
+	bootID         string
+	lastErr        string
+	machine        *vz.VirtualMachine
+	socket         *vz.VirtioSocketDevice
+	egressListener net.Listener
+	verified       *bundle.Verified
 }
 
 func NewManager(config Config) (*Manager, error) {
@@ -125,42 +125,57 @@ func (manager *Manager) start(ctx context.Context) error {
 		serial.Close()
 		return err
 	}
+	started := false
+	defer func() {
+		if started {
+			return
+		}
+		if machine.CanStop() {
+			_ = machine.Stop()
+		}
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = waitState(stopCtx, machine, vz.VirtualMachineStateStopped)
+		cancel()
+		_ = serial.Close()
+		manager.mu.Lock()
+		if manager.machine == machine {
+			manager.closeEgressLocked()
+			manager.machine = nil
+			manager.socket = nil
+			manager.bootID = ""
+		}
+		manager.mu.Unlock()
+	}()
 	if err := waitState(ctx, machine, vz.VirtualMachineStateRunning); err != nil {
-		_ = machine.Stop()
-		serial.Close()
-		return err
-	}
-	bootID, err := randomID()
-	if err != nil {
-		_ = machine.Stop()
 		return err
 	}
 	manager.mu.Lock()
+	manager.closeEgressLocked()
 	manager.machine = machine
 	manager.socket = machine.SocketDevices()[0]
 	manager.verified = verified
-	manager.bootID = bootID
+	manager.bootID = ""
 	manager.mu.Unlock()
 
 	health, err := manager.waitHealth(ctx)
 	if err != nil {
-		_ = machine.Stop()
 		return err
 	}
-	if !health.GetReady() || !health.GetRootReadOnly() || health.GetManifestDigest() != verified.ManifestDigest {
-		_ = machine.Stop()
+	if !health.GetReady() || !health.GetRootReadOnly() || health.GetBootId() == "" || health.GetManifestDigest() != verified.ManifestDigest {
 		return errors.New("guest health does not match verified bundle")
 	}
+	manager.mu.Lock()
+	manager.bootID = health.GetBootId()
+	manager.mu.Unlock()
 	if initializing {
 		if !health.GetStateInitialized() {
-			_ = machine.Stop()
 			return errors.New("guest did not initialize state disk")
 		}
 		if err := finishStateInitialization(manager.config.InstanceDirectory); err != nil {
-			_ = machine.Stop()
 			return err
 		}
 	}
+	started = true
 	go manager.observe(machine, serial)
 	return nil
 }
@@ -192,6 +207,7 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 			manager.state = hostv1.VMState_VM_STATE_STOPPED
 			manager.machine = nil
 			manager.socket = nil
+			manager.closeEgressLocked()
 			result := manager.snapshotLocked()
 			manager.mu.Unlock()
 			return result, nil
@@ -202,6 +218,7 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 			manager.state = hostv1.VMState_VM_STATE_STOPPED
 			manager.machine = nil
 			manager.socket = nil
+			manager.closeEgressLocked()
 			result := manager.snapshotLocked()
 			manager.mu.Unlock()
 			return result, nil
@@ -229,9 +246,40 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 	manager.state = hostv1.VMState_VM_STATE_STOPPED
 	manager.machine = nil
 	manager.socket = nil
+	manager.closeEgressLocked()
 	result := manager.snapshotLocked()
 	manager.mu.Unlock()
 	return result, nil
+}
+
+func (manager *Manager) ListenEgress() (net.Listener, string, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.state != hostv1.VMState_VM_STATE_RUNNING || manager.socket == nil || manager.bootID == "" {
+		return nil, "", errors.New("VM is not running")
+	}
+	if manager.egressListener != nil {
+		return nil, "", errors.New("egress listener already active")
+	}
+	listener, err := manager.socket.Listen(netprotocol.EgressPort)
+	if err != nil {
+		return nil, "", err
+	}
+	manager.egressListener = listener
+	return listener, manager.bootID, nil
+}
+
+func (manager *Manager) CloseEgress() {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	manager.closeEgressLocked()
+}
+
+func (manager *Manager) closeEgressLocked() {
+	if manager.egressListener != nil {
+		_ = manager.egressListener.Close()
+		manager.egressListener = nil
+	}
 }
 
 func (manager *Manager) connectVMMD(ctx context.Context, allowStopping bool) (net.Conn, error) {
@@ -331,6 +379,7 @@ func (manager *Manager) observe(machine *vz.VirtualMachine, serial *os.File) {
 		}
 		manager.mu.Lock()
 		if manager.machine == machine {
+			manager.closeEgressLocked()
 			manager.machine = nil
 			manager.socket = nil
 			if state == vz.VirtualMachineStateError {
@@ -350,16 +399,9 @@ func (manager *Manager) fail(err error) {
 	defer manager.mu.Unlock()
 	manager.state = hostv1.VMState_VM_STATE_FAILED
 	manager.lastErr = err.Error()
+	manager.closeEgressLocked()
 }
 
 func (manager *Manager) snapshotLocked() *hostv1.VM {
 	return &hostv1.VM{State: manager.state, BootId: manager.bootID, Error: manager.lastErr}
-}
-
-func randomID() (string, error) {
-	data := make([]byte, 16)
-	if _, err := rand.Read(data); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(data), nil
 }

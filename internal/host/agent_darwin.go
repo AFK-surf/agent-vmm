@@ -42,6 +42,15 @@ func (server *agentServer) PullImage(request *hostv1.PullImageRequest, stream ho
 	if request.GetRequestId() == "" || request.GetReference() == "" {
 		return invalidField("request_id/reference", "request ID and image reference are required")
 	}
+	deadline, ok := stream.Context().Deadline()
+	if !ok || deadline.After(time.Now().Add(10*time.Minute)) {
+		deadline = time.Now().Add(10 * time.Minute)
+	}
+	lease, err := server.controller.egress.Leases.Acquire(deadline)
+	if err != nil {
+		return retryable("INFRASTRUCTURE_EGRESS_LIMIT", err.Error(), time.Second)
+	}
+	defer lease.Release()
 	client, connection, err := server.controller.guestClient(stream.Context())
 	if err != nil {
 		return err

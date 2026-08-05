@@ -89,18 +89,39 @@ func (s *Server) GetContainerUsage(ctx context.Context, request *vmmdv1.GetConta
 func (s *Server) ComponentHealth(ctx context.Context, _ *vmmdv1.ComponentHealthRequest) (*vmmdv1.ComponentHealthResponse, error) {
 	now := time.Now().UnixNano()
 	probes := s.healthProbe(ctx)
+	egressStatus := componentStatus("egress", probes.egress, now)
+	if probes.egress == nil && s.health.EgressStatus != nil {
+		egressStatus.Reason = s.health.EgressStatus()
+	}
 	return &vmmdv1.ComponentHealthResponse{Components: []*vmmdv1.ComponentStatus{
 		componentStatus("vmmd", nil, now),
 		componentStatus("state-disk", probes.disk, now),
 		componentStatus("network", probes.network, now),
+		egressStatus,
 		componentStatus("quota", probes.quota, now),
 		componentStatus("containerd/runsc", probes.containerd, now),
 	}}, nil
 }
 
+func (s *Server) ProbeEgress(ctx context.Context, request *vmmdv1.ProbeEgressRequest) (*vmmdv1.ProbeEgressResponse, error) {
+	if request.GetNamespaceId() == "" {
+		return nil, invalid(errors.New("namespace_id is required"))
+	}
+	result := s.runtime.network.ProbeEgress(ctx, request.GetNamespaceId())
+	return &vmmdv1.ProbeEgressResponse{
+		PolicyEnforced: result.PolicyEnforced,
+		DnsOk:          result.DNSOK,
+		TcpOk:          result.TCPOK,
+		PrivateDenied:  result.PrivateDenied,
+		FailureLayer:   result.FailureLayer,
+		Reason:         result.Reason,
+	}, nil
+}
+
 type healthProbeResult struct {
 	disk       error
 	network    error
+	egress     error
 	quota      error
 	containerd error
 }
@@ -113,9 +134,14 @@ func (s *Server) probeComponents(ctx context.Context) healthProbeResult {
 	}
 	_, quotaErr := projectUsage(s.runtime.stateDevice, 0)
 	_, containerdErr := s.runtime.client.Version(ctx)
+	var egressErr error
+	if s.health.EgressHealth != nil {
+		egressErr = s.health.EgressHealth()
+	}
 	return healthProbeResult{
 		disk:       errors.Join(diskErr, pathWritable(stateRoot)),
 		network:    s.runtime.network.Health(),
+		egress:     egressErr,
 		quota:      quotaErr,
 		containerd: containerdErr,
 	}

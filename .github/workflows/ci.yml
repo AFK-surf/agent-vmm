@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-arm64:
+    name: Go / Linux arm64
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: 1.69.0
+          setup_only: true
+      - name: Lint workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Test with the race detector
+        run: go test -race ./... -count=1
+      - name: Vet
+        run: go vet ./...
+      - name: Check protobuf compatibility
+        run: make proto-check
+
+  macos-26:
+    name: Go and app / macOS 26
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test with the race detector
+        run: go test -race ./... -count=1
+      - name: Vet
+        run: go vet ./...
+      - name: Expose the selected Go toolchain to Xcode tests
+        run: sudo ln -sf "$(command -v go)" /opt/homebrew/bin/go
+      - uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - name: Test the macOS app
+        run: >-
+          xcodebuild test
+          -project apps/macos/AgentVMM/AgentVMM.xcodeproj
+          -scheme AgentVMM
+          -destination 'platform=macOS'
+          -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
+          -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          CODE_SIGNING_ALLOWED=NO

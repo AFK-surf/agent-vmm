@@ -44,20 +44,6 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 		return nil, err
 	}
 	configuration.SetStorageDevicesVirtualMachineConfiguration([]vz.StorageDeviceConfiguration{root, state})
-	nat, err := vz.NewNATNetworkDeviceAttachment()
-	if err != nil {
-		return nil, err
-	}
-	network, err := vz.NewVirtioNetworkDeviceConfiguration(nat)
-	if err != nil {
-		return nil, err
-	}
-	mac, err := vz.NewRandomLocallyAdministeredMACAddress()
-	if err != nil {
-		return nil, err
-	}
-	network.SetMACAddress(mac)
-	configuration.SetNetworkDevicesVirtualMachineConfiguration([]*vz.VirtioNetworkDeviceConfiguration{network})
 	entropy, err := vz.NewVirtioEntropyDeviceConfiguration()
 	if err != nil {
 		return nil, err

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
 	"github.com/containerd/errdefs"
 )
 
@@ -170,7 +171,7 @@ func (r *Runtime) ContainerUsage(ctx context.Context, namespaceID, containerID s
 }
 
 func (r *Runtime) SystemUsage() (*vmmdv1.Usage, error) {
-	return readNetworkUsage("/sys/class/net/eth0/statistics")
+	return readNetworkUsage(filepath.Join("/sys/class/net", netprotocol.TunName, "statistics"))
 }
 
 func readNetworkUsage(path string) (*vmmdv1.Usage, error) {

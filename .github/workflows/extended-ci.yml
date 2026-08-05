@@ -1,0 +1,100 @@
+name: Extended CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/extended-ci.yml
+      - api/**
+      - build/guest/**
+      - cmd/agent-vmmd/**
+      - cmd/agent-vmm-supervisor/**
+      - internal/bundle/**
+      - internal/guest/**
+      - internal/netprotocol/**
+      - go.mod
+      - go.sum
+  pull_request:
+    paths:
+      - .github/workflows/extended-ci.yml
+      - api/**
+      - build/guest/**
+      - cmd/agent-vmmd/**
+      - cmd/agent-vmm-supervisor/**
+      - internal/bundle/**
+      - internal/guest/**
+      - internal/netprotocol/**
+      - go.mod
+      - go.sum
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guest-bundle:
+    name: Guest bundle / Linux arm64
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and verify the guest bundle
+        run: |
+          mkdir -p "$RUNNER_TEMP/guest-bundle"
+          docker run --rm --platform linux/arm64 --privileged \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -v "$RUNNER_TEMP/guest-bundle:/bundle" \
+            -w /src \
+            alpine:3.24 \
+            sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && build/guest/build.sh /bundle'
+          cd "$RUNNER_TEMP/guest-bundle"
+          sha256sum -c SHA256SUMS
+          test "$(jq -r .architecture manifest.json)" = arm64
+      - uses: actions/upload-artifact@v6
+        with:
+          name: guest-bundle-metadata
+          path: |
+            ${{ runner.temp }}/guest-bundle/manifest.json
+            ${{ runner.temp }}/guest-bundle/manifest.json.sig
+            ${{ runner.temp }}/guest-bundle/SHA256SUMS
+            ${{ runner.temp }}/guest-bundle/sbom.spdx.json
+            ${{ runner.temp }}/guest-bundle/provenance.json
+          retention-days: 7
+
+  macos-15:
+    name: Compatibility / macOS 15
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test with the race detector
+        run: go test -race ./... -count=1
+      - name: Vet
+        run: go vet ./...
+      - name: Expose the selected Go toolchain to Xcode tests
+        run: sudo ln -sf "$(command -v go)" /opt/homebrew/bin/go
+      - uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - name: Test the macOS app
+        run: >-
+          xcodebuild test
+          -project apps/macos/AgentVMM/AgentVMM.xcodeproj
+          -scheme AgentVMM
+          -destination 'platform=macOS'
+          -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
+          -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          CODE_SIGNING_ALLOWED=NO

@@ -11,10 +11,11 @@ import (
 	"sync"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
 )
 
 const (
-	publicResolver = "192.168.88.2:53"
+	publicResolver = netprotocol.VirtualDNS
 	netnsRoot      = "/run/netns"
 	resolvRoot     = "/state/network/resolv"
 )

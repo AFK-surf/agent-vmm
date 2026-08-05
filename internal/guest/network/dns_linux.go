@@ -124,7 +124,11 @@ func (m *Manager) answerDNS(namespaceID string, query []byte) ([]byte, error) {
 		message.Additionals = nil
 		return message.Pack()
 	}
-	upstream, err := net.DialTimeout("udp4", publicResolver, 3*time.Second)
+	m.mu.RLock()
+	source := m.namespaces[namespaceID].Gateway
+	m.mu.RUnlock()
+	dialer := net.Dialer{Timeout: 3 * time.Second, LocalAddr: &net.UDPAddr{IP: net.IP(source.AsSlice())}}
+	upstream, err := dialer.Dial("udp4", publicResolver)
 	if err != nil {
 		return nil, err
 	}

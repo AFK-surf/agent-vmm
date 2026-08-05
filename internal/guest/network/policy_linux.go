@@ -13,6 +13,7 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -210,7 +211,7 @@ func (m *Manager) reconcileLocked() error {
 			for _, blocked := range blockedEgressPrefixes {
 				connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), prefixDestinationRule(blocked, expr.VerdictDrop)...)})
 			}
-			connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), &expr.Verdict{Kind: expr.VerdictAccept})})
+			connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), outputInterfaceRule(netprotocol.TunName, expr.VerdictAccept)...)})
 		}
 	}
 
@@ -241,13 +242,6 @@ func (m *Manager) reconcileLocked() error {
 		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: linkRule(sourceSet, destinationSet, portSet)})
 	}
 
-	natTable := connection.AddTable(&nftables.Table{Name: "agent-vmm", Family: nftables.TableFamilyIPv4})
-	postrouting := connection.AddChain(&nftables.Chain{Name: "postrouting", Table: natTable, Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
-	for _, id := range namespaceIDs {
-		if m.namespaces[id].EgressMode == vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET {
-			connection.AddRule(&nftables.Rule{Table: natTable, Chain: postrouting, Exprs: append(prefixSourceRule(m.namespaces[id].Subnet), &expr.Masq{})})
-		}
-	}
 	return connection.Flush()
 }
 
@@ -299,6 +293,14 @@ func interfacePairRule(input, output string, verdict expr.VerdictKind) []expr.An
 	return []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(input)},
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(output)},
+		&expr.Verdict{Kind: verdict},
+	}
+}
+
+func outputInterfaceRule(output string, verdict expr.VerdictKind) []expr.Any {
+	return []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(output)},
 		&expr.Verdict{Kind: verdict},
 	}
 }

@@ -198,6 +198,8 @@ func (server *operatorServer) executeCleanup(ctx context.Context, requestID stri
 }
 
 func (server *operatorServer) finishDiscardAfterMissingNamespace(ctx context.Context, operation store.Operation, environmentID, currentSessionID string) (store.Operation, error) {
+	server.controller.projectionMu.Lock()
+	defer server.controller.projectionMu.Unlock()
 	environment, err := server.controller.store.GetEnvironment(ctx, environmentID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return operation, err
@@ -224,11 +226,19 @@ func (server *operatorServer) finishDiscardAfterMissingNamespace(ctx context.Con
 		}
 	}
 	server.controller.forgetContainers(environmentID)
+	if server.controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+		if err := server.controller.publishSourcePolicies(ctx); err != nil {
+			server.controller.failOperation(ctx, &operation, "POLICY_RECONCILE_FAILED", err)
+			return operation, nil
+		}
+	}
 	server.controller.completeOperation(ctx, &operation, "complete")
 	return operation, nil
 }
 
 func (server *operatorServer) performCleanup(ctx context.Context, operation *store.Operation, plan *hostv1.CleanupPlan) error {
+	server.controller.projectionMu.Lock()
+	defer server.controller.projectionMu.Unlock()
 	environment, err := server.controller.store.GetEnvironment(ctx, plan.GetEnvironmentId())
 	if err != nil {
 		return err
@@ -287,7 +297,7 @@ func (server *operatorServer) performCleanup(ctx context.Context, operation *sto
 		return err
 	}
 	server.controller.forgetContainers(environment.ID)
-	return nil
+	return server.controller.publishSourcePolicies(ctx)
 }
 
 func validateCleanupKind(kind hostv1.CleanupKind) error {

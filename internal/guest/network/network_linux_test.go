@@ -73,7 +73,7 @@ func TestEgressDestinationClassification(t *testing.T) {
 	}{
 		{address: "10.64.1.2", blocked: true},
 		{address: "169.254.169.254", blocked: true},
-		{address: "192.168.88.2", blocked: true},
+		{address: "192.168.1.1", blocked: true},
 		{address: "198.18.0.1", blocked: false},
 		{address: "1.1.1.1", blocked: false},
 		{address: "203.0.113.1", blocked: true},

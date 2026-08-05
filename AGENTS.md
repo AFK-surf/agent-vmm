@@ -57,11 +57,12 @@ Do not record temporary failures or narrow implementation mistakes.
 - The containerd 2.2.6 namespace store can return empty labels for a missing namespace.
 - Use `List` to test namespace existence. Do not treat a successful `Labels` call as proof of existence.
 - The guest root uses read-only SquashFS. Do not store the build host resolver file in it.
-- Write DHCP DNS data to `/run/resolv.conf` through `/etc/udhcpc/udhcpc.conf`.
 - The current network can map public names to `198.18.0.0/15`. Treat this range as an approved transparent proxy exception.
-- Use `192.168.88.2` when the guest needs direct public DNS results.
+- Route guest and namespace public IPv4 traffic through the fixed TUN and dedicated egress vsock session.
+- Resolve public names through the virtual DNS endpoint; do not restore DHCP or a VZ resolver dependency.
 - Neither network exception gives a workload access to the LAN.
 - Mark each independent gVisor container spec with `io.kubernetes.cri.container-type=sandbox`.
+- Code-Hex/vz v3.7.1 does not wake a blocked virtio-socket `Accept` on listener close; keep the pinned post-v3.7.1 revision or a later release that preserves the close wakeup.
 - Use the containerd native snapshotter and runsc `overlay2=none` for persistent workloads.
 - Use a build-only runsc `root:memory` overlay for the read-only BuildKit root.
 - Do not restore nested persistent overlays.

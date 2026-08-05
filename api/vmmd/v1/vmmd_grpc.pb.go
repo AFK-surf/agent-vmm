@@ -50,6 +50,7 @@ const (
 	VMMDService_ForwardTCP_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ForwardTCP"
 	VMMDService_BuildImage_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/BuildImage"
 	VMMDService_ComponentHealth_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/ComponentHealth"
+	VMMDService_ProbeEgress_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/ProbeEgress"
 	VMMDService_WatchEvents_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/WatchEvents"
 )
 
@@ -88,6 +89,7 @@ type VMMDServiceClient interface {
 	ForwardTCP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ForwardTCPRequest, ForwardTCPResponse], error)
 	BuildImage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse], error)
 	ComponentHealth(ctx context.Context, in *ComponentHealthRequest, opts ...grpc.CallOption) (*ComponentHealthResponse, error)
+	ProbeEgress(ctx context.Context, in *ProbeEgressRequest, opts ...grpc.CallOption) (*ProbeEgressResponse, error)
 	WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RuntimeEvent], error)
 }
 
@@ -436,6 +438,16 @@ func (c *vMMDServiceClient) ComponentHealth(ctx context.Context, in *ComponentHe
 	return out, nil
 }
 
+func (c *vMMDServiceClient) ProbeEgress(ctx context.Context, in *ProbeEgressRequest, opts ...grpc.CallOption) (*ProbeEgressResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProbeEgressResponse)
+	err := c.cc.Invoke(ctx, VMMDService_ProbeEgress_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vMMDServiceClient) WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RuntimeEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[5], VMMDService_WatchEvents_FullMethodName, cOpts...)
@@ -490,6 +502,7 @@ type VMMDServiceServer interface {
 	ForwardTCP(grpc.BidiStreamingServer[ForwardTCPRequest, ForwardTCPResponse]) error
 	BuildImage(grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]) error
 	ComponentHealth(context.Context, *ComponentHealthRequest) (*ComponentHealthResponse, error)
+	ProbeEgress(context.Context, *ProbeEgressRequest) (*ProbeEgressResponse, error)
 	WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error
 	mustEmbedUnimplementedVMMDServiceServer()
 }
@@ -593,6 +606,9 @@ func (UnimplementedVMMDServiceServer) BuildImage(grpc.BidiStreamingServer[BuildI
 }
 func (UnimplementedVMMDServiceServer) ComponentHealth(context.Context, *ComponentHealthRequest) (*ComponentHealthResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ComponentHealth not implemented")
+}
+func (UnimplementedVMMDServiceServer) ProbeEgress(context.Context, *ProbeEgressRequest) (*ProbeEgressResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProbeEgress not implemented")
 }
 func (UnimplementedVMMDServiceServer) WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error {
 	return status.Error(codes.Unimplemented, "method WatchEvents not implemented")
@@ -1129,6 +1145,24 @@ func _VMMDService_ComponentHealth_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VMMDService_ProbeEgress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProbeEgressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).ProbeEgress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_ProbeEgress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).ProbeEgress(ctx, req.(*ProbeEgressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _VMMDService_WatchEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(WatchEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -1250,6 +1284,10 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ComponentHealth",
 			Handler:    _VMMDService_ComponentHealth_Handler,
+		},
+		{
+			MethodName: "ProbeEgress",
+			Handler:    _VMMDService_ProbeEgress_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
