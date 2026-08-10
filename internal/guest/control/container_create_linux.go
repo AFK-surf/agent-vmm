@@ -16,8 +16,10 @@ import (
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/oci"
+	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"google.golang.org/grpc/codes"
 )
 
 func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateContainerRequest) (*vmmdv1.Container, error) {
@@ -36,13 +38,15 @@ func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if request.GetImage() == "" {
 		return nil, errors.New("image is required")
 	}
-	if len(request.GetArgv()) > 256 || len(request.GetEnv()) > 256 || request.GetLogLimitBytes() == 0 || request.GetLogLimitBytes() > 64<<20 {
-		return nil, errors.New("argv, env, or log limit is outside the allowed range")
+	if len(request.GetEntrypointOverride().GetValues()) > 256 || len(request.GetCommandOverride().GetValues()) > 256 || len(request.GetEnv()) > 256 || request.GetLogLimitBytes() == 0 || request.GetLogLimitBytes() > 64<<20 {
+		return nil, errors.New("entrypoint, command, env, or log limit is outside the allowed range")
 	}
 	if err := validateEnvironment(request.GetEnv()); err != nil {
 		return nil, err
 	}
-	if err := validateProcessStrings(request.GetArgv(), request.GetWorkdir(), request.GetUser()); err != nil {
+	processValues := append([]string(nil), request.GetEntrypointOverride().GetValues()...)
+	processValues = append(processValues, request.GetCommandOverride().GetValues()...)
+	if err := validateProcessStrings(processValues, request.GetWorkdir(), request.GetUser()); err != nil {
 		return nil, err
 	}
 	labels, err := r.client.NamespaceService().Labels(ctx, namespaceID)
@@ -68,8 +72,15 @@ func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateCon
 		}
 	}
 	nsctx := namespaceContext(ctx, namespaceID)
-	image, err := r.client.GetImage(nsctx, request.GetImage())
+	canonicalImage, err := normalizeImageReference(request.GetImage())
 	if err != nil {
+		return nil, imageError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image reference is invalid", request.GetImage())
+	}
+	image, err := r.client.GetImage(nsctx, canonicalImage)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil, imageError(codes.NotFound, "IMAGE_NOT_FOUND", "image is not available in this environment", canonicalImage)
+		}
 		return nil, err
 	}
 	volumeJSON, err := json.Marshal(request.GetVolumes())
@@ -139,8 +150,8 @@ func containerMainProcess(ctx context.Context, container containerd.Container) (
 
 func (r *Runtime) specOptions(namespaceID string, request *vmmdv1.CreateContainerRequest, image containerd.Image) []oci.SpecOpts {
 	options := []oci.SpecOpts{oci.WithDefaultSpec(), oci.WithImageConfig(image), oci.WithCgroup(filepath.Join("/agent-vmm", namespaceID, request.GetContainerId()))}
-	if len(request.GetArgv()) != 0 {
-		options = append(options, oci.WithProcessArgs(request.GetArgv()...))
+	if request.GetEntrypointOverride() != nil || request.GetCommandOverride() != nil {
+		options = append(options, processOverride(image, request.GetEntrypointOverride(), request.GetCommandOverride()))
 	}
 	if len(request.GetEnv()) != 0 {
 		options = append(options, oci.WithEnv(request.GetEnv()))
@@ -175,6 +186,32 @@ func (r *Runtime) specOptions(namespaceID string, request *vmmdv1.CreateContaine
 		spec.Mounts = append(spec.Mounts, specs.Mount{Destination: "/etc/resolv.conf", Type: "bind", Source: r.network.ResolvPath(namespaceID), Options: []string{"bind", "ro", "nosuid", "nodev"}})
 		return nil
 	})
+}
+
+func processOverride(image containerd.Image, entrypointOverride, commandOverride *vmmdv1.StringList) oci.SpecOpts {
+	return func(ctx context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
+		imageSpec, err := image.Spec(ctx)
+		if err != nil {
+			return err
+		}
+		spec.Process.Args = processArguments(imageSpec.Config.Entrypoint, imageSpec.Config.Cmd, entrypointOverride, commandOverride)
+		if len(spec.Process.Args) == 0 {
+			return errors.New("image and overrides provide no process command")
+		}
+		return nil
+	}
+}
+
+func processArguments(imageEntrypoint, imageCommand []string, entrypointOverride, commandOverride *vmmdv1.StringList) []string {
+	entrypoint := append([]string(nil), imageEntrypoint...)
+	command := append([]string(nil), imageCommand...)
+	if entrypointOverride != nil {
+		entrypoint = append([]string(nil), entrypointOverride.GetValues()...)
+	}
+	if commandOverride != nil {
+		command = append([]string(nil), commandOverride.GetValues()...)
+	}
+	return append(entrypoint, command...)
 }
 
 func containerResources(limits *vmmdv1.ResourceLimits) *specs.LinuxResources {

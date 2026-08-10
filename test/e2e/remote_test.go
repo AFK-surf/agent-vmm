@@ -254,7 +254,14 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	pool := &hostv1.RemotePoolPolicy{MaxEnvironments: 2, AggregateLimits: remoteLimits(2000, 2<<30, 512, 4<<30), PerEnvironmentLimits: remoteLimits(1000, 1<<30, 256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseDuration: durationpb.New(5 * time.Minute), DisconnectGrace: durationpb.New(30 * time.Second), StopGrace: durationpb.New(2 * time.Second)}
-	registered, err := harness.client.CreateRemoteRegistration(ctx, &hostv1.CreateRemoteRegistrationRequest{RequestId: "remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{
+		RequestId: "remote-e2e-complete", RegistrationId: registered.GetRegistration().GetId(),
+		ExpectedRevision: registered.GetRegistration().GetRevision(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +381,11 @@ func testRemoteForward(t *testing.T, client *productClient, containerID string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Header{Header: &hostv1.ForwardTCPHeader{ContainerId: containerID, Port: 8080}}}); err != nil {
+	container, err := client.GetContainer(ctx, "remote-a", &hostv1.ContainerRequest{ContainerId: containerID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Header{Header: &hostv1.ForwardTCPHeader{ContainerId: containerID, Port: 8080, ContainerInstanceId: container.GetContainer().GetInstanceId()}}}); err != nil {
 		t.Fatal(err)
 	}
 	payload := []byte("remote-forward")

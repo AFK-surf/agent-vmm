@@ -45,6 +45,11 @@ func (server *operatorServer) planCleanup(ctx context.Context, environmentID str
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", environmentID, "agent environment does not exist")
 	}
+	if kind == hostv1.CleanupKind_CLEANUP_KIND_DISCARD {
+		if err := server.validateEnvironmentDiscard(ctx, environmentID); err != nil {
+			return nil, err
+		}
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -52,6 +57,9 @@ func (server *operatorServer) planCleanup(ctx context.Context, environmentID str
 	defer connection.Close()
 	containers, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
+		if kind == hostv1.CleanupKind_CLEANUP_KIND_DISCARD && status.Code(err) == codes.NotFound {
+			return missingNamespaceCleanupPlan(environment), nil
+		}
 		return nil, err
 	}
 	volumes, err := client.ListVolumes(ctx, &vmmdv1.ListVolumesRequest{ActorNamespaceId: environment.NamespaceID})
@@ -94,6 +102,21 @@ func (server *operatorServer) planCleanup(ctx context.Context, environmentID str
 	return plan, nil
 }
 
+func missingNamespaceCleanupPlan(environment store.Environment) *hostv1.CleanupPlan {
+	hash := fnv.New64a()
+	writeRevisionPart(hash, hostv1.CleanupKind_CLEANUP_KIND_DISCARD.String())
+	writeRevisionPart(hash, strconv.FormatUint(environment.PolicyRevision, 10))
+	writeRevisionPart(hash, "namespace:missing")
+	return &hostv1.CleanupPlan{
+		EnvironmentId: environment.ID,
+		Kind:          hostv1.CleanupKind_CLEANUP_KIND_DISCARD,
+		Revision:      hash.Sum64(),
+		Impacts: []*hostv1.CleanupImpact{
+			cleanupImpact(environment.ID, "environment", environment.ID, "remaining host policy and retained metadata will be deleted", true),
+		},
+	}
+}
+
 func writeRevisionPart(hash interface{ Write([]byte) (int, error) }, value string) {
 	_, _ = hash.Write([]byte(value))
 	_, _ = hash.Write([]byte{0})
@@ -131,6 +154,12 @@ func (server *operatorServer) ExecuteCleanup(ctx context.Context, request *hostv
 }
 
 func (server *operatorServer) executeCleanup(ctx context.Context, requestID string, requested *hostv1.CleanupPlan, confirmedVolumes []string, currentSessionID string) (operation store.Operation, err error) {
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
+	return server.executeCleanupAdmissionLocked(ctx, requestID, requested, confirmedVolumes, currentSessionID)
+}
+
+func (server *operatorServer) executeCleanupAdmissionLocked(ctx context.Context, requestID string, requested *hostv1.CleanupPlan, confirmedVolumes []string, currentSessionID string) (operation store.Operation, err error) {
 	if err := validateCleanupKind(requested.GetKind()); err != nil {
 		return operation, err
 	}
@@ -220,7 +249,7 @@ func (server *operatorServer) finishDiscardAfterMissingNamespace(ctx context.Con
 		return operation, err
 	}
 	if err == nil {
-		if err := server.controller.store.DeleteEnvironment(ctx, environmentID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := server.controller.store.DiscardEnvironment(ctx, environmentID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			server.controller.failOperation(ctx, &operation, "CLEANUP_FAILED", err)
 			return operation, nil
 		}
@@ -260,11 +289,21 @@ func (server *operatorServer) performCleanup(ctx context.Context, operation *sto
 			continue
 		}
 		if _, err := client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: operation.RequestID + "-link-" + grant.ID, LinkId: grant.ID}); err != nil {
+			if plan.GetKind() == hostv1.CleanupKind_CLEANUP_KIND_DISCARD && status.Code(err) == codes.NotFound {
+				continue
+			}
 			return err
 		}
 	}
 	containers, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
+		if plan.GetKind() == hostv1.CleanupKind_CLEANUP_KIND_DISCARD && status.Code(err) == codes.NotFound {
+			if err := server.controller.store.DiscardEnvironment(ctx, environment.ID); err != nil {
+				return err
+			}
+			server.controller.forgetContainers(environment.ID)
+			return server.controller.publishSourcePolicies(ctx)
+		}
 		return err
 	}
 	for _, container := range containers.GetContainers() {
@@ -293,11 +332,26 @@ func (server *operatorServer) performCleanup(ctx context.Context, operation *sto
 	if _, err := client.DeleteNamespace(ctx, &vmmdv1.DeleteNamespaceRequest{RequestId: operation.RequestID + "-namespace", NamespaceId: environment.NamespaceID}); err != nil {
 		return err
 	}
-	if err := server.controller.store.DeleteEnvironment(ctx, environment.ID); err != nil {
+	if err := server.controller.store.DiscardEnvironment(ctx, environment.ID); err != nil {
 		return err
 	}
 	server.controller.forgetContainers(environment.ID)
 	return server.controller.publishSourcePolicies(ctx)
+}
+
+func (server *operatorServer) validateEnvironmentDiscard(ctx context.Context, environmentID string) error {
+	if err := server.controller.store.ValidateEnvironmentDiscard(ctx, environmentID); err != nil {
+		if errors.Is(err, store.ErrEnvironmentHasAgentAccess) {
+			return resourceError(codes.FailedPrecondition, "AGENT_ACCESS_ACTIVE", "environment", environmentID,
+				"remove agent access before deleting the environment")
+		}
+		if errors.Is(err, store.ErrRemoteEnvironmentActive) {
+			return resourceError(codes.FailedPrecondition, "REMOTE_ALLOCATION_ACTIVE", "environment", environmentID,
+				"release the remote allocation before deleting the environment")
+		}
+		return err
+	}
+	return nil
 }
 
 func validateCleanupKind(kind hostv1.CleanupKind) error {

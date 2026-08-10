@@ -14,9 +14,9 @@ struct RootView: View {
             Group {
                 switch model.section {
                 case .system: SystemStatusView(model: model)
+                case .access: AgentAccessView(model: model)
                 case .environments: EnvironmentListView(model: model)
                 case .diagnostics: DiagnosticsView(model: model)
-                case .settings: SettingsView(model: model)
                 case nil: ContentUnavailableView("Choose a section", systemImage: "sidebar.left")
                 }
             }
@@ -47,9 +47,9 @@ private extension AppModel.Section {
     var symbol: String {
         switch self {
         case .system: "gauge.with.dots.needle.67percent"
+        case .access: "bolt.horizontal.circle"
         case .environments: "shippingbox"
         case .diagnostics: "stethoscope"
-        case .settings: "gearshape"
         }
     }
 }

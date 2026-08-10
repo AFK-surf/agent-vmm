@@ -42,12 +42,16 @@ else
 fi
 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-mcp" "$repo/cmd/agent-vmm-mcp"
 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-connect" "$repo/cmd/agent-vmm-connect"
+GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
 go version -m "$product/Contents/Helpers/agent-vmm-mcp" > "$product/Contents/Resources/mcp-build-info.txt"
 go version -m "$product/Contents/Helpers/agent-vmm-connect" > "$product/Contents/Resources/connect-build-info.txt"
 cp "$repo/LICENSE" "$product/Contents/Resources/LICENSE"
+cp "$repo/build/host/com.afk-surf.agent-vmm.plist" "$product/Contents/Resources/com.afk-surf.agent-vmm.plist"
+cp "$repo/build/host/com.afk-surf.agent-vmm-connect.plist" "$product/Contents/Resources/com.afk-surf.agent-vmm-connect.plist"
 codesign --force --sign "$identity" --options runtime --entitlements "$repo/build/host/vz.entitlements.plist" "$product/Contents/Helpers/agent-vmm-host"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-mcp"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-connect"
+codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-lifecycle"
 codesign --force --sign "$identity" --options runtime "$product"
 codesign --verify --deep --strict --verbose=2 "$product"
 

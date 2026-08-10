@@ -48,7 +48,10 @@ func containerFromGuest(container *vmmdv1.Container) *hostv1.Container {
 	if container == nil {
 		return nil
 	}
-	result := &hostv1.Container{Id: container.GetId(), Image: container.GetImage(), State: hostv1.ContainerState(container.GetState()), ExitCode: container.ExitCode, Argv: container.GetArgv(), Workdir: container.Workdir, User: container.User}
+	result := &hostv1.Container{Id: container.GetId(), InstanceId: container.GetInstanceId(), Image: container.GetImage(), State: hostv1.ContainerState(container.GetState()), ExitCode: container.ExitCode, Argv: container.GetArgv(), Workdir: container.Workdir, User: container.User}
+	result.CreatedAt = timestampFromUnixNano(container.GetCreatedAtUnixNano())
+	result.StartedAt = timestampFromUnixNano(container.GetStartedAtUnixNano())
+	result.FinishedAt = timestampFromUnixNano(container.GetFinishedAtUnixNano())
 	for _, variable := range container.GetEnv() {
 		key, _, _ := strings.Cut(variable, "=")
 		result.EnvironmentKeys = append(result.EnvironmentKeys, key)
@@ -59,11 +62,29 @@ func containerFromGuest(container *vmmdv1.Container) *hostv1.Container {
 	return result
 }
 
+func timestampFromUnixNano(value int64) *timestamppb.Timestamp {
+	if value == 0 {
+		return nil
+	}
+	return timestamppb.New(time.Unix(0, value))
+}
+
+func imageFromGuest(image *vmmdv1.Image) *hostv1.Image {
+	if image == nil {
+		return nil
+	}
+	return &hostv1.Image{Reference: image.GetReference(), Digest: image.GetDigest(), LogicalBytes: image.GetLogicalBytes(), Platforms: append([]string(nil), image.GetPlatforms()...)}
+}
+
 func volumeFromGuest(volume *vmmdv1.Volume) *hostv1.Volume {
 	if volume == nil {
 		return nil
 	}
-	return &hostv1.Volume{Id: volume.GetId(), Usage: &hostv1.Usage{DiskBytes: volume.GetCurrentBytes()}, LimitBytes: volume.GetLimitBytes(), MountedBy: volume.GetMountedBy()}
+	usage := &hostv1.Usage{DiskBytes: volume.GetCurrentBytes(), Stale: volume.GetUsageStale(), UnavailableReason: volume.GetUsageUnavailableReason()}
+	if observedAt := volume.GetUsageObservedAtUnixNano(); observedAt > 0 {
+		usage.SampledAt = timestamppb.New(time.Unix(0, observedAt))
+	}
+	return &hostv1.Volume{Id: volume.GetId(), Usage: usage, LimitBytes: volume.GetLimitBytes(), MountedBy: volume.GetMountedBy()}
 }
 
 func usageFromGuest(usage *vmmdv1.Usage) *hostv1.Usage {
@@ -73,7 +94,7 @@ func usageFromGuest(usage *vmmdv1.Usage) *hostv1.Usage {
 	return &hostv1.Usage{
 		CpuNanos: usage.GetCpuNanos(), MemoryBytes: usage.GetMemoryBytes(), Pids: usage.GetPids(), ReadBytes: usage.GetReadBytes(),
 		WriteBytes: usage.GetWriteBytes(), DiskBytes: usage.GetDiskBytes(), NetworkRxBytes: usage.GetNetworkRxBytes(), NetworkTxBytes: usage.GetNetworkTxBytes(),
-		SampledAt: timestamppb.New(time.Unix(0, usage.GetSampledAtUnixNano())), Stale: usage.GetUnavailable(),
+		SampledAt: timestamppb.New(time.Unix(0, usage.GetSampledAtUnixNano())), Stale: usage.GetUnavailable(), UnavailableReason: usage.GetUnavailableReason(),
 	}
 }
 

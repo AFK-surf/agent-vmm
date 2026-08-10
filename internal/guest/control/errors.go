@@ -3,6 +3,10 @@ package control
 import (
 	"errors"
 	"fmt"
+
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -12,6 +16,26 @@ var (
 
 func resourceExhausted(message string) error {
 	return fmt.Errorf("%w: %s", errResourceExhausted, message)
+}
+
+func detailedError(code codes.Code, reason, message, resourceType, resourceName string) error {
+	value := status.New(code, message)
+	withDetails, err := value.WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "agent-vmm"})
+	if err != nil {
+		return value.Err()
+	}
+	if resourceType == "" && resourceName == "" {
+		return withDetails.Err()
+	}
+	withDetails, err = withDetails.WithDetails(&errdetails.ResourceInfo{ResourceType: resourceType, ResourceName: resourceName})
+	if err != nil {
+		return value.Err()
+	}
+	return withDetails.Err()
+}
+
+func imageError(code codes.Code, reason, message, reference string) error {
+	return detailedError(code, reason, message, "image", reference)
 }
 
 func failedPrecondition(message string) error {

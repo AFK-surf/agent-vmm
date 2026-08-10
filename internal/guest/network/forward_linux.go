@@ -10,14 +10,14 @@ import (
 	"sync"
 )
 
-func (m *Manager) DialContainer(ctx context.Context, namespaceID, containerID string, port uint32) (net.Conn, error) {
+func (m *Manager) DialContainer(ctx context.Context, namespaceID, containerID, instanceID string, port uint32) (net.Conn, error) {
 	if port == 0 || port > 65535 {
 		return nil, errors.New("port must be between 1 and 65535")
 	}
 	m.mu.RLock()
 	endpoint, ok := m.endpoints[namespaceID][containerID]
 	m.mu.RUnlock()
-	if !ok {
+	if !ok || instanceID == "" || endpoint.InstanceID != instanceID {
 		return nil, errors.New("container has no running network endpoint")
 	}
 	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp4", net.JoinHostPort(endpoint.Address.String(), strconv.Itoa(int(port))))
@@ -26,7 +26,7 @@ func (m *Manager) DialContainer(ctx context.Context, namespaceID, containerID st
 	}
 	tracked := &trackedConn{Conn: connection, manager: m, key: namespaceID + "/" + containerID}
 	m.mu.Lock()
-	if _, stillRunning := m.endpoints[namespaceID][containerID]; !stillRunning || m.closed {
+	if current, stillRunning := m.endpoints[namespaceID][containerID]; !stillRunning || current.InstanceID != instanceID || m.closed {
 		m.mu.Unlock()
 		connection.Close()
 		return nil, errors.New("container stopped while forward was connecting")

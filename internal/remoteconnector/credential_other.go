@@ -12,7 +12,7 @@ func NewCredentialStore() CredentialStore { return unavailableCredentialStore{} 
 type unavailableCredentialStore struct{}
 
 func (unavailableCredentialStore) Load(context.Context, string) ([]byte, error) {
-	return nil, errors.New("macOS Keychain is required")
+	return nil, ErrCredentialUnavailable
 }
 func (unavailableCredentialStore) Replace(context.Context, string, []byte) error {
 	return errors.New("macOS Keychain is required")

@@ -8,6 +8,15 @@ import (
 )
 
 func (store *Store) migrate(ctx context.Context) error {
+	if _, err := store.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	foreignKeysRestored := false
+	defer func() {
+		if !foreignKeysRestored {
+			_, _ = store.db.ExecContext(context.Background(), "PRAGMA foreign_keys=ON")
+		}
+	}()
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -43,8 +52,110 @@ func (store *Store) migrate(ctx context.Context) error {
 		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)", time.Now().UnixNano()); err != nil {
 			return err
 		}
+		version = 2
 	}
-	return tx.Commit()
+	if version == 2 {
+		if err := migrateV3(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (3, ?)", time.Now().UnixNano()); err != nil {
+			return err
+		}
+		version = 3
+	}
+	if version == 3 {
+		if err := migrateV4(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (4, ?)", time.Now().UnixNano()); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if _, err := store.db.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		return err
+	}
+	foreignKeysRestored = true
+	rows, err := store.db.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return fmt.Errorf("host database contains foreign key violations after schema migration")
+	}
+	return rows.Err()
+}
+
+func migrateV4(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE agent_integrations_v4 (
+			id TEXT PRIMARY KEY, adapter_id TEXT NOT NULL, display_name TEXT NOT NULL,
+			scope INTEGER NOT NULL CHECK(scope IN (1, 2, 3)), config_target TEXT NOT NULL,
+			environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE RESTRICT,
+			desired_state INTEGER NOT NULL CHECK(desired_state IN (1, 2)),
+			config_state INTEGER NOT NULL CHECK(config_state BETWEEN 1 AND 8),
+			config_fingerprint TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1,
+			last_error_code TEXT NOT NULL DEFAULT '', last_error_message TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_verified_at INTEGER,
+			prepare_request_id TEXT NOT NULL UNIQUE
+		)`,
+		`INSERT INTO agent_integrations_v4 SELECT * FROM agent_integrations`,
+		`DROP TABLE agent_integrations`,
+		`ALTER TABLE agent_integrations_v4 RENAME TO agent_integrations`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate host schema to v4: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrateV3(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE agent_integrations (
+			id TEXT PRIMARY KEY, adapter_id TEXT NOT NULL, display_name TEXT NOT NULL,
+			scope INTEGER NOT NULL CHECK(scope IN (1, 2, 3)), config_target TEXT NOT NULL,
+			environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE RESTRICT,
+			desired_state INTEGER NOT NULL CHECK(desired_state IN (1, 2)),
+			config_state INTEGER NOT NULL CHECK(config_state BETWEEN 1 AND 7),
+			config_fingerprint TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1,
+			last_error_code TEXT NOT NULL DEFAULT '', last_error_message TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_verified_at INTEGER,
+			prepare_request_id TEXT NOT NULL UNIQUE
+		)`,
+		`ALTER TABLE sessions ADD COLUMN integration_id TEXT REFERENCES agent_integrations(id)`,
+		`ALTER TABLE sessions ADD COLUMN origin INTEGER NOT NULL DEFAULT 0 CHECK(origin IN (0, 1, 2))`,
+		`ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN connected_at INTEGER`,
+		`ALTER TABLE sessions ADD COLUMN last_activity_at INTEGER`,
+		`ALTER TABLE sessions ADD COLUMN closed_at INTEGER`,
+		`ALTER TABLE sessions ADD COLUMN terminal_reason TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX sessions_integration ON sessions(integration_id, created_at)`,
+		`ALTER TABLE remote_registrations ADD COLUMN enrollment_state INTEGER NOT NULL DEFAULT 3 CHECK(enrollment_state IN (1, 2, 3, 4))`,
+		`ALTER TABLE remote_registrations ADD COLUMN enrollment_error_code TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_registrations ADD COLUMN enrollment_error_message TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_registrations ADD COLUMN connector_phase INTEGER NOT NULL DEFAULT 1 CHECK(connector_phase BETWEEN 1 AND 7)`,
+		`ALTER TABLE remote_registrations ADD COLUMN connector_release TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_registrations ADD COLUMN connector_observed_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_registrations ADD COLUMN last_connected_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_registrations ADD COLUMN disconnected_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_registrations ADD COLUMN next_retry_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_registrations ADD COLUMN reconnect_attempt INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE remote_registrations ADD COLUMN connector_failure_code TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_registrations ADD COLUMN connector_failure_message TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE remote_registrations ADD COLUMN enrollment_request_id TEXT NOT NULL DEFAULT ''`,
+		`CREATE UNIQUE INDEX remote_registration_enrollment_request ON remote_registrations(enrollment_request_id) WHERE enrollment_request_id != ''`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate host schema to v3: %w", err)
+		}
+	}
+	return nil
 }
 
 func migrateV1(tx *sql.Tx) error {

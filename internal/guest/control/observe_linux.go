@@ -6,12 +6,12 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -67,11 +67,7 @@ func (r *Runtime) GetVolume(ctx context.Context, namespaceID, volumeID string) (
 	if err != nil {
 		return nil, err
 	}
-	projectID, namespace, err := namespaceFromLabels(namespaceID, labels)
-	if err != nil {
-		return nil, err
-	}
-	usage, err := projectUsage(r.stateDevice, projectID)
+	_, namespace, err := namespaceFromLabels(namespaceID, labels)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +75,23 @@ func (r *Runtime) GetVolume(ctx context.Context, namespaceID, volumeID string) (
 	if err != nil {
 		return nil, err
 	}
-	volume := &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, CurrentBytes: usage, LimitBytes: namespace.GetLimits().GetDiskBytes()}
+	return r.volumeSnapshot(namespaceID, volumeID, namespace.GetLimits().GetDiskBytes(), containers)
+}
+
+type volumeUsageEntry struct {
+	bytes      uint64
+	observedAt time.Time
+	err        error
+}
+
+const volumeUsageTTL = 30 * time.Second
+
+func (r *Runtime) volumeSnapshot(namespaceID, volumeID string, limit uint64, containers []*vmmdv1.Container) (*vmmdv1.Volume, error) {
+	usage, err := r.cachedVolumeUsage(namespaceID, volumeID)
+	if err != nil {
+		return nil, err
+	}
+	volume := &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, CurrentBytes: usage, LimitBytes: limit}
 	for _, container := range containers {
 		for _, mount := range container.GetVolumes() {
 			if mount.GetVolumeId() == volumeID {
@@ -90,7 +102,105 @@ func (r *Runtime) GetVolume(ctx context.Context, namespaceID, volumeID string) (
 	return volume, nil
 }
 
+func (r *Runtime) cachedVolumeUsage(namespaceID, volumeID string) (uint64, error) {
+	key := namespaceID + "/" + volumeID
+	now := time.Now()
+	r.volumeUsageMu.Lock()
+	entry, ok := r.volumeUsage[key]
+	r.volumeUsageMu.Unlock()
+	if ok && now.Sub(entry.observedAt) < volumeUsageTTL {
+		return entry.bytes, nil
+	}
+	usage, err := r.sampleVolumeUsage(volumePath(namespaceID, volumeID))
+	if err != nil {
+		return 0, err
+	}
+	r.volumeUsageMu.Lock()
+	r.volumeUsage[key] = volumeUsageEntry{bytes: usage, observedAt: now}
+	r.volumeUsageMu.Unlock()
+	return usage, nil
+}
+
+func (r *Runtime) cachedOrScheduleVolumeUsage(namespaceID, volumeID string) volumeUsageEntry {
+	key := namespaceID + "/" + volumeID
+	now := time.Now()
+	r.volumeUsageMu.Lock()
+	entry, ok := r.volumeUsage[key]
+	if !r.volumeSampling[key] && (!ok || now.Sub(entry.observedAt) >= volumeUsageTTL) {
+		if r.volumeSampleSlots == nil {
+			r.volumeSampleSlots = make(chan struct{}, 2)
+		}
+		select {
+		case r.volumeSampleSlots <- struct{}{}:
+			r.volumeSampling[key] = true
+			generation := r.volumeGeneration[key]
+			go func() {
+				usage, err := r.sampleVolumeUsage(volumePath(namespaceID, volumeID))
+				r.volumeUsageMu.Lock()
+				if r.volumeGeneration[key] == generation {
+					r.volumeUsage[key] = volumeUsageEntry{bytes: usage, observedAt: time.Now(), err: err}
+					delete(r.volumeSampling, key)
+				}
+				r.volumeUsageMu.Unlock()
+				<-r.volumeSampleSlots
+			}()
+		default:
+		}
+	}
+	r.volumeUsageMu.Unlock()
+	return entry
+}
+
+func (r *Runtime) sampleVolumeUsage(path string) (uint64, error) {
+	if r.volumeSampler != nil {
+		return r.volumeSampler(path)
+	}
+	return directoryUsage(path)
+}
+
+func (r *Runtime) invalidateVolumeUsage(namespaceID, volumeID string) {
+	r.volumeUsageMu.Lock()
+	delete(r.volumeUsage, namespaceID+"/"+volumeID)
+	key := namespaceID + "/" + volumeID
+	delete(r.volumeSampling, key)
+	r.volumeGeneration[key]++
+	r.volumeUsageMu.Unlock()
+}
+
+func directoryUsage(root string) (uint64, error) {
+	var total uint64
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Blocks > 0 {
+			total += uint64(stat.Blocks) * 512
+		}
+		return nil
+	})
+	return total, err
+}
+
 func (r *Runtime) ListVolumes(ctx context.Context, namespaceID string) ([]*vmmdv1.Volume, error) {
+	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+		return nil, err
+	}
+	labels, err := r.client.NamespaceService().Labels(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
+	_, namespace, err := namespaceFromLabels(namespaceID, labels)
+	if err != nil {
+		return nil, err
+	}
+	containers, err := r.ListContainers(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := directoryEntries(volumePath(namespaceID, ""))
 	if err != nil {
 		return nil, err
@@ -100,9 +210,25 @@ func (r *Runtime) ListVolumes(ctx context.Context, namespaceID string) ([]*vmmdv
 		if !entry.IsDir() {
 			continue
 		}
-		volume, err := r.GetVolume(ctx, namespaceID, entry.Name())
-		if err != nil {
-			return nil, err
+		usage := r.cachedOrScheduleVolumeUsage(namespaceID, entry.Name())
+		volume := &vmmdv1.Volume{Id: entry.Name(), NamespaceId: namespaceID, CurrentBytes: usage.bytes, LimitBytes: namespace.GetLimits().GetDiskBytes()}
+		if usage.observedAt.IsZero() {
+			volume.UsageStale = true
+			volume.UsageUnavailableReason = "volume usage is being sampled"
+		} else {
+			volume.UsageObservedAtUnixNano = usage.observedAt.UnixNano()
+			volume.UsageStale = time.Since(usage.observedAt) >= volumeUsageTTL
+			if usage.err != nil {
+				volume.UsageStale = true
+				volume.UsageUnavailableReason = usageFailureReason(usage.err)
+			}
+		}
+		for _, container := range containers {
+			for _, mount := range container.GetVolumes() {
+				if mount.GetVolumeId() == entry.Name() {
+					volume.MountedBy = append(volume.MountedBy, container.GetId())
+				}
+			}
 		}
 		result = append(result, volume)
 	}
@@ -156,15 +282,29 @@ func (r *Runtime) NamespaceUsage(ctx context.Context, namespaceID string) (*vmmd
 		return unavailableUsage(err), nil
 	}
 	usage.DiskBytes = disk
+	counters, err := r.network.NamespaceCounters(namespaceID)
+	if err != nil {
+		return unavailableUsage(err), nil
+	}
+	usage.NetworkRxBytes = counters.RXBytes
+	usage.NetworkTxBytes = counters.TXBytes
 	return usage, nil
 }
 
 func (r *Runtime) ContainerUsage(ctx context.Context, namespaceID, containerID string) (*vmmdv1.Usage, error) {
-	if _, err := r.InspectContainer(ctx, namespaceID, containerID); err != nil {
+	container, err := r.InspectContainer(ctx, namespaceID, containerID)
+	if err != nil {
 		return nil, err
 	}
 	usage, err := readCgroupUsage(filepath.Join("/sys/fs/cgroup/agent-vmm", namespaceID, containerID))
 	if err != nil {
+		return unavailableUsage(err), nil
+	}
+	counters, err := r.network.ContainerCounters(namespaceID, containerID)
+	if err == nil {
+		usage.NetworkRxBytes = counters.RXBytes
+		usage.NetworkTxBytes = counters.TXBytes
+	} else if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return unavailableUsage(err), nil
 	}
 	return usage, nil
@@ -249,5 +389,15 @@ func keyValueFile(path string) (map[string]uint64, error) {
 }
 
 func unavailableUsage(err error) *vmmdv1.Usage {
-	return &vmmdv1.Usage{SampledAtUnixNano: time.Now().UnixNano(), Unavailable: true, UnavailableReason: fmt.Sprintf("collect cgroup or quota usage: %v", err)}
+	return &vmmdv1.Usage{SampledAtUnixNano: time.Now().UnixNano(), Unavailable: true, UnavailableReason: usageFailureReason(err)}
+}
+
+func usageFailureReason(err error) string {
+	if errors.Is(err, os.ErrNotExist) {
+		return "usage source is not available"
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return "usage source is not readable"
+	}
+	return "usage could not be collected"
 }

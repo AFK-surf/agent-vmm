@@ -8,6 +8,42 @@ import Foundation
     #expect(HealthLevel.degraded < .healthy)
 }
 
+@Test func ansiParserKeepsSGRTextAndDropsControlSequences() {
+    let input = "\u{001B}[32mgreen\u{001B}[0m \u{001B}]8;;https://example.com\u{0007}link\u{001B}]8;;\u{0007} \u{001B}[2Jdone"
+    #expect(ANSIParser.plain(input) == "green link done")
+}
+
+@Test func ansiParserCarriesStyleAcrossRecords() {
+    var parser = ANSIParser()
+    _ = parser.consume("\u{001B}[3")
+    let continued = parser.consume("1mred\u{001B}[0m")
+    #expect(String(continued.characters) == "red")
+}
+
+@Test func ansiParserBoundsUnterminatedControlSequences() {
+    var parser = ANSIParser()
+    for _ in 0..<20 {
+        _ = parser.consume("\u{001B}[" + String(repeating: "1", count: 1_024))
+        _ = parser.consume("\u{001B}]" + String(repeating: "x", count: 1_024))
+    }
+    #expect(String(parser.consume("visible").characters) == "visible")
+}
+
+@Test @MainActor func completedLogStreamIsNotResubscribed() async {
+    var subscriptions = 0
+    var status = ""
+    await followLogStream(
+        subscribe: { _ in
+            subscriptions += 1
+            return AsyncThrowingStream { $0.finish() }
+        },
+        onStatus: { status = $0 },
+        onRecord: { _ in }
+    )
+    #expect(subscriptions == 1)
+    #expect(status == "Ended")
+}
+
 @Test func rpcErrorsExposeServerReason() {
     let error = RPCError(code: .failedPrecondition, message: "verify bundle: invalid manifest signature")
     #expect(hostErrorMessage(error) == "verify bundle: invalid manifest signature")
@@ -26,6 +62,18 @@ import Foundation
     )
     #expect(environment.name == "Research")
     #expect(environment.egressSummary == "Blocked by default")
+    #expect(!environment.hasNoRetainedData)
+
+    let emptyUsage = UsageSnapshot(
+        cpuNanos: 0, memoryBytes: 0, pids: 0, readBytes: 0, writeBytes: 0,
+        networkRXBytes: 0, networkTXBytes: 0, diskBytes: 0, sampledAt: .now, isStale: false
+    )
+    let empty = AgentEnvironmentModel(
+        id: "empty", name: "Empty", namespaceID: "empty", health: .healthy, usage: emptyUsage, workloads: [], volumes: [],
+        limits: environment.limits, egressSummary: environment.egressSummary, allowsPublicEgress: false,
+        policyRevision: 1, origin: .local, allocationID: nil
+    )
+    #expect(empty.hasNoRetainedData)
 }
 
 @Test func usageCountersBecomePerSecondRates() {
@@ -52,6 +100,92 @@ import Foundation
     #expect(second.rate(after: stale, for: \UsageSnapshot.networkRXBytes) == nil)
 }
 
+@Test func remoteConnectionStatusHonorsGraceAndTerminalFailures() {
+    let now = Date(timeIntervalSinceReferenceDate: 1_000)
+    #expect(RemoteConnectionStatus.derive(
+        connected: false, connectorPhase: .retryWait, observedAt: now.addingTimeInterval(-5),
+        disconnectedAt: now.addingTimeInterval(-10), disconnectGraceSeconds: 30, now: now
+    ) == .connecting)
+    #expect(RemoteConnectionStatus.derive(
+        connected: false, connectorPhase: .retryWait, observedAt: now.addingTimeInterval(-40),
+        disconnectedAt: now.addingTimeInterval(-40), disconnectGraceSeconds: 30, now: now
+    ) == .offline)
+    #expect(RemoteConnectionStatus.derive(
+        connected: false, connectorPhase: .authFailed, observedAt: now,
+        disconnectedAt: now, disconnectGraceSeconds: 30, now: now
+    ) == .offline)
+    #expect(RemoteConnectionStatus.derive(
+        connected: true, connectorPhase: .connected, observedAt: now,
+        disconnectedAt: nil, disconnectGraceSeconds: 30, now: now
+    ) == .connected)
+    #expect(RemoteConnectionStatus.derive(
+        connected: true, connectorPhase: .connected, observedAt: now.addingTimeInterval(-21),
+        disconnectedAt: nil, disconnectGraceSeconds: 30, now: now
+    ) == .offline)
+}
+
+@Test func lifecycleHealthRequiresEveryManagedComponent() {
+    let healthy = LifecycleStatus(appInstalled: true, hostInstalled: true, mcpInstalled: true, connectorInstalled: true, hostLoaded: true, connectorLoaded: true)
+    let stopped = LifecycleStatus(appInstalled: true, hostInstalled: true, mcpInstalled: true, connectorInstalled: true, hostLoaded: true, connectorLoaded: false)
+    #expect(healthy.coreHealthy)
+    #expect(stopped.coreHealthy)
+}
+
+@Test func codexConfigurationBackupIsRecoverableAndPrivate() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let config = directory.appending(path: "config.toml")
+    try Data("managed = true".utf8).write(to: config)
+    try AgentIntegrationConfiguration().backupConfiguration(at: config)
+    let backup = config.appendingPathExtension("agent-vmm-backup")
+    #expect(try String(contentsOf: backup, encoding: .utf8) == "managed = true")
+    let attributes = try FileManager.default.attributesOfItem(atPath: backup.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+}
+
+@Test func pendingIntegrationCancellationDoesNotTouchClientConfiguration() {
+    func integration(_ state: AgentIntegrationModel.ConfigState, fingerprint: String) -> AgentIntegrationModel {
+        AgentIntegrationModel(id: "integration", adapterID: "codex", displayName: "Codex", scope: .user, configTarget: "config", environmentID: "environment", configState: state, fingerprint: fingerprint, revision: 1, errorMessage: nil, createdAt: .now, lastVerifiedAt: nil)
+    }
+    #expect(integration(.pending, fingerprint: "").configurationRemoval == .none)
+    #expect(integration(.configuring, fingerprint: "").configurationRemoval == .requiresRepair)
+    #expect(integration(.error, fingerprint: "").configurationRemoval == .requiresRepair)
+    #expect(integration(.removing, fingerprint: "").configurationRemoval == .requiresRepair)
+    #expect(integration(.ready, fingerprint: "known").configurationRemoval == .verified("known"))
+    #expect(integration(.removing, fingerprint: "").canRepairConfiguration)
+    #expect(!integration(.removing, fingerprint: "").canRetryRemoval)
+    #expect(integration(.removing, fingerprint: "known").canRetryRemoval)
+}
+
+
+@Test func remoteCapacityDraftPreservesUneditedPolicyExactly() {
+    let policy = RemotePoolSettings(
+        maxEnvironments: 7,
+        aggregateLimits: EnvironmentLimits(cpuMillis: 3_333, memoryBytes: 3_456_789_012, pids: 777, diskBytes: 9_876_543_210),
+        perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_111, memoryBytes: 1_234_567_890, pids: 222, diskBytes: 4_567_890_123),
+        allowsPublicEgress: false,
+        maxLeaseSeconds: 5_400,
+        disconnectGraceSeconds: 47,
+        stopGraceSeconds: 13
+    )
+    let draft = RemotePoolDraft(policy)
+    #expect(draft.settings == policy)
+    #expect(draft.isValid)
+}
+
+@MainActor
+@Test func agentAccessDeepLinksPreserveTargetSelection() {
+    let model = AppModel()
+    model.showAccess(.remote)
+    #expect(model.section == .access)
+    #expect(model.accessTab == .remote)
+    model.showEnvironment("environment-a")
+    #expect(model.section == .environments)
+    #expect(model.selectedEnvironmentID == "environment-a")
+    #expect(model.environmentSection == .overview)
+}
+
 @MainActor
 @Test func eventHistoryResetsOnlyWhenGuestBootChanges() {
     let model = AppModel()
@@ -66,4 +200,53 @@ import Foundation
     #expect(model.events == [gap])
     model.record(rebooted)
     #expect(model.events == [rebooted])
+}
+
+@MainActor
+@Test func healthSnapshotRefreshPreservesErrorsAndRejectsOlderSamples() {
+    let model = AppModel()
+    model.errorMessage = "Agent setup failed."
+    let current = SystemSnapshotModel(
+        vmState: "Running", bootID: "guest-a", health: .healthy, components: [], usage: nil,
+        environments: [], remoteRegistration: nil, collectedAt: Date(timeIntervalSinceReferenceDate: 20)
+    )
+    model.applySnapshot(current)
+    model.applySnapshot(SystemSnapshotModel(
+        vmState: "Running", bootID: "guest-a", health: .unavailable, components: [], usage: nil,
+        environments: [], remoteRegistration: nil, collectedAt: Date(timeIntervalSinceReferenceDate: 10)
+    ))
+    #expect(model.snapshot == current)
+    #expect(model.errorMessage == "Agent setup failed.")
+}
+
+@Test func configurationCommandRunnerHandlesLargeOutputAndTimeout() async throws {
+    let configuration = AgentIntegrationConfiguration()
+    let output = try await configuration.run(
+        URL(filePath: "/bin/sh"),
+        arguments: ["-c", "/usr/bin/yes x | /usr/bin/head -c 131072"],
+        timeout: .seconds(3)
+    )
+    #expect(output.count == 131_072)
+
+    do {
+        _ = try await configuration.run(
+            URL(filePath: "/bin/sh"), arguments: ["-c", "sleep 5"], timeout: .milliseconds(100)
+        )
+        Issue.record("Expected the command to time out")
+    } catch AgentIntegrationConfiguration.ConfigurationError.commandTimedOut {
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
+
+@Test func bundledHelperResolvesCustomHelpersDirectory() throws {
+    let bundle = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).app")
+    let helpers = bundle.appending(path: "Contents/Helpers")
+    try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: bundle) }
+    let executable = helpers.appending(path: "agent-vmm-mcp")
+    FileManager.default.createFile(atPath: executable.path, contents: Data())
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    #expect(BundledHelper.executable(named: "agent-vmm-mcp", bundleURL: bundle) == executable)
+    #expect(BundledHelper.executable(named: "missing", bundleURL: bundle) == nil)
 }

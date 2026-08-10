@@ -19,12 +19,12 @@ type bootstrapOperator struct {
 	owner       hostv1.EnvironmentOwnerKind
 }
 
-func (server bootstrapOperator) EnsureLocalEnvironment(context.Context, *hostv1.EnsureLocalEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
-	return &hostv1.GetEnvironmentResponse{Environment: &hostv1.AgentEnvironment{Owner: &hostv1.EnvironmentOwner{Kind: server.owner}}}, nil
-}
-
 func (server bootstrapOperator) CreateAgentSession(context.Context, *hostv1.CreateAgentSessionRequest) (*hostv1.CreateAgentSessionResponse, error) {
-	return &hostv1.CreateAgentSessionResponse{SessionId: "session", SocketPath: server.sessionPath, Environment: &hostv1.AgentEnvironment{Origin: hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_LOCAL}}, nil
+	origin := hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_LOCAL
+	if server.owner == hostv1.EnvironmentOwnerKind_ENVIRONMENT_OWNER_KIND_REMOTE_REGISTRATION {
+		origin = hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_REMOTE
+	}
+	return &hostv1.CreateAgentSessionResponse{SessionId: "session", SocketPath: server.sessionPath, Environment: &hostv1.AgentEnvironment{Origin: origin}}, nil
 }
 
 type releaseRuntime struct {
@@ -77,7 +77,7 @@ func TestBootstrapLocalSessionAndRelease(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	session, err := Bootstrap(ctx, operatorPath, "workspace", "Workspace")
+	session, err := Bootstrap(ctx, operatorPath, "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestBootstrapRejectsRemoteOwnerAndUnsafeSocket(t *testing.T) {
 			})
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if session, err := Bootstrap(ctx, operatorPath, "workspace", ""); err == nil {
+			if session, err := Bootstrap(ctx, operatorPath, "integration"); err == nil {
 				session.Close(ctx)
 				t.Fatal("unsafe bootstrap succeeded")
 			}

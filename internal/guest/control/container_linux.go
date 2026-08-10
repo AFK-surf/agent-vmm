@@ -4,6 +4,8 @@ package control
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -33,6 +35,9 @@ const (
 	runscSandbox           = "sandbox"
 	containerSnapshotter   = "native"
 	containerProcess       = labelPrefix + "process"
+	containerInstanceLabel = labelPrefix + "instance-id"
+	containerStartedLabel  = labelPrefix + "started-at-unix-nano"
+	containerFinishedLabel = labelPrefix + "finished-at-unix-nano"
 	mainProcessID          = "agent-vmm-main"
 	supervisorHostPath     = "/usr/bin/agent-vmm-supervisor"
 	supervisorPath         = "/run/agent-vmm/supervisor"
@@ -66,38 +71,42 @@ func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID s
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := r.network.Attach(ctx, namespaceID, containerID)
+	instanceID, err := newContainerInstanceID()
+	if err != nil {
+		return nil, err
+	}
+	endpoint, err := r.network.Attach(ctx, namespaceID, containerID, instanceID)
 	if err != nil {
 		return nil, err
 	}
 	if err := container.Update(nsctx, withNetworkNamespace(endpoint.NetNSPath)); err != nil {
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	stdout, stderr, err := newRecordLog(logPath(namespaceID, containerID), logMetaPath(namespaceID, containerID), limit)
 	if err != nil {
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	task, err := container.NewTask(nsctx, cio.NullIO)
 	if err != nil {
 		stdout.Close()
 		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	lifecycleContext := namespaceContext(context.Background(), namespaceID)
 	taskExit, err := task.Wait(lifecycleContext)
 	if err != nil {
 		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	if err := task.Start(nsctx); err != nil {
 		_, _ = task.Delete(nsctx)
 		stdout.Close()
 		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	mainProcess, err := task.Exec(nsctx, mainProcessID, mainSpec, cio.NewCreator(cio.WithStreams(nil, stdout, stderr)))
@@ -105,7 +114,7 @@ func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID s
 		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
 		stdout.Close()
 		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	mainExit, err := mainProcess.Wait(lifecycleContext)
@@ -114,7 +123,7 @@ func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID s
 		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
 		stdout.Close()
 		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	if err := mainProcess.Start(nsctx); err != nil {
@@ -122,26 +131,26 @@ func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID s
 		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
 		stdout.Close()
 		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
-	if _, err := container.SetLabels(nsctx, map[string]string{containerStateLabel: "running", containerExitLabel: ""}); err != nil {
+	if _, err := container.SetLabels(nsctx, map[string]string{containerStateLabel: "running", containerExitLabel: "", containerInstanceLabel: instanceID, containerStartedLabel: strconv.FormatInt(time.Now().UnixNano(), 10), containerFinishedLabel: ""}); err != nil {
 		_ = mainProcess.Kill(nsctx, syscall.SIGKILL)
 		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
 		stdout.Close()
 		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID)
+		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
 	r.tasks.Add(1)
 	go func() {
 		defer r.tasks.Done()
-		r.monitorTask(namespaceID, containerID, container, task, mainProcess, mainExit, taskExit, stdout, stderr)
+		r.monitorTask(namespaceID, containerID, instanceID, container, task, mainProcess, mainExit, taskExit, stdout, stderr)
 	}()
 	return r.inspectContainer(nsctx, namespaceID, container)
 }
 
-func (r *Runtime) monitorTask(namespaceID, containerID string, container containerd.Container, task containerd.Task, mainProcess containerd.Process, mainExit, taskExit <-chan containerd.ExitStatus, logs ...io.Closer) {
+func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, container containerd.Container, task containerd.Task, mainProcess containerd.Process, mainExit, taskExit <-chan containerd.ExitStatus, logs ...io.Closer) {
 	status := <-mainExit
 	code, _, err := status.Result()
 	if err != nil {
@@ -161,12 +170,12 @@ func (r *Runtime) monitorTask(namespaceID, containerID string, container contain
 	_, _ = mainProcess.Delete(processContext, containerd.WithProcessKill)
 	_ = deleteTask(processContext, task)
 	cancelProcesses()
-	_ = r.network.Detach(context.Background(), namespaceID, containerID)
+	_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 	for _, log := range logs {
 		_ = log.Close()
 	}
 	metadataContext, cancelMetadata := context.WithTimeout(namespaceContext(context.Background(), namespaceID), 5*time.Second)
-	_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10)})
+	_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10), containerInstanceLabel: "", containerFinishedLabel: strconv.FormatInt(time.Now().UnixNano(), 10)})
 	cancelMetadata()
 	r.notifyWaiters(namespaceID+"/"+containerID, code)
 }
@@ -404,7 +413,16 @@ func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, cont
 	} else if info.Labels[containerStateLabel] == "stopped" {
 		state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
 	}
-	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state}
+	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state, InstanceId: info.Labels[containerInstanceLabel]}
+	result.CreatedAtUnixNano = info.CreatedAt.UnixNano()
+	result.StartedAtUnixNano, err = parseTimestampLabel(info.Labels[containerStartedLabel])
+	if err != nil {
+		return nil, err
+	}
+	result.FinishedAtUnixNano, err = parseTimestampLabel(info.Labels[containerFinishedLabel])
+	if err != nil {
+		return nil, err
+	}
 	process, err := containerMainProcess(ctx, container)
 	if err != nil {
 		return nil, err
@@ -434,6 +452,21 @@ func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, cont
 		}
 	}
 	return result, nil
+}
+
+func newContainerInstanceID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value[:]), nil
+}
+
+func parseTimestampLabel(value string) (int64, error) {
+	if value == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(value, 10, 64)
 }
 
 func validateEnvironment(environment []string) error {

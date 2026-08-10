@@ -8,9 +8,12 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type operatorServer struct {
@@ -18,7 +21,56 @@ type operatorServer struct {
 }
 
 func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapshotRequest) (*hostv1.GetSystemSnapshotResponse, error) {
-	return &hostv1.GetSystemSnapshotResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING, BootId: "transport-fixture"}, Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY}}, nil
+	now := time.Now()
+	return &hostv1.GetSystemSnapshotResponse{
+		Vm:     &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING, BootId: "transport-fixture"},
+		Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY},
+		RemoteRegistration: &hostv1.RemoteRegistration{
+			Id: "remote-fixture", Endpoint: "controller.example:443", DisplayName: "Fixture Controller",
+			ProtocolVersion: "1", Revision: 7,
+			State:           hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
+			ConnectionState: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+			EnrollmentState: hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY,
+			Pool: &hostv1.RemotePoolPolicy{
+				MaxEnvironments:      3,
+				AggregateLimits:      fixtureLimits(3000, 3<<30, 768, 12<<30),
+				PerEnvironmentLimits: fixtureLimits(1000, 1<<30, 256, 4<<30),
+				MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
+				MaxLeaseDuration:     durationpb.New(45 * time.Minute), DisconnectGrace: durationpb.New(45 * time.Second), StopGrace: durationpb.New(12 * time.Second),
+			},
+			ConnectorStatus: &hostv1.ConnectorStatus{Phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, ConnectorRelease: "fixture-1", ObservedAt: timestamppb.New(now), LastConnectedAt: timestamppb.New(now)},
+			Allocations: []*hostv1.RemoteAllocation{{
+				AllocationId: "allocation-a", EnvironmentId: "environment-a", DisplayLabel: "Build",
+				Limits: fixtureLimits(500, 512<<20, 64, 2<<30), EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
+				Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_LEASED,
+				Lease: &hostv1.RemoteLease{LeaseId: "lease-a", AllocationId: "allocation-a", WorkloadRef: "job-a", Generation: 2, ExpiresAt: timestamppb.New(now.Add(time.Minute)), State: hostv1.LeaseState_LEASE_STATE_ACTIVE},
+			}},
+		},
+	}, nil
+}
+
+func (operatorServer) ListAgentIntegrations(context.Context, *hostv1.ListAgentIntegrationsRequest) (*hostv1.ListAgentIntegrationsResponse, error) {
+	return &hostv1.ListAgentIntegrationsResponse{Integrations: []*hostv1.AgentIntegration{{
+		Id: "integration-a", AdapterId: "codex", DisplayName: "Codex", Scope: hostv1.IntegrationScope_INTEGRATION_SCOPE_USER,
+		ConfigTarget: "/fixture/config.toml", EnvironmentId: "environment-a",
+		DesiredState:      hostv1.IntegrationDesiredState_INTEGRATION_DESIRED_STATE_ALLOWED,
+		ConfigState:       hostv1.IntegrationConfigState_INTEGRATION_CONFIG_STATE_READY,
+		ConfigFingerprint: "fixture", Revision: 3, CreatedAt: timestamppb.New(time.Now()),
+	}}}, nil
+}
+
+func (operatorServer) ListAgentSessions(context.Context, *hostv1.ListAgentSessionsRequest) (*hostv1.ListAgentSessionsResponse, error) {
+	return &hostv1.ListAgentSessionsResponse{Sessions: []*hostv1.AgentSession{{
+		Id: "session-a", IntegrationId: "integration-a", EnvironmentId: "environment-a",
+		Origin:    hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_LOCAL_INTEGRATION,
+		State:     hostv1.AgentSessionState_AGENT_SESSION_STATE_CONNECTED,
+		CreatedAt: timestamppb.New(time.Now().Add(-time.Minute)), ExpiresAt: timestamppb.New(time.Now().Add(time.Hour)),
+		LastActivityAt: timestamppb.New(time.Now()), ActiveConnectionCount: 2,
+	}}}, nil
+}
+
+func fixtureLimits(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
+	return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
 }
 
 func (operatorServer) WatchEvents(_ *hostv1.WatchEventsRequest, stream hostv1.OperatorService_WatchEventsServer) error {

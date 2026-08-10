@@ -5,9 +5,11 @@ package e2e
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/grpc"
@@ -22,9 +24,10 @@ type productClient struct {
 }
 
 type productSession struct {
-	id         string
-	connection *grpc.ClientConn
-	client     hostv1.AgentRuntimeServiceClient
+	id            string
+	integrationID string
+	connection    *grpc.ClientConn
+	client        hostv1.AgentRuntimeServiceClient
 }
 
 func newProductClient(operator hostv1.OperatorServiceClient) *productClient {
@@ -57,11 +60,22 @@ func (client *productClient) EnsureEnvironment(ctx context.Context, environmentI
 		return response.GetEnvironment(), err
 	}
 	client.mu.Unlock()
-	_, err := client.operator.EnsureLocalEnvironment(ctx, &hostv1.EnsureLocalEnvironmentRequest{RequestId: requestID, EnvironmentId: environmentID, DisplayName: environmentID})
+	prepared, err := client.operator.PrepareAgentIntegration(ctx, &hostv1.PrepareAgentIntegrationRequest{
+		RequestId: requestID + "-integration", AdapterId: "e2e", DisplayName: environmentID,
+		Scope: hostv1.IntegrationScope_INTEGRATION_SCOPE_MANUAL, ConfigTarget: "e2e://" + environmentID,
+		EnvironmentId: optional(environmentID),
+	})
 	if err != nil {
 		return nil, err
 	}
-	created, err := client.operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: requestID + "-session", EnvironmentId: environmentID})
+	integration, err := client.operator.CommitAgentIntegration(ctx, &hostv1.CommitAgentIntegrationRequest{
+		RequestId: requestID + "-integration-commit", IntegrationId: prepared.GetIntegration().GetId(),
+		ExpectedRevision: prepared.GetIntegration().GetRevision(), ConfigFingerprint: "e2e",
+	})
+	if err != nil {
+		return nil, err
+	}
+	created, err := client.operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: requestID + "-session", IntegrationId: integration.GetIntegration().GetId()})
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +88,7 @@ func (client *productClient) EnsureEnvironment(ctx context.Context, environmentI
 	if err != nil {
 		return nil, err
 	}
-	session := &productSession{id: created.GetSessionId(), connection: connection, client: hostv1.NewAgentRuntimeServiceClient(connection)}
+	session := &productSession{id: created.GetSessionId(), integrationID: integration.GetIntegration().GetId(), connection: connection, client: hostv1.NewAgentRuntimeServiceClient(connection)}
 	client.mu.Lock()
 	client.sessions[environmentID] = session
 	client.mu.Unlock()
@@ -101,10 +115,6 @@ func (client *productClient) session(environmentID string) (*productSession, err
 }
 
 func (client *productClient) DeleteEnvironment(ctx context.Context, environmentID, requestID string) error {
-	plan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: environmentID})
-	if err != nil {
-		return err
-	}
 	session, _ := client.session(environmentID)
 	var volumes []string
 	if session != nil {
@@ -115,15 +125,51 @@ func (client *productClient) DeleteEnvironment(ctx context.Context, environmentI
 			}
 		}
 	}
-	if _, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: requestID, Plan: plan.GetPlan(), ConfirmedVolumeIds: volumes}); err != nil {
+	client.forgetSession(environmentID)
+	if err := client.RemoveEnvironmentAccess(ctx, environmentID, requestID); err != nil {
 		return err
 	}
-	client.mu.Lock()
-	if session := client.sessions[environmentID]; session != nil {
-		_ = session.connection.Close()
-		delete(client.sessions, environmentID)
+	plan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: environmentID})
+	if err != nil {
+		return err
 	}
-	client.mu.Unlock()
+	var lastOperation *hostv1.Operation
+	for attempt := 0; attempt < 3; attempt++ {
+		response, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: requestID, Plan: plan.GetPlan(), ConfirmedVolumeIds: volumes})
+		if err != nil {
+			return err
+		}
+		lastOperation = response.GetOperation()
+		if lastOperation.GetState() == hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
+			return nil
+		}
+		if lastOperation.GetState() != hostv1.OperationState_OPERATION_STATE_FAILED {
+			return fmt.Errorf("cleanup operation did not finish: %s", lastOperation.GetState())
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * time.Second)
+		}
+	}
+	return fmt.Errorf("cleanup failed: %s: %s", lastOperation.GetError().GetReason(), lastOperation.GetError().GetMessage())
+}
+
+func (client *productClient) RemoveEnvironmentAccess(ctx context.Context, environmentID, requestID string) error {
+	listed, err := client.operator.ListAgentIntegrations(ctx, &hostv1.ListAgentIntegrationsRequest{})
+	if err != nil {
+		return err
+	}
+	for _, integration := range listed.GetIntegrations() {
+		if integration.GetEnvironmentId() != environmentID {
+			continue
+		}
+		removing, err := client.operator.BeginAgentIntegrationRemoval(ctx, &hostv1.BeginAgentIntegrationRemovalRequest{RequestId: requestID + "-remove-access-" + integration.GetId(), IntegrationId: integration.GetId(), ExpectedRevision: integration.GetRevision()})
+		if err != nil {
+			return err
+		}
+		if _, err := client.operator.CompleteAgentIntegrationRemoval(ctx, &hostv1.CompleteAgentIntegrationRemovalRequest{RequestId: requestID + "-complete-remove-access-" + integration.GetId(), IntegrationId: integration.GetId(), ExpectedRevision: removing.GetIntegration().GetRevision()}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

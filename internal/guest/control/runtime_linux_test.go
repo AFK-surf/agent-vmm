@@ -66,6 +66,29 @@ func TestPublicRegistryClientIgnoresProxyEnvironment(t *testing.T) {
 	}
 }
 
+func TestNormalizeImageReference(t *testing.T) {
+	digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{input: "postgres:16-alpine", want: "docker.io/library/postgres:16-alpine"},
+		{input: "pgvector/pgvector:pg16", want: "docker.io/pgvector/pgvector:pg16"},
+		{input: "docker.io/pgvector/pgvector:pg16", want: "docker.io/pgvector/pgvector:pg16"},
+		{input: "pgvector/pgvector@" + digest, want: "docker.io/pgvector/pgvector@" + digest},
+	} {
+		got, err := normalizeImageReference(test.input)
+		if err != nil || got != test.want {
+			t.Errorf("normalizeImageReference(%q) = %q, %v; want %q", test.input, got, err, test.want)
+		}
+	}
+	for _, input := range []string{"https://docker.io/library/postgres:16", "", "UPPERCASE/image:tag"} {
+		if _, err := normalizeImageReference(input); err == nil {
+			t.Errorf("normalizeImageReference(%q) succeeded", input)
+		}
+	}
+}
+
 func TestNamespaceLabelsRoundTrip(t *testing.T) {
 	t.Parallel()
 	limits := &vmmdv1.NamespaceLimits{CpuMillis: 1500, MemoryBytes: 256 << 20, Pids: 64, DiskBytes: 2 << 30}
@@ -131,6 +154,28 @@ func TestFixedSpecPolicy(t *testing.T) {
 	}
 	if stored.Args[0] != "/bin/sh" || !stored.NoNewPrivileges {
 		t.Fatalf("stored process = %+v", stored)
+	}
+}
+
+func TestProcessArgumentsPreserveAndOverrideOCIConfiguration(t *testing.T) {
+	entrypoint := []string{"docker-entrypoint.sh"}
+	command := []string{"postgres"}
+	for _, test := range []struct {
+		name       string
+		entrypoint *vmmdv1.StringList
+		command    *vmmdv1.StringList
+		want       []string
+	}{
+		{name: "preserve", want: []string{"docker-entrypoint.sh", "postgres"}},
+		{name: "command", command: &vmmdv1.StringList{Values: []string{"postgres", "-c", "shared_buffers=128MB"}}, want: []string{"docker-entrypoint.sh", "postgres", "-c", "shared_buffers=128MB"}},
+		{name: "entrypoint", entrypoint: &vmmdv1.StringList{Values: []string{"/bin/check"}}, want: []string{"/bin/check", "postgres"}},
+		{name: "replace-all", entrypoint: &vmmdv1.StringList{Values: []string{"true"}}, command: &vmmdv1.StringList{}, want: []string{"true"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := processArguments(entrypoint, command, test.entrypoint, test.command); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("arguments = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 

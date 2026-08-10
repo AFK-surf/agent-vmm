@@ -2,6 +2,8 @@ import SwiftUI
 
 struct EnvironmentListView: View {
     @Bindable var model: AppModel
+    @State private var pendingCleanup: PendingEnvironmentCleanup?
+    @State private var typedEnvironmentName = ""
 
     var body: some View {
         Group {
@@ -17,27 +19,24 @@ struct EnvironmentListView: View {
                     }
                 }
             } else {
-                NavigationSplitView {
-                    List(model.snapshot.environments, selection: $model.selectedEnvironmentID) { environment in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(environment.name).font(.headline)
-                            HStack {
-                                Text(environment.origin.rawValue)
-                                HealthLabel(level: environment.health)
-                                Text("\(environment.workloads.filter { $0.state == .running }.count) running")
-                            }
-                            .font(.caption)
-                        }
-                        .tag(environment.id)
-                        .padding(.vertical, 3)
-                    }
-                    .navigationTitle("Environments")
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
-                } detail: {
+                HStack(spacing: 0) {
+                    environmentList
+                        .frame(minWidth: 250, idealWidth: 280, maxWidth: 300)
+                    Divider()
                     if let id = model.selectedEnvironmentID, let environment = model.environment(id: id) {
-                        EnvironmentDetailView(model: model, environment: environment)
+                        EnvironmentDetailView(
+                            model: model,
+                            environment: environment,
+                            onReset: { prepareCleanup(environment, mode: .reset) },
+                            onDiscard: { prepareCleanup(environment, mode: .discard) },
+                            resetDisabledReason: cleanupDisabledReason(for: environment, mode: .reset),
+                            discardDisabledReason: cleanupDisabledReason(for: environment, mode: .discard)
+                        )
+                            .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+                            .clipped()
                     } else {
                         ContentUnavailableView("Choose an agent environment", systemImage: "shippingbox")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
@@ -45,65 +44,292 @@ struct EnvironmentListView: View {
         .navigationTitle("Environments")
         .onAppear { selectFirstEnvironmentIfNeeded() }
         .onChange(of: model.snapshot.environments) { _, _ in selectFirstEnvironmentIfNeeded() }
+        .alert(cleanupTitle, isPresented: Binding(
+            get: { pendingCleanup != nil },
+            set: { if !$0 { pendingCleanup = nil } }
+        )) {
+            if pendingCleanup?.preview.mode == .discard {
+                TextField("Type \(pendingCleanup?.environmentName ?? "")", text: $typedEnvironmentName)
+            }
+            Button("Cancel", role: .cancel) { pendingCleanup = nil }
+            Button(pendingCleanup?.preview.mode == .discard ? "Delete Environment" : "Reset Environment", role: .destructive) {
+                executePendingCleanup()
+            }
+            .disabled(pendingCleanup?.preview.mode == .discard && typedEnvironmentName != pendingCleanup?.environmentName)
+        } message: {
+            Text(cleanupMessage)
+        }
+    }
+
+    private var environmentList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Environments")
+                .font(.title2.weight(.semibold))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+            List(model.snapshot.environments, selection: $model.selectedEnvironmentID) { environment in
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        Text(environment.name).font(.headline)
+                        Spacer()
+                        Text("\(environment.workloads.filter { $0.state == .running }.count) running")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 8) {
+                        Label(environment.origin.rawValue, systemImage: environment.origin == .local ? "desktopcomputer" : "network")
+                            .foregroundStyle(.secondary)
+                        HealthLabel(level: environment.health)
+                        if isRetained(environment) {
+                            Text("Retained")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.caption)
+                }
+                .tag(environment.id)
+                .padding(.vertical, 6)
+                .contextMenu {
+                    Button("Open") { model.showEnvironment(environment.id) }
+                    if model.integrations.contains(where: { $0.environmentID == environment.id }) {
+                        Button("Open Agent Access") { model.showAccess(.local) }
+                    } else if environment.origin == .remote {
+                        Button("Open Remote Controller") { model.showAccess(.remote) }
+                    }
+                    if model.snapshot.vmState == "Stopped" {
+                        Button("Start Virtual Machine") { Task { await model.startVM() } }
+                    }
+                    Divider()
+                    Button("Reset Environment…") { prepareCleanup(environment, mode: .reset) }
+                        .disabled(cleanupDisabledReason(for: environment, mode: .reset) != nil)
+                    Button("Delete Environment…", role: .destructive) { prepareCleanup(environment, mode: .discard) }
+                        .disabled(cleanupDisabledReason(for: environment, mode: .discard) != nil)
+                        .help(cleanupDisabledReason(for: environment, mode: .discard) ?? "Permanently delete this environment")
+                }
+            }
+            .listStyle(.sidebar)
+        }
+        .background(.background.secondary)
     }
 
     private var emptyStateDescription: String {
         switch model.snapshot.vmState {
         case "Stopped": "Start the virtual machine to make environments available to agents."
         case "Starting": "Environments will appear after the virtual machine finishes starting."
-        default: "Environments appear here when a local agent creates a session."
+        default: "Environments appear when agent access is added or a remote allocation is retained."
         }
     }
 
     private func selectFirstEnvironmentIfNeeded() {
-        guard model.selectedEnvironmentID == nil else { return }
+        if let selected = model.selectedEnvironmentID,
+           model.snapshot.environments.contains(where: { $0.id == selected }) { return }
         model.selectedEnvironmentID = model.snapshot.environments.first?.id
+        model.environmentSection = .overview
+    }
+
+    private func isRetained(_ environment: AgentEnvironmentModel) -> Bool {
+        if environment.origin == .remote {
+            return remoteAllocation(for: environment)?.state == "Retained"
+        }
+        return !model.integrations.contains { $0.environmentID == environment.id }
+    }
+
+    private func cleanupDisabledReason(for environment: AgentEnvironmentModel, mode: CleanupMode) -> String? {
+        if model.snapshot.vmState != "Running" { return "Start the virtual machine first." }
+        if model.vmAction != nil { return "Wait for the virtual machine operation to finish." }
+        guard mode == .discard else { return nil }
+        if environment.origin == .remote {
+            guard let allocation = remoteAllocation(for: environment), allocation.state == "Retained" else {
+                return "Release this allocation from Remote Controller before deleting it."
+            }
+            if allocation.lease?.state == .active {
+                return "Release the active remote lease first."
+            }
+        }
+        if model.integrations.contains(where: { $0.environmentID == environment.id }) {
+            return "Remove agent access before deleting this environment."
+        }
+        if model.sessions.contains(where: { $0.environmentID == environment.id && $0.activeConnections > 0 }) {
+            return "Disconnect active agent sessions first."
+        }
+        if environment.workloads.contains(where: { $0.state == .running }) {
+            return "Stop running workspaces and services first."
+        }
+        return nil
+    }
+
+    private func remoteAllocation(for environment: AgentEnvironmentModel) -> RemoteAllocationModel? {
+        guard let allocationID = environment.allocationID else { return nil }
+        return model.snapshot.remoteRegistration?.allocations.first { $0.allocationID == allocationID }
+    }
+
+    private func prepareCleanup(_ environment: AgentEnvironmentModel, mode: CleanupMode) {
+        if let reason = cleanupDisabledReason(for: environment, mode: mode) {
+            model.errorMessage = reason
+            return
+        }
+        Task {
+            do {
+                let preview = try await model.previewCleanup(environmentID: environment.id, mode: mode)
+                typedEnvironmentName = ""
+                pendingCleanup = PendingEnvironmentCleanup(
+                    environmentName: environment.name,
+                    health: environment.health.label,
+                    preview: preview
+                )
+            } catch {
+                model.errorMessage = hostErrorMessage(error)
+            }
+        }
+    }
+
+    private func executePendingCleanup() {
+        guard let cleanup = pendingCleanup else { return }
+        pendingCleanup = nil
+        Task {
+            let succeeded = await model.executeCleanup(cleanup.preview)
+            if succeeded { selectFirstEnvironmentIfNeeded() }
+        }
+    }
+
+    private var cleanupTitle: String {
+        pendingCleanup?.preview.mode == .discard ? "Delete environment?" : "Reset environment?"
+    }
+
+    private var cleanupMessage: String {
+        guard let cleanup = pendingCleanup else { return "" }
+        let action = cleanup.preview.mode == .discard
+            ? "This permanently deletes \(cleanup.environmentName) and its confirmed retained data."
+            : "This removes writable workspace layers and logs from \(cleanup.environmentName)."
+        return ([action, "Current status: \(cleanup.health)."] + cleanup.preview.impacts).joined(separator: "\n")
     }
 }
 
-struct EnvironmentDetailView: View {
+private struct PendingEnvironmentCleanup {
+    let environmentName: String
+    let health: String
+    let preview: CleanupPreview
+}
+
+private struct EnvironmentDetailView: View {
     @Bindable var model: AppModel
     let environment: AgentEnvironmentModel
+    let onReset: () -> Void
+    let onDiscard: () -> Void
+    let resetDisabledReason: String?
+    let discardDisabledReason: String?
+
+    private var integration: AgentIntegrationModel? {
+        model.integrations.first { $0.environmentID == environment.id }
+    }
+
+    private var activeConnections: UInt32 {
+        guard let integration else { return 0 }
+        return model.sessions(for: integration.id).reduce(0) { $0 + $1.activeConnections }
+    }
+
     var body: some View {
-        TabView {
-            overview.tabItem { Label("Overview", systemImage: "rectangle.grid.2x2") }
-            workloads.tabItem { Label("Workspaces & Services", systemImage: "shippingbox") }
-            LogsActivityView(model: model, environment: environment).tabItem { Label("Logs & Activity", systemImage: "text.alignleft") }
-            data.tabItem { Label("Data", systemImage: "externaldrive") }
-            network.tabItem { Label("Network & Access", systemImage: "network") }
-            EnvironmentActionsView(model: model, environment: environment).tabItem { Label("Advanced", systemImage: "gearshape.2") }
-        }.padding()
-    }
-
-    private var overview: some View {
-        Form {
-            LabeledContent("Owner", value: environment.origin.rawValue)
-            if let allocationID = environment.allocationID {
-                LabeledContent("Allocation", value: allocationID)
+        VStack(spacing: 0) {
+            header
+            Divider()
+            Picker("Environment section", selection: $model.environmentSection) {
+                ForEach(AppModel.EnvironmentSection.allCases) { section in
+                    Text(section.rawValue).tag(section)
+                }
             }
-            LabeledContent("Status") { HealthLabel(level: environment.health) }
-            LabeledContent("Memory", value: environment.usage.map { DisplayFormatting.bytes.string(fromByteCount: Int64($0.memoryBytes)) } ?? "Unavailable")
-            LabeledContent("Retained data", value: environment.usage.map { DisplayFormatting.bytes.string(fromByteCount: Int64($0.diskBytes)) } ?? "Unavailable")
-            Text("Stopping preserves each workspace writable layer. Deleting a workspace removes that layer. Named retained data is independent.")
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 680)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            Divider()
+            sectionContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var header: some View {
+        HStack(spacing: 18) {
+            Image(systemName: "shippingbox.fill")
+                .font(.title2)
+                .foregroundStyle(.blue)
+                .frame(width: 44, height: 44)
+                .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 10) {
+                    Text(environment.name).font(.title2.weight(.semibold))
+                    HealthLabel(level: environment.health).font(.callout)
+                }
+                HStack(spacing: 12) {
+                    Label(environment.origin.rawValue, systemImage: environment.origin == .local ? "desktopcomputer" : "network")
+                    Text("\(environment.workloads.filter { $0.state == .running }.count) running")
+                    if integration != nil {
+                        Text(activeConnections > 0 ? "\(activeConnections) agent connection\(activeConnections == 1 ? "" : "s")" : "Agent awaiting connection")
+                    } else if environment.origin == .remote {
+                        Text("Remote allocation")
+                    } else {
+                        Text("No agent access")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if model.snapshot.vmState == "Stopped" {
+                Button("Start Virtual Machine") { Task { await model.startVM() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.vmAction != nil)
+            } else if integration != nil {
+                Button("Agent Access") { model.showAccess(.local) }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+    }
+
+    @ViewBuilder private var sectionContent: some View {
+        switch model.environmentSection {
+        case .overview: EnvironmentOverviewView(model: model, environment: environment)
+        case .containers: EnvironmentContainersView(model: model, environment: environment)
+        case .storage: EnvironmentStorageView(model: model, environment: environment)
+        case .logs:
+            LogsActivityView(model: model, environment: environment)
+                .padding(20)
+        case .network: network
+        case .advanced:
+            EnvironmentActionsView(
+                model: model,
+                environment: environment,
+                onReset: onReset,
+                onDiscard: onDiscard,
+                resetDisabledReason: resetDisabledReason,
+                discardDisabledReason: discardDisabledReason
+            )
         }
     }
 
-    private var workloads: some View {
-        Table(environment.workloads) {
-            TableColumn("Workspace or service", value: \.id)
-            TableColumn("State") { Text($0.state.rawValue.capitalized) }
-            TableColumn("Exit") { Text($0.exitCode.map(String.init) ?? "—") }
-            TableColumn("Image", value: \.image)
+    private var network: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                GroupBox("Outbound access") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        LabeledContent("Policy", value: environment.egressSummary)
+                        LabeledContent("Public internet", value: environment.allowsPublicEgress ? "Allowed" : "Blocked")
+                    }
+                    .padding(.top, 6)
+                }
+                GroupBox("Resource limits") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        LabeledContent("CPU", value: "\(environment.limits.cpuMillis) millicores")
+                        LabeledContent("Memory", value: DisplayFormatting.bytes.string(fromByteCount: Int64(environment.limits.memoryBytes)))
+                        LabeledContent("Processes", value: String(environment.limits.pids))
+                        LabeledContent("Retained disk", value: DisplayFormatting.bytes.string(fromByteCount: Int64(environment.limits.diskBytes)))
+                    }
+                    .padding(.top, 6)
+                }
+            }
+            .frame(maxWidth: 920, alignment: .leading)
+            .padding(24)
         }
     }
 
-    private var data: some View {
-        Table(environment.volumes) {
-            TableColumn("Retained data", value: \.id)
-            TableColumn("Used") { Text(DisplayFormatting.bytes.string(fromByteCount: Int64($0.bytesUsed))) }
-            TableColumn("Mounted by") { Text($0.mountedBy.joined(separator: ", ")) }
-        }
-    }
-
-    private var network: some View { Form { LabeledContent("Outbound access", value: environment.egressSummary) } }
 }

@@ -31,7 +31,7 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 	case *remotev1.ControllerCommand_EnsureAllocation:
 		var response *hostv1.AllocationResponse
 		request := value.EnsureAllocation
-		response, err = handler.client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{AllocationId: request.GetAllocationId(), DisplayLabel: boundedLabel(request.GetDisplayLabel()), Limits: request.GetLimits(), EgressMode: request.GetEgressMode(), PolicyRevision: request.GetPolicyRevision()})
+		response, err = handler.client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{AllocationId: request.GetAllocationId(), DisplayLabel: boundedLabel(request.GetDisplayLabel()), Limits: request.GetLimits(), EgressMode: request.GetEgressMode(), PolicyRevision: request.GetPolicyRevision(), ConnectionInstance: handler.connectionInstance})
 		if err == nil {
 			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
 		}
@@ -66,7 +66,7 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 	case *remotev1.ControllerCommand_AcquireLease:
 		request := value.AcquireLease
 		var response *hostv1.LeaseResponse
-		response, err = handler.client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: request.GetAllocationId(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second), WorkloadRef: boundedLabel(request.GetWorkloadRef())})
+		response, err = handler.client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: request.GetAllocationId(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second), WorkloadRef: boundedLabel(request.GetWorkloadRef()), ConnectionInstance: handler.connectionInstance})
 		if err == nil {
 			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease())}
 		}
@@ -91,7 +91,7 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease())}
 		}
 	case *remotev1.ControllerCommand_DrainRegistration:
-		_, err = handler.client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{ConnectionInstance: handler.connectionInstance, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DRAINING})
+		_, err = handler.client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{ConnectionInstance: handler.connectionInstance, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING})
 	case *remotev1.ControllerCommand_OpenSession:
 		if handler.tunnels == nil {
 			err = status.Error(codes.Unavailable, "session transport is unavailable")

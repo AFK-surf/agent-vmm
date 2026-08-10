@@ -47,6 +47,22 @@ struct DiagnosticsView: View {
                         .frame(minHeight: 260)
                     }
                 }
+
+                DisclosureGroup("System Details") {
+                    Form {
+                        LabeledContent("Operator socket", value: AppModel.defaultSocketPath)
+                        LabeledContent("Remote compute socket", value: AppModel.remoteComputeSocketPath)
+                        LabeledContent("VM boot ID", value: model.snapshot.bootID.isEmpty ? "Unavailable" : model.snapshot.bootID)
+                        LabeledContent("Local integrations", value: String(model.integrations.count))
+                        LabeledContent("Active agent sessions", value: String(model.sessions.filter { $0.state == .connected }.count))
+                        if let remote = model.snapshot.remoteRegistration {
+                            LabeledContent("Connector release", value: remote.connector.release.isEmpty ? "Unavailable" : remote.connector.release)
+                            LabeledContent("Connector phase", value: remote.connector.phase.rawValue)
+                            if let code = remote.connector.failureCode { LabeledContent("Connector failure", value: code) }
+                        }
+                    }
+                    .formStyle(.grouped)
+                }
             }
             .frame(maxWidth: 1040, alignment: .leading)
             .padding(28)

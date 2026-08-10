@@ -26,15 +26,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	var operatorSocket, environmentID, displayName string
+	var operatorSocket, integrationID string
 	flag.StringVar(&operatorSocket, "operator-socket", defaultSocket, "absolute Agent VMM operator socket")
-	flag.StringVar(&environmentID, "environment", "", "local environment ID")
-	flag.StringVar(&displayName, "display-name", "", "local environment display name")
+	flag.StringVar(&integrationID, "integration", "", "managed Agent VMM integration ID")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	bootstrapContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	session, err := mcpserver.Bootstrap(bootstrapContext, operatorSocket, environmentID, displayName)
+	session, err := mcpserver.Bootstrap(bootstrapContext, operatorSocket, integrationID)
 	cancel()
 	if err != nil {
 		return err

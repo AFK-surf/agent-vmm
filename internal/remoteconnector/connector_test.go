@@ -8,11 +8,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -75,6 +77,14 @@ func (server *fakeLocal) SetConnectionState(_ context.Context, request *hostv1.S
 		server.instance = request.GetConnectionInstance()
 	}
 	server.states = append(server.states, request.GetState())
+	return &hostv1.GetRemoteStateResponse{Registration: server.registration}, nil
+}
+func (server *fakeLocal) ReportConnectorStatus(_ context.Context, request *hostv1.ReportConnectorStatusRequest) (*hostv1.GetRemoteStateResponse, error) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if request.GetConnectionInstance() != server.instance {
+		return nil, status.Error(codes.Aborted, "stale")
+	}
 	return &hostv1.GetRemoteStateResponse{Registration: server.registration}, nil
 }
 func (server *fakeLocal) EnsureAllocation(_ context.Context, request *hostv1.EnsureAllocationRequest) (*hostv1.AllocationResponse, error) {
@@ -189,6 +199,27 @@ func TestBearerAuthenticationFailure(t *testing.T) {
 	}
 }
 
+func TestConnectorHeartbeatStopsRevokedRegistration(t *testing.T) {
+	local := &fakeLocal{instance: "connection", registration: testRegistration(ProtocolVersion)}
+	local.registration.EnrollmentState = hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_REVOKING
+	socket := startLocalServer(t, local)
+	connection, err := newLocalClient(context.Background(), socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.connection.Close()
+	ctx, cancelContext := context.WithCancel(context.Background())
+	defer cancelContext()
+	cancelled := make(chan struct{})
+	done := make(chan struct{})
+	connectorHeartbeat(ctx, connection.client, "connection", 10*time.Millisecond, func() { close(cancelled) }, done)
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("revoked registration did not stop the connector")
+	}
+}
+
 func TestBoundsAndBackoff(t *testing.T) {
 	for _, delay := range []time.Duration{time.Second, 4 * time.Second, MaxReconnectDelay} {
 		value := jitter(delay)
@@ -199,6 +230,27 @@ func TestBoundsAndBackoff(t *testing.T) {
 	result := commandHandler{}.handle(context.Background(), &remotev1.ControllerCommand{CorrelationId: string(make([]byte, 129))})
 	if result.GetReason() != remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT {
 		t.Fatalf("reason = %s", result.GetReason())
+	}
+}
+
+func TestConnectorFailureStatusIsBoundedAndActionable(t *testing.T) {
+	tests := []struct {
+		name  string
+		err   error
+		phase hostv1.ConnectorPhase
+		code  string
+	}{
+		{name: "retry", err: errors.New("secret endpoint detail"), phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_RETRY_WAIT, code: "CONNECTION_FAILED"},
+		{name: "authentication", err: status.Error(codes.Unauthenticated, "credential contents"), phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
+		{name: "configuration", err: errConnectorConfiguration, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR, code: "CONNECTOR_CONFIG_INVALID"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			phase, code, message := connectorFailure(test.err)
+			if phase != test.phase || code != test.code || strings.Contains(message, "secret") || strings.Contains(message, "credential contents") {
+				t.Fatalf("status=%s/%s/%q", phase, code, message)
+			}
+		})
 	}
 }
 

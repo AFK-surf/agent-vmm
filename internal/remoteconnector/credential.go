@@ -1,6 +1,11 @@
 package remoteconnector
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrCredentialUnavailable = errors.New("controller credential is unavailable")
 
 type CredentialStore interface {
 	Load(context.Context, string) ([]byte, error)

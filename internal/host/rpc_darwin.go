@@ -39,6 +39,20 @@ func auditUnary(controller *Controller) grpc.UnaryServerInterceptor {
 	}
 }
 
+func sessionActivityUnary(controller *Controller, sessionID string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		controller.markSessionActivity(sessionID)
+		return handler(ctx, request)
+	}
+}
+
+func sessionActivityStream(controller *Controller, sessionID string) grpc.StreamServerInterceptor {
+	return func(server any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		controller.markSessionActivity(sessionID)
+		return handler(server, stream)
+	}
+}
+
 func remoteRuntimeUnary(ownerKind int32) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if ownerKind == store.OwnerRemoteRegistration && remoteRuntimeDenied(info.FullMethod) {
@@ -68,6 +82,7 @@ func remoteRuntimeDenied(method string) bool {
 		hostv1.AgentRuntimeService_DeleteContainer_FullMethodName,
 		hostv1.AgentRuntimeService_GetContainer_FullMethodName,
 		hostv1.AgentRuntimeService_ListContainers_FullMethodName,
+		hostv1.AgentRuntimeService_ListImages_FullMethodName,
 		hostv1.AgentRuntimeService_Logs_FullMethodName,
 		hostv1.AgentRuntimeService_Exec_FullMethodName,
 		hostv1.AgentRuntimeService_SignalContainer_FullMethodName,

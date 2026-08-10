@@ -12,6 +12,12 @@ struct SystemStatusView: View {
             VStack(alignment: .leading, spacing: 20) {
                 vmCard
 
+                if let lifecycle = model.lifecycleStatus, !model.servicesHealthy {
+                    serviceRepair(lifecycle)
+                }
+
+                accessSummary
+
                 LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 12) {
                     metric("Agent environments", "\(model.snapshot.environments.count)", "Available to local agents", symbol: "shippingbox")
                     metric(
@@ -53,6 +59,67 @@ struct SystemStatusView: View {
         } message: {
             Text(vmStopImpact)
         }
+    }
+
+    private func serviceRepair(_: LifecycleStatus) -> some View {
+        GroupBox {
+            HStack(spacing: 14) {
+                Image(systemName: "wrench.and.screwdriver.fill").foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Agent VMM services need repair").font(.headline)
+                    Text("One or more signed helpers or LaunchAgents are missing or stopped.").foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Repair Services") { Task { await model.repairServices() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.lifecycleOperationInProgress)
+            }.padding(6)
+        }
+    }
+
+    private var accessSummary: some View {
+        GroupBox("Agent access") {
+            VStack(spacing: 0) {
+                Button { model.showAccess(.local) } label: {
+                    HStack {
+                        Label("Local agents", systemImage: "bolt.horizontal.circle")
+                        Spacer()
+                        Text("\(readyIntegrationCount) ready · \(inUseIntegrationCount) in use")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 9)
+                Divider()
+                Button { model.showAccess(.remote) } label: {
+                    HStack {
+                        Label("Remote controller", systemImage: "network")
+                        Spacer()
+                        Text(remoteAccessSummary).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 9)
+            }
+            .padding(.horizontal, 6)
+        }
+    }
+
+    private var remoteAccessSummary: String {
+        guard let remote = model.snapshot.remoteRegistration else { return "Not configured" }
+        return "\(remote.connectionState.rawValue) · \(remote.state.rawValue)"
+    }
+
+    private var readyIntegrationCount: Int {
+        model.integrations.filter { $0.configState == .ready }.count
+    }
+
+    private var inUseIntegrationCount: Int {
+        Set(model.sessions.filter { $0.activeConnections > 0 }.compactMap(\.integrationID)).count
     }
 
     private var vmCard: some View {
@@ -350,6 +417,8 @@ struct SystemStatusView: View {
         case "vmmd": "Environment service"
         case "containerd", "runsc", "containerd/runsc": "Workload runtime"
         case "network": "Network"
+        case "egress": "Guest egress"
+        case "host-egress": "Host egress"
         case "quota": "Storage quotas"
         case "state-disk", "state_disk": "Retained data disk"
         default: "System component"

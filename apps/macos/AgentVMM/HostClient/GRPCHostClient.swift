@@ -1,6 +1,7 @@
 import Foundation
 import GRPCCore
 import GRPCNIOTransportHTTP2
+import SwiftProtobuf
 
 actor GRPCHostClient: HostServing {
     private let client: GRPCClient<HTTP2ClientTransport.Posix>
@@ -48,13 +49,14 @@ actor GRPCHostClient: HostServing {
         }
     }
 
-    nonisolated func logs(environmentID: String, containerID: String, after cursor: String?) -> AsyncThrowingStream<LogEntry, Error> {
+    nonisolated func logs(environmentID: String, containerID: String, since: Date?, after cursor: String?) -> AsyncThrowingStream<LogEntry, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var query = Agentvmm_Host_V1_LogsRequest()
                     query.containerID = containerID
-                    query.tailRecords = cursor == nil ? 500 : 0
+                    query.tailRecords = cursor == nil ? 5_000 : 0
+                    if let since { query.since = Google_Protobuf_Timestamp(date: since) }
                     query.follow = true
                     query.afterCursor = cursor ?? ""
                     var request = Agentvmm_Host_V1_OperatorLogsRequest()
@@ -74,15 +76,16 @@ actor GRPCHostClient: HostServing {
         }
     }
 
-    nonisolated func metrics(environmentID: String?) -> AsyncThrowingStream<UsageSnapshot, Error> {
+    nonisolated func metrics(environmentID: String?, containerID: String?) -> AsyncThrowingStream<UsageSnapshot, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var request = Agentvmm_Host_V1_WatchMetricsRequest()
                     request.interval.seconds = 1
                     if let environmentID {
-                        request.scope.kind = "environment"
+                        request.scope.kind = containerID == nil ? "environment" : "container"
                         request.scope.environmentID = environmentID
+                        request.scope.resourceID = containerID ?? ""
                     }
                     try await self.service.watchMetrics(request) { response in
                         for try await sample in response.messages {
@@ -95,6 +98,20 @@ actor GRPCHostClient: HostServing {
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func images(environmentID: String) async throws -> [EnvironmentImageModel] {
+        var request = Agentvmm_Host_V1_ListEnvironmentImagesRequest()
+        request.environmentID = environmentID
+        return try await service.listEnvironmentImages(request).images.map {
+            EnvironmentImageModel(
+                reference: $0.reference,
+                digest: $0.digest,
+                logicalBytes: $0.logicalBytes,
+                platforms: $0.platforms,
+                usedByContainerIDs: $0.usedByContainerIds
+            )
         }
     }
 
@@ -207,14 +224,64 @@ actor GRPCHostClient: HostServing {
         return operation(try await service.exportSupportBundle(request).operation)
     }
 
-    func createRemoteRegistration(endpoint: String, displayName: String, pool: RemotePoolSettings) async throws -> RemoteRegistrationModel {
-        var request = Agentvmm_Host_V1_CreateRemoteRegistrationRequest()
+    func beginRemoteEnrollment(endpoint: String, displayName: String, pool: RemotePoolSettings) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_BeginRemoteEnrollmentRequest()
         request.requestID = UUID().uuidString
         request.endpoint = endpoint
         request.displayName = displayName
         request.protocolVersion = "1"
         request.pool = remotePool(pool)
-        return remoteRegistration(try await service.createRemoteRegistration(request).registration)
+        return remoteRegistration(try await service.beginRemoteEnrollment(request).registration)
+    }
+
+    func completeRemoteEnrollment(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest()
+        request.requestID = UUID().uuidString
+        request.registrationID = registrationID
+        request.expectedRevision = expectedRevision
+        return remoteRegistration(try await service.completeRemoteEnrollment(request).registration)
+    }
+
+    func failRemoteEnrollment(registrationID: String, expectedRevision: UInt64, code: String, message: String) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_FailRemoteEnrollmentRequest()
+        request.requestID = UUID().uuidString
+        request.registrationID = registrationID
+        request.expectedRevision = expectedRevision
+        request.errorCode = code
+        request.errorMessage = message
+        return remoteRegistration(try await service.failRemoteEnrollment(request).registration)
+    }
+
+    func retryRemoteEnrollment(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_RetryRemoteEnrollmentRequest()
+        request.requestID = UUID().uuidString
+        request.registrationID = registrationID
+        request.expectedRevision = expectedRevision
+        return remoteRegistration(try await service.retryRemoteEnrollment(request).registration)
+    }
+
+    func removeIncompleteRemoteRegistration(registrationID: String, expectedRevision: UInt64) async throws {
+        var request = Agentvmm_Host_V1_RemoveIncompleteRemoteRegistrationRequest()
+        request.requestID = UUID().uuidString
+        request.registrationID = registrationID
+        request.expectedRevision = expectedRevision
+        _ = try await service.removeIncompleteRemoteRegistration(request)
+    }
+
+    func beginRemoteRevocation(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_BeginRemoteRevocationRequest()
+        request.requestID = UUID().uuidString
+        request.registrationID = registrationID
+        request.expectedRevision = expectedRevision
+        return remoteRegistration(try await service.beginRemoteRevocation(request).registration)
+    }
+
+    func completeRemoteRevocation(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_CompleteRemoteRevocationRequest()
+        request.requestID = UUID().uuidString
+        request.registrationID = registrationID
+        request.expectedRevision = expectedRevision
+        return remoteRegistration(try await service.completeRemoteRevocation(request).registration)
     }
 
     func updateRemotePool(_ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
@@ -225,31 +292,112 @@ actor GRPCHostClient: HostServing {
         return remoteRegistration(try await service.updateRemotePool(request).registration)
     }
 
-    func setRemoteRegistrationState(_ state: Agentvmm_Host_V1_RemoteRegistrationState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+    func setRemoteAdmission(_ state: RemoteAdmissionState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
         var request = Agentvmm_Host_V1_SetRemoteRegistrationStateRequest()
         request.requestID = UUID().uuidString
         request.expectedRevision = expectedRevision
-        request.state = state
+        switch state {
+        case .accepting: request.state = .enabled
+        case .draining: request.state = .draining
+        case .revoked, .unknown: throw HostClientError.invalidResponse("invalid remote admission transition")
+        }
         return remoteRegistration(try await service.setRemoteRegistrationState(request).registration)
+    }
+
+    func listAgentIntegrations() async throws -> [AgentIntegrationModel] {
+        try await service.listAgentIntegrations(.init()).integrations.map(agentIntegration)
+    }
+
+    func prepareAgentIntegration(adapterID: String, displayName: String, scope: AgentIntegrationModel.Scope, configTarget: String, environmentID: String?) async throws -> AgentIntegrationModel {
+        var request = Agentvmm_Host_V1_PrepareAgentIntegrationRequest()
+        request.requestID = UUID().uuidString
+        request.adapterID = adapterID
+        request.displayName = displayName
+        request.scope = switch scope { case .user: .user; case .workspace: .workspace; case .manual: .manual }
+        request.configTarget = configTarget
+        if let environmentID { request.environmentID = environmentID }
+        return agentIntegration(try await service.prepareAgentIntegration(request).integration)
+    }
+
+    func commitAgentIntegration(id: String, expectedRevision: UInt64, fingerprint: String, needsRestart: Bool) async throws -> AgentIntegrationModel {
+        var request = Agentvmm_Host_V1_CommitAgentIntegrationRequest()
+        request.requestID = UUID().uuidString
+        request.integrationID = id
+        request.expectedRevision = expectedRevision
+        request.configFingerprint = fingerprint
+        request.needsRestart = needsRestart
+        return agentIntegration(try await service.commitAgentIntegration(request).integration)
+    }
+
+    func beginAgentIntegrationConfiguration(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel {
+        var request = Agentvmm_Host_V1_BeginAgentIntegrationConfigurationRequest()
+        request.requestID = UUID().uuidString
+        request.integrationID = id
+        request.expectedRevision = expectedRevision
+        return agentIntegration(try await service.beginAgentIntegrationConfiguration(request).integration)
+    }
+
+    func failAgentIntegration(id: String, expectedRevision: UInt64, code: String, message: String) async throws -> AgentIntegrationModel {
+        var request = Agentvmm_Host_V1_FailAgentIntegrationRequest()
+        request.requestID = UUID().uuidString
+        request.integrationID = id
+        request.expectedRevision = expectedRevision
+        request.errorCode = code
+        request.errorMessage = message
+        return agentIntegration(try await service.failAgentIntegration(request).integration)
+    }
+
+    func beginAgentIntegrationRemoval(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel {
+        var request = Agentvmm_Host_V1_BeginAgentIntegrationRemovalRequest()
+        request.requestID = UUID().uuidString
+        request.integrationID = id
+        request.expectedRevision = expectedRevision
+        return agentIntegration(try await service.beginAgentIntegrationRemoval(request).integration)
+    }
+
+    func completeAgentIntegrationRemoval(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel {
+        var request = Agentvmm_Host_V1_CompleteAgentIntegrationRemovalRequest()
+        request.requestID = UUID().uuidString
+        request.integrationID = id
+        request.expectedRevision = expectedRevision
+        return agentIntegration(try await service.completeAgentIntegrationRemoval(request).integration)
+    }
+
+    func listAgentSessions(integrationID: String?, includeTerminal: Bool) async throws -> [AgentSessionModel] {
+        var request = Agentvmm_Host_V1_ListAgentSessionsRequest()
+        if let integrationID { request.integrationID = integrationID }
+        request.includeTerminal = includeTerminal
+        return try await service.listAgentSessions(request).sessions.map(agentSession)
+    }
+
+    func revokeAgentSessions(integrationID: String) async throws {
+        var request = Agentvmm_Host_V1_RevokeAgentSessionsRequest()
+        request.requestID = UUID().uuidString
+        request.integrationID = integrationID
+        _ = try await service.revokeAgentSessions(request)
     }
 }
 
 private extension GRPCHostClient {
     nonisolated func remotePool(_ value: RemotePoolSettings) -> Agentvmm_Host_V1_RemotePoolPolicy {
+        var pool = Agentvmm_Host_V1_RemotePoolPolicy()
+        pool.maxEnvironments = value.maxEnvironments
+        pool.aggregateLimits = resourceLimits(value.aggregateLimits)
+        pool.perEnvironmentLimits = resourceLimits(value.perEnvironmentLimits)
+        pool.maxEgressMode = value.allowsPublicEgress ? .publicInternet : .denyAll
+        pool.maxLeaseDuration.seconds = value.maxLeaseSeconds
+        pool.disconnectGrace.seconds = value.disconnectGraceSeconds
+        pool.stopGrace.seconds = value.stopGraceSeconds
+        return pool
+    }
+
+    nonisolated func resourceLimits(_ value: EnvironmentLimits) -> Agentvmm_Host_V1_ResourceLimits {
         var limits = Agentvmm_Host_V1_ResourceLimits()
         limits.cpuMillis = value.cpuMillis
         limits.memoryBytes = value.memoryBytes
         limits.pids = value.pids
         limits.diskBytes = value.diskBytes
-        var pool = Agentvmm_Host_V1_RemotePoolPolicy()
-        pool.maxEnvironments = value.maxEnvironments
-        pool.aggregateLimits = limits
-        pool.perEnvironmentLimits = limits
-        pool.maxEgressMode = .publicInternet
-        pool.maxLeaseDuration.seconds = 3600
-        pool.disconnectGrace.seconds = 30
-        pool.stopGrace.seconds = 10
-        return pool
+        return limits
     }
     nonisolated func map(_ response: Agentvmm_Host_V1_GetSystemSnapshotResponse) -> SystemSnapshotModel {
         SystemSnapshotModel(
@@ -267,7 +415,14 @@ private extension GRPCHostClient {
     }
 
     nonisolated func environment(_ value: Agentvmm_Host_V1_AgentEnvironment) -> AgentEnvironmentModel {
-        AgentEnvironmentModel(
+        let inventoryAvailability: InventoryAvailability = switch value.inventoryState {
+        case .available: .available
+        case .vmStopped: .vmStopped
+        case .unavailable: .unavailable
+        case .stale: .stale
+        default: .unknown
+        }
+        return AgentEnvironmentModel(
             id: value.id,
             name: value.displayName,
             namespaceID: value.namespaceID,
@@ -283,30 +438,175 @@ private extension GRPCHostClient {
                 return Workload(
                     id: $0.id, image: $0.image, state: state, exitCode: $0.hasExitCode ? $0.exitCode : nil,
                     argv: $0.argv, environmentKeys: $0.environmentKeys, workdir: $0.hasWorkdir ? $0.workdir : nil,
-                    user: $0.hasUser ? $0.user : nil, mounts: $0.volumes.map { "\($0.volumeID) → \($0.destination)" }
+                    user: $0.hasUser ? $0.user : nil, mounts: $0.volumes.map { "\($0.volumeID) → \($0.destination)" },
+                    instanceID: $0.instanceID.nilIfEmpty,
+                    createdAt: optionalDate($0.createdAt), startedAt: optionalDate($0.startedAt), finishedAt: optionalDate($0.finishedAt)
                 )
             },
-            volumes: value.volumes.map { RetainedVolume(id: $0.id, bytesUsed: $0.usage.diskBytes, byteLimit: $0.limitBytes, mountedBy: $0.mountedBy) },
+            volumes: value.volumes.map {
+                RetainedVolume(
+                    id: $0.id, bytesUsed: $0.usage.diskBytes, byteLimit: $0.limitBytes, mountedBy: $0.mountedBy,
+                    usageObservedAt: optionalDate($0.usage.sampledAt), usageIsStale: $0.usage.stale,
+                    usageUnavailableReason: $0.usage.unavailableReason.nilIfEmpty
+                )
+            },
             limits: EnvironmentLimits(cpuMillis: value.limits.cpuMillis, memoryBytes: value.limits.memoryBytes, pids: value.limits.pids, diskBytes: value.limits.diskBytes),
             egressSummary: value.egressMode == .publicInternet ? "Public internet" : "Blocked by default",
             allowsPublicEgress: value.egressMode == .publicInternet,
             policyRevision: value.policyRevision,
             origin: value.owner.kind == .remoteRegistration ? .remote : .local,
-            allocationID: value.owner.allocationID.nilIfEmpty
+            allocationID: value.owner.allocationID.nilIfEmpty,
+            inventoryAvailability: inventoryAvailability,
+            inventoryMessage: value.inventoryMessage.nilIfEmpty,
+            inventoryObservedAt: optionalDate(value.inventoryObservedAt)
         )
     }
 
     nonisolated func remoteRegistration(_ value: Agentvmm_Host_V1_RemoteRegistration) -> RemoteRegistrationModel {
-        RemoteRegistrationModel(
+        let admissionState: RemoteAdmissionState = switch value.state {
+        case .enabled: .accepting
+        case .draining: .draining
+        case .revoked: .revoked
+        default: .unknown
+        }
+        let connector = connectorStatus(value.connectorStatus)
+        let connectionState = RemoteConnectionStatus.derive(
+            connected: value.connectionState == .connected,
+            connectorPhase: connector.phase,
+            observedAt: connector.observedAt,
+            disconnectedAt: connector.disconnectedAt,
+            disconnectGraceSeconds: value.pool.disconnectGrace.seconds
+        )
+        let enrollmentState: RemoteEnrollmentStatus = switch value.enrollmentState {
+        case .pendingCredential: .pending
+        case .ready: .ready
+        case .setupIncomplete: .incomplete
+        case .revoking: .revoking
+        default: .incomplete
+        }
+        return RemoteRegistrationModel(
             id: value.id,
             displayName: value.displayName,
             endpoint: value.endpoint,
-            state: String(describing: value.state),
-            connectionState: String(describing: value.connectionState),
+            state: admissionState,
+            connectionState: connectionState,
+            enrollmentState: enrollmentState,
             revision: value.revision,
-            maxEnvironments: value.pool.maxEnvironments,
-            activeLeases: value.allocations.filter(\.hasLease).count
+            pool: RemotePoolSettings(
+                maxEnvironments: value.pool.maxEnvironments,
+                aggregateLimits: environmentLimits(value.pool.aggregateLimits),
+                perEnvironmentLimits: environmentLimits(value.pool.perEnvironmentLimits),
+                allowsPublicEgress: value.pool.maxEgressMode == .publicInternet,
+                maxLeaseSeconds: value.pool.maxLeaseDuration.seconds,
+                disconnectGraceSeconds: value.pool.disconnectGrace.seconds,
+                stopGraceSeconds: value.pool.stopGrace.seconds
+            ),
+            allocations: value.allocations.map(remoteAllocation),
+            connector: connector,
+            enrollmentError: value.enrollmentErrorMessage.nilIfEmpty
         )
+    }
+
+    nonisolated func environmentLimits(_ value: Agentvmm_Host_V1_ResourceLimits) -> EnvironmentLimits {
+        EnvironmentLimits(cpuMillis: value.cpuMillis, memoryBytes: value.memoryBytes, pids: value.pids, diskBytes: value.diskBytes)
+    }
+
+    nonisolated func remoteAllocation(_ value: Agentvmm_Host_V1_RemoteAllocation) -> RemoteAllocationModel {
+        let leaseState: RemoteLeaseModel.State = switch value.lease.state {
+        case .active: .active
+        case .expired: .expired
+        case .released: .released
+        case .revoked: .revoked
+        default: .unknown
+        }
+        return RemoteAllocationModel(
+            allocationID: value.allocationID,
+            environmentID: value.environmentID,
+            displayName: value.displayLabel,
+            state: String(describing: value.state).replacingOccurrences(of: "_", with: " ").capitalized,
+            limits: environmentLimits(value.limits),
+            allowsPublicEgress: value.egressMode == .publicInternet,
+            lease: value.hasLease ? RemoteLeaseModel(
+                id: value.lease.leaseID,
+                workloadReference: value.lease.workloadRef,
+                expiresAt: optionalDate(value.lease.expiresAt),
+                state: leaseState
+            ) : nil
+        )
+    }
+
+    nonisolated func connectorStatus(_ value: Agentvmm_Host_V1_ConnectorStatus) -> ConnectorStatusModel {
+        let phase: ConnectorStatusModel.Phase = switch value.phase {
+        case .stopped: .stopped
+        case .enrolling: .enrolling
+        case .connecting: .connecting
+        case .connected: .connected
+        case .retryWait: .retryWait
+        case .authFailed: .authFailed
+        case .configError: .configError
+        default: .unknown
+        }
+        return ConnectorStatusModel(
+            phase: phase,
+            release: value.connectorRelease,
+            observedAt: optionalDate(value.observedAt),
+            lastConnectedAt: optionalDate(value.lastConnectedAt),
+            disconnectedAt: optionalDate(value.disconnectedAt),
+            nextRetryAt: optionalDate(value.nextRetryAt),
+            reconnectAttempt: value.reconnectAttempt,
+            failureCode: value.failureCode.nilIfEmpty,
+            failureMessage: value.failureMessage.nilIfEmpty
+        )
+    }
+
+    nonisolated func agentIntegration(_ value: Agentvmm_Host_V1_AgentIntegration) -> AgentIntegrationModel {
+        let scope: AgentIntegrationModel.Scope = switch value.scope {
+        case .user: .user
+        case .workspace: .workspace
+        default: .manual
+        }
+        let configState: AgentIntegrationModel.ConfigState = switch value.configState {
+        case .pending: .pending
+        case .ready: .ready
+        case .needsRestart: .needsRestart
+        case .conflict: .conflict
+        case .error: .error
+        case .removing: .removing
+        case .removed: .removed
+        case .configuring: .configuring
+        default: .unknown
+        }
+        return AgentIntegrationModel(
+            id: value.id, adapterID: value.adapterID, displayName: value.displayName,
+            scope: scope,
+            configTarget: value.configTarget, environmentID: value.environmentID,
+            configState: configState,
+            fingerprint: value.configFingerprint, revision: value.revision,
+            errorMessage: value.lastErrorMessage.nilIfEmpty, createdAt: value.createdAt.date,
+            lastVerifiedAt: optionalDate(value.lastVerifiedAt)
+        )
+    }
+
+    nonisolated func agentSession(_ value: Agentvmm_Host_V1_AgentSession) -> AgentSessionModel {
+        let state: AgentSessionModel.State = switch value.state {
+        case .listening: .listening
+        case .connected: .connected
+        case .revoked: .revoked
+        case .expired: .expired
+        case .closed: .closed
+        default: .unknown
+        }
+        return AgentSessionModel(
+            id: value.id, integrationID: value.integrationID.nilIfEmpty, environmentID: value.environmentID,
+            state: state,
+            createdAt: value.createdAt.date, expiresAt: value.expiresAt.date,
+            lastActivityAt: optionalDate(value.lastActivityAt), activeConnections: value.activeConnectionCount,
+            terminalReason: value.terminalReason.nilIfEmpty
+        )
+    }
+
+    nonisolated func optionalDate(_ value: Google_Protobuf_Timestamp) -> Date? {
+        value.seconds == 0 && value.nanos == 0 ? nil : value.date
     }
 
     nonisolated func usage(_ value: Agentvmm_Host_V1_Usage) -> UsageSnapshot? {
@@ -321,7 +621,8 @@ private extension GRPCHostClient {
             networkTXBytes: value.networkTxBytes,
             diskBytes: value.diskBytes,
             sampledAt: value.sampledAt.date,
-            isStale: value.stale
+            isStale: value.stale,
+            unavailableReason: value.unavailableReason.nilIfEmpty
         )
     }
 
@@ -362,7 +663,10 @@ private extension GRPCHostClient {
         }
         let resource = [value.resource.kind, value.resource.environmentID, value.resource.resourceID]
             .filter { !$0.isEmpty }.joined(separator: "/").nilIfEmpty
-        return OperationModel(id: value.id, kind: value.kind, state: state, stage: value.stage, reason: value.error.reason.nilIfEmpty, resource: resource)
+        return OperationModel(
+            id: value.id, kind: value.kind, state: state, stage: value.stage,
+            reason: value.error.reason.nilIfEmpty, message: value.error.message.nilIfEmpty, resource: resource
+        )
     }
 }
 

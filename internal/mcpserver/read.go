@@ -23,8 +23,28 @@ func (adapter *Adapter) registerReadTools(server *mcp.Server) {
 	addTool(server, toolDefinition{name: "container_wait", description: "Wait for one container to stop, with a bounded timeout.", inputSchema: containerWaitSchema, readOnly: true, idempotent: true, timeout: 10 * time.Minute}, adapter.containerWait)
 	addTool(server, toolDefinition{name: "container_logs", description: "Read a bounded snapshot of container logs using an opaque cursor.", inputSchema: containerLogsSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.containerLogs)
 	addTool(server, toolDefinition{name: "volume_list", description: "List named volumes in this environment with bounded pagination.", inputSchema: pageSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.volumeList)
+	addTool(server, toolDefinition{name: "image_list", description: "List canonical image references visible in this environment.", inputSchema: pageSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.imageList)
 	addTool(server, toolDefinition{name: "port_forward_list", description: "List loopback port forwards owned by this MCP process.", inputSchema: emptySchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.portForwardList)
 	addTool(server, toolDefinition{name: "cleanup_plan", description: "Plan an environment reset or irreversible discard without executing it.", inputSchema: cleanupPlanSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.cleanupPlan)
+}
+
+func (adapter *Adapter) imageList(ctx context.Context, _ *mcp.CallToolRequest, input PageInput) (*mcp.CallToolResult, Envelope, error) {
+	return adapter.call(ctx, 30*time.Second, false, func(ctx context.Context) (any, error) {
+		response, err := adapter.runtime.ListImages(ctx, &hostv1.ListImagesRequest{})
+		if err != nil {
+			return nil, err
+		}
+		items := make([]ImageData, 0, len(response.GetImages()))
+		for _, image := range response.GetImages() {
+			items = append(items, ImageData{Reference: image.GetReference(), Digest: image.GetDigest(), LogicalBytes: image.GetLogicalBytes()})
+		}
+		slices.SortFunc(items, func(a, b ImageData) int { return strings.Compare(a.Reference, b.Reference) })
+		start, end, next, err := pageBounds(len(items), input.Limit, input.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		return ImagePage{Items: items[start:end], NextCursor: next}, nil
+	})
 }
 
 func (adapter *Adapter) environmentGet(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, Envelope, error) {
@@ -207,7 +227,7 @@ func usageData(value *hostv1.Usage) UsageData {
 	return UsageData{CPUNanos: value.GetCpuNanos(), MemoryBytes: value.GetMemoryBytes(), PIDs: value.GetPids(), ReadBytes: value.GetReadBytes(), WriteBytes: value.GetWriteBytes(), DiskBytes: value.GetDiskBytes(), NetworkRXBytes: value.GetNetworkRxBytes(), NetworkTXBytes: value.GetNetworkTxBytes(), Stale: value.GetStale()}
 }
 func containerData(value *hostv1.Container) ContainerData {
-	result := ContainerData{ID: value.GetId(), Image: value.GetImage(), State: strings.ToLower(strings.TrimPrefix(value.GetState().String(), "CONTAINER_STATE_")), ExitCode: value.ExitCode, Argv: append([]string(nil), value.GetArgv()...), Workdir: value.GetWorkdir(), User: value.GetUser(), Usage: usageData(value.GetUsage())}
+	result := ContainerData{ID: value.GetId(), InstanceID: value.GetInstanceId(), Image: value.GetImage(), State: strings.ToLower(strings.TrimPrefix(value.GetState().String(), "CONTAINER_STATE_")), ExitCode: value.ExitCode, Argv: append([]string(nil), value.GetArgv()...), Workdir: value.GetWorkdir(), User: value.GetUser(), Usage: usageData(value.GetUsage())}
 	for _, mount := range value.GetVolumes() {
 		result.Volumes = append(result.Volumes, MountData{VolumeID: mount.GetVolumeId(), Destination: mount.GetDestination(), ReadOnly: mount.GetReadOnly()})
 	}

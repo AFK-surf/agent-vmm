@@ -28,10 +28,10 @@ func (KeychainStore) Load(_ context.Context, account string) ([]byte, error) {
 	query.SetReturnData(true)
 	results, err := keychain.QueryItem(query)
 	if err != nil {
-		return nil, fmt.Errorf("keychain credential unavailable: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrCredentialUnavailable, err)
 	}
 	if len(results) != 1 || len(results[0].Data) == 0 {
-		return nil, fmt.Errorf("keychain credential unavailable")
+		return nil, ErrCredentialUnavailable
 	}
 	return append([]byte(nil), results[0].Data...), nil
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -402,8 +403,8 @@ func (w *Workspace) attachNetwork(ctx context.Context) (string, func(), error) {
 			_ = w.builder.network.DetachLoopback(cleanup, namespaceID, id, path)
 		}, err
 	}
-	endpoint, err := w.builder.network.Attach(ctx, namespaceID, id)
-	return endpoint.NetNSPath, func() { _ = w.builder.network.Detach(context.Background(), namespaceID, id) }, err
+	endpoint, err := w.builder.network.Attach(ctx, namespaceID, id, id)
+	return endpoint.NetNSPath, func() { _ = w.builder.network.Detach(context.Background(), namespaceID, id, id) }, err
 }
 
 func (b *Builder) ensureBuilderImage(ctx context.Context) (containerd.Image, error) {
@@ -431,6 +432,10 @@ func (b *Builder) ensureBuilderImage(ctx context.Context) (containerd.Image, err
 }
 
 func (w *Workspace) importOutput(ctx context.Context) (string, error) {
+	canonicalReference, err := guestimage.NormalizeReference(w.header.GetImage())
+	if err != nil {
+		return "", err
+	}
 	archive, err := os.Open(filepath.Join(w.outputRoot, "image.tar"))
 	if err != nil {
 		return "", err
@@ -449,7 +454,7 @@ func (w *Workspace) importOutput(ctx context.Context) (string, error) {
 	if err := image.Unpack(nsctx, builderSnapshotter); err != nil {
 		return "", err
 	}
-	record := coreimages.Image{Name: w.header.GetImage(), Target: image.Target()}
+	record := coreimages.Image{Name: canonicalReference, Target: image.Target()}
 	if _, err := w.builder.client.ImageService().Update(nsctx, record, "target"); errdefs.IsNotFound(err) {
 		if _, err = w.builder.client.ImageService().Create(nsctx, record); err != nil {
 			return "", err

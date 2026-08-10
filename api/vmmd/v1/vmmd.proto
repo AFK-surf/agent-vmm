@@ -123,6 +123,7 @@ message PullImageResponse {
   string status = 1;
   optional string digest = 2;
   uint64 logical_bytes = 3;
+  string canonical_reference = 4;
 }
 
 message Volume {
@@ -131,11 +132,17 @@ message Volume {
   uint64 current_bytes = 3;
   uint64 limit_bytes = 4;
   repeated string mounted_by = 5;
+  int64 usage_observed_at_unix_nano = 6;
+  bool usage_stale = 7;
+  string usage_unavailable_reason = 8;
 }
 message CreateVolumeRequest {
   string request_id = 1;
   string actor_namespace_id = 2;
   string volume_id = 3;
+  optional uint32 owner_uid = 4;
+  optional uint32 owner_gid = 5;
+  optional uint32 mode = 6;
 }
 message CreateVolumeResponse {
   Volume volume = 1;
@@ -206,10 +213,18 @@ message Container {
   ContainerState state = 4;
   optional uint32 exit_code = 5;
   repeated VolumeMount volumes = 6;
-	repeated string argv = 7;
-	repeated string env = 8;
-	optional string workdir = 9;
-	optional string user = 10;
+  repeated string argv = 7;
+  repeated string env = 8;
+  optional string workdir = 9;
+  optional string user = 10;
+  string instance_id = 11;
+  int64 created_at_unix_nano = 12;
+  int64 started_at_unix_nano = 13;
+  int64 finished_at_unix_nano = 14;
+}
+
+message StringList {
+  repeated string values = 1;
 }
 
 message CreateContainerRequest {
@@ -217,7 +232,8 @@ message CreateContainerRequest {
   string actor_namespace_id = 2;
   string container_id = 3;
   string image = 4;
-  repeated string argv = 5;
+  reserved 5;
+  reserved "argv";
   repeated string env = 6;
   optional string workdir = 7;
   optional string user = 8;
@@ -225,6 +241,8 @@ message CreateContainerRequest {
   repeated VolumeMount volumes = 10;
   bool read_only_root = 11;
   uint64 log_limit_bytes = 12;
+  StringList entrypoint_override = 13;
+  StringList command_override = 14;
 }
 message CreateContainerResponse {
   Container container = 1;
@@ -401,6 +419,7 @@ message ForwardTCPHeader {
   string actor_namespace_id = 1;
   string container_id = 2;
   uint32 port = 3;
+  string container_instance_id = 4;
 }
 message ForwardTCPRequest {
   oneof event {

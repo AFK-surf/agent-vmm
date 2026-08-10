@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 2
+const schemaVersion = 4
 
 const (
 	OwnerLocal              = 1
@@ -21,6 +21,11 @@ const (
 type Store struct {
 	db *sql.DB
 }
+
+var (
+	ErrEnvironmentHasAgentAccess = errors.New("environment still has agent access")
+	ErrRemoteEnvironmentActive   = errors.New("remote environment allocation is not retained")
+)
 
 type Environment struct {
 	ID              string
@@ -39,12 +44,19 @@ type Environment struct {
 }
 
 type Session struct {
-	ID            string
-	EnvironmentID string
-	NamespaceID   string
-	SocketPath    string
-	ExpiresAt     time.Time
-	RevokedAt     *time.Time
+	ID             string
+	IntegrationID  string
+	EnvironmentID  string
+	NamespaceID    string
+	SocketPath     string
+	Origin         int32
+	CreatedAt      time.Time
+	ExpiresAt      time.Time
+	ConnectedAt    *time.Time
+	LastActivity   *time.Time
+	RevokedAt      *time.Time
+	ClosedAt       *time.Time
+	TerminalReason string
 }
 
 type Grant struct {
@@ -103,7 +115,16 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("recover remote allocations: %w", err)
 	}
-	if _, err := db.Exec(`UPDATE remote_registrations SET connection_state=1, connection_instance='', updated_at=?`, time.Now().UnixNano()); err != nil {
+	if _, err := db.Exec(`UPDATE sessions SET revoked_at=?, terminal_reason='SIDECAR_RESTARTED'
+		WHERE revoked_at IS NULL AND closed_at IS NULL`, time.Now().UnixNano()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("recover agent sessions: %w", err)
+	}
+	if _, err := db.Exec(`UPDATE remote_registrations SET connection_state=1, connection_instance='',
+		enrollment_state=CASE WHEN enrollment_state=1 THEN 3 ELSE enrollment_state END,
+		enrollment_error_code=CASE WHEN enrollment_state=1 THEN 'ENROLLMENT_INTERRUPTED' ELSE enrollment_error_code END,
+		enrollment_error_message=CASE WHEN enrollment_state=1 THEN 'Enrollment did not finish. Retry setup.' ELSE enrollment_error_message END,
+		connector_phase=1, connector_observed_at=?, updated_at=?`, time.Now().UnixNano(), time.Now().UnixNano()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("recover remote connection state: %w", err)
 	}
@@ -221,44 +242,137 @@ func (store *Store) SetAllocationState(ctx context.Context, id string, expectedR
 	return store.GetEnvironment(ctx, id)
 }
 
-func (store *Store) DeleteEnvironment(ctx context.Context, id string) error {
-	result, err := store.db.ExecContext(ctx, "DELETE FROM environments WHERE id = ?", id)
+func (store *Store) ValidateEnvironmentDiscard(ctx context.Context, id string) error {
+	var ownerKind, allocationState int32
+	if err := store.db.QueryRowContext(ctx, "SELECT owner_kind, COALESCE(allocation_state, 0) FROM environments WHERE id=?", id).Scan(&ownerKind, &allocationState); err != nil {
+		return err
+	}
+	if ownerKind == OwnerRemoteRegistration && allocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		return ErrRemoteEnvironmentActive
+	}
+	var count int
+	err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_integrations
+		WHERE environment_id=? AND (desired_state != 2 OR config_state != 7)`, id).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count != 0 {
+		return ErrEnvironmentHasAgentAccess
+	}
+	return nil
+}
+
+func (store *Store) DiscardEnvironment(ctx context.Context, id string) error {
+	transaction, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	var ownerKind, allocationState int32
+	if err := transaction.QueryRowContext(ctx, "SELECT owner_kind, COALESCE(allocation_state, 0) FROM environments WHERE id=?", id).Scan(&ownerKind, &allocationState); err != nil {
+		return err
+	}
+	if ownerKind == OwnerRemoteRegistration && allocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		return ErrRemoteEnvironmentActive
+	}
+	var blockers int
+	if err := transaction.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_integrations
+		WHERE environment_id=? AND (desired_state != 2 OR config_state != 7)`, id).Scan(&blockers); err != nil {
+		return err
+	}
+	if blockers != 0 {
+		return ErrEnvironmentHasAgentAccess
+	}
+	if _, err := transaction.ExecContext(ctx, "DELETE FROM sessions WHERE environment_id=?", id); err != nil {
+		return err
+	}
+	if _, err := transaction.ExecContext(ctx, `DELETE FROM agent_integrations
+		WHERE environment_id=? AND desired_state=2 AND config_state=7`, id); err != nil {
+		return err
+	}
+	result, err := transaction.ExecContext(ctx, "DELETE FROM environments WHERE id=?", id)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return err
+		}
+		return sql.ErrNoRows
+	}
+	return transaction.Commit()
+}
+
+func (store *Store) CreateSession(ctx context.Context, session Session) error {
+	_, err := store.db.ExecContext(ctx, `INSERT INTO sessions(id, integration_id, environment_id, socket_path, origin, created_at, expires_at)
+		VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?)`, session.ID, session.IntegrationID, session.EnvironmentID, session.SocketPath,
+		session.Origin, session.CreatedAt.UnixNano(), session.ExpiresAt.UnixNano())
+	return err
+}
+
+func (store *Store) CreateAuthorizedSession(ctx context.Context, session Session) error {
+	result, err := store.db.ExecContext(ctx, `INSERT INTO sessions(id, integration_id, environment_id, socket_path, origin, created_at, expires_at)
+		SELECT ?, id, environment_id, ?, ?, ?, ? FROM agent_integrations
+		WHERE id=? AND environment_id=? AND desired_state=1 AND config_state IN (2,3)`,
+		session.ID, session.SocketPath, session.Origin, session.CreatedAt.UnixNano(), session.ExpiresAt.UnixNano(),
+		session.IntegrationID, session.EnvironmentID)
 	if err != nil {
 		return err
 	}
 	changed, err := result.RowsAffected()
-	if err == nil && changed != 1 {
-		return sql.ErrNoRows
+	if err != nil {
+		return err
 	}
-	return err
-}
-
-func (store *Store) CreateSession(ctx context.Context, session Session) error {
-	_, err := store.db.ExecContext(ctx, `INSERT INTO sessions(id, environment_id, socket_path, expires_at)
-		VALUES (?, ?, ?, ?)`, session.ID, session.EnvironmentID, session.SocketPath, session.ExpiresAt.UnixNano())
-	return err
+	if changed != 1 {
+		return errors.New("integration is not authorized")
+	}
+	return nil
 }
 
 func (store *Store) GetSession(ctx context.Context, id string) (Session, error) {
 	var session Session
 	var expires int64
 	var revoked sql.NullInt64
-	err := store.db.QueryRowContext(ctx, `SELECT s.id, s.environment_id, e.namespace_id, s.socket_path,
-		s.expires_at, s.revoked_at FROM sessions s JOIN environments e ON e.id=s.environment_id WHERE s.id=?`, id).
-		Scan(&session.ID, &session.EnvironmentID, &session.NamespaceID, &session.SocketPath, &expires, &revoked)
+	var created int64
+	var connected, activity, closed sql.NullInt64
+	err := store.db.QueryRowContext(ctx, `SELECT s.id, COALESCE(s.integration_id, ''), s.environment_id, e.namespace_id, s.socket_path,
+		s.origin, s.created_at, s.expires_at, s.connected_at, s.last_activity_at, s.revoked_at, s.closed_at, s.terminal_reason
+		FROM sessions s JOIN environments e ON e.id=s.environment_id WHERE s.id=?`, id).
+		Scan(&session.ID, &session.IntegrationID, &session.EnvironmentID, &session.NamespaceID, &session.SocketPath,
+			&session.Origin, &created, &expires, &connected, &activity, &revoked, &closed, &session.TerminalReason)
 	if err != nil {
 		return Session{}, err
 	}
 	session.ExpiresAt = time.Unix(0, expires)
+	session.CreatedAt = time.Unix(0, created)
+	if connected.Valid {
+		value := time.Unix(0, connected.Int64)
+		session.ConnectedAt = &value
+	}
+	if activity.Valid {
+		value := time.Unix(0, activity.Int64)
+		session.LastActivity = &value
+	}
 	if revoked.Valid {
 		value := time.Unix(0, revoked.Int64)
 		session.RevokedAt = &value
+	}
+	if closed.Valid {
+		value := time.Unix(0, closed.Int64)
+		session.ClosedAt = &value
 	}
 	return session, nil
 }
 
 func (store *Store) RevokeSession(ctx context.Context, id string) error {
-	result, err := store.db.ExecContext(ctx, "UPDATE sessions SET revoked_at=? WHERE id=? AND revoked_at IS NULL", time.Now().UnixNano(), id)
+	return store.EndSession(ctx, id, "REVOKED", false)
+}
+
+func (store *Store) EndSession(ctx context.Context, id, reason string, closed bool) error {
+	now := time.Now().UnixNano()
+	result, err := store.db.ExecContext(ctx, `UPDATE sessions SET revoked_at=CASE WHEN ? THEN revoked_at ELSE ? END,
+		closed_at=CASE WHEN ? THEN ? ELSE closed_at END, terminal_reason=?
+		WHERE id=? AND revoked_at IS NULL AND closed_at IS NULL`, closed, now, closed, now, reason, id)
 	if err != nil {
 		return err
 	}
@@ -270,7 +384,7 @@ func (store *Store) RevokeSession(ctx context.Context, id string) error {
 }
 
 func (store *Store) RevokeActiveSessions(ctx context.Context) error {
-	_, err := store.db.ExecContext(ctx, "UPDATE sessions SET revoked_at=? WHERE revoked_at IS NULL", time.Now().UnixNano())
+	_, err := store.db.ExecContext(ctx, "UPDATE sessions SET revoked_at=?, terminal_reason='SIDECAR_RESTARTED' WHERE revoked_at IS NULL AND closed_at IS NULL", time.Now().UnixNano())
 	return err
 }
 

@@ -45,7 +45,8 @@ type ImagePullInput struct {
 type ContainerRunInput struct {
 	ContainerID   string            `json:"container_id"`
 	Image         string            `json:"image"`
-	Argv          []string          `json:"argv"`
+	Entrypoint    *[]string         `json:"entrypoint,omitempty"`
+	Command       *[]string         `json:"command,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
 	Workdir       string            `json:"workdir,omitempty"`
 	User          string            `json:"user,omitempty"`
@@ -74,14 +75,22 @@ type ContainerSignalInput struct {
 	Signal      string `json:"signal"`
 }
 type VolumeInput struct {
-	VolumeID string `json:"volume_id"`
+	VolumeID string  `json:"volume_id"`
+	OwnerUID *uint32 `json:"owner_uid,omitempty"`
+	OwnerGID *uint32 `json:"owner_gid,omitempty"`
+	Mode     *uint32 `json:"mode,omitempty"`
 }
 
 type ImageData struct {
-	Reference    string `json:"reference"`
-	Digest       string `json:"digest,omitempty"`
-	LogicalBytes uint64 `json:"logical_bytes"`
-	Status       string `json:"status"`
+	Reference          string `json:"reference"`
+	RequestedReference string `json:"requested_reference,omitempty"`
+	Digest             string `json:"digest,omitempty"`
+	LogicalBytes       uint64 `json:"logical_bytes"`
+	Status             string `json:"status"`
+}
+type ImagePage struct {
+	Items      []ImageData `json:"items"`
+	NextCursor string      `json:"next_cursor,omitempty"`
 }
 type RunData struct {
 	Container ContainerData `json:"container"`
@@ -143,15 +152,16 @@ type UsageData struct {
 }
 
 type ContainerData struct {
-	ID       string      `json:"id"`
-	Image    string      `json:"image"`
-	State    string      `json:"state"`
-	ExitCode *uint32     `json:"exit_code,omitempty"`
-	Volumes  []MountData `json:"volumes,omitempty"`
-	Argv     []string    `json:"argv,omitempty"`
-	Workdir  string      `json:"workdir,omitempty"`
-	User     string      `json:"user,omitempty"`
-	Usage    UsageData   `json:"usage"`
+	ID         string      `json:"id"`
+	InstanceID string      `json:"instance_id,omitempty"`
+	Image      string      `json:"image"`
+	State      string      `json:"state"`
+	ExitCode   *uint32     `json:"exit_code,omitempty"`
+	Volumes    []MountData `json:"volumes,omitempty"`
+	Argv       []string    `json:"argv,omitempty"`
+	Workdir    string      `json:"workdir,omitempty"`
+	User       string      `json:"user,omitempty"`
+	Usage      UsageData   `json:"usage"`
 }
 
 type MountData struct {
@@ -210,11 +220,12 @@ type CleanupImpactData struct {
 }
 
 type ForwardData struct {
-	ID          string    `json:"id"`
-	ContainerID string    `json:"container_id"`
-	RemotePort  uint32    `json:"remote_port"`
-	LocalPort   uint32    `json:"local_port"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	ID                  string    `json:"id"`
+	ContainerID         string    `json:"container_id"`
+	ContainerInstanceID string    `json:"container_instance_id"`
+	RemotePort          uint32    `json:"remote_port"`
+	LocalPort           uint32    `json:"local_port"`
+	ExpiresAt           time.Time `json:"expires_at"`
 }
 
 type ForwardListData struct {

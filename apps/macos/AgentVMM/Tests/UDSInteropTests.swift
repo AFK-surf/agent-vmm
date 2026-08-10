@@ -37,7 +37,17 @@ import Testing
     defer { if fixture.isRunning { fixture.terminate(); fixture.waitUntilExit() } }
 
     let operatorClient = try GRPCHostClient(socketPath: operatorSocket)
-    #expect(try await operatorClient.snapshot().bootID == "transport-fixture")
+    let snapshot = try await operatorClient.snapshot()
+    #expect(snapshot.bootID == "transport-fixture")
+    #expect(snapshot.remoteRegistration?.pool.aggregateLimits.cpuMillis == 3_000)
+    #expect(snapshot.remoteRegistration?.pool.perEnvironmentLimits.memoryBytes == 1 << 30)
+    #expect(snapshot.remoteRegistration?.pool.disconnectGraceSeconds == 45)
+    #expect(snapshot.remoteRegistration?.allocations.first?.environmentID == "environment-a")
+    #expect(snapshot.remoteRegistration?.allocations.first?.lease?.state == .active)
+    let integrations = try await operatorClient.listAgentIntegrations()
+    #expect(integrations.first?.adapterID == "codex")
+    let sessions = try await operatorClient.listAgentSessions(integrationID: "integration-a", includeTerminal: false)
+    #expect(sessions.first?.activeConnections == 2)
     let event = try await operatorClient.events(after: 0).first { _ in true }
     #expect(event?.type == "fixture")
 

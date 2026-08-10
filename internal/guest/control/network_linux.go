@@ -38,10 +38,10 @@ func (s *Server) ForwardTCP(stream grpc.BidiStreamingServer[vmmdv1.ForwardTCPReq
 		return err
 	}
 	header := first.GetHeader()
-	if header == nil || header.GetActorNamespaceId() == "" || header.GetContainerId() == "" {
+	if header == nil || header.GetActorNamespaceId() == "" || header.GetContainerId() == "" || header.GetContainerInstanceId() == "" {
 		return invalid(errors.New("first forward frame must contain actor namespace and container"))
 	}
-	connection, err := s.runtime.network.DialContainer(stream.Context(), header.GetActorNamespaceId(), header.GetContainerId(), header.GetPort())
+	connection, err := s.runtime.network.DialContainer(stream.Context(), header.GetActorNamespaceId(), header.GetContainerId(), header.GetContainerInstanceId(), header.GetPort())
 	if err != nil {
 		return rpcError(err)
 	}

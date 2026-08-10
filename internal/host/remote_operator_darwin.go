@@ -13,14 +13,19 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (server *operatorServer) CreateRemoteRegistration(ctx context.Context, request *hostv1.CreateRemoteRegistrationRequest) (*hostv1.RemoteRegistrationResponse, error) {
+func (server *operatorServer) BeginRemoteEnrollment(ctx context.Context, request *hostv1.BeginRemoteEnrollmentRequest) (*hostv1.RemoteRegistrationResponse, error) {
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
 	if request.GetRequestId() == "" || request.GetEndpoint() == "" || request.GetProtocolVersion() == "" {
 		return nil, invalidField("request_id/endpoint/protocol_version", "request ID, endpoint, and protocol version are required")
+	}
+	if existing, err := server.controller.store.RemoteRegistrationByEnrollmentRequest(ctx, request.GetRequestId()); err == nil {
+		return server.controller.remoteRegistrationResponse(ctx, existing), nil
 	}
 	registration, err := registrationFromPool(request.GetPool(), server.controller.remoteCapacity)
 	if err != nil {
@@ -35,17 +40,115 @@ func (server *operatorServer) CreateRemoteRegistration(ctx context.Context, requ
 	registration.ProtocolVersion = request.GetProtocolVersion()
 	registration.State = int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED)
 	registration.ConnectionState = int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED)
+	registration.EnrollmentState = int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL)
+	registration.ConnectorPhase = int32(hostv1.ConnectorPhase_CONNECTOR_PHASE_ENROLLING)
+	registration.EnrollmentRequestID = request.GetRequestId()
 	registration, err = server.controller.store.CreateRemoteRegistration(ctx, registration)
 	if err != nil {
+		if existing, lookupErr := server.controller.store.RemoteRegistrationByEnrollmentRequest(ctx, request.GetRequestId()); lookupErr == nil {
+			return server.controller.remoteRegistrationResponse(ctx, existing), nil
+		}
 		return nil, resourceError(codes.FailedPrecondition, "ACTIVE_REGISTRATION_EXISTS", "remote_registration", "active", "only one active remote registration is allowed")
 	}
 	return server.controller.remoteRegistrationResponse(ctx, registration), nil
+}
+
+func (server *operatorServer) CompleteRemoteEnrollment(ctx context.Context, request *hostv1.CompleteRemoteEnrollmentRequest) (*hostv1.RemoteRegistrationResponse, error) {
+	return server.setEnrollment(ctx, request.GetRequestId(), request.GetRegistrationId(), request.GetExpectedRevision(),
+		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL,
+		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, "", "")
+}
+
+func (server *operatorServer) FailRemoteEnrollment(ctx context.Context, request *hostv1.FailRemoteEnrollmentRequest) (*hostv1.RemoteRegistrationResponse, error) {
+	if !boundedError(request.GetErrorCode(), request.GetErrorMessage()) {
+		return nil, invalidField("enrollment failure", "failure details are invalid")
+	}
+	return server.setEnrollment(ctx, request.GetRequestId(), request.GetRegistrationId(), request.GetExpectedRevision(),
+		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL,
+		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_SETUP_INCOMPLETE, request.GetErrorCode(), request.GetErrorMessage())
+}
+
+func (server *operatorServer) RetryRemoteEnrollment(ctx context.Context, request *hostv1.RetryRemoteEnrollmentRequest) (*hostv1.RemoteRegistrationResponse, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	if request.GetRequestId() == "" || request.GetRegistrationId() == "" || request.GetExpectedRevision() == 0 {
+		return nil, invalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
+	}
+	updated, err := server.controller.store.RetryRemoteEnrollment(ctx, request.GetRegistrationId(), request.GetExpectedRevision())
+	if err != nil {
+		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", request.GetRegistrationId(), err.Error())
+	}
+	return server.controller.remoteRegistrationResponse(ctx, updated), nil
+}
+
+func (server *operatorServer) setEnrollment(ctx context.Context, requestID, id string, revision uint64, from, state hostv1.RemoteEnrollmentState, code, message string) (*hostv1.RemoteRegistrationResponse, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	if requestID == "" || id == "" || revision == 0 {
+		return nil, invalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
+	}
+	updated, err := server.controller.store.SetRemoteEnrollment(ctx, id, revision, int32(from), int32(state), code, message)
+	if err != nil {
+		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", id, err.Error())
+	}
+	return server.controller.remoteRegistrationResponse(ctx, updated), nil
+}
+
+func (server *operatorServer) RemoveIncompleteRemoteRegistration(ctx context.Context, request *hostv1.RemoveIncompleteRemoteRegistrationRequest) (*emptypb.Empty, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	if request.GetRequestId() == "" || request.GetRegistrationId() == "" || request.GetExpectedRevision() == 0 {
+		return nil, invalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
+	}
+	if err := server.controller.store.DeleteIncompleteRemoteRegistration(ctx, request.GetRegistrationId(), request.GetExpectedRevision()); err != nil {
+		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", request.GetRegistrationId(), err.Error())
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (server *operatorServer) BeginRemoteRevocation(ctx context.Context, request *hostv1.BeginRemoteRevocationRequest) (*hostv1.RemoteRegistrationResponse, error) {
+	if request.GetRequestId() == "" {
+		return nil, invalidField("request_id", "request ID is required")
+	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
+	response, err := server.setEnrollment(ctx, request.GetRequestId(), request.GetRegistrationId(), request.GetExpectedRevision(),
+		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY,
+		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_REVOKING, "", "")
+	if err == nil {
+		server.controller.revokeAllRemoteLeases(ctx)
+	}
+	return response, err
+}
+
+func (server *operatorServer) CompleteRemoteRevocation(ctx context.Context, request *hostv1.CompleteRemoteRevocationRequest) (*hostv1.RemoteRegistrationResponse, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	if request.GetRequestId() == "" || request.GetRegistrationId() == "" || request.GetExpectedRevision() == 0 {
+		return nil, invalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
+	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
+	updated, err := server.controller.store.CompleteRemoteRevocation(ctx, request.GetRegistrationId(), request.GetExpectedRevision())
+	if err != nil {
+		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", request.GetRegistrationId(), err.Error())
+	}
+	return server.controller.remoteRegistrationResponse(ctx, updated), nil
 }
 
 func (server *operatorServer) UpdateRemotePool(ctx context.Context, request *hostv1.UpdateRemotePoolRequest) (*hostv1.RemoteRegistrationResponse, error) {
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
+	if request.GetRequestId() == "" || request.GetExpectedRevision() == 0 {
+		return nil, invalidField("request_id/expected_revision", "request ID and revision are required")
+	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	current, err := server.controller.store.ActiveRemoteRegistration(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
@@ -69,10 +172,14 @@ func (server *operatorServer) SetRemoteRegistrationState(ctx context.Context, re
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
+	if request.GetRequestId() == "" || request.GetExpectedRevision() == 0 {
+		return nil, invalidField("request_id/expected_revision", "request ID and revision are required")
+	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	if request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED &&
-		request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING &&
-		request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
-		return nil, invalidField("state", "registration state must be enabled, draining, or revoked")
+		request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING {
+		return nil, invalidField("state", "registration state must be enabled or draining")
 	}
 	current, err := server.controller.store.ActiveRemoteRegistration(ctx)
 	if err != nil {
@@ -81,9 +188,6 @@ func (server *operatorServer) SetRemoteRegistrationState(ctx context.Context, re
 	updated, err := server.controller.store.SetRemoteRegistrationState(ctx, current.ID, request.GetExpectedRevision(), int32(request.GetState()))
 	if err != nil {
 		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", current.ID, err.Error())
-	}
-	if request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED {
-		server.controller.revokeAllRemoteLeases(ctx)
 	}
 	return server.controller.remoteRegistrationResponse(ctx, updated), nil
 }
@@ -133,9 +237,26 @@ func registrationFromPool(pool *hostv1.RemotePoolPolicy, capacity store.Environm
 }
 
 func registrationToProto(registration store.RemoteRegistration) *hostv1.RemoteRegistration {
+	connectionState := hostv1.RemoteConnectionState(registration.ConnectionState)
+	connectorPhase := hostv1.ConnectorPhase(registration.ConnectorPhase)
+	failureCode := registration.ConnectorFailureCode
+	failureMessage := registration.ConnectorFailureMessage
+	if connectionState == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED &&
+		(time.Since(registration.ConnectorObservedAt) > 20*time.Second || registration.ConnectorObservedAt.IsZero()) {
+		connectionState = hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED
+		connectorPhase = hostv1.ConnectorPhase_CONNECTOR_PHASE_RETRY_WAIT
+		failureCode = "HEARTBEAT_STALE"
+		failureMessage = "The connector stopped reporting status."
+	}
 	return &hostv1.RemoteRegistration{
 		Id: registration.ID, Endpoint: registration.Endpoint, DisplayName: registration.DisplayName, ProtocolVersion: registration.ProtocolVersion,
-		Revision: registration.Revision, State: hostv1.RemoteRegistrationState(registration.State), ConnectionState: hostv1.RemoteConnectionState(registration.ConnectionState),
+		Revision: registration.Revision, State: hostv1.RemoteRegistrationState(registration.State), ConnectionState: connectionState,
+		EnrollmentState: hostv1.RemoteEnrollmentState(registration.EnrollmentState), EnrollmentErrorCode: registration.EnrollmentErrorCode,
+		EnrollmentErrorMessage: registration.EnrollmentErrorMessage, CreatedAt: timestamppb.New(registration.CreatedAt), UpdatedAt: timestamppb.New(registration.UpdatedAt),
+		ConnectorStatus: &hostv1.ConnectorStatus{Phase: connectorPhase, ConnectorRelease: registration.ConnectorRelease,
+			ObservedAt: timestamppb.New(registration.ConnectorObservedAt), LastConnectedAt: timestamppb.New(registration.LastConnectedAt),
+			DisconnectedAt: timestamppb.New(registration.DisconnectedAt), NextRetryAt: timestamppb.New(registration.NextRetryAt),
+			ReconnectAttempt: registration.ReconnectAttempt, FailureCode: failureCode, FailureMessage: failureMessage},
 		Pool: &hostv1.RemotePoolPolicy{
 			MaxEnvironments:      registration.MaxEnvironments,
 			AggregateLimits:      &hostv1.ResourceLimits{CpuMillis: optional(registration.AggregateCPUMillis), MemoryBytes: optional(registration.AggregateMemoryBytes), Pids: optional(registration.AggregatePIDs), DiskBytes: optional(registration.AggregateDiskBytes)},

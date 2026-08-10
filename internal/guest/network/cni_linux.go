@@ -23,6 +23,10 @@ import (
 const cniPath = "/usr/libexec/cni"
 
 type cniResult struct {
+	Interfaces []struct {
+		Name    string `json:"name"`
+		Sandbox string `json:"sandbox"`
+	} `json:"interfaces"`
 	IPs []struct {
 		Address string `json:"address"`
 	} `json:"ips"`
@@ -43,15 +47,17 @@ func cniContainerID(namespaceID, containerID string) string {
 	return fmt.Sprintf("agent-vmm-%x", hash[:16])
 }
 
-func (m *Manager) Attach(ctx context.Context, namespaceID, containerID string) (Endpoint, error) {
+func (m *Manager) Attach(ctx context.Context, namespaceID, containerID, instanceID string) (Endpoint, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	namespace, ok := m.namespaces[namespaceID]
 	if !ok {
 		return Endpoint{}, errors.New("network namespace does not exist")
 	}
-	if endpoint, ok := m.endpoints[namespaceID][containerID]; ok {
+	if endpoint, ok := m.endpoints[namespaceID][containerID]; ok && endpoint.InstanceID == instanceID {
 		return endpoint, nil
+	} else if ok {
+		return Endpoint{}, errors.New("container network endpoint belongs to another instance")
 	}
 	path := endpointNetNS(namespaceID, containerID)
 	if err := createNetNS(path); err != nil {
@@ -84,7 +90,18 @@ func (m *Manager) Attach(ctx context.Context, namespaceID, containerID string) (
 		m.detachCNI(ctx, namespace, containerID, path)
 		return Endpoint{}, errors.New("CNI returned no address in namespace subnet")
 	}
-	endpoint := Endpoint{NamespaceID: namespaceID, ContainerID: containerID, Address: address, NetNSPath: path}
+	var hostInterface string
+	for _, item := range result.Interfaces {
+		if item.Sandbox == "" && item.Name != namespace.Bridge {
+			hostInterface = item.Name
+			break
+		}
+	}
+	if hostInterface == "" {
+		m.detachCNI(ctx, namespace, containerID, path)
+		return Endpoint{}, errors.New("CNI returned no host interface")
+	}
+	endpoint := Endpoint{NamespaceID: namespaceID, ContainerID: containerID, InstanceID: instanceID, HostInterface: hostInterface, Address: address, NetNSPath: path}
 	m.endpoints[namespaceID][containerID] = endpoint
 	if err := m.startDNSLocked(namespaceID); err != nil {
 		delete(m.endpoints[namespaceID], containerID)
@@ -99,23 +116,28 @@ func (m *Manager) Attach(ctx context.Context, namespaceID, containerID string) (
 	return endpoint, nil
 }
 
-func (m *Manager) Detach(ctx context.Context, namespaceID, containerID string) error {
+func (m *Manager) Detach(ctx context.Context, namespaceID, containerID, instanceID string) error {
 	m.mu.Lock()
 	endpoint, ok := m.endpoints[namespaceID][containerID]
 	if !ok {
 		m.mu.Unlock()
 		return nil
 	}
-	namespace := m.namespaces[namespaceID]
-	key := namespaceID + "/" + containerID
-	for connection := range m.forwards[key] {
-		if tracked, ok := connection.(*trackedConn); ok {
-			_ = tracked.Conn.Close()
-		} else {
-			_ = connection.Close()
-		}
+	if endpoint.InstanceID != instanceID {
+		m.mu.Unlock()
+		return nil
 	}
-	delete(m.forwards, key)
+	namespace := m.namespaces[namespaceID]
+	if counters, err := interfaceCounters(endpoint.HostInterface, true); err == nil {
+		total := m.settled[namespaceID]
+		total.RXBytes += counters.RXBytes
+		total.TXBytes += counters.TXBytes
+		m.settled[namespaceID] = total
+	} else {
+		m.settledOK[namespaceID] = false
+	}
+	key := namespaceID + "/" + containerID
+	m.closeForwardsLocked(key)
 	delete(m.endpoints[namespaceID], containerID)
 	ruleErr := m.reconcileLocked()
 	m.mu.Unlock()
@@ -126,6 +148,17 @@ func (m *Manager) Detach(ctx context.Context, namespaceID, containerID string) e
 		return ruleErr
 	}
 	return cniErr
+}
+
+func (m *Manager) closeForwardsLocked(key string) {
+	for connection := range m.forwards[key] {
+		if tracked, ok := connection.(*trackedConn); ok {
+			_ = tracked.Conn.Close()
+		} else {
+			_ = connection.Close()
+		}
+	}
+	delete(m.forwards, key)
 }
 
 func (m *Manager) AttachLoopback(ctx context.Context, namespaceID, id string) (string, error) {

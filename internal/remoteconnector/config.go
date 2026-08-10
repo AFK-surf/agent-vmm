@@ -64,6 +64,9 @@ func LoadConfig(ctx context.Context, socket string, store CredentialStore) (Conf
 	if registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
 		return Config{}, ErrCredentialRevoked
 	}
+	if registration.GetEnrollmentState() != hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY {
+		return Config{}, fmt.Errorf("remote enrollment is not ready")
+	}
 	if err := config.validate(); err != nil {
 		return Config{}, err
 	}

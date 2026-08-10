@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/distribution/reference"
+	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
 )
 
 var buildName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,127}$`)
@@ -20,9 +20,11 @@ func validateHeader(header *vmmdv1.BuildImageHeader) error {
 	if _, err := archivePath(header.GetDockerfilePath()); err != nil {
 		return errors.New("invalid Dockerfile path")
 	}
-	if _, err := reference.ParseNormalizedNamed(header.GetImage()); err != nil {
+	canonicalImage, err := guestimage.NormalizeReference(header.GetImage())
+	if err != nil {
 		return errors.New("invalid image name")
 	}
+	header.Image = canonicalImage
 	if header.GetNetworkMode() != vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE && header.GetNetworkMode() != vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NAMESPACE_EGRESS {
 		return errors.New("build network mode is required")
 	}

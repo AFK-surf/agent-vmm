@@ -5,16 +5,29 @@
 Build or install the signed bundle, then configure the MCP host to execute:
 
 ```text
-~/Applications/Agent VMM.app/Contents/Helpers/agent-vmm-mcp
+~/Applications/Agent VMM.app/Contents/Helpers/agent-vmm-mcp --integration <managed-integration-id>
 ```
 
-The server communicates only on stdio. One process owns one LOCAL environment;
+The server communicates only on stdio. The managed integration binds each process to one LOCAL environment;
 ending the process releases its session and loopback forwards but retains the
 environment and named volumes.
 
+Image references use the canonical OCI name returned by `image_pull`; short Docker
+Hub names such as `postgres:16-alpine` are accepted and normalize to
+`docker.io/library/postgres:16-alpine`. `container_run` preserves the image
+ENTRYPOINT and CMD. Set `entrypoint` or `command` only to override that part of the
+OCI configuration; provide both to replace the complete process command.
+
+`volume_create` can set `owner_uid`, `owner_gid`, and a numeric permission `mode`
+once, when the volume is created. Use these fields for images such as PostgreSQL
+that require a non-root data directory. The sandbox does not grant workloads a
+general-purpose `CAP_CHOWN`. A port forward is created only for a running
+container and is revoked when that specific container instance stops or is
+replaced.
+
 ## Remote controller
 
-In Settings, enter a TLS `host:port`, controller name, one-time enrollment token,
+In Agent Access, enter a TLS `host:port`, controller name, one-time enrollment token,
 and bounded pool size. The app creates the host-owned registration and passes the
 token once to the signed connector through stdin. The returned opaque credential
 is stored in macOS Keychain and is absent from SQLite, snapshots, logs, and support

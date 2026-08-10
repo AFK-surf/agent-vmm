@@ -3,9 +3,13 @@
 package network
 
 import (
+	"context"
+	"io"
+	"net"
 	"net/netip"
 	"reflect"
 	"testing"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 )
@@ -37,6 +41,78 @@ func TestNetworkLinkPolicy(t *testing.T) {
 				t.Fatalf("validateLink() = %v, valid = %v", err, test.valid)
 			}
 		})
+	}
+}
+
+func TestDialContainerFencesInstanceAndDetachClosesForward(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	port := uint32(listener.Addr().(*net.TCPAddr).Port)
+	manager := &Manager{
+		endpoints: map[string]map[string]Endpoint{"env": {"web": {NamespaceID: "env", ContainerID: "web", InstanceID: "current", Address: netip.MustParseAddr("127.0.0.1")}}},
+		forwards:  make(map[string]map[net.Conn]struct{}),
+	}
+	if _, err := manager.DialContainer(context.Background(), "env", "web", "old", port); err == nil {
+		t.Fatal("DialContainer accepted an old instance")
+	}
+	accepted := make(chan net.Conn, 1)
+	go func() { connection, _ := listener.Accept(); accepted <- connection }()
+	forward, err := manager.DialContainer(context.Background(), "env", "web", "current", port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := <-accepted
+	defer server.Close()
+	manager.mu.Lock()
+	manager.closeForwardsLocked("env/web")
+	manager.mu.Unlock()
+	if _, err := forward.Write([]byte("closed")); err == nil {
+		_ = server.SetReadDeadline(time.Now().Add(time.Second))
+		buffer := make([]byte, 1)
+		if _, readErr := server.Read(buffer); readErr != io.EOF {
+			t.Fatalf("forward remained active after detach: %v", readErr)
+		}
+	}
+}
+
+func TestEndpointGenerationFencesReplacementAndStaleDetach(t *testing.T) {
+	endpoint := Endpoint{NamespaceID: "env", ContainerID: "web", InstanceID: "current", HostInterface: "veth0"}
+	manager := &Manager{
+		namespaces: map[string]Namespace{"env": {ID: "env"}},
+		endpoints:  map[string]map[string]Endpoint{"env": {"web": endpoint}},
+		settled:    make(map[string]Counters),
+		settledOK:  map[string]bool{"env": true},
+		forwards:   make(map[string]map[net.Conn]struct{}),
+	}
+	if got, err := manager.Attach(context.Background(), "env", "web", "current"); err != nil || got.InstanceID != "current" {
+		t.Fatalf("idempotent Attach() = %+v, %v", got, err)
+	}
+	if _, err := manager.Attach(context.Background(), "env", "web", "replacement"); err == nil {
+		t.Fatal("replacement Attach() succeeded while the previous instance is attached")
+	}
+	if err := manager.Detach(context.Background(), "env", "web", "stale"); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.endpoints["env"]["web"].InstanceID; got != "current" {
+		t.Fatalf("stale Detach removed instance %q", got)
+	}
+}
+
+func TestCounterDirectionAndSettledFailure(t *testing.T) {
+	if got := orientCounters(Counters{RXBytes: 10, TXBytes: 20}, true); got != (Counters{RXBytes: 20, TXBytes: 10}) {
+		t.Fatalf("orientCounters() = %+v", got)
+	}
+	manager := &Manager{
+		namespaces: map[string]Namespace{"env": {ID: "env"}},
+		endpoints:  map[string]map[string]Endpoint{"env": {}},
+		settled:    make(map[string]Counters),
+		settledOK:  map[string]bool{"env": false},
+	}
+	if _, err := manager.NamespaceCounters("env"); err == nil {
+		t.Fatal("NamespaceCounters() hid a failed settled sample")
 	}
 }
 

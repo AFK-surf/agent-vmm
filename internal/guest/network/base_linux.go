@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -29,16 +31,86 @@ type Namespace struct {
 }
 
 type Endpoint struct {
-	NamespaceID string
-	ContainerID string
-	Address     netip.Addr
-	NetNSPath   string
+	NamespaceID   string
+	ContainerID   string
+	InstanceID    string
+	HostInterface string
+	Address       netip.Addr
+	NetNSPath     string
+}
+
+type Counters struct {
+	RXBytes uint64
+	TXBytes uint64
+}
+
+func (m *Manager) NamespaceCounters(namespaceID string) (Counters, error) {
+	m.mu.RLock()
+	_, ok := m.namespaces[namespaceID]
+	if !ok {
+		m.mu.RUnlock()
+		return Counters{}, errors.New("network namespace does not exist")
+	}
+	result := m.settled[namespaceID]
+	if ok, tracked := m.settledOK[namespaceID]; tracked && !ok {
+		m.mu.RUnlock()
+		return Counters{}, errors.New("network counters became unavailable")
+	}
+	for _, endpoint := range m.endpoints[namespaceID] {
+		counters, err := interfaceCounters(endpoint.HostInterface, true)
+		if err != nil {
+			m.mu.RUnlock()
+			return Counters{}, err
+		}
+		result.RXBytes += counters.RXBytes
+		result.TXBytes += counters.TXBytes
+	}
+	m.mu.RUnlock()
+	return result, nil
+}
+
+func (m *Manager) ContainerCounters(namespaceID, containerID string) (Counters, error) {
+	m.mu.RLock()
+	endpoint, ok := m.endpoints[namespaceID][containerID]
+	m.mu.RUnlock()
+	if !ok || endpoint.HostInterface == "" {
+		return Counters{}, errors.New("container network endpoint is unavailable")
+	}
+	return interfaceCounters(endpoint.HostInterface, true)
+}
+
+func interfaceCounters(name string, swapDirection bool) (Counters, error) {
+	read := func(field string) (uint64, error) {
+		data, err := os.ReadFile(filepath.Join("/sys/class/net", name, "statistics", field))
+		if err != nil {
+			return 0, err
+		}
+		return strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+	}
+	rx, err := read("rx_bytes")
+	if err != nil {
+		return Counters{}, err
+	}
+	tx, err := read("tx_bytes")
+	if err != nil {
+		return Counters{}, err
+	}
+	return orientCounters(Counters{RXBytes: rx, TXBytes: tx}, swapDirection), nil
+}
+
+func orientCounters(counters Counters, swapDirection bool) Counters {
+	if swapDirection {
+		counters.RXBytes, counters.TXBytes = counters.TXBytes, counters.RXBytes
+	}
+	return counters
 }
 
 type Manager struct {
 	mu         sync.RWMutex
 	namespaces map[string]Namespace
 	endpoints  map[string]map[string]Endpoint
+	settled    map[string]Counters
+	settledOK  map[string]bool
 	links      map[string]*vmmdv1.NetworkLink
 	dns        map[string]*dnsServer
 	forwards   map[string]map[net.Conn]struct{}
@@ -49,6 +121,8 @@ func NewManager() (*Manager, error) {
 	manager := &Manager{
 		namespaces: make(map[string]Namespace),
 		endpoints:  make(map[string]map[string]Endpoint),
+		settled:    make(map[string]Counters),
+		settledOK:  make(map[string]bool),
 		links:      make(map[string]*vmmdv1.NetworkLink),
 		dns:        make(map[string]*dnsServer),
 		forwards:   make(map[string]map[net.Conn]struct{}),
@@ -109,6 +183,9 @@ func (m *Manager) EnsureNamespace(id, subnet string, egress vmmdv1.EgressMode) e
 	if m.endpoints[id] == nil {
 		m.endpoints[id] = make(map[string]Endpoint)
 	}
+	if _, ok := m.settledOK[id]; !ok {
+		m.settledOK[id] = true
+	}
 	if err := writeResolvConf(id, namespace.Gateway); err != nil {
 		return err
 	}
@@ -131,6 +208,8 @@ func (m *Manager) DeleteNamespace(id string) error {
 		delete(m.dns, id)
 	}
 	delete(m.endpoints, id)
+	delete(m.settled, id)
+	delete(m.settledOK, id)
 	delete(m.namespaces, id)
 	if err := os.Remove(filepath.Join(resolvRoot, id+".conf")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

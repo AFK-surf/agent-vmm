@@ -25,14 +25,20 @@ const (
 )
 
 type Runtime struct {
-	client        *containerd.Client
-	network       *guestnetwork.Manager
-	builder       *guestbuild.Builder
-	stateDevice   string
-	mu            sync.Mutex
-	waiters       map[string][]chan uint32
-	resourceLocks sync.Map
-	tasks         sync.WaitGroup
+	client            *containerd.Client
+	network           *guestnetwork.Manager
+	builder           *guestbuild.Builder
+	stateDevice       string
+	mu                sync.Mutex
+	waiters           map[string][]chan uint32
+	resourceLocks     sync.Map
+	volumeUsageMu     sync.Mutex
+	volumeUsage       map[string]volumeUsageEntry
+	volumeSampling    map[string]bool
+	volumeGeneration  map[string]uint64
+	volumeSampleSlots chan struct{}
+	volumeSampler     func(string) (uint64, error)
+	tasks             sync.WaitGroup
 }
 
 func (r *Runtime) lockNamespace(namespaceID string) func() {
@@ -47,7 +53,11 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{client: client, network: network, builder: guestbuild.NewBuilder(client, network), stateDevice: stateDevice, waiters: make(map[string][]chan uint32)}
+	runtime := &Runtime{client: client, network: network, builder: guestbuild.NewBuilder(client, network), stateDevice: stateDevice, waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool), volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), volumeSampler: directoryUsage}
+	if err := cleanupVolumeStaging(); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
+	}
 	if err := runtime.cleanupTasks(context.Background()); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean stale tasks: %w", err)

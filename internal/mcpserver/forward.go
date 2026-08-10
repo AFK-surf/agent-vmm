@@ -37,13 +37,21 @@ func (adapter *Adapter) registerResourceTools(server *mcp.Server) {
 }
 
 func (adapter *Adapter) portForwardStart(ctx context.Context, _ *mcp.CallToolRequest, input PortForwardStartInput) (*mcp.CallToolResult, Envelope, error) {
-	return adapter.call(ctx, 30*time.Second, true, func(context.Context) (any, error) {
+	return adapter.call(ctx, 30*time.Second, true, func(ctx context.Context) (any, error) {
 		ttl := input.TTLSeconds
 		if ttl == 0 {
 			ttl = 900
 		}
 		if input.Port == 0 || ttl < 1 || ttl > 3600 {
 			return nil, status.Error(codes.InvalidArgument, "invalid forward bounds")
+		}
+		response, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		if err != nil {
+			return nil, err
+		}
+		container := response.GetContainer()
+		if container.GetState() != hostv1.ContainerState_CONTAINER_STATE_RUNNING || container.GetInstanceId() == "" {
+			return nil, status.Error(codes.FailedPrecondition, "container is not running")
 		}
 		select {
 		case adapter.forwardSlots <- struct{}{}:
@@ -66,14 +74,34 @@ func (adapter *Adapter) portForwardStart(ctx context.Context, _ *mcp.CallToolReq
 			return nil, err
 		}
 		leaseContext, cancel := context.WithCancel(adapter.lifetime)
-		lease := &forwardLease{data: ForwardData{ID: id, ContainerID: input.ContainerID, RemotePort: input.Port, LocalPort: uint32(listener.Addr().(*net.TCPAddr).Port), ExpiresAt: time.Now().Add(time.Duration(ttl) * time.Second)}, listener: listener, context: leaseContext, cancel: cancel, adapter: adapter, connections: make(chan struct{}, 16), active: make(map[net.Conn]struct{}), done: make(chan struct{})}
+		lease := &forwardLease{data: ForwardData{ID: id, ContainerID: input.ContainerID, ContainerInstanceID: container.GetInstanceId(), RemotePort: input.Port, LocalPort: uint32(listener.Addr().(*net.TCPAddr).Port), ExpiresAt: time.Now().Add(time.Duration(ttl) * time.Second)}, listener: listener, context: leaseContext, cancel: cancel, adapter: adapter, connections: make(chan struct{}, 16), active: make(map[net.Conn]struct{}), done: make(chan struct{})}
 		adapter.mu.Lock()
 		adapter.forwards[id] = lease
 		adapter.mu.Unlock()
 		go lease.accept()
+		go lease.watchContainer()
 		time.AfterFunc(time.Duration(ttl)*time.Second, func() { adapter.stopForward(id) })
 		return lease.data, nil
 	})
+}
+
+func (lease *forwardLease) watchContainer() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-lease.context.Done():
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(lease.context, 5*time.Second)
+			response, err := lease.adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: lease.data.ContainerID})
+			cancel()
+			if err != nil || response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_RUNNING || response.GetContainer().GetInstanceId() != lease.data.ContainerInstanceID {
+				lease.adapter.stopForward(lease.data.ID)
+				return
+			}
+		}
+	}
 }
 
 func (adapter *Adapter) portForwardStop(ctx context.Context, _ *mcp.CallToolRequest, input PortForwardStopInput) (*mcp.CallToolResult, Envelope, error) {
@@ -174,7 +202,7 @@ func (lease *forwardLease) bridge(connection net.Conn) {
 	if err != nil {
 		return
 	}
-	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Header{Header: &hostv1.ForwardTCPHeader{ContainerId: lease.data.ContainerID, Port: lease.data.RemotePort}}}); err != nil {
+	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Header{Header: &hostv1.ForwardTCPHeader{ContainerId: lease.data.ContainerID, ContainerInstanceId: lease.data.ContainerInstanceID, Port: lease.data.RemotePort}}}); err != nil {
 		return
 	}
 	done := make(chan error, 2)

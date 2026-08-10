@@ -41,7 +41,7 @@ func (s *Server) GetNamespaceUsage(ctx context.Context, request *vmmdv1.GetNames
 func (s *Server) GetSystemUsage(context.Context, *vmmdv1.GetSystemUsageRequest) (*vmmdv1.GetUsageResponse, error) {
 	usage, err := s.runtime.SystemUsage()
 	if err != nil {
-		return nil, rpcError(err)
+		usage = unavailableUsage(err)
 	}
 	return &vmmdv1.GetUsageResponse{Usage: usage}, nil
 }

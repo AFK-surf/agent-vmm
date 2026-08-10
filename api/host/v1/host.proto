@@ -11,6 +11,7 @@ option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
 service AgentRuntimeService {
   rpc GetEnvironment(GetOwnEnvironmentRequest) returns (GetEnvironmentResponse);
   rpc PullImage(PullImageRequest) returns (stream PullImageResponse);
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
   rpc CreateContainer(CreateContainerRequest) returns (ContainerResponse);
   rpc StartContainer(ContainerMutationRequest) returns (ContainerResponse);
   rpc StopContainer(StopContainerRequest) returns (ContainerResponse);
@@ -38,12 +39,21 @@ service OperatorService {
   rpc StartVM(StartVMRequest) returns (OperationResponse);
   rpc GetVM(GetVMRequest) returns (VMResponse);
   rpc StopVM(StopVMRequest) returns (OperationResponse);
-  rpc EnsureLocalEnvironment(EnsureLocalEnvironmentRequest) returns (GetEnvironmentResponse);
   rpc CreateAgentSession(CreateAgentSessionRequest) returns (CreateAgentSessionResponse);
   rpc RevokeAgentSession(RevokeAgentSessionRequest) returns (google.protobuf.Empty);
+  rpc ListAgentIntegrations(ListAgentIntegrationsRequest) returns (ListAgentIntegrationsResponse);
+  rpc PrepareAgentIntegration(PrepareAgentIntegrationRequest) returns (AgentIntegrationResponse);
+  rpc BeginAgentIntegrationConfiguration(BeginAgentIntegrationConfigurationRequest) returns (AgentIntegrationResponse);
+  rpc CommitAgentIntegration(CommitAgentIntegrationRequest) returns (AgentIntegrationResponse);
+  rpc FailAgentIntegration(FailAgentIntegrationRequest) returns (AgentIntegrationResponse);
+  rpc BeginAgentIntegrationRemoval(BeginAgentIntegrationRemovalRequest) returns (AgentIntegrationResponse);
+  rpc CompleteAgentIntegrationRemoval(CompleteAgentIntegrationRemovalRequest) returns (AgentIntegrationResponse);
+  rpc ListAgentSessions(ListAgentSessionsRequest) returns (ListAgentSessionsResponse);
+  rpc RevokeAgentSessions(RevokeAgentSessionsRequest) returns (google.protobuf.Empty);
   rpc GetSystemSnapshot(GetSystemSnapshotRequest) returns (GetSystemSnapshotResponse);
   rpc ListEnvironments(ListEnvironmentsRequest) returns (ListEnvironmentsResponse);
   rpc GetEnvironment(GetEnvironmentRequest) returns (GetEnvironmentResponse);
+  rpc ListEnvironmentImages(ListEnvironmentImagesRequest) returns (ListImagesResponse);
   rpc WatchEvents(WatchEventsRequest) returns (stream RuntimeEvent);
   rpc WatchMetrics(WatchMetricsRequest) returns (stream MetricsSample);
   rpc Logs(OperatorLogsRequest) returns (stream LogRecord);
@@ -60,7 +70,13 @@ service OperatorService {
   rpc RunDiagnostics(RunDiagnosticsRequest) returns (OperationResponse);
   rpc PreviewSupportBundle(PreviewSupportBundleRequest) returns (SupportBundlePreview);
   rpc ExportSupportBundle(ExportSupportBundleRequest) returns (OperationResponse);
-  rpc CreateRemoteRegistration(CreateRemoteRegistrationRequest) returns (RemoteRegistrationResponse);
+  rpc BeginRemoteEnrollment(BeginRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
+  rpc CompleteRemoteEnrollment(CompleteRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
+  rpc FailRemoteEnrollment(FailRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
+  rpc RetryRemoteEnrollment(RetryRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
+  rpc RemoveIncompleteRemoteRegistration(RemoveIncompleteRemoteRegistrationRequest) returns (google.protobuf.Empty);
+  rpc BeginRemoteRevocation(BeginRemoteRevocationRequest) returns (RemoteRegistrationResponse);
+  rpc CompleteRemoteRevocation(CompleteRemoteRevocationRequest) returns (RemoteRegistrationResponse);
   rpc UpdateRemotePool(UpdateRemotePoolRequest) returns (RemoteRegistrationResponse);
   rpc SetRemoteRegistrationState(SetRemoteRegistrationStateRequest) returns (RemoteRegistrationResponse);
   rpc GetRemoteRegistration(GetRemoteRegistrationRequest) returns (RemoteRegistrationResponse);
@@ -69,6 +85,8 @@ service OperatorService {
 service RemoteComputeService {
   rpc GetRemoteState(GetRemoteStateRequest) returns (GetRemoteStateResponse);
   rpc SetConnectionState(SetConnectionStateRequest) returns (GetRemoteStateResponse);
+  rpc SetRemoteAdmissionState(SetRemoteAdmissionStateRequest) returns (GetRemoteStateResponse);
+  rpc ReportConnectorStatus(ReportConnectorStatusRequest) returns (GetRemoteStateResponse);
   rpc EnsureAllocation(EnsureAllocationRequest) returns (AllocationResponse);
   rpc ReleaseAllocation(ReleaseAllocationRequest) returns (AllocationResponse);
   rpc PlanDiscardAllocation(PlanDiscardAllocationRequest) returns (AllocationCleanupPlanResponse);
@@ -150,17 +168,22 @@ message AgentEnvironment {
   uint64 policy_revision = 10;
   EnvironmentOwner owner = 11;
   EnvironmentOrigin origin = 12;
+  InventoryState inventory_state = 13;
+  string inventory_message = 14;
+  google.protobuf.Timestamp inventory_observed_at = 15;
 }
 
-message EnsureLocalEnvironmentRequest {
-  string request_id = 1;
-  string environment_id = 2;
-  string display_name = 3;
+enum InventoryState {
+  INVENTORY_STATE_UNSPECIFIED = 0;
+  INVENTORY_STATE_AVAILABLE = 1;
+  INVENTORY_STATE_VM_STOPPED = 2;
+  INVENTORY_STATE_UNAVAILABLE = 3;
+  INVENTORY_STATE_STALE = 4;
 }
 
 message CreateAgentSessionRequest {
   string request_id = 1;
-  string environment_id = 2;
+  string integration_id = 2;
 }
 message CreateAgentSessionResponse {
   string session_id = 1;
@@ -171,6 +194,134 @@ message CreateAgentSessionResponse {
 message RevokeAgentSessionRequest {
   string request_id = 1;
   string session_id = 2;
+}
+
+enum IntegrationScope {
+  INTEGRATION_SCOPE_UNSPECIFIED = 0;
+  INTEGRATION_SCOPE_USER = 1;
+  INTEGRATION_SCOPE_WORKSPACE = 2;
+  INTEGRATION_SCOPE_MANUAL = 3;
+}
+
+enum IntegrationDesiredState {
+  INTEGRATION_DESIRED_STATE_UNSPECIFIED = 0;
+  INTEGRATION_DESIRED_STATE_ALLOWED = 1;
+  INTEGRATION_DESIRED_STATE_REMOVED = 2;
+}
+
+enum IntegrationConfigState {
+  INTEGRATION_CONFIG_STATE_UNSPECIFIED = 0;
+  INTEGRATION_CONFIG_STATE_PENDING = 1;
+  INTEGRATION_CONFIG_STATE_READY = 2;
+  INTEGRATION_CONFIG_STATE_NEEDS_RESTART = 3;
+  INTEGRATION_CONFIG_STATE_CONFLICT = 4;
+  INTEGRATION_CONFIG_STATE_ERROR = 5;
+  INTEGRATION_CONFIG_STATE_REMOVING = 6;
+  INTEGRATION_CONFIG_STATE_REMOVED = 7;
+  INTEGRATION_CONFIG_STATE_CONFIGURING = 8;
+}
+
+message AgentIntegration {
+  string id = 1;
+  string adapter_id = 2;
+  string display_name = 3;
+  IntegrationScope scope = 4;
+  string config_target = 5;
+  string environment_id = 6;
+  IntegrationDesiredState desired_state = 7;
+  IntegrationConfigState config_state = 8;
+  string config_fingerprint = 9;
+  uint64 revision = 10;
+  string last_error_code = 11;
+  string last_error_message = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+  google.protobuf.Timestamp last_verified_at = 15;
+}
+
+message ListAgentIntegrationsRequest {
+  bool include_removed = 1;
+}
+message ListAgentIntegrationsResponse {
+  repeated AgentIntegration integrations = 1;
+}
+message PrepareAgentIntegrationRequest {
+  string request_id = 1;
+  string adapter_id = 2;
+  string display_name = 3;
+  IntegrationScope scope = 4;
+  string config_target = 5;
+  optional string environment_id = 6;
+}
+message BeginAgentIntegrationConfigurationRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+}
+message CommitAgentIntegrationRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+  string config_fingerprint = 4;
+  bool needs_restart = 5;
+}
+message FailAgentIntegrationRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+  string error_code = 4;
+  string error_message = 5;
+}
+message BeginAgentIntegrationRemovalRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+}
+message CompleteAgentIntegrationRemovalRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+}
+message AgentIntegrationResponse {
+  AgentIntegration integration = 1;
+}
+
+enum AgentSessionOrigin {
+  AGENT_SESSION_ORIGIN_UNSPECIFIED = 0;
+  AGENT_SESSION_ORIGIN_LOCAL_INTEGRATION = 1;
+  AGENT_SESSION_ORIGIN_REMOTE_LEASE = 2;
+}
+enum AgentSessionState {
+  AGENT_SESSION_STATE_UNSPECIFIED = 0;
+  AGENT_SESSION_STATE_LISTENING = 1;
+  AGENT_SESSION_STATE_CONNECTED = 2;
+  AGENT_SESSION_STATE_REVOKED = 3;
+  AGENT_SESSION_STATE_EXPIRED = 4;
+  AGENT_SESSION_STATE_CLOSED = 5;
+}
+message AgentSession {
+  string id = 1;
+  string integration_id = 2;
+  string environment_id = 3;
+  AgentSessionOrigin origin = 4;
+  AgentSessionState state = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  google.protobuf.Timestamp connected_at = 8;
+  google.protobuf.Timestamp last_activity_at = 9;
+  uint32 active_connection_count = 10;
+  string terminal_reason = 11;
+}
+message ListAgentSessionsRequest {
+  optional string integration_id = 1;
+  bool include_terminal = 2;
+}
+message ListAgentSessionsResponse {
+  repeated AgentSession sessions = 1;
+}
+message RevokeAgentSessionsRequest {
+  string request_id = 1;
+  string integration_id = 2;
 }
 message ReleaseSessionRequest {
   string request_id = 1;
@@ -209,17 +360,26 @@ message Container {
   optional uint32 exit_code = 4;
   repeated VolumeMount volumes = 5;
   Usage usage = 6;
-	repeated string argv = 7;
-	repeated string environment_keys = 8;
-	optional string workdir = 9;
-	optional string user = 10;
+  repeated string argv = 7;
+  repeated string environment_keys = 8;
+  optional string workdir = 9;
+  optional string user = 10;
+  string instance_id = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp finished_at = 14;
+}
+
+message StringList {
+  repeated string values = 1;
 }
 
 message CreateContainerRequest {
   string request_id = 1;
   string container_id = 2;
   string image = 3;
-  repeated string argv = 4;
+  reserved 4;
+  reserved "argv";
   repeated string env = 5;
   optional string workdir = 6;
   optional string user = 7;
@@ -227,6 +387,8 @@ message CreateContainerRequest {
   repeated VolumeMount volumes = 9;
   bool read_only_root = 10;
   uint64 log_limit_bytes = 11;
+  StringList entrypoint_override = 12;
+  StringList command_override = 13;
 }
 message ContainerRequest {
   string container_id = 1;
@@ -259,6 +421,21 @@ message PullImageResponse {
   string status = 1;
   optional string digest = 2;
   uint64 logical_bytes = 3;
+  string canonical_reference = 4;
+}
+message Image {
+  string reference = 1;
+  string digest = 2;
+  uint64 logical_bytes = 3;
+  repeated string platforms = 4;
+  repeated string used_by_container_ids = 5;
+}
+message ListImagesRequest {}
+message ListEnvironmentImagesRequest {
+  string environment_id = 1;
+}
+message ListImagesResponse {
+  repeated Image images = 1;
 }
 
 enum LogStream {
@@ -338,6 +515,9 @@ message Volume {
 message CreateVolumeRequest {
   string request_id = 1;
   string volume_id = 2;
+  optional uint32 owner_uid = 3;
+  optional uint32 owner_gid = 4;
+  optional uint32 mode = 5;
 }
 message DeleteVolumeRequest {
   string request_id = 1;
@@ -357,6 +537,7 @@ message ListVolumesResponse {
 message ForwardTCPHeader {
   string container_id = 1;
   uint32 port = 2;
+  string container_instance_id = 3;
 }
 message ForwardTCPRequest {
   oneof event {
@@ -447,6 +628,7 @@ message Usage {
   bool stale = 8;
   uint64 network_rx_bytes = 9;
   uint64 network_tx_bytes = 10;
+  string unavailable_reason = 11;
 }
 message GetSystemSnapshotRequest {}
 message GetSystemSnapshotResponse {
@@ -629,10 +811,41 @@ enum RemoteRegistrationState {
 }
 
 enum RemoteConnectionState {
+  reserved 3;
   REMOTE_CONNECTION_STATE_UNSPECIFIED = 0;
   REMOTE_CONNECTION_STATE_DISCONNECTED = 1;
   REMOTE_CONNECTION_STATE_CONNECTED = 2;
-  REMOTE_CONNECTION_STATE_DRAINING = 3;
+}
+
+enum RemoteEnrollmentState {
+  REMOTE_ENROLLMENT_STATE_UNSPECIFIED = 0;
+  REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL = 1;
+  REMOTE_ENROLLMENT_STATE_READY = 2;
+  REMOTE_ENROLLMENT_STATE_SETUP_INCOMPLETE = 3;
+  REMOTE_ENROLLMENT_STATE_REVOKING = 4;
+}
+
+enum ConnectorPhase {
+  CONNECTOR_PHASE_UNSPECIFIED = 0;
+  CONNECTOR_PHASE_STOPPED = 1;
+  CONNECTOR_PHASE_ENROLLING = 2;
+  CONNECTOR_PHASE_CONNECTING = 3;
+  CONNECTOR_PHASE_CONNECTED = 4;
+  CONNECTOR_PHASE_RETRY_WAIT = 5;
+  CONNECTOR_PHASE_AUTH_FAILED = 6;
+  CONNECTOR_PHASE_CONFIG_ERROR = 7;
+}
+
+message ConnectorStatus {
+  ConnectorPhase phase = 1;
+  string connector_release = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  google.protobuf.Timestamp last_connected_at = 4;
+  google.protobuf.Timestamp disconnected_at = 5;
+  google.protobuf.Timestamp next_retry_at = 6;
+  uint32 reconnect_attempt = 7;
+  string failure_code = 8;
+  string failure_message = 9;
 }
 
 message RemotePoolPolicy {
@@ -655,14 +868,53 @@ message RemoteRegistration {
   RemoteRegistrationState state = 7;
   RemoteConnectionState connection_state = 8;
   repeated RemoteAllocation allocations = 9;
+  RemoteEnrollmentState enrollment_state = 10;
+  string enrollment_error_code = 11;
+  string enrollment_error_message = 12;
+  ConnectorStatus connector_status = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
 }
 
-message CreateRemoteRegistrationRequest {
+message BeginRemoteEnrollmentRequest {
   string request_id = 1;
   string endpoint = 2;
   string display_name = 3;
   string protocol_version = 4;
   RemotePoolPolicy pool = 5;
+}
+
+message CompleteRemoteEnrollmentRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
+}
+message FailRemoteEnrollmentRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
+  string error_code = 4;
+  string error_message = 5;
+}
+message RetryRemoteEnrollmentRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
+}
+message RemoveIncompleteRemoteRegistrationRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
+}
+message BeginRemoteRevocationRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
+}
+message CompleteRemoteRevocationRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
 }
 
 message UpdateRemotePoolRequest {
@@ -700,6 +952,7 @@ message RemoteAllocation {
   uint64 revision = 5;
   AllocationState state = 6;
   RemoteLease lease = 7;
+  string environment_id = 8;
 }
 
 enum LeaseState {
@@ -729,6 +982,14 @@ message SetConnectionStateRequest {
   string connection_instance = 1;
   RemoteConnectionState state = 2;
 }
+message SetRemoteAdmissionStateRequest {
+  string connection_instance = 1;
+  RemoteRegistrationState state = 2;
+}
+message ReportConnectorStatusRequest {
+  string connection_instance = 1;
+  ConnectorStatus status = 2;
+}
 
 message EnsureAllocationRequest {
   string allocation_id = 1;
@@ -736,6 +997,7 @@ message EnsureAllocationRequest {
   ResourceLimits limits = 3;
   EgressMode egress_mode = 4;
   uint64 policy_revision = 5;
+  string connection_instance = 6;
 }
 
 message AllocationResponse {
@@ -771,6 +1033,7 @@ message AcquireLeaseRequest {
   string allocation_id = 1;
   google.protobuf.Duration duration = 2;
   string workload_ref = 3;
+  string connection_instance = 4;
 }
 
 message RenewLeaseRequest {

@@ -51,9 +51,11 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 		return nil, err
 	}
 	if request.GetConnectionInstance() == "" || (request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED &&
-		request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED && request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DRAINING) {
+		request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED) {
 		return nil, invalidField("connection_instance/state", "connection instance and valid state are required")
 	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	registration, err := server.controller.store.ActiveRemoteRegistration(ctx)
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
@@ -76,6 +78,83 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, updated).GetRegistration()}, nil
 }
 
+func (server *remoteComputeServer) SetRemoteAdmissionState(ctx context.Context, request *hostv1.SetRemoteAdmissionStateRequest) (*hostv1.GetRemoteStateResponse, error) {
+	if _, err := auth.RemoteConnectorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	if request.GetConnectionInstance() == "" || (request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED &&
+		request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING) {
+		return nil, invalidField("connection_instance/state", "connection instance and admission state are required")
+	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
+	registration, err := server.controller.store.ActiveRemoteRegistration(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if registration.ConnectionInstance != request.GetConnectionInstance() || registration.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
+		return nil, resourceError(codes.Aborted, "STALE_CONNECTION", "remote_connection", request.GetConnectionInstance(), "connection instance is not current")
+	}
+	updated, err := server.controller.store.SetRemoteRegistrationState(ctx, registration.ID, registration.Revision, int32(request.GetState()))
+	if err != nil {
+		return nil, err
+	}
+	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, updated).GetRegistration()}, nil
+}
+
+func (server *remoteComputeServer) ReportConnectorStatus(ctx context.Context, request *hostv1.ReportConnectorStatusRequest) (*hostv1.GetRemoteStateResponse, error) {
+	if _, err := auth.RemoteConnectorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	statusValue := request.GetStatus()
+	if statusValue == nil || !validConnectorPhase(statusValue.GetPhase()) ||
+		len(statusValue.GetConnectorRelease()) > 128 || (statusValue.GetPhase() == hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED && request.GetConnectionInstance() == "") {
+		return nil, invalidField("status", "connector status is invalid")
+	}
+	registration, err := server.controller.store.ActiveRemoteRegistration(ctx)
+	if err != nil {
+		return nil, err
+	}
+	observed := time.Now()
+	nextRetry := time.Unix(0, 0)
+	if statusValue.GetNextRetryAt().IsValid() {
+		nextRetry = statusValue.GetNextRetryAt().AsTime()
+		if nextRetry.Before(observed) || nextRetry.After(observed.Add(10*time.Minute)) {
+			nextRetry = time.Unix(0, 0)
+		}
+	}
+	failureCode, failureMessage := connectorFailure(statusValue.GetFailureCode())
+	updated, err := server.controller.store.ReportConnectorStatus(ctx, registration.ID, request.GetConnectionInstance(), int32(statusValue.GetPhase()),
+		statusValue.GetConnectorRelease(), observed, nextRetry, statusValue.GetReconnectAttempt(), failureCode, failureMessage)
+	if err != nil {
+		return nil, err
+	}
+	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, updated).GetRegistration()}, nil
+}
+
+func validConnectorPhase(phase hostv1.ConnectorPhase) bool {
+	return phase >= hostv1.ConnectorPhase_CONNECTOR_PHASE_STOPPED && phase <= hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR
+}
+
+func connectorFailure(code string) (string, string) {
+	switch code {
+	case "":
+		return "", ""
+	case "CREDENTIAL_REVOKED":
+		return code, "Controller access was revoked."
+	case "CONNECTOR_CONFIG_INVALID":
+		return code, "Connector configuration must be repaired."
+	case "CREDENTIAL_UNAVAILABLE":
+		return code, "The controller credential is unavailable. Retry enrollment."
+	case "CONTROLLER_AUTH_FAILED":
+		return code, "Controller authentication failed."
+	case "CONNECTION_ENDED", "CONNECTION_FAILED":
+		return code, "Controller connection ended; retrying."
+	default:
+		return "CONNECTOR_FAILURE", "The connector reported an error."
+	}
+}
+
 func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request *hostv1.EnsureAllocationRequest) (*hostv1.AllocationResponse, error) {
 	if _, err := auth.RemoteConnectorIdentity(ctx); err != nil {
 		return nil, err
@@ -83,9 +162,14 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 	if request.GetAllocationId() == "" || request.GetLimits() == nil {
 		return nil, invalidField("allocation_id/limits", "allocation ID and limits are required")
 	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	registration, err := server.controller.store.ActiveRemoteRegistration(ctx)
-	if err != nil || registration.State != int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED) {
+	if err != nil || registration.State != int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED) || registration.EnrollmentState != int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY) {
 		return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_NOT_ENABLED", "remote_registration", "active", "remote registration is not enabled")
+	}
+	if request.GetConnectionInstance() == "" || request.GetConnectionInstance() != registration.ConnectionInstance || registration.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
+		return nil, resourceError(codes.Aborted, "STALE_CONNECTION", "remote_connection", request.GetConnectionInstance(), "connection instance is not current")
 	}
 	if request.GetPolicyRevision() != registration.Revision {
 		return nil, resourceError(codes.Aborted, "POLICY_REVISION_CONFLICT", "remote_registration", registration.ID, "pool policy revision is stale")
@@ -122,6 +206,8 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 	if err != nil {
 		return nil, err
 	}
+	unlockEnvironment := server.controller.lockEnvironment(environment.ID)
+	defer unlockEnvironment()
 	if err := server.controller.reconcileEnvironment(ctx, environment); err != nil {
 		return nil, retryable("ALLOCATION_PROJECTION_FAILED", "allocation was saved but guest projection failed", time.Second)
 	}
@@ -164,7 +250,15 @@ func sameAllocationRequest(environment store.Environment, request *hostv1.Ensure
 }
 
 func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, request *hostv1.ReleaseAllocationRequest) (*hostv1.AllocationResponse, error) {
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	environment, err := server.remoteEnvironment(ctx, request.GetAllocationId())
+	if err != nil {
+		return nil, err
+	}
+	unlockEnvironment := server.controller.lockEnvironment(environment.ID)
+	defer unlockEnvironment()
+	environment, err = server.remoteEnvironment(ctx, request.GetAllocationId())
 	if err != nil {
 		return nil, err
 	}
@@ -183,10 +277,14 @@ func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, reques
 }
 
 func (server *remoteComputeServer) PlanDiscardAllocation(ctx context.Context, request *hostv1.PlanDiscardAllocationRequest) (*hostv1.AllocationCleanupPlanResponse, error) {
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	environment, err := server.remoteEnvironment(ctx, request.GetAllocationId())
 	if err != nil {
 		return nil, err
 	}
+	unlockEnvironment := server.controller.lockEnvironment(environment.ID)
+	defer unlockEnvironment()
 	plan, err := (&operatorServer{controller: server.controller}).planCleanup(ctx, environment.ID, hostv1.CleanupKind_CLEANUP_KIND_DISCARD)
 	if err != nil {
 		return nil, err
@@ -211,6 +309,8 @@ func allocationCleanupPlan(allocationID string, plan *hostv1.CleanupPlan) *hostv
 }
 
 func (server *remoteComputeServer) ExecuteDiscardAllocation(ctx context.Context, request *hostv1.ExecuteDiscardAllocationRequest) (*hostv1.AllocationResponse, error) {
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	environment, err := server.remoteEnvironment(ctx, request.GetAllocationId())
 	if err != nil {
 		return nil, err
@@ -230,7 +330,7 @@ func (server *remoteComputeServer) ExecuteDiscardAllocation(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	operation, err := (&operatorServer{controller: server.controller}).executeCleanup(ctx, requestID, plan, confirmed, "")
+	operation, err := (&operatorServer{controller: server.controller}).executeCleanupAdmissionLocked(ctx, requestID, plan, confirmed, "")
 	if err != nil {
 		return nil, err
 	}
@@ -253,13 +353,27 @@ func equalStrings(left, right []string) bool {
 }
 
 func (server *remoteComputeServer) AcquireLease(ctx context.Context, request *hostv1.AcquireLeaseRequest) (*hostv1.LeaseResponse, error) {
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	environment, err := server.remoteEnvironment(ctx, request.GetAllocationId())
 	if err != nil {
 		return nil, err
 	}
+	unlockEnvironment := server.controller.lockEnvironment(environment.ID)
+	defer unlockEnvironment()
+	environment, err = server.remoteEnvironment(ctx, request.GetAllocationId())
+	if err != nil {
+		return nil, err
+	}
+	if environment.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
+		return nil, resourceError(codes.FailedPrecondition, "ALLOCATION_NOT_READY", "allocation", request.GetAllocationId(), "allocation must be ready before acquiring a lease")
+	}
 	registration, err := server.controller.store.ActiveRemoteRegistration(ctx)
-	if err != nil || registration.State != int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED) {
+	if err != nil || registration.State != int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED) || registration.EnrollmentState != int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY) {
 		return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_NOT_ENABLED", "remote_registration", "active", "remote registration is not enabled")
+	}
+	if request.GetConnectionInstance() == "" || request.GetConnectionInstance() != registration.ConnectionInstance || registration.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
+		return nil, resourceError(codes.Aborted, "STALE_CONNECTION", "remote_connection", request.GetConnectionInstance(), "connection instance is not current")
 	}
 	duration := request.GetDuration().AsDuration()
 	if duration <= 0 || duration > time.Duration(registration.MaxLeaseSeconds)*time.Second {
@@ -320,6 +434,18 @@ func (server *remoteComputeServer) ReleaseLease(ctx context.Context, request *ho
 	if _, err := auth.RemoteConnectorIdentity(ctx); err != nil {
 		return nil, err
 	}
+	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
+	server.controller.mu.Lock()
+	currentLease := server.controller.remoteLeases[request.GetLeaseId()]
+	if currentLease == nil || currentLease.generation != request.GetGeneration() || currentLease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
+		server.controller.mu.Unlock()
+		return nil, resourceError(codes.FailedPrecondition, "LEASE_REVOKED", "lease", request.GetLeaseId(), "lease is no longer active")
+	}
+	environmentID := currentLease.environmentID
+	server.controller.mu.Unlock()
+	unlockEnvironment := server.controller.lockEnvironment(environmentID)
+	defer unlockEnvironment()
 	lease := server.controller.finishLease(request.GetLeaseId(), request.GetGeneration(), hostv1.LeaseState_LEASE_STATE_RELEASED, false)
 	if lease == nil {
 		return nil, resourceError(codes.FailedPrecondition, "LEASE_REVOKED", "lease", request.GetLeaseId(), "lease is no longer active")
@@ -352,7 +478,7 @@ func (server *remoteComputeServer) OpenRuntimeSession(ctx context.Context, reque
 		return nil, status.Error(codes.FailedPrecondition, "remote registration is unavailable")
 	}
 	sessionIdentity := auth.Identity{RegistrationID: registration.ID, AllocationID: request.GetAllocationId(), LeaseID: request.GetLeaseId()}
-	session, environment, err := server.controller.createSession(ctx, environmentID, store.OwnerRemoteRegistration, sessionIdentity)
+	session, environment, err := server.controller.createSession(ctx, environmentID, "", store.OwnerRemoteRegistration, sessionIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +525,7 @@ func (controller *Controller) remoteRegistrationResponse(ctx context.Context, re
 
 func (controller *Controller) remoteAllocation(environment store.Environment) *hostv1.RemoteAllocation {
 	result := &hostv1.RemoteAllocation{
-		AllocationId: environment.AllocationID, DisplayLabel: environment.DisplayName, Revision: environment.PolicyRevision,
+		AllocationId: environment.AllocationID, DisplayLabel: environment.DisplayName, Revision: environment.PolicyRevision, EnvironmentId: environment.ID,
 		Limits:     &hostv1.ResourceLimits{CpuMillis: optional(environment.CPUMillis), MemoryBytes: optional(environment.MemoryBytes), Pids: optional(environment.PIDs), DiskBytes: optional(environment.DiskBytes)},
 		EgressMode: hostv1.EgressMode(environment.EgressMode), State: hostv1.AllocationState(environment.AllocationState),
 	}

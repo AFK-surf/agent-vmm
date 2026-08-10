@@ -14,6 +14,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -146,6 +147,7 @@ func (adapter *Adapter) failure(err error) (*mcp.CallToolResult, Envelope, error
 
 func mapError(err error) ToolError {
 	code := status.Code(err)
+	grpcStatus := status.Convert(err)
 	result := ToolError{Code: "INTERNAL", Message: "runtime request failed"}
 	switch {
 	case errors.Is(err, context.Canceled), code == codes.Canceled:
@@ -169,7 +171,37 @@ func mapError(err error) ToolError {
 	case code == codes.Unavailable:
 		result.Code, result.Message, result.Retryable = "UNAVAILABLE", "runtime is unavailable", true
 	}
+	for _, detail := range grpcStatus.Details() {
+		switch value := detail.(type) {
+		case *errdetails.ErrorInfo:
+			if allowedRuntimeReason(value.GetReason()) {
+				result.Code = value.GetReason()
+				result.Message = grpcStatus.Message()
+				result.Retryable = retryableRuntimeReason(value.GetReason()) || result.Retryable
+			}
+		case *errdetails.ResourceInfo:
+			result.Resource = &Resource{Kind: value.GetResourceType(), ID: value.GetResourceName()}
+		}
+	}
 	return result
+}
+
+func allowedRuntimeReason(value string) bool {
+	switch value {
+	case "IMAGE_REFERENCE_INVALID", "IMAGE_RESOLVE_FAILED", "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_PLATFORM_UNAVAILABLE", "IMAGE_BLOB_FETCH_FAILED", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_DOWNLOAD_TIMEOUT", "IMAGE_REGISTRY_RATE_LIMITED", "IMAGE_UNPACK_FAILED", "IMAGE_METADATA_FAILED", "CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "IMAGE_NOT_FOUND", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED":
+		return true
+	default:
+		return false
+	}
+}
+
+func retryableRuntimeReason(value string) bool {
+	switch value {
+	case "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_BLOB_FETCH_FAILED", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_DOWNLOAD_TIMEOUT", "IMAGE_REGISTRY_RATE_LIMITED":
+		return true
+	default:
+		return false
+	}
 }
 
 func reasonFromStatus(err error, fallback string) string {

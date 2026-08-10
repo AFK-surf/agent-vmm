@@ -120,8 +120,8 @@ func (s *Server) PullImage(request *vmmdv1.PullImageRequest, stream grpc.ServerS
 		return err
 	}
 	value, err := s.mutate(stream.Context(), "pull-image", request, func() (any, error) {
-		digest, size, err := s.runtime.PullImage(stream.Context(), request.GetActorNamespaceId(), request.GetReference())
-		return &vmmdv1.PullImageResponse{Status: "complete", Digest: &digest, LogicalBytes: size}, err
+		canonical, digest, size, err := s.runtime.PullImage(stream.Context(), request.GetActorNamespaceId(), request.GetReference())
+		return &vmmdv1.PullImageResponse{Status: "complete", CanonicalReference: canonical, Digest: &digest, LogicalBytes: size}, err
 	})
 	if err != nil {
 		return rpcError(err)
@@ -131,7 +131,7 @@ func (s *Server) PullImage(request *vmmdv1.PullImageRequest, stream grpc.ServerS
 
 func (s *Server) CreateVolume(ctx context.Context, request *vmmdv1.CreateVolumeRequest) (*vmmdv1.CreateVolumeResponse, error) {
 	value, err := s.mutate(ctx, "create-volume", request, func() (any, error) {
-		volume, err := s.runtime.CreateVolume(ctx, request.GetActorNamespaceId(), request.GetVolumeId())
+		volume, err := s.runtime.CreateVolume(ctx, request.GetActorNamespaceId(), request.GetVolumeId(), request.OwnerUid, request.OwnerGid, request.Mode)
 		return &vmmdv1.CreateVolumeResponse{Volume: volume}, err
 	})
 	if err != nil {
@@ -377,11 +377,11 @@ func rpcError(err error) error {
 	}
 	switch {
 	case errdefs.IsNotFound(err):
-		return status.Error(codes.NotFound, err.Error())
+		return status.Error(codes.NotFound, "resource was not found")
 	case errdefs.IsAlreadyExists(err):
-		return status.Error(codes.AlreadyExists, err.Error())
+		return status.Error(codes.AlreadyExists, "resource already exists")
 	case errdefs.IsFailedPrecondition(err):
-		return status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, "runtime precondition failed")
 	case errors.Is(err, errResourceExhausted):
 		return status.Error(codes.ResourceExhausted, err.Error())
 	case errors.Is(err, errPrecondition):
@@ -391,6 +391,6 @@ func rpcError(err error) error {
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, err.Error())
 	default:
-		return status.Error(codes.InvalidArgument, err.Error())
+		return status.Error(codes.Internal, "runtime operation failed")
 	}
 }

@@ -54,6 +54,16 @@ func TestValidateHeader(t *testing.T) {
 	}
 }
 
+func TestValidateHeaderStoresCanonicalImage(t *testing.T) {
+	header := &vmmdv1.BuildImageHeader{RequestId: "request", ActorNamespaceId: "actor", DockerfilePath: "Dockerfile", Image: "example:latest", NetworkMode: vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE}
+	if err := validateHeader(header); err != nil {
+		t.Fatal(err)
+	}
+	if header.GetImage() != "docker.io/library/example:latest" {
+		t.Fatalf("image = %q", header.GetImage())
+	}
+}
+
 func TestBuildSandboxPolicy(t *testing.T) {
 	header := &vmmdv1.BuildImageHeader{ActorNamespaceId: "actor", DockerfilePath: "Dockerfile", Image: "agent.local/image:latest", NetworkMode: vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE}
 	workspace := &Workspace{header: header, id: "build", contextRoot: "/state/build-tmp/actor/build/context", outputRoot: "/state/build-tmp/actor/build/output", secretRoot: "/run/agent-vmm-build/build"}

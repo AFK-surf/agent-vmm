@@ -41,11 +41,6 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 		return response, nil
 	}
 	defer connection.Close()
-	if systemUsage, usageErr := client.GetSystemUsage(ctx, &vmmdv1.GetSystemUsageRequest{}); usageErr == nil {
-		addUsage(response, usageFromGuest(systemUsage.GetUsage()))
-	} else {
-		markUsageStale(response)
-	}
 	health, err := client.ComponentHealth(ctx, &vmmdv1.ComponentHealthRequest{})
 	if err != nil {
 		return response, nil
@@ -66,6 +61,40 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 	return response, nil
 }
 
+func (server *operatorServer) ListEnvironmentImages(ctx context.Context, request *hostv1.ListEnvironmentImagesRequest) (*hostv1.ListImagesResponse, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
+	if err != nil {
+		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close()
+	response, err := client.ListImages(ctx, &vmmdv1.ListImagesRequest{ActorNamespaceId: environment.NamespaceID})
+	if err != nil {
+		return nil, err
+	}
+	containers, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
+	if err != nil {
+		return nil, err
+	}
+	usedBy := make(map[string][]string)
+	for _, container := range containers.GetContainers() {
+		usedBy[container.GetImage()] = append(usedBy[container.GetImage()], container.GetId())
+	}
+	result := &hostv1.ListImagesResponse{}
+	for _, image := range response.GetImages() {
+		converted := imageFromGuest(image)
+		converted.UsedByContainerIds = append([]string(nil), usedBy[image.GetReference()]...)
+		result.Images = append(result.Images, converted)
+	}
+	return result, nil
+}
+
 func (controller *Controller) hostEgressHealth(vm *hostv1.VM, observedAt *timestamppb.Timestamp) *hostv1.ComponentHealth {
 	active, bootID, revision, sources := controller.egress.Status()
 	metrics := controller.egress.Metrics()
@@ -76,16 +105,6 @@ func (controller *Controller) hostEgressHealth(vm *hostv1.VM, observedAt *timest
 		reason = "egress session or source policy is not ready"
 	}
 	return &hostv1.ComponentHealth{Component: "host-egress", State: state, Reason: reason, ObservedAt: observedAt}
-}
-
-func markUsageStale(response *hostv1.GetSystemSnapshotResponse) {
-	if response.Usage == nil {
-		response.Usage = &hostv1.Usage{}
-	}
-	if response.Usage.GetSampledAt() == nil {
-		response.Usage.SampledAt = timestamppb.Now()
-	}
-	response.Usage.Stale = true
 }
 
 func addUsage(response *hostv1.GetSystemSnapshotResponse, usage *hostv1.Usage) {

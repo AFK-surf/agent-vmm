@@ -56,6 +56,7 @@ Do not record temporary failures or narrow implementation mistakes.
 - Do not depend on setuid or file capabilities for `newuidmap` and `newgidmap` in this sandbox.
 - The containerd 2.2.6 namespace store can return empty labels for a missing namespace.
 - Use `List` to test namespace existence. Do not treat a successful `Labels` call as proof of existence.
+- The containerd 2.2.6 Docker authorizer caches failed anonymous token results without an expiry. Recreate the authorizer and resolver for each bounded registry retry.
 - The guest root uses read-only SquashFS. Do not store the build host resolver file in it.
 - The current network can map public names to `198.18.0.0/15`. Treat this range as an approved transparent proxy exception.
 - Route guest and namespace public IPv4 traffic through the fixed TUN and dedicated egress vsock session.
@@ -73,3 +74,4 @@ Do not record temporary failures or narrow implementation mistakes.
 - Package development-signed guest bundles only with an ad-hoc-signed helper built with the development trust root. A release-signed helper requires a release-signed guest bundle.
 - Treat a new remote connection instance after the stored state became `DISCONNECTED` as grace-period recovery. Revoke remote leases for a replacement instance only when the previous instance is still `CONNECTED`.
 - A valid remote lease may open a new runtime session after connector recovery. Revoke the previous session capability before issuing its replacement; do not reject the lease as already open.
+- Keep remote admission state separate from connector transport state. Draining rejects new allocations and leases but preserves existing leases and runtime sessions; only revocation tears them down.

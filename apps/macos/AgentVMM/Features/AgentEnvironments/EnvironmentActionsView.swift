@@ -3,10 +3,11 @@ import SwiftUI
 struct EnvironmentActionsView: View {
     @Bindable var model: AppModel
     let environment: AgentEnvironmentModel
+    let onReset: () -> Void
+    let onDiscard: () -> Void
+    let resetDisabledReason: String?
+    let discardDisabledReason: String?
 
-    @State private var preview: CleanupPreview?
-    @State private var typedName = ""
-    @State private var showingCleanup = false
     @State private var pendingWorkloadAction: WorkloadAction?
     @State private var cpuMillis = ""
     @State private var memoryMiB = ""
@@ -15,71 +16,101 @@ struct EnvironmentActionsView: View {
     @State private var allowsPublicEgress = false
 
     var body: some View {
-        Form {
-            Section("Runtime details") {
-                LabeledContent("Namespace ID", value: environment.namespaceID)
-                LabeledContent("Policy revision", value: String(environment.policyRevision))
-                ForEach(environment.workloads) { workload in
-                    DisclosureGroup(workload.id) {
-                        LabeledContent("Image", value: workload.image)
-                        LabeledContent("Command", value: workload.argv.joined(separator: " "))
-                        LabeledContent("Working directory", value: workload.workdir ?? "Image default")
-                        LabeledContent("User", value: workload.user ?? "Image default")
-                        LabeledContent("Environment keys", value: workload.environmentKeys.joined(separator: ", "))
-                        LabeledContent("Mounts", value: workload.mounts.joined(separator: ", "))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                GroupBox("Runtime details") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        LabeledContent("Namespace ID", value: environment.namespaceID)
+                        LabeledContent("Policy revision", value: String(environment.policyRevision))
                     }
+                    .padding(.top, 6)
                 }
-            }
-            Section("Workspace controls") {
-                ForEach(environment.workloads) { workload in
-                    HStack {
-                        Text(workload.id)
-                        Spacer()
-                        if workload.state == .running {
-                            Button("Interrupt…") { pendingWorkloadAction = .interrupt(workload.id) }
-                            Button("Stop…") { pendingWorkloadAction = .stop(workload.id) }
-                            Button("KILL…", role: .destructive) { pendingWorkloadAction = .kill(workload.id) }
-                        } else if workload.state == .stopped {
-                            Button("Continue…") { pendingWorkloadAction = .continueWorkload(workload.id) }
+
+                GroupBox("Workspace controls") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if environment.workloads.isEmpty {
+                            Text("No workspaces or services are present.").foregroundStyle(.secondary)
+                        }
+                        ForEach(environment.workloads) { workload in
+                            DisclosureGroup(workload.id) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    LabeledContent("Image", value: workload.image)
+                                    LabeledContent("Command", value: workload.argv.joined(separator: " "))
+                                    LabeledContent("Working directory", value: workload.workdir ?? "Image default")
+                                    LabeledContent("User", value: workload.user ?? "Image default")
+                                    LabeledContent("Environment keys", value: workload.environmentKeys.joined(separator: ", "))
+                                    LabeledContent("Mounts", value: workload.mounts.joined(separator: ", "))
+                                    HStack {
+                                        Spacer()
+                                        if workload.state == .running {
+                                            Button("Interrupt…") { pendingWorkloadAction = .interrupt(workload.id) }
+                                            Button("Stop…") { pendingWorkloadAction = .stop(workload.id) }
+                                            Button("KILL…", role: .destructive) { pendingWorkloadAction = .kill(workload.id) }
+                                        } else if workload.state == .stopped {
+                                            Button("Continue…") { pendingWorkloadAction = .continueWorkload(workload.id) }
+                                        }
+                                    }
+                                }
+                                .padding(.top, 6)
+                            }
                         }
                     }
+                    .padding(.top, 6)
+                }
+
+                GroupBox("Limits and egress") {
+                    Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                        policyField("CPU millicores", text: $cpuMillis)
+                        policyField("Memory MiB", text: $memoryMiB)
+                        policyField("Process limit", text: $pids)
+                        policyField("Retained disk GiB", text: $diskGiB)
+                        GridRow {
+                            Text("")
+                            Toggle("Allow public internet egress", isOn: $allowsPublicEgress)
+                        }
+                        GridRow {
+                            Text("")
+                            Button("Apply Policy") { applyPolicy() }.disabled(parsedLimits == nil)
+                        }
+                    }
+                    .padding(.top, 6)
+                    Text("Policy updates use revision \(environment.policyRevision). Concurrent changes are rejected and appear after refresh.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                }
+
+                GroupBox("Environment data") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Button("Reset Environment…", action: onReset)
+                                .disabled(resetDisabledReason != nil)
+                                .help(resetDisabledReason ?? "Remove writable workspace layers and logs")
+                            Button("Delete Environment…", role: .destructive, action: onDiscard)
+                                .disabled(discardDisabledReason != nil)
+                                .help(discardDisabledReason ?? "Permanently delete this environment")
+                        }
+                        Text("Reset removes writable workspace layers and logs but keeps named retained data. Delete permanently removes the environment and confirmed retained data.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 6)
+                }
+
+                if let operation = model.latestOperation {
+                    GroupBox("Latest operation") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            LabeledContent("State", value: operation.state)
+                            LabeledContent("Stage", value: operation.stage)
+                            if let resource = operation.resource { LabeledContent("Resource", value: resource) }
+                            if let reason = operation.reason { LabeledContent("Reason", value: reason) }
+                            if let message = operation.message { Text(message).foregroundStyle(.secondary) }
+                            Text(operation.nextStep).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 6)
+                    }
                 }
             }
-            Section("Limits and egress") {
-                TextField("CPU millicores", text: $cpuMillis)
-                TextField("Memory MiB", text: $memoryMiB)
-                TextField("Process limit", text: $pids)
-                TextField("Retained disk GiB", text: $diskGiB)
-                Toggle("Allow public internet egress", isOn: $allowsPublicEgress)
-                Button("Apply policy") { applyPolicy() }.disabled(parsedLimits == nil)
-                Text("Policy updates use revision \(environment.policyRevision). A concurrent update is rejected and the desired/observed difference remains visible after refresh.")
-                    .foregroundStyle(.secondary)
-            }
-            Section("Environment data") {
-                Button("Reset environment…") { prepare(.reset) }
-                Button("Discard environment…", role: .destructive) { prepare(.discard) }
-                Text("Reset removes writable workspace layers and logs but retains named data. Discard permanently removes the environment and confirmed named data.")
-                    .foregroundStyle(.secondary)
-            }
-            if let operation = model.latestOperation {
-                Section("Latest operation") {
-                    LabeledContent("State", value: operation.state)
-                    LabeledContent("Stage", value: operation.stage)
-                    if let resource = operation.resource { LabeledContent("Resource", value: resource) }
-                    if let reason = operation.reason { LabeledContent("Reason", value: reason) }
-                    Text(operation.nextStep).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .alert(preview?.mode == .discard ? "Discard environment?" : "Reset environment?", isPresented: $showingCleanup) {
-            if preview?.mode == .discard { TextField("Type \(environment.name)", text: $typedName) }
-            Button("Cancel", role: .cancel) {}
-            Button(preview?.mode == .discard ? "Discard" : "Reset", role: .destructive) {
-                if let preview { Task { await model.executeCleanup(preview) } }
-            }
-            .disabled(preview?.mode == .discard && typedName != environment.name)
-        } message: {
-            Text(preview?.impacts.joined(separator: "\n") ?? "Loading impact…")
+            .frame(maxWidth: 760, alignment: .leading)
+            .padding(24)
         }
         .confirmationDialog(workloadActionTitle, isPresented: Binding(
             get: { pendingWorkloadAction != nil }, set: { if !$0 { pendingWorkloadAction = nil } }
@@ -93,15 +124,14 @@ struct EnvironmentActionsView: View {
         .onChange(of: environment.policyRevision) { _, _ in loadPolicy() }
     }
 
-    private func prepare(_ mode: CleanupMode) {
-        Task {
-            do {
-                preview = try await model.previewCleanup(environmentID: environment.id, mode: mode)
-                typedName = ""
-                showingCleanup = true
-            } catch {
-                model.errorMessage = hostErrorMessage(error)
-            }
+    @ViewBuilder
+    private func policyField(_ label: String, text: Binding<String>) -> some View {
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            TextField(label, text: text)
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 240)
         }
     }
 

@@ -39,6 +39,7 @@ func TestE2E(t *testing.T) {
 	client := harness.runtime(t)
 	t.Run("session_auth_and_revocation", func(t *testing.T) { testSessionAuthAndRevocation(t, harness, client) })
 	t.Run("mcp_workflow", func(t *testing.T) { testMCPWorkflow(t, harness) })
+	t.Run("pgvector_image_and_volume", func(t *testing.T) { testPGVectorImageAndVolume(t, client) })
 	t.Run("remote_workflow", func(t *testing.T) { testRemoteWorkflow(t, harness) })
 	parallel := []struct {
 		name string
@@ -78,6 +79,47 @@ func TestE2E(t *testing.T) {
 	t.Run("cleanup_contract", func(t *testing.T) { testCleanupContract(t, harness, client) })
 	t.Run("residual_scan", func(t *testing.T) { testResidualScan(t, harness.runtime(t)) })
 	harness.stop(t, false)
+}
+
+func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
+	const environmentID = "pgvector"
+	const image = "pgvector/pgvector:pg16"
+	ensureNamespace(t, client, environmentID, 2<<30)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	if digest, err := pullImageReference(ctx, client, environmentID, "pull-pgvector", image); err != nil || !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("pull pgvector = %q, %v", digest, err)
+	}
+	owner, mode := uint32(999), uint32(0o700)
+	if _, err := client.CreateVolume(ctx, environmentID, &hostv1.CreateVolumeRequest{RequestId: "create-pgvector-data", VolumeId: "data", OwnerUid: &owner, OwnerGid: &owner, Mode: &mode}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := client.CreateContainer(ctx, environmentID, &hostv1.CreateContainerRequest{
+		RequestId: "create-pgvector", ContainerId: "postgres", Image: image,
+		Env:     []string{"POSTGRES_PASSWORD=agent-vmm-e2e", "PGDATA=/var/lib/postgresql/data/pgdata"},
+		Volumes: []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/var/lib/postgresql/data"}}, LogLimitBytes: 1 << 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := client.StartContainer(ctx, environmentID, &hostv1.ContainerMutationRequest{RequestId: "start-pgvector", ContainerId: created.GetContainer().GetId()})
+	if err != nil || started.GetContainer().GetInstanceId() == "" {
+		t.Fatalf("start pgvector = %+v, %v", started.GetContainer(), err)
+	}
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		output, code := execContainer(t, client, environmentID, "postgres", []string{"pg_isready", "-U", "postgres"})
+		if code == 0 && bytes.Contains(output, []byte("accepting connections")) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pgvector did not become ready: %q", output)
+		}
+		time.Sleep(time.Second)
+	}
+	stopDeleteContainer(t, client, environmentID, "postgres")
+	deleteVolume(t, client, environmentID, "data")
+	deleteNamespace(t, client, environmentID)
 }
 
 func testCleanupContract(t *testing.T, harness *hostHarness, client *productClient) {
@@ -161,18 +203,22 @@ func testCleanupContract(t *testing.T, harness *hostHarness, client *productClie
 	if _, err := client.CreateVolume(ctx, "cleanup-source", &hostv1.CreateVolumeRequest{RequestId: "cleanup-volume", VolumeId: "retained"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := client.RemoveEnvironmentAccess(ctx, "cleanup-source", "cleanup-remove-access"); err != nil {
+		t.Fatal(err)
+	}
 	stalePlan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: "cleanup-source"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.CreateVolume(ctx, "cleanup-source", &hostv1.CreateVolumeRequest{RequestId: "cleanup-plan-change", VolumeId: "plan-change"}); err != nil {
+	currentPolicy, err := client.operator.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: "cleanup-source"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-stale-plan", Plan: stalePlan.GetPlan(), ConfirmedVolumeIds: []string{"retained", "plan-change"}}); status.Code(err) != codes.Aborted {
+	if _, err := client.operator.UpdateEnvironmentPolicy(ctx, &hostv1.UpdateEnvironmentPolicyRequest{RequestId: "cleanup-plan-change", EnvironmentId: "cleanup-source", Limits: currentPolicy.GetEnvironment().GetLimits(), EgressMode: currentPolicy.GetEnvironment().GetEgressMode(), ExpectedRevision: currentPolicy.GetEnvironment().GetPolicyRevision()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-stale-plan", Plan: stalePlan.GetPlan(), ConfirmedVolumeIds: []string{"retained"}}); status.Code(err) != codes.Aborted {
 		t.Fatalf("stale cleanup plan error = %v", err)
-	}
-	if err := client.DeleteVolume(ctx, "cleanup-source", &hostv1.DeleteVolumeRequest{RequestId: "cleanup-delete-plan-change", VolumeId: "plan-change"}); err != nil {
-		t.Fatal(err)
 	}
 	plan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: "cleanup-source"})
 	if err != nil {
@@ -202,6 +248,21 @@ func testCleanupContract(t *testing.T, harness *hostHarness, client *productClie
 	if err != nil || recovered.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED || recovered.GetOperation().GetId() != discard.GetOperation().GetId() {
 		t.Fatalf("partial discard recovery = %v, %v", recovered, err)
 	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO environments
+		(id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, policy_revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, environment.GetId(), environment.GetNamespaceId(), environment.GetDisplayName(),
+		environment.GetLimits().GetCpuMillis(), environment.GetLimits().GetMemoryBytes(), environment.GetLimits().GetPids(), environment.GetLimits().GetDiskBytes(),
+		int32(environment.GetEgressMode()), environment.GetPolicyRevision(), now+1, now+1); err != nil {
+		t.Fatal(err)
+	}
+	freshPlan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: "cleanup-source"})
+	if err != nil {
+		t.Fatalf("fresh plan after missing namespace = %v", err)
+	}
+	freshRecovery, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-discard-fresh-recovery", Plan: freshPlan.GetPlan()})
+	if err != nil || freshRecovery.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
+		t.Fatalf("fresh request recovery after missing namespace = %v, %v", freshRecovery, err)
+	}
 	if _, err := client.operator.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: "cleanup-source"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("partial discard left host environment: %v", err)
 	}
@@ -221,7 +282,11 @@ func testSessionAuthAndRevocation(t *testing.T, harness *hostHarness, client *pr
 	ensureNamespace(t, client, "session-auth", 64<<20)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	created, err := harness.client.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: "second-session", EnvironmentId: "session-auth"})
+	first, err := client.session("session-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := harness.client.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: "second-session", IntegrationId: first.integrationID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +331,7 @@ func testBoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.GetUsage().GetSampledAt() == nil || snapshot.GetUsage().GetStale() {
+	if snapshot.GetUsage() != nil && (snapshot.GetUsage().GetSampledAt() == nil || snapshot.GetUsage().GetStale() && snapshot.GetUsage().GetUnavailableReason() == "") {
 		t.Fatalf("system network usage = %+v", snapshot.GetUsage())
 	}
 	previousBootID := vm.GetBootId()
@@ -358,7 +423,7 @@ func testContainerLifecycle(t *testing.T, client *productClient) {
 	defer cancel()
 	limited, err := client.CreateContainer(ctx, "lifecycle", &hostv1.CreateContainerRequest{
 		RequestId: "create-limited-log", ContainerId: "limited-log", Image: workloadImage,
-		Argv: []string{"/bin/sh", "-c", "dd if=/dev/zero bs=8192 count=1 2>/dev/null | tr '\\000' x"}, LogLimitBytes: 4096,
+		EntrypointOverride: &hostv1.StringList{Values: []string{"/bin/sh", "-c", "dd if=/dev/zero bs=8192 count=1 2>/dev/null | tr '\\000' x"}}, CommandOverride: &hostv1.StringList{}, LogLimitBytes: 4096,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +475,7 @@ func testNamedVolume(t *testing.T, client *productClient) {
 		t.Fatalf("mounted volume delete error = %v", err)
 	}
 	deleteContainer(t, client, "volume-owner", reader.GetId())
-	if _, err := client.CreateContainer(ctx, "volume-other", &hostv1.CreateContainerRequest{RequestId: "cross-mount", ContainerId: "cross", Image: workloadImage, Argv: []string{"true"}, Volumes: mount, LogLimitBytes: 1 << 20}); err == nil {
+	if _, err := client.CreateContainer(ctx, "volume-other", &hostv1.CreateContainerRequest{RequestId: "cross-mount", ContainerId: "cross", Image: workloadImage, EntrypointOverride: &hostv1.StringList{Values: []string{"true"}}, CommandOverride: &hostv1.StringList{}, Volumes: mount, LogLimitBytes: 1 << 20}); err == nil {
 		t.Fatal("cross-namespace volume mount succeeded")
 	}
 	listed, err := client.ListContainers(ctx, "volume-other")
@@ -598,7 +663,11 @@ func testPortForward(t *testing.T, client *productClient) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Header{Header: &hostv1.ForwardTCPHeader{ContainerId: server.GetId(), Port: 8080}}}); err != nil {
+	running, err := client.GetContainer(ctx, "forward", &hostv1.ContainerRequest{ContainerId: server.GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&hostv1.ForwardTCPRequest{Event: &hostv1.ForwardTCPRequest_Header{Header: &hostv1.ForwardTCPHeader{ContainerId: server.GetId(), Port: 8080, ContainerInstanceId: running.GetContainer().GetInstanceId()}}}); err != nil {
 		t.Fatal(err)
 	}
 	payload := bytes.Repeat([]byte("forward-data-"), 8192)
@@ -747,7 +816,7 @@ func testCancellationCleanup(t *testing.T, client *productClient) {
 		t.Fatalf("containers after cancellation = %+v, %v", listed.GetContainers(), err)
 	}
 	if _, err := client.CreateContainer(checkCtx, namespaceID, &hostv1.CreateContainerRequest{
-		RequestId: "cancelled-image", ContainerId: "partial", Image: "agent.local/cancelled:latest", Argv: []string{"/bin/result"}, LogLimitBytes: 1 << 20,
+		RequestId: "cancelled-image", ContainerId: "partial", Image: "agent.local/cancelled:latest", EntrypointOverride: &hostv1.StringList{Values: []string{"/bin/result"}}, CommandOverride: &hostv1.StringList{}, LogLimitBytes: 1 << 20,
 	}); err == nil {
 		t.Fatal("cancelled image was imported")
 	}
@@ -1134,9 +1203,11 @@ func ensureNamespaceWithEgress(t *testing.T, client *productClient, namespaceID 
 		t.Fatalf("environment allocation = %+v", response)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		_ = client.DeleteEnvironment(ctx, namespaceID, "cleanup-"+namespaceID)
+		if err := client.DeleteEnvironment(ctx, namespaceID, "cleanup-"+namespaceID); err != nil && status.Code(err) != codes.NotFound {
+			t.Errorf("cleanup environment %q: %v", namespaceID, err)
+		}
 	})
 }
 
@@ -1260,7 +1331,11 @@ func pullImage(t *testing.T, client *productClient, namespaceID string) {
 }
 
 func pullImageAttempt(ctx context.Context, client *productClient, namespaceID, requestID string) (string, error) {
-	stream, err := client.PullImage(ctx, namespaceID, &hostv1.PullImageRequest{RequestId: requestID, Reference: workloadImage})
+	return pullImageReference(ctx, client, namespaceID, requestID, workloadImage)
+}
+
+func pullImageReference(ctx context.Context, client *productClient, namespaceID, requestID, reference string) (string, error) {
+	stream, err := client.PullImage(ctx, namespaceID, &hostv1.PullImageRequest{RequestId: requestID, Reference: reference})
 	if err != nil {
 		return "", err
 	}
@@ -1307,7 +1382,7 @@ func createContainerWithImageAndVolumes(t *testing.T, client *productClient, nam
 	defer cancel()
 	response, err := client.CreateContainer(ctx, namespaceID, &hostv1.CreateContainerRequest{
 		RequestId:   "create-" + namespaceID + "-" + containerID,
-		ContainerId: containerID, Image: image, Argv: argv, Volumes: volumes, LogLimitBytes: 1 << 20,
+		ContainerId: containerID, Image: image, EntrypointOverride: &hostv1.StringList{Values: argv}, CommandOverride: &hostv1.StringList{}, Volumes: volumes, LogLimitBytes: 1 << 20,
 	})
 	if err != nil {
 		t.Fatal(err)

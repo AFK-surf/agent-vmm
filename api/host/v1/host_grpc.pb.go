@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AgentRuntimeService_GetEnvironment_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/GetEnvironment"
 	AgentRuntimeService_PullImage_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/PullImage"
+	AgentRuntimeService_ListImages_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/ListImages"
 	AgentRuntimeService_CreateContainer_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/CreateContainer"
 	AgentRuntimeService_StartContainer_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/StartContainer"
 	AgentRuntimeService_StopContainer_FullMethodName          = "/agentvmm.host.v1.AgentRuntimeService/StopContainer"
@@ -51,6 +52,7 @@ const (
 type AgentRuntimeServiceClient interface {
 	GetEnvironment(ctx context.Context, in *GetOwnEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PullImageResponse], error)
+	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
 	CreateContainer(ctx context.Context, in *CreateContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	StartContainer(ctx context.Context, in *ContainerMutationRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	StopContainer(ctx context.Context, in *StopContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
@@ -110,6 +112,16 @@ func (c *agentRuntimeServiceClient) PullImage(ctx context.Context, in *PullImage
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentRuntimeService_PullImageClient = grpc.ServerStreamingClient[PullImageResponse]
+
+func (c *agentRuntimeServiceClient) ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListImagesResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_ListImages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *agentRuntimeServiceClient) CreateContainer(ctx context.Context, in *CreateContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -345,6 +357,7 @@ func (c *agentRuntimeServiceClient) RequestDiscard(ctx context.Context, in *Envi
 type AgentRuntimeServiceServer interface {
 	GetEnvironment(context.Context, *GetOwnEnvironmentRequest) (*GetEnvironmentResponse, error)
 	PullImage(*PullImageRequest, grpc.ServerStreamingServer[PullImageResponse]) error
+	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
 	CreateContainer(context.Context, *CreateContainerRequest) (*ContainerResponse, error)
 	StartContainer(context.Context, *ContainerMutationRequest) (*ContainerResponse, error)
 	StopContainer(context.Context, *StopContainerRequest) (*ContainerResponse, error)
@@ -381,6 +394,9 @@ func (UnimplementedAgentRuntimeServiceServer) GetEnvironment(context.Context, *G
 }
 func (UnimplementedAgentRuntimeServiceServer) PullImage(*PullImageRequest, grpc.ServerStreamingServer[PullImageResponse]) error {
 	return status.Error(codes.Unimplemented, "method PullImage not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListImages not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) CreateContainer(context.Context, *CreateContainerRequest) (*ContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateContainer not implemented")
@@ -494,6 +510,24 @@ func _AgentRuntimeService_PullImage_Handler(srv interface{}, stream grpc.ServerS
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentRuntimeService_PullImageServer = grpc.ServerStreamingServer[PullImageResponse]
+
+func _AgentRuntimeService_ListImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListImagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).ListImages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_ListImages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).ListImages(ctx, req.(*ListImagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _AgentRuntimeService_CreateContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateContainerRequest)
@@ -845,6 +879,10 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AgentRuntimeService_GetEnvironment_Handler,
 		},
 		{
+			MethodName: "ListImages",
+			Handler:    _AgentRuntimeService_ListImages_Handler,
+		},
+		{
 			MethodName: "CreateContainer",
 			Handler:    _AgentRuntimeService_CreateContainer_Handler,
 		},
@@ -947,35 +985,50 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	OperatorService_StartVM_FullMethodName                    = "/agentvmm.host.v1.OperatorService/StartVM"
-	OperatorService_GetVM_FullMethodName                      = "/agentvmm.host.v1.OperatorService/GetVM"
-	OperatorService_StopVM_FullMethodName                     = "/agentvmm.host.v1.OperatorService/StopVM"
-	OperatorService_EnsureLocalEnvironment_FullMethodName     = "/agentvmm.host.v1.OperatorService/EnsureLocalEnvironment"
-	OperatorService_CreateAgentSession_FullMethodName         = "/agentvmm.host.v1.OperatorService/CreateAgentSession"
-	OperatorService_RevokeAgentSession_FullMethodName         = "/agentvmm.host.v1.OperatorService/RevokeAgentSession"
-	OperatorService_GetSystemSnapshot_FullMethodName          = "/agentvmm.host.v1.OperatorService/GetSystemSnapshot"
-	OperatorService_ListEnvironments_FullMethodName           = "/agentvmm.host.v1.OperatorService/ListEnvironments"
-	OperatorService_GetEnvironment_FullMethodName             = "/agentvmm.host.v1.OperatorService/GetEnvironment"
-	OperatorService_WatchEvents_FullMethodName                = "/agentvmm.host.v1.OperatorService/WatchEvents"
-	OperatorService_WatchMetrics_FullMethodName               = "/agentvmm.host.v1.OperatorService/WatchMetrics"
-	OperatorService_Logs_FullMethodName                       = "/agentvmm.host.v1.OperatorService/Logs"
-	OperatorService_StopContainer_FullMethodName              = "/agentvmm.host.v1.OperatorService/StopContainer"
-	OperatorService_ContinueContainer_FullMethodName          = "/agentvmm.host.v1.OperatorService/ContinueContainer"
-	OperatorService_SignalContainer_FullMethodName            = "/agentvmm.host.v1.OperatorService/SignalContainer"
-	OperatorService_UpdateEnvironmentPolicy_FullMethodName    = "/agentvmm.host.v1.OperatorService/UpdateEnvironmentPolicy"
-	OperatorService_ApplyNetworkLink_FullMethodName           = "/agentvmm.host.v1.OperatorService/ApplyNetworkLink"
-	OperatorService_DeleteNetworkLink_FullMethodName          = "/agentvmm.host.v1.OperatorService/DeleteNetworkLink"
-	OperatorService_PlanResetEnvironment_FullMethodName       = "/agentvmm.host.v1.OperatorService/PlanResetEnvironment"
-	OperatorService_PlanDiscardEnvironment_FullMethodName     = "/agentvmm.host.v1.OperatorService/PlanDiscardEnvironment"
-	OperatorService_ExecuteCleanup_FullMethodName             = "/agentvmm.host.v1.OperatorService/ExecuteCleanup"
-	OperatorService_GetOperation_FullMethodName               = "/agentvmm.host.v1.OperatorService/GetOperation"
-	OperatorService_RunDiagnostics_FullMethodName             = "/agentvmm.host.v1.OperatorService/RunDiagnostics"
-	OperatorService_PreviewSupportBundle_FullMethodName       = "/agentvmm.host.v1.OperatorService/PreviewSupportBundle"
-	OperatorService_ExportSupportBundle_FullMethodName        = "/agentvmm.host.v1.OperatorService/ExportSupportBundle"
-	OperatorService_CreateRemoteRegistration_FullMethodName   = "/agentvmm.host.v1.OperatorService/CreateRemoteRegistration"
-	OperatorService_UpdateRemotePool_FullMethodName           = "/agentvmm.host.v1.OperatorService/UpdateRemotePool"
-	OperatorService_SetRemoteRegistrationState_FullMethodName = "/agentvmm.host.v1.OperatorService/SetRemoteRegistrationState"
-	OperatorService_GetRemoteRegistration_FullMethodName      = "/agentvmm.host.v1.OperatorService/GetRemoteRegistration"
+	OperatorService_StartVM_FullMethodName                            = "/agentvmm.host.v1.OperatorService/StartVM"
+	OperatorService_GetVM_FullMethodName                              = "/agentvmm.host.v1.OperatorService/GetVM"
+	OperatorService_StopVM_FullMethodName                             = "/agentvmm.host.v1.OperatorService/StopVM"
+	OperatorService_CreateAgentSession_FullMethodName                 = "/agentvmm.host.v1.OperatorService/CreateAgentSession"
+	OperatorService_RevokeAgentSession_FullMethodName                 = "/agentvmm.host.v1.OperatorService/RevokeAgentSession"
+	OperatorService_ListAgentIntegrations_FullMethodName              = "/agentvmm.host.v1.OperatorService/ListAgentIntegrations"
+	OperatorService_PrepareAgentIntegration_FullMethodName            = "/agentvmm.host.v1.OperatorService/PrepareAgentIntegration"
+	OperatorService_BeginAgentIntegrationConfiguration_FullMethodName = "/agentvmm.host.v1.OperatorService/BeginAgentIntegrationConfiguration"
+	OperatorService_CommitAgentIntegration_FullMethodName             = "/agentvmm.host.v1.OperatorService/CommitAgentIntegration"
+	OperatorService_FailAgentIntegration_FullMethodName               = "/agentvmm.host.v1.OperatorService/FailAgentIntegration"
+	OperatorService_BeginAgentIntegrationRemoval_FullMethodName       = "/agentvmm.host.v1.OperatorService/BeginAgentIntegrationRemoval"
+	OperatorService_CompleteAgentIntegrationRemoval_FullMethodName    = "/agentvmm.host.v1.OperatorService/CompleteAgentIntegrationRemoval"
+	OperatorService_ListAgentSessions_FullMethodName                  = "/agentvmm.host.v1.OperatorService/ListAgentSessions"
+	OperatorService_RevokeAgentSessions_FullMethodName                = "/agentvmm.host.v1.OperatorService/RevokeAgentSessions"
+	OperatorService_GetSystemSnapshot_FullMethodName                  = "/agentvmm.host.v1.OperatorService/GetSystemSnapshot"
+	OperatorService_ListEnvironments_FullMethodName                   = "/agentvmm.host.v1.OperatorService/ListEnvironments"
+	OperatorService_GetEnvironment_FullMethodName                     = "/agentvmm.host.v1.OperatorService/GetEnvironment"
+	OperatorService_ListEnvironmentImages_FullMethodName              = "/agentvmm.host.v1.OperatorService/ListEnvironmentImages"
+	OperatorService_WatchEvents_FullMethodName                        = "/agentvmm.host.v1.OperatorService/WatchEvents"
+	OperatorService_WatchMetrics_FullMethodName                       = "/agentvmm.host.v1.OperatorService/WatchMetrics"
+	OperatorService_Logs_FullMethodName                               = "/agentvmm.host.v1.OperatorService/Logs"
+	OperatorService_StopContainer_FullMethodName                      = "/agentvmm.host.v1.OperatorService/StopContainer"
+	OperatorService_ContinueContainer_FullMethodName                  = "/agentvmm.host.v1.OperatorService/ContinueContainer"
+	OperatorService_SignalContainer_FullMethodName                    = "/agentvmm.host.v1.OperatorService/SignalContainer"
+	OperatorService_UpdateEnvironmentPolicy_FullMethodName            = "/agentvmm.host.v1.OperatorService/UpdateEnvironmentPolicy"
+	OperatorService_ApplyNetworkLink_FullMethodName                   = "/agentvmm.host.v1.OperatorService/ApplyNetworkLink"
+	OperatorService_DeleteNetworkLink_FullMethodName                  = "/agentvmm.host.v1.OperatorService/DeleteNetworkLink"
+	OperatorService_PlanResetEnvironment_FullMethodName               = "/agentvmm.host.v1.OperatorService/PlanResetEnvironment"
+	OperatorService_PlanDiscardEnvironment_FullMethodName             = "/agentvmm.host.v1.OperatorService/PlanDiscardEnvironment"
+	OperatorService_ExecuteCleanup_FullMethodName                     = "/agentvmm.host.v1.OperatorService/ExecuteCleanup"
+	OperatorService_GetOperation_FullMethodName                       = "/agentvmm.host.v1.OperatorService/GetOperation"
+	OperatorService_RunDiagnostics_FullMethodName                     = "/agentvmm.host.v1.OperatorService/RunDiagnostics"
+	OperatorService_PreviewSupportBundle_FullMethodName               = "/agentvmm.host.v1.OperatorService/PreviewSupportBundle"
+	OperatorService_ExportSupportBundle_FullMethodName                = "/agentvmm.host.v1.OperatorService/ExportSupportBundle"
+	OperatorService_BeginRemoteEnrollment_FullMethodName              = "/agentvmm.host.v1.OperatorService/BeginRemoteEnrollment"
+	OperatorService_CompleteRemoteEnrollment_FullMethodName           = "/agentvmm.host.v1.OperatorService/CompleteRemoteEnrollment"
+	OperatorService_FailRemoteEnrollment_FullMethodName               = "/agentvmm.host.v1.OperatorService/FailRemoteEnrollment"
+	OperatorService_RetryRemoteEnrollment_FullMethodName              = "/agentvmm.host.v1.OperatorService/RetryRemoteEnrollment"
+	OperatorService_RemoveIncompleteRemoteRegistration_FullMethodName = "/agentvmm.host.v1.OperatorService/RemoveIncompleteRemoteRegistration"
+	OperatorService_BeginRemoteRevocation_FullMethodName              = "/agentvmm.host.v1.OperatorService/BeginRemoteRevocation"
+	OperatorService_CompleteRemoteRevocation_FullMethodName           = "/agentvmm.host.v1.OperatorService/CompleteRemoteRevocation"
+	OperatorService_UpdateRemotePool_FullMethodName                   = "/agentvmm.host.v1.OperatorService/UpdateRemotePool"
+	OperatorService_SetRemoteRegistrationState_FullMethodName         = "/agentvmm.host.v1.OperatorService/SetRemoteRegistrationState"
+	OperatorService_GetRemoteRegistration_FullMethodName              = "/agentvmm.host.v1.OperatorService/GetRemoteRegistration"
 )
 
 // OperatorServiceClient is the client API for OperatorService service.
@@ -985,12 +1038,21 @@ type OperatorServiceClient interface {
 	StartVM(ctx context.Context, in *StartVMRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	GetVM(ctx context.Context, in *GetVMRequest, opts ...grpc.CallOption) (*VMResponse, error)
 	StopVM(ctx context.Context, in *StopVMRequest, opts ...grpc.CallOption) (*OperationResponse, error)
-	EnsureLocalEnvironment(ctx context.Context, in *EnsureLocalEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	CreateAgentSession(ctx context.Context, in *CreateAgentSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error)
 	RevokeAgentSession(ctx context.Context, in *RevokeAgentSessionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ListAgentIntegrations(ctx context.Context, in *ListAgentIntegrationsRequest, opts ...grpc.CallOption) (*ListAgentIntegrationsResponse, error)
+	PrepareAgentIntegration(ctx context.Context, in *PrepareAgentIntegrationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error)
+	BeginAgentIntegrationConfiguration(ctx context.Context, in *BeginAgentIntegrationConfigurationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error)
+	CommitAgentIntegration(ctx context.Context, in *CommitAgentIntegrationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error)
+	FailAgentIntegration(ctx context.Context, in *FailAgentIntegrationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error)
+	BeginAgentIntegrationRemoval(ctx context.Context, in *BeginAgentIntegrationRemovalRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error)
+	CompleteAgentIntegrationRemoval(ctx context.Context, in *CompleteAgentIntegrationRemovalRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error)
+	ListAgentSessions(ctx context.Context, in *ListAgentSessionsRequest, opts ...grpc.CallOption) (*ListAgentSessionsResponse, error)
+	RevokeAgentSessions(ctx context.Context, in *RevokeAgentSessionsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetSystemSnapshot(ctx context.Context, in *GetSystemSnapshotRequest, opts ...grpc.CallOption) (*GetSystemSnapshotResponse, error)
 	ListEnvironments(ctx context.Context, in *ListEnvironmentsRequest, opts ...grpc.CallOption) (*ListEnvironmentsResponse, error)
 	GetEnvironment(ctx context.Context, in *GetEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
+	ListEnvironmentImages(ctx context.Context, in *ListEnvironmentImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
 	WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RuntimeEvent], error)
 	WatchMetrics(ctx context.Context, in *WatchMetricsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[MetricsSample], error)
 	Logs(ctx context.Context, in *OperatorLogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogRecord], error)
@@ -1007,7 +1069,13 @@ type OperatorServiceClient interface {
 	RunDiagnostics(ctx context.Context, in *RunDiagnosticsRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	PreviewSupportBundle(ctx context.Context, in *PreviewSupportBundleRequest, opts ...grpc.CallOption) (*SupportBundlePreview, error)
 	ExportSupportBundle(ctx context.Context, in *ExportSupportBundleRequest, opts ...grpc.CallOption) (*OperationResponse, error)
-	CreateRemoteRegistration(ctx context.Context, in *CreateRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	BeginRemoteEnrollment(ctx context.Context, in *BeginRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	CompleteRemoteEnrollment(ctx context.Context, in *CompleteRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	FailRemoteEnrollment(ctx context.Context, in *FailRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	RetryRemoteEnrollment(ctx context.Context, in *RetryRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	RemoveIncompleteRemoteRegistration(ctx context.Context, in *RemoveIncompleteRemoteRegistrationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	BeginRemoteRevocation(ctx context.Context, in *BeginRemoteRevocationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	CompleteRemoteRevocation(ctx context.Context, in *CompleteRemoteRevocationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	UpdateRemotePool(ctx context.Context, in *UpdateRemotePoolRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	SetRemoteRegistrationState(ctx context.Context, in *SetRemoteRegistrationStateRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(ctx context.Context, in *GetRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
@@ -1051,16 +1119,6 @@ func (c *operatorServiceClient) StopVM(ctx context.Context, in *StopVMRequest, o
 	return out, nil
 }
 
-func (c *operatorServiceClient) EnsureLocalEnvironment(ctx context.Context, in *EnsureLocalEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetEnvironmentResponse)
-	err := c.cc.Invoke(ctx, OperatorService_EnsureLocalEnvironment_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *operatorServiceClient) CreateAgentSession(ctx context.Context, in *CreateAgentSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateAgentSessionResponse)
@@ -1075,6 +1133,96 @@ func (c *operatorServiceClient) RevokeAgentSession(ctx context.Context, in *Revo
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, OperatorService_RevokeAgentSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListAgentIntegrations(ctx context.Context, in *ListAgentIntegrationsRequest, opts ...grpc.CallOption) (*ListAgentIntegrationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAgentIntegrationsResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListAgentIntegrations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) PrepareAgentIntegration(ctx context.Context, in *PrepareAgentIntegrationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentIntegrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_PrepareAgentIntegration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) BeginAgentIntegrationConfiguration(ctx context.Context, in *BeginAgentIntegrationConfigurationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentIntegrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_BeginAgentIntegrationConfiguration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) CommitAgentIntegration(ctx context.Context, in *CommitAgentIntegrationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentIntegrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CommitAgentIntegration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) FailAgentIntegration(ctx context.Context, in *FailAgentIntegrationRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentIntegrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_FailAgentIntegration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) BeginAgentIntegrationRemoval(ctx context.Context, in *BeginAgentIntegrationRemovalRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentIntegrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_BeginAgentIntegrationRemoval_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) CompleteAgentIntegrationRemoval(ctx context.Context, in *CompleteAgentIntegrationRemovalRequest, opts ...grpc.CallOption) (*AgentIntegrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentIntegrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CompleteAgentIntegrationRemoval_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListAgentSessions(ctx context.Context, in *ListAgentSessionsRequest, opts ...grpc.CallOption) (*ListAgentSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAgentSessionsResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListAgentSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RevokeAgentSessions(ctx context.Context, in *RevokeAgentSessionsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, OperatorService_RevokeAgentSessions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1105,6 +1253,16 @@ func (c *operatorServiceClient) GetEnvironment(ctx context.Context, in *GetEnvir
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEnvironmentResponse)
 	err := c.cc.Invoke(ctx, OperatorService_GetEnvironment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListEnvironmentImages(ctx context.Context, in *ListEnvironmentImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListImagesResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListEnvironmentImages_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1298,10 +1456,70 @@ func (c *operatorServiceClient) ExportSupportBundle(ctx context.Context, in *Exp
 	return out, nil
 }
 
-func (c *operatorServiceClient) CreateRemoteRegistration(ctx context.Context, in *CreateRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+func (c *operatorServiceClient) BeginRemoteEnrollment(ctx context.Context, in *BeginRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RemoteRegistrationResponse)
-	err := c.cc.Invoke(ctx, OperatorService_CreateRemoteRegistration_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, OperatorService_BeginRemoteEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) CompleteRemoteEnrollment(ctx context.Context, in *CompleteRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CompleteRemoteEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) FailRemoteEnrollment(ctx context.Context, in *FailRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_FailRemoteEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RetryRemoteEnrollment(ctx context.Context, in *RetryRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RetryRemoteEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RemoveIncompleteRemoteRegistration(ctx context.Context, in *RemoveIncompleteRemoteRegistrationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, OperatorService_RemoveIncompleteRemoteRegistration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) BeginRemoteRevocation(ctx context.Context, in *BeginRemoteRevocationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_BeginRemoteRevocation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) CompleteRemoteRevocation(ctx context.Context, in *CompleteRemoteRevocationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CompleteRemoteRevocation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1345,12 +1563,21 @@ type OperatorServiceServer interface {
 	StartVM(context.Context, *StartVMRequest) (*OperationResponse, error)
 	GetVM(context.Context, *GetVMRequest) (*VMResponse, error)
 	StopVM(context.Context, *StopVMRequest) (*OperationResponse, error)
-	EnsureLocalEnvironment(context.Context, *EnsureLocalEnvironmentRequest) (*GetEnvironmentResponse, error)
 	CreateAgentSession(context.Context, *CreateAgentSessionRequest) (*CreateAgentSessionResponse, error)
 	RevokeAgentSession(context.Context, *RevokeAgentSessionRequest) (*emptypb.Empty, error)
+	ListAgentIntegrations(context.Context, *ListAgentIntegrationsRequest) (*ListAgentIntegrationsResponse, error)
+	PrepareAgentIntegration(context.Context, *PrepareAgentIntegrationRequest) (*AgentIntegrationResponse, error)
+	BeginAgentIntegrationConfiguration(context.Context, *BeginAgentIntegrationConfigurationRequest) (*AgentIntegrationResponse, error)
+	CommitAgentIntegration(context.Context, *CommitAgentIntegrationRequest) (*AgentIntegrationResponse, error)
+	FailAgentIntegration(context.Context, *FailAgentIntegrationRequest) (*AgentIntegrationResponse, error)
+	BeginAgentIntegrationRemoval(context.Context, *BeginAgentIntegrationRemovalRequest) (*AgentIntegrationResponse, error)
+	CompleteAgentIntegrationRemoval(context.Context, *CompleteAgentIntegrationRemovalRequest) (*AgentIntegrationResponse, error)
+	ListAgentSessions(context.Context, *ListAgentSessionsRequest) (*ListAgentSessionsResponse, error)
+	RevokeAgentSessions(context.Context, *RevokeAgentSessionsRequest) (*emptypb.Empty, error)
 	GetSystemSnapshot(context.Context, *GetSystemSnapshotRequest) (*GetSystemSnapshotResponse, error)
 	ListEnvironments(context.Context, *ListEnvironmentsRequest) (*ListEnvironmentsResponse, error)
 	GetEnvironment(context.Context, *GetEnvironmentRequest) (*GetEnvironmentResponse, error)
+	ListEnvironmentImages(context.Context, *ListEnvironmentImagesRequest) (*ListImagesResponse, error)
 	WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error
 	WatchMetrics(*WatchMetricsRequest, grpc.ServerStreamingServer[MetricsSample]) error
 	Logs(*OperatorLogsRequest, grpc.ServerStreamingServer[LogRecord]) error
@@ -1367,7 +1594,13 @@ type OperatorServiceServer interface {
 	RunDiagnostics(context.Context, *RunDiagnosticsRequest) (*OperationResponse, error)
 	PreviewSupportBundle(context.Context, *PreviewSupportBundleRequest) (*SupportBundlePreview, error)
 	ExportSupportBundle(context.Context, *ExportSupportBundleRequest) (*OperationResponse, error)
-	CreateRemoteRegistration(context.Context, *CreateRemoteRegistrationRequest) (*RemoteRegistrationResponse, error)
+	BeginRemoteEnrollment(context.Context, *BeginRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error)
+	CompleteRemoteEnrollment(context.Context, *CompleteRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error)
+	FailRemoteEnrollment(context.Context, *FailRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error)
+	RetryRemoteEnrollment(context.Context, *RetryRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error)
+	RemoveIncompleteRemoteRegistration(context.Context, *RemoveIncompleteRemoteRegistrationRequest) (*emptypb.Empty, error)
+	BeginRemoteRevocation(context.Context, *BeginRemoteRevocationRequest) (*RemoteRegistrationResponse, error)
+	CompleteRemoteRevocation(context.Context, *CompleteRemoteRevocationRequest) (*RemoteRegistrationResponse, error)
 	UpdateRemotePool(context.Context, *UpdateRemotePoolRequest) (*RemoteRegistrationResponse, error)
 	SetRemoteRegistrationState(context.Context, *SetRemoteRegistrationStateRequest) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error)
@@ -1390,14 +1623,38 @@ func (UnimplementedOperatorServiceServer) GetVM(context.Context, *GetVMRequest) 
 func (UnimplementedOperatorServiceServer) StopVM(context.Context, *StopVMRequest) (*OperationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopVM not implemented")
 }
-func (UnimplementedOperatorServiceServer) EnsureLocalEnvironment(context.Context, *EnsureLocalEnvironmentRequest) (*GetEnvironmentResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method EnsureLocalEnvironment not implemented")
-}
 func (UnimplementedOperatorServiceServer) CreateAgentSession(context.Context, *CreateAgentSessionRequest) (*CreateAgentSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateAgentSession not implemented")
 }
 func (UnimplementedOperatorServiceServer) RevokeAgentSession(context.Context, *RevokeAgentSessionRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method RevokeAgentSession not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListAgentIntegrations(context.Context, *ListAgentIntegrationsRequest) (*ListAgentIntegrationsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAgentIntegrations not implemented")
+}
+func (UnimplementedOperatorServiceServer) PrepareAgentIntegration(context.Context, *PrepareAgentIntegrationRequest) (*AgentIntegrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PrepareAgentIntegration not implemented")
+}
+func (UnimplementedOperatorServiceServer) BeginAgentIntegrationConfiguration(context.Context, *BeginAgentIntegrationConfigurationRequest) (*AgentIntegrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BeginAgentIntegrationConfiguration not implemented")
+}
+func (UnimplementedOperatorServiceServer) CommitAgentIntegration(context.Context, *CommitAgentIntegrationRequest) (*AgentIntegrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CommitAgentIntegration not implemented")
+}
+func (UnimplementedOperatorServiceServer) FailAgentIntegration(context.Context, *FailAgentIntegrationRequest) (*AgentIntegrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FailAgentIntegration not implemented")
+}
+func (UnimplementedOperatorServiceServer) BeginAgentIntegrationRemoval(context.Context, *BeginAgentIntegrationRemovalRequest) (*AgentIntegrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BeginAgentIntegrationRemoval not implemented")
+}
+func (UnimplementedOperatorServiceServer) CompleteAgentIntegrationRemoval(context.Context, *CompleteAgentIntegrationRemovalRequest) (*AgentIntegrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteAgentIntegrationRemoval not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListAgentSessions(context.Context, *ListAgentSessionsRequest) (*ListAgentSessionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAgentSessions not implemented")
+}
+func (UnimplementedOperatorServiceServer) RevokeAgentSessions(context.Context, *RevokeAgentSessionsRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeAgentSessions not implemented")
 }
 func (UnimplementedOperatorServiceServer) GetSystemSnapshot(context.Context, *GetSystemSnapshotRequest) (*GetSystemSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSystemSnapshot not implemented")
@@ -1407,6 +1664,9 @@ func (UnimplementedOperatorServiceServer) ListEnvironments(context.Context, *Lis
 }
 func (UnimplementedOperatorServiceServer) GetEnvironment(context.Context, *GetEnvironmentRequest) (*GetEnvironmentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEnvironment not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListEnvironmentImages(context.Context, *ListEnvironmentImagesRequest) (*ListImagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListEnvironmentImages not implemented")
 }
 func (UnimplementedOperatorServiceServer) WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error {
 	return status.Error(codes.Unimplemented, "method WatchEvents not implemented")
@@ -1456,8 +1716,26 @@ func (UnimplementedOperatorServiceServer) PreviewSupportBundle(context.Context, 
 func (UnimplementedOperatorServiceServer) ExportSupportBundle(context.Context, *ExportSupportBundleRequest) (*OperationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportSupportBundle not implemented")
 }
-func (UnimplementedOperatorServiceServer) CreateRemoteRegistration(context.Context, *CreateRemoteRegistrationRequest) (*RemoteRegistrationResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateRemoteRegistration not implemented")
+func (UnimplementedOperatorServiceServer) BeginRemoteEnrollment(context.Context, *BeginRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BeginRemoteEnrollment not implemented")
+}
+func (UnimplementedOperatorServiceServer) CompleteRemoteEnrollment(context.Context, *CompleteRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteRemoteEnrollment not implemented")
+}
+func (UnimplementedOperatorServiceServer) FailRemoteEnrollment(context.Context, *FailRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FailRemoteEnrollment not implemented")
+}
+func (UnimplementedOperatorServiceServer) RetryRemoteEnrollment(context.Context, *RetryRemoteEnrollmentRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RetryRemoteEnrollment not implemented")
+}
+func (UnimplementedOperatorServiceServer) RemoveIncompleteRemoteRegistration(context.Context, *RemoveIncompleteRemoteRegistrationRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveIncompleteRemoteRegistration not implemented")
+}
+func (UnimplementedOperatorServiceServer) BeginRemoteRevocation(context.Context, *BeginRemoteRevocationRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BeginRemoteRevocation not implemented")
+}
+func (UnimplementedOperatorServiceServer) CompleteRemoteRevocation(context.Context, *CompleteRemoteRevocationRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteRemoteRevocation not implemented")
 }
 func (UnimplementedOperatorServiceServer) UpdateRemotePool(context.Context, *UpdateRemotePoolRequest) (*RemoteRegistrationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateRemotePool not implemented")
@@ -1543,24 +1821,6 @@ func _OperatorService_StopVM_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _OperatorService_EnsureLocalEnvironment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(EnsureLocalEnvironmentRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(OperatorServiceServer).EnsureLocalEnvironment(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: OperatorService_EnsureLocalEnvironment_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OperatorServiceServer).EnsureLocalEnvironment(ctx, req.(*EnsureLocalEnvironmentRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _OperatorService_CreateAgentSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateAgentSessionRequest)
 	if err := dec(in); err != nil {
@@ -1593,6 +1853,168 @@ func _OperatorService_RevokeAgentSession_Handler(srv interface{}, ctx context.Co
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OperatorServiceServer).RevokeAgentSession(ctx, req.(*RevokeAgentSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListAgentIntegrations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAgentIntegrationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListAgentIntegrations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListAgentIntegrations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListAgentIntegrations(ctx, req.(*ListAgentIntegrationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_PrepareAgentIntegration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareAgentIntegrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).PrepareAgentIntegration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_PrepareAgentIntegration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).PrepareAgentIntegration(ctx, req.(*PrepareAgentIntegrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_BeginAgentIntegrationConfiguration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginAgentIntegrationConfigurationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).BeginAgentIntegrationConfiguration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_BeginAgentIntegrationConfiguration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).BeginAgentIntegrationConfiguration(ctx, req.(*BeginAgentIntegrationConfigurationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_CommitAgentIntegration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommitAgentIntegrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CommitAgentIntegration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CommitAgentIntegration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CommitAgentIntegration(ctx, req.(*CommitAgentIntegrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_FailAgentIntegration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FailAgentIntegrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).FailAgentIntegration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_FailAgentIntegration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).FailAgentIntegration(ctx, req.(*FailAgentIntegrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_BeginAgentIntegrationRemoval_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginAgentIntegrationRemovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).BeginAgentIntegrationRemoval(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_BeginAgentIntegrationRemoval_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).BeginAgentIntegrationRemoval(ctx, req.(*BeginAgentIntegrationRemovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_CompleteAgentIntegrationRemoval_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteAgentIntegrationRemovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CompleteAgentIntegrationRemoval(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CompleteAgentIntegrationRemoval_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CompleteAgentIntegrationRemoval(ctx, req.(*CompleteAgentIntegrationRemovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListAgentSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAgentSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListAgentSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListAgentSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListAgentSessions(ctx, req.(*ListAgentSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RevokeAgentSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeAgentSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RevokeAgentSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RevokeAgentSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RevokeAgentSessions(ctx, req.(*RevokeAgentSessionsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1647,6 +2069,24 @@ func _OperatorService_GetEnvironment_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OperatorServiceServer).GetEnvironment(ctx, req.(*GetEnvironmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListEnvironmentImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEnvironmentImagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListEnvironmentImages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListEnvironmentImages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListEnvironmentImages(ctx, req.(*ListEnvironmentImagesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1918,20 +2358,128 @@ func _OperatorService_ExportSupportBundle_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
-func _OperatorService_CreateRemoteRegistration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateRemoteRegistrationRequest)
+func _OperatorService_BeginRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginRemoteEnrollmentRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(OperatorServiceServer).CreateRemoteRegistration(ctx, in)
+		return srv.(OperatorServiceServer).BeginRemoteEnrollment(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: OperatorService_CreateRemoteRegistration_FullMethodName,
+		FullMethod: OperatorService_BeginRemoteEnrollment_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OperatorServiceServer).CreateRemoteRegistration(ctx, req.(*CreateRemoteRegistrationRequest))
+		return srv.(OperatorServiceServer).BeginRemoteEnrollment(ctx, req.(*BeginRemoteEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_CompleteRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteRemoteEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CompleteRemoteEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CompleteRemoteEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CompleteRemoteEnrollment(ctx, req.(*CompleteRemoteEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_FailRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FailRemoteEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).FailRemoteEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_FailRemoteEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).FailRemoteEnrollment(ctx, req.(*FailRemoteEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RetryRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryRemoteEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RetryRemoteEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RetryRemoteEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RetryRemoteEnrollment(ctx, req.(*RetryRemoteEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RemoveIncompleteRemoteRegistration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveIncompleteRemoteRegistrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RemoveIncompleteRemoteRegistration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RemoveIncompleteRemoteRegistration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RemoveIncompleteRemoteRegistration(ctx, req.(*RemoveIncompleteRemoteRegistrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_BeginRemoteRevocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginRemoteRevocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).BeginRemoteRevocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_BeginRemoteRevocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).BeginRemoteRevocation(ctx, req.(*BeginRemoteRevocationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_CompleteRemoteRevocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteRemoteRevocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CompleteRemoteRevocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CompleteRemoteRevocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CompleteRemoteRevocation(ctx, req.(*CompleteRemoteRevocationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2010,16 +2558,48 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OperatorService_StopVM_Handler,
 		},
 		{
-			MethodName: "EnsureLocalEnvironment",
-			Handler:    _OperatorService_EnsureLocalEnvironment_Handler,
-		},
-		{
 			MethodName: "CreateAgentSession",
 			Handler:    _OperatorService_CreateAgentSession_Handler,
 		},
 		{
 			MethodName: "RevokeAgentSession",
 			Handler:    _OperatorService_RevokeAgentSession_Handler,
+		},
+		{
+			MethodName: "ListAgentIntegrations",
+			Handler:    _OperatorService_ListAgentIntegrations_Handler,
+		},
+		{
+			MethodName: "PrepareAgentIntegration",
+			Handler:    _OperatorService_PrepareAgentIntegration_Handler,
+		},
+		{
+			MethodName: "BeginAgentIntegrationConfiguration",
+			Handler:    _OperatorService_BeginAgentIntegrationConfiguration_Handler,
+		},
+		{
+			MethodName: "CommitAgentIntegration",
+			Handler:    _OperatorService_CommitAgentIntegration_Handler,
+		},
+		{
+			MethodName: "FailAgentIntegration",
+			Handler:    _OperatorService_FailAgentIntegration_Handler,
+		},
+		{
+			MethodName: "BeginAgentIntegrationRemoval",
+			Handler:    _OperatorService_BeginAgentIntegrationRemoval_Handler,
+		},
+		{
+			MethodName: "CompleteAgentIntegrationRemoval",
+			Handler:    _OperatorService_CompleteAgentIntegrationRemoval_Handler,
+		},
+		{
+			MethodName: "ListAgentSessions",
+			Handler:    _OperatorService_ListAgentSessions_Handler,
+		},
+		{
+			MethodName: "RevokeAgentSessions",
+			Handler:    _OperatorService_RevokeAgentSessions_Handler,
 		},
 		{
 			MethodName: "GetSystemSnapshot",
@@ -2032,6 +2612,10 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEnvironment",
 			Handler:    _OperatorService_GetEnvironment_Handler,
+		},
+		{
+			MethodName: "ListEnvironmentImages",
+			Handler:    _OperatorService_ListEnvironmentImages_Handler,
 		},
 		{
 			MethodName: "StopContainer",
@@ -2086,8 +2670,32 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OperatorService_ExportSupportBundle_Handler,
 		},
 		{
-			MethodName: "CreateRemoteRegistration",
-			Handler:    _OperatorService_CreateRemoteRegistration_Handler,
+			MethodName: "BeginRemoteEnrollment",
+			Handler:    _OperatorService_BeginRemoteEnrollment_Handler,
+		},
+		{
+			MethodName: "CompleteRemoteEnrollment",
+			Handler:    _OperatorService_CompleteRemoteEnrollment_Handler,
+		},
+		{
+			MethodName: "FailRemoteEnrollment",
+			Handler:    _OperatorService_FailRemoteEnrollment_Handler,
+		},
+		{
+			MethodName: "RetryRemoteEnrollment",
+			Handler:    _OperatorService_RetryRemoteEnrollment_Handler,
+		},
+		{
+			MethodName: "RemoveIncompleteRemoteRegistration",
+			Handler:    _OperatorService_RemoveIncompleteRemoteRegistration_Handler,
+		},
+		{
+			MethodName: "BeginRemoteRevocation",
+			Handler:    _OperatorService_BeginRemoteRevocation_Handler,
+		},
+		{
+			MethodName: "CompleteRemoteRevocation",
+			Handler:    _OperatorService_CompleteRemoteRevocation_Handler,
 		},
 		{
 			MethodName: "UpdateRemotePool",
@@ -2125,6 +2733,8 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 const (
 	RemoteComputeService_GetRemoteState_FullMethodName           = "/agentvmm.host.v1.RemoteComputeService/GetRemoteState"
 	RemoteComputeService_SetConnectionState_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/SetConnectionState"
+	RemoteComputeService_SetRemoteAdmissionState_FullMethodName  = "/agentvmm.host.v1.RemoteComputeService/SetRemoteAdmissionState"
+	RemoteComputeService_ReportConnectorStatus_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/ReportConnectorStatus"
 	RemoteComputeService_EnsureAllocation_FullMethodName         = "/agentvmm.host.v1.RemoteComputeService/EnsureAllocation"
 	RemoteComputeService_ReleaseAllocation_FullMethodName        = "/agentvmm.host.v1.RemoteComputeService/ReleaseAllocation"
 	RemoteComputeService_PlanDiscardAllocation_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/PlanDiscardAllocation"
@@ -2141,6 +2751,8 @@ const (
 type RemoteComputeServiceClient interface {
 	GetRemoteState(ctx context.Context, in *GetRemoteStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
 	SetConnectionState(ctx context.Context, in *SetConnectionStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
+	SetRemoteAdmissionState(ctx context.Context, in *SetRemoteAdmissionStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
+	ReportConnectorStatus(ctx context.Context, in *ReportConnectorStatusRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
 	EnsureAllocation(ctx context.Context, in *EnsureAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	ReleaseAllocation(ctx context.Context, in *ReleaseAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	PlanDiscardAllocation(ctx context.Context, in *PlanDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error)
@@ -2173,6 +2785,26 @@ func (c *remoteComputeServiceClient) SetConnectionState(ctx context.Context, in 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetRemoteStateResponse)
 	err := c.cc.Invoke(ctx, RemoteComputeService_SetConnectionState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) SetRemoteAdmissionState(ctx context.Context, in *SetRemoteAdmissionStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRemoteStateResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_SetRemoteAdmissionState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) ReportConnectorStatus(ctx context.Context, in *ReportConnectorStatusRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRemoteStateResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_ReportConnectorStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2265,6 +2897,8 @@ func (c *remoteComputeServiceClient) OpenRuntimeSession(ctx context.Context, in 
 type RemoteComputeServiceServer interface {
 	GetRemoteState(context.Context, *GetRemoteStateRequest) (*GetRemoteStateResponse, error)
 	SetConnectionState(context.Context, *SetConnectionStateRequest) (*GetRemoteStateResponse, error)
+	SetRemoteAdmissionState(context.Context, *SetRemoteAdmissionStateRequest) (*GetRemoteStateResponse, error)
+	ReportConnectorStatus(context.Context, *ReportConnectorStatusRequest) (*GetRemoteStateResponse, error)
 	EnsureAllocation(context.Context, *EnsureAllocationRequest) (*AllocationResponse, error)
 	ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error)
 	PlanDiscardAllocation(context.Context, *PlanDiscardAllocationRequest) (*AllocationCleanupPlanResponse, error)
@@ -2288,6 +2922,12 @@ func (UnimplementedRemoteComputeServiceServer) GetRemoteState(context.Context, *
 }
 func (UnimplementedRemoteComputeServiceServer) SetConnectionState(context.Context, *SetConnectionStateRequest) (*GetRemoteStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetConnectionState not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) SetRemoteAdmissionState(context.Context, *SetRemoteAdmissionStateRequest) (*GetRemoteStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetRemoteAdmissionState not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) ReportConnectorStatus(context.Context, *ReportConnectorStatusRequest) (*GetRemoteStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportConnectorStatus not implemented")
 }
 func (UnimplementedRemoteComputeServiceServer) EnsureAllocation(context.Context, *EnsureAllocationRequest) (*AllocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EnsureAllocation not implemented")
@@ -2366,6 +3006,42 @@ func _RemoteComputeService_SetConnectionState_Handler(srv interface{}, ctx conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RemoteComputeServiceServer).SetConnectionState(ctx, req.(*SetConnectionStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_SetRemoteAdmissionState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetRemoteAdmissionStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).SetRemoteAdmissionState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_SetRemoteAdmissionState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).SetRemoteAdmissionState(ctx, req.(*SetRemoteAdmissionStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_ReportConnectorStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportConnectorStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).ReportConnectorStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_ReportConnectorStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).ReportConnectorStatus(ctx, req.(*ReportConnectorStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2528,6 +3204,14 @@ var RemoteComputeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetConnectionState",
 			Handler:    _RemoteComputeService_SetConnectionState_Handler,
+		},
+		{
+			MethodName: "SetRemoteAdmissionState",
+			Handler:    _RemoteComputeService_SetRemoteAdmissionState_Handler,
+		},
+		{
+			MethodName: "ReportConnectorStatus",
+			Handler:    _RemoteComputeService_ReportConnectorStatus_Handler,
 		},
 		{
 			MethodName: "EnsureAllocation",

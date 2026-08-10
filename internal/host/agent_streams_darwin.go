@@ -119,7 +119,7 @@ func (server *agentServer) ForwardTCP(stream hostv1.AgentRuntimeService_ForwardT
 			converted := &vmmdv1.ForwardTCPRequest{}
 			switch event := request.GetEvent().(type) {
 			case *hostv1.ForwardTCPRequest_Header:
-				converted.Event = &vmmdv1.ForwardTCPRequest_Header{Header: &vmmdv1.ForwardTCPHeader{ActorNamespaceId: identity.NamespaceID, ContainerId: event.Header.GetContainerId(), Port: event.Header.GetPort()}}
+				converted.Event = &vmmdv1.ForwardTCPRequest_Header{Header: &vmmdv1.ForwardTCPHeader{ActorNamespaceId: identity.NamespaceID, ContainerId: event.Header.GetContainerId(), ContainerInstanceId: event.Header.GetContainerInstanceId(), Port: event.Header.GetPort()}}
 			case *hostv1.ForwardTCPRequest_Data:
 				converted.Event = &vmmdv1.ForwardTCPRequest_Data{Data: event.Data}
 			case *hostv1.ForwardTCPRequest_CloseWrite:

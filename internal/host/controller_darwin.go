@@ -4,11 +4,8 @@ package host
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -57,6 +54,9 @@ type Controller struct {
 	sessions              map[string]*sessionServer
 	observed              map[string][]*hostv1.Container
 	environmentLocks      sync.Map
+	integrationLocks      sync.Map
+	sessionActivity       sync.Map
+	remoteAdmissionMu     sync.Mutex
 	projectionMu          sync.Mutex
 	egress                *egress.Subsystem
 	egressCancel          context.CancelFunc
@@ -69,21 +69,11 @@ type Controller struct {
 	remoteLeaseGeneration atomic.Uint64
 }
 
-type sessionServer struct {
-	server   *grpc.Server
-	listener net.Listener
-	path     string
-}
-
-type readyListener struct {
-	net.Listener
-	ready chan struct{}
-	once  sync.Once
-}
-
-func (listener *readyListener) Accept() (net.Conn, error) {
-	listener.once.Do(func() { close(listener.ready) })
-	return listener.Listener.Accept()
+func (controller *Controller) lockIntegration(id string) func() {
+	value, _ := controller.integrationLocks.LoadOrStore(id, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	return lock.Unlock
 }
 
 func New(config Config) (*Controller, error) {
@@ -163,7 +153,7 @@ func (controller *Controller) NewOperatorServer() *grpc.Server {
 	return server
 }
 
-func (controller *Controller) createSession(ctx context.Context, environmentID string, ownerKind int32, remoteIdentity auth.Identity) (store.Session, store.Environment, error) {
+func (controller *Controller) createSession(ctx context.Context, environmentID, integrationID string, ownerKind int32, remoteIdentity auth.Identity) (store.Session, store.Environment, error) {
 	if environmentID == "" {
 		return store.Session{}, store.Environment{}, errors.New("environment ID is required")
 	}
@@ -194,22 +184,38 @@ func (controller *Controller) createSession(ctx context.Context, environmentID s
 	identity.AllocationID = remoteIdentity.AllocationID
 	identity.LeaseID = remoteIdentity.LeaseID
 	limiter := newRPCRateLimiter(100, 200)
+	tracked := &sessionServer{listener: serving, path: socketPath}
+	statsHandler := &sessionStats{controller: controller, sessionID: sessionID, connections: &tracked.connections}
 	server := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMessageBytes),
 		grpc.MaxSendMsgSize(maxMessageBytes),
 		grpc.MaxConcurrentStreams(64),
-		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), remoteRuntimeUnary(ownerKind), auditUnary(controller), limiter.unary, deadlineUnary, errorDetailsUnary),
-		grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), remoteRuntimeStream(ownerKind), auditStream(controller), limiter.stream, deadlineStream, errorDetailsStream),
+		grpc.StatsHandler(statsHandler),
+		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), sessionActivityUnary(controller, sessionID), remoteRuntimeUnary(ownerKind), auditUnary(controller), limiter.unary, deadlineUnary, errorDetailsUnary),
+		grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), sessionActivityStream(controller, sessionID), remoteRuntimeStream(ownerKind), auditStream(controller), limiter.stream, deadlineStream, errorDetailsStream),
 	)
+	tracked.server = server
 	hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{controller: controller})
-	session := store.Session{ID: sessionID, EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, SocketPath: socketPath, ExpiresAt: time.Now().Add(defaultSessionLifetime)}
-	if err := controller.store.CreateSession(ctx, session); err != nil {
+	origin := int32(hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_LOCAL_INTEGRATION)
+	if ownerKind == store.OwnerRemoteRegistration {
+		origin = int32(hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_REMOTE_LEASE)
+	}
+	now := time.Now()
+	session := store.Session{ID: sessionID, IntegrationID: integrationID, EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID,
+		SocketPath: socketPath, Origin: origin, CreatedAt: now, ExpiresAt: now.Add(defaultSessionLifetime)}
+	var saveErr error
+	if integrationID == "" {
+		saveErr = controller.store.CreateSession(ctx, session)
+	} else {
+		saveErr = controller.store.CreateAuthorizedSession(ctx, session)
+	}
+	if saveErr != nil {
 		listener.Close()
 		_ = os.Remove(socketPath)
-		return store.Session{}, store.Environment{}, err
+		return store.Session{}, store.Environment{}, saveErr
 	}
 	controller.mu.Lock()
-	controller.sessions[sessionID] = &sessionServer{server: server, listener: serving, path: socketPath}
+	controller.sessions[sessionID] = tracked
 	controller.mu.Unlock()
 	go func() {
 		if err := server.Serve(serving); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
@@ -370,11 +376,19 @@ func (controller *Controller) guestClient(ctx context.Context) (vmmdv1.VMMDServi
 
 func (controller *Controller) environmentSnapshot(ctx context.Context, environment store.Environment) *hostv1.AgentEnvironment {
 	result := environmentFromStore(environment)
+	result.InventoryObservedAt = timestamppb.Now()
 	client, connection, err := controller.guestClient(ctx)
 	if err != nil {
 		result.Health = &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_UNAVAILABLE}
-		result.Usage = &hostv1.Usage{SampledAt: timestamppb.Now(), Stale: true}
+		result.Usage = &hostv1.Usage{SampledAt: timestamppb.Now(), Stale: true, UnavailableReason: "guest runtime is unavailable"}
 		result.Containers = controller.unknownContainers(environment.ID)
+		if controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_STOPPED {
+			result.InventoryState = hostv1.InventoryState_INVENTORY_STATE_VM_STOPPED
+			result.InventoryMessage = "Start the virtual machine to inspect containers, images, and volumes."
+		} else {
+			result.InventoryState = hostv1.InventoryState_INVENTORY_STATE_UNAVAILABLE
+			result.InventoryMessage = "Runtime inventory is temporarily unavailable."
+		}
 		return result
 	}
 	defer connection.Close()
@@ -383,8 +397,11 @@ func (controller *Controller) environmentSnapshot(ctx context.Context, environme
 	usage, usageErr := client.GetNamespaceUsage(ctx, &vmmdv1.GetNamespaceUsageRequest{NamespaceId: environment.NamespaceID})
 	if containerErr != nil || volumeErr != nil || usageErr != nil {
 		result.Health = &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_DEGRADED}
+		result.InventoryState = hostv1.InventoryState_INVENTORY_STATE_STALE
+		result.InventoryMessage = "Some runtime inventory could not be refreshed."
 	} else {
 		result.Health = &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY}
+		result.InventoryState = hostv1.InventoryState_INVENTORY_STATE_AVAILABLE
 	}
 	if containerErr == nil {
 		for _, container := range containers.GetContainers() {
@@ -402,7 +419,7 @@ func (controller *Controller) environmentSnapshot(ctx context.Context, environme
 	if usageErr == nil {
 		result.Usage = usageFromGuest(usage.GetUsage())
 	} else {
-		result.Usage = &hostv1.Usage{SampledAt: timestamppb.Now(), Stale: true}
+		result.Usage = &hostv1.Usage{SampledAt: timestamppb.Now(), Stale: true, UnavailableReason: "environment metrics are unavailable"}
 	}
 	return result
 }
@@ -453,6 +470,21 @@ func (controller *Controller) revokeSession(ctx context.Context, id string) erro
 	return nil
 }
 
+func (controller *Controller) closeSession(id, reason string) {
+	if err := controller.store.EndSession(context.Background(), id, reason, true); err != nil {
+		return
+	}
+	controller.mu.Lock()
+	session := controller.sessions[id]
+	delete(controller.sessions, id)
+	controller.mu.Unlock()
+	if session != nil {
+		session.server.Stop()
+		session.listener.Close()
+		_ = os.Remove(session.path)
+	}
+}
+
 func (controller *Controller) revokeSessionAfterResponse(id string, environmentDeleted bool) {
 	time.Sleep(10 * time.Millisecond)
 	if !environmentDeleted {
@@ -467,27 +499,4 @@ func (controller *Controller) revokeSessionAfterResponse(id string, environmentD
 		session.listener.Close()
 		_ = os.Remove(session.path)
 	}
-}
-
-func listenUnix(path string) (net.Listener, error) {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	listener, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		listener.Close()
-		return nil, err
-	}
-	return listener, nil
-}
-
-func randomID() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
 }

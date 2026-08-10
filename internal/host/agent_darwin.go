@@ -72,10 +72,31 @@ func (server *agentServer) PullImage(request *hostv1.PullImageRequest, stream ho
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(&hostv1.PullImageResponse{Status: response.GetStatus(), Digest: response.Digest, LogicalBytes: response.GetLogicalBytes()}); err != nil {
+		if err := stream.Send(&hostv1.PullImageResponse{Status: response.GetStatus(), CanonicalReference: response.GetCanonicalReference(), Digest: response.Digest, LogicalBytes: response.GetLogicalBytes()}); err != nil {
 			return err
 		}
 	}
+}
+
+func (server *agentServer) ListImages(ctx context.Context, _ *hostv1.ListImagesRequest) (*hostv1.ListImagesResponse, error) {
+	identity, err := auth.AgentIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close()
+	response, err := client.ListImages(ctx, &vmmdv1.ListImagesRequest{ActorNamespaceId: identity.NamespaceID})
+	if err != nil {
+		return nil, err
+	}
+	result := &hostv1.ListImagesResponse{}
+	for _, image := range response.GetImages() {
+		result.Images = append(result.Images, imageFromGuest(image))
+	}
+	return result, nil
 }
 
 func (server *agentServer) CreateContainer(ctx context.Context, request *hostv1.CreateContainerRequest) (*hostv1.ContainerResponse, error) {
@@ -90,7 +111,13 @@ func (server *agentServer) CreateContainer(ctx context.Context, request *hostv1.
 	defer connection.Close()
 	guestRequest := &vmmdv1.CreateContainerRequest{
 		RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), Image: request.GetImage(),
-		Argv: request.GetArgv(), Env: request.GetEnv(), Workdir: request.Workdir, User: request.User, ReadOnlyRoot: request.GetReadOnlyRoot(), LogLimitBytes: request.GetLogLimitBytes(),
+		Env: request.GetEnv(), Workdir: request.Workdir, User: request.User, ReadOnlyRoot: request.GetReadOnlyRoot(), LogLimitBytes: request.GetLogLimitBytes(),
+	}
+	if request.GetEntrypointOverride() != nil {
+		guestRequest.EntrypointOverride = &vmmdv1.StringList{Values: append([]string(nil), request.GetEntrypointOverride().GetValues()...)}
+	}
+	if request.GetCommandOverride() != nil {
+		guestRequest.CommandOverride = &vmmdv1.StringList{Values: append([]string(nil), request.GetCommandOverride().GetValues()...)}
 	}
 	if limits := request.GetLimits(); limits != nil {
 		guestRequest.Limits = &vmmdv1.ResourceLimits{CpuMillis: limits.CpuMillis, MemoryBytes: limits.MemoryBytes, Pids: limits.Pids}
@@ -272,7 +299,7 @@ func (server *agentServer) CreateVolume(ctx context.Context, request *hostv1.Cre
 	if err := server.controller.store.PutVolumeOwner(ctx, request.GetVolumeId(), identity.NamespaceID); err != nil {
 		return nil, err
 	}
-	response, err := client.CreateVolume(ctx, &vmmdv1.CreateVolumeRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, VolumeId: request.GetVolumeId()})
+	response, err := client.CreateVolume(ctx, &vmmdv1.CreateVolumeRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, VolumeId: request.GetVolumeId(), OwnerUid: request.OwnerUid, OwnerGid: request.OwnerGid, Mode: request.Mode})
 	if err != nil {
 		_ = server.controller.store.DeleteVolumePolicy(ctx, request.GetVolumeId(), identity.NamespaceID)
 		return nil, err

@@ -30,9 +30,9 @@ func DefaultOperatorSocket() (string, error) {
 	return filepath.Join(home, "Library", "Application Support", "AgentVMM", "operator.sock"), nil
 }
 
-func Bootstrap(ctx context.Context, operatorSocket, environmentID, displayName string) (*Session, error) {
-	if environmentID == "" {
-		return nil, fmt.Errorf("environment is required")
+func Bootstrap(ctx context.Context, operatorSocket, integrationID string) (*Session, error) {
+	if integrationID == "" {
+		return nil, fmt.Errorf("integration is required")
 	}
 	if !filepath.IsAbs(operatorSocket) {
 		return nil, fmt.Errorf("operator socket must be absolute")
@@ -47,21 +47,7 @@ func Bootstrap(ctx context.Context, operatorSocket, environmentID, displayName s
 		operatorConnection.Close()
 		return nil, fmt.Errorf("request identity unavailable")
 	}
-	ensured, err := operator.EnsureLocalEnvironment(ctx, &hostv1.EnsureLocalEnvironmentRequest{RequestId: requestID, EnvironmentId: environmentID, DisplayName: displayName})
-	if err != nil {
-		operatorConnection.Close()
-		return nil, fmt.Errorf("local environment bootstrap failed")
-	}
-	if ensured.GetEnvironment().GetOwner().GetKind() != hostv1.EnvironmentOwnerKind_ENVIRONMENT_OWNER_KIND_LOCAL {
-		operatorConnection.Close()
-		return nil, fmt.Errorf("environment is not locally owned")
-	}
-	requestID, err = newRequestID()
-	if err != nil {
-		operatorConnection.Close()
-		return nil, fmt.Errorf("request identity unavailable")
-	}
-	created, err := operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: requestID, EnvironmentId: environmentID})
+	created, err := operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: requestID, IntegrationId: integrationID})
 	operatorConnection.Close()
 	if err != nil {
 		return nil, fmt.Errorf("agent session creation failed")

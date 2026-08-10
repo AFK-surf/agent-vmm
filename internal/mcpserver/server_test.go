@@ -15,6 +15,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -25,8 +26,11 @@ import (
 
 type fakeRuntime struct {
 	hostv1.UnimplementedAgentRuntimeServiceServer
-	mu         sync.Mutex
-	requestIDs []string
+	mu                sync.Mutex
+	requestIDs        []string
+	containerState    hostv1.ContainerState
+	containerInstance string
+	containerError    error
 }
 
 func (*fakeRuntime) GetEnvironment(context.Context, *hostv1.GetOwnEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
@@ -34,7 +38,28 @@ func (*fakeRuntime) GetEnvironment(context.Context, *hostv1.GetOwnEnvironmentReq
 }
 
 func (*fakeRuntime) ListContainers(context.Context, *hostv1.ListContainersRequest) (*hostv1.ListContainersResponse, error) {
-	return &hostv1.ListContainersResponse{Containers: []*hostv1.Container{{Id: "z", State: hostv1.ContainerState_CONTAINER_STATE_STOPPED}, {Id: "a", State: hostv1.ContainerState_CONTAINER_STATE_RUNNING}}}, nil
+	return &hostv1.ListContainersResponse{Containers: []*hostv1.Container{{Id: "z", State: hostv1.ContainerState_CONTAINER_STATE_STOPPED}, {Id: "a", State: hostv1.ContainerState_CONTAINER_STATE_RUNNING, InstanceId: "instance-a"}}}, nil
+}
+
+func (server *fakeRuntime) GetContainer(_ context.Context, request *hostv1.ContainerRequest) (*hostv1.ContainerResponse, error) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if server.containerError != nil {
+		return nil, server.containerError
+	}
+	state := server.containerState
+	if state == hostv1.ContainerState_CONTAINER_STATE_UNSPECIFIED {
+		state = hostv1.ContainerState_CONTAINER_STATE_RUNNING
+	}
+	instance := server.containerInstance
+	if instance == "" && state == hostv1.ContainerState_CONTAINER_STATE_RUNNING {
+		instance = "instance-" + request.GetContainerId()
+	}
+	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: state, InstanceId: instance}}, nil
+}
+
+func (*fakeRuntime) ListImages(context.Context, *hostv1.ListImagesRequest) (*hostv1.ListImagesResponse, error) {
+	return &hostv1.ListImagesResponse{}, nil
 }
 
 func (*fakeRuntime) WaitContainer(ctx context.Context, _ *hostv1.ContainerRequest) (*hostv1.WaitContainerResponse, error) {
@@ -205,7 +230,7 @@ func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_pull", "port_forward_list", "port_forward_start", "port_forward_stop", "volume_create", "volume_delete", "volume_list"}
+	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_list", "image_pull", "port_forward_list", "port_forward_start", "port_forward_stop", "volume_create", "volume_delete", "volume_list"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v", names)
 	}
@@ -306,7 +331,7 @@ func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 		arguments map[string]any
 	}{
 		{name: "image_pull", arguments: map[string]any{"reference": "example.invalid/image:test"}},
-		{name: "container_run", arguments: map[string]any{"container_id": "job", "image": "example.invalid/image:test", "argv": []string{"/bin/true"}}},
+		{name: "container_run", arguments: map[string]any{"container_id": "job", "image": "example.invalid/image:test", "entrypoint": []string{"/bin/true"}, "command": []string{}}},
 		{name: "container_start", arguments: map[string]any{"container_id": "job"}},
 		{name: "container_exec", arguments: map[string]any{"container_id": "job", "argv": []string{"printf", "ok"}}},
 		{name: "container_stop", arguments: map[string]any{"container_id": "job", "timeout_seconds": 1}},
@@ -321,7 +346,7 @@ func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 			t.Fatalf("%s: %v %#v", call.name, err, result)
 		}
 	}
-	partial, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "container_run", Arguments: map[string]any{"container_id": "partial", "image": "image", "argv": []string{"true"}}})
+	partial, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "container_run", Arguments: map[string]any{"container_id": "partial", "image": "image", "entrypoint": []string{"true"}, "command": []string{}}})
 	if err != nil || !partial.IsError {
 		t.Fatalf("partial run = %v %#v", err, partial)
 	}
@@ -349,6 +374,34 @@ func TestBoundedTextPreservesHeadTailAndSanitizes(t *testing.T) {
 	buffer.Write([]byte{'a', 0xff, 'b'})
 	if strings.ContainsRune(buffer.String(), utf8.RuneError) == false {
 		t.Fatal("binary output was not replaced")
+	}
+}
+
+func TestMapErrorPreservesSanitizedRuntimeDetails(t *testing.T) {
+	value, err := status.New(codes.FailedPrecondition, "image content could not be unpacked").WithDetails(
+		&errdetails.ErrorInfo{Reason: "IMAGE_UNPACK_FAILED", Domain: "agent-vmm"},
+		&errdetails.ResourceInfo{ResourceType: "image", ResourceName: "docker.io/pgvector/pgvector:pg16"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := mapError(value.Err())
+	if mapped.Code != "IMAGE_UNPACK_FAILED" || mapped.Message != "image content could not be unpacked" || mapped.Resource == nil || mapped.Resource.Kind != "image" || mapped.Resource.ID != "docker.io/pgvector/pgvector:pg16" {
+		t.Fatalf("mapped error = %+v", mapped)
+	}
+}
+
+func TestMapErrorPreservesRetryableRegistryRateLimit(t *testing.T) {
+	value, err := status.New(codes.ResourceExhausted, "image registry rate limit was reached").WithDetails(
+		&errdetails.ErrorInfo{Reason: "IMAGE_REGISTRY_RATE_LIMITED", Domain: "agent-vmm"},
+		&errdetails.ResourceInfo{ResourceType: "image", ResourceName: "docker.io/pgvector/pgvector:pg16"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := mapError(value.Err())
+	if mapped.Code != "IMAGE_REGISTRY_RATE_LIMITED" || mapped.Message != "image registry rate limit was reached" || !mapped.Retryable {
+		t.Fatalf("mapped error = %+v", mapped)
 	}
 }
 
@@ -399,6 +452,60 @@ func TestLoopbackForwardLifecycleAndHalfClose(t *testing.T) {
 	if _, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(envelope.Data.LocalPort))), 100*time.Millisecond); err == nil {
 		t.Fatal("stopped forward still accepts connections")
 	}
+}
+
+func TestForwardRequiresRunningContainer(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		runtime *fakeRuntime
+		code    string
+	}{
+		{name: "missing", runtime: &fakeRuntime{containerError: status.Error(codes.NotFound, "missing")}, code: "NOT_FOUND"},
+		{name: "stopped", runtime: &fakeRuntime{containerState: hostv1.ContainerState_CONTAINER_STATE_STOPPED}, code: "FAILED_PRECONDITION"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := mcpClient(t, New(runtimeClientFor(t, test.runtime), nil))
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "port_forward_start", Arguments: map[string]any{"container_id": "service", "port": 8080}})
+			if err != nil || !result.IsError {
+				t.Fatalf("start = %v %#v", err, result)
+			}
+			payload, _ := json.Marshal(result.StructuredContent)
+			if !strings.Contains(string(payload), `"code":"`+test.code+`"`) {
+				t.Fatalf("error = %s", payload)
+			}
+		})
+	}
+}
+
+func TestForwardStopsWhenContainerInstanceChanges(t *testing.T) {
+	runtime := &fakeRuntime{containerInstance: "first"}
+	adapter := New(runtimeClientFor(t, runtime), nil)
+	client := mcpClient(t, adapter)
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "port_forward_start", Arguments: map[string]any{"container_id": "service", "port": 8080, "ttl_seconds": 10}})
+	if err != nil || result.IsError {
+		t.Fatalf("start = %v %#v", err, result)
+	}
+	var envelope struct {
+		Data ForwardData `json:"data"`
+	}
+	payload, _ := json.Marshal(result.StructuredContent)
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	runtime.mu.Lock()
+	runtime.containerInstance = "replacement"
+	runtime.mu.Unlock()
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(envelope.Data.LocalPort)))
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		connection, dialErr := net.DialTimeout("tcp4", address, 50*time.Millisecond)
+		if dialErr != nil {
+			return
+		}
+		connection.Close()
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("forward remained available after container replacement")
 }
 
 func TestForwardExpiresAndProcessCloseReclaimsListener(t *testing.T) {

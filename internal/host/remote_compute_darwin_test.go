@@ -101,6 +101,7 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 		AggregateCPUMillis: 2000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 8 << 30,
 		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1,
+		EnrollmentState: 2, ConnectorPhase: 1,
 	}
 	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
 		t.Fatal(err)
@@ -130,14 +131,56 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if len(state.GetRegistration().GetAllocations()) != 1 || state.GetRegistration().GetAllocations()[0].GetAllocationId() != "allocation" {
 		t.Fatalf("remote inventory leaked or omitted environments: %+v", state)
 	}
-	first, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), WorkloadRef: "work"})
+	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
+		ConnectionInstance: "connection-a", State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
+		ConnectionInstance: "connection-b", State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"}); status.Code(err) != codes.Aborted {
+		t.Fatalf("replaced connection admitted a lease: %v", err)
+	}
+	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
+		ConnectionInstance: "connection-a", State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), WorkloadRef: "work", ConnectionInstance: "connection-a"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+		ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, err = client.RenewLease(ctx, &hostv1.RenewLeaseRequest{
+		LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), Duration: durationpb.New(500 * time.Millisecond),
+	})
+	if err != nil {
+		t.Fatalf("drain interrupted an existing lease: %v", err)
+	}
+	if _, err := client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{
+		AllocationId: "new-while-draining", DisplayLabel: "new", PolicyRevision: state.GetRegistration().GetRevision(),
+		Limits:             &hostv1.ResourceLimits{CpuMillis: testOptional(uint32(1)), MemoryBytes: testOptional(uint64(1)), Pids: testOptional(uint32(1)), DiskBytes: testOptional(uint64(1))},
+		EgressMode:         hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
+		ConnectionInstance: "connection-a",
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("draining admitted a new allocation: %v", err)
+	}
+	if _, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+		ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), AllocationId: "other"}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("cross-allocation session error=%v", err)
 	}
-	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond)}); status.Code(err) != codes.AlreadyExists {
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("second active lease error=%v", err)
 	}
 	renewed, err := client.RenewLease(ctx, &hostv1.RenewLeaseRequest{LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), Duration: durationpb.New(500 * time.Millisecond)})
@@ -151,11 +194,57 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if _, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{LeaseId: renewed.GetLease().GetLeaseId(), Generation: renewed.GetLease().GetGeneration()}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("second release error=%v", err)
 	}
+	type admissionResult struct {
+		kind  string
+		lease *hostv1.RemoteLease
+		err   error
+	}
+	results := make(chan admissionResult, 2)
+	go func() {
+		response, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"})
+		results <- admissionResult{kind: "lease", lease: response.GetLease(), err: err}
+	}()
+	go func() {
+		_, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+			ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
+		})
+		results <- admissionResult{kind: "drain", err: err}
+	}()
+	firstRace, secondRace := <-results, <-results
+	if firstRace.err != nil && firstRace.kind == "drain" || secondRace.err != nil && secondRace.kind == "drain" {
+		t.Fatalf("drain failed during race: first=%v second=%v", firstRace.err, secondRace.err)
+	}
+	if firstRace.kind == "drain" && secondRace.kind == "lease" && secondRace.err == nil {
+		t.Fatal("lease was admitted after drain returned")
+	}
+	for _, result := range []admissionResult{firstRace, secondRace} {
+		if result.kind == "lease" && result.err == nil {
+			if _, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{LeaseId: result.lease.GetLeaseId(), Generation: result.lease.GetGeneration()}); err != nil {
+				t.Fatalf("raced lease release failed: %v", err)
+			}
+		}
+	}
+	if _, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+		ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	current, err := database.GetEnvironment(ctx, remote.ID)
 	if err != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
 		t.Fatalf("released allocation=%+v err=%v", current, err)
 	}
-	expiring, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(20 * time.Millisecond)})
+	current, err = database.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("retained allocation admitted a lease: %v", err)
+	}
+	current, err = database.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_READY))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiring, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(20 * time.Millisecond), ConnectionInstance: "connection-a"})
 	if err != nil || expiring.GetLease().GetState() != hostv1.LeaseState_LEASE_STATE_ACTIVE {
 		t.Fatalf("expiring=%+v err=%v", expiring, err)
 	}
@@ -169,3 +258,5 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	}
 	t.Fatalf("expired allocation=%+v err=%v", current, err)
 }
+
+func testOptional[T any](value T) *T { return &value }
