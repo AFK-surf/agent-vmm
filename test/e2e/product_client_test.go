@@ -57,7 +57,11 @@ func (client *productClient) EnsureEnvironment(ctx context.Context, environmentI
 		return response.GetEnvironment(), err
 	}
 	client.mu.Unlock()
-	created, err := client.operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: requestID, EnvironmentId: environmentID, DisplayName: environmentID})
+	_, err := client.operator.EnsureLocalEnvironment(ctx, &hostv1.EnsureLocalEnvironmentRequest{RequestId: requestID, EnvironmentId: environmentID, DisplayName: environmentID})
+	if err != nil {
+		return nil, err
+	}
+	created, err := client.operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: requestID + "-session", EnvironmentId: environmentID})
 	if err != nil {
 		return nil, err
 	}

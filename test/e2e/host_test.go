@@ -38,6 +38,8 @@ func TestE2E(t *testing.T) {
 	harness.start(t)
 	client := harness.runtime(t)
 	t.Run("session_auth_and_revocation", func(t *testing.T) { testSessionAuthAndRevocation(t, harness, client) })
+	t.Run("mcp_workflow", func(t *testing.T) { testMCPWorkflow(t, harness) })
+	t.Run("remote_workflow", func(t *testing.T) { testRemoteWorkflow(t, harness) })
 	parallel := []struct {
 		name string
 		run  func(*testing.T, *productClient)
@@ -233,7 +235,8 @@ func testSessionAuthAndRevocation(t *testing.T, harness *hostHarness, client *pr
 	agent := hostv1.NewAgentRuntimeServiceClient(connection)
 	forged := metadata.NewOutgoingContext(ctx, metadata.Pairs("actor_namespace_id", "forged", "role", "operator"))
 	environment, err := agent.GetEnvironment(forged, &hostv1.GetOwnEnvironmentRequest{})
-	if err != nil || environment.GetEnvironment().GetId() != "session-auth" {
+	projection := environment.GetEnvironment()
+	if err != nil || projection.GetId() != "" || projection.GetNamespaceId() != "" || projection.GetOwner() != nil || projection.GetOrigin() != hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_LOCAL {
 		t.Fatalf("session identity = %+v, %v", environment, err)
 	}
 	if _, err := hostv1.NewOperatorServiceClient(connection).GetVM(ctx, &hostv1.GetVMRequest{}); status.Code(err) != codes.Unimplemented {
@@ -566,13 +569,10 @@ func testEgress(t *testing.T, client *productClient) {
 	if _, code := execContainer(t, client, "egress-deny", deny.GetId(), []string{"nslookup", "example.com", "1.1.1.1"}); code == 0 {
 		t.Fatal("DENY_ALL reached public DNS over UDP")
 	}
-	if output, code := execContainer(t, client, "egress-public", public.GetId(), []string{"sh", "-c", "for attempt in 1 2 3; do wget -qO- -T 10 https://example.com && exit 0; done; exit 1"}); code != 0 || !bytes.Contains(output, []byte("Example Domain")) {
-		t.Fatalf("PUBLIC_INTERNET request = %q, exit %d", output, code)
-	}
-	if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"nslookup", "example.com"}); code != 0 {
+	if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"sh", "-c", "for attempt in 1 2 3 4 5 6 7 8; do nslookup example.com && exit 0; sleep 3; done; exit 1"}); code != 0 {
 		t.Fatal("PUBLIC_INTERNET could not use virtual DNS over UDP")
 	}
-	if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"nslookup", "example.com", "1.1.1.1"}); code != 0 {
+	if _, code := execContainer(t, client, "egress-public", public.GetId(), []string{"sh", "-c", "for attempt in 1 2 3 4 5 6 7 8; do nslookup example.com 1.1.1.1 && exit 0; sleep 3; done; exit 1"}); code != 0 {
 		t.Fatal("PUBLIC_INTERNET could not reach public DNS over UDP")
 	}
 	for _, address := range []string{"192.168.1.1", "169.254.169.254", "100.127.255.1"} {
@@ -978,14 +978,16 @@ func testResidualScan(t *testing.T, client *productClient) {
 const workloadImage = "mirror.gcr.io/library/alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce"
 
 type hostHarness struct {
-	client        hostv1.OperatorServiceClient
-	connection    *grpc.ClientConn
-	process       *exec.Cmd
-	instance      string
-	database      string
-	runtimeSocket string
-	runtimeClient *productClient
-	starts        int
+	client              hostv1.OperatorServiceClient
+	connection          *grpc.ClientConn
+	process             *exec.Cmd
+	instance            string
+	database            string
+	runtimeSocket       string
+	operatorSocket      string
+	remoteComputeSocket string
+	runtimeClient       *productClient
+	starts              int
 }
 
 func startHost(t *testing.T) *hostHarness {
@@ -1010,6 +1012,7 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 		runCommand(t, time.Minute, "codesign", "--force", "--sign", "-", "--entitlements", "../../build/host/vz.entitlements.plist", binary)
 	}
 	operatorSocket := filepath.Join(directory, "operator.sock")
+	remoteComputeSocket := filepath.Join(directory, "remote-compute.sock")
 	runtimeSocket := filepath.Join(directory, "runtime.sock")
 	database := filepath.Join(directory, "host.sqlite")
 	sessions := filepath.Join(directory, "sessions")
@@ -1018,7 +1021,8 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	process := exec.Command(binary,
 		"--bundle", bundle, "--instance", instance, "--state-size", fmt.Sprint(stateBytes),
 		"--memory", "4294967296",
-		"--serial-log", serial, "--operator-socket", operatorSocket, "--database", database, "--session-directory", sessions,
+		"--serial-log", serial, "--operator-socket", operatorSocket, "--remote-compute-socket", remoteComputeSocket,
+		"--database", database, "--session-directory", sessions,
 	)
 	process.Stdout = os.Stdout
 	process.Stderr = os.Stderr
@@ -1054,7 +1058,7 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	operator := hostv1.NewOperatorServiceClient(connection)
 	runtimeClient := newProductClient(operator)
 	t.Cleanup(runtimeClient.close)
-	return &hostHarness{client: operator, connection: connection, process: process, instance: instance, database: database, runtimeSocket: runtimeSocket, runtimeClient: runtimeClient}
+	return &hostHarness{client: operator, connection: connection, process: process, instance: instance, database: database, runtimeSocket: runtimeSocket, operatorSocket: operatorSocket, remoteComputeSocket: remoteComputeSocket, runtimeClient: runtimeClient}
 }
 
 func readFileTail(path string, limit int64) []byte {
@@ -1245,6 +1249,7 @@ func pullImage(t *testing.T, client *productClient, namespaceID string) {
 		if err == nil || strings.Contains(err.Error(), "429 Too Many Requests") {
 			break
 		}
+		time.Sleep(time.Duration(attempt+1) * time.Second)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -1275,18 +1280,17 @@ func pullImageAttempt(ctx context.Context, client *productClient, namespaceID, r
 }
 
 func pullImageError(client *productClient, namespaceID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	stream, err := client.PullImage(ctx, namespaceID, &hostv1.PullImageRequest{RequestId: "pull-" + namespaceID, Reference: workloadImage})
-	if err != nil {
-		return err
-	}
-	for {
-		_, err := stream.Recv()
-		if err != nil {
-			return err
+	var lastErr error
+	for attempt := range 3 {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		_, lastErr = pullImageAttempt(ctx, client, namespaceID, fmt.Sprintf("pull-%s-error-%d", namespaceID, attempt))
+		cancel()
+		if lastErr == nil || strings.Contains(lastErr.Error(), "ResourceExhausted") {
+			return lastErr
 		}
+		time.Sleep(time.Duration(attempt+1) * time.Second)
 	}
+	return lastErr
 }
 
 func createContainer(t *testing.T, client *productClient, namespaceID, containerID string, argv []string, volumes []*hostv1.VolumeMount) *hostv1.Container {

@@ -947,30 +947,35 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	OperatorService_StartVM_FullMethodName                 = "/agentvmm.host.v1.OperatorService/StartVM"
-	OperatorService_GetVM_FullMethodName                   = "/agentvmm.host.v1.OperatorService/GetVM"
-	OperatorService_StopVM_FullMethodName                  = "/agentvmm.host.v1.OperatorService/StopVM"
-	OperatorService_CreateAgentSession_FullMethodName      = "/agentvmm.host.v1.OperatorService/CreateAgentSession"
-	OperatorService_RevokeAgentSession_FullMethodName      = "/agentvmm.host.v1.OperatorService/RevokeAgentSession"
-	OperatorService_GetSystemSnapshot_FullMethodName       = "/agentvmm.host.v1.OperatorService/GetSystemSnapshot"
-	OperatorService_ListEnvironments_FullMethodName        = "/agentvmm.host.v1.OperatorService/ListEnvironments"
-	OperatorService_GetEnvironment_FullMethodName          = "/agentvmm.host.v1.OperatorService/GetEnvironment"
-	OperatorService_WatchEvents_FullMethodName             = "/agentvmm.host.v1.OperatorService/WatchEvents"
-	OperatorService_WatchMetrics_FullMethodName            = "/agentvmm.host.v1.OperatorService/WatchMetrics"
-	OperatorService_Logs_FullMethodName                    = "/agentvmm.host.v1.OperatorService/Logs"
-	OperatorService_StopContainer_FullMethodName           = "/agentvmm.host.v1.OperatorService/StopContainer"
-	OperatorService_ContinueContainer_FullMethodName       = "/agentvmm.host.v1.OperatorService/ContinueContainer"
-	OperatorService_SignalContainer_FullMethodName         = "/agentvmm.host.v1.OperatorService/SignalContainer"
-	OperatorService_UpdateEnvironmentPolicy_FullMethodName = "/agentvmm.host.v1.OperatorService/UpdateEnvironmentPolicy"
-	OperatorService_ApplyNetworkLink_FullMethodName        = "/agentvmm.host.v1.OperatorService/ApplyNetworkLink"
-	OperatorService_DeleteNetworkLink_FullMethodName       = "/agentvmm.host.v1.OperatorService/DeleteNetworkLink"
-	OperatorService_PlanResetEnvironment_FullMethodName    = "/agentvmm.host.v1.OperatorService/PlanResetEnvironment"
-	OperatorService_PlanDiscardEnvironment_FullMethodName  = "/agentvmm.host.v1.OperatorService/PlanDiscardEnvironment"
-	OperatorService_ExecuteCleanup_FullMethodName          = "/agentvmm.host.v1.OperatorService/ExecuteCleanup"
-	OperatorService_GetOperation_FullMethodName            = "/agentvmm.host.v1.OperatorService/GetOperation"
-	OperatorService_RunDiagnostics_FullMethodName          = "/agentvmm.host.v1.OperatorService/RunDiagnostics"
-	OperatorService_PreviewSupportBundle_FullMethodName    = "/agentvmm.host.v1.OperatorService/PreviewSupportBundle"
-	OperatorService_ExportSupportBundle_FullMethodName     = "/agentvmm.host.v1.OperatorService/ExportSupportBundle"
+	OperatorService_StartVM_FullMethodName                    = "/agentvmm.host.v1.OperatorService/StartVM"
+	OperatorService_GetVM_FullMethodName                      = "/agentvmm.host.v1.OperatorService/GetVM"
+	OperatorService_StopVM_FullMethodName                     = "/agentvmm.host.v1.OperatorService/StopVM"
+	OperatorService_EnsureLocalEnvironment_FullMethodName     = "/agentvmm.host.v1.OperatorService/EnsureLocalEnvironment"
+	OperatorService_CreateAgentSession_FullMethodName         = "/agentvmm.host.v1.OperatorService/CreateAgentSession"
+	OperatorService_RevokeAgentSession_FullMethodName         = "/agentvmm.host.v1.OperatorService/RevokeAgentSession"
+	OperatorService_GetSystemSnapshot_FullMethodName          = "/agentvmm.host.v1.OperatorService/GetSystemSnapshot"
+	OperatorService_ListEnvironments_FullMethodName           = "/agentvmm.host.v1.OperatorService/ListEnvironments"
+	OperatorService_GetEnvironment_FullMethodName             = "/agentvmm.host.v1.OperatorService/GetEnvironment"
+	OperatorService_WatchEvents_FullMethodName                = "/agentvmm.host.v1.OperatorService/WatchEvents"
+	OperatorService_WatchMetrics_FullMethodName               = "/agentvmm.host.v1.OperatorService/WatchMetrics"
+	OperatorService_Logs_FullMethodName                       = "/agentvmm.host.v1.OperatorService/Logs"
+	OperatorService_StopContainer_FullMethodName              = "/agentvmm.host.v1.OperatorService/StopContainer"
+	OperatorService_ContinueContainer_FullMethodName          = "/agentvmm.host.v1.OperatorService/ContinueContainer"
+	OperatorService_SignalContainer_FullMethodName            = "/agentvmm.host.v1.OperatorService/SignalContainer"
+	OperatorService_UpdateEnvironmentPolicy_FullMethodName    = "/agentvmm.host.v1.OperatorService/UpdateEnvironmentPolicy"
+	OperatorService_ApplyNetworkLink_FullMethodName           = "/agentvmm.host.v1.OperatorService/ApplyNetworkLink"
+	OperatorService_DeleteNetworkLink_FullMethodName          = "/agentvmm.host.v1.OperatorService/DeleteNetworkLink"
+	OperatorService_PlanResetEnvironment_FullMethodName       = "/agentvmm.host.v1.OperatorService/PlanResetEnvironment"
+	OperatorService_PlanDiscardEnvironment_FullMethodName     = "/agentvmm.host.v1.OperatorService/PlanDiscardEnvironment"
+	OperatorService_ExecuteCleanup_FullMethodName             = "/agentvmm.host.v1.OperatorService/ExecuteCleanup"
+	OperatorService_GetOperation_FullMethodName               = "/agentvmm.host.v1.OperatorService/GetOperation"
+	OperatorService_RunDiagnostics_FullMethodName             = "/agentvmm.host.v1.OperatorService/RunDiagnostics"
+	OperatorService_PreviewSupportBundle_FullMethodName       = "/agentvmm.host.v1.OperatorService/PreviewSupportBundle"
+	OperatorService_ExportSupportBundle_FullMethodName        = "/agentvmm.host.v1.OperatorService/ExportSupportBundle"
+	OperatorService_CreateRemoteRegistration_FullMethodName   = "/agentvmm.host.v1.OperatorService/CreateRemoteRegistration"
+	OperatorService_UpdateRemotePool_FullMethodName           = "/agentvmm.host.v1.OperatorService/UpdateRemotePool"
+	OperatorService_SetRemoteRegistrationState_FullMethodName = "/agentvmm.host.v1.OperatorService/SetRemoteRegistrationState"
+	OperatorService_GetRemoteRegistration_FullMethodName      = "/agentvmm.host.v1.OperatorService/GetRemoteRegistration"
 )
 
 // OperatorServiceClient is the client API for OperatorService service.
@@ -980,6 +985,7 @@ type OperatorServiceClient interface {
 	StartVM(ctx context.Context, in *StartVMRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	GetVM(ctx context.Context, in *GetVMRequest, opts ...grpc.CallOption) (*VMResponse, error)
 	StopVM(ctx context.Context, in *StopVMRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	EnsureLocalEnvironment(ctx context.Context, in *EnsureLocalEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	CreateAgentSession(ctx context.Context, in *CreateAgentSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error)
 	RevokeAgentSession(ctx context.Context, in *RevokeAgentSessionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetSystemSnapshot(ctx context.Context, in *GetSystemSnapshotRequest, opts ...grpc.CallOption) (*GetSystemSnapshotResponse, error)
@@ -1001,6 +1007,10 @@ type OperatorServiceClient interface {
 	RunDiagnostics(ctx context.Context, in *RunDiagnosticsRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	PreviewSupportBundle(ctx context.Context, in *PreviewSupportBundleRequest, opts ...grpc.CallOption) (*SupportBundlePreview, error)
 	ExportSupportBundle(ctx context.Context, in *ExportSupportBundleRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	CreateRemoteRegistration(ctx context.Context, in *CreateRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	UpdateRemotePool(ctx context.Context, in *UpdateRemotePoolRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	SetRemoteRegistrationState(ctx context.Context, in *SetRemoteRegistrationStateRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	GetRemoteRegistration(ctx context.Context, in *GetRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 }
 
 type operatorServiceClient struct {
@@ -1035,6 +1045,16 @@ func (c *operatorServiceClient) StopVM(ctx context.Context, in *StopVMRequest, o
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OperationResponse)
 	err := c.cc.Invoke(ctx, OperatorService_StopVM_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) EnsureLocalEnvironment(ctx context.Context, in *EnsureLocalEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEnvironmentResponse)
+	err := c.cc.Invoke(ctx, OperatorService_EnsureLocalEnvironment_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1278,6 +1298,46 @@ func (c *operatorServiceClient) ExportSupportBundle(ctx context.Context, in *Exp
 	return out, nil
 }
 
+func (c *operatorServiceClient) CreateRemoteRegistration(ctx context.Context, in *CreateRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CreateRemoteRegistration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) UpdateRemotePool(ctx context.Context, in *UpdateRemotePoolRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_UpdateRemotePool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) SetRemoteRegistrationState(ctx context.Context, in *SetRemoteRegistrationStateRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_SetRemoteRegistrationState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) GetRemoteRegistration(ctx context.Context, in *GetRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_GetRemoteRegistration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OperatorServiceServer is the server API for OperatorService service.
 // All implementations must embed UnimplementedOperatorServiceServer
 // for forward compatibility.
@@ -1285,6 +1345,7 @@ type OperatorServiceServer interface {
 	StartVM(context.Context, *StartVMRequest) (*OperationResponse, error)
 	GetVM(context.Context, *GetVMRequest) (*VMResponse, error)
 	StopVM(context.Context, *StopVMRequest) (*OperationResponse, error)
+	EnsureLocalEnvironment(context.Context, *EnsureLocalEnvironmentRequest) (*GetEnvironmentResponse, error)
 	CreateAgentSession(context.Context, *CreateAgentSessionRequest) (*CreateAgentSessionResponse, error)
 	RevokeAgentSession(context.Context, *RevokeAgentSessionRequest) (*emptypb.Empty, error)
 	GetSystemSnapshot(context.Context, *GetSystemSnapshotRequest) (*GetSystemSnapshotResponse, error)
@@ -1306,6 +1367,10 @@ type OperatorServiceServer interface {
 	RunDiagnostics(context.Context, *RunDiagnosticsRequest) (*OperationResponse, error)
 	PreviewSupportBundle(context.Context, *PreviewSupportBundleRequest) (*SupportBundlePreview, error)
 	ExportSupportBundle(context.Context, *ExportSupportBundleRequest) (*OperationResponse, error)
+	CreateRemoteRegistration(context.Context, *CreateRemoteRegistrationRequest) (*RemoteRegistrationResponse, error)
+	UpdateRemotePool(context.Context, *UpdateRemotePoolRequest) (*RemoteRegistrationResponse, error)
+	SetRemoteRegistrationState(context.Context, *SetRemoteRegistrationStateRequest) (*RemoteRegistrationResponse, error)
+	GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error)
 	mustEmbedUnimplementedOperatorServiceServer()
 }
 
@@ -1324,6 +1389,9 @@ func (UnimplementedOperatorServiceServer) GetVM(context.Context, *GetVMRequest) 
 }
 func (UnimplementedOperatorServiceServer) StopVM(context.Context, *StopVMRequest) (*OperationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopVM not implemented")
+}
+func (UnimplementedOperatorServiceServer) EnsureLocalEnvironment(context.Context, *EnsureLocalEnvironmentRequest) (*GetEnvironmentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EnsureLocalEnvironment not implemented")
 }
 func (UnimplementedOperatorServiceServer) CreateAgentSession(context.Context, *CreateAgentSessionRequest) (*CreateAgentSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateAgentSession not implemented")
@@ -1387,6 +1455,18 @@ func (UnimplementedOperatorServiceServer) PreviewSupportBundle(context.Context, 
 }
 func (UnimplementedOperatorServiceServer) ExportSupportBundle(context.Context, *ExportSupportBundleRequest) (*OperationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportSupportBundle not implemented")
+}
+func (UnimplementedOperatorServiceServer) CreateRemoteRegistration(context.Context, *CreateRemoteRegistrationRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateRemoteRegistration not implemented")
+}
+func (UnimplementedOperatorServiceServer) UpdateRemotePool(context.Context, *UpdateRemotePoolRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateRemotePool not implemented")
+}
+func (UnimplementedOperatorServiceServer) SetRemoteRegistrationState(context.Context, *SetRemoteRegistrationStateRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetRemoteRegistrationState not implemented")
+}
+func (UnimplementedOperatorServiceServer) GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRemoteRegistration not implemented")
 }
 func (UnimplementedOperatorServiceServer) mustEmbedUnimplementedOperatorServiceServer() {}
 func (UnimplementedOperatorServiceServer) testEmbeddedByValue()                         {}
@@ -1459,6 +1539,24 @@ func _OperatorService_StopVM_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OperatorServiceServer).StopVM(ctx, req.(*StopVMRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_EnsureLocalEnvironment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnsureLocalEnvironmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).EnsureLocalEnvironment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_EnsureLocalEnvironment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).EnsureLocalEnvironment(ctx, req.(*EnsureLocalEnvironmentRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1820,6 +1918,78 @@ func _OperatorService_ExportSupportBundle_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_CreateRemoteRegistration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRemoteRegistrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CreateRemoteRegistration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CreateRemoteRegistration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CreateRemoteRegistration(ctx, req.(*CreateRemoteRegistrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_UpdateRemotePool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateRemotePoolRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).UpdateRemotePool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_UpdateRemotePool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).UpdateRemotePool(ctx, req.(*UpdateRemotePoolRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_SetRemoteRegistrationState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetRemoteRegistrationStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).SetRemoteRegistrationState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_SetRemoteRegistrationState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).SetRemoteRegistrationState(ctx, req.(*SetRemoteRegistrationStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_GetRemoteRegistration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRemoteRegistrationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).GetRemoteRegistration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_GetRemoteRegistration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).GetRemoteRegistration(ctx, req.(*GetRemoteRegistrationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OperatorService_ServiceDesc is the grpc.ServiceDesc for OperatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1838,6 +2008,10 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopVM",
 			Handler:    _OperatorService_StopVM_Handler,
+		},
+		{
+			MethodName: "EnsureLocalEnvironment",
+			Handler:    _OperatorService_EnsureLocalEnvironment_Handler,
 		},
 		{
 			MethodName: "CreateAgentSession",
@@ -1911,6 +2085,22 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ExportSupportBundle",
 			Handler:    _OperatorService_ExportSupportBundle_Handler,
 		},
+		{
+			MethodName: "CreateRemoteRegistration",
+			Handler:    _OperatorService_CreateRemoteRegistration_Handler,
+		},
+		{
+			MethodName: "UpdateRemotePool",
+			Handler:    _OperatorService_UpdateRemotePool_Handler,
+		},
+		{
+			MethodName: "SetRemoteRegistrationState",
+			Handler:    _OperatorService_SetRemoteRegistrationState_Handler,
+		},
+		{
+			MethodName: "GetRemoteRegistration",
+			Handler:    _OperatorService_GetRemoteRegistration_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -1929,5 +2119,449 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
+	Metadata: "host/v1/host.proto",
+}
+
+const (
+	RemoteComputeService_GetRemoteState_FullMethodName           = "/agentvmm.host.v1.RemoteComputeService/GetRemoteState"
+	RemoteComputeService_SetConnectionState_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/SetConnectionState"
+	RemoteComputeService_EnsureAllocation_FullMethodName         = "/agentvmm.host.v1.RemoteComputeService/EnsureAllocation"
+	RemoteComputeService_ReleaseAllocation_FullMethodName        = "/agentvmm.host.v1.RemoteComputeService/ReleaseAllocation"
+	RemoteComputeService_PlanDiscardAllocation_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/PlanDiscardAllocation"
+	RemoteComputeService_ExecuteDiscardAllocation_FullMethodName = "/agentvmm.host.v1.RemoteComputeService/ExecuteDiscardAllocation"
+	RemoteComputeService_AcquireLease_FullMethodName             = "/agentvmm.host.v1.RemoteComputeService/AcquireLease"
+	RemoteComputeService_RenewLease_FullMethodName               = "/agentvmm.host.v1.RemoteComputeService/RenewLease"
+	RemoteComputeService_ReleaseLease_FullMethodName             = "/agentvmm.host.v1.RemoteComputeService/ReleaseLease"
+	RemoteComputeService_OpenRuntimeSession_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/OpenRuntimeSession"
+)
+
+// RemoteComputeServiceClient is the client API for RemoteComputeService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type RemoteComputeServiceClient interface {
+	GetRemoteState(ctx context.Context, in *GetRemoteStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
+	SetConnectionState(ctx context.Context, in *SetConnectionStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
+	EnsureAllocation(ctx context.Context, in *EnsureAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
+	ReleaseAllocation(ctx context.Context, in *ReleaseAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
+	PlanDiscardAllocation(ctx context.Context, in *PlanDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error)
+	ExecuteDiscardAllocation(ctx context.Context, in *ExecuteDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
+	AcquireLease(ctx context.Context, in *AcquireLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
+	RenewLease(ctx context.Context, in *RenewLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
+	ReleaseLease(ctx context.Context, in *ReleaseLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
+	OpenRuntimeSession(ctx context.Context, in *OpenRuntimeSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error)
+}
+
+type remoteComputeServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewRemoteComputeServiceClient(cc grpc.ClientConnInterface) RemoteComputeServiceClient {
+	return &remoteComputeServiceClient{cc}
+}
+
+func (c *remoteComputeServiceClient) GetRemoteState(ctx context.Context, in *GetRemoteStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRemoteStateResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_GetRemoteState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) SetConnectionState(ctx context.Context, in *SetConnectionStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRemoteStateResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_SetConnectionState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) EnsureAllocation(ctx context.Context, in *EnsureAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AllocationResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_EnsureAllocation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) ReleaseAllocation(ctx context.Context, in *ReleaseAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AllocationResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_ReleaseAllocation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) PlanDiscardAllocation(ctx context.Context, in *PlanDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AllocationCleanupPlanResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_PlanDiscardAllocation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) ExecuteDiscardAllocation(ctx context.Context, in *ExecuteDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AllocationResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_ExecuteDiscardAllocation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) AcquireLease(ctx context.Context, in *AcquireLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaseResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_AcquireLease_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) RenewLease(ctx context.Context, in *RenewLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaseResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_RenewLease_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) ReleaseLease(ctx context.Context, in *ReleaseLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaseResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_ReleaseLease_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) OpenRuntimeSession(ctx context.Context, in *OpenRuntimeSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateAgentSessionResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_OpenRuntimeSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RemoteComputeServiceServer is the server API for RemoteComputeService service.
+// All implementations must embed UnimplementedRemoteComputeServiceServer
+// for forward compatibility.
+type RemoteComputeServiceServer interface {
+	GetRemoteState(context.Context, *GetRemoteStateRequest) (*GetRemoteStateResponse, error)
+	SetConnectionState(context.Context, *SetConnectionStateRequest) (*GetRemoteStateResponse, error)
+	EnsureAllocation(context.Context, *EnsureAllocationRequest) (*AllocationResponse, error)
+	ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error)
+	PlanDiscardAllocation(context.Context, *PlanDiscardAllocationRequest) (*AllocationCleanupPlanResponse, error)
+	ExecuteDiscardAllocation(context.Context, *ExecuteDiscardAllocationRequest) (*AllocationResponse, error)
+	AcquireLease(context.Context, *AcquireLeaseRequest) (*LeaseResponse, error)
+	RenewLease(context.Context, *RenewLeaseRequest) (*LeaseResponse, error)
+	ReleaseLease(context.Context, *ReleaseLeaseRequest) (*LeaseResponse, error)
+	OpenRuntimeSession(context.Context, *OpenRuntimeSessionRequest) (*CreateAgentSessionResponse, error)
+	mustEmbedUnimplementedRemoteComputeServiceServer()
+}
+
+// UnimplementedRemoteComputeServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRemoteComputeServiceServer struct{}
+
+func (UnimplementedRemoteComputeServiceServer) GetRemoteState(context.Context, *GetRemoteStateRequest) (*GetRemoteStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRemoteState not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) SetConnectionState(context.Context, *SetConnectionStateRequest) (*GetRemoteStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetConnectionState not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) EnsureAllocation(context.Context, *EnsureAllocationRequest) (*AllocationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EnsureAllocation not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseAllocation not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) PlanDiscardAllocation(context.Context, *PlanDiscardAllocationRequest) (*AllocationCleanupPlanResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PlanDiscardAllocation not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) ExecuteDiscardAllocation(context.Context, *ExecuteDiscardAllocationRequest) (*AllocationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecuteDiscardAllocation not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) AcquireLease(context.Context, *AcquireLeaseRequest) (*LeaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcquireLease not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) RenewLease(context.Context, *RenewLeaseRequest) (*LeaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenewLease not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) ReleaseLease(context.Context, *ReleaseLeaseRequest) (*LeaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseLease not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) OpenRuntimeSession(context.Context, *OpenRuntimeSessionRequest) (*CreateAgentSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method OpenRuntimeSession not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) mustEmbedUnimplementedRemoteComputeServiceServer() {}
+func (UnimplementedRemoteComputeServiceServer) testEmbeddedByValue()                              {}
+
+// UnsafeRemoteComputeServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RemoteComputeServiceServer will
+// result in compilation errors.
+type UnsafeRemoteComputeServiceServer interface {
+	mustEmbedUnimplementedRemoteComputeServiceServer()
+}
+
+func RegisterRemoteComputeServiceServer(s grpc.ServiceRegistrar, srv RemoteComputeServiceServer) {
+	// If the following call panics, it indicates UnimplementedRemoteComputeServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&RemoteComputeService_ServiceDesc, srv)
+}
+
+func _RemoteComputeService_GetRemoteState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRemoteStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).GetRemoteState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_GetRemoteState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).GetRemoteState(ctx, req.(*GetRemoteStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_SetConnectionState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetConnectionStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).SetConnectionState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_SetConnectionState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).SetConnectionState(ctx, req.(*SetConnectionStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_EnsureAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnsureAllocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).EnsureAllocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_EnsureAllocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).EnsureAllocation(ctx, req.(*EnsureAllocationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_ReleaseAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseAllocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).ReleaseAllocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_ReleaseAllocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).ReleaseAllocation(ctx, req.(*ReleaseAllocationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_PlanDiscardAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanDiscardAllocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).PlanDiscardAllocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_PlanDiscardAllocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).PlanDiscardAllocation(ctx, req.(*PlanDiscardAllocationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_ExecuteDiscardAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecuteDiscardAllocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).ExecuteDiscardAllocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_ExecuteDiscardAllocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).ExecuteDiscardAllocation(ctx, req.(*ExecuteDiscardAllocationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_AcquireLease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcquireLeaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).AcquireLease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_AcquireLease_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).AcquireLease(ctx, req.(*AcquireLeaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_RenewLease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewLeaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).RenewLease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_RenewLease_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).RenewLease(ctx, req.(*RenewLeaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_ReleaseLease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseLeaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).ReleaseLease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_ReleaseLease_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).ReleaseLease(ctx, req.(*ReleaseLeaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_OpenRuntimeSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OpenRuntimeSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).OpenRuntimeSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_OpenRuntimeSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).OpenRuntimeSession(ctx, req.(*OpenRuntimeSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// RemoteComputeService_ServiceDesc is the grpc.ServiceDesc for RemoteComputeService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var RemoteComputeService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "agentvmm.host.v1.RemoteComputeService",
+	HandlerType: (*RemoteComputeServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetRemoteState",
+			Handler:    _RemoteComputeService_GetRemoteState_Handler,
+		},
+		{
+			MethodName: "SetConnectionState",
+			Handler:    _RemoteComputeService_SetConnectionState_Handler,
+		},
+		{
+			MethodName: "EnsureAllocation",
+			Handler:    _RemoteComputeService_EnsureAllocation_Handler,
+		},
+		{
+			MethodName: "ReleaseAllocation",
+			Handler:    _RemoteComputeService_ReleaseAllocation_Handler,
+		},
+		{
+			MethodName: "PlanDiscardAllocation",
+			Handler:    _RemoteComputeService_PlanDiscardAllocation_Handler,
+		},
+		{
+			MethodName: "ExecuteDiscardAllocation",
+			Handler:    _RemoteComputeService_ExecuteDiscardAllocation_Handler,
+		},
+		{
+			MethodName: "AcquireLease",
+			Handler:    _RemoteComputeService_AcquireLease_Handler,
+		},
+		{
+			MethodName: "RenewLease",
+			Handler:    _RemoteComputeService_RenewLease_Handler,
+		},
+		{
+			MethodName: "ReleaseLease",
+			Handler:    _RemoteComputeService_ReleaseLease_Handler,
+		},
+		{
+			MethodName: "OpenRuntimeSession",
+			Handler:    _RemoteComputeService_OpenRuntimeSession_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "host/v1/host.proto",
 }

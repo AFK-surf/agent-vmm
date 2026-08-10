@@ -1,0 +1,213 @@
+syntax = "proto3";
+
+package agentvmm.remote.v1;
+
+import "host/v1/host.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/remote/v1;remotev1";
+
+service RemoteControllerService {
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  rpc Connect(stream HostControlMessage) returns (stream ControllerControlMessage);
+  rpc ServeSession(stream HostSessionFrame) returns (stream ControllerSessionFrame);
+}
+
+message EnrollRequest {
+  string protocol_version = 1;
+  string registration_id = 2;
+  bytes enrollment_token = 3;
+  string endpoint_identity = 4;
+  string connector_release = 5;
+}
+
+message EnrollResponse {
+  string protocol_version = 1;
+  string registration_id = 2;
+  string controller_display_name = 3;
+  bytes credential = 4;
+}
+
+message HostControlMessage {
+  oneof payload {
+    HostHello hello = 1;
+    CommandResult result = 2;
+    HostEvent event = 3;
+  }
+}
+
+message HostHello {
+  string protocol_version = 1;
+  string host_api_version = 2;
+  string connector_release = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
+  uint64 pool_revision = 6;
+  Capacity capacity = 7;
+  repeated Allocation inventory = 8;
+  HostHealth health = 9;
+}
+
+message Capacity {
+  uint32 max_environments = 1;
+  agentvmm.host.v1.ResourceLimits aggregate_limits = 2;
+  agentvmm.host.v1.ResourceLimits per_environment_limits = 3;
+  agentvmm.host.v1.EgressMode max_egress_mode = 4;
+  uint32 max_lease_seconds = 5;
+  uint32 disconnect_grace_seconds = 6;
+}
+
+message Allocation {
+  string allocation_id = 1;
+  string display_label = 2;
+  agentvmm.host.v1.ResourceLimits limits = 3;
+  agentvmm.host.v1.EgressMode egress_mode = 4;
+  uint64 revision = 5;
+  agentvmm.host.v1.AllocationState state = 6;
+  Lease lease = 7;
+}
+
+message Lease {
+  string lease_id = 1;
+  string allocation_id = 2;
+  string workload_ref = 3;
+  uint64 generation = 4;
+  int64 expires_unix_millis = 5;
+  agentvmm.host.v1.LeaseState state = 6;
+}
+
+message HostHealth {
+  bool runtime_ready = 1;
+  bool network_ready = 2;
+  string status = 3;
+}
+
+message ControllerControlMessage {
+  oneof payload {
+    ControllerCommand command = 1;
+    RotateCredential rotate_credential = 2;
+    RevokeCredential revoke_credential = 3;
+  }
+}
+
+message ControllerCommand {
+  string correlation_id = 1;
+  oneof command {
+    EnsureAllocation ensure_allocation = 2;
+    ReleaseAllocation release_allocation = 3;
+    PlanDiscardAllocation plan_discard_allocation = 4;
+    ExecuteDiscardAllocation execute_discard_allocation = 5;
+    AcquireLease acquire_lease = 6;
+    RenewLease renew_lease = 7;
+    ReleaseLease release_lease = 8;
+    DrainRegistration drain_registration = 9;
+    OpenSession open_session = 10;
+  }
+}
+
+message EnsureAllocation {
+  string allocation_id = 1;
+  string display_label = 2;
+  agentvmm.host.v1.ResourceLimits limits = 3;
+  agentvmm.host.v1.EgressMode egress_mode = 4;
+  uint64 policy_revision = 5;
+}
+message ReleaseAllocation { string allocation_id = 1; }
+message PlanDiscardAllocation { string allocation_id = 1; }
+message ExecuteDiscardAllocation {
+  string allocation_id = 1;
+  uint64 plan_revision = 2;
+  repeated string confirmed_volume_ids = 3;
+}
+message AcquireLease {
+  string allocation_id = 1;
+  uint32 duration_seconds = 2;
+  string workload_ref = 3;
+}
+message RenewLease {
+  string lease_id = 1;
+  uint64 generation = 2;
+  uint32 duration_seconds = 3;
+}
+message ReleaseLease {
+  string lease_id = 1;
+  uint64 generation = 2;
+}
+message DrainRegistration {}
+message OpenSession {
+  string allocation_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+}
+
+message CommandResult {
+  string correlation_id = 1;
+  bool success = 2;
+  ErrorReason reason = 3;
+  string message = 4;
+  oneof result {
+    Allocation allocation = 5;
+    Lease lease = 6;
+    CleanupPlan cleanup_plan = 7;
+    SessionReady session_ready = 8;
+  }
+}
+
+enum ErrorReason {
+  ERROR_REASON_UNSPECIFIED = 0;
+  ERROR_REASON_INVALID_ARGUMENT = 1;
+  ERROR_REASON_UNAUTHENTICATED = 2;
+  ERROR_REASON_VERSION_MISMATCH = 3;
+  ERROR_REASON_REGISTRATION_MISMATCH = 4;
+  ERROR_REASON_POLICY_CONFLICT = 5;
+  ERROR_REASON_CAPACITY_EXHAUSTED = 6;
+  ERROR_REASON_ALLOCATION_NOT_FOUND = 7;
+  ERROR_REASON_LEASE_CONFLICT = 8;
+  ERROR_REASON_LEASE_REVOKED = 9;
+  ERROR_REASON_STALE_REVISION = 10;
+  ERROR_REASON_UNAVAILABLE = 11;
+  ERROR_REASON_INTERNAL = 12;
+}
+
+message CleanupPlan {
+  string allocation_id = 1;
+  uint64 revision = 2;
+  repeated string volume_ids = 3;
+}
+message SessionReady {
+  string allocation_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  string tunnel_nonce = 4;
+}
+message HostEvent {
+  string kind = 1;
+  string allocation_id = 2;
+  string lease_id = 3;
+  string status = 4;
+}
+message RotateCredential { bytes credential = 1; }
+message RevokeCredential { string reason = 1; }
+
+message SessionHeader {
+  string protocol_version = 1;
+  string registration_id = 2;
+  string allocation_id = 3;
+  string lease_id = 4;
+  uint64 generation = 5;
+  string tunnel_nonce = 6;
+  uint32 frame_bytes = 7;
+  uint32 max_in_flight_bytes = 8;
+}
+message HostSessionFrame {
+  oneof payload {
+    SessionHeader header = 1;
+    bytes data = 2;
+    bool close_write = 3;
+  }
+}
+message ControllerSessionFrame {
+  oneof payload {
+    bytes data = 1;
+    bool close_write = 2;
+  }
+}

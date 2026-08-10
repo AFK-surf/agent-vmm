@@ -58,6 +58,8 @@ struct RetainedVolume: Identifiable, Sendable, Equatable {
 }
 
 struct AgentEnvironmentModel: Identifiable, Sendable, Equatable {
+    enum Origin: String, Sendable { case local = "Local", remote = "Remote" }
+
     let id: String
     let name: String
     let namespaceID: String
@@ -69,6 +71,8 @@ struct AgentEnvironmentModel: Identifiable, Sendable, Equatable {
     let egressSummary: String
     let allowsPublicEgress: Bool
     let policyRevision: UInt64
+    let origin: Origin
+    let allocationID: String?
 }
 
 struct EnvironmentLimits: Sendable, Equatable {
@@ -85,9 +89,29 @@ struct SystemSnapshotModel: Sendable, Equatable {
     let components: [ComponentStatus]
     let usage: UsageSnapshot?
     let environments: [AgentEnvironmentModel]
+    let remoteRegistration: RemoteRegistrationModel?
     let collectedAt: Date
 
-    static let loading = SystemSnapshotModel(vmState: "Loading", bootID: "", health: .unavailable, components: [], usage: nil, environments: [], collectedAt: .distantPast)
+    static let loading = SystemSnapshotModel(vmState: "Loading", bootID: "", health: .unavailable, components: [], usage: nil, environments: [], remoteRegistration: nil, collectedAt: .distantPast)
+}
+
+struct RemoteRegistrationModel: Sendable, Equatable {
+    let id: String
+    let displayName: String
+    let endpoint: String
+    let state: String
+    let connectionState: String
+    let revision: UInt64
+    let maxEnvironments: UInt32
+    let activeLeases: Int
+}
+
+struct RemotePoolSettings: Sendable, Equatable {
+    let maxEnvironments: UInt32
+    let cpuMillis: UInt32
+    let memoryBytes: UInt64
+    let pids: UInt32
+    let diskBytes: UInt64
 }
 
 struct ActivityEvent: Identifiable, Sendable, Equatable {

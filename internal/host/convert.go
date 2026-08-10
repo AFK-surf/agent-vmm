@@ -11,6 +11,10 @@ import (
 )
 
 func environmentFromStore(environment store.Environment) *hostv1.AgentEnvironment {
+	origin := hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_LOCAL
+	if environment.OwnerKind == store.OwnerRemoteRegistration {
+		origin = hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_REMOTE
+	}
 	return &hostv1.AgentEnvironment{
 		Id:          environment.ID,
 		DisplayName: environment.DisplayName,
@@ -23,7 +27,21 @@ func environmentFromStore(environment store.Environment) *hostv1.AgentEnvironmen
 		},
 		EgressMode:     hostv1.EgressMode(environment.EgressMode),
 		PolicyRevision: environment.PolicyRevision,
+		Origin:         origin,
+		Owner: &hostv1.EnvironmentOwner{
+			Kind:           hostv1.EnvironmentOwnerKind(environment.OwnerKind),
+			RegistrationId: environment.RegistrationID,
+			AllocationId:   environment.AllocationID,
+		},
 	}
+}
+
+func sessionEnvironmentFromStore(environment store.Environment) *hostv1.AgentEnvironment {
+	result := environmentFromStore(environment)
+	result.Id = ""
+	result.NamespaceId = ""
+	result.Owner = nil
+	return result
 }
 
 func containerFromGuest(container *vmmdv1.Container) *hostv1.Container {

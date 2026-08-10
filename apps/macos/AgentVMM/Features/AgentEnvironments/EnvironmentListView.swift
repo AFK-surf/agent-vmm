@@ -22,6 +22,7 @@ struct EnvironmentListView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(environment.name).font(.headline)
                             HStack {
+                                Text(environment.origin.rawValue)
                                 HealthLabel(level: environment.health)
                                 Text("\(environment.workloads.filter { $0.state == .running }.count) running")
                             }
@@ -76,6 +77,10 @@ struct EnvironmentDetailView: View {
 
     private var overview: some View {
         Form {
+            LabeledContent("Owner", value: environment.origin.rawValue)
+            if let allocationID = environment.allocationID {
+                LabeledContent("Allocation", value: allocationID)
+            }
             LabeledContent("Status") { HealthLabel(level: environment.health) }
             LabeledContent("Memory", value: environment.usage.map { DisplayFormatting.bytes.string(fromByteCount: Int64($0.memoryBytes)) } ?? "Unavailable")
             LabeledContent("Retained data", value: environment.usage.map { DisplayFormatting.bytes.string(fromByteCount: Int64($0.diskBytes)) } ?? "Unavailable")

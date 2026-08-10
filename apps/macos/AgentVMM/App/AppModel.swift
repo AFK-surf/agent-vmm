@@ -141,6 +141,65 @@ final class AppModel {
         catch { errorMessage = hostErrorMessage(error) }
     }
 
+    func enrollRemote(endpoint: String, displayName: String, token: String, pool: RemotePoolSettings) async {
+        guard let client else { errorMessage = HostClientError.disconnected.localizedDescription; return }
+        do {
+            let registration = try await client.createRemoteRegistration(endpoint: endpoint, displayName: displayName, pool: pool)
+            try await runEnrollment(endpoint: endpoint, registrationID: registration.id, token: token)
+            try await refresh()
+        } catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    func setRemoteState(_ state: Agentvmm_Host_V1_RemoteRegistrationState) async {
+        guard let registration = snapshot.remoteRegistration else { return }
+        do {
+            _ = try await client?.setRemoteRegistrationState(state, expectedRevision: registration.revision)
+            if state == .revoked { try revokeCredential(registrationID: registration.id) }
+            try await refresh()
+        }
+        catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    func updateRemotePool(_ pool: RemotePoolSettings) async {
+        guard let registration = snapshot.remoteRegistration else { return }
+        do { _ = try await client?.updateRemotePool(pool, expectedRevision: registration.revision); try await refresh() }
+        catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    private func runEnrollment(endpoint: String, registrationID: String, token: String) async throws {
+        guard let host = URL(string: "https://\(endpoint)")?.host, !host.isEmpty,
+              let helper = Bundle.main.url(forAuxiliaryExecutable: "agent-vmm-connect") else {
+            throw HostClientError.invalidResponse("invalid controller endpoint or missing connector")
+        }
+        let process = Process()
+        let input = Pipe()
+        process.executableURL = helper
+        process.arguments = ["--enroll", "--endpoint", endpoint, "--endpoint-identity", host, "--registration", registrationID,
+                             "--remote-compute-socket", AppModel.remoteComputeSocketPath]
+        process.standardInput = input
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        input.fileHandleForWriting.write(Data(token.utf8))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw HostClientError.invalidResponse("controller enrollment failed") }
+    }
+
+    private func revokeCredential(registrationID: String) throws {
+        guard let helper = Bundle.main.url(forAuxiliaryExecutable: "agent-vmm-connect") else {
+            throw HostClientError.invalidResponse("missing connector")
+        }
+        let process = Process()
+        process.executableURL = helper
+        process.arguments = ["--revoke-credential", "--registration", registrationID]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw HostClientError.invalidResponse("credential revocation failed") }
+    }
+
     private func remember(_ operation: OperationModel?) {
         guard let operation else { return }
         latestOperation = operation
@@ -197,5 +256,10 @@ final class AppModel {
     static var defaultSocketPath: String {
         FileManager.default.homeDirectoryForCurrentUser
             .appending(path: "Library/Application Support/AgentVMM/operator.sock").path
+    }
+
+    static var remoteComputeSocketPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Library/Application Support/AgentVMM/remote-compute.sock").path
     }
 }

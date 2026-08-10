@@ -3,12 +3,36 @@
 package host
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func TestRemoteErrorDetailsHideLocalEnvironment(t *testing.T) {
+	identity := auth.Identity{Role: auth.Agent, SessionID: "session", EnvironmentID: "local-environment", NamespaceID: "local-namespace", RegistrationID: "registration", AllocationID: "allocation", LeaseID: "lease"}
+	interceptor := auth.UnaryInterceptor(identity)
+	for _, source := range []error{
+		status.Error(codes.Unavailable, "unavailable"),
+		resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", "local-environment", "environment was not found"),
+	} {
+		_, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, _ any) (any, error) {
+			return nil, addErrorDetails(ctx, source)
+		})
+		value, _ := status.FromError(err)
+		for _, detail := range value.Details() {
+			if _, ok := detail.(*errdetails.ResourceInfo); ok {
+				t.Fatal("remote error retained resource identity")
+			}
+		}
+	}
+}
 
 func TestRPCRateLimiterEnforcesBurst(t *testing.T) {
 	limiter := newRPCRateLimiter(1, 2)

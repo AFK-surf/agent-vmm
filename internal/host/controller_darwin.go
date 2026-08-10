@@ -53,16 +53,20 @@ type Controller struct {
 	sessionDirectory string
 	supportDirectory string
 
-	mu               sync.Mutex
-	sessions         map[string]*sessionServer
-	observed         map[string][]*hostv1.Container
-	environmentLocks sync.Map
-	projectionMu     sync.Mutex
-	egress           *egress.Subsystem
-	egressCancel     context.CancelFunc
-	egressAcceptWG   sync.WaitGroup
-	egressSessionWG  sync.WaitGroup
-	policyRevision   atomic.Uint64
+	mu                    sync.Mutex
+	sessions              map[string]*sessionServer
+	observed              map[string][]*hostv1.Container
+	environmentLocks      sync.Map
+	projectionMu          sync.Mutex
+	egress                *egress.Subsystem
+	egressCancel          context.CancelFunc
+	egressAcceptWG        sync.WaitGroup
+	egressSessionWG       sync.WaitGroup
+	policyRevision        atomic.Uint64
+	remoteCapacity        store.Environment
+	remoteLeases          map[string]*remoteLease
+	allocationLeases      map[string]string
+	remoteLeaseGeneration atomic.Uint64
 }
 
 type sessionServer struct {
@@ -122,7 +126,12 @@ func New(config Config) (*Controller, error) {
 		database.Close()
 		return nil, err
 	}
-	return &Controller{manager: config.Manager, store: database, sessionDirectory: config.SessionDirectory, supportDirectory: supportDirectory, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container), egress: egress.New()}, nil
+	return &Controller{
+		manager: config.Manager, store: database, sessionDirectory: config.SessionDirectory,
+		supportDirectory: supportDirectory, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container),
+		egress: egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
+		remoteCapacity: store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
+	}, nil
 }
 
 func (controller *Controller) Close() error {
@@ -154,18 +163,20 @@ func (controller *Controller) NewOperatorServer() *grpc.Server {
 	return server
 }
 
-func (controller *Controller) createSession(ctx context.Context, environmentID, displayName string) (store.Session, store.Environment, error) {
+func (controller *Controller) createSession(ctx context.Context, environmentID string, ownerKind int32, remoteIdentity auth.Identity) (store.Session, store.Environment, error) {
 	if environmentID == "" {
-		var err error
-		environmentID, err = randomID()
-		if err != nil {
-			return store.Session{}, store.Environment{}, err
-		}
+		return store.Session{}, store.Environment{}, errors.New("environment ID is required")
 	}
 	unlock := controller.lockEnvironment(environmentID)
 	defer unlock()
-	environment, err := controller.ensureEnvironment(ctx, environmentID, displayName)
+	environment, err := controller.store.GetEnvironment(ctx, environmentID)
 	if err != nil {
+		return store.Session{}, store.Environment{}, err
+	}
+	if environment.OwnerKind != ownerKind {
+		return store.Session{}, store.Environment{}, errors.New("environment owner does not match session endpoint")
+	}
+	if err := controller.reconcileEnvironment(ctx, environment); err != nil {
 		return store.Session{}, store.Environment{}, err
 	}
 	sessionID, err := randomID()
@@ -179,13 +190,16 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 	}
 	serving := &readyListener{Listener: listener, ready: make(chan struct{})}
 	identity := auth.Identity{Role: auth.Agent, SessionID: sessionID, EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID}
+	identity.RegistrationID = remoteIdentity.RegistrationID
+	identity.AllocationID = remoteIdentity.AllocationID
+	identity.LeaseID = remoteIdentity.LeaseID
 	limiter := newRPCRateLimiter(100, 200)
 	server := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMessageBytes),
 		grpc.MaxSendMsgSize(maxMessageBytes),
 		grpc.MaxConcurrentStreams(64),
-		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), auditUnary(controller), limiter.unary, deadlineUnary, errorDetailsUnary),
-		grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), auditStream(controller), limiter.stream, deadlineStream, errorDetailsStream),
+		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), remoteRuntimeUnary(ownerKind), auditUnary(controller), limiter.unary, deadlineUnary, errorDetailsUnary),
+		grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), remoteRuntimeStream(ownerKind), auditStream(controller), limiter.stream, deadlineStream, errorDetailsStream),
 	)
 	hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{controller: controller})
 	session := store.Session{ID: sessionID, EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, SocketPath: socketPath, ExpiresAt: time.Now().Add(defaultSessionLifetime)}
@@ -207,17 +221,21 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 	return session, environment, nil
 }
 
-func (controller *Controller) ensureEnvironment(ctx context.Context, environmentID, displayName string) (store.Environment, error) {
+func (controller *Controller) ensureLocalEnvironment(ctx context.Context, environmentID, displayName string) (store.Environment, error) {
+	if environmentID == "" {
+		return store.Environment{}, errors.New("environment ID is required")
+	}
 	controller.projectionMu.Lock()
 	defer controller.projectionMu.Unlock()
-	if environmentID != "" {
-		environment, err := controller.store.GetEnvironment(ctx, environmentID)
-		if err == nil {
-			return environment, controller.reconcileEnvironmentLocked(ctx, environment)
+	environment, err := controller.store.GetEnvironment(ctx, environmentID)
+	if err == nil {
+		if environment.OwnerKind != store.OwnerLocal {
+			return store.Environment{}, errors.New("environment is owned by a remote registration")
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return store.Environment{}, err
-		}
+		return environment, controller.reconcileEnvironmentLocked(ctx, environment)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return store.Environment{}, err
 	}
 	if displayName == "" {
 		displayName = environmentID
@@ -226,10 +244,10 @@ func (controller *Controller) ensureEnvironment(ctx context.Context, environment
 	if err != nil {
 		return store.Environment{}, err
 	}
-	environment, err := controller.store.CreateEnvironment(ctx, store.Environment{
+	environment, err = controller.store.CreateEnvironment(ctx, store.Environment{
 		ID: environmentID, NamespaceID: namespaceID, DisplayName: displayName,
 		CPUMillis: 2000, MemoryBytes: 2 << 30, PIDs: 512, DiskBytes: 16 << 30,
-		EgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL),
+		EgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL), OwnerKind: store.OwnerLocal,
 	})
 	if err != nil {
 		return store.Environment{}, err

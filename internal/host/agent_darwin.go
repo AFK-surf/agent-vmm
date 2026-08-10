@@ -31,7 +31,11 @@ func (server *agentServer) GetEnvironment(ctx context.Context, _ *hostv1.GetOwnE
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", identity.EnvironmentID, "agent environment does not exist")
 	}
-	return &hostv1.GetEnvironmentResponse{Environment: server.controller.environmentSnapshot(ctx, environment)}, nil
+	snapshot := server.controller.environmentSnapshot(ctx, environment)
+	snapshot.Id = ""
+	snapshot.NamespaceId = ""
+	snapshot.Owner = nil
+	return &hostv1.GetEnvironmentResponse{Environment: snapshot}, nil
 }
 
 func (server *agentServer) PullImage(request *hostv1.PullImageRequest, stream hostv1.AgentRuntimeService_PullImageServer) error {

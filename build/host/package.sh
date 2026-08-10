@@ -40,13 +40,22 @@ if [ -n "$go_tags" ]; then
 else
 	GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-host" "$repo/cmd/agent-vmm-host"
 fi
+GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-mcp" "$repo/cmd/agent-vmm-mcp"
+GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-connect" "$repo/cmd/agent-vmm-connect"
+go version -m "$product/Contents/Helpers/agent-vmm-mcp" > "$product/Contents/Resources/mcp-build-info.txt"
+go version -m "$product/Contents/Helpers/agent-vmm-connect" > "$product/Contents/Resources/connect-build-info.txt"
+cp "$repo/LICENSE" "$product/Contents/Resources/LICENSE"
 codesign --force --sign "$identity" --options runtime --entitlements "$repo/build/host/vz.entitlements.plist" "$product/Contents/Helpers/agent-vmm-host"
+codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-mcp"
+codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-connect"
 codesign --force --sign "$identity" --options runtime "$product"
 codesign --verify --deep --strict --verbose=2 "$product"
 
 app="$HOME/Applications/Agent VMM.app"
 sed -e "s|__HOME__|$HOME|g" -e "s|__APP__|$app|g" "$repo/build/host/com.afk-surf.agent-vmm.plist" > "$output/com.afk-surf.agent-vmm.plist"
 plutil -lint "$output/com.afk-surf.agent-vmm.plist"
+sed -e "s|__HOME__|$HOME|g" -e "s|__APP__|$app|g" "$repo/build/host/com.afk-surf.agent-vmm-connect.plist" > "$output/com.afk-surf.agent-vmm-connect.plist"
+plutil -lint "$output/com.afk-surf.agent-vmm-connect.plist"
 
 if [ -n "${NOTARYTOOL_PROFILE:-}" ]; then
   ditto -c -k --keepParent "$product" "$output/Agent-VMM.zip"

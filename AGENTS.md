@@ -71,3 +71,5 @@ Do not record temporary failures or narrow implementation mistakes.
 - Reject new public relay connections after the VM enters `STOPPING`.
 - Permit the internal `PrepareShutdown` connection during `STOPPING` so the guest can finish cleanup.
 - Package development-signed guest bundles only with an ad-hoc-signed helper built with the development trust root. A release-signed helper requires a release-signed guest bundle.
+- Treat a new remote connection instance after the stored state became `DISCONNECTED` as grace-period recovery. Revoke remote leases for a replacement instance only when the previous instance is still `CONNECTED`.
+- A valid remote lease may open a new runtime session after connector recovery. Revoke the previous session capability before issuing its replacement; do not reject the lease as already open.

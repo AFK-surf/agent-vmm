@@ -18,6 +18,9 @@ protocol HostServing: Sendable {
     func runDiagnostics(environmentID: String?) async throws -> OperationModel
     func supportPreview(environmentID: String?) async throws -> [SupportItem]
     func exportSupportBundle(environmentID: String?, sensitiveItems: [String]) async throws -> OperationModel
+    func createRemoteRegistration(endpoint: String, displayName: String, pool: RemotePoolSettings) async throws -> RemoteRegistrationModel
+    func updateRemotePool(_ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
+    func setRemoteRegistrationState(_ state: Agentvmm_Host_V1_RemoteRegistrationState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
 }
 
 enum ContainerSignal: Sendable { case interrupt, kill }

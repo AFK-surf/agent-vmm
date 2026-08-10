@@ -96,6 +96,20 @@ func (server *operatorServer) StopVM(ctx context.Context, request *hostv1.StopVM
 	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 }
 
+func (server *operatorServer) EnsureLocalEnvironment(ctx context.Context, request *hostv1.EnsureLocalEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	if request.GetRequestId() == "" || request.GetEnvironmentId() == "" {
+		return nil, invalidField("request_id/environment_id", "request and environment IDs are required")
+	}
+	environment, err := server.controller.ensureLocalEnvironment(ctx, request.GetEnvironmentId(), request.GetDisplayName())
+	if err != nil {
+		return nil, resourceError(codes.FailedPrecondition, "LOCAL_ENVIRONMENT_ENSURE_FAILED", "environment", request.GetEnvironmentId(), err.Error())
+	}
+	return &hostv1.GetEnvironmentResponse{Environment: environmentFromStore(environment)}, nil
+}
+
 func (server *operatorServer) CreateAgentSession(ctx context.Context, request *hostv1.CreateAgentSessionRequest) (*hostv1.CreateAgentSessionResponse, error) {
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
@@ -103,9 +117,15 @@ func (server *operatorServer) CreateAgentSession(ctx context.Context, request *h
 	if request.GetRequestId() == "" {
 		return nil, invalidField("request_id", "request ID is required")
 	}
-	session, environment, err := server.controller.createSession(ctx, request.GetEnvironmentId(), request.GetDisplayName())
+	if request.GetEnvironmentId() == "" {
+		return nil, invalidField("environment_id", "environment ID is required")
+	}
+	session, environment, err := server.controller.createSession(ctx, request.GetEnvironmentId(), store.OwnerLocal, auth.Identity{})
 	if err != nil {
-		return nil, retryable("SESSION_CREATE_FAILED", err.Error(), time.Second)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "environment must be ensured before creating a session")
+		}
+		return nil, resourceError(codes.FailedPrecondition, "SESSION_CREATE_FAILED", "environment", request.GetEnvironmentId(), err.Error())
 	}
 	return &hostv1.CreateAgentSessionResponse{
 		SessionId: session.ID, SocketPath: session.SocketPath, Environment: environmentFromStore(environment), ExpiresAt: timestamppb.New(session.ExpiresAt),

@@ -45,7 +45,7 @@ The system must let multiple agents do these tasks in one guest:
 7. Grant specific access between agent namespaces.
 8. Run untrusted code without control of the guest or the macOS host.
 
-The first release excludes distributed scheduling, remote workers, Kubernetes, live migration, GPUs, and arbitrary guest operating systems.
+The first release excludes distributed scheduling inside Agent VMM, Kubernetes, live migration, GPUs, and arbitrary guest operating systems. A provider-neutral outbound connector may expose a user-approved capacity pool to one remote controller; scheduling remains controller-owned.
 It also excludes full Docker API and Compose compatibility.
 
 ## Security Facts
@@ -151,6 +151,10 @@ The host controller has these responsibilities:
 
 The host controller uses one local SQLite database for control-plane facts.
 It does not copy container runtime state or volume contents into this database.
+
+Environment ownership is explicit and persistent. A local environment has no registration or allocation identity. A remote environment belongs to one registration and one controller-scoped allocation ID; its host environment ID and guest namespace ID are generated locally and are never returned to the controller.
+
+The operator socket and the remote-compute socket are separate `0600` Unix sockets. The remote-compute service exposes only remote inventory, allocation admission, lease lifecycle, cleanup plan/execute, connection state, and filtered runtime session creation. It cannot manage the VM or local environments. This is an application least-privilege boundary under the same macOS UID, not an OS sandbox.
 
 The Virtualization.framework configuration contains these devices:
 
@@ -525,6 +529,32 @@ Fuzz RPC inputs, paths, OCI specifications, and grant state changes.
 Add storage cleanup, cache cleanup, audit, and failure recovery tests.
 
 Remove raw runtime socket forwarding, native runc fallbacks, stale compatibility paths, and duplicate state stores.
+
+## Local MCP and remote compute boundaries
+
+`agent-vmm-mcp` is the only model-facing entry point. It uses MCP over stdio,
+binds one process to one LOCAL environment, and closes its short-lived operator
+connection after obtaining a filtered runtime session. It has a fixed tool set;
+there is no HTTP transport, operator tool, host path, or implicit shell.
+
+`agent-vmm-connect` is the only controller-facing entry point. It makes an
+outbound TLS 1.3 gRPC connection, reads the opaque controller credential from
+Keychain, and connects locally only to the mode-0600 RemoteComputeService socket.
+Each active lease receives a filtered AgentRuntimeService session over the single
+bounded byte transport. The controller supplies an allocation ID, while the host
+creates all local environment, namespace, lease, and capability identities.
+
+The OperatorService owns registration and pool policy, local enable/drain/revoke,
+inventory observation, and destructive cleanup. RemoteComputeService is scoped to
+the active registration and cannot see LOCAL environments. This same-UID split is
+an application least-privilege boundary, not a separate macOS security principal.
+
+Release retains allocation data. Destruction requires a fresh plan and an execute
+request matching its revision and volume set. Disconnect starts a bounded grace
+period; expiry or revocation closes the capability and stops remote-owned work.
+The connector does not implement Salix device/group/task/router concepts: an
+external controller adapter maps those concepts to the public provider-neutral
+registration/allocation/lease protocol.
 
 ## Known Limits and Review Triggers
 

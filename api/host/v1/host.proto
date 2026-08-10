@@ -38,6 +38,7 @@ service OperatorService {
   rpc StartVM(StartVMRequest) returns (OperationResponse);
   rpc GetVM(GetVMRequest) returns (VMResponse);
   rpc StopVM(StopVMRequest) returns (OperationResponse);
+  rpc EnsureLocalEnvironment(EnsureLocalEnvironmentRequest) returns (GetEnvironmentResponse);
   rpc CreateAgentSession(CreateAgentSessionRequest) returns (CreateAgentSessionResponse);
   rpc RevokeAgentSession(RevokeAgentSessionRequest) returns (google.protobuf.Empty);
   rpc GetSystemSnapshot(GetSystemSnapshotRequest) returns (GetSystemSnapshotResponse);
@@ -59,6 +60,23 @@ service OperatorService {
   rpc RunDiagnostics(RunDiagnosticsRequest) returns (OperationResponse);
   rpc PreviewSupportBundle(PreviewSupportBundleRequest) returns (SupportBundlePreview);
   rpc ExportSupportBundle(ExportSupportBundleRequest) returns (OperationResponse);
+  rpc CreateRemoteRegistration(CreateRemoteRegistrationRequest) returns (RemoteRegistrationResponse);
+  rpc UpdateRemotePool(UpdateRemotePoolRequest) returns (RemoteRegistrationResponse);
+  rpc SetRemoteRegistrationState(SetRemoteRegistrationStateRequest) returns (RemoteRegistrationResponse);
+  rpc GetRemoteRegistration(GetRemoteRegistrationRequest) returns (RemoteRegistrationResponse);
+}
+
+service RemoteComputeService {
+  rpc GetRemoteState(GetRemoteStateRequest) returns (GetRemoteStateResponse);
+  rpc SetConnectionState(SetConnectionStateRequest) returns (GetRemoteStateResponse);
+  rpc EnsureAllocation(EnsureAllocationRequest) returns (AllocationResponse);
+  rpc ReleaseAllocation(ReleaseAllocationRequest) returns (AllocationResponse);
+  rpc PlanDiscardAllocation(PlanDiscardAllocationRequest) returns (AllocationCleanupPlanResponse);
+  rpc ExecuteDiscardAllocation(ExecuteDiscardAllocationRequest) returns (AllocationResponse);
+  rpc AcquireLease(AcquireLeaseRequest) returns (LeaseResponse);
+  rpc RenewLease(RenewLeaseRequest) returns (LeaseResponse);
+  rpc ReleaseLease(ReleaseLeaseRequest) returns (LeaseResponse);
+  rpc OpenRuntimeSession(OpenRuntimeSessionRequest) returns (CreateAgentSessionResponse);
 }
 
 enum VMState {
@@ -101,6 +119,24 @@ message ResourceLimits {
   optional uint64 disk_bytes = 4;
 }
 
+enum EnvironmentOwnerKind {
+  ENVIRONMENT_OWNER_KIND_UNSPECIFIED = 0;
+  ENVIRONMENT_OWNER_KIND_LOCAL = 1;
+  ENVIRONMENT_OWNER_KIND_REMOTE_REGISTRATION = 2;
+}
+
+message EnvironmentOwner {
+  EnvironmentOwnerKind kind = 1;
+  string registration_id = 2;
+  string allocation_id = 3;
+}
+
+enum EnvironmentOrigin {
+  ENVIRONMENT_ORIGIN_UNSPECIFIED = 0;
+  ENVIRONMENT_ORIGIN_LOCAL = 1;
+  ENVIRONMENT_ORIGIN_REMOTE = 2;
+}
+
 message AgentEnvironment {
   string id = 1;
   string display_name = 2;
@@ -112,12 +148,19 @@ message AgentEnvironment {
   repeated Container containers = 8;
   repeated Volume volumes = 9;
   uint64 policy_revision = 10;
+  EnvironmentOwner owner = 11;
+  EnvironmentOrigin origin = 12;
+}
+
+message EnsureLocalEnvironmentRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string display_name = 3;
 }
 
 message CreateAgentSessionRequest {
   string request_id = 1;
   string environment_id = 2;
-  string display_name = 3;
 }
 message CreateAgentSessionResponse {
   string session_id = 1;
@@ -412,6 +455,7 @@ message GetSystemSnapshotResponse {
   Usage usage = 3;
   repeated AgentEnvironment environments = 4;
   google.protobuf.Timestamp collected_at = 5;
+  RemoteRegistration remote_registration = 6;
 }
 message WatchEventsRequest {
   uint64 after_sequence = 1;
@@ -575,4 +619,177 @@ message ExportSupportBundleRequest {
   string request_id = 1;
   optional string environment_id = 2;
   repeated string include_sensitive_items = 3;
+}
+
+enum RemoteRegistrationState {
+  REMOTE_REGISTRATION_STATE_UNSPECIFIED = 0;
+  REMOTE_REGISTRATION_STATE_ENABLED = 1;
+  REMOTE_REGISTRATION_STATE_DRAINING = 2;
+  REMOTE_REGISTRATION_STATE_REVOKED = 3;
+}
+
+enum RemoteConnectionState {
+  REMOTE_CONNECTION_STATE_UNSPECIFIED = 0;
+  REMOTE_CONNECTION_STATE_DISCONNECTED = 1;
+  REMOTE_CONNECTION_STATE_CONNECTED = 2;
+  REMOTE_CONNECTION_STATE_DRAINING = 3;
+}
+
+message RemotePoolPolicy {
+  uint32 max_environments = 1;
+  ResourceLimits aggregate_limits = 2;
+  ResourceLimits per_environment_limits = 3;
+  EgressMode max_egress_mode = 4;
+  google.protobuf.Duration max_lease_duration = 5;
+  google.protobuf.Duration disconnect_grace = 6;
+  google.protobuf.Duration stop_grace = 7;
+}
+
+message RemoteRegistration {
+  string id = 1;
+  string endpoint = 2;
+  string display_name = 3;
+  string protocol_version = 4;
+  RemotePoolPolicy pool = 5;
+  uint64 revision = 6;
+  RemoteRegistrationState state = 7;
+  RemoteConnectionState connection_state = 8;
+  repeated RemoteAllocation allocations = 9;
+}
+
+message CreateRemoteRegistrationRequest {
+  string request_id = 1;
+  string endpoint = 2;
+  string display_name = 3;
+  string protocol_version = 4;
+  RemotePoolPolicy pool = 5;
+}
+
+message UpdateRemotePoolRequest {
+  string request_id = 1;
+  uint64 expected_revision = 2;
+  RemotePoolPolicy pool = 3;
+}
+
+message SetRemoteRegistrationStateRequest {
+  string request_id = 1;
+  uint64 expected_revision = 2;
+  RemoteRegistrationState state = 3;
+}
+
+message GetRemoteRegistrationRequest {}
+
+message RemoteRegistrationResponse {
+  RemoteRegistration registration = 1;
+}
+
+enum AllocationState {
+  ALLOCATION_STATE_UNSPECIFIED = 0;
+  ALLOCATION_STATE_READY = 1;
+  ALLOCATION_STATE_LEASED = 2;
+  ALLOCATION_STATE_DRAINING = 3;
+  ALLOCATION_STATE_RETAINED = 4;
+  ALLOCATION_STATE_DISCARDED = 5;
+}
+
+message RemoteAllocation {
+  string allocation_id = 1;
+  string display_label = 2;
+  ResourceLimits limits = 3;
+  EgressMode egress_mode = 4;
+  uint64 revision = 5;
+  AllocationState state = 6;
+  RemoteLease lease = 7;
+}
+
+enum LeaseState {
+  LEASE_STATE_UNSPECIFIED = 0;
+  LEASE_STATE_ACTIVE = 1;
+  LEASE_STATE_EXPIRED = 2;
+  LEASE_STATE_RELEASED = 3;
+  LEASE_STATE_REVOKED = 4;
+}
+
+message RemoteLease {
+  string lease_id = 1;
+  string allocation_id = 2;
+  string workload_ref = 3;
+  uint64 generation = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  LeaseState state = 6;
+}
+
+message GetRemoteStateRequest {}
+
+message GetRemoteStateResponse {
+  RemoteRegistration registration = 1;
+}
+
+message SetConnectionStateRequest {
+  string connection_instance = 1;
+  RemoteConnectionState state = 2;
+}
+
+message EnsureAllocationRequest {
+  string allocation_id = 1;
+  string display_label = 2;
+  ResourceLimits limits = 3;
+  EgressMode egress_mode = 4;
+  uint64 policy_revision = 5;
+}
+
+message AllocationResponse {
+  RemoteAllocation allocation = 1;
+}
+
+message ReleaseAllocationRequest {
+  string allocation_id = 1;
+}
+
+message PlanDiscardAllocationRequest {
+  string allocation_id = 1;
+}
+
+message AllocationCleanupPlan {
+  string allocation_id = 1;
+  uint64 revision = 2;
+  repeated string volume_ids = 3;
+  repeated CleanupImpact impacts = 4;
+}
+
+message AllocationCleanupPlanResponse {
+  AllocationCleanupPlan plan = 1;
+}
+
+message ExecuteDiscardAllocationRequest {
+  string allocation_id = 1;
+  uint64 plan_revision = 2;
+  repeated string confirmed_volume_ids = 3;
+}
+
+message AcquireLeaseRequest {
+  string allocation_id = 1;
+  google.protobuf.Duration duration = 2;
+  string workload_ref = 3;
+}
+
+message RenewLeaseRequest {
+  string lease_id = 1;
+  uint64 generation = 2;
+  google.protobuf.Duration duration = 3;
+}
+
+message ReleaseLeaseRequest {
+  string lease_id = 1;
+  uint64 generation = 2;
+}
+
+message LeaseResponse {
+  RemoteLease lease = 1;
+}
+
+message OpenRuntimeSessionRequest {
+  string lease_id = 1;
+  uint64 generation = 2;
+  string allocation_id = 3;
 }

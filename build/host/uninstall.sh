@@ -9,10 +9,12 @@ esac
 test "$user_home" != "/"
 app="$user_home/Applications/Agent VMM.app"
 plist="$user_home/Library/LaunchAgents/com.afk-surf.agent-vmm.plist"
+connect_plist="$user_home/Library/LaunchAgents/com.afk-surf.agent-vmm-connect.plist"
 domain="gui/$(id -u)"
 
 launchctl bootout "$domain/com.afk-surf.agent-vmm" 2>/dev/null || true
-rm -f "$plist"
+launchctl bootout "$domain/com.afk-surf.agent-vmm-connect" 2>/dev/null || true
+rm -f "$plist" "$connect_plist"
 rm -rf "$app"
 
 if [ "${1:-}" = "--purge" ]; then

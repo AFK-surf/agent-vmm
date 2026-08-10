@@ -22,7 +22,7 @@ import Foundation
     let environment = AgentEnvironmentModel(
         id: "a", name: "Research", namespaceID: "hidden", health: .healthy, usage: nil, workloads: [], volumes: [],
         limits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 1_073_741_824, pids: 128, diskBytes: 10_737_418_240),
-        egressSummary: "Blocked by default", allowsPublicEgress: false, policyRevision: 1
+        egressSummary: "Blocked by default", allowsPublicEgress: false, policyRevision: 1, origin: .local, allocationID: nil
     )
     #expect(environment.name == "Research")
     #expect(environment.egressSummary == "Blocked by default")

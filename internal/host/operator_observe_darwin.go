@@ -20,6 +20,9 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 		return nil, err
 	}
 	response := &hostv1.GetSystemSnapshotResponse{Vm: server.controller.manager.Snapshot(), CollectedAt: timestamppb.Now()}
+	if registration, registrationErr := server.controller.store.ActiveRemoteRegistration(ctx); registrationErr == nil {
+		response.RemoteRegistration = server.controller.remoteRegistrationResponse(ctx, registration).GetRegistration()
+	}
 	environments, err := server.controller.store.ListEnvironments(ctx)
 	if err != nil {
 		return nil, err

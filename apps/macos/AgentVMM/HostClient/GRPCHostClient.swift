@@ -206,9 +206,51 @@ actor GRPCHostClient: HostServing {
         request.includeSensitiveItems = sensitiveItems
         return operation(try await service.exportSupportBundle(request).operation)
     }
+
+    func createRemoteRegistration(endpoint: String, displayName: String, pool: RemotePoolSettings) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_CreateRemoteRegistrationRequest()
+        request.requestID = UUID().uuidString
+        request.endpoint = endpoint
+        request.displayName = displayName
+        request.protocolVersion = "1"
+        request.pool = remotePool(pool)
+        return remoteRegistration(try await service.createRemoteRegistration(request).registration)
+    }
+
+    func updateRemotePool(_ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_UpdateRemotePoolRequest()
+        request.requestID = UUID().uuidString
+        request.expectedRevision = expectedRevision
+        request.pool = remotePool(pool)
+        return remoteRegistration(try await service.updateRemotePool(request).registration)
+    }
+
+    func setRemoteRegistrationState(_ state: Agentvmm_Host_V1_RemoteRegistrationState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+        var request = Agentvmm_Host_V1_SetRemoteRegistrationStateRequest()
+        request.requestID = UUID().uuidString
+        request.expectedRevision = expectedRevision
+        request.state = state
+        return remoteRegistration(try await service.setRemoteRegistrationState(request).registration)
+    }
 }
 
 private extension GRPCHostClient {
+    nonisolated func remotePool(_ value: RemotePoolSettings) -> Agentvmm_Host_V1_RemotePoolPolicy {
+        var limits = Agentvmm_Host_V1_ResourceLimits()
+        limits.cpuMillis = value.cpuMillis
+        limits.memoryBytes = value.memoryBytes
+        limits.pids = value.pids
+        limits.diskBytes = value.diskBytes
+        var pool = Agentvmm_Host_V1_RemotePoolPolicy()
+        pool.maxEnvironments = value.maxEnvironments
+        pool.aggregateLimits = limits
+        pool.perEnvironmentLimits = limits
+        pool.maxEgressMode = .publicInternet
+        pool.maxLeaseDuration.seconds = 3600
+        pool.disconnectGrace.seconds = 30
+        pool.stopGrace.seconds = 10
+        return pool
+    }
     nonisolated func map(_ response: Agentvmm_Host_V1_GetSystemSnapshotResponse) -> SystemSnapshotModel {
         SystemSnapshotModel(
             vmState: vmState(response.vm.state),
@@ -219,6 +261,7 @@ private extension GRPCHostClient {
             },
             usage: usage(response.usage),
             environments: response.environments.map(environment),
+            remoteRegistration: response.hasRemoteRegistration ? remoteRegistration(response.remoteRegistration) : nil,
             collectedAt: response.collectedAt.date
         )
     }
@@ -247,7 +290,22 @@ private extension GRPCHostClient {
             limits: EnvironmentLimits(cpuMillis: value.limits.cpuMillis, memoryBytes: value.limits.memoryBytes, pids: value.limits.pids, diskBytes: value.limits.diskBytes),
             egressSummary: value.egressMode == .publicInternet ? "Public internet" : "Blocked by default",
             allowsPublicEgress: value.egressMode == .publicInternet,
-            policyRevision: value.policyRevision
+            policyRevision: value.policyRevision,
+            origin: value.owner.kind == .remoteRegistration ? .remote : .local,
+            allocationID: value.owner.allocationID.nilIfEmpty
+        )
+    }
+
+    nonisolated func remoteRegistration(_ value: Agentvmm_Host_V1_RemoteRegistration) -> RemoteRegistrationModel {
+        RemoteRegistrationModel(
+            id: value.id,
+            displayName: value.displayName,
+            endpoint: value.endpoint,
+            state: String(describing: value.state),
+            connectionState: String(describing: value.connectionState),
+            revision: value.revision,
+            maxEnvironments: value.pool.maxEnvironments,
+            activeLeases: value.allocations.filter(\.hasLease).count
         )
     }
 

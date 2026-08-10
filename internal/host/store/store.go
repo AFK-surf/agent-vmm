@@ -11,22 +11,31 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
+
+const (
+	OwnerLocal              = 1
+	OwnerRemoteRegistration = 2
+)
 
 type Store struct {
 	db *sql.DB
 }
 
 type Environment struct {
-	ID             string
-	NamespaceID    string
-	DisplayName    string
-	CPUMillis      uint32
-	MemoryBytes    uint64
-	PIDs           uint32
-	DiskBytes      uint64
-	EgressMode     int32
-	PolicyRevision uint64
+	ID              string
+	NamespaceID     string
+	DisplayName     string
+	CPUMillis       uint32
+	MemoryBytes     uint64
+	PIDs            uint32
+	DiskBytes       uint64
+	EgressMode      int32
+	PolicyRevision  uint64
+	OwnerKind       int32
+	RegistrationID  string
+	AllocationID    string
+	AllocationState int32
 }
 
 type Session struct {
@@ -89,89 +98,19 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("recover interrupted operations: %w", err)
 	}
+	if _, err := db.Exec(`UPDATE environments SET allocation_state=4, policy_revision=policy_revision+1,
+		updated_at=? WHERE owner_kind=2 AND allocation_state=2`, time.Now().UnixNano()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("recover remote allocations: %w", err)
+	}
+	if _, err := db.Exec(`UPDATE remote_registrations SET connection_state=1, connection_instance='', updated_at=?`, time.Now().UnixNano()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("recover remote connection state: %w", err)
+	}
 	return result, nil
 }
 
 func (store *Store) Close() error { return store.db.Close() }
-
-func (store *Store) migrate(ctx context.Context) error {
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version INTEGER PRIMARY KEY,
-		applied_at INTEGER NOT NULL
-	)`); err != nil {
-		return err
-	}
-	var version int
-	err = tx.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&version)
-	if err != nil {
-		return err
-	}
-	if version > schemaVersion {
-		return fmt.Errorf("host database schema %d is newer than supported %d", version, schemaVersion)
-	}
-	if version == 0 {
-		if err := migrateV1(tx); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func migrateV1(tx *sql.Tx) error {
-	statements := []string{
-		`CREATE TABLE vm_config (
-			id INTEGER PRIMARY KEY CHECK (id = 1), instance_id TEXT NOT NULL,
-			bundle_directory TEXT NOT NULL, instance_directory TEXT NOT NULL,
-			state_disk_identity TEXT NOT NULL, cpu_count INTEGER NOT NULL,
-			memory_bytes INTEGER NOT NULL, state_bytes INTEGER NOT NULL
-		)`,
-		`CREATE TABLE environments (
-			id TEXT PRIMARY KEY, namespace_id TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
-			cpu_millis INTEGER NOT NULL, memory_bytes INTEGER NOT NULL, pids INTEGER NOT NULL,
-			disk_bytes INTEGER NOT NULL, egress_mode INTEGER NOT NULL,
-			policy_revision INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-		)`,
-		`CREATE TABLE sessions (
-			id TEXT PRIMARY KEY, environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
-			socket_path TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, revoked_at INTEGER
-		)`,
-		`CREATE TABLE grants (
-			id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_namespace_id TEXT NOT NULL,
-			target_namespace_id TEXT NOT NULL, methods TEXT NOT NULL, expires_at INTEGER,
-			revoked_at INTEGER, revision INTEGER NOT NULL DEFAULT 1
-		)`,
-		`CREATE TABLE volume_policies (
-			volume_id TEXT NOT NULL, owner_namespace_id TEXT NOT NULL REFERENCES environments(namespace_id) ON DELETE CASCADE,
-			revision INTEGER NOT NULL DEFAULT 1,
-			PRIMARY KEY (owner_namespace_id, volume_id)
-		)`,
-		`CREATE TABLE operations (
-			id TEXT PRIMARY KEY, kind TEXT NOT NULL, environment_id TEXT NOT NULL,
-			state INTEGER NOT NULL, stage TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE,
-			error_reason TEXT NOT NULL DEFAULT '', error_message TEXT NOT NULL DEFAULT '', output_path TEXT NOT NULL DEFAULT '',
-			started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-		)`,
-		`CREATE TABLE audit (
-			sequence INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, target TEXT NOT NULL,
-			method TEXT NOT NULL, grant_id TEXT NOT NULL, request_id TEXT NOT NULL,
-			result_code INTEGER NOT NULL, reason TEXT NOT NULL, occurred_at INTEGER NOT NULL
-		)`,
-	}
-	for _, statement := range statements {
-		if _, err := tx.Exec(statement); err != nil {
-			return fmt.Errorf("create host schema: %w", err)
-		}
-	}
-	return nil
-}
 
 func (store *Store) PutVMConfig(ctx context.Context, instanceID, bundleDirectory, instanceDirectory, stateDiskIdentity string, cpuCount uint, memoryBytes uint64, stateBytes int64) error {
 	_, err := store.db.ExecContext(ctx, `INSERT INTO vm_config
@@ -186,11 +125,15 @@ func (store *Store) PutVMConfig(ctx context.Context, instanceID, bundleDirectory
 }
 
 func (store *Store) CreateEnvironment(ctx context.Context, environment Environment) (Environment, error) {
+	if environment.OwnerKind == 0 {
+		return Environment{}, errors.New("environment owner is required")
+	}
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `INSERT INTO environments
-		(id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, environment.ID, environment.NamespaceID, environment.DisplayName,
-		environment.CPUMillis, environment.MemoryBytes, environment.PIDs, environment.DiskBytes, environment.EgressMode, now, now)
+		(id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, owner_kind, registration_id, allocation_id, allocation_state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), ?, ?)`, environment.ID, environment.NamespaceID, environment.DisplayName,
+		environment.CPUMillis, environment.MemoryBytes, environment.PIDs, environment.DiskBytes, environment.EgressMode,
+		environment.OwnerKind, environment.RegistrationID, environment.AllocationID, environment.AllocationState, now, now)
 	if err != nil {
 		return Environment{}, err
 	}
@@ -199,12 +142,21 @@ func (store *Store) CreateEnvironment(ctx context.Context, environment Environme
 
 func (store *Store) GetEnvironment(ctx context.Context, id string) (Environment, error) {
 	return scanEnvironment(store.db.QueryRowContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
-		memory_bytes, pids, disk_bytes, egress_mode, policy_revision FROM environments WHERE id = ?`, id))
+		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments WHERE id = ?`, id))
+}
+
+func (store *Store) GetRemoteEnvironment(ctx context.Context, registrationID, allocationID string) (Environment, error) {
+	return scanEnvironment(store.db.QueryRowContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
+		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments
+		WHERE owner_kind = 2 AND registration_id = ? AND allocation_id = ?`, registrationID, allocationID))
 }
 
 func (store *Store) EnvironmentByNamespace(ctx context.Context, namespaceID string) (Environment, error) {
 	return scanEnvironment(store.db.QueryRowContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
-		memory_bytes, pids, disk_bytes, egress_mode, policy_revision FROM environments WHERE namespace_id = ?`, namespaceID))
+		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments WHERE namespace_id = ?`, namespaceID))
 }
 
 type rowScanner interface{ Scan(...any) error }
@@ -212,13 +164,15 @@ type rowScanner interface{ Scan(...any) error }
 func scanEnvironment(row rowScanner) (Environment, error) {
 	var environment Environment
 	err := row.Scan(&environment.ID, &environment.NamespaceID, &environment.DisplayName, &environment.CPUMillis,
-		&environment.MemoryBytes, &environment.PIDs, &environment.DiskBytes, &environment.EgressMode, &environment.PolicyRevision)
+		&environment.MemoryBytes, &environment.PIDs, &environment.DiskBytes, &environment.EgressMode, &environment.PolicyRevision,
+		&environment.OwnerKind, &environment.RegistrationID, &environment.AllocationID, &environment.AllocationState)
 	return environment, err
 }
 
 func (store *Store) ListEnvironments(ctx context.Context) ([]Environment, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
-		memory_bytes, pids, disk_bytes, egress_mode, policy_revision FROM environments ORDER BY display_name, id`)
+		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments ORDER BY display_name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +201,22 @@ func (store *Store) UpdatePolicy(ctx context.Context, id string, expectedRevisio
 	}
 	if changed != 1 {
 		return Environment{}, errors.New("policy revision conflict")
+	}
+	return store.GetEnvironment(ctx, id)
+}
+
+func (store *Store) SetAllocationState(ctx context.Context, id string, expectedRevision uint64, state int32) (Environment, error) {
+	result, err := store.db.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
+		updated_at=? WHERE id=? AND owner_kind=2 AND policy_revision=?`, state, time.Now().UnixNano(), id, expectedRevision)
+	if err != nil {
+		return Environment{}, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return Environment{}, err
+	}
+	if changed != 1 {
+		return Environment{}, errors.New("allocation revision conflict")
 	}
 	return store.GetEnvironment(ctx, id)
 }

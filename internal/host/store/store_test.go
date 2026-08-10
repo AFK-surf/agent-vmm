@@ -10,6 +10,123 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 )
 
+func TestSchemaV1MigrationAssignsLocalOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := database.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateV1(tx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO environments(id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, created_at, updated_at)
+		VALUES ('existing', 'namespace', 'Existing', 1000, 1073741824, 128, 4294967296, 1, 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	environment, err := store.GetEnvironment(context.Background(), "existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if environment.OwnerKind != OwnerLocal || environment.RegistrationID != "" || environment.AllocationID != "" || environment.AllocationState != 0 {
+		t.Fatalf("migrated environment = %+v", environment)
+	}
+}
+
+func TestNewerSchemaIsRejectedWithoutRollback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
+		INSERT INTO schema_migrations(version, applied_at) VALUES (3, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if store, err := Open(path); err == nil {
+		store.Close()
+		t.Fatal("newer schema was opened")
+	}
+}
+
+func TestEnvironmentOwnerConstraints(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	cases := []Environment{
+		{ID: "local-with-remote", NamespaceID: "n1", DisplayName: "bad", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal, RegistrationID: "r", AllocationID: "a"},
+		{ID: "remote-without-owner", NamespaceID: "n2", DisplayName: "bad", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerRemoteRegistration, AllocationState: 1},
+	}
+	for _, value := range cases {
+		if _, err := store.CreateEnvironment(ctx, value); err == nil {
+			t.Fatalf("invalid owner was accepted: %+v", value)
+		}
+	}
+	remote := Environment{ID: "remote-a", NamespaceID: "rn1", DisplayName: "remote", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerRemoteRegistration, RegistrationID: "r", AllocationID: "a", AllocationState: 1}
+	if _, err := store.CreateEnvironment(ctx, remote); err != nil {
+		t.Fatal(err)
+	}
+	remote.ID, remote.NamespaceID = "remote-b", "rn2"
+	if _, err := store.CreateEnvironment(ctx, remote); err == nil {
+		t.Fatal("duplicate registration/allocation mapping was accepted")
+	}
+}
+
+func TestSingleActiveRemoteRegistration(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	registration := RemoteRegistration{
+		ID: "one", Endpoint: "controller.example:443", DisplayName: "one", ProtocolVersion: "1", MaxEnvironments: 2,
+		AggregateCPUMillis: 2000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 8 << 30,
+		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, MaxLeaseSeconds: 3600, DisconnectGraceSeconds: 30, StopGraceSeconds: 10, State: 1, ConnectionState: 1,
+	}
+	created, err := store.CreateRemoteRegistration(ctx, registration)
+	if err != nil || created.Revision != 1 {
+		t.Fatalf("created=%+v err=%v", created, err)
+	}
+	registration.ID = "two"
+	if _, err := store.CreateRemoteRegistration(ctx, registration); err == nil {
+		t.Fatal("second active registration was accepted")
+	}
+	if _, err := store.SetRemoteRegistrationState(ctx, created.ID, created.Revision, 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEnvironmentPolicyAndSessionPersistence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.db")
 	store, err := Open(path)
@@ -19,7 +136,7 @@ func TestEnvironmentPolicyAndSessionPersistence(t *testing.T) {
 	ctx := context.Background()
 	environment, err := store.CreateEnvironment(ctx, Environment{
 		ID: "environment-a", NamespaceID: "namespace-a", DisplayName: "Agent A",
-		CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1,
+		CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1, OwnerKind: OwnerLocal,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -22,7 +22,7 @@ import (
 
 func main() {
 	var config vmm.Config
-	var operatorSocket, databasePath, sessionDirectory string
+	var operatorSocket, remoteComputeSocket, databasePath, sessionDirectory string
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
 	flag.StringVar(&config.InstanceDirectory, "instance", "", "VM instance directory")
 	flag.UintVar(&config.CPUCount, "cpus", 2, "fixed VM CPU count")
@@ -30,14 +30,15 @@ func main() {
 	flag.Int64Var(&config.StateBytes, "state-size", 8<<30, "state disk logical bytes")
 	flag.StringVar(&config.SerialLog, "serial-log", "", "serial log path")
 	flag.StringVar(&operatorSocket, "operator-socket", "", "operator Unix socket")
+	flag.StringVar(&remoteComputeSocket, "remote-compute-socket", "", "restricted remote connector Unix socket")
 	flag.StringVar(&databasePath, "database", "", "host control-plane SQLite database")
 	flag.StringVar(&sessionDirectory, "session-directory", "", "agent session socket directory")
 	flag.Parse()
 	config.TrustRoot = trustRoot
-	if operatorSocket == "" || databasePath == "" || sessionDirectory == "" {
-		log.Fatal("operator-socket, database, and session-directory are required")
+	if operatorSocket == "" || remoteComputeSocket == "" || databasePath == "" || sessionDirectory == "" {
+		log.Fatal("operator-socket, remote-compute-socket, database, and session-directory are required")
 	}
-	for _, directory := range []string{filepath.Dir(operatorSocket), filepath.Dir(databasePath), filepath.Dir(config.SerialLog), sessionDirectory} {
+	for _, directory := range []string{filepath.Dir(operatorSocket), filepath.Dir(remoteComputeSocket), filepath.Dir(databasePath), filepath.Dir(config.SerialLog), sessionDirectory} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			log.Fatal(err)
 		}
@@ -61,16 +62,28 @@ func main() {
 		log.Fatal(err)
 	}
 	defer listener.Close()
+	remoteListener, err := listenOperator(remoteComputeSocket)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer remoteListener.Close()
 	server := controller.NewOperatorServer()
+	remoteServer := controller.NewRemoteComputeServer()
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go shutdown(ctx, server, manager)
+	go shutdown(ctx, []*grpc.Server{server, remoteServer}, manager)
+	go func() {
+		if err := remoteServer.Serve(remoteListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			log.Printf("remote compute service stopped: %v", err)
+			server.Stop()
+		}
+	}()
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
 	}
 }
 
-func shutdown(ctx context.Context, server *grpc.Server, manager *vmm.Manager) {
+func shutdown(ctx context.Context, servers []*grpc.Server, manager *vmm.Manager) {
 	<-ctx.Done()
 	stopContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -79,15 +92,17 @@ func shutdown(ctx context.Context, server *grpc.Server, manager *vmm.Manager) {
 			_, _ = manager.Stop(stopContext, true)
 		}
 	}
-	done := make(chan struct{})
-	go func() {
-		server.GracefulStop()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-stopContext.Done():
-		server.Stop()
+	for _, server := range servers {
+		done := make(chan struct{})
+		go func() {
+			server.GracefulStop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-stopContext.Done():
+			server.Stop()
+		}
 	}
 }
 

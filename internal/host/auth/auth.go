@@ -14,13 +14,17 @@ type Role uint8
 const (
 	Agent Role = iota + 1
 	Operator
+	RemoteConnector
 )
 
 type Identity struct {
-	Role          Role
-	SessionID     string
-	EnvironmentID string
-	NamespaceID   string
+	Role           Role
+	SessionID      string
+	EnvironmentID  string
+	NamespaceID    string
+	RegistrationID string
+	AllocationID   string
+	LeaseID        string
 }
 
 type identityKey struct{}
@@ -49,6 +53,14 @@ func OperatorIdentity(ctx context.Context) (Identity, error) {
 	identity, ok := ctx.Value(identityKey{}).(Identity)
 	if !ok || identity.Role != Operator {
 		return Identity{}, status.Error(codes.PermissionDenied, "operator endpoint is required")
+	}
+	return identity, nil
+}
+
+func RemoteConnectorIdentity(ctx context.Context) (Identity, error) {
+	identity, ok := ctx.Value(identityKey{}).(Identity)
+	if !ok || identity.Role != RemoteConnector {
+		return Identity{}, status.Error(codes.PermissionDenied, "remote connector endpoint is required")
 	}
 	return identity, nil
 }

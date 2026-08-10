@@ -11,6 +11,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -35,6 +36,51 @@ func auditUnary(controller *Controller) grpc.UnaryServerInterceptor {
 			auditRPC(controller, ctx, info.FullMethod, request, response, err)
 		}
 		return response, err
+	}
+}
+
+func remoteRuntimeUnary(ownerKind int32) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if ownerKind == store.OwnerRemoteRegistration && remoteRuntimeDenied(info.FullMethod) {
+			return nil, status.Error(codes.PermissionDenied, "remote runtime session cannot manage environment lifecycle")
+		}
+		return handler(ctx, request)
+	}
+}
+
+func remoteRuntimeStream(ownerKind int32) grpc.StreamServerInterceptor {
+	return func(server any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if ownerKind == store.OwnerRemoteRegistration && remoteRuntimeDenied(info.FullMethod) {
+			return status.Error(codes.PermissionDenied, "remote runtime session cannot manage environment lifecycle")
+		}
+		return handler(server, stream)
+	}
+}
+
+func remoteRuntimeDenied(method string) bool {
+	switch method {
+	case hostv1.AgentRuntimeService_GetEnvironment_FullMethodName,
+		hostv1.AgentRuntimeService_PullImage_FullMethodName,
+		hostv1.AgentRuntimeService_CreateContainer_FullMethodName,
+		hostv1.AgentRuntimeService_StartContainer_FullMethodName,
+		hostv1.AgentRuntimeService_StopContainer_FullMethodName,
+		hostv1.AgentRuntimeService_WaitContainer_FullMethodName,
+		hostv1.AgentRuntimeService_DeleteContainer_FullMethodName,
+		hostv1.AgentRuntimeService_GetContainer_FullMethodName,
+		hostv1.AgentRuntimeService_ListContainers_FullMethodName,
+		hostv1.AgentRuntimeService_Logs_FullMethodName,
+		hostv1.AgentRuntimeService_Exec_FullMethodName,
+		hostv1.AgentRuntimeService_SignalContainer_FullMethodName,
+		hostv1.AgentRuntimeService_CreateVolume_FullMethodName,
+		hostv1.AgentRuntimeService_DeleteVolume_FullMethodName,
+		hostv1.AgentRuntimeService_GetVolume_FullMethodName,
+		hostv1.AgentRuntimeService_ListVolumes_FullMethodName,
+		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
+		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
+		hostv1.AgentRuntimeService_ReleaseSession_FullMethodName:
+		return false
+	default:
+		return true
 	}
 }
 
@@ -68,6 +114,10 @@ func auditRPC(controller *Controller, ctx context.Context, fullMethod string, re
 	target := identity.EnvironmentID
 	if identity.Role == auth.Agent {
 		actor = identity.SessionID
+		if identity.RegistrationID != "" {
+			actor = "remote:" + identity.RegistrationID + ":" + identity.LeaseID
+			target = identity.AllocationID
+		}
 	}
 	requestID := ""
 	if message, ok := request.(proto.Message); ok {
@@ -197,15 +247,36 @@ func addErrorDetails(ctx context.Context, err error) error {
 		return nil
 	}
 	value, ok := status.FromError(err)
-	if !ok || len(value.Details()) != 0 {
+	if !ok {
 		return err
+	}
+	identity, identityErr := auth.IdentityFromContext(ctx)
+	remote := identityErr == nil && identity.RegistrationID != ""
+	if len(value.Details()) != 0 {
+		if !remote {
+			return err
+		}
+		clean := status.New(value.Code(), value.Message())
+		for _, detail := range value.Details() {
+			var detailErr error
+			switch safe := detail.(type) {
+			case *errdetails.ErrorInfo:
+				clean, detailErr = clean.WithDetails(safe)
+			case *errdetails.RetryInfo:
+				clean, detailErr = clean.WithDetails(safe)
+			}
+			if detailErr != nil {
+				return status.Error(value.Code(), value.Message())
+			}
+		}
+		return clean.Err()
 	}
 	reason := "RPC_" + strings.ToUpper(value.Code().String())
 	withDetails, detailErr := value.WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "agentvmm.afk.surf"})
 	if detailErr != nil {
 		return err
 	}
-	if identity, identityErr := auth.IdentityFromContext(ctx); identityErr == nil && identity.EnvironmentID != "" {
+	if identityErr == nil && identity.EnvironmentID != "" && !remote {
 		withDetails, detailErr = withDetails.WithDetails(&errdetails.ResourceInfo{ResourceType: "environment", ResourceName: identity.EnvironmentID})
 		if detailErr != nil {
 			return err
