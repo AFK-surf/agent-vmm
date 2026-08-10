@@ -110,9 +110,20 @@ actor GRPCHostClient: HostServing {
                 digest: $0.digest,
                 logicalBytes: $0.logicalBytes,
                 platforms: $0.platforms,
-                usedByContainerIDs: $0.usedByContainerIds
+                usedByContainerIDs: $0.usedByContainerIds,
+                generationID: $0.generationID
             )
         }
+    }
+
+    func deleteImage(environmentID: String, reference: String, expectedGenerationID: String, expectedDigest: String) async throws {
+        var request = Agentvmm_Host_V1_DeleteEnvironmentImageRequest()
+        request.requestID = UUID().uuidString
+        request.environmentID = environmentID
+        request.reference = reference
+        request.expectedGenerationID = expectedGenerationID
+        request.expectedDigest = expectedDigest
+        _ = try await service.deleteEnvironmentImage(request)
     }
 
     func startVM() async throws -> OperationModel {
@@ -151,6 +162,15 @@ actor GRPCHostClient: HostServing {
         request.containerID = containerID
         request.signal = signal == .kill ? .kill : .int
         _ = try await service.signalContainer(request)
+    }
+
+    func deleteContainer(environmentID: String, containerID: String, expectedGenerationID: String) async throws {
+        var request = Agentvmm_Host_V1_OperatorDeleteContainerRequest()
+        request.requestID = UUID().uuidString
+        request.environmentID = environmentID
+        request.containerID = containerID
+        request.expectedGenerationID = expectedGenerationID
+        _ = try await service.deleteContainer(request)
     }
 
     func updatePolicy(environmentID: String, limits: EnvironmentLimits, allowsPublicEgress: Bool, expectedRevision: UInt64) async throws {
@@ -436,7 +456,7 @@ private extension GRPCHostClient {
                 default: .unknown
                 }
                 return Workload(
-                    id: $0.id, image: $0.image, state: state, exitCode: $0.hasExitCode ? $0.exitCode : nil,
+                    id: $0.id, generationID: $0.generationID, image: $0.image, state: state, exitCode: $0.hasExitCode ? $0.exitCode : nil,
                     argv: $0.argv, environmentKeys: $0.environmentKeys, workdir: $0.hasWorkdir ? $0.workdir : nil,
                     user: $0.hasUser ? $0.user : nil, mounts: $0.volumes.map { "\($0.volumeID) → \($0.destination)" },
                     instanceID: $0.instanceID.nilIfEmpty,

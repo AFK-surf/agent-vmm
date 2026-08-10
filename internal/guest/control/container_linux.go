@@ -5,11 +5,11 @@ package control
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -83,7 +83,7 @@ func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID s
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
-	stdout, stderr, err := newRecordLog(logPath(namespaceID, containerID), logMetaPath(namespaceID, containerID), limit)
+	stdout, stderr, err := newRecordLog(logPath(namespaceID, containerID, current.GetGenerationId()), logMetaPath(namespaceID, containerID, current.GetGenerationId()), limit)
 	if err != nil {
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
@@ -315,38 +315,6 @@ func (r *Runtime) addWaiter(key string) chan uint32 {
 	return channel
 }
 
-func (r *Runtime) DeleteContainer(ctx context.Context, namespaceID, containerID string) error {
-	if err := validateID("actor_namespace_id", namespaceID); err != nil {
-		return err
-	}
-	if err := validateID("container_id", containerID); err != nil {
-		return err
-	}
-	unlock := r.lockNamespace(namespaceID)
-	defer unlock()
-	nsctx, container, current, err := r.loadContainer(ctx, namespaceID, containerID)
-	if err != nil {
-		return err
-	}
-	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-		return failedPrecondition("running container cannot be deleted")
-	}
-	if task, err := container.Task(nsctx, nil); err == nil {
-		cleanup, cancel := context.WithTimeout(nsctx, 10*time.Second)
-		err = deleteTask(cleanup, task)
-		cancel()
-		if err != nil {
-			return err
-		}
-	} else if !errdefs.IsNotFound(err) {
-		return err
-	}
-	if err := container.Delete(nsctx, containerd.WithSnapshotCleanup); err != nil {
-		return err
-	}
-	return os.RemoveAll(filepath.Dir(logPath(namespaceID, containerID)))
-}
-
 func (r *Runtime) InspectContainer(ctx context.Context, namespaceID, containerID string) (*vmmdv1.Container, error) {
 	_, _, container, err := r.loadContainer(ctx, namespaceID, containerID)
 	return container, err
@@ -413,7 +381,7 @@ func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, cont
 	} else if info.Labels[containerStateLabel] == "stopped" {
 		state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
 	}
-	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state, InstanceId: info.Labels[containerInstanceLabel]}
+	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state, InstanceId: info.Labels[containerInstanceLabel], GenerationId: containerGenerationID(info.ID, info.CreatedAt)}
 	result.CreatedAtUnixNano = info.CreatedAt.UnixNano()
 	result.StartedAtUnixNano, err = parseTimestampLabel(info.Labels[containerStartedLabel])
 	if err != nil {
@@ -452,6 +420,11 @@ func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, cont
 		}
 	}
 	return result, nil
+}
+
+func containerGenerationID(id string, createdAt time.Time) string {
+	value := sha256.Sum256([]byte(id + "\x00" + strconv.FormatInt(createdAt.UnixNano(), 10)))
+	return hex.EncodeToString(value[:])
 }
 
 func newContainerInstanceID() (string, error) {

@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/containerd/errdefs"
+	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -118,6 +120,60 @@ func (r *Runtime) PullImage(ctx context.Context, namespaceID, imageReference str
 
 func normalizeImageReference(value string) (string, error) {
 	return guestimage.NormalizeReference(value)
+}
+
+func imageGenerationID(image coreimages.Image) string {
+	value := image.Name + "\x00" + image.Target.Digest.String() + "\x00" + image.CreatedAt.UTC().Format(time.RFC3339Nano) + "\x00" + image.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
+}
+
+func (r *Runtime) DeleteImage(ctx context.Context, namespaceID, reference, expectedGenerationID, expectedDigest string) error {
+	if err := validateID("actor_namespace_id", namespaceID); err != nil {
+		return err
+	}
+	if expectedGenerationID == "" || expectedDigest == "" {
+		return errors.New("expected_generation_id and expected_digest are required")
+	}
+	if _, err := digest.Parse(expectedDigest); err != nil {
+		return imageError(codes.InvalidArgument, "IMAGE_DIGEST_INVALID", "expected image digest is invalid", reference)
+	}
+	canonical, err := normalizeImageReference(reference)
+	if err != nil {
+		return imageError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image reference is invalid", reference)
+	}
+	unlock := r.lockNamespace(namespaceID)
+	defer unlock()
+	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+		return err
+	}
+	nsctx := namespaceContext(ctx, namespaceID)
+	image, err := r.client.ImageService().Get(nsctx, canonical)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return imageError(codes.NotFound, "IMAGE_NOT_FOUND", "image is not available in this environment", canonical)
+		}
+		return err
+	}
+	if image.Target.Digest.String() != expectedDigest {
+		return imageError(codes.Aborted, "IMAGE_DIGEST_CONFLICT", "image content changed; refresh and try again", canonical)
+	}
+	if imageGenerationID(image) != expectedGenerationID {
+		return imageError(codes.Aborted, "IMAGE_GENERATION_CONFLICT", "image record changed; refresh and try again", canonical)
+	}
+	containers, err := r.client.Containers(nsctx)
+	if err != nil {
+		return err
+	}
+	for _, container := range containers {
+		info, err := container.Info(nsctx)
+		if err != nil {
+			return err
+		}
+		if info.Image == canonical {
+			return imageError(codes.FailedPrecondition, "IMAGE_IN_USE", "image is used by a container", canonical)
+		}
+	}
+	return r.client.ImageService().Delete(nsctx, canonical)
 }
 
 type registryResolverFactory func() (*http.Client, remotes.Resolver)

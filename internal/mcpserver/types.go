@@ -42,17 +42,22 @@ type ImagePullInput struct {
 	Reference string `json:"reference"`
 }
 
+type ImageDeleteInput struct {
+	Reference string `json:"reference"`
+}
+
 type ContainerRunInput struct {
-	ContainerID   string            `json:"container_id"`
-	Image         string            `json:"image"`
-	Entrypoint    *[]string         `json:"entrypoint,omitempty"`
-	Command       *[]string         `json:"command,omitempty"`
-	Env           map[string]string `json:"env,omitempty"`
-	Workdir       string            `json:"workdir,omitempty"`
-	User          string            `json:"user,omitempty"`
-	Volumes       []MountData       `json:"volumes,omitempty"`
-	ReadOnlyRoot  bool              `json:"read_only_root,omitempty"`
-	LogLimitBytes uint64            `json:"log_limit_bytes,omitempty"`
+	ContainerID              string            `json:"container_id"`
+	Image                    string            `json:"image"`
+	Entrypoint               *[]string         `json:"entrypoint,omitempty"`
+	Command                  *[]string         `json:"command,omitempty"`
+	Env                      map[string]string `json:"env,omitempty"`
+	Workdir                  string            `json:"workdir,omitempty"`
+	User                     string            `json:"user,omitempty"`
+	Volumes                  []MountData       `json:"volumes,omitempty"`
+	ReadOnlyRoot             bool              `json:"read_only_root,omitempty"`
+	LogLimitBytes            uint64            `json:"log_limit_bytes,omitempty"`
+	StartupObservationMillis int               `json:"startup_observation_ms,omitempty"`
 }
 
 type ContainerExecInput struct {
@@ -93,8 +98,8 @@ type ImagePage struct {
 	NextCursor string      `json:"next_cursor,omitempty"`
 }
 type RunData struct {
-	Container ContainerData `json:"container"`
-	Started   bool          `json:"started"`
+	Container       ContainerData `json:"container"`
+	LaunchSucceeded bool          `json:"launch_succeeded"`
 }
 type ExecData struct {
 	ExitCode  uint32 `json:"exit_code"`

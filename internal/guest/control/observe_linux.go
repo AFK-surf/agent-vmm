@@ -17,6 +17,7 @@ import (
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
 	"github.com/containerd/errdefs"
+	"google.golang.org/grpc/codes"
 )
 
 func (r *Runtime) GetNamespace(ctx context.Context, namespaceID string) (*vmmdv1.Namespace, error) {
@@ -246,26 +247,42 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 	}
 	result := make([]*vmmdv1.Image, 0, len(images))
 	for _, image := range images {
-		size, err := image.Size(ctx)
+		size, err := image.Size(namespaceContext(ctx, namespaceID))
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size)})
+		metadata, err := r.client.ImageService().Get(namespaceContext(ctx, namespaceID), image.Name())
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), GenerationId: imageGenerationID(metadata)})
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].GetReference() < result[right].GetReference() })
 	return result, nil
 }
 
 func (r *Runtime) GetImage(ctx context.Context, namespaceID, reference string) (*vmmdv1.Image, error) {
-	image, err := r.client.GetImage(namespaceContext(ctx, namespaceID), reference)
+	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+		return nil, err
+	}
+	canonical, err := normalizeImageReference(reference)
+	if err != nil {
+		return nil, imageError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image reference is invalid", reference)
+	}
+	nsctx := namespaceContext(ctx, namespaceID)
+	image, err := r.client.GetImage(nsctx, canonical)
 	if err != nil {
 		return nil, err
 	}
-	size, err := image.Size(ctx)
+	size, err := image.Size(nsctx)
 	if err != nil {
 		return nil, err
 	}
-	return &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size)}, nil
+	metadata, err := r.client.ImageService().Get(nsctx, canonical)
+	if err != nil {
+		return nil, err
+	}
+	return &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), GenerationId: imageGenerationID(metadata)}, nil
 }
 
 func (r *Runtime) NamespaceUsage(ctx context.Context, namespaceID string) (*vmmdv1.Usage, error) {

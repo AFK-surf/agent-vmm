@@ -14,6 +14,7 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 )
 
 type productClient struct {
@@ -181,6 +182,23 @@ func (client *productClient) PullImage(ctx context.Context, environmentID string
 	return session.client.PullImage(ctx, request)
 }
 
+func (client *productClient) ListImages(ctx context.Context, environmentID string) (*hostv1.ListImagesResponse, error) {
+	session, err := client.session(environmentID)
+	if err != nil {
+		return nil, err
+	}
+	return session.client.ListImages(ctx, &hostv1.ListImagesRequest{})
+}
+
+func (client *productClient) DeleteImage(ctx context.Context, environmentID string, request *hostv1.DeleteImageRequest) error {
+	session, err := client.session(environmentID)
+	if err != nil {
+		return err
+	}
+	_, err = session.client.DeleteImage(ctx, request)
+	return err
+}
+
 func (client *productClient) CreateVolume(ctx context.Context, environmentID string, request *hostv1.CreateVolumeRequest) (*hostv1.VolumeResponse, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
@@ -234,6 +252,14 @@ func (client *productClient) DeleteContainer(ctx context.Context, environmentID 
 	session, err := client.session(environmentID)
 	if err != nil {
 		return err
+	}
+	if request.GetExpectedGenerationId() == "" {
+		current, err := session.client.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: request.GetContainerId()})
+		if err != nil {
+			return err
+		}
+		request = proto.Clone(request).(*hostv1.ContainerMutationRequest)
+		request.ExpectedGenerationId = current.GetContainer().GetGenerationId()
 	}
 	_, err = session.client.DeleteContainer(ctx, request)
 	return err

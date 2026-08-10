@@ -313,7 +313,7 @@ func (server *operatorServer) performCleanup(ctx context.Context, operation *sto
 				return err
 			}
 		}
-		if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: operation.RequestID + "-delete-" + container.GetId(), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId()}); err != nil {
+		if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: operation.RequestID + "-delete-" + container.GetId(), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), ExpectedGenerationId: container.GetGenerationId()}); err != nil {
 			return err
 		}
 	}

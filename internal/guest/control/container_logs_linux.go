@@ -20,6 +20,7 @@ import (
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
+	"google.golang.org/grpc/codes"
 )
 
 const logHeaderBytes = 21
@@ -187,17 +188,18 @@ func readLogMeta(path string) (uint64, uint64, error) {
 }
 
 func (r *Runtime) StreamLogs(ctx context.Context, request *vmmdv1.LogsRequest, send func(*vmmdv1.LogsResponse) error) error {
-	path := logPath(request.GetActorNamespaceId(), request.GetContainerId())
+	container, err := r.InspectContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId())
+	if err != nil {
+		return err
+	}
+	generationID := container.GetGenerationId()
+	path := logPath(request.GetActorNamespaceId(), request.GetContainerId(), generationID)
 	position := int64(0)
 	var after uint64
 	if request.GetAfterCursor() != "" {
-		value := request.GetAfterCursor()
-		if index := strings.LastIndexByte(value, ':'); index >= 0 {
-			value = value[index+1:]
-		}
-		parsed, err := strconv.ParseUint(value, 10, 64)
+		parsed, err := parseLogCursor(request.GetAfterCursor(), request.GetContainerId(), generationID)
 		if err != nil {
-			return errors.New("invalid log cursor")
+			return err
 		}
 		after = parsed
 	}
@@ -216,12 +218,12 @@ func (r *Runtime) StreamLogs(ctx context.Context, request *vmmdv1.LogsRequest, s
 		if request.GetTailRecords() != 0 && uint64(len(filtered)) > request.GetTailRecords() && after == 0 && position == next {
 			filtered = filtered[len(filtered)-int(request.GetTailRecords()):]
 		}
-		_, dropped, metaErr := readLogMeta(logMetaPath(request.GetActorNamespaceId(), request.GetContainerId()))
+		_, dropped, metaErr := readLogMeta(logMetaPath(request.GetActorNamespaceId(), request.GetContainerId(), generationID))
 		if metaErr != nil {
 			return metaErr
 		}
 		for _, record := range filtered {
-			if err := send(&vmmdv1.LogsResponse{Cursor: request.GetContainerId() + ":" + strconv.FormatUint(record.sequence, 10), TimestampUnixNano: record.timestamp, Stream: record.stream, Data: record.data, Truncated: dropped != 0, DroppedRecords: dropped}); err != nil {
+			if err := send(&vmmdv1.LogsResponse{Cursor: request.GetContainerId() + ":" + generationID + ":" + strconv.FormatUint(record.sequence, 10), TimestampUnixNano: record.timestamp, Stream: record.stream, Data: record.data, Truncated: dropped != 0, DroppedRecords: dropped}); err != nil {
 				return err
 			}
 			after = record.sequence
@@ -233,6 +235,9 @@ func (r *Runtime) StreamLogs(ctx context.Context, request *vmmdv1.LogsRequest, s
 		if err != nil {
 			return err
 		}
+		if container.GetGenerationId() != generationID {
+			return detailedError(codes.Aborted, "LOG_CURSOR_STALE", "container was replaced while logs were streaming", "container", request.GetContainerId())
+		}
 		if len(records) == 0 && container.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 			return nil
 		}
@@ -242,6 +247,21 @@ func (r *Runtime) StreamLogs(ctx context.Context, request *vmmdv1.LogsRequest, s
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+func parseLogCursor(cursor, containerID, generationID string) (uint64, error) {
+	parts := strings.Split(cursor, ":")
+	if len(parts) != 3 || parts[0] != containerID {
+		return 0, errors.New("invalid log cursor")
+	}
+	if parts[1] != generationID {
+		return 0, detailedError(codes.Aborted, "LOG_CURSOR_STALE", "log cursor belongs to a replaced container", "container", containerID)
+	}
+	value, err := strconv.ParseUint(parts[2], 10, 64)
+	if err != nil {
+		return 0, errors.New("invalid log cursor")
+	}
+	return value, nil
 }
 
 type storedLogRecord struct {

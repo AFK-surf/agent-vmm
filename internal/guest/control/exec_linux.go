@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/cio"
+	"github.com/containerd/errdefs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -133,15 +135,28 @@ func (r *Runtime) exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv
 		return 0, err
 	}
 	if current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-		return 0, failedPrecondition("container is not running")
+		return 0, detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", start.GetContainerId())
 	}
 	task, err := container.Task(nsctx, nil)
 	if err != nil {
-		return 0, err
+		log.Printf("container exec task lookup failed for %q/%q: %v", start.GetActorNamespaceId(), start.GetContainerId(), err)
+		if errdefs.IsNotFound(err) {
+			return 0, detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", start.GetContainerId())
+		}
+		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())
+	}
+	taskStatus, err := task.Status(nsctx)
+	if err != nil {
+		log.Printf("container exec status lookup failed for %q/%q: %v", start.GetActorNamespaceId(), start.GetContainerId(), err)
+		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())
+	}
+	if taskStatus.Status != containerd.Running {
+		return 0, detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", start.GetContainerId())
 	}
 	baseProcess, err := containerMainProcess(nsctx, container)
 	if err != nil {
-		return 0, err
+		log.Printf("container exec process load failed for %q/%q: %v", start.GetActorNamespaceId(), start.GetContainerId(), err)
+		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())
 	}
 	process := *baseProcess
 	process.Args = append([]string(nil), start.GetArgv()...)
@@ -173,7 +188,8 @@ func (r *Runtime) exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv
 	}
 	processHandle, err := task.Exec(nsctx, "exec-"+start.GetRequestId(), &process, cio.NewCreator(options...))
 	if err != nil {
-		return 0, err
+		log.Printf("container exec creation failed for %q/%q: %v", start.GetActorNamespaceId(), start.GetContainerId(), err)
+		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())
 	}
 	defer processHandle.Delete(context.WithoutCancel(nsctx), containerd.WithProcessKill)
 	exit, err := processHandle.Wait(nsctx)
@@ -181,7 +197,8 @@ func (r *Runtime) exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv
 		return 0, err
 	}
 	if err := processHandle.Start(nsctx); err != nil {
-		return 0, err
+		log.Printf("container exec start failed for %q/%q: %v", start.GetActorNamespaceId(), start.GetContainerId(), err)
+		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())
 	}
 	inputErrors := make(chan error, 1)
 	go receiveExecInput(stream, processHandle, stdinWriter, inputErrors)

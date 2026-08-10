@@ -56,6 +56,7 @@ Do not record temporary failures or narrow implementation mistakes.
 - Do not depend on setuid or file capabilities for `newuidmap` and `newgidmap` in this sandbox.
 - The containerd 2.2.6 namespace store can return empty labels for a missing namespace.
 - Use `List` to test namespace existence. Do not treat a successful `Labels` call as proof of existence.
+- Containerd image records are namespace-scoped, but their CAS content is shared across the guest. Remove only a fenced namespace record and never report its logical size as reclaimed disk space.
 - The containerd 2.2.6 Docker authorizer caches failed anonymous token results without an expiry. Recreate the authorizer and resolver for each bounded registry retry.
 - The guest root uses read-only SquashFS. Do not store the build host resolver file in it.
 - The current network can map public names to `198.18.0.0/15`. Treat this range as an approved transparent proxy exception.

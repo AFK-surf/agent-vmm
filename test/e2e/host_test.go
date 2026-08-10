@@ -40,6 +40,7 @@ func TestE2E(t *testing.T) {
 	t.Run("session_auth_and_revocation", func(t *testing.T) { testSessionAuthAndRevocation(t, harness, client) })
 	t.Run("mcp_workflow", func(t *testing.T) { testMCPWorkflow(t, harness) })
 	t.Run("pgvector_image_and_volume", func(t *testing.T) { testPGVectorImageAndVolume(t, client) })
+	t.Run("image_record_lifecycle", func(t *testing.T) { testImageRecordLifecycle(t, client) })
 	t.Run("remote_workflow", func(t *testing.T) { testRemoteWorkflow(t, harness) })
 	parallel := []struct {
 		name string
@@ -79,6 +80,133 @@ func TestE2E(t *testing.T) {
 	t.Run("cleanup_contract", func(t *testing.T) { testCleanupContract(t, harness, client) })
 	t.Run("residual_scan", func(t *testing.T) { testResidualScan(t, harness.runtime(t)) })
 	harness.stop(t, false)
+}
+
+func testImageRecordLifecycle(t *testing.T, client *productClient) {
+	const firstEnvironment = "image-record-a"
+	const secondEnvironment = "image-record-b"
+	ensureNamespace(t, client, firstEnvironment, 1<<30)
+	ensureNamespace(t, client, secondEnvironment, 1<<30)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+	if _, err := pullImageAttempt(ctx, client, firstEnvironment, "pull-image-record-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pullImageAttempt(ctx, client, secondEnvironment, "pull-image-record-b"); err != nil {
+		t.Fatal(err)
+	}
+	first := imageByReference(t, client, firstEnvironment, workloadImage)
+	imageByReference(t, client, secondEnvironment, workloadImage)
+	container := createContainer(t, client, firstEnvironment, "image-user", []string{"sleep", "300"}, nil)
+	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-created-image", first)), "IMAGE_IN_USE")
+	if _, err := client.StartContainer(ctx, firstEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-image-user", ContainerId: container.GetId()}); err != nil {
+		t.Fatal(err)
+	}
+	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-running-image", first)), "IMAGE_IN_USE")
+	seconds := uint32(2)
+	if _, err := client.StopContainer(ctx, firstEnvironment, &hostv1.StopContainerRequest{RequestId: "stop-image-user", ContainerId: container.GetId(), TimeoutSeconds: &seconds}); err != nil {
+		t.Fatal(err)
+	}
+	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-stopped-image", first)), "IMAGE_IN_USE")
+	if err := client.DeleteContainer(ctx, firstEnvironment, &hostv1.ContainerMutationRequest{RequestId: "remove-image-user", ContainerId: container.GetId(), ExpectedGenerationId: container.GetGenerationId()}); err != nil {
+		t.Fatal(err)
+	}
+	badDigest := deleteImageRequest("delete-bad-digest", first)
+	badDigest.ExpectedDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, badDigest), "IMAGE_DIGEST_CONFLICT")
+	badGeneration := deleteImageRequest("delete-bad-generation", first)
+	badGeneration.ExpectedGenerationId = "stale-generation"
+	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, badGeneration), "IMAGE_GENERATION_CONFLICT")
+	if err := client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-image-record-a", first)); err != nil {
+		t.Fatal(err)
+	}
+	if imageByReferenceOrNil(t, client, firstEnvironment, workloadImage) != nil {
+		t.Fatal("deleted namespace image record is still listed")
+	}
+	if imageByReferenceOrNil(t, client, secondEnvironment, workloadImage) == nil {
+		t.Fatal("shared image record disappeared from the other namespace")
+	}
+	shared := createContainer(t, client, secondEnvironment, "shared-image-user", []string{"true"}, nil)
+	if _, err := client.StartContainer(ctx, secondEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-shared-image-user", ContainerId: shared.GetId()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pullImageAttempt(ctx, client, firstEnvironment, "recreate-image-record-a"); err != nil {
+		t.Fatal(err)
+	}
+	recreated := imageByReference(t, client, firstEnvironment, workloadImage)
+	if recreated.GetDigest() != first.GetDigest() || recreated.GetGenerationId() == first.GetGenerationId() {
+		t.Fatalf("recreated image identity = %+v, old = %+v", recreated, first)
+	}
+	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-aba-image", first)), "IMAGE_GENERATION_CONFLICT")
+	start := make(chan struct{})
+	deleteDone := make(chan error, 1)
+	createDone := make(chan error, 1)
+	go func() {
+		<-start
+		deleteDone <- client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-image-race", recreated))
+	}()
+	go func() {
+		<-start
+		_, err := client.CreateContainer(ctx, firstEnvironment, &hostv1.CreateContainerRequest{
+			RequestId: "create-image-race", ContainerId: "image-race", Image: workloadImage,
+			EntrypointOverride: &hostv1.StringList{Values: []string{"true"}}, CommandOverride: &hostv1.StringList{}, LogLimitBytes: 1 << 20,
+		})
+		createDone <- err
+	}()
+	close(start)
+	deleteErr, createErr := <-deleteDone, <-createDone
+	if deleteErr == nil {
+		if status.Code(createErr) != codes.NotFound {
+			t.Fatalf("delete won but create = %v", createErr)
+		}
+	} else if createErr == nil {
+		assertImageDeleteReason(t, deleteErr, "IMAGE_IN_USE")
+		if err := client.DeleteContainer(ctx, firstEnvironment, &hostv1.ContainerMutationRequest{RequestId: "delete-image-race-container", ContainerId: "image-race"}); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatalf("image create/delete race failed on both sides: delete=%v create=%v", deleteErr, createErr)
+	}
+}
+
+func imageByReference(t *testing.T, client *productClient, environmentID, reference string) *hostv1.Image {
+	t.Helper()
+	image := imageByReferenceOrNil(t, client, environmentID, reference)
+	if image == nil {
+		t.Fatalf("image %q is not listed in %s", reference, environmentID)
+	}
+	return image
+}
+
+func imageByReferenceOrNil(t *testing.T, client *productClient, environmentID, reference string) *hostv1.Image {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	images, err := client.ListImages(ctx, environmentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := reference
+	if !strings.Contains(reference, "/") {
+		canonical = "docker.io/library/" + reference
+	}
+	for _, image := range images.GetImages() {
+		if image.GetReference() == canonical {
+			return image
+		}
+	}
+	return nil
+}
+
+func deleteImageRequest(requestID string, image *hostv1.Image) *hostv1.DeleteImageRequest {
+	return &hostv1.DeleteImageRequest{RequestId: requestID, Reference: image.GetReference(), ExpectedGenerationId: image.GetGenerationId(), ExpectedDigest: image.GetDigest()}
+}
+
+func assertImageDeleteReason(t *testing.T, err error, reason string) {
+	t.Helper()
+	if err == nil || !strings.Contains(fmt.Sprint(status.Convert(err).Details()), reason) {
+		t.Fatalf("delete image error = %v, want %s", err, reason)
+	}
 }
 
 func testPGVectorImageAndVolume(t *testing.T, client *productClient) {

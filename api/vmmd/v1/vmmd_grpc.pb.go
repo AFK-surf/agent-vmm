@@ -34,6 +34,7 @@ const (
 	VMMDService_ListVolumes_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/ListVolumes"
 	VMMDService_GetImage_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/GetImage"
 	VMMDService_ListImages_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ListImages"
+	VMMDService_DeleteImage_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/DeleteImage"
 	VMMDService_CreateContainer_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/CreateContainer"
 	VMMDService_StartContainer_FullMethodName    = "/agentvmm.vmmd.v1.VMMDService/StartContainer"
 	VMMDService_StopContainer_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/StopContainer"
@@ -73,6 +74,7 @@ type VMMDServiceClient interface {
 	ListVolumes(ctx context.Context, in *ListVolumesRequest, opts ...grpc.CallOption) (*ListVolumesResponse, error)
 	GetImage(ctx context.Context, in *GetImageRequest, opts ...grpc.CallOption) (*GetImageResponse, error)
 	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
+	DeleteImage(ctx context.Context, in *DeleteImageRequest, opts ...grpc.CallOption) (*DeleteImageResponse, error)
 	CreateContainer(ctx context.Context, in *CreateContainerRequest, opts ...grpc.CallOption) (*CreateContainerResponse, error)
 	StartContainer(ctx context.Context, in *StartContainerRequest, opts ...grpc.CallOption) (*StartContainerResponse, error)
 	StopContainer(ctx context.Context, in *StopContainerRequest, opts ...grpc.CallOption) (*StopContainerResponse, error)
@@ -254,6 +256,16 @@ func (c *vMMDServiceClient) ListImages(ctx context.Context, in *ListImagesReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListImagesResponse)
 	err := c.cc.Invoke(ctx, VMMDService_ListImages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) DeleteImage(ctx context.Context, in *DeleteImageRequest, opts ...grpc.CallOption) (*DeleteImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteImageResponse)
+	err := c.cc.Invoke(ctx, VMMDService_DeleteImage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -486,6 +498,7 @@ type VMMDServiceServer interface {
 	ListVolumes(context.Context, *ListVolumesRequest) (*ListVolumesResponse, error)
 	GetImage(context.Context, *GetImageRequest) (*GetImageResponse, error)
 	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
+	DeleteImage(context.Context, *DeleteImageRequest) (*DeleteImageResponse, error)
 	CreateContainer(context.Context, *CreateContainerRequest) (*CreateContainerResponse, error)
 	StartContainer(context.Context, *StartContainerRequest) (*StartContainerResponse, error)
 	StopContainer(context.Context, *StopContainerRequest) (*StopContainerResponse, error)
@@ -558,6 +571,9 @@ func (UnimplementedVMMDServiceServer) GetImage(context.Context, *GetImageRequest
 }
 func (UnimplementedVMMDServiceServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListImages not implemented")
+}
+func (UnimplementedVMMDServiceServer) DeleteImage(context.Context, *DeleteImageRequest) (*DeleteImageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteImage not implemented")
 }
 func (UnimplementedVMMDServiceServer) CreateContainer(context.Context, *CreateContainerRequest) (*CreateContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateContainer not implemented")
@@ -893,6 +909,24 @@ func _VMMDService_ListImages_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VMMDServiceServer).ListImages(ctx, req.(*ListImagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_DeleteImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).DeleteImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_DeleteImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).DeleteImage(ctx, req.(*DeleteImageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1236,6 +1270,10 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListImages",
 			Handler:    _VMMDService_ListImages_Handler,
+		},
+		{
+			MethodName: "DeleteImage",
+			Handler:    _VMMDService_DeleteImage_Handler,
 		},
 		{
 			MethodName: "CreateContainer",

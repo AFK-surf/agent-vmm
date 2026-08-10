@@ -17,6 +17,14 @@ Hub names such as `postgres:16-alpine` are accepted and normalize to
 `docker.io/library/postgres:16-alpine`. `container_run` preserves the image
 ENTRYPOINT and CMD. Set `entrypoint` or `command` only to override that part of the
 OCI configuration; provide both to replace the complete process command.
+`launch_succeeded` means that the initial process was launched, not that the
+service is ready. The response also contains the state observed after a short
+bounded interval; use `container_get`, logs, or an application health check for
+readiness.
+
+Image records are scoped to one agent environment, so `image_list` only returns
+images pulled into that environment. The guest stores content-addressed blobs in
+a VM-wide content store and can deduplicate identical layers across environments.
 
 `volume_create` can set `owner_uid`, `owner_gid`, and a numeric permission `mode`
 once, when the volume is created. Use these fields for images such as PostgreSQL
@@ -24,6 +32,13 @@ that require a non-root data directory. The sandbox does not grant workloads a
 general-purpose `CAP_CHOWN`. A port forward is created only for a running
 container and is revoked when that specific container instance stops or is
 replaced.
+
+Containers run with no Linux capabilities, including `CHOWN`, `SETUID`, and
+`SETGID`. Images must support a fixed non-root user without privileged startup.
+Some stock entrypoints, including configurations of the official nginx image,
+attempt ownership or user changes and will not run unchanged. Use an image built
+for non-root execution, pre-create retained volumes with the required numeric
+owner, or explicitly override the entrypoint and user when the image supports it.
 
 ## Remote controller
 

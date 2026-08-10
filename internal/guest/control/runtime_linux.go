@@ -112,12 +112,12 @@ func volumePath(namespaceID, volumeID string) string {
 	return filepath.Join(stateRoot, "volumes", namespaceID, volumeID)
 }
 
-func logPath(namespaceID, containerID string) string {
-	return filepath.Join(stateRoot, "logs", namespaceID, containerID, "records.log")
+func logPath(namespaceID, containerID, generationID string) string {
+	return filepath.Join(stateRoot, "logs", namespaceID, containerID, generationID, "records.log")
 }
 
-func logMetaPath(namespaceID, containerID string) string {
-	return filepath.Join(stateRoot, "logs", namespaceID, containerID, "records.meta")
+func logMetaPath(namespaceID, containerID, generationID string) string {
+	return filepath.Join(stateRoot, "logs", namespaceID, containerID, generationID, "records.meta")
 }
 
 func (r *Runtime) namespaceExists(ctx context.Context, namespaceID string) error {

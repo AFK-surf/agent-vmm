@@ -6,12 +6,14 @@ protocol HostServing: Sendable {
     func events(after sequence: UInt64) -> AsyncThrowingStream<ActivityEvent, Error>
     func metrics(environmentID: String?, containerID: String?) -> AsyncThrowingStream<UsageSnapshot, Error>
     func images(environmentID: String) async throws -> [EnvironmentImageModel]
+    func deleteImage(environmentID: String, reference: String, expectedGenerationID: String, expectedDigest: String) async throws
     func logs(environmentID: String, containerID: String, since: Date?, after cursor: String?) -> AsyncThrowingStream<LogEntry, Error>
     func startVM() async throws -> OperationModel
     func stopVM(force: Bool) async throws -> OperationModel
     func stopContainer(environmentID: String, containerID: String) async throws
     func continueContainer(environmentID: String, containerID: String) async throws
     func signalContainer(environmentID: String, containerID: String, signal: ContainerSignal) async throws
+    func deleteContainer(environmentID: String, containerID: String, expectedGenerationID: String) async throws
     func updatePolicy(environmentID: String, limits: EnvironmentLimits, allowsPublicEgress: Bool, expectedRevision: UInt64) async throws
     func cleanupPreview(environmentID: String, mode: CleanupMode) async throws -> CleanupPreview
     func executeCleanup(_ preview: CleanupPreview) async throws -> OperationModel

@@ -17,7 +17,9 @@ struct LogsActivityView: View {
     @State private var caseSensitive = false
     @State private var paused = false
     @State private var pausedCount = 0
+    @State private var evictedRecords = 0
     @State private var follow = true
+    @State private var searchNavigation = 0
     @State private var connectionStatus = "Choose a container"
     @State private var streamTask: Task<Void, Never>?
 
@@ -27,69 +29,132 @@ struct LogsActivityView: View {
         var result = source.filter { record in
             (cutoff == nil || record.timestamp >= cutoff!) &&
             (presentation == .terminal || streamFilter.matches(record.stream)) &&
-            (search.isEmpty || matchesSearch(record.text))
+            (presentation == .terminal || search.isEmpty || matchesSearch(record.text))
         }
         if presentation == .logs && newestFirst { result.reverse() }
         return result
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            primaryToolbar
-            secondaryToolbar
-            statusBar
-            content
+        Group {
+            if environment.inventoryAvailability == .unknown {
+                ProgressView("Loading containers…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if environment.inventoryAvailability == .vmStopped || environment.inventoryAvailability == .unavailable {
+                runtimeUnavailableState
+            } else if environment.workloads.isEmpty {
+                noContainersState
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    toolbar
+                    statusBar
+                    warningBanners
+                    content
+                }
+            }
         }
         .onAppear {
-            if selectedWorkloadID == nil { selectedWorkloadID = environment.workloads.first?.id }
+            if logRuntimeAvailable, selectedWorkloadID == nil { selectedWorkloadID = environment.workloads.first?.id }
         }
         .onChange(of: selectedWorkloadID) { _, value in start(workloadID: value) }
         .onChange(of: range) { _, _ in start(workloadID: selectedWorkloadID) }
         .onChange(of: newestFirst) { _, value in if value { follow = false } }
         .onChange(of: paused) { _, value in if value { pausedCount = records.count } }
         .onDisappear { streamTask?.cancel() }
-    }
-
-    private var primaryToolbar: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack { selectionControls; searchControls }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack { selectionControls }
-                HStack { searchControls }
+        .onChange(of: environment.workloads.map(\.id)) { _, ids in
+            if let selectedWorkloadID, !ids.contains(selectedWorkloadID) { self.selectedWorkloadID = ids.first }
+            else if logRuntimeAvailable, selectedWorkloadID == nil { selectedWorkloadID = ids.first }
+        }
+        .onChange(of: environment.inventoryAvailability) { _, _ in
+            if logRuntimeAvailable {
+                if selectedWorkloadID == nil { selectedWorkloadID = environment.workloads.first?.id }
+                else { start(workloadID: selectedWorkloadID) }
+            } else {
+                streamTask?.cancel()
+                records.removeAll()
+                rendered.removeAll()
+                ansiParsers.removeAll()
+                connectionStatus = "Runtime unavailable"
             }
         }
     }
 
-    @ViewBuilder private var selectionControls: some View {
-            Picker("Container", selection: $selectedWorkloadID) {
-                Text("Choose…").tag(String?.none)
-                ForEach(environment.workloads) { Text($0.id).tag(Optional($0.id)) }
-            }
-            .frame(minWidth: 180)
-            Picker("Presentation", selection: $presentation) {
-                ForEach(LogPresentation.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 190)
-            Picker("Time range", selection: $range) {
-                ForEach(LogRange.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .frame(width: 120)
+    private var logRuntimeAvailable: Bool {
+        environment.inventoryAvailability == .available || environment.inventoryAvailability == .stale
     }
 
-    @ViewBuilder private var searchControls: some View {
-            TextField(presentation == .logs ? "Filter logs" : "Find", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 180)
-            Toggle("Match case", isOn: $caseSensitive).toggleStyle(.button).help("Match uppercase and lowercase exactly")
+    @ViewBuilder private var noContainersState: some View {
+        ContentUnavailableView {
+            Label("No containers", systemImage: "shippingbox")
+        } description: {
+            Text("Logs and terminal output appear after a container is created in this environment.")
+        } actions: {
+            Button("Open Containers") { model.environmentSection = .containers }
+        }
+        .frame(maxWidth: 420, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 
-    private var secondaryToolbar: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack { presentationControls; Spacer(); playbackControls }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack { presentationControls }
-                HStack { Spacer(); playbackControls }
+    private var runtimeUnavailableState: some View {
+        ContentUnavailableView {
+            Label(environment.inventoryAvailability == .vmStopped ? "Virtual machine is stopped" : "Container runtime unavailable", systemImage: "power")
+        } description: {
+            Text(environment.inventoryMessage ?? "Logs are available after the runtime reconnects.")
+        } actions: {
+            if environment.inventoryAvailability == .vmStopped {
+                Button("Start Virtual Machine") { Task { await model.startVM() } }
+                    .disabled(model.vmAction != nil)
+            }
+        }
+        .frame(maxWidth: 420, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var toolbar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Picker("Container", selection: $selectedWorkloadID) {
+                    Text("Choose…").tag(String?.none)
+                    ForEach(environment.workloads) { Text($0.id).tag(Optional($0.id)) }
+                }
+                .frame(minWidth: 220, idealWidth: 280, maxWidth: 340)
+                Picker("Output view", selection: $presentation) {
+                    ForEach(LogPresentation.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Output view")
+                .frame(width: 210)
+                Spacer(minLength: 0)
+            }
+            if selectedWorkloadID != nil {
+                HStack(spacing: 10) {
+                    Picker("Time range", selection: $range) {
+                        ForEach(LogRange.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .frame(width: 145)
+                    TextField(presentation == .logs ? "Filter logs" : "Find in terminal output", text: $search)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 160)
+                    Toggle("Match case", isOn: $caseSensitive).toggleStyle(.button).help("Match uppercase and lowercase exactly")
+                    if presentation == .terminal {
+                        Button { searchNavigation -= 1 } label: { Image(systemName: "chevron.up") }
+                            .help("Previous match").disabled(search.isEmpty)
+                        Button { searchNavigation += 1 } label: { Image(systemName: "chevron.down") }
+                            .help("Next match").disabled(search.isEmpty)
+                    }
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        presentationControls
+                        Spacer(minLength: 8)
+                        playbackControls
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        presentationControls
+                        HStack { Spacer(); playbackControls }
+                    }
+                }
             }
         }
     }
@@ -103,29 +168,72 @@ struct LogsActivityView: View {
                 .frame(width: 230)
                 Toggle(newestFirst ? "Newest first" : "Oldest first", isOn: $newestFirst).toggleStyle(.button)
         } else {
-            Label("Read-only terminal view", systemImage: "lock").foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Label("Read-only", systemImage: "lock").foregroundStyle(.secondary)
+                if !search.isEmpty {
+                    Text(terminalMatchCount == 0 ? "No matches" : "\(terminalMatchCount) match\(terminalMatchCount == 1 ? "" : "es")")
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
     @ViewBuilder private var playbackControls: some View {
-        Toggle("Follow", isOn: $follow).toggleStyle(.button).disabled(newestFirst || paused)
-        Toggle(paused ? "Resume" : "Pause", isOn: $paused).toggleStyle(.button)
-        Button("Export Visible…", action: export)
+        Group {
+            Toggle("Follow", isOn: $follow).toggleStyle(.button).disabled(newestFirst || paused || connectionStatus == "Loading history…")
+            Toggle(paused ? "Resume" : "Pause", isOn: $paused).toggleStyle(.button).disabled(connectionStatus == "Loading history…")
+            Button("Export Visible…", action: export).disabled(records.isEmpty)
+        }
+        .fixedSize()
     }
 
     private var statusBar: some View {
         HStack(spacing: 14) {
             Text(paused ? "Paused · \(max(0, records.count - pausedCount)) new" : connectionStatus)
-            if records.contains(where: \.truncated) {
-                Label("A record was truncated", systemImage: "exclamationmark.triangle")
-            }
-            let dropped = records.map(\.droppedRecords).max() ?? 0
-            if dropped > 0 { Label("\(dropped) records dropped", systemImage: "exclamationmark.triangle.fill") }
             Spacer()
             Text("\(visibleRecords.count) shown · \(records.count) buffered")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private var warningBanners: some View {
+        let dropped = records.map(\.droppedRecords).max() ?? 0
+        if records.contains(where: \.truncated) || dropped > 0 || evictedRecords > 0 {
+            VStack(alignment: .leading, spacing: 6) {
+                if records.contains(where: \.truncated) {
+                    warning("One or more log records were truncated at the source.")
+                }
+                if dropped > 0 { warning("The source dropped \(dropped) log record\(dropped == 1 ? "" : "s").") }
+                if evictedRecords > 0 { warning("This window removed \(evictedRecords) older record\(evictedRecords == 1 ? "" : "s") from its local buffer.") }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func warning(_ message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.caption).foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var terminalMatchCount: Int {
+        guard !search.isEmpty else { return 0 }
+        let source = visibleRecords.map { ANSIParser.plain($0.text) }.joined(separator: "\n") as NSString
+        var count = 0
+        var remaining = NSRange(location: 0, length: source.length)
+        let options: NSString.CompareOptions = caseSensitive ? [] : [.caseInsensitive]
+        while remaining.length > 0 {
+            let match = source.range(of: search, options: options, range: remaining)
+            guard match.location != NSNotFound else { break }
+            count += 1
+            let next = NSMaxRange(match)
+            remaining = NSRange(location: next, length: source.length - next)
+        }
+        return count
     }
 
     @ViewBuilder private var content: some View {
@@ -140,6 +248,14 @@ struct LogsActivityView: View {
                 Text(connectionStatus.replacingOccurrences(of: "Failed · ", with: ""))
             } actions: {
                 Button("Retry") { start(workloadID: selectedWorkloadID) }
+            }
+        } else if visibleRecords.isEmpty && presentation == .logs && !search.isEmpty {
+            ContentUnavailableView {
+                Label("No matching logs", systemImage: "magnifyingglass")
+            } description: {
+                Text("No visible log records contain “\(search)”.")
+            } actions: {
+                Button("Clear Search") { search = "" }
             }
         } else if visibleRecords.isEmpty {
             ContentUnavailableView("No logs in this range", systemImage: "text.alignleft", description: Text("Change the time range or filter."))
@@ -166,24 +282,18 @@ struct LogsActivityView: View {
     }
 
     private var terminalLog: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(visibleRecords) { record in
-                        Text(rendered[record.id] ?? AttributedString(record.text))
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(record.id)
-                    }
-                }
-                .padding(12)
-            }
+        TerminalOutputTextView(content: terminalContent, search: search, caseSensitive: caseSensitive, follow: follow && !paused, searchNavigation: searchNavigation)
             .background(Color(nsColor: .textBackgroundColor))
-            .onChange(of: records.count) { _, _ in
-                if follow, !paused, let last = visibleRecords.last { proxy.scrollTo(last.id, anchor: .bottom) }
-            }
+    }
+
+    private var terminalContent: NSAttributedString {
+        let result = NSMutableAttributedString()
+        for (index, record) in visibleRecords.enumerated() {
+            result.append(NSAttributedString(rendered[record.id] ?? AttributedString(record.text)))
+            if index + 1 < visibleRecords.count { result.append(NSAttributedString(string: "\n")) }
         }
+        result.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular), range: NSRange(location: 0, length: result.length))
+        return result
     }
 
     private func matchesSearch(_ text: String) -> Bool {
@@ -197,6 +307,8 @@ struct LogsActivityView: View {
         rendered.removeAll()
         ansiParsers.removeAll()
         paused = false
+        evictedRecords = 0
+        guard logRuntimeAvailable else { connectionStatus = "Runtime unavailable"; return }
         guard let workloadID else { connectionStatus = "Choose a container"; return }
         connectionStatus = "Loading history…"
         streamTask = Task {
@@ -205,13 +317,20 @@ struct LogsActivityView: View {
                     try model.logStream(environmentID: environment.id, containerID: workloadID, since: range.cutoff, after: cursor)
                 },
                 onStatus: { connectionStatus = $0 },
-                onRecord: { record in
-                    var parser = ansiParsers[record.stream] ?? ANSIParser()
-                    rendered[record.id] = parser.consume(record.text)
-                    ansiParsers[record.stream] = parser
-                    records.append(record)
+                onRecords: { batch in
+                    var nextParsers = ansiParsers
+                    var nextRendered = rendered
+                    for record in batch {
+                        var parser = nextParsers[record.stream] ?? ANSIParser()
+                        nextRendered[record.id] = parser.consume(record.text)
+                        nextParsers[record.stream] = parser
+                    }
+                    ansiParsers = nextParsers
+                    rendered = nextRendered
+                    records.append(contentsOf: batch)
                     if records.count > 5_000 {
                         let removed = records.count - 5_000
+                        evictedRecords += removed
                         for item in records.prefix(removed) { rendered.removeValue(forKey: item.id) }
                         records.removeFirst(removed)
                         pausedCount = max(0, pausedCount - removed)
@@ -238,10 +357,12 @@ struct LogsActivityView: View {
 func followLogStream(
     subscribe: (String?) throws -> AsyncThrowingStream<LogEntry, Error>,
     onStatus: (String) -> Void,
-    onRecord: (LogEntry) -> Void
+    onRecords: @escaping ([LogEntry]) -> Void
 ) async {
     var cursor: String?
     var retry = 0
+    let accumulator = LogBatchAccumulator(onBatch: onRecords)
+    defer { accumulator.finish() }
     while !Task.isCancelled {
         do {
             let stream = try subscribe(cursor)
@@ -249,8 +370,9 @@ func followLogStream(
             retry = 0
             for try await record in stream {
                 cursor = record.id
-                onRecord(record)
+                accumulator.append(record)
             }
+            accumulator.flush()
             onStatus("Ended")
             return
         } catch is CancellationError {
@@ -263,7 +385,44 @@ func followLogStream(
     }
 }
 
-private enum LogPresentation: String, CaseIterable, Identifiable { case logs = "Logs", terminal = "Terminal"; var id: Self { self } }
+@MainActor
+private final class LogBatchAccumulator {
+    private var records: [LogEntry] = []
+    private var scheduledFlush: Task<Void, Never>?
+    private let onBatch: ([LogEntry]) -> Void
+
+    init(onBatch: @escaping ([LogEntry]) -> Void) { self.onBatch = onBatch }
+
+    func append(_ record: LogEntry) {
+        records.append(record)
+        if records.count >= 100 {
+            flush()
+        } else if scheduledFlush == nil {
+            scheduledFlush = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled else { return }
+                self?.deliver()
+            }
+        }
+    }
+
+    func flush() {
+        scheduledFlush?.cancel()
+        deliver()
+    }
+
+    func finish() { flush() }
+
+    private func deliver() {
+        scheduledFlush = nil
+        guard !records.isEmpty else { return }
+        let batch = records
+        records.removeAll(keepingCapacity: true)
+        onBatch(batch)
+    }
+}
+
+private enum LogPresentation: String, CaseIterable, Identifiable { case logs = "Logs", terminal = "Terminal Output"; var id: Self { self } }
 private enum LogRange: String, CaseIterable, Identifiable {
     case live = "Live", fifteenMinutes = "15 min", oneHour = "1 hour"
     var id: Self { self }

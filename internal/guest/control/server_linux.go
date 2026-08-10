@@ -129,6 +129,16 @@ func (s *Server) PullImage(request *vmmdv1.PullImageRequest, stream grpc.ServerS
 	return stream.Send(value.(*vmmdv1.PullImageResponse))
 }
 
+func (s *Server) DeleteImage(ctx context.Context, request *vmmdv1.DeleteImageRequest) (*vmmdv1.DeleteImageResponse, error) {
+	value, err := s.mutate(ctx, "delete-image", request, func() (any, error) {
+		return &vmmdv1.DeleteImageResponse{}, s.runtime.DeleteImage(ctx, request.GetActorNamespaceId(), request.GetReference(), request.GetExpectedGenerationId(), request.GetExpectedDigest())
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return value.(*vmmdv1.DeleteImageResponse), nil
+}
+
 func (s *Server) CreateVolume(ctx context.Context, request *vmmdv1.CreateVolumeRequest) (*vmmdv1.CreateVolumeResponse, error) {
 	value, err := s.mutate(ctx, "create-volume", request, func() (any, error) {
 		volume, err := s.runtime.CreateVolume(ctx, request.GetActorNamespaceId(), request.GetVolumeId(), request.OwnerUid, request.OwnerGid, request.Mode)
@@ -200,7 +210,7 @@ func (s *Server) WaitContainer(ctx context.Context, request *vmmdv1.WaitContaine
 
 func (s *Server) DeleteContainer(ctx context.Context, request *vmmdv1.DeleteContainerRequest) (*vmmdv1.DeleteContainerResponse, error) {
 	value, err := s.mutate(ctx, "delete-container", request, func() (any, error) {
-		return &vmmdv1.DeleteContainerResponse{}, s.runtime.DeleteContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId())
+		return &vmmdv1.DeleteContainerResponse{}, s.runtime.DeleteContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId(), request.GetExpectedGenerationId())
 	})
 	if err != nil {
 		return nil, rpcError(err)
@@ -300,6 +310,8 @@ func mutationRequestID(request proto.Message) string {
 	case *vmmdv1.DeleteNamespaceRequest:
 		return request.GetRequestId()
 	case *vmmdv1.PullImageRequest:
+		return request.GetRequestId()
+	case *vmmdv1.DeleteImageRequest:
 		return request.GetRequestId()
 	case *vmmdv1.CreateVolumeRequest:
 		return request.GetRequestId()

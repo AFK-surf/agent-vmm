@@ -48,7 +48,7 @@ func containerFromGuest(container *vmmdv1.Container) *hostv1.Container {
 	if container == nil {
 		return nil
 	}
-	result := &hostv1.Container{Id: container.GetId(), InstanceId: container.GetInstanceId(), Image: container.GetImage(), State: hostv1.ContainerState(container.GetState()), ExitCode: container.ExitCode, Argv: container.GetArgv(), Workdir: container.Workdir, User: container.User}
+	result := &hostv1.Container{Id: container.GetId(), InstanceId: container.GetInstanceId(), GenerationId: container.GetGenerationId(), Image: container.GetImage(), State: hostv1.ContainerState(container.GetState()), ExitCode: container.ExitCode, Argv: container.GetArgv(), Workdir: container.Workdir, User: container.User}
 	result.CreatedAt = timestampFromUnixNano(container.GetCreatedAtUnixNano())
 	result.StartedAt = timestampFromUnixNano(container.GetStartedAtUnixNano())
 	result.FinishedAt = timestampFromUnixNano(container.GetFinishedAtUnixNano())
@@ -73,7 +73,7 @@ func imageFromGuest(image *vmmdv1.Image) *hostv1.Image {
 	if image == nil {
 		return nil
 	}
-	return &hostv1.Image{Reference: image.GetReference(), Digest: image.GetDigest(), LogicalBytes: image.GetLogicalBytes(), Platforms: append([]string(nil), image.GetPlatforms()...)}
+	return &hostv1.Image{Reference: image.GetReference(), Digest: image.GetDigest(), LogicalBytes: image.GetLogicalBytes(), Platforms: append([]string(nil), image.GetPlatforms()...), GenerationId: image.GetGenerationId()}
 }
 
 func volumeFromGuest(volume *vmmdv1.Volume) *hostv1.Volume {

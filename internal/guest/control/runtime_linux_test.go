@@ -11,13 +11,18 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	"github.com/containerd/containerd/v2/core/containers"
+	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/typeurl/v2"
+	opencontainers "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestShutdownWaitsForMutation(t *testing.T) {
@@ -86,6 +91,46 @@ func TestNormalizeImageReference(t *testing.T) {
 		if _, err := normalizeImageReference(input); err == nil {
 			t.Errorf("normalizeImageReference(%q) succeeded", input)
 		}
+	}
+}
+
+func TestContainerGenerationTracksCreation(t *testing.T) {
+	created := time.Unix(100, 25)
+	first := containerGenerationID("service", created)
+	if first == "" || first != containerGenerationID("service", created) {
+		t.Fatalf("generation is not stable: %q", first)
+	}
+	if first == containerGenerationID("service", created.Add(time.Nanosecond)) || first == containerGenerationID("other", created) {
+		t.Fatal("generation did not change with container identity")
+	}
+}
+
+func TestImageGenerationTracksMetadataIdentity(t *testing.T) {
+	created := time.Unix(100, 25)
+	base := images.Image{Name: "docker.io/library/test:latest", Target: opencontainers.Descriptor{Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, CreatedAt: created, UpdatedAt: created}
+	first := imageGenerationID(base)
+	if first == "" || first != imageGenerationID(base) {
+		t.Fatalf("generation is not stable: %q", first)
+	}
+	changed := base
+	changed.UpdatedAt = changed.UpdatedAt.Add(time.Nanosecond)
+	if first == imageGenerationID(changed) {
+		t.Fatal("generation did not change after record recreation")
+	}
+}
+
+func TestContainerLogsAreGenerationIsolated(t *testing.T) {
+	first := logPath("namespace", "service", "generation-a")
+	second := logPath("namespace", "service", "generation-b")
+	if first == second {
+		t.Fatal("log paths are shared across container generations")
+	}
+	value, err := parseLogCursor("service:generation-a:42", "service", "generation-a")
+	if err != nil || value != 42 {
+		t.Fatalf("cursor = %d, %v", value, err)
+	}
+	if _, err := parseLogCursor("service:generation-a:42", "service", "generation-b"); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale cursor = %v", err)
 	}
 }
 

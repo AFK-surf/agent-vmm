@@ -1,3 +1,4 @@
+import AppKit
 import Charts
 import SwiftUI
 
@@ -151,6 +152,7 @@ struct EnvironmentContainersView: View {
     let environment: AgentEnvironmentModel
     @State private var selection: Workload.ID?
     @State private var mutatingIDs: Set<Workload.ID> = []
+    @State private var pendingConfirmation: ContainerConfirmation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -170,16 +172,20 @@ struct EnvironmentContainersView: View {
                     TableColumn("Image", value: \.image)
                     TableColumn("Started") { workload in Text(workload.startedAt?.formatted(date: .abbreviated, time: .shortened) ?? "—") }
                     TableColumn("Exit") { Text($0.exitCode.map(String.init) ?? "—") }
+                    TableColumn("Actions") { workload in
+                        HStack(spacing: 6) {
+                            primaryAction(for: workload)
+                            Menu { actionMenu(for: workload) } label: { Image(systemName: "ellipsis") }
+                                .menuStyle(.borderlessButton)
+                                .frame(width: 28)
+                                .accessibilityLabel("More actions for \(workload.id)")
+                        }
+                    }
+                    .width(min: 115, ideal: 130)
                 }
                 .contextMenu(forSelectionType: Workload.ID.self) { ids in
                     if let id = ids.first, let workload = environment.workloads.first(where: { $0.id == id }) {
-                        if mutatingIDs.contains(id) {
-                            Text(workload.state == .running ? "Stopping…" : "Starting…")
-                        } else if workload.state == .running {
-                            Button("Stop") { mutate(workload, start: false) }
-                        } else if workload.state == .stopped || workload.state == .created {
-                            Button("Start") { mutate(workload, start: true) }
-                        }
+                        actionMenu(for: workload)
                     }
                 } primaryAction: { _ in }
                 .overlay {
@@ -191,9 +197,75 @@ struct EnvironmentContainersView: View {
                     Label(environment.inventoryMessage ?? "Showing the last available container inventory.", systemImage: "clock.arrow.circlepath")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                if let selected = selectedWorkload { workloadDetails(selected) }
             }
         }
         .padding(20)
+        .confirmationDialog(confirmationTitle, isPresented: confirmationPresented, titleVisibility: .visible) {
+            if let confirmation = pendingConfirmation {
+                Button(confirmation.buttonTitle, role: confirmation.isDestructive ? .destructive : nil) {
+                    confirm(confirmation)
+                }
+                Button("Cancel", role: .cancel) { pendingConfirmation = nil }
+            }
+        } message: { Text(confirmationMessage) }
+    }
+
+    private var selectedWorkload: Workload? {
+        selection.flatMap { id in environment.workloads.first { $0.id == id } }
+    }
+
+    @ViewBuilder private func primaryAction(for workload: Workload) -> some View {
+        if mutatingIDs.contains(workload.id) {
+            ProgressView().controlSize(.small).frame(width: 58)
+        } else if workload.state == .running {
+            Button("Stop") { mutate(workload, start: false) }
+        } else if workload.state == .stopped || workload.state == .created {
+            Button("Start") { mutate(workload, start: true) }
+        }
+    }
+
+    @ViewBuilder private func actionMenu(for workload: Workload) -> some View {
+        Button("View Details") { selection = workload.id }
+        if mutatingIDs.contains(workload.id) {
+            Text("Operation in progress…")
+        } else {
+        Divider()
+        if workload.state == .running {
+            Button("Stop") { mutate(workload, start: false) }
+            Button("Interrupt") { signal(workload, .interrupt) }
+            Button("Force Stop…") { pendingConfirmation = .forceStop(workload) }
+        } else if workload.state == .stopped || workload.state == .created {
+            Button("Start") { mutate(workload, start: true) }
+            Divider()
+            Button("Delete Container…", role: .destructive) { pendingConfirmation = .delete(workload) }
+                .disabled(!canDelete(workload))
+        }
+        }
+    }
+
+    private func workloadDetails(_ workload: Workload) -> some View {
+        GroupBox("Container details") {
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
+                detailRow("Name", workload.id)
+                detailRow("Image", workload.image)
+                detailRow("Command", workload.argv.isEmpty ? "Image default" : workload.argv.joined(separator: " "))
+                detailRow("Working directory", workload.workdir ?? "Image default")
+                detailRow("User", workload.user ?? "Image default")
+                detailRow("Environment", workload.environmentKeys.isEmpty ? "None" : workload.environmentKeys.joined(separator: ", "))
+                detailRow("Volumes", workload.mounts.isEmpty ? "None" : workload.mounts.joined(separator: ", "))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
+        }
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        GridRow { Text(label).foregroundStyle(.secondary); Text(value).textSelection(.enabled) }
+    }
+
+    private func canDelete(_ workload: Workload) -> Bool {
+        environment.inventoryAvailability == .available && !workload.generationID.isEmpty && (workload.state == .stopped || workload.state == .created)
     }
 
     private func mutate(_ workload: Workload, start: Bool) {
@@ -204,6 +276,47 @@ struct EnvironmentContainersView: View {
             mutatingIDs.remove(workload.id)
         }
     }
+
+    private func signal(_ workload: Workload, _ signal: ContainerSignal) {
+        mutatingIDs.insert(workload.id)
+        Task {
+            await model.signal(environmentID: environment.id, containerID: workload.id, signal: signal)
+            mutatingIDs.remove(workload.id)
+        }
+    }
+
+    private var confirmationPresented: Binding<Bool> {
+        Binding(get: { pendingConfirmation != nil }, set: { if !$0 { pendingConfirmation = nil } })
+    }
+    private var confirmationTitle: String { pendingConfirmation?.title ?? "Confirm container action" }
+    private var confirmationMessage: String { pendingConfirmation?.message ?? "" }
+    private func confirm(_ confirmation: ContainerConfirmation) {
+        pendingConfirmation = nil
+        switch confirmation {
+        case .forceStop(let workload): signal(workload, .kill)
+        case .delete(let workload):
+            guard canDelete(workload) else { return }
+            mutatingIDs.insert(workload.id)
+            Task {
+                await model.deleteWorkload(environmentID: environment.id, containerID: workload.id, expectedGenerationID: workload.generationID)
+                mutatingIDs.remove(workload.id)
+                if selection == workload.id { selection = nil }
+            }
+        }
+    }
+}
+
+private enum ContainerConfirmation {
+    case forceStop(Workload)
+    case delete(Workload)
+
+    var title: String { switch self { case .forceStop(let value): "Force stop \(value.id)?"; case .delete(let value): "Delete \(value.id)?" } }
+    var message: String { switch self {
+    case .forceStop: "The container process will be killed immediately and may not finish writing data."
+    case .delete: "This permanently deletes the container's writable snapshot and logs. Named volumes and image content are retained."
+    } }
+    var buttonTitle: String { switch self { case .forceStop: "Force Stop"; case .delete: "Delete Container" } }
+    var isDestructive: Bool { true }
 }
 
 struct EnvironmentStorageView: View {
@@ -213,24 +326,73 @@ struct EnvironmentStorageView: View {
     @State private var imageError: String?
     @State private var loadingImages = false
     @State private var imageReloadID = UUID()
+    @State private var imagePendingRemoval: EnvironmentImageModel?
+    @State private var removingImageIDs: Set<String> = []
+    @State private var failedImageRemoval: EnvironmentImageModel?
+    @State private var imageRemovalError: String?
+    @State private var imageInventoryFresh = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Images").font(.headline)
+            HStack {
+                Text("Images available to this environment").font(.headline)
+                Text("Environment namespace").font(.caption).padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                Spacer()
+                Button { imageReloadID = UUID() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    .disabled(loadingImages)
+            }
+            Text("Image records belong to this environment. Content blobs are stored and deduplicated across the virtual machine, so removing a record may not free disk space.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let imageError, !images.isEmpty {
+                Label(imageError, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.red)
+            }
+            if let imageRemovalError {
+                HStack {
+                    Label(imageRemovalError, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.red)
+                    Spacer()
+                    if let failedImageRemoval, !imageRemovalDisabled(failedImageRemoval) {
+                        Button("Retry") { remove(failedImageRemoval) }
+                    }
+                    Button("Dismiss") {
+                        self.imageRemovalError = nil
+                        failedImageRemoval = nil
+                    }
+                }
+            }
             Table(images) {
                 TableColumn("Reference", value: \.reference)
                 TableColumn("Content") { Text(shortDigest($0.digest)).font(.system(.body, design: .monospaced)) }
                 TableColumn("Logical size") { Text(DisplayFormatting.bytes.string(fromByteCount: Int64($0.logicalBytes))) }
                 TableColumn("Used by") { Text($0.usedByContainerIDs.isEmpty ? "Not in use" : $0.usedByContainerIDs.joined(separator: ", ")) }
+                TableColumn("") { image in
+                    Menu {
+                        Button("Copy Reference") { copy(image.reference) }
+                        Button("Copy Digest") { copy(image.digest) }
+                        Divider()
+                        Button("Remove from Environment…", role: .destructive) { imagePendingRemoval = image }
+                            .disabled(imageRemovalDisabled(image))
+                    } label: {
+                        if removingImageIDs.contains(image.id) { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "ellipsis.circle") }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help(imageRemovalHelp(image))
+                }.width(38)
             }
             .overlay {
-                if loadingImages { ProgressView("Loading images…") }
-                else if let imageError {
+                if loadingImages || environment.inventoryAvailability == .unknown { ProgressView("Loading images…") }
+                else if let imageError, images.isEmpty {
                     ContentUnavailableView {
                         Label("Image inventory unavailable", systemImage: "photo.stack")
                     } description: { Text(imageError) } actions: { Button("Retry") { imageReloadID = UUID() } }
                 }
-                else if images.isEmpty { ContentUnavailableView("No images", systemImage: "photo.stack") }
+                else if environment.inventoryAvailability == .stale && images.isEmpty {
+                    ContentUnavailableView("Last image inventory unavailable", systemImage: "clock.arrow.circlepath", description: Text(environment.inventoryMessage ?? "Refresh after the runtime is available."))
+                }
+                else if environment.inventoryAvailability == .available && images.isEmpty && imageError == nil { ContentUnavailableView("No images", systemImage: "photo.stack") }
             }
             Text("Retained volumes").font(.headline)
             Table(environment.volumes) {
@@ -251,23 +413,103 @@ struct EnvironmentStorageView: View {
                 }
             }
             if environment.inventoryAvailability == .stale {
-                Label(environment.inventoryMessage ?? "Showing the last available storage inventory.", systemImage: "clock.arrow.circlepath")
-                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Label(staleInventoryMessage, systemImage: "clock.arrow.circlepath")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Retry") { Task { await loadImages(force: true) } }
+                }
             }
         }
         .padding(20)
-        .task(id: "\(environment.id):\(environment.inventoryAvailability):\(model.snapshot.bootID):\(imageReloadID)") { await loadImages() }
+        .task(id: "\(environment.id):\(environment.inventoryAvailability):\(model.snapshot.bootID):\(imageReloadID)") { await loadImages(force: false) }
+        .alert("Remove image record from this environment?", isPresented: removalAlertPresented, presenting: imagePendingRemoval) { image in
+            Button("Cancel", role: .cancel) { imagePendingRemoval = nil }
+            Button("Remove Image Record", role: .destructive) { remove(image) }
+        } message: { _ in
+            Text("This removes the reference from this environment’s namespace. Containers and volumes are not deleted. The underlying content may remain because it can be shared elsewhere in the virtual machine. Reclaimed disk space is unknown.")
+        }
     }
 
-    private func loadImages() async {
-        loadingImages = true
-        defer { loadingImages = false }
-        guard let client = model.client, environment.inventoryAvailability == .available else {
-            imageError = environment.inventoryMessage
+    private var staleInventoryMessage: String {
+        let observed = environment.inventoryObservedAt.map { " Last updated \($0.formatted(date: .abbreviated, time: .shortened))." } ?? ""
+        return (environment.inventoryMessage ?? "Showing the last available storage inventory.") + observed
+    }
+
+    private func loadImages(force: Bool) async {
+        if environment.inventoryAvailability == .unknown {
+            loadingImages = true
+            imageInventoryFresh = false
+            imageError = nil
             return
         }
-        do { images = try await client.images(environmentID: environment.id); imageError = nil }
-        catch { imageError = hostErrorMessage(error) }
+        if environment.inventoryAvailability == .stale && !force {
+            loadingImages = false
+            imageInventoryFresh = false
+            return
+        }
+        guard let client = model.client, environment.inventoryAvailability == .available || force && environment.inventoryAvailability == .stale else {
+            loadingImages = false
+            imageInventoryFresh = false
+            images.removeAll()
+            imageError = environment.inventoryMessage ?? (environment.inventoryAvailability == .vmStopped ? "Start the virtual machine to inspect images." : "The runtime image inventory is unavailable.")
+            return
+        }
+        loadingImages = true
+        imageInventoryFresh = false
+        defer { loadingImages = false }
+        do {
+            images = try await client.images(environmentID: environment.id)
+            imageError = nil
+            imageInventoryFresh = true
+            if let failedImageRemoval { self.failedImageRemoval = images.first { $0.id == failedImageRemoval.id } }
+        } catch {
+            imageError = hostErrorMessage(error)
+            imageInventoryFresh = false
+        }
+    }
+    private var removalAlertPresented: Binding<Bool> {
+        Binding(get: { imagePendingRemoval != nil }, set: { if !$0 { imagePendingRemoval = nil } })
+    }
+    private func imageRemovalDisabled(_ image: EnvironmentImageModel) -> Bool {
+        imageRemovalAvailability(for: image, inventory: effectiveImageInventory, isRemoving: removingImageIDs.contains(image.id)) != .allowed
+    }
+    private func imageRemovalHelp(_ image: EnvironmentImageModel) -> String {
+        switch imageRemovalAvailability(for: image, inventory: effectiveImageInventory, isRemoving: removingImageIDs.contains(image.id)) {
+        case .inUse(let count):
+            return "Used by \(count) container\(count == 1 ? "" : "s"). Delete or replace those containers first."
+        case .inventoryUnavailable:
+            return "Refresh the image inventory before removing this record."
+        case .inProgress:
+            return "This image record is being removed."
+        case .allowed:
+            return "Copy image identity or remove its record from this environment."
+        }
+    }
+    private var effectiveImageInventory: InventoryAvailability {
+        environment.inventoryAvailability == .available && imageInventoryFresh && !loadingImages ? .available : .stale
+    }
+    private func remove(_ image: EnvironmentImageModel) {
+        imagePendingRemoval = nil
+        removingImageIDs.insert(image.id)
+        Task {
+            defer { removingImageIDs.remove(image.id) }
+            do {
+                try await model.deleteImage(environmentID: environment.id, image: image)
+                images.removeAll { $0.id == image.id }
+                imageError = nil
+                imageRemovalError = nil
+                failedImageRemoval = nil
+            } catch {
+                imageRemovalError = hostErrorMessage(error)
+                failedImageRemoval = image
+                imageReloadID = UUID()
+            }
+        }
+    }
+    private func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
     private func shortDigest(_ value: String) -> String { value.count > 20 ? String(value.prefix(20)) + "…" : value }
 }

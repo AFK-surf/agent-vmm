@@ -12,6 +12,7 @@ service AgentRuntimeService {
   rpc GetEnvironment(GetOwnEnvironmentRequest) returns (GetEnvironmentResponse);
   rpc PullImage(PullImageRequest) returns (stream PullImageResponse);
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+  rpc DeleteImage(DeleteImageRequest) returns (google.protobuf.Empty);
   rpc CreateContainer(CreateContainerRequest) returns (ContainerResponse);
   rpc StartContainer(ContainerMutationRequest) returns (ContainerResponse);
   rpc StopContainer(StopContainerRequest) returns (ContainerResponse);
@@ -54,12 +55,14 @@ service OperatorService {
   rpc ListEnvironments(ListEnvironmentsRequest) returns (ListEnvironmentsResponse);
   rpc GetEnvironment(GetEnvironmentRequest) returns (GetEnvironmentResponse);
   rpc ListEnvironmentImages(ListEnvironmentImagesRequest) returns (ListImagesResponse);
+  rpc DeleteEnvironmentImage(DeleteEnvironmentImageRequest) returns (google.protobuf.Empty);
   rpc WatchEvents(WatchEventsRequest) returns (stream RuntimeEvent);
   rpc WatchMetrics(WatchMetricsRequest) returns (stream MetricsSample);
   rpc Logs(OperatorLogsRequest) returns (stream LogRecord);
   rpc StopContainer(OperatorStopContainerRequest) returns (ContainerResponse);
   rpc ContinueContainer(OperatorContainerMutationRequest) returns (ContainerResponse);
   rpc SignalContainer(OperatorSignalContainerRequest) returns (google.protobuf.Empty);
+  rpc DeleteContainer(OperatorDeleteContainerRequest) returns (google.protobuf.Empty);
   rpc UpdateEnvironmentPolicy(UpdateEnvironmentPolicyRequest) returns (GetEnvironmentResponse);
   rpc ApplyNetworkLink(ApplyNetworkLinkRequest) returns (google.protobuf.Empty);
   rpc DeleteNetworkLink(DeleteNetworkLinkRequest) returns (google.protobuf.Empty);
@@ -368,6 +371,7 @@ message Container {
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp started_at = 13;
   google.protobuf.Timestamp finished_at = 14;
+  string generation_id = 15;
 }
 
 message StringList {
@@ -396,6 +400,7 @@ message ContainerRequest {
 message ContainerMutationRequest {
   string request_id = 1;
   string container_id = 2;
+  string expected_generation_id = 3;
 }
 message StopContainerRequest {
   string request_id = 1;
@@ -429,6 +434,7 @@ message Image {
   uint64 logical_bytes = 3;
   repeated string platforms = 4;
   repeated string used_by_container_ids = 5;
+  string generation_id = 6;
 }
 message ListImagesRequest {}
 message ListEnvironmentImagesRequest {
@@ -436,6 +442,19 @@ message ListEnvironmentImagesRequest {
 }
 message ListImagesResponse {
   repeated Image images = 1;
+}
+message DeleteImageRequest {
+  string request_id = 1;
+  string reference = 2;
+  string expected_generation_id = 3;
+  string expected_digest = 4;
+}
+message DeleteEnvironmentImageRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string reference = 3;
+  string expected_generation_id = 4;
+  string expected_digest = 5;
 }
 
 enum LogStream {
@@ -688,6 +707,12 @@ message OperatorSignalContainerRequest {
   string environment_id = 2;
   string container_id = 3;
   ProcessSignal signal = 4;
+}
+message OperatorDeleteContainerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  string expected_generation_id = 4;
 }
 
 message ContainerIDList {

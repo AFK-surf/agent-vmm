@@ -1918,6 +1918,11 @@ public nonisolated struct Agentvmm_Host_V1_Container: @unchecked Sendable {
   /// Clears the value of `finishedAt`. Subsequent reads from it will return its default value.
   public mutating func clearFinishedAt() {_uniqueStorage()._finishedAt = nil}
 
+  public var generationID: String {
+    get {_storage._generationID}
+    set {_uniqueStorage()._generationID = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -2032,6 +2037,8 @@ public nonisolated struct Agentvmm_Host_V1_ContainerMutationRequest: Sendable {
   public var requestID: String = String()
 
   public var containerID: String = String()
+
+  public var expectedGenerationID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2174,6 +2181,8 @@ public nonisolated struct Agentvmm_Host_V1_Image: Sendable {
 
   public var usedByContainerIds: [String] = []
 
+  public var generationID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -2207,6 +2216,44 @@ public nonisolated struct Agentvmm_Host_V1_ListImagesResponse: Sendable {
   // methods supported on all messages.
 
   public var images: [Agentvmm_Host_V1_Image] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_DeleteImageRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestID: String = String()
+
+  public var reference: String = String()
+
+  public var expectedGenerationID: String = String()
+
+  public var expectedDigest: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_DeleteEnvironmentImageRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestID: String = String()
+
+  public var environmentID: String = String()
+
+  public var reference: String = String()
+
+  public var expectedGenerationID: String = String()
+
+  public var expectedDigest: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3258,6 +3305,24 @@ public nonisolated struct Agentvmm_Host_V1_OperatorSignalContainerRequest: Senda
   public var containerID: String = String()
 
   public var signal: Agentvmm_Host_V1_ProcessSignal = .unspecified
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_OperatorDeleteContainerRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestID: String = String()
+
+  public var environmentID: String = String()
+
+  public var containerID: String = String()
+
+  public var expectedGenerationID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -6158,7 +6223,7 @@ nonisolated extension Agentvmm_Host_V1_VolumeMount: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Container"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}image\0\u{1}state\0\u{3}exit_code\0\u{1}volumes\0\u{1}usage\0\u{1}argv\0\u{3}environment_keys\0\u{1}workdir\0\u{1}user\0\u{3}instance_id\0\u{3}created_at\0\u{3}started_at\0\u{3}finished_at\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}image\0\u{1}state\0\u{3}exit_code\0\u{1}volumes\0\u{1}usage\0\u{1}argv\0\u{3}environment_keys\0\u{1}workdir\0\u{1}user\0\u{3}instance_id\0\u{3}created_at\0\u{3}started_at\0\u{3}finished_at\0\u{3}generation_id\0")
 
   fileprivate class _StorageClass {
     var _id: String = String()
@@ -6175,6 +6240,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
     var _createdAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
     var _startedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
     var _finishedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+    var _generationID: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -6199,6 +6265,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
       _createdAt = source._createdAt
       _startedAt = source._startedAt
       _finishedAt = source._finishedAt
+      _generationID = source._generationID
     }
   }
 
@@ -6231,6 +6298,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
         case 12: try { try decoder.decodeSingularMessageField(value: &_storage._createdAt) }()
         case 13: try { try decoder.decodeSingularMessageField(value: &_storage._startedAt) }()
         case 14: try { try decoder.decodeSingularMessageField(value: &_storage._finishedAt) }()
+        case 15: try { try decoder.decodeSingularStringField(value: &_storage._generationID) }()
         default: break
         }
       }
@@ -6285,6 +6353,9 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
       try { if let v = _storage._finishedAt {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 14)
       } }()
+      if !_storage._generationID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._generationID, fieldNumber: 15)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -6308,6 +6379,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
         if _storage._createdAt != rhs_storage._createdAt {return false}
         if _storage._startedAt != rhs_storage._startedAt {return false}
         if _storage._finishedAt != rhs_storage._finishedAt {return false}
+        if _storage._generationID != rhs_storage._generationID {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -6468,7 +6540,7 @@ nonisolated extension Agentvmm_Host_V1_ContainerRequest: SwiftProtobuf.Message, 
 
 nonisolated extension Agentvmm_Host_V1_ContainerMutationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ContainerMutationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}container_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}container_id\0\u{3}expected_generation_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -6478,6 +6550,7 @@ nonisolated extension Agentvmm_Host_V1_ContainerMutationRequest: SwiftProtobuf.M
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.expectedGenerationID) }()
       default: break
       }
     }
@@ -6490,12 +6563,16 @@ nonisolated extension Agentvmm_Host_V1_ContainerMutationRequest: SwiftProtobuf.M
     if !self.containerID.isEmpty {
       try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 2)
     }
+    if !self.expectedGenerationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedGenerationID, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_ContainerMutationRequest, rhs: Agentvmm_Host_V1_ContainerMutationRequest) -> Bool {
     if lhs.requestID != rhs.requestID {return false}
     if lhs.containerID != rhs.containerID {return false}
+    if lhs.expectedGenerationID != rhs.expectedGenerationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -6744,7 +6821,7 @@ nonisolated extension Agentvmm_Host_V1_PullImageResponse: SwiftProtobuf.Message,
 
 nonisolated extension Agentvmm_Host_V1_Image: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Image"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}reference\0\u{1}digest\0\u{3}logical_bytes\0\u{1}platforms\0\u{3}used_by_container_ids\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}reference\0\u{1}digest\0\u{3}logical_bytes\0\u{1}platforms\0\u{3}used_by_container_ids\0\u{3}generation_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -6757,6 +6834,7 @@ nonisolated extension Agentvmm_Host_V1_Image: SwiftProtobuf.Message, SwiftProtob
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.logicalBytes) }()
       case 4: try { try decoder.decodeRepeatedStringField(value: &self.platforms) }()
       case 5: try { try decoder.decodeRepeatedStringField(value: &self.usedByContainerIds) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.generationID) }()
       default: break
       }
     }
@@ -6778,6 +6856,9 @@ nonisolated extension Agentvmm_Host_V1_Image: SwiftProtobuf.Message, SwiftProtob
     if !self.usedByContainerIds.isEmpty {
       try visitor.visitRepeatedStringField(value: self.usedByContainerIds, fieldNumber: 5)
     }
+    if !self.generationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.generationID, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -6787,6 +6868,7 @@ nonisolated extension Agentvmm_Host_V1_Image: SwiftProtobuf.Message, SwiftProtob
     if lhs.logicalBytes != rhs.logicalBytes {return false}
     if lhs.platforms != rhs.platforms {return false}
     if lhs.usedByContainerIds != rhs.usedByContainerIds {return false}
+    if lhs.generationID != rhs.generationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -6866,6 +6948,101 @@ nonisolated extension Agentvmm_Host_V1_ListImagesResponse: SwiftProtobuf.Message
 
   public static func ==(lhs: Agentvmm_Host_V1_ListImagesResponse, rhs: Agentvmm_Host_V1_ListImagesResponse) -> Bool {
     if lhs.images != rhs.images {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_DeleteImageRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteImageRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}reference\0\u{3}expected_generation_id\0\u{3}expected_digest\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.reference) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.expectedGenerationID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.expectedDigest) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if !self.reference.isEmpty {
+      try visitor.visitSingularStringField(value: self.reference, fieldNumber: 2)
+    }
+    if !self.expectedGenerationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedGenerationID, fieldNumber: 3)
+    }
+    if !self.expectedDigest.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedDigest, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_DeleteImageRequest, rhs: Agentvmm_Host_V1_DeleteImageRequest) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.reference != rhs.reference {return false}
+    if lhs.expectedGenerationID != rhs.expectedGenerationID {return false}
+    if lhs.expectedDigest != rhs.expectedDigest {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_DeleteEnvironmentImageRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteEnvironmentImageRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}environment_id\0\u{1}reference\0\u{3}expected_generation_id\0\u{3}expected_digest\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.environmentID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.reference) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.expectedGenerationID) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.expectedDigest) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if !self.environmentID.isEmpty {
+      try visitor.visitSingularStringField(value: self.environmentID, fieldNumber: 2)
+    }
+    if !self.reference.isEmpty {
+      try visitor.visitSingularStringField(value: self.reference, fieldNumber: 3)
+    }
+    if !self.expectedGenerationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedGenerationID, fieldNumber: 4)
+    }
+    if !self.expectedDigest.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedDigest, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_DeleteEnvironmentImageRequest, rhs: Agentvmm_Host_V1_DeleteEnvironmentImageRequest) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.environmentID != rhs.environmentID {return false}
+    if lhs.reference != rhs.reference {return false}
+    if lhs.expectedGenerationID != rhs.expectedGenerationID {return false}
+    if lhs.expectedDigest != rhs.expectedDigest {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -8838,6 +9015,51 @@ nonisolated extension Agentvmm_Host_V1_OperatorSignalContainerRequest: SwiftProt
     if lhs.environmentID != rhs.environmentID {return false}
     if lhs.containerID != rhs.containerID {return false}
     if lhs.signal != rhs.signal {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_OperatorDeleteContainerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".OperatorDeleteContainerRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}environment_id\0\u{3}container_id\0\u{3}expected_generation_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.environmentID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.expectedGenerationID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if !self.environmentID.isEmpty {
+      try visitor.visitSingularStringField(value: self.environmentID, fieldNumber: 2)
+    }
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 3)
+    }
+    if !self.expectedGenerationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedGenerationID, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_OperatorDeleteContainerRequest, rhs: Agentvmm_Host_V1_OperatorDeleteContainerRequest) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.environmentID != rhs.environmentID {return false}
+    if lhs.containerID != rhs.containerID {return false}
+    if lhs.expectedGenerationID != rhs.expectedGenerationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

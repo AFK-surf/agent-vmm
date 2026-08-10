@@ -152,6 +152,23 @@ final class AppModel {
         catch { errorMessage = hostErrorMessage(error) }
     }
 
+    func deleteWorkload(environmentID: String, containerID: String, expectedGenerationID: String) async {
+        do {
+            try await client?.deleteContainer(environmentID: environmentID, containerID: containerID, expectedGenerationID: expectedGenerationID)
+            try await refresh()
+        } catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    func deleteImage(environmentID: String, image: EnvironmentImageModel) async throws {
+        guard let client else { throw HostClientError.disconnected }
+        try await client.deleteImage(
+            environmentID: environmentID,
+            reference: image.reference,
+            expectedGenerationID: image.generationID,
+            expectedDigest: image.digest
+        )
+    }
+
     func updatePolicy(environmentID: String, limits: EnvironmentLimits, allowsPublicEgress: Bool, expectedRevision: UInt64) async {
         do {
             try await client?.updatePolicy(environmentID: environmentID, limits: limits, allowsPublicEgress: allowsPublicEgress, expectedRevision: expectedRevision)

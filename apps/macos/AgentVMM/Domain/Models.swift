@@ -55,6 +55,7 @@ struct UsageSnapshot: Sendable, Equatable {
 struct Workload: Identifiable, Sendable, Equatable {
     enum State: String, Sendable { case created, running, stopped, unknown }
     let id: String
+    let generationID: String
     let image: String
     let state: State
     let exitCode: UInt32?
@@ -68,8 +69,9 @@ struct Workload: Identifiable, Sendable, Equatable {
     let startedAt: Date?
     let finishedAt: Date?
 
-    init(id: String, image: String, state: State, exitCode: UInt32?, argv: [String], environmentKeys: [String], workdir: String?, user: String?, mounts: [String], instanceID: String? = nil, createdAt: Date? = nil, startedAt: Date? = nil, finishedAt: Date? = nil) {
+    init(id: String, generationID: String = "", image: String, state: State, exitCode: UInt32?, argv: [String], environmentKeys: [String], workdir: String?, user: String?, mounts: [String], instanceID: String? = nil, createdAt: Date? = nil, startedAt: Date? = nil, finishedAt: Date? = nil) {
         self.id = id
+        self.generationID = generationID
         self.image = image
         self.state = state
         self.exitCode = exitCode
@@ -92,6 +94,21 @@ struct EnvironmentImageModel: Identifiable, Sendable, Equatable {
     let logicalBytes: UInt64
     let platforms: [String]
     let usedByContainerIDs: [String]
+    let generationID: String
+}
+
+enum ImageRemovalAvailability: Equatable {
+    case allowed
+    case inUse(Int)
+    case inventoryUnavailable
+    case inProgress
+}
+
+func imageRemovalAvailability(for image: EnvironmentImageModel, inventory: InventoryAvailability, isRemoving: Bool) -> ImageRemovalAvailability {
+    if isRemoving { return .inProgress }
+    if inventory != .available { return .inventoryUnavailable }
+    if !image.usedByContainerIDs.isEmpty { return .inUse(image.usedByContainerIDs.count) }
+    return .allowed
 }
 
 enum InventoryAvailability: Sendable, Equatable {

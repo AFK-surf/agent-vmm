@@ -15,7 +15,8 @@ import (
 
 func (adapter *Adapter) registerMutationTools(server *mcp.Server) {
 	addTool(server, toolDefinition{name: "image_pull", description: "Pull one image explicitly and report bounded progress.", inputSchema: imagePullSchema, openWorld: true, timeout: 10 * time.Minute}, adapter.imagePull)
-	addTool(server, toolDefinition{name: "container_run", description: "Create then start one container. The image ENTRYPOINT and CMD are preserved unless entrypoint or command is explicitly provided.", inputSchema: containerRunSchema, destructive: true, openWorld: true, timeout: 2 * time.Minute}, adapter.containerRun)
+	addTool(server, toolDefinition{name: "image_delete", description: "Remove one canonical image record from this environment. The image must not be referenced by a container; shared content may remain in the virtual machine.", inputSchema: imageDeleteSchema, destructive: true, timeout: 2 * time.Minute}, adapter.imageDelete)
+	addTool(server, toolDefinition{name: "container_run", description: "Create and launch one container, then report its observed state after a short bounded interval. launch_succeeded confirms process launch, not service readiness. Image ENTRYPOINT and CMD are preserved unless overridden. Containers run without Linux capabilities; images must not require chown, setuid, or privileged startup.", inputSchema: containerRunSchema, destructive: true, openWorld: true, timeout: 2 * time.Minute}, adapter.containerRun)
 	addTool(server, toolDefinition{name: "container_start", description: "Start one existing created or stopped container.", inputSchema: containerSchema, openWorld: true, timeout: 2 * time.Minute}, adapter.containerStart)
 	addTool(server, toolDefinition{name: "container_exec", description: "Execute a non-interactive process with explicit argv; use an explicit shell argv when shell syntax is required.", inputSchema: containerExecSchema, destructive: true, openWorld: true, timeout: 10 * time.Minute}, adapter.containerExec)
 	addTool(server, toolDefinition{name: "container_stop", description: "Stop one running container with a bounded grace period.", inputSchema: containerStopSchema, destructive: true, timeout: 2 * time.Minute}, adapter.containerStop)
@@ -23,6 +24,36 @@ func (adapter *Adapter) registerMutationTools(server *mcp.Server) {
 	addTool(server, toolDefinition{name: "container_delete", description: "Delete one stopped container without deleting its named volumes.", inputSchema: containerSchema, destructive: true, timeout: 2 * time.Minute}, adapter.containerDelete)
 	addTool(server, toolDefinition{name: "volume_create", description: "Create one named volume, optionally initializing its numeric owner and permission mode for a non-root image.", inputSchema: volumeSchema, timeout: 2 * time.Minute}, adapter.volumeCreate)
 	addTool(server, toolDefinition{name: "volume_delete", description: "Delete one unmounted named volume.", inputSchema: volumeSchema, destructive: true, timeout: 2 * time.Minute}, adapter.volumeDelete)
+}
+
+func (adapter *Adapter) imageDelete(ctx context.Context, _ *mcp.CallToolRequest, input ImageDeleteInput) (*mcp.CallToolResult, Envelope, error) {
+	return adapter.call(ctx, 2*time.Minute, true, func(ctx context.Context) (any, error) {
+		response, err := adapter.runtime.ListImages(ctx, &hostv1.ListImagesRequest{})
+		if err != nil {
+			return nil, err
+		}
+		var selected *hostv1.Image
+		for _, image := range response.GetImages() {
+			if image.GetReference() == input.Reference {
+				selected = image
+				break
+			}
+		}
+		if selected == nil {
+			return nil, status.Error(codes.NotFound, "image is not available in this environment")
+		}
+		requestID, err := newRequestID()
+		if err != nil {
+			return nil, err
+		}
+		_, err = adapter.runtime.DeleteImage(ctx, &hostv1.DeleteImageRequest{
+			RequestId: requestID, Reference: selected.GetReference(), ExpectedGenerationId: selected.GetGenerationId(), ExpectedDigest: selected.GetDigest(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return ImageData{Reference: selected.GetReference(), Digest: selected.GetDigest(), LogicalBytes: selected.GetLogicalBytes(), Status: "removed"}, nil
+	})
 }
 
 func (adapter *Adapter) imagePull(ctx context.Context, request *mcp.CallToolRequest, input ImagePullInput) (*mcp.CallToolResult, Envelope, error) {
@@ -56,6 +87,9 @@ func (adapter *Adapter) imagePull(ctx context.Context, request *mcp.CallToolRequ
 }
 
 func (adapter *Adapter) containerRun(ctx context.Context, _ *mcp.CallToolRequest, input ContainerRunInput) (*mcp.CallToolResult, Envelope, error) {
+	if input.StartupObservationMillis < 0 || input.StartupObservationMillis > 5000 {
+		return adapter.failure(status.Error(codes.InvalidArgument, "startup_observation_ms must be between 0 and 5000"))
+	}
 	return adapter.call(ctx, 2*time.Minute, true, func(ctx context.Context) (any, error) {
 		logLimit := input.LogLimitBytes
 		if logLimit == 0 {
@@ -87,9 +121,24 @@ func (adapter *Adapter) containerRun(ctx context.Context, _ *mcp.CallToolRequest
 		}
 		started, err := adapter.runtime.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID})
 		if err != nil {
-			return nil, &toolFailure{data: RunData{Container: containerData(created.GetContainer()), Started: false}, err: err}
+			return nil, &toolFailure{data: RunData{Container: containerData(created.GetContainer()), LaunchSucceeded: false}, err: err}
 		}
-		return RunData{Container: containerData(started.GetContainer()), Started: true}, nil
+		observation := input.StartupObservationMillis
+		if observation == 0 {
+			observation = 1000
+		}
+		timer := time.NewTimer(time.Duration(observation) * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		observed, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		if err != nil {
+			return nil, &toolFailure{data: RunData{Container: containerData(started.GetContainer()), LaunchSucceeded: true}, err: err}
+		}
+		return RunData{Container: containerData(observed.GetContainer()), LaunchSucceeded: true}, nil
 	})
 }
 
@@ -145,11 +194,15 @@ func (adapter *Adapter) containerSignal(ctx context.Context, _ *mcp.CallToolRequ
 
 func (adapter *Adapter) containerDelete(ctx context.Context, _ *mcp.CallToolRequest, input ContainerInput) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.call(ctx, 2*time.Minute, true, func(ctx context.Context) (any, error) {
+		container, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		if err != nil {
+			return nil, err
+		}
 		requestID, err := newRequestID()
 		if err != nil {
 			return nil, err
 		}
-		_, err = adapter.runtime.DeleteContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID})
+		_, err = adapter.runtime.DeleteContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: container.GetContainer().GetGenerationId()})
 		return EmptyData{}, err
 	})
 }
@@ -199,7 +252,8 @@ func environmentList(values map[string]string) []string {
 }
 
 const imagePullSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["reference"],"properties":{"reference":{"type":"string","minLength":1,"maxLength":512}}}`
-const containerRunSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["container_id","image"],"properties":{"container_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"image":{"type":"string","minLength":1,"maxLength":512},"entrypoint":{"type":"array","maxItems":256,"items":{"type":"string","maxLength":4096}},"command":{"type":"array","maxItems":256,"items":{"type":"string","maxLength":4096}},"env":{"type":"object","maxProperties":128,"additionalProperties":{"type":"string","maxLength":65536},"propertyNames":{"pattern":"^[A-Za-z_][A-Za-z0-9_]*$"}},"workdir":{"type":"string","maxLength":4096},"user":{"type":"string","pattern":"^[0-9]+(?::[0-9]+)?$"},"volumes":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["volume_id","destination"],"properties":{"volume_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"destination":{"type":"string","pattern":"^/","maxLength":4096},"read_only":{"type":"boolean"}}}},"read_only_root":{"type":"boolean"},"log_limit_bytes":{"type":"integer","minimum":1048576,"maximum":67108864}}}`
+const imageDeleteSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["reference"],"properties":{"reference":{"type":"string","minLength":1,"maxLength":512}}}`
+const containerRunSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["container_id","image"],"properties":{"container_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"image":{"type":"string","minLength":1,"maxLength":512},"entrypoint":{"type":"array","maxItems":256,"items":{"type":"string","maxLength":4096}},"command":{"type":"array","maxItems":256,"items":{"type":"string","maxLength":4096}},"env":{"type":"object","maxProperties":128,"additionalProperties":{"type":"string","maxLength":65536},"propertyNames":{"pattern":"^[A-Za-z_][A-Za-z0-9_]*$"}},"workdir":{"type":"string","maxLength":4096},"user":{"type":"string","pattern":"^[0-9]+(?::[0-9]+)?$"},"volumes":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["volume_id","destination"],"properties":{"volume_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"destination":{"type":"string","pattern":"^/","maxLength":4096},"read_only":{"type":"boolean"}}}},"read_only_root":{"type":"boolean"},"log_limit_bytes":{"type":"integer","minimum":1048576,"maximum":67108864},"startup_observation_ms":{"type":"integer","minimum":0,"maximum":5000}}}`
 const containerExecSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["container_id","argv"],"properties":{"container_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"argv":{"type":"array","minItems":1,"maxItems":256,"items":{"type":"string","maxLength":4096}},"stdin":{"type":"string","maxLength":1048576},"env":{"type":"object","maxProperties":128,"additionalProperties":{"type":"string","maxLength":65536},"propertyNames":{"pattern":"^[A-Za-z_][A-Za-z0-9_]*$"}},"workdir":{"type":"string","maxLength":4096},"user":{"type":"string","pattern":"^[0-9]+(?::[0-9]+)?$"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":600},"max_output_bytes":{"type":"integer","minimum":1,"maximum":131072}}}`
 const containerStopSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["container_id"],"properties":{"container_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":120}}}`
 const containerSignalSchema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["container_id","signal"],"properties":{"container_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"signal":{"enum":["INT","TERM","KILL"]}}}`

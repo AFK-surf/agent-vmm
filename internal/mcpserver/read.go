@@ -24,7 +24,7 @@ func (adapter *Adapter) registerReadTools(server *mcp.Server) {
 	addTool(server, toolDefinition{name: "container_logs", description: "Read a bounded snapshot of container logs using an opaque cursor.", inputSchema: containerLogsSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.containerLogs)
 	addTool(server, toolDefinition{name: "volume_list", description: "List named volumes in this environment with bounded pagination.", inputSchema: pageSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.volumeList)
 	addTool(server, toolDefinition{name: "image_list", description: "List canonical image references visible in this environment.", inputSchema: pageSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.imageList)
-	addTool(server, toolDefinition{name: "port_forward_list", description: "List loopback port forwards owned by this MCP process.", inputSchema: emptySchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.portForwardList)
+	addTool(server, toolDefinition{name: "port_forward_list", description: "List at most 16 loopback port forwards owned by this MCP process. This tool accepts no arguments.", inputSchema: emptySchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.portForwardList)
 	addTool(server, toolDefinition{name: "cleanup_plan", description: "Plan an environment reset or irreversible discard without executing it.", inputSchema: cleanupPlanSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.cleanupPlan)
 }
 

@@ -23,6 +23,7 @@ const (
 	AgentRuntimeService_GetEnvironment_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/GetEnvironment"
 	AgentRuntimeService_PullImage_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/PullImage"
 	AgentRuntimeService_ListImages_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/ListImages"
+	AgentRuntimeService_DeleteImage_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/DeleteImage"
 	AgentRuntimeService_CreateContainer_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/CreateContainer"
 	AgentRuntimeService_StartContainer_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/StartContainer"
 	AgentRuntimeService_StopContainer_FullMethodName          = "/agentvmm.host.v1.AgentRuntimeService/StopContainer"
@@ -53,6 +54,7 @@ type AgentRuntimeServiceClient interface {
 	GetEnvironment(ctx context.Context, in *GetOwnEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PullImageResponse], error)
 	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
+	DeleteImage(ctx context.Context, in *DeleteImageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CreateContainer(ctx context.Context, in *CreateContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	StartContainer(ctx context.Context, in *ContainerMutationRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	StopContainer(ctx context.Context, in *StopContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
@@ -117,6 +119,16 @@ func (c *agentRuntimeServiceClient) ListImages(ctx context.Context, in *ListImag
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListImagesResponse)
 	err := c.cc.Invoke(ctx, AgentRuntimeService_ListImages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) DeleteImage(ctx context.Context, in *DeleteImageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_DeleteImage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -358,6 +370,7 @@ type AgentRuntimeServiceServer interface {
 	GetEnvironment(context.Context, *GetOwnEnvironmentRequest) (*GetEnvironmentResponse, error)
 	PullImage(*PullImageRequest, grpc.ServerStreamingServer[PullImageResponse]) error
 	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
+	DeleteImage(context.Context, *DeleteImageRequest) (*emptypb.Empty, error)
 	CreateContainer(context.Context, *CreateContainerRequest) (*ContainerResponse, error)
 	StartContainer(context.Context, *ContainerMutationRequest) (*ContainerResponse, error)
 	StopContainer(context.Context, *StopContainerRequest) (*ContainerResponse, error)
@@ -397,6 +410,9 @@ func (UnimplementedAgentRuntimeServiceServer) PullImage(*PullImageRequest, grpc.
 }
 func (UnimplementedAgentRuntimeServiceServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListImages not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) DeleteImage(context.Context, *DeleteImageRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteImage not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) CreateContainer(context.Context, *CreateContainerRequest) (*ContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateContainer not implemented")
@@ -525,6 +541,24 @@ func _AgentRuntimeService_ListImages_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentRuntimeServiceServer).ListImages(ctx, req.(*ListImagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_DeleteImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).DeleteImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_DeleteImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).DeleteImage(ctx, req.(*DeleteImageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -883,6 +917,10 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AgentRuntimeService_ListImages_Handler,
 		},
 		{
+			MethodName: "DeleteImage",
+			Handler:    _AgentRuntimeService_DeleteImage_Handler,
+		},
+		{
 			MethodName: "CreateContainer",
 			Handler:    _AgentRuntimeService_CreateContainer_Handler,
 		},
@@ -1003,12 +1041,14 @@ const (
 	OperatorService_ListEnvironments_FullMethodName                   = "/agentvmm.host.v1.OperatorService/ListEnvironments"
 	OperatorService_GetEnvironment_FullMethodName                     = "/agentvmm.host.v1.OperatorService/GetEnvironment"
 	OperatorService_ListEnvironmentImages_FullMethodName              = "/agentvmm.host.v1.OperatorService/ListEnvironmentImages"
+	OperatorService_DeleteEnvironmentImage_FullMethodName             = "/agentvmm.host.v1.OperatorService/DeleteEnvironmentImage"
 	OperatorService_WatchEvents_FullMethodName                        = "/agentvmm.host.v1.OperatorService/WatchEvents"
 	OperatorService_WatchMetrics_FullMethodName                       = "/agentvmm.host.v1.OperatorService/WatchMetrics"
 	OperatorService_Logs_FullMethodName                               = "/agentvmm.host.v1.OperatorService/Logs"
 	OperatorService_StopContainer_FullMethodName                      = "/agentvmm.host.v1.OperatorService/StopContainer"
 	OperatorService_ContinueContainer_FullMethodName                  = "/agentvmm.host.v1.OperatorService/ContinueContainer"
 	OperatorService_SignalContainer_FullMethodName                    = "/agentvmm.host.v1.OperatorService/SignalContainer"
+	OperatorService_DeleteContainer_FullMethodName                    = "/agentvmm.host.v1.OperatorService/DeleteContainer"
 	OperatorService_UpdateEnvironmentPolicy_FullMethodName            = "/agentvmm.host.v1.OperatorService/UpdateEnvironmentPolicy"
 	OperatorService_ApplyNetworkLink_FullMethodName                   = "/agentvmm.host.v1.OperatorService/ApplyNetworkLink"
 	OperatorService_DeleteNetworkLink_FullMethodName                  = "/agentvmm.host.v1.OperatorService/DeleteNetworkLink"
@@ -1053,12 +1093,14 @@ type OperatorServiceClient interface {
 	ListEnvironments(ctx context.Context, in *ListEnvironmentsRequest, opts ...grpc.CallOption) (*ListEnvironmentsResponse, error)
 	GetEnvironment(ctx context.Context, in *GetEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	ListEnvironmentImages(ctx context.Context, in *ListEnvironmentImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
+	DeleteEnvironmentImage(ctx context.Context, in *DeleteEnvironmentImageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RuntimeEvent], error)
 	WatchMetrics(ctx context.Context, in *WatchMetricsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[MetricsSample], error)
 	Logs(ctx context.Context, in *OperatorLogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogRecord], error)
 	StopContainer(ctx context.Context, in *OperatorStopContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	ContinueContainer(ctx context.Context, in *OperatorContainerMutationRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	SignalContainer(ctx context.Context, in *OperatorSignalContainerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	DeleteContainer(ctx context.Context, in *OperatorDeleteContainerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateEnvironmentPolicy(ctx context.Context, in *UpdateEnvironmentPolicyRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	ApplyNetworkLink(ctx context.Context, in *ApplyNetworkLinkRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	DeleteNetworkLink(ctx context.Context, in *DeleteNetworkLinkRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -1269,6 +1311,16 @@ func (c *operatorServiceClient) ListEnvironmentImages(ctx context.Context, in *L
 	return out, nil
 }
 
+func (c *operatorServiceClient) DeleteEnvironmentImage(ctx context.Context, in *DeleteEnvironmentImageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, OperatorService_DeleteEnvironmentImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *operatorServiceClient) WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RuntimeEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &OperatorService_ServiceDesc.Streams[0], OperatorService_WatchEvents_FullMethodName, cOpts...)
@@ -1350,6 +1402,16 @@ func (c *operatorServiceClient) SignalContainer(ctx context.Context, in *Operato
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, OperatorService_SignalContainer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) DeleteContainer(ctx context.Context, in *OperatorDeleteContainerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, OperatorService_DeleteContainer_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1578,12 +1640,14 @@ type OperatorServiceServer interface {
 	ListEnvironments(context.Context, *ListEnvironmentsRequest) (*ListEnvironmentsResponse, error)
 	GetEnvironment(context.Context, *GetEnvironmentRequest) (*GetEnvironmentResponse, error)
 	ListEnvironmentImages(context.Context, *ListEnvironmentImagesRequest) (*ListImagesResponse, error)
+	DeleteEnvironmentImage(context.Context, *DeleteEnvironmentImageRequest) (*emptypb.Empty, error)
 	WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error
 	WatchMetrics(*WatchMetricsRequest, grpc.ServerStreamingServer[MetricsSample]) error
 	Logs(*OperatorLogsRequest, grpc.ServerStreamingServer[LogRecord]) error
 	StopContainer(context.Context, *OperatorStopContainerRequest) (*ContainerResponse, error)
 	ContinueContainer(context.Context, *OperatorContainerMutationRequest) (*ContainerResponse, error)
 	SignalContainer(context.Context, *OperatorSignalContainerRequest) (*emptypb.Empty, error)
+	DeleteContainer(context.Context, *OperatorDeleteContainerRequest) (*emptypb.Empty, error)
 	UpdateEnvironmentPolicy(context.Context, *UpdateEnvironmentPolicyRequest) (*GetEnvironmentResponse, error)
 	ApplyNetworkLink(context.Context, *ApplyNetworkLinkRequest) (*emptypb.Empty, error)
 	DeleteNetworkLink(context.Context, *DeleteNetworkLinkRequest) (*emptypb.Empty, error)
@@ -1668,6 +1732,9 @@ func (UnimplementedOperatorServiceServer) GetEnvironment(context.Context, *GetEn
 func (UnimplementedOperatorServiceServer) ListEnvironmentImages(context.Context, *ListEnvironmentImagesRequest) (*ListImagesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListEnvironmentImages not implemented")
 }
+func (UnimplementedOperatorServiceServer) DeleteEnvironmentImage(context.Context, *DeleteEnvironmentImageRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteEnvironmentImage not implemented")
+}
 func (UnimplementedOperatorServiceServer) WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error {
 	return status.Error(codes.Unimplemented, "method WatchEvents not implemented")
 }
@@ -1685,6 +1752,9 @@ func (UnimplementedOperatorServiceServer) ContinueContainer(context.Context, *Op
 }
 func (UnimplementedOperatorServiceServer) SignalContainer(context.Context, *OperatorSignalContainerRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SignalContainer not implemented")
+}
+func (UnimplementedOperatorServiceServer) DeleteContainer(context.Context, *OperatorDeleteContainerRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteContainer not implemented")
 }
 func (UnimplementedOperatorServiceServer) UpdateEnvironmentPolicy(context.Context, *UpdateEnvironmentPolicyRequest) (*GetEnvironmentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateEnvironmentPolicy not implemented")
@@ -2091,6 +2161,24 @@ func _OperatorService_ListEnvironmentImages_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_DeleteEnvironmentImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteEnvironmentImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).DeleteEnvironmentImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_DeleteEnvironmentImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).DeleteEnvironmentImage(ctx, req.(*DeleteEnvironmentImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OperatorService_WatchEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(WatchEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -2174,6 +2262,24 @@ func _OperatorService_SignalContainer_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OperatorServiceServer).SignalContainer(ctx, req.(*OperatorSignalContainerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_DeleteContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OperatorDeleteContainerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).DeleteContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_DeleteContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).DeleteContainer(ctx, req.(*OperatorDeleteContainerRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2618,6 +2724,10 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OperatorService_ListEnvironmentImages_Handler,
 		},
 		{
+			MethodName: "DeleteEnvironmentImage",
+			Handler:    _OperatorService_DeleteEnvironmentImage_Handler,
+		},
+		{
 			MethodName: "StopContainer",
 			Handler:    _OperatorService_StopContainer_Handler,
 		},
@@ -2628,6 +2738,10 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SignalContainer",
 			Handler:    _OperatorService_SignalContainer_Handler,
+		},
+		{
+			MethodName: "DeleteContainer",
+			Handler:    _OperatorService_DeleteContainer_Handler,
 		},
 		{
 			MethodName: "UpdateEnvironmentPolicy",

@@ -99,6 +99,29 @@ func (server *agentServer) ListImages(ctx context.Context, _ *hostv1.ListImagesR
 	return result, nil
 }
 
+func (server *agentServer) DeleteImage(ctx context.Context, request *hostv1.DeleteImageRequest) (*emptypb.Empty, error) {
+	identity, err := auth.AgentIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if request.GetRequestId() == "" || request.GetReference() == "" || request.GetExpectedGenerationId() == "" || request.GetExpectedDigest() == "" {
+		return nil, invalidField("request_id/reference/expected_generation_id/expected_digest", "image identity and request ID are required")
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close()
+	_, err = client.DeleteImage(ctx, &vmmdv1.DeleteImageRequest{
+		RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, Reference: request.GetReference(),
+		ExpectedGenerationId: request.GetExpectedGenerationId(), ExpectedDigest: request.GetExpectedDigest(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &emptypb.Empty{}, nil
+}
+
 func (server *agentServer) CreateContainer(ctx context.Context, request *hostv1.CreateContainerRequest) (*hostv1.ContainerResponse, error) {
 	identity, err := auth.AgentIdentity(ctx)
 	if err != nil {
@@ -188,12 +211,15 @@ func (server *agentServer) DeleteContainer(ctx context.Context, request *hostv1.
 	if err != nil {
 		return nil, err
 	}
+	if request.GetExpectedGenerationId() == "" {
+		return nil, invalidField("expected_generation_id", "container generation is required")
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer connection.Close()
-	if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId()}); err != nil {
+	if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), ExpectedGenerationId: request.GetExpectedGenerationId()}); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil

@@ -31,6 +31,8 @@ type fakeRuntime struct {
 	containerState    hostv1.ContainerState
 	containerInstance string
 	containerError    error
+	deletedGeneration string
+	deletedImage      *hostv1.DeleteImageRequest
 }
 
 func (*fakeRuntime) GetEnvironment(context.Context, *hostv1.GetOwnEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
@@ -55,11 +57,19 @@ func (server *fakeRuntime) GetContainer(_ context.Context, request *hostv1.Conta
 	if instance == "" && state == hostv1.ContainerState_CONTAINER_STATE_RUNNING {
 		instance = "instance-" + request.GetContainerId()
 	}
-	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: state, InstanceId: instance}}, nil
+	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: state, InstanceId: instance, GenerationId: "generation-" + request.GetContainerId()}}, nil
 }
 
 func (*fakeRuntime) ListImages(context.Context, *hostv1.ListImagesRequest) (*hostv1.ListImagesResponse, error) {
-	return &hostv1.ListImagesResponse{}, nil
+	return &hostv1.ListImagesResponse{Images: []*hostv1.Image{{Reference: "docker.io/library/test:latest", Digest: "sha256:test", GenerationId: "image-generation", LogicalBytes: 42}}}, nil
+}
+
+func (server *fakeRuntime) DeleteImage(_ context.Context, request *hostv1.DeleteImageRequest) (*emptypb.Empty, error) {
+	server.record(request.GetRequestId())
+	server.mu.Lock()
+	server.deletedImage = request
+	server.mu.Unlock()
+	return &emptypb.Empty{}, nil
 }
 
 func (*fakeRuntime) WaitContainer(ctx context.Context, _ *hostv1.ContainerRequest) (*hostv1.WaitContainerResponse, error) {
@@ -98,6 +108,9 @@ func (server *fakeRuntime) SignalContainer(_ context.Context, request *hostv1.Si
 }
 func (server *fakeRuntime) DeleteContainer(_ context.Context, request *hostv1.ContainerMutationRequest) (*emptypb.Empty, error) {
 	server.record(request.GetRequestId())
+	server.mu.Lock()
+	server.deletedGeneration = request.GetExpectedGenerationId()
+	server.mu.Unlock()
 	return &emptypb.Empty{}, nil
 }
 func (server *fakeRuntime) CreateVolume(_ context.Context, request *hostv1.CreateVolumeRequest) (*hostv1.VolumeResponse, error) {
@@ -230,7 +243,7 @@ func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_list", "image_pull", "port_forward_list", "port_forward_start", "port_forward_stop", "volume_create", "volume_delete", "volume_list"}
+	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_delete", "image_list", "image_pull", "port_forward_list", "port_forward_start", "port_forward_stop", "volume_create", "volume_delete", "volume_list"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v", names)
 	}
@@ -255,6 +268,23 @@ func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
 	page, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "container_list", Arguments: map[string]any{"limit": 1}})
 	if err != nil || page.IsError {
 		t.Fatalf("container_list: %v %#v", err, page)
+	}
+}
+
+func TestImageDeleteUsesCurrentFencedIdentity(t *testing.T) {
+	runtime := &fakeRuntime{}
+	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "image_delete", Arguments: map[string]any{"reference": "docker.io/library/test:latest"}})
+	if err != nil || result.IsError {
+		t.Fatalf("image_delete: %v %#v", err, result)
+	}
+	runtime.mu.Lock()
+	deleted := runtime.deletedImage
+	runtime.mu.Unlock()
+	if deleted == nil || deleted.GetExpectedGenerationId() != "image-generation" || deleted.GetExpectedDigest() != "sha256:test" || deleted.GetRequestId() == "" {
+		t.Fatalf("delete request = %+v", deleted)
 	}
 }
 
@@ -331,7 +361,7 @@ func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 		arguments map[string]any
 	}{
 		{name: "image_pull", arguments: map[string]any{"reference": "example.invalid/image:test"}},
-		{name: "container_run", arguments: map[string]any{"container_id": "job", "image": "example.invalid/image:test", "entrypoint": []string{"/bin/true"}, "command": []string{}}},
+		{name: "container_run", arguments: map[string]any{"container_id": "job", "image": "example.invalid/image:test", "entrypoint": []string{"/bin/true"}, "command": []string{}, "startup_observation_ms": 1}},
 		{name: "container_start", arguments: map[string]any{"container_id": "job"}},
 		{name: "container_exec", arguments: map[string]any{"container_id": "job", "argv": []string{"printf", "ok"}}},
 		{name: "container_stop", arguments: map[string]any{"container_id": "job", "timeout_seconds": 1}},
@@ -346,19 +376,38 @@ func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 			t.Fatalf("%s: %v %#v", call.name, err, result)
 		}
 	}
-	partial, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "container_run", Arguments: map[string]any{"container_id": "partial", "image": "image", "entrypoint": []string{"true"}, "command": []string{}}})
+	partial, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "container_run", Arguments: map[string]any{"container_id": "partial", "image": "image", "entrypoint": []string{"true"}, "command": []string{}, "startup_observation_ms": 1}})
 	if err != nil || !partial.IsError {
 		t.Fatalf("partial run = %v %#v", err, partial)
 	}
 	runtime.mu.Lock()
 	ids := append([]string(nil), runtime.requestIDs...)
+	deletedGeneration := runtime.deletedGeneration
 	runtime.mu.Unlock()
+	if deletedGeneration != "generation-job" {
+		t.Fatalf("delete generation = %q", deletedGeneration)
+	}
 	seen := make(map[string]bool)
 	for _, id := range ids {
 		if !strings.HasPrefix(id, "mcp-") || seen[id] {
 			t.Fatalf("invalid generated request IDs: %v", ids)
 		}
 		seen[id] = true
+	}
+}
+
+func TestContainerRunReportsObservedFastExit(t *testing.T) {
+	runtime := &fakeRuntime{containerState: hostv1.ContainerState_CONTAINER_STATE_STOPPED}
+	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "container_run", Arguments: map[string]any{
+		"container_id": "quick", "image": "image", "entrypoint": []string{"true"}, "command": []string{}, "startup_observation_ms": 1,
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("container_run = %v %#v", err, result)
+	}
+	payload, _ := json.Marshal(result.StructuredContent)
+	if !strings.Contains(string(payload), `"launch_succeeded":true`) || !strings.Contains(string(payload), `"state":"stopped"`) {
+		t.Fatalf("container_run = %s", payload)
 	}
 }
 
@@ -388,6 +437,19 @@ func TestMapErrorPreservesSanitizedRuntimeDetails(t *testing.T) {
 	mapped := mapError(value.Err())
 	if mapped.Code != "IMAGE_UNPACK_FAILED" || mapped.Message != "image content could not be unpacked" || mapped.Resource == nil || mapped.Resource.Kind != "image" || mapped.Resource.ID != "docker.io/pgvector/pgvector:pg16" {
 		t.Fatalf("mapped error = %+v", mapped)
+	}
+}
+
+func TestMapErrorPreservesImageDeletionConflicts(t *testing.T) {
+	for _, reason := range []string{"IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT"} {
+		value, err := status.New(codes.Aborted, "image record changed; refresh and try again").WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "agent-vmm"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mapped := mapError(value.Err())
+		if mapped.Code != reason || mapped.Message != "image record changed; refresh and try again" {
+			t.Fatalf("%s mapped to %+v", reason, mapped)
+		}
 	}
 }
 
@@ -444,6 +506,10 @@ func TestLoopbackForwardLifecycleAndHalfClose(t *testing.T) {
 	listed, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_list", Arguments: map[string]any{}})
 	if err != nil || listed.IsError {
 		t.Fatalf("list = %v %#v", err, listed)
+	}
+	invalidList, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_list", Arguments: map[string]any{"limit": 1}})
+	if err != nil || !invalidList.IsError {
+		t.Fatalf("list with arguments = %v %#v", err, invalidList)
 	}
 	stopped, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_stop", Arguments: map[string]any{"forward_id": envelope.Data.ID}})
 	if err != nil || stopped.IsError {

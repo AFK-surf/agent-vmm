@@ -54,7 +54,7 @@ func testMCPWorkflow(t *testing.T, harness *hostHarness) {
 		names = append(names, tool.Name)
 	}
 	slices.Sort(names)
-	if len(names) != 21 {
+	if len(names) != 22 {
 		t.Fatalf("tool count = %d: %v", len(names), names)
 	}
 	mcpSuccess(t, session, ctx, "environment_get", map[string]any{})
@@ -67,7 +67,7 @@ func testMCPWorkflow(t *testing.T, harness *hostHarness) {
 		t.Fatalf("logs = %s", logs)
 	}
 	afterLogs, err := session.ListTools(ctx, nil)
-	if err != nil || len(afterLogs.Tools) != 21 {
+	if err != nil || len(afterLogs.Tools) != 22 {
 		t.Fatalf("tool set changed after prompt-like logs: %v, %d", err, len(afterLogs.Tools))
 	}
 	mcpSuccess(t, session, ctx, "container_exec", map[string]any{"container_id": "worker", "argv": []string{"sh", "-c", "nc -lk -p 8080 -e /bin/cat >/dev/null 2>&1 &"}})

@@ -38,10 +38,28 @@ import Foundation
             return AsyncThrowingStream { $0.finish() }
         },
         onStatus: { status = $0 },
-        onRecord: { _ in }
+        onRecords: { _ in }
     )
     #expect(subscriptions == 1)
     #expect(status == "Ended")
+}
+
+@Test @MainActor func logHistoryIsDeliveredInBatches() async {
+    var batches: [[LogEntry]] = []
+    await followLogStream(
+        subscribe: { _ in
+            AsyncThrowingStream { continuation in
+                for index in 0..<250 {
+                    continuation.yield(LogEntry(id: String(index), timestamp: .now, stream: "stdout", text: "line", truncated: false, droppedRecords: 0))
+                }
+                continuation.finish()
+            }
+        },
+        onStatus: { _ in },
+        onRecords: { batches.append($0) }
+    )
+    #expect(batches.flatMap { $0 }.count == 250)
+    #expect(batches.count == 3)
 }
 
 @Test func rpcErrorsExposeServerReason() {
@@ -98,6 +116,15 @@ import Foundation
     )
     #expect(stale.rate(after: second, for: \UsageSnapshot.networkRXBytes) == nil)
     #expect(second.rate(after: stale, for: \UsageSnapshot.networkRXBytes) == nil)
+}
+
+@Test func imageRemovalRequiresFreshUnusedIdentity() {
+    let unused = EnvironmentImageModel(reference: "docker.io/library/test:latest", digest: "sha256:test", logicalBytes: 42, platforms: [], usedByContainerIDs: [], generationID: "generation")
+    #expect(imageRemovalAvailability(for: unused, inventory: .available, isRemoving: false) == .allowed)
+    #expect(imageRemovalAvailability(for: unused, inventory: .stale, isRemoving: false) == .inventoryUnavailable)
+    #expect(imageRemovalAvailability(for: unused, inventory: .available, isRemoving: true) == .inProgress)
+    let used = EnvironmentImageModel(reference: unused.reference, digest: unused.digest, logicalBytes: unused.logicalBytes, platforms: [], usedByContainerIDs: ["one", "two"], generationID: unused.generationID)
+    #expect(imageRemovalAvailability(for: used, inventory: .available, isRemoving: false) == .inUse(2))
 }
 
 @Test func remoteConnectionStatusHonorsGraceAndTerminalFailures() {

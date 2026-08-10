@@ -11,6 +11,7 @@
 		089C186837B18C2766D66123 /* HostServing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B292558ED7D5C7F86F14EED3 /* HostServing.swift */; };
 		09778B777AFECF72E39907D5 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = F6482C575408E653365F8644 /* SwiftProtobuf */; };
 		1B725D70A095BFF514C1D77C /* EnvironmentActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2C5802DC63CF10157BC058 /* EnvironmentActionsView.swift */; };
+		1F616E5BAA08C82FEB082C5A /* TerminalOutputTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FF4DBB545FD024859FFE1A8 /* TerminalOutputTextView.swift */; };
 		2FCEAE433CE67DDD8D7ACE16 /* IntegrationRepairSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D639B9CCBB36B9BDA254AE /* IntegrationRepairSheet.swift */; };
 		33C820F81D97EC95A9C75BC7 /* GRPCHostClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75297AB91F59A34F05406160 /* GRPCHostClient.swift */; };
 		388F9269AC9AFFA38106C034 /* host.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02CF6AA22A039477CA3C251 /* host.pb.swift */; };
@@ -67,6 +68,7 @@
 		75297AB91F59A34F05406160 /* GRPCHostClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GRPCHostClient.swift; sourceTree = "<group>"; };
 		882C3EC77EC127A63E68DA94 /* DomainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainTests.swift; sourceTree = "<group>"; };
 		8A79ECEDBFB0343C5D9EB769 /* AgentVMMTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentVMMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8FF4DBB545FD024859FFE1A8 /* TerminalOutputTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputTextView.swift; sourceTree = "<group>"; };
 		91532B1B1CF5D7B7D4B11A80 /* RemoteCapacityEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCapacityEditor.swift; sourceTree = "<group>"; };
 		9F5C19E3BBB71E9F58004A96 /* SystemStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatusView.swift; sourceTree = "<group>"; };
 		A3049DFCFA584C887164335A /* host.grpc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = host.grpc.swift; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				20BEE0B049ECA1C34A85FB4D /* EnvironmentListView.swift */,
 				C2E4EEA5DB464B0AA7DAD08E /* EnvironmentObservabilityView.swift */,
 				0D923E0D69320F48A689D85A /* LogsActivityView.swift */,
+				8FF4DBB545FD024859FFE1A8 /* TerminalOutputTextView.swift */,
 			);
 			path = AgentEnvironments;
 			sourceTree = "<group>";
@@ -354,6 +357,7 @@
 				93F1E0D216F1E2F6B3D22844 /* RemoveAgentAccessSheet.swift in Sources */,
 				AADFD11245AF099E9EF2678E /* RootView.swift in Sources */,
 				D0D3730DAE6C95168312E8B1 /* SystemStatusView.swift in Sources */,
+				1F616E5BAA08C82FEB082C5A /* TerminalOutputTextView.swift in Sources */,
 				6AE4242B3C6A6D3A50A4F147 /* host.grpc.swift in Sources */,
 				388F9269AC9AFFA38106C034 /* host.pb.swift in Sources */,
 			);

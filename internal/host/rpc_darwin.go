@@ -83,6 +83,7 @@ func remoteRuntimeDenied(method string) bool {
 		hostv1.AgentRuntimeService_GetContainer_FullMethodName,
 		hostv1.AgentRuntimeService_ListContainers_FullMethodName,
 		hostv1.AgentRuntimeService_ListImages_FullMethodName,
+		hostv1.AgentRuntimeService_DeleteImage_FullMethodName,
 		hostv1.AgentRuntimeService_Logs_FullMethodName,
 		hostv1.AgentRuntimeService_Exec_FullMethodName,
 		hostv1.AgentRuntimeService_SignalContainer_FullMethodName,

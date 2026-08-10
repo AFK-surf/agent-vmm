@@ -100,11 +100,16 @@ func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateCon
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
 		return nil, err
 	}
-	if err := ensureDirectory(filepath.Dir(logPath(namespaceID, request.GetContainerId())), 0o700); err != nil {
+	current, err := r.inspectContainer(nsctx, namespaceID, container)
+	if err != nil {
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
 		return nil, err
 	}
-	return r.inspectContainer(nsctx, namespaceID, container)
+	if err := ensureDirectory(filepath.Dir(logPath(namespaceID, request.GetContainerId(), current.GetGenerationId())), 0o700); err != nil {
+		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		return nil, err
+	}
+	return current, nil
 }
 
 func withSupervisedProcess() containerd.NewContainerOpts {

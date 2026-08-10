@@ -294,7 +294,7 @@ private struct EnvironmentDetailView: View {
         case .logs:
             LogsActivityView(model: model, environment: environment)
                 .padding(20)
-        case .network: network
+        case .network: EnvironmentNetworkView(model: model, environment: environment)
         case .advanced:
             EnvironmentActionsView(
                 model: model,
@@ -307,22 +307,52 @@ private struct EnvironmentDetailView: View {
         }
     }
 
-    private var network: some View {
+}
+
+private struct EnvironmentNetworkView: View {
+    @Bindable var model: AppModel
+    let environment: AgentEnvironmentModel
+    @State private var allowsPublicEgress = false
+
+    var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 GroupBox("Outbound access") {
                     VStack(alignment: .leading, spacing: 10) {
-                        LabeledContent("Policy", value: environment.egressSummary)
-                        LabeledContent("Public internet", value: environment.allowsPublicEgress ? "Allowed" : "Blocked")
+                        Label(
+                            environment.allowsPublicEgress ? "Public internet is allowed" : "Public internet is blocked",
+                            systemImage: environment.allowsPublicEgress ? "network.badge.shield.half.filled" : "lock.shield"
+                        )
+                        .font(.headline)
+                        Text("Private networks and the local LAN remain inaccessible. Environment-to-environment connections require explicit product-managed links.")
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.top, 6)
                 }
-                GroupBox("Resource limits") {
+
+                GroupBox("Access policy") {
                     VStack(alignment: .leading, spacing: 10) {
-                        LabeledContent("CPU", value: "\(environment.limits.cpuMillis) millicores")
-                        LabeledContent("Memory", value: DisplayFormatting.bytes.string(fromByteCount: Int64(environment.limits.memoryBytes)))
-                        LabeledContent("Processes", value: String(environment.limits.pids))
-                        LabeledContent("Retained disk", value: DisplayFormatting.bytes.string(fromByteCount: Int64(environment.limits.diskBytes)))
+                        Picker("Outbound policy", selection: $allowsPublicEgress) {
+                            Text("Block public internet").tag(false)
+                            Text("Allow public internet").tag(true)
+                        }
+                        .pickerStyle(.radioGroup)
+                        HStack {
+                            Button("Save Policy") { save() }.disabled(allowsPublicEgress == environment.allowsPublicEgress)
+                            Button("Revert") { allowsPublicEgress = environment.allowsPublicEgress }
+                                .disabled(allowsPublicEgress == environment.allowsPublicEgress)
+                        }
+                        Text("This changes new outbound connections. Existing connections may close when policy is tightened.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 6)
+                }
+
+                GroupBox("Traffic") {
+                    HStack {
+                        Text("Live receive and transmit rates are shown with CPU, memory, and disk I/O.").foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Open Metrics") { model.environmentSection = .overview }
                     }
                     .padding(.top, 6)
                 }
@@ -330,6 +360,18 @@ private struct EnvironmentDetailView: View {
             .frame(maxWidth: 920, alignment: .leading)
             .padding(24)
         }
+        .onAppear { allowsPublicEgress = environment.allowsPublicEgress }
+        .onChange(of: environment.policyRevision) { _, _ in allowsPublicEgress = environment.allowsPublicEgress }
     }
 
+    private func save() {
+        Task {
+            await model.updatePolicy(
+                environmentID: environment.id,
+                limits: environment.limits,
+                allowsPublicEgress: allowsPublicEgress,
+                expectedRevision: environment.policyRevision
+            )
+        }
+    }
 }

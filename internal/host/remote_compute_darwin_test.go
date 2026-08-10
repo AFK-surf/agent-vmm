@@ -72,6 +72,7 @@ func TestRemoteRuntimeMethodFilter(t *testing.T) {
 		hostv1.AgentRuntimeService_GetEnvironment_FullMethodName,
 		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
 		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
+		hostv1.AgentRuntimeService_DeleteImage_FullMethodName,
 	} {
 		if remoteRuntimeDenied(method) {
 			t.Fatalf("ordinary runtime method was denied: %s", method)

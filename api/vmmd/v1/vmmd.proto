@@ -23,6 +23,7 @@ service VMMDService {
 
   rpc GetImage(GetImageRequest) returns (GetImageResponse);
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+  rpc DeleteImage(DeleteImageRequest) returns (DeleteImageResponse);
 
   rpc CreateContainer(CreateContainerRequest) returns (CreateContainerResponse);
   rpc StartContainer(StartContainerRequest) returns (StartContainerResponse);
@@ -172,6 +173,7 @@ message Image {
   string digest = 2;
   uint64 logical_bytes = 3;
   repeated string platforms = 4;
+  string generation_id = 5;
 }
 message GetImageRequest {
   string actor_namespace_id = 1;
@@ -186,6 +188,14 @@ message ListImagesRequest {
 message ListImagesResponse {
   repeated Image images = 1;
 }
+message DeleteImageRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string reference = 3;
+  string expected_generation_id = 4;
+  string expected_digest = 5;
+}
+message DeleteImageResponse {}
 
 message ResourceLimits {
   optional uint32 cpu_millis = 1;
@@ -221,6 +231,7 @@ message Container {
   int64 created_at_unix_nano = 12;
   int64 started_at_unix_nano = 13;
   int64 finished_at_unix_nano = 14;
+  string generation_id = 15;
 }
 
 message StringList {
@@ -279,6 +290,7 @@ message DeleteContainerRequest {
   string request_id = 1;
   string actor_namespace_id = 2;
   string container_id = 3;
+  string expected_generation_id = 4;
 }
 message DeleteContainerResponse {}
 

@@ -70,3 +70,31 @@ func (server *operatorServer) SignalContainer(ctx context.Context, request *host
 	}
 	return &emptypb.Empty{}, nil
 }
+
+func (server *operatorServer) DeleteContainer(ctx context.Context, request *hostv1.OperatorDeleteContainerRequest) (*emptypb.Empty, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	if request.GetExpectedGenerationId() == "" {
+		return nil, invalidField("expected_generation_id", "container generation is required")
+	}
+	unlock := server.controller.lockEnvironment(request.GetEnvironmentId())
+	defer unlock()
+	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
+	if err != nil {
+		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close()
+	_, err = client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{
+		RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID,
+		ContainerId: request.GetContainerId(), ExpectedGenerationId: request.GetExpectedGenerationId(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &emptypb.Empty{}, nil
+}
