@@ -2,8 +2,11 @@ package remoteconnector
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -21,11 +24,15 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
+	"github.com/AFK-surf/agent-vmm/pkg/signing"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type memoryCredentials struct {
@@ -95,43 +102,89 @@ type fakeController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
 	t     *testing.T
 	hello *remotev1.HostHello
+	key   *ecdsa.PrivateKey
 }
 
 func (server *fakeController) Enroll(_ context.Context, request *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion {
+	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || !containsAllFeatures(request.GetSupportedFeatures(), protocolFeatures) || !containsAllFeatures(request.GetRequiredFeatures(), protocolFeatures) || request.GetDeviceIdentity().GetDeviceId() == "" {
 		return nil, status.Error(codes.Unauthenticated, "rejected")
 	}
-	return &remotev1.EnrollResponse{ProtocolVersion: ProtocolVersion, RegistrationId: request.GetRegistrationId(), ControllerDisplayName: "test", Credential: []byte("credential-one")}, nil
+	if server.key == nil {
+		server.key, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	}
+	now := time.Now()
+	authority := &trustv1.AuthorityDescriptor{AuthorityId: "managed-test", AuthorityClass: trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER, KeyId: "managed-key", Revision: 1}
+	anchor := &trustv1.TrustAnchor{Authority: authority, Revision: 1, NotBefore: timestamppb.New(now.Add(-time.Minute)), NotAfter: timestamppb.New(now.Add(time.Hour)),
+		VerificationKeys:       []*trustv1.VerificationKey{{KeyId: "managed-key", PublicKey: elliptic.MarshalCompressed(elliptic.P256(), server.key.X, server.key.Y), SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256}},
+		AllowedCapabilityKinds: []trustv1.CapabilityKind{trustv1.CapabilityKind_CAPABILITY_KIND_SERVICE_ROUTE}}
+	claims := sha256.Sum256([]byte(request.GetRegistrationId()))
+	credential := &trustv1.MembershipCredential{Authority: authority, SubjectDeviceId: request.GetDeviceIdentity().GetDeviceId(), SubjectRootKeyRevision: request.GetDeviceIdentity().GetRootKeyRevision(), SubjectRootPublicKey: request.GetDeviceIdentity().GetRootPublicKey(), OpaqueClaimsDigest: claims[:], PolicyRevision: 1, ExpiresAt: timestamppb.New(now.Add(30 * time.Minute))}
+	input, _ := signing.CanonicalInput(credential)
+	digest := sha256.Sum256(input)
+	credential.Signature, _ = ecdsa.SignASN1(rand.Reader, server.key, digest[:])
+	return &remotev1.EnrollResponse{ProtocolVersion: ProtocolVersion, RegistrationId: request.GetRegistrationId(), ControllerDisplayName: "test", Credential: []byte("credential-one"), EnabledFeatures: append([]string(nil), protocolFeatures...), TrustAnchor: anchor, MembershipCredential: credential}, nil
+}
+
+type fakeEnrollmentTrust struct {
+	trustv1.UnimplementedTrustServiceServer
+	identity  *trustv1.DeviceIdentity
+	installed bool
+}
+
+func (server *fakeEnrollmentTrust) GetDeviceIdentity(context.Context, *trustv1.GetDeviceIdentityRequest) (*trustv1.DeviceIdentity, error) {
+	return server.identity, nil
+}
+
+func (server *fakeEnrollmentTrust) InstallManagedTrust(_ context.Context, request *trustv1.InstallManagedTrustRequest) (*trustv1.InstallManagedTrustResponse, error) {
+	if request.GetMembershipCredential().GetSubjectDeviceId() != server.identity.GetDeviceId() {
+		return nil, status.Error(codes.PermissionDenied, "wrong subject")
+	}
+	server.installed = true
+	return &trustv1.InstallManagedTrustResponse{AuthorityId: request.GetTrustAnchor().GetAuthority().GetAuthorityId(), AnchorRevision: request.GetTrustAnchor().GetRevision(), PolicyRevision: request.GetMembershipCredential().GetPolicyRevision()}, nil
+}
+
+func configureEnrollmentTrust(t *testing.T, config *Config) *fakeEnrollmentTrust {
+	t.Helper()
+	directory, err := os.MkdirTemp("/tmp", "avm-trust-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	socket := filepath.Join(directory, "trust.sock")
+	capability := filepath.Join(directory, "trust.cap")
+	if err := os.WriteFile(capability, []byte("0123456789abcdef0123456789abcdef"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	root, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	implementation := &fakeEnrollmentTrust{identity: &trustv1.DeviceIdentity{DeviceId: "device-a", RootPublicKey: elliptic.MarshalCompressed(elliptic.P256(), root.X, root.Y), RootKeyRevision: 1, SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256}}
+	trustv1.RegisterTrustServiceServer(server, implementation)
+	go server.Serve(listener)
+	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
+	config.TrustSocket = socket
+	config.TrustCapabilityFile = capability
+	return implementation
 }
 func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage]) error {
 	values := metadata.ValueFromIncomingContext(stream.Context(), "authorization")
-	if len(values) != 1 || values[0] != "Bearer credential-one" {
+	if len(values) != 1 || values[0] != "Bearer Y3JlZGVudGlhbC1vbmU=" {
 		return status.Error(codes.Unauthenticated, "rejected")
 	}
-	first, err := stream.Recv()
+	session, err := controllerremote.AcceptControl(stream, "registration-a")
 	if err != nil {
-		return err
+		return status.Error(codes.InvalidArgument, err.Error())
 	}
-	server.hello = first.GetHello()
-	if server.hello == nil {
-		return status.Error(codes.InvalidArgument, "inventory must be first")
-	}
-	command := &remotev1.ControllerCommand{CorrelationId: "ensure-1", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", DisplayLabel: "remote", Limits: &hostv1.ResourceLimits{CpuMillis: uint32Pointer(100)}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
-	if err := stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_Command{Command: command}}); err != nil {
-		return err
-	}
-	duplicate := &remotev1.ControllerCommand{CorrelationId: "ensure-2", Command: command.GetCommand()}
-	if err := stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_Command{Command: duplicate}}); err != nil {
-		return err
-	}
-	for _, correlation := range []string{"ensure-1", "ensure-2"} {
-		result, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-		if !result.GetResult().GetSuccess() || result.GetResult().GetCorrelationId() != correlation || result.GetResult().GetAllocation().GetAllocationId() != "allocation-b" {
-			return status.Error(codes.Internal, "bad result")
-		}
+	server.hello = session.Hello()
+	command := &remotev1.ControllerCommand{CommandId: "ensure-1", TargetRevision: 7, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", DisplayLabel: "remote", Limits: &hostv1.ResourceLimits{CpuMillis: uint32Pointer(100)}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
+	commandContext, cancel := context.WithTimeout(stream.Context(), 5*time.Second)
+	defer cancel()
+	transcript, err := session.Dispatch(commandContext, command)
+	if err != nil || transcript.Result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED || transcript.Result.GetAllocation().GetAllocationId() != "allocation-b" {
+		return status.Error(codes.Internal, "bad result")
 	}
 	if err := stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_RotateCredential{RotateCredential: &remotev1.RotateCredential{Credential: []byte("credential-two")}}}); err != nil {
 		return err
@@ -146,9 +199,13 @@ func TestEnrollAndControlTranscript(t *testing.T) {
 	endpoint, roots := startTLSServer(t, "localhost", controller)
 	store := &memoryCredentials{}
 	config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: socket, CredentialStore: store, TLSRoots: roots}
+	trust := configureEnrollmentTrust(t, &config)
 	token := []byte("one-time")
 	if _, err := Enroll(context.Background(), config, token); err != nil {
 		t.Fatal(err)
+	}
+	if !trust.installed {
+		t.Fatal("managed trust bundle was not installed")
 	}
 	for _, value := range token {
 		if value != 0 {
@@ -177,6 +234,7 @@ func TestTLSAndVersionFailures(t *testing.T) {
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "different.test", controller)
 	config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: "/tmp/not-used.sock", CredentialStore: &memoryCredentials{}, TLSRoots: roots}
+	configureEnrollmentTrust(t, &config)
 	if _, err := Enroll(context.Background(), config, []byte("one-time")); err == nil {
 		t.Fatal("TLS hostname mismatch succeeded")
 	}
@@ -227,7 +285,7 @@ func TestBoundsAndBackoff(t *testing.T) {
 			t.Fatalf("jitter(%s) = %s", delay, value)
 		}
 	}
-	result := commandHandler{}.handle(context.Background(), &remotev1.ControllerCommand{CorrelationId: string(make([]byte, 129))})
+	result := commandHandler{}.handle(context.Background(), &remotev1.ControllerCommand{CommandId: string(make([]byte, 129))})
 	if result.GetReason() != remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT {
 		t.Fatalf("reason = %s", result.GetReason())
 	}
@@ -256,6 +314,29 @@ func TestConnectorFailureStatusIsBoundedAndActionable(t *testing.T) {
 
 func testRegistration(version string) *hostv1.RemoteRegistration {
 	return &hostv1.RemoteRegistration{Id: "registration-a", ProtocolVersion: version, Revision: 7, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, Pool: &hostv1.RemotePoolPolicy{MaxEnvironments: 4, AggregateLimits: &hostv1.ResourceLimits{}, PerEnvironmentLimits: &hostv1.ResourceLimits{}}, Allocations: []*hostv1.RemoteAllocation{{AllocationId: "allocation-a", State: hostv1.AllocationState_ALLOCATION_STATE_READY}}}
+}
+
+func TestObserveRegistrationRequiresHostObservedReadyConnection(t *testing.T) {
+	registration := testRegistration(ProtocolVersion)
+	registration.EnrollmentState = hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY
+	registration.ConnectionState = hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
+	registration.ConnectorStatus = &hostv1.ConnectorStatus{Phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED}
+	observation, err := ObserveRegistration(context.Background(), startLocalServer(t, &fakeLocal{registration: registration}))
+	if err != nil || !observation.Ready || observation.Revoked {
+		t.Fatalf("ready observation=%+v err=%v", observation, err)
+	}
+	registration.State = hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED
+	observation, err = ObserveRegistration(context.Background(), startLocalServer(t, &fakeLocal{registration: registration}))
+	if err != nil || observation.Ready || !observation.Revoked {
+		t.Fatalf("revoked observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestStoredCredentialBindsBearerToRegistrationMetadata(t *testing.T) {
+	metadata, err := (storedCredential{store: &memoryCredentials{value: []byte("0123456789abcdef")}, account: "registration-a"}).GetRequestMetadata(context.Background())
+	if err != nil || metadata["x-agent-vmm-registration"] != "registration-a" || metadata["authorization"] == "" {
+		t.Fatalf("metadata=%v err=%v", metadata, err)
+	}
 }
 
 func startLocalServer(t *testing.T, service hostv1.RemoteComputeServiceServer) string {

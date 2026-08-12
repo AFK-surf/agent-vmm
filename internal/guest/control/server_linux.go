@@ -331,6 +331,10 @@ func mutationRequestID(request proto.Message) string {
 		return request.GetRequestId()
 	case *vmmdv1.DeleteNetworkLinkRequest:
 		return request.GetRequestId()
+	case *vmmdv1.ApplyServiceProjectionRequest:
+		return request.GetRequestId()
+	case *vmmdv1.DeleteServiceProjectionRequest:
+		return request.GetRequestId()
 	default:
 		return ""
 	}

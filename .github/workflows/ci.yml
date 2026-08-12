@@ -15,6 +15,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  data-worker:
+    name: Rust data worker / Linux
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain and audit command
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
+          cargo install cargo-audit --locked
+      - name: Test and lint the data worker
+        run: make test-data-worker lint-data-worker
+      - name: Check advisories and approved PAKE package provenance
+        run: make audit-data-worker
+
   linux-arm64:
     name: Go / Linux arm64
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm

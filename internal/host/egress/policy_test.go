@@ -3,6 +3,7 @@ package egress
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -36,6 +37,36 @@ func TestPoliciesFailClosed(t *testing.T) {
 	snapshot.Sources = append(snapshot.Sources, Source{EnvironmentID: "other", NamespaceID: "other", Subnet: netip.MustParsePrefix("10.64.1.0/24"), Mode: PublicInternet})
 	if err := policies.Publish(snapshot); err == nil {
 		t.Fatal("Publish accepted overlapping source")
+	}
+}
+
+func TestServiceRouteRequiresExactEnvironmentSourceAndVirtualDestination(t *testing.T) {
+	subsystem := New()
+	source := netip.MustParseAddr("10.64.1.8")
+	destination := netip.MustParseAddrPort("198.19.2.9:8443")
+	if err := subsystem.ApplyServiceRoute(ServiceRoute{ID: "route", EnvironmentID: "env", SourceAddress: source,
+		Destination: destination, ExpiresAt: time.Now().Add(time.Minute), Dial: func(context.Context) (net.Conn, error) { return nil, nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := subsystem.serviceRoute("env", source, destination.Addr(), destination.Port(), time.Now()); !ok {
+		t.Fatal("exact service route was unavailable")
+	}
+	for _, candidate := range []struct {
+		environment string
+		source      netip.Addr
+		destination netip.AddrPort
+	}{
+		{"other", source, destination},
+		{"env", netip.MustParseAddr("10.64.1.9"), destination},
+		{"env", source, netip.MustParseAddrPort("198.19.2.10:8443")},
+	} {
+		if _, ok := subsystem.serviceRoute(candidate.environment, candidate.source, candidate.destination.Addr(), candidate.destination.Port(), time.Now()); ok {
+			t.Fatal("forged service route coordinates were accepted")
+		}
+	}
+	subsystem.DeleteServiceRoute("route")
+	if _, ok := subsystem.serviceRoute("env", source, destination.Addr(), destination.Port(), time.Now()); ok {
+		t.Fatal("deleted service route remained active")
 	}
 }
 

@@ -49,6 +49,7 @@ func (adapter *Adapter) Server() *mcp.Server {
 	adapter.registerReadTools(server)
 	adapter.registerMutationTools(server)
 	adapter.registerResourceTools(server)
+	adapter.registerServiceTools(server)
 	return server
 }
 

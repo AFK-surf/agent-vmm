@@ -260,3 +260,56 @@ type OperationData struct {
 	Stage string     `json:"stage,omitempty"`
 	Error *ToolError `json:"error,omitempty"`
 }
+
+type ServiceExportInput struct {
+	ContainerID         string `json:"container_id"`
+	ContainerInstanceID string `json:"container_instance_id"`
+	Port                uint32 `json:"port"`
+	Protocol            string `json:"protocol"`
+}
+
+type ServiceImportInput struct {
+	SourceContainerID         string `json:"source_container_id"`
+	SourceContainerInstanceID string `json:"source_container_instance_id"`
+	DestinationDeviceID       string `json:"destination_device_id"`
+	DestinationExportID       string `json:"destination_export_id"`
+	DestinationPort           uint32 `json:"destination_port"`
+	VirtualServiceName        string `json:"virtual_service_name"`
+	Capability                string `json:"capability"`
+	MeshID                    string `json:"mesh_id"`
+	ConnectionLimit           uint32 `json:"connection_limit"`
+	ByteLimit                 uint64 `json:"byte_limit"`
+	ConcurrencyLimit          uint32 `json:"concurrency_limit"`
+}
+
+type ServiceRouteRevokeInput struct {
+	Kind             string `json:"kind"`
+	ID               string `json:"id"`
+	ExpectedRevision uint64 `json:"expected_revision"`
+}
+
+type ServiceExportData struct {
+	ID                  string `json:"id"`
+	ContainerID         string `json:"container_id"`
+	ContainerInstanceID string `json:"container_instance_id"`
+	Port                uint32 `json:"port"`
+	Protocol            string `json:"protocol"`
+	Revision            uint64 `json:"revision"`
+	Revoked             bool   `json:"revoked"`
+}
+
+type ServiceImportData struct {
+	ID                        string `json:"id"`
+	SourceContainerID         string `json:"source_container_id"`
+	SourceContainerInstanceID string `json:"source_container_instance_id"`
+	DestinationDeviceID       string `json:"destination_device_id"`
+	DestinationExportID       string `json:"destination_export_id"`
+	VirtualServiceName        string `json:"virtual_service_name"`
+	Revision                  uint64 `json:"revision"`
+	Revoked                   bool   `json:"revoked"`
+}
+
+type MeshServiceListData struct {
+	Exports []ServiceExportData `json:"exports"`
+	Imports []ServiceImportData `json:"imports"`
+}

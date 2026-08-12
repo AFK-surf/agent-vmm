@@ -94,7 +94,7 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 	defer controllerCleanup()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", nil)
+	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", 17, nil)
 	ready, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 1})
 	if err != nil {
 		t.Fatal(err)

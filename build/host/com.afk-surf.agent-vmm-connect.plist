@@ -9,6 +9,18 @@
     <string>__APP__/Contents/Helpers/agent-vmm-connect</string>
     <string>--remote-compute-socket</string>
     <string>__HOME__/Library/Application Support/AgentVMM/remote-compute.sock</string>
+    <string>--trust-socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/trust.sock</string>
+    <string>--trust-capability-file</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/connector-trust.cap</string>
+    <string>--service-tunnel-socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/service-tunnel.sock</string>
+    <string>--mesh-control-socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/mesh-control.sock</string>
+    <string>--data-worker</string>
+    <string>__APP__/Contents/Helpers/agent-vmm-data</string>
+    <string>--data-worker-socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/data-worker.sock</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>

@@ -63,10 +63,12 @@ type Subsystem struct {
 	metrics    metrics
 	dialer     net.Dialer
 	resolver   dnsResolver
+	services   serviceRoutes
 }
 
 func New() *Subsystem {
-	return &Subsystem{counters: counters{environment: make(map[string][3]int)}, dialer: net.Dialer{Timeout: tcpDialTimeout}, resolver: net.DefaultResolver}
+	return &Subsystem{counters: counters{environment: make(map[string][3]int)}, dialer: net.Dialer{Timeout: tcpDialTimeout}, resolver: net.DefaultResolver,
+		services: serviceRoutes{values: make(map[serviceRouteKey]ServiceRoute)}}
 }
 
 func (subsystem *Subsystem) Serve(ctx context.Context, connection net.Conn, bootID string) error {

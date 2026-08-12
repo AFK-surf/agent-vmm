@@ -12,6 +12,7 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestNetworkLinkPolicy(t *testing.T) {
@@ -139,6 +140,58 @@ func TestDNSViewTracksEndpointProjection(t *testing.T) {
 	manager.endpoints["destination"]["web"] = Endpoint{ContainerID: "web", Address: netip.MustParseAddr("10.64.2.8")}
 	if got := manager.localDNSAddresses("source", "service.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.8")}) {
 		t.Fatalf("address after churn = %v", got)
+	}
+}
+
+func TestServiceProjectionIsSourceScopedAndInstanceFenced(t *testing.T) {
+	projection := &vmmdv1.ServiceProjection{Id: "route", SourceNamespaceId: "source", SourceContainerId: "client",
+		SourceContainerInstanceId: "client-v1", DestinationNamespaceId: "destination", DestinationContainerId: "server",
+		DestinationContainerInstanceId: "server-v1", DestinationPort: 8080, DnsAlias: "database", ExpiresUnixMillis: time.Now().Add(time.Minute).UnixMilli()}
+	if err := validateServiceProjection(projection); err != nil {
+		t.Fatal(err)
+	}
+	invalid := *projection
+	invalid.DnsAlias = "database.example"
+	if err := validateServiceProjection(&invalid); err == nil {
+		t.Fatal("service projection accepted a non-label DNS alias")
+	}
+	manager := &Manager{
+		namespaces: map[string]Namespace{"source": {ID: "source"}, "destination": {ID: "destination"}},
+		endpoints: map[string]map[string]Endpoint{
+			"source":      {"client": {ContainerID: "client", InstanceID: "client-v1", Address: netip.MustParseAddr("10.64.1.2")}},
+			"destination": {"server": {ContainerID: "server", InstanceID: "server-v1", Address: netip.MustParseAddr("10.64.2.2")}},
+		},
+		services: map[string]*vmmdv1.ServiceProjection{"route": projection},
+	}
+	if got := manager.localDNSAddresses("source", "database.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.2")}) {
+		t.Fatalf("source projection = %v", got)
+	}
+	if got := manager.localDNSAddresses("destination", "database.source.agent."); len(got) != 0 {
+		t.Fatalf("destination namespace saw source projection: %v", got)
+	}
+	manager.endpoints["destination"]["server"] = Endpoint{ContainerID: "server", InstanceID: "server-v2", Address: netip.MustParseAddr("10.64.2.3")}
+	if got := manager.localDNSAddresses("source", "database.source.agent."); len(got) != 0 {
+		t.Fatalf("stale destination instance remained projected: %v", got)
+	}
+	remote := &vmmdv1.ServiceProjection{Id: "remote-route", SourceNamespaceId: "source", SourceContainerId: "client",
+		SourceContainerInstanceId: "client-v1", DestinationPort: 8443, DnsAlias: "remote-api",
+		ExpiresUnixMillis: time.Now().Add(time.Minute).UnixMilli(), Remote: true, VirtualAddress: "198.19.4.9"}
+	if err := validateServiceProjection(remote); err != nil {
+		t.Fatal(err)
+	}
+	manager.services[remote.GetId()] = remote
+	if got := manager.localDNSAddresses("source", "remote-api.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("198.19.4.9")}) {
+		t.Fatalf("remote source projection = %v", got)
+	}
+	for name, mutate := range map[string]func(*vmmdv1.ServiceProjection){
+		"outside reserved range":  func(value *vmmdv1.ServiceProjection) { value.VirtualAddress = "203.0.113.5" },
+		"local destination mixed": func(value *vmmdv1.ServiceProjection) { value.DestinationNamespaceId = "destination" },
+	} {
+		invalidRemote := proto.Clone(remote).(*vmmdv1.ServiceProjection)
+		mutate(invalidRemote)
+		if err := validateServiceProjection(invalidRemote); err == nil {
+			t.Fatalf("%s remote projection was accepted", name)
+		}
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 4
+const schemaVersion = 9
 
 const (
 	OwnerLocal              = 1
@@ -127,6 +127,10 @@ func Open(path string) (*Store, error) {
 		connector_phase=1, connector_observed_at=?, updated_at=?`, time.Now().UnixNano(), time.Now().UnixNano()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("recover remote connection state: %w", err)
+	}
+	if _, err := db.Exec(`UPDATE service_listeners SET revoked=1, revision=revision+1, updated_at=? WHERE revoked=0`, time.Now().UnixNano()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("recover service listeners: %w", err)
 	}
 	return result, nil
 }

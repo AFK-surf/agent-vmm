@@ -7,6 +7,7 @@ final class AppModel {
     enum Section: String, CaseIterable, Identifiable {
         case system = "Overview"
         case access = "Agent Access"
+        case devices = "My Devices"
         case environments = "Environments"
         case diagnostics = "Activity"
         var id: Self { self }
@@ -49,6 +50,12 @@ final class AppModel {
     var snapshot = SystemSnapshotModel.loading
     var integrations: [AgentIntegrationModel] = []
     var sessions: [AgentSessionModel] = []
+    var deviceIdentity: DeviceIdentityModel?
+    var personalMeshes: [PersonalMeshModel] = []
+    var personalMeshPairing: PersonalMeshPairingModel?
+    var incomingPairingInvitation = ""
+    let pairingDiscovery = PairingDiscovery()
+    var deviceActionInProgress = false
     var events: [ActivityEvent] = []
     var metrics: [UsageSnapshot] = []
     var errorMessage: String?
@@ -80,6 +87,7 @@ final class AppModel {
             else { client = try GRPCHostClient(socketPath: socketPath) }
             self.client = client
             try await refresh()
+            await refreshDevices()
             if let operationID = UserDefaults.standard.string(forKey: "latestOperationID") {
                 latestOperation = try? await client.getOperation(id: operationID)
             }
@@ -114,6 +122,102 @@ final class AppModel {
             metrics.removeAll()
             eventBootID = ""
         }
+    }
+
+    func refreshDevices() async {
+        guard let client else { return }
+        do {
+            async let identity = client.deviceIdentity()
+            async let meshes = client.listPersonalMeshes()
+            deviceIdentity = try await identity
+            personalMeshes = try await meshes
+        } catch {
+            errorMessage = hostErrorMessage(error)
+        }
+    }
+
+    func createPersonalMesh(registryAudience: String) async {
+        guard let client, !deviceActionInProgress else { return }
+        deviceActionInProgress = true
+        defer { deviceActionInProgress = false }
+        do {
+            let mesh = try await client.createPersonalMesh(registryAudience: registryAudience)
+            personalMeshes.removeAll { $0.id == mesh.id }
+            personalMeshes.append(mesh)
+            personalMeshes.sort { $0.id < $1.id }
+        } catch {
+            errorMessage = hostErrorMessage(error)
+        }
+    }
+
+    func revokePersonalMeshMember(meshID: String, deviceID: String, expectedRevision: UInt64) async {
+        guard let client, !deviceActionInProgress else { return }
+        deviceActionInProgress = true
+        defer { deviceActionInProgress = false }
+        do {
+            let mesh = try await client.revokePersonalMeshMember(meshID: meshID, deviceID: deviceID, expectedRevision: expectedRevision)
+            if let index = personalMeshes.firstIndex(where: { $0.id == mesh.id }) {
+                personalMeshes[index] = mesh
+            }
+        } catch {
+            errorMessage = hostErrorMessage(error)
+        }
+    }
+
+    func repairDeviceIdentity(confirmMembershipReset: Bool) async {
+        guard let client, !deviceActionInProgress else { return }
+        deviceActionInProgress = true
+        defer { deviceActionInProgress = false }
+        do {
+            deviceIdentity = try await client.repairDeviceIdentity(confirmMembershipReset: confirmMembershipReset)
+            await refreshDevices()
+        } catch {
+            errorMessage = hostErrorMessage(error)
+        }
+    }
+
+    func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String) async {
+        guard let client, !deviceActionInProgress else { return }
+        deviceActionInProgress = true
+        defer { deviceActionInProgress = false }
+        do {
+            personalMeshPairing = try await client.beginPersonalMeshPairing(meshID: meshID, expectedRevision: expectedRevision, pin: pin)
+            if let pairing = personalMeshPairing { pairingDiscovery.advertise(pairing.invitationCode) }
+        }
+        catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    func joinPersonalMeshPairing(invitationCode: String, pin: String, canManageMembers: Bool) async {
+        guard let client, !deviceActionInProgress else { return }
+        deviceActionInProgress = true
+        defer { deviceActionInProgress = false }
+        do { personalMeshPairing = try await client.joinPersonalMeshPairing(invitationCode: invitationCode, pin: pin, canManageMembers: canManageMembers) }
+        catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    func refreshPersonalMeshPairing() async {
+        guard let client, let pairing = personalMeshPairing else { return }
+        do { personalMeshPairing = try await client.getPersonalMeshPairing(sessionID: pairing.sessionID) }
+        catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    func confirmPersonalMeshPairing() async {
+        guard let client, let pairing = personalMeshPairing, !deviceActionInProgress else { return }
+        deviceActionInProgress = true
+        defer { deviceActionInProgress = false }
+        do { personalMeshPairing = try await client.confirmPersonalMeshPairing(sessionID: pairing.sessionID) }
+        catch { errorMessage = hostErrorMessage(error) }
+    }
+
+    func rejectPersonalMeshPairing() async {
+        guard let client, let pairing = personalMeshPairing, !deviceActionInProgress else { return }
+        deviceActionInProgress = true
+        defer { deviceActionInProgress = false }
+        do {
+            personalMeshPairing = try await client.rejectPersonalMeshPairing(sessionID: pairing.sessionID)
+            pairingDiscovery.stopAdvertising()
+        }
+        catch { errorMessage = hostErrorMessage(error) }
     }
 
     func stop(environmentID: String, containerID: String) async {

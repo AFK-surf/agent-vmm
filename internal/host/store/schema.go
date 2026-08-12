@@ -70,6 +70,61 @@ func (store *Store) migrate(ctx context.Context) error {
 		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (4, ?)", time.Now().UnixNano()); err != nil {
 			return err
 		}
+		version = 4
+	}
+	if version == 4 {
+		if err := migrateV5(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (5, ?)", time.Now().UnixNano()); err != nil {
+			return err
+		}
+		version = 5
+	}
+	if version == 5 {
+		if err := migrateV6(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (6, ?)", time.Now().UnixNano()); err != nil {
+			return err
+		}
+		version = 6
+	}
+	if version == 6 {
+		if _, err := tx.Exec(`ALTER TABLE service_imports ADD COLUMN destination_port INTEGER NOT NULL DEFAULT 0 CHECK(destination_port BETWEEN 0 AND 65535)`); err != nil {
+			return fmt.Errorf("migrate host schema to v7: %w", err)
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (7, ?)", time.Now().UnixNano()); err != nil {
+			return err
+		}
+		version = 7
+	}
+	if version == 7 {
+		if _, err := tx.Exec(`CREATE TABLE personal_route_issuances (
+			request_id TEXT PRIMARY KEY, mesh_id TEXT NOT NULL, source_device_id TEXT NOT NULL,
+			destination_export_id TEXT NOT NULL, expires_at INTEGER NOT NULL, response BLOB NOT NULL, created_at INTEGER NOT NULL
+		)`); err != nil {
+			return fmt.Errorf("migrate host schema to v8: %w", err)
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (8, ?)", time.Now().UnixNano()); err != nil {
+			return err
+		}
+		version = 8
+	}
+	if version == 8 {
+		if _, err := tx.Exec(`CREATE TABLE service_listeners (
+			listener_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, mesh_id TEXT NOT NULL,
+			destination_device_id TEXT NOT NULL, destination_export_id TEXT NOT NULL,
+			exposure INTEGER NOT NULL CHECK(exposure IN (1, 2)), listen_address TEXT NOT NULL,
+			route_id TEXT NOT NULL UNIQUE, capability_id TEXT NOT NULL, capability BLOB NOT NULL,
+			endpoint BLOB NOT NULL, expires_at INTEGER NOT NULL, revision INTEGER NOT NULL,
+			revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)`); err != nil {
+			return fmt.Errorf("migrate host schema to v9: %w", err)
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (9, ?)", time.Now().UnixNano()); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -87,6 +142,112 @@ func (store *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("host database contains foreign key violations after schema migration")
 	}
 	return rows.Err()
+}
+
+func migrateV6(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE service_exports (
+			export_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE,
+			environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+			container_id TEXT NOT NULL, container_instance_id TEXT NOT NULL, port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535),
+			protocol INTEGER NOT NULL CHECK(protocol IN (1, 2)), revision INTEGER NOT NULL DEFAULT 1,
+			revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX service_exports_environment ON service_exports(environment_id, revoked, export_id)`,
+		`CREATE TABLE service_imports (
+			import_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE,
+			source_environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+			source_container_id TEXT NOT NULL, source_container_instance_id TEXT NOT NULL,
+			destination_device_id TEXT NOT NULL, destination_export_id TEXT NOT NULL, virtual_service_name TEXT NOT NULL,
+			revision INTEGER NOT NULL DEFAULT 1, revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)),
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+			UNIQUE(source_environment_id, virtual_service_name)
+		)`,
+		`CREATE TABLE access_routes (
+			route_id TEXT PRIMARY KEY, import_id TEXT NOT NULL UNIQUE REFERENCES service_imports(import_id) ON DELETE CASCADE,
+			route_class INTEGER NOT NULL CHECK(route_class BETWEEN 1 AND 5), source_device_id TEXT NOT NULL,
+			source_allocation_id TEXT, destination_device_id TEXT NOT NULL, destination_export_id TEXT NOT NULL,
+			state INTEGER NOT NULL CHECK(state BETWEEN 1 AND 5), revision INTEGER NOT NULL, generation INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL, source_environment_id TEXT NOT NULL, source_container_instance_id TEXT NOT NULL,
+			policy_revision INTEGER NOT NULL, capability BLOB NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE route_leases (
+			lease_id TEXT PRIMARY KEY, route_id TEXT NOT NULL UNIQUE REFERENCES access_routes(route_id) ON DELETE CASCADE,
+			route_revision INTEGER NOT NULL, generation INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+			capability BLOB NOT NULL, created_at INTEGER NOT NULL
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate host schema to v6: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrateV5(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE device_identity (
+			id INTEGER PRIMARY KEY CHECK(id = 1), device_id TEXT NOT NULL UNIQUE,
+			root_public_key BLOB NOT NULL, root_key_revision INTEGER NOT NULL CHECK(root_key_revision > 0),
+			custody TEXT NOT NULL CHECK(custody IN ('secure_enclave', 'keychain', 'test')),
+			state INTEGER NOT NULL CHECK(state IN (1, 2)), endpoint_generation INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE device_root_rotations (
+			new_revision INTEGER PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, rotation BLOB NOT NULL, created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE device_repairs (
+			request_id TEXT PRIMARY KEY, identity BLOB NOT NULL, repaired_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE trust_anchors (
+			authority_id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind IN (1, 2)),
+			revision INTEGER NOT NULL CHECK(revision > 0), expires_at INTEGER NOT NULL,
+			anchor BLOB NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE membership_credentials (
+			authority_id TEXT NOT NULL, subject_device_id TEXT NOT NULL, policy_revision INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL, credential BLOB NOT NULL, updated_at INTEGER NOT NULL,
+			PRIMARY KEY(authority_id, subject_device_id)
+		)`,
+		`CREATE TABLE mesh_descriptors (
+			mesh_id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind = 2),
+			descriptor BLOB NOT NULL, created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE mesh_snapshots (
+			mesh_id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind = 2),
+			revision INTEGER NOT NULL CHECK(revision > 0), policy_epoch INTEGER NOT NULL CHECK(policy_epoch > 0),
+			expires_at INTEGER NOT NULL, snapshot BLOB NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE mesh_tombstones (
+			mesh_id TEXT NOT NULL, device_id TEXT NOT NULL, root_key_revision INTEGER NOT NULL,
+			revoked_at_revision INTEGER NOT NULL, policy_epoch INTEGER NOT NULL, operation_digest BLOB NOT NULL,
+			PRIMARY KEY(mesh_id, device_id)
+		)`,
+		`CREATE TABLE endpoint_observations (
+			device_id TEXT PRIMARY KEY, root_key_revision INTEGER NOT NULL, endpoint_generation INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL, observation BLOB NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE route_denials (
+			capability_id TEXT PRIMARY KEY, denied_at INTEGER NOT NULL, reason TEXT NOT NULL
+		)`,
+		`CREATE TABLE mesh_member_denials (
+			mesh_id TEXT NOT NULL, device_id TEXT NOT NULL, root_key_revision INTEGER NOT NULL,
+			operation_id TEXT NOT NULL UNIQUE, denied_at INTEGER NOT NULL, PRIMARY KEY(mesh_id, device_id)
+		)`,
+		`CREATE TABLE registry_operations (
+			sequence INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL UNIQUE,
+			mesh_id TEXT NOT NULL, expected_revision INTEGER NOT NULL, kind INTEGER NOT NULL,
+			state INTEGER NOT NULL CHECK(state IN (1, 2)), operation BLOB NOT NULL,
+			created_at INTEGER NOT NULL, completed_at INTEGER
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate host schema to v5: %w", err)
+		}
+	}
+	return nil
 }
 
 func migrateV4(tx *sql.Tx) error {

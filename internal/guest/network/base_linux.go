@@ -112,6 +112,7 @@ type Manager struct {
 	settled    map[string]Counters
 	settledOK  map[string]bool
 	links      map[string]*vmmdv1.NetworkLink
+	services   map[string]*vmmdv1.ServiceProjection
 	dns        map[string]*dnsServer
 	forwards   map[string]map[net.Conn]struct{}
 	closed     bool
@@ -124,6 +125,7 @@ func NewManager() (*Manager, error) {
 		settled:    make(map[string]Counters),
 		settledOK:  make(map[string]bool),
 		links:      make(map[string]*vmmdv1.NetworkLink),
+		services:   make(map[string]*vmmdv1.ServiceProjection),
 		dns:        make(map[string]*dnsServer),
 		forwards:   make(map[string]map[net.Conn]struct{}),
 	}
@@ -203,6 +205,11 @@ func (m *Manager) DeleteNamespace(id string) error {
 			return errors.New("namespace is referenced by a network link")
 		}
 	}
+	for _, service := range m.services {
+		if service.GetSourceNamespaceId() == id || service.GetDestinationNamespaceId() == id {
+			return errors.New("namespace is referenced by a service projection")
+		}
+	}
 	if server := m.dns[id]; server != nil {
 		server.close()
 		delete(m.dns, id)
@@ -226,6 +233,11 @@ func (m *Manager) CanDeleteNamespace(id string) error {
 	for _, link := range m.links {
 		if link.GetSourceNamespaceId() == id || link.GetDestinationNamespaceId() == id {
 			return errors.New("namespace is referenced by a network link")
+		}
+	}
+	for _, service := range m.services {
+		if service.GetSourceNamespaceId() == id || service.GetDestinationNamespaceId() == id {
+			return errors.New("namespace is referenced by a service projection")
 		}
 	}
 	return nil

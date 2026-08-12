@@ -32,6 +32,30 @@ func (s *Server) DeleteNetworkLink(ctx context.Context, request *vmmdv1.DeleteNe
 	return value.(*vmmdv1.DeleteNetworkLinkResponse), nil
 }
 
+func (s *Server) ApplyServiceProjection(ctx context.Context, request *vmmdv1.ApplyServiceProjectionRequest) (*vmmdv1.ApplyServiceProjectionResponse, error) {
+	value, err := s.mutate(ctx, "apply-service-projection", request, func() (any, error) {
+		if err := s.runtime.network.ApplyServiceProjection(request.GetProjection()); err != nil {
+			return nil, err
+		}
+		source, err := s.runtime.network.ServiceProjectionSourceAddress(request.GetProjection().GetId())
+		return &vmmdv1.ApplyServiceProjectionResponse{SourceAddress: source}, err
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return value.(*vmmdv1.ApplyServiceProjectionResponse), nil
+}
+
+func (s *Server) DeleteServiceProjection(ctx context.Context, request *vmmdv1.DeleteServiceProjectionRequest) (*vmmdv1.DeleteServiceProjectionResponse, error) {
+	value, err := s.mutate(ctx, "delete-service-projection", request, func() (any, error) {
+		return &vmmdv1.DeleteServiceProjectionResponse{}, s.runtime.network.DeleteServiceProjection(request.GetProjectionId())
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return value.(*vmmdv1.DeleteServiceProjectionResponse), nil
+}
+
 func (s *Server) ForwardTCP(stream grpc.BidiStreamingServer[vmmdv1.ForwardTCPRequest, vmmdv1.ForwardTCPResponse]) error {
 	first, err := stream.Recv()
 	if err != nil {

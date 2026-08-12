@@ -15,6 +15,7 @@ struct RootView: View {
                 switch model.section {
                 case .system: SystemStatusView(model: model)
                 case .access: AgentAccessView(model: model)
+                case .devices: MyDevicesView(model: model)
                 case .environments: EnvironmentListView(model: model)
                 case .diagnostics: DiagnosticsView(model: model)
                 case nil: ContentUnavailableView("Choose a section", systemImage: "sidebar.left")
@@ -48,6 +49,7 @@ private extension AppModel.Section {
         switch self {
         case .system: "gauge.with.dots.needle.67percent"
         case .access: "bolt.horizontal.circle"
+        case .devices: "network"
         case .environments: "shippingbox"
         case .diagnostics: "stethoscope"
         }

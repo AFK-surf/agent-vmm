@@ -10,7 +10,109 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestServiceRoutePersistenceAndRevocationFences(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	for _, environment := range []Environment{
+		{ID: "source", NamespaceID: "source-ns", DisplayName: "Source", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+		{ID: "destination", NamespaceID: "destination-ns", DisplayName: "Destination", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+	} {
+		if _, err := database.CreateEnvironment(ctx, environment); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exported, err := database.CreateServiceExport(ctx, "export-request", &servicev1.ServiceExport{ExportId: "export", EnvironmentId: "destination", ContainerId: "server", ContainerInstanceId: "server-instance", Port: 8080, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := timestamppb.New(time.Now().Add(time.Hour))
+	capability := &trustv1.RouteCapability{CapabilityId: "capability", SourceDeviceId: "source-device", DestinationDeviceId: "destination-device", DestinationExportId: "export", RouteGeneration: 7, PolicyRevision: 3, ExpiresAt: expires, Audience: "agent-vmm/service-tunnel/1", Budget: &trustv1.RouteBudget{ConnectionLimit: 1, ByteLimit: 1024, ConcurrencyLimit: 1}}
+	serviceImport := &servicev1.ServiceImport{ImportId: "import", SourceEnvironmentId: "source", SourceContainerId: "client", SourceContainerInstanceId: "client-instance", DestinationDeviceId: "destination-device", DestinationExportId: "export", VirtualServiceName: "database"}
+	route := &servicev1.AccessRoute{RouteId: "route", RouteClass: servicev1.RouteClass_ROUTE_CLASS_COMPUTE, SourceDeviceId: "source-device", DestinationDeviceId: "destination-device", DestinationExportId: "export", State: servicev1.RouteState_ROUTE_STATE_ACTIVE, Revision: 1, Generation: 7, ExpiresAt: expires, SourceEnvironmentId: "source", SourceContainerInstanceId: "client-instance", PolicyRevision: 3}
+	lease := &servicev1.RouteLease{LeaseId: "lease", RouteId: "route", RouteRevision: 1, Generation: 7, ExpiresAt: expires, Capability: capability}
+	created, err := database.CreateServiceImport(ctx, "import-request", serviceImport, route, lease)
+	if err != nil || created.GetImportId() != "import" {
+		t.Fatalf("created=%+v err=%v", created, err)
+	}
+	record, err := database.GetServiceRoute(ctx, "route", "lease", 7)
+	if err != nil || record.Import.GetSourceContainerId() != "client" || record.Export.GetContainerInstanceId() != "server-instance" || record.Capability.GetCapabilityId() != "capability" {
+		t.Fatalf("record=%+v err=%v", record, err)
+	}
+	if _, err := database.CreateServiceExport(ctx, "export-request", &servicev1.ServiceExport{ExportId: "different"}); err != nil {
+		t.Fatalf("export request idempotency failed: %v", err)
+	}
+	if err := database.RevokeServiceExport(ctx, "destination", "export", exported.GetRevision()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.GetServiceRoute(ctx, "route", "lease", 7); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("revoked route remained usable at old generation: %v", err)
+	}
+	record, err = database.GetServiceRoute(ctx, "route", "lease", 8)
+	if err != nil || record.Route.GetState() != servicev1.RouteState_ROUTE_STATE_REVOKED || record.Route.GetGeneration() != 8 || record.Lease.GetGeneration() != 7 || !record.Export.GetRevoked() {
+		t.Fatalf("fenced record=%+v err=%v", record, err)
+	}
+	var state servicev1.RouteState
+	var generation uint64
+	if err := database.db.QueryRowContext(ctx, `SELECT state, generation FROM access_routes WHERE route_id='route'`).Scan(&state, &generation); err != nil || state != servicev1.RouteState_ROUTE_STATE_REVOKED || generation != 8 {
+		t.Fatalf("state=%s generation=%d err=%v", state, generation, err)
+	}
+}
+
+func TestServiceListenerPersistenceRevocationAndRestartFence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	expires := timestamppb.New(time.Now().Add(time.Hour))
+	listener := &hostv1.ServiceListener{
+		Id: "listener", MeshId: "mesh", DestinationDeviceId: "destination", DestinationExportId: "export",
+		Exposure:      hostv1.ServiceListenerExposure_SERVICE_LISTENER_EXPOSURE_DEVICE_LOOPBACK,
+		ListenAddress: "127.0.0.1:32100", RouteId: "route", CapabilityId: "capability", ExpiresAt: expires,
+	}
+	capability := &trustv1.RouteCapability{
+		CapabilityId: "capability", SourceDeviceId: "source", DestinationDeviceId: "destination",
+		DestinationExportId: "export", RouteClass: "device", ExpiresAt: expires,
+	}
+	endpoint := &trustv1.EndpointObservation{DeviceId: "destination", EndpointNodeId: []byte("node"), EndpointGeneration: 2, ExpiresAt: expires}
+	created, err := database.CreateServiceListener(ctx, "request", listener, capability, endpoint)
+	if err != nil || created.GetRevision() != 1 || created.GetRevoked() {
+		t.Fatalf("created=%+v err=%v", created, err)
+	}
+	record, err := database.GetServiceListenerByRequest(ctx, "request")
+	if err != nil || record.Listener.GetId() != "listener" || record.Capability.GetRouteClass() != "device" || record.Endpoint.GetEndpointGeneration() != 2 {
+		t.Fatalf("record=%+v err=%v", record, err)
+	}
+	if duplicate, err := database.CreateServiceListener(ctx, "request", &hostv1.ServiceListener{Id: "different"}, capability, endpoint); err != nil || duplicate.GetId() != "listener" {
+		t.Fatalf("idempotent create=%+v err=%v", duplicate, err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	recovered, err := reopened.GetServiceListener(ctx, "listener")
+	if err != nil || !recovered.Listener.GetRevoked() || recovered.Listener.GetRevision() != 2 {
+		t.Fatalf("recovered=%+v err=%v", recovered, err)
+	}
+	if err := reopened.RevokeServiceListener(ctx, "listener", 1); !errors.Is(err, ErrTrustRevisionConflict) {
+		t.Fatalf("stale revoke error=%v", err)
+	}
+}
 
 func TestSchemaV1MigrationAssignsLocalOwner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.db")
@@ -107,7 +209,7 @@ func TestSchemaV2MigrationRequiresVerificationForExistingRemoteRegistration(t *t
 		t.Fatalf("legacy registration was trusted without verification: %+v", registration)
 	}
 	var version int
-	if err := migrated.db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 4 {
+	if err := migrated.db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("schema version=%d err=%v", version, err)
 	}
 }
@@ -777,6 +879,44 @@ func TestDiscardEnvironmentRequiresRetainedRemoteAllocation(t *testing.T) {
 	}
 	if err := database.DiscardEnvironment(ctx, "remote-retained"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := database.CreateEnvironment(context.Background(), Environment{
+		ID: "remote-leased", NamespaceID: "remote-leased-namespace", DisplayName: "leased",
+		CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1,
+		OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation",
+		AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
+	})
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	recovered, err := reopened.GetEnvironment(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		t.Fatalf("allocation state after restart = %s", hostv1.AllocationState(recovered.AllocationState))
+	}
+	if recovered.PolicyRevision != created.PolicyRevision+1 {
+		t.Fatalf("policy revision after restart = %d, want %d", recovered.PolicyRevision, created.PolicyRevision+1)
 	}
 }
 

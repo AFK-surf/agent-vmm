@@ -40,11 +40,57 @@ service VMMDService {
 
   rpc ApplyNetworkLink(ApplyNetworkLinkRequest) returns (ApplyNetworkLinkResponse);
   rpc DeleteNetworkLink(DeleteNetworkLinkRequest) returns (DeleteNetworkLinkResponse);
+  rpc ApplyServiceProjection(ApplyServiceProjectionRequest) returns (ApplyServiceProjectionResponse);
+  rpc DeleteServiceProjection(DeleteServiceProjectionRequest) returns (DeleteServiceProjectionResponse);
   rpc ForwardTCP(stream ForwardTCPRequest) returns (stream ForwardTCPResponse);
   rpc BuildImage(stream BuildImageRequest) returns (stream BuildImageResponse);
   rpc ComponentHealth(ComponentHealthRequest) returns (ComponentHealthResponse);
   rpc ProbeEgress(ProbeEgressRequest) returns (ProbeEgressResponse);
   rpc WatchEvents(WatchEventsRequest) returns (stream RuntimeEvent);
+  rpc StatWorkspace(WorkspacePathRequest) returns (WorkspaceEntry);
+  rpc ListWorkspace(ListWorkspaceRequest) returns (ListWorkspaceResponse);
+  rpc ReadWorkspace(ReadWorkspaceRequest) returns (stream ReadWorkspaceResponse);
+  rpc WriteWorkspace(stream WriteWorkspaceRequest) returns (WriteWorkspaceResponse);
+  rpc ArchiveWorkspace(ArchiveWorkspaceRequest) returns (stream ArchiveWorkspaceResponse);
+  rpc ExtractWorkspace(stream ExtractWorkspaceRequest) returns (WriteWorkspaceResponse);
+}
+
+enum WorkspaceEntryKind {
+  WORKSPACE_ENTRY_KIND_UNSPECIFIED = 0;
+  WORKSPACE_ENTRY_KIND_FILE = 1;
+  WORKSPACE_ENTRY_KIND_DIRECTORY = 2;
+}
+
+message WorkspacePathRequest { string actor_namespace_id = 1; string path = 2; }
+message WorkspaceEntry {
+  string path = 1;
+  WorkspaceEntryKind kind = 2;
+  uint64 size = 3;
+  uint32 mode = 4;
+  int64 modified_unix_nanos = 5;
+  bytes sha256 = 6;
+}
+message ListWorkspaceRequest { string actor_namespace_id = 1; string path = 2; uint32 limit = 3; }
+message ListWorkspaceResponse { repeated WorkspaceEntry entries = 1; }
+message ReadWorkspaceRequest { string actor_namespace_id = 1; string path = 2; uint64 offset = 3; uint64 max_bytes = 4; }
+message ReadWorkspaceResponse { bytes data = 1; uint64 offset = 2; bytes sha256 = 3; bool final = 4; }
+message WriteWorkspaceHeader {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string path = 3;
+  uint64 offset = 4;
+  bytes expected_prefix_sha256 = 5;
+  uint32 mode = 6;
+}
+message WriteWorkspaceRequest {
+  oneof payload { WriteWorkspaceHeader header = 1; bytes data = 2; bool finish = 3; }
+}
+message WriteWorkspaceResponse { WorkspaceEntry entry = 1; bytes sha256 = 2; }
+message ArchiveWorkspaceRequest { string actor_namespace_id = 1; string path = 2; }
+message ArchiveWorkspaceResponse { bytes data = 1; bytes sha256 = 2; bool final = 3; }
+message ExtractWorkspaceHeader { string request_id = 1; string actor_namespace_id = 2; string path = 3; }
+message ExtractWorkspaceRequest {
+  oneof payload { ExtractWorkspaceHeader header = 1; bytes data = 2; bool finish = 3; }
 }
 
 message HealthRequest {}
@@ -426,6 +472,25 @@ message DeleteNetworkLinkRequest {
   string link_id = 2;
 }
 message DeleteNetworkLinkResponse {}
+
+message ServiceProjection {
+  string id = 1;
+  string source_namespace_id = 2;
+  string source_container_id = 3;
+  string source_container_instance_id = 4;
+  string destination_namespace_id = 5;
+  string destination_container_id = 6;
+  string destination_container_instance_id = 7;
+  uint32 destination_port = 8;
+  string dns_alias = 9;
+  int64 expires_unix_millis = 10;
+  bool remote = 11;
+  string virtual_address = 12;
+}
+message ApplyServiceProjectionRequest { string request_id = 1; ServiceProjection projection = 2; }
+message ApplyServiceProjectionResponse { string source_address = 1; }
+message DeleteServiceProjectionRequest { string request_id = 1; string projection_id = 2; }
+message DeleteServiceProjectionResponse {}
 
 message ForwardTCPHeader {
   string actor_namespace_id = 1;

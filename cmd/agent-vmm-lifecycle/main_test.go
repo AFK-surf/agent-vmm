@@ -13,6 +13,15 @@ func TestXMLEscape(t *testing.T) {
 	}
 }
 
+func TestManagedRepairArgumentIsIdempotent(t *testing.T) {
+	input := "<array>\n<string>agent-vmm-host</string>\n</array>"
+	once := addProgramArgument(input, "--disable-personal-mesh-pairing")
+	twice := addProgramArgument(once, "--disable-personal-mesh-pairing")
+	if once != twice || strings.Count(once, "--disable-personal-mesh-pairing") != 1 {
+		t.Fatalf("managed argument render is not idempotent: %q", twice)
+	}
+}
+
 func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 	root := t.TempDir()
 	value := testPaths(root)
@@ -74,6 +83,28 @@ func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
 				t.Fatalf("commands=%v", commands)
 			}
 		})
+	}
+}
+
+func TestDrainClosesConnectorAdmissionBeforeHost(t *testing.T) {
+	value := testPaths(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, plist := range []string{value.hostPlist, value.connectorPlist} {
+		if err := os.WriteFile(plist, []byte("plist"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var commands []string
+	if err := drainWith(value, func(arguments ...string) error {
+		commands = append(commands, strings.Join(arguments, " "))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 2 || !strings.Contains(commands[0], connectorLabel) || !strings.Contains(commands[1], hostLabel) {
+		t.Fatalf("drain order=%v", commands)
 	}
 }
 

@@ -79,6 +79,7 @@ func (r *Runtime) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	}
 	for _, directory := range []string{
 		volumePath(request.GetNamespaceId(), ""),
+		workspacePath(request.GetNamespaceId()),
 		stateRoot + "/logs/" + request.GetNamespaceId(),
 		stateRoot + "/build-cache/" + request.GetNamespaceId(),
 		stateRoot + "/build-tmp/" + request.GetNamespaceId(),

@@ -17,9 +17,20 @@ import (
 
 func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.ForwarderRequest, bootID string) {
 	id := request.ID()
+	sourceAddress, _ := addressFromTCPIP(id.RemoteAddress)
 	destination, _ := addressFromTCPIP(id.LocalAddress)
 	virtualDNS := destination.String() == netprotocol.HostAddress && id.LocalPort == 53
 	environment, infrastructure, allowed := subsystem.authorize(bootID, id.RemoteAddress, id.LocalAddress, virtualDNS)
+	var service ServiceRoute
+	serviceRoute := false
+	if !virtualDNS && ServiceAddressPrefix.Contains(destination) {
+		if source, known := subsystem.Policies.Lookup(bootID, sourceAddress); known {
+			environment = source.EnvironmentID
+			service, serviceRoute = subsystem.serviceRoute(environment, sourceAddress, destination, id.LocalPort, time.Now())
+			allowed = serviceRoute
+			infrastructure = false
+		}
+	}
 	kind := tcpResource
 	if virtualDNS {
 		kind = dnsResource
@@ -57,7 +68,13 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 			return
 		}
 		defer subsystem.metrics.activeTCP.Add(^uint64(0))
-		host, err := subsystem.dialer.DialContext(flowCtx, "tcp4", net.JoinHostPort(destination.String(), fmt.Sprint(id.LocalPort)))
+		var host net.Conn
+		var err error
+		if serviceRoute {
+			host, err = service.Dial(flowCtx)
+		} else {
+			host, err = subsystem.dialer.DialContext(flowCtx, "tcp4", net.JoinHostPort(destination.String(), fmt.Sprint(id.LocalPort)))
+		}
 		if err != nil {
 			request.Complete(true)
 			return

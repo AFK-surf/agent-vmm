@@ -22,9 +22,13 @@ type commandHandler struct {
 }
 
 func (handler commandHandler) handle(ctx context.Context, command *remotev1.ControllerCommand) *remotev1.CommandResult {
-	result := &remotev1.CommandResult{CorrelationId: command.GetCorrelationId()}
-	if command.GetCorrelationId() == "" || len(command.GetCorrelationId()) > 128 {
-		return fail(result, remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, "invalid correlation ID")
+	result := &remotev1.CommandResult{
+		CommandId:       command.GetCommandId(),
+		Sequence:        command.GetSequence(),
+		ConnectionEpoch: command.GetConnectionEpoch(),
+	}
+	if command.GetCommandId() == "" || len(command.GetCommandId()) > 128 {
+		return fail(result, remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, "invalid command ID")
 	}
 	var err error
 	switch value := command.GetCommand().(type) {
@@ -108,7 +112,7 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 	if err != nil {
 		return fail(result, reasonFor(err), safeErrorMessage(err))
 	}
-	result.Success = true
+	result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED
 	return result
 }
 
@@ -137,7 +141,7 @@ func safeErrorMessage(err error) string {
 }
 
 func fail(result *remotev1.CommandResult, reason remotev1.ErrorReason, message string) *remotev1.CommandResult {
-	result.Success = false
+	result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED
 	result.Reason = reason
 	result.Message = message
 	return result

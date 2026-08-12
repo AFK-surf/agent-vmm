@@ -37,6 +37,7 @@ type Runtime struct {
 	volumeSampling    map[string]bool
 	volumeGeneration  map[string]uint64
 	volumeSampleSlots chan struct{}
+	workspaceSlots    chan struct{}
 	volumeSampler     func(string) (uint64, error)
 	tasks             sync.WaitGroup
 }
@@ -53,7 +54,10 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{client: client, network: network, builder: guestbuild.NewBuilder(client, network), stateDevice: stateDevice, waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool), volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), volumeSampler: directoryUsage}
+	runtime := &Runtime{client: client, network: network, builder: guestbuild.NewBuilder(client, network), stateDevice: stateDevice,
+		waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool),
+		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
+		volumeSampler: directoryUsage}
 	if err := cleanupVolumeStaging(); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
@@ -110,6 +114,10 @@ func namespaceContext(ctx context.Context, namespaceID string) context.Context {
 
 func volumePath(namespaceID, volumeID string) string {
 	return filepath.Join(stateRoot, "volumes", namespaceID, volumeID)
+}
+
+func workspacePath(namespaceID string) string {
+	return filepath.Join(stateRoot, "workspaces", namespaceID)
 }
 
 func logPath(namespaceID, containerID, generationID string) string {

@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -13,10 +15,13 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/egress"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	hosttrust "github.com/AFK-surf/agent-vmm/internal/host/trust"
+	"github.com/AFK-surf/agent-vmm/internal/host/trustkeys"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -31,24 +36,30 @@ const (
 )
 
 type Config struct {
-	Manager           *vmm.Manager
-	DatabasePath      string
-	SessionDirectory  string
-	InstanceID        string
-	BundleDirectory   string
-	InstanceDirectory string
-	StateDiskIdentity string
-	CPUCount          uint
-	MemoryBytes       uint64
-	StateBytes        int64
-	SupportDirectory  string
+	Manager                    *vmm.Manager
+	DatabasePath               string
+	SessionDirectory           string
+	InstanceID                 string
+	BundleDirectory            string
+	InstanceDirectory          string
+	StateDiskIdentity          string
+	CPUCount                   uint
+	MemoryBytes                uint64
+	StateBytes                 int64
+	SupportDirectory           string
+	TrustKeyProvider           trustkeys.Provider
+	DisablePersonalMeshPairing bool
+	DataWorkerSocket           string
 }
 
 type Controller struct {
-	manager          *vmm.Manager
-	store            *store.Store
-	sessionDirectory string
-	supportDirectory string
+	manager                     *vmm.Manager
+	store                       *store.Store
+	trust                       *hosttrust.Manager
+	personalMeshPairingDisabled bool
+	sessionDirectory            string
+	supportDirectory            string
+	dataWorkerSocket            string
 
 	mu                    sync.Mutex
 	sessions              map[string]*sessionServer
@@ -67,6 +78,11 @@ type Controller struct {
 	remoteLeases          map[string]*remoteLease
 	allocationLeases      map[string]string
 	remoteLeaseGeneration atomic.Uint64
+	routeBudgets          routeBudgetTracker
+	serviceListenerMu     sync.Mutex
+	serviceListeners      map[string]*serviceListenerRuntime
+	pairingMu             sync.Mutex
+	pairings              map[string]*personalMeshPairingRuntime
 }
 
 func (controller *Controller) lockIntegration(id string) func() {
@@ -90,6 +106,14 @@ func New(config Config) (*Controller, error) {
 	if err := database.RevokeActiveSessions(context.Background()); err != nil {
 		database.Close()
 		return nil, err
+	}
+	var trustManager *hosttrust.Manager
+	if config.TrustKeyProvider != nil {
+		trustManager, err = hosttrust.New(context.Background(), database, config.TrustKeyProvider)
+		if err != nil {
+			database.Close()
+			return nil, err
+		}
 	}
 	entries, err := os.ReadDir(config.SessionDirectory)
 	if err != nil {
@@ -117,15 +141,18 @@ func New(config Config) (*Controller, error) {
 		return nil, err
 	}
 	return &Controller{
-		manager: config.Manager, store: database, sessionDirectory: config.SessionDirectory,
-		supportDirectory: supportDirectory, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container),
+		manager: config.Manager, store: database, trust: trustManager, personalMeshPairingDisabled: config.DisablePersonalMeshPairing, sessionDirectory: config.SessionDirectory,
+		supportDirectory: supportDirectory, dataWorkerSocket: config.DataWorkerSocket, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container),
 		egress: egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
-		remoteCapacity: store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
+		serviceListeners: make(map[string]*serviceListenerRuntime),
+		pairings:         make(map[string]*personalMeshPairingRuntime),
+		remoteCapacity:   store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
 	}, nil
 }
 
 func (controller *Controller) Close() error {
 	controller.stopEgress()
+	controller.closeAllServiceListeners()
 	controller.mu.Lock()
 	sessions := controller.sessions
 	controller.sessions = make(map[string]*sessionServer)
@@ -357,6 +384,64 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 		_, applyErr := client.ApplyNetworkLink(ctx, &vmmdv1.ApplyNetworkLinkRequest{RequestId: randomRequestIDFor(grant.ID), Link: link})
 		if applyErr != nil {
 			return applyErr
+		}
+	}
+	serviceProjections, err := controller.store.ListActiveServiceProjections(ctx, time.Now())
+	if err != nil {
+		return err
+	}
+	for _, projection := range serviceProjections {
+		_, err := client.ApplyServiceProjection(ctx, &vmmdv1.ApplyServiceProjectionRequest{
+			RequestId: randomRequestIDFor(projection.Import.GetImportId()),
+			Projection: &vmmdv1.ServiceProjection{Id: projection.Import.GetImportId(), SourceNamespaceId: projection.SourceNamespace,
+				SourceContainerId: projection.Import.GetSourceContainerId(), SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(),
+				DestinationNamespaceId: projection.DestinationNamespace, DestinationContainerId: projection.Export.GetContainerId(),
+				DestinationContainerInstanceId: projection.Export.GetContainerInstanceId(), DestinationPort: projection.Export.GetPort(),
+				DnsAlias: projection.Import.GetVirtualServiceName(), ExpiresUnixMillis: projection.ExpiresAt.UnixMilli()},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if controller.trust != nil {
+		identity, identityErr := controller.trust.Identity(ctx)
+		if identityErr != nil {
+			return identityErr
+		}
+		remoteProjections, remoteErr := controller.store.ListActiveRemoteServiceProjections(ctx, identity.Identity.GetDeviceId(), time.Now())
+		if remoteErr != nil {
+			return remoteErr
+		}
+		for _, projection := range remoteProjections {
+			endpoint, endpointErr := controller.trust.GetEndpointObservation(ctx, projection.Import.GetDestinationDeviceId())
+			if endpointErr != nil {
+				return endpointErr
+			}
+			virtualAddress := remoteServiceAddress(projection.Import.GetImportId())
+			response, applyErr := client.ApplyServiceProjection(ctx, &vmmdv1.ApplyServiceProjectionRequest{
+				RequestId: randomRequestIDFor(projection.Import.GetImportId()),
+				Projection: &vmmdv1.ServiceProjection{Id: projection.Import.GetImportId(), SourceNamespaceId: projection.SourceNamespace,
+					SourceContainerId: projection.Import.GetSourceContainerId(), SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(),
+					DestinationPort: projection.Import.GetDestinationPort(), DnsAlias: projection.Import.GetVirtualServiceName(),
+					ExpiresUnixMillis: projection.Lease.GetExpiresAt().AsTime().UnixMilli(), Remote: true, VirtualAddress: virtualAddress.String()},
+			})
+			if applyErr != nil {
+				return applyErr
+			}
+			sourceAddress, parseErr := netip.ParseAddr(response.GetSourceAddress())
+			if parseErr != nil {
+				return parseErr
+			}
+			header := &servicev1.OpenServiceForwardHeader{RouteId: projection.Route.GetRouteId(), LeaseId: projection.Lease.GetLeaseId(),
+				RouteGeneration: projection.Route.GetGeneration(), SourceEnvironmentId: projection.Import.GetSourceEnvironmentId(),
+				SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(), Capability: projection.Capability}
+			if err := controller.egress.ApplyServiceRoute(egress.ServiceRoute{ID: projection.Import.GetImportId(), EnvironmentID: projection.Import.GetSourceEnvironmentId(),
+				SourceAddress: sourceAddress, Destination: netip.AddrPortFrom(virtualAddress, uint16(projection.Import.GetDestinationPort())), ExpiresAt: projection.Lease.GetExpiresAt().AsTime(),
+				Dial: func(routeContext context.Context) (net.Conn, error) {
+					return controller.dialRemoteService(routeContext, header, endpoint)
+				}}); err != nil {
+				return err
+			}
 		}
 	}
 	return controller.publishSourcePolicies(ctx)

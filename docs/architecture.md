@@ -18,7 +18,7 @@ Each agent namespace maps to these resources:
 - one cgroup subtree and its resource limits
 - one isolated network and IP range
 - a set of containers, volumes, image references, and build caches
-- a set of approved host directory mounts
+- a set of guest-owned named volumes
 - a set of host-approved cross-namespace links and grants
 
 The guest uses gVisor `runsc` as the only runtime for agent workloads.
@@ -39,7 +39,7 @@ The system must let multiple agents do these tasks in one guest:
 1. Change files and install tools in separate Linux workspaces.
 2. Keep selected data after a container or virtual machine restart.
 3. Start services that can discover approved peers.
-4. Mount named volumes or approved host directories.
+4. Mount named volumes from the encrypted guest state disk.
 5. Build OCI images from Dockerfiles.
 6. Start containers and use exec or a TTY.
 7. Grant specific access between agent namespaces.
@@ -47,6 +47,22 @@ The system must let multiple agents do these tasks in one guest:
 
 The first release excludes distributed scheduling inside Agent VMM, Kubernetes, live migration, GPUs, and arbitrary guest operating systems. A provider-neutral outbound connector may expose a user-approved capacity pool to one remote controller; scheduling remains controller-owned.
 It also excludes full Docker API and Compose compatibility.
+
+RFC16 extends that provider-neutral boundary without changing VM ownership.
+`agent-vmm-host` remains the only local trust, runtime, and policy owner.
+It owns the platform root-key provider, SQLite trust/mesh CAS state, local deny
+ledger, and separate operator/remote-compute/connector-trust Unix listeners.
+The connector authenticates to the trust listener with an install-scoped
+capability and transports `remote.v1` plus host-signed registry/endpoint evidence. The connector-supervised
+Rust child owns only an Iroh endpoint, the three fixed ALPNs, bounded streams,
+explicit connect timeouts, drain, and traffic counters; its local probe proves
+direct service-tunnel reachability without granting route authority. It is not
+a product daemon or persistent fact owner.
+The worker terminates Iroh and bridges service and mesh-control ALPNs to
+separate host Unix sockets. It injects an install-scoped preface only after the
+remote transport terminates; that secret never crosses Iroh. The connector
+renews the signed observation and reconnects before expiry, then synchronizes
+host-owned registry operations, snapshots, and the bounded endpoint projection.
 
 ## Security Facts
 
@@ -56,7 +72,7 @@ It also excludes full Docker API and Compose compatibility.
 - Workspaces, services, and image builds can all run hostile code.
 - Network, volume, and control access are separate capabilities.
 - Persistent data and live process state are separate facts.
-- A host directory is a capability from the host controller. A guest path cannot select a new host directory.
+- A named volume is a capability from the host controller. A guest path cannot select host filesystem content.
 - A Dockerfile defines a portable build input. BuildKit internal state is not a product contract.
 
 ## Compatibility Position
@@ -144,13 +160,20 @@ The host controller has these responsibilities:
 
 - create, start, stop, and recover the shared virtual machine
 - authenticate an agent session and assign its agent namespace
-- store quotas, host mounts, desired resources, and grants
+- store quotas, guest-owned volumes, desired resources, and grants
 - authorize each agent request before a vsock call
 - provide local TTY, file transfer, and port forwarding
 - reconcile desired policy after a virtual machine restart
 
 The host controller uses one local SQLite database for control-plane facts.
 It does not copy container runtime state or volume contents into this database.
+
+The same host will own the stable random device ID, platform-protected P-256
+root, trust anchors, personal-mesh membership/tombstones, endpoint generations,
+service exports/imports, and local route deny state. Root private keys never
+enter SQLite or leave the platform key provider. Managed-controller and
+personal-mesh authorities use the same `trust.v1`/`service.v1` verifier but have
+separate credentials and membership state.
 
 Environment ownership is explicit and persistent. A local environment has no registration or allocation identity. A remote environment belongs to one registration and one controller-scoped allocation ID; its host environment ID and guest namespace ID are generated locally and are never returned to the controller.
 
@@ -160,7 +183,7 @@ The Virtualization.framework configuration contains these devices:
 
 - one native Linux kernel and one immutable guest image
 - one writable state disk
-- one VirtioFS device for approved host directories
+- no host-directory sharing device; workspace bytes live on the encrypted guest state disk
 - one virtio-vsock device for control, byte streams, and the dedicated egress packet session
 - entropy and memory balloon devices
 
@@ -204,7 +227,7 @@ Agent OCI specifications never contain these interfaces:
 
 - the containerd socket
 - runsc control directories
-- the VirtioFS root
+- host filesystem paths or host-directory sharing devices
 - the vsock control device
 
 ### Agent namespace resources
@@ -216,15 +239,14 @@ Each agent namespace has these resources:
 - an independent bridge and subnet
 - a policy-aware DNS view
 - containers, volumes, image references, and build caches
-- approved host path grants
+- approved guest-volume grants
 - approved incoming or outgoing grants
 
 A workspace is a long-lived container.
 Its writable layer can persist while the container exists.
 Data that must survive container replacement belongs in a named volume.
 
-Stateful services use Linux volumes on the state disk.
-They do not use VirtioFS for their primary data.
+Stateful services use Linux volumes on the encrypted state disk.
 
 ## Cross-Namespace Collaboration
 
@@ -279,7 +301,7 @@ An agreement between agents is only an input to host authorization.
 
 | Fact | Authoritative source |
 | --- | --- |
-| Agent identity, namespace, quotas, and host path grants | Host SQLite database |
+| Agent identity, namespace, quotas, and guest-volume grants | Host SQLite database |
 | `NetworkLink`, `VolumeGrant`, and `ControlGrant` | Host SQLite database |
 | Virtual machine configuration and disk identity | Host SQLite database |
 | Guest image and state disk bytes | Files in the host environment directory |
@@ -289,6 +311,10 @@ An agreement between agents is only an input to host authorization.
 | Build cache contents | One cache volume for each agent namespace |
 | Network, address, DNS, and firewall state | Rebuildable `agent-vmmd` projections |
 | Processes, TTY sessions, and active connections | Temporary runtime state |
+| Device identity public metadata, trust anchors, mesh snapshots/tombstones, and route deny state | Host SQLite plus platform-protected root private key |
+| Endpoint transport key and live Iroh streams | Connector-supervised data worker temporary state |
+| Managed registration/grant/route intent | Remote controller; never reconstructed from connector state |
+| Personal-mesh registry revision/freshness receipt | Registry projection verified against device-signed operations; never a local signing authority |
 
 After a restart, `agent-vmmd` denies cross-namespace traffic before policy replay.
 It rebuilds projections from active host grants.
@@ -318,7 +344,34 @@ agent-vmmd
 ```
 
 An agent container cannot access a control socket in this diagram.
+
+## Provider-neutral trust and service wire
+
+`api/trust/v1` owns device identity, the two fixed authority classes, trust
+anchors, managed membership credentials, personal mesh membership/snapshots,
+endpoint observations, route capabilities, and the registry surface.
+`api/service/v1` owns export/import/route/lease and `OpenServiceForward`.
+Canonical signature inputs, fixed limits, error posture, and the three V1 ALPNs
+are defined in [trust-service-protocol.md](trust-service-protocol.md).
+The once-only managed enrollment response carries the controller anchor and a
+device-root-bound membership credential. The connector cannot install either
+without the install-scoped trust capability, and a managed service capability
+is self-contained with its signed source membership credential.
+
+The complete route class set is `LOCAL`, `DEVICE`, `COMPUTE`, `LAN`, and
+`PUBLIC_HTTP`. Reachability and transport selection never grant authority.
+Same-host optimization, direct Iroh, relay Iroh, and platform fallback all
+validate the same source/destination/container/generation/capability fences.
+Operator-created personal service listeners use the same destination-signed
+capability: `DEVICE` binds only loopback, while `LAN` requires one explicit
+private address currently owned by a local interface. Listener facts persist
+for audit/idempotency but are revoked on host restart; a live socket is never
+reconstructed without a new authorization exchange.
 All control follows one direction from the harness through the host to `agent-vmmd`.
+The operator read and restricted connector read each return at most 32 durable
+local mesh snapshots. The connector uses its read only to synchronize signed
+registry facts and endpoint projections. Create, revoke, and identity repair
+remain separate operator mutations; the connector and local MCP cannot call them.
 
 ## Public Egress Boundary
 
@@ -442,7 +495,7 @@ Its network has only loopback or filtered egress for the current agent namespace
 
 The build request accepts these inputs:
 
-- an uploaded context or approved host path grant
+- an uploaded context or approved guest-volume snapshot
 - a relative Dockerfile path
 - a target and platform
 - build arguments and secret handles
@@ -467,7 +520,7 @@ Cancellation stops the complete outer sandbox.
 | Data collaboration | `VolumeGrant` | The system must copy data or expose all volumes |
 | Controlled operations | `ControlGrant` | Collaboration requires a runtime socket |
 | Persistent data | State disk and named volumes | Container replacement deletes data |
-| Safe host mounts | Host-approved VirtioFS grants | A guest can select arbitrary macOS paths |
+| Safe persistent data | Host-approved guest-volume grants on the encrypted state disk | A guest can select arbitrary macOS paths |
 | Image builds | Isolated BuildKit and Dockerfile frontend | Existing environment definitions cannot run |
 | Interactive access | Containerd exec and PTY over vsock | The guest needs an SSH service and keys |
 
@@ -544,6 +597,20 @@ Each active lease receives a filtered AgentRuntimeService session over the singl
 bounded byte transport. The controller supplies an allocation ID, while the host
 creates all local environment, namespace, lease, and capability identities.
 
+Every control connection has a nonzero unpredictable epoch and a fresh ordered
+command sequence. The initial full inventory carries an inventory watermark and
+the complete required feature set. A command binds its ID, sequence, connection
+epoch, deadline, target revision, and lease generation. The connector emits an
+admission ACK, execution-started/finished evidence, and then a terminal result.
+Loss after admission is an `unknown_outcome`; a controller reads authoritative
+inventory and must not automatically replay the side effect. Only a completed
+duplicate in the same epoch may reuse the connector's bounded result cache.
+
+Controller integrations use `controller/remote.ControlSession` and
+`controller/remote.AcceptSession`. These public helpers own conformance checks,
+unknown-outcome classification, and the controller-side virtual `net.Conn`;
+tests and products must not carry private copies of the stream decoder.
+
 The OperatorService owns registration and pool policy, local enable/drain/revoke,
 inventory observation, and destructive cleanup. RemoteComputeService is scoped to
 the active registration and cannot see LOCAL environments. This same-UID split is
@@ -552,9 +619,39 @@ an application least-privilege boundary, not a separate macOS security principal
 Release retains allocation data. Destruction requires a fresh plan and an execute
 request matching its revision and volume set. Disconnect starts a bounded grace
 period; expiry or revocation closes the capability and stops remote-owned work.
+Host startup converts every persisted `LEASED` allocation to fail-closed
+`RETAINED` and advances its policy revision before the RemoteComputeService can
+admit a replacement connector. In-memory leases are never reconstructed.
 The connector does not implement Salix device/group/task/router concepts: an
 external controller adapter maps those concepts to the public provider-neutral
 registration/allocation/lease protocol.
+
+## Workspace and service projections
+
+Workspace RPCs are bounded guest operations rooted at
+`/state/workspaces/<namespace>`. The guest opens every component with
+`openat2(RESOLVE_BENEATH|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_SYMLINKS)`, rejects
+links and special archive entries, caps files/archives at 256 MiB, and limits
+concurrent transfers. Interrupted uploads retain a request-scoped staging file;
+resume requires the exact offset and prefix SHA-256 before the final atomic
+rename. No host path or VirtioFS mount participates in this contract.
+
+Service exports persist an exact destination container instance, port, protocol,
+owner, and revision. Imports persist the host-injected source environment and
+container instance plus a virtual DNS label. For same-guest LOCAL/COMPUTE
+optimization the host projects only that label, exact source/destination
+containers, port, and expiry into the guest; the guest removes the nftables/DNS
+projection at expiry and container replacement removes the address projection.
+Restart reconciliation recreates only ACTIVE routes whose route and lease
+revision/generation still match.
+
+`OpenServiceForward` is available only on the capability-authenticated connector
+socket. It re-reads the import, export, route, lease, device identity, both
+current container instances, and the byte budget before opening the destination
+stream. Transport selection never changes those facts. The public
+`controller/service.MemoryTransport` is the in-memory conformance transport for
+LOCAL/DEVICE/COMPUTE/LAN tests and the future data-worker adapter; it owns no
+authority or persistent route state.
 
 ## Known Limits and Review Triggers
 
@@ -570,7 +667,6 @@ registration/allocation/lease protocol.
 ## References
 
 - [Apple Virtualization.framework](https://developer.apple.com/documentation/virtualization)
-- [Apple VirtioFS shared directories](https://developer.apple.com/documentation/virtualization/shared-directories)
 - [Apple virtio-vsock](https://developer.apple.com/documentation/virtualization/vzvirtiosocketdeviceconfiguration)
 - [Apple Containerization](https://github.com/apple/containerization)
 - [containerd namespace API](https://pkg.go.dev/github.com/containerd/containerd/v2/pkg/namespaces)

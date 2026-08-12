@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-import hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+import (
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+)
 
 const (
 	ProtocolVersion         = "1"
@@ -34,9 +37,16 @@ type Config struct {
 	EndpointIdentity    string
 	RegistrationID      string
 	RemoteComputeSocket string
+	TrustSocket         string
+	TrustCapabilityFile string
+	ServiceTunnelSocket string
+	MeshControlSocket   string
+	DataWorkerPath      string
+	DataWorkerSocket    string
 	CredentialStore     CredentialStore
 	Logger              Logger
 	TLSRoots            *x509.CertPool
+	endpointObservation *trustv1.EndpointObservation
 }
 
 type Logger interface {
@@ -60,7 +70,8 @@ func LoadConfig(ctx context.Context, socket string, store CredentialStore) (Conf
 	if err != nil || parsed.Hostname() == "" {
 		return Config{}, fmt.Errorf("remote registration endpoint is invalid")
 	}
-	config := Config{Endpoint: registration.GetEndpoint(), EndpointIdentity: parsed.Hostname(), RegistrationID: registration.GetId(), RemoteComputeSocket: socket, CredentialStore: store}
+	config := Config{Endpoint: registration.GetEndpoint(), EndpointIdentity: parsed.Hostname(), RegistrationID: registration.GetId(), RemoteComputeSocket: socket,
+		TrustSocket: filepath.Join(filepath.Dir(socket), "trust.sock"), TrustCapabilityFile: filepath.Join(filepath.Dir(socket), "connector-trust.cap"), CredentialStore: store}
 	if registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
 		return Config{}, ErrCredentialRevoked
 	}
@@ -82,6 +93,21 @@ func (config Config) validate() error {
 	}
 	if !filepath.IsAbs(config.RemoteComputeSocket) {
 		return fmt.Errorf("remote compute socket must be absolute")
+	}
+	if (config.TrustSocket == "") != (config.TrustCapabilityFile == "") {
+		return fmt.Errorf("trust socket and connector capability file must be configured together")
+	}
+	if config.TrustSocket != "" && (!filepath.IsAbs(config.TrustSocket) || !filepath.IsAbs(config.TrustCapabilityFile)) {
+		return fmt.Errorf("trust socket and connector capability file must be absolute")
+	}
+	if (config.DataWorkerPath == "") != (config.DataWorkerSocket == "") {
+		return fmt.Errorf("data worker path and socket must be configured together")
+	}
+	if config.DataWorkerPath != "" && (!filepath.IsAbs(config.DataWorkerPath) || !filepath.IsAbs(config.DataWorkerSocket)) {
+		return fmt.Errorf("data worker path and socket must be absolute")
+	}
+	if config.DataWorkerPath != "" && (!filepath.IsAbs(config.ServiceTunnelSocket) || !filepath.IsAbs(config.MeshControlSocket)) {
+		return fmt.Errorf("service and mesh-control sockets must be absolute when the data worker is configured")
 	}
 	parsed, err := url.Parse("https://" + config.Endpoint)
 	if err != nil || parsed.Host != config.Endpoint || parsed.Port() == "" || net.ParseIP(parsed.Hostname()) != nil {

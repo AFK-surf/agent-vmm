@@ -168,5 +168,21 @@ func (m *Manager) localDNSAddresses(namespaceID, name string) []netip.Addr {
 			return addresses
 		}
 	}
+	for _, service := range m.services {
+		if service.GetSourceNamespaceId() == namespaceID && service.GetDnsAlias() == label && service.GetExpiresUnixMillis() > time.Now().UnixMilli() {
+			if service.GetRemote() {
+				address, err := netip.ParseAddr(service.GetVirtualAddress())
+				if err == nil && remoteServicePrefix.Contains(address) {
+					return []netip.Addr{address}
+				}
+				return nil
+			}
+			endpoint := m.endpoints[service.GetDestinationNamespaceId()][service.GetDestinationContainerId()]
+			if endpoint.InstanceID == service.GetDestinationContainerInstanceId() {
+				return []netip.Addr{endpoint.Address}
+			}
+			return nil
+		}
+	}
 	return nil
 }

@@ -1,5 +1,37 @@
 import Foundation
 
+struct DeviceIdentityModel: Sendable, Equatable {
+    enum State: Sendable, Equatable { case ready, needsRepair, unavailable }
+    let id: String
+    let rootKeyRevision: UInt64
+    let state: State
+}
+
+struct PersonalMeshMemberModel: Identifiable, Sendable, Equatable {
+    var id: String { deviceID }
+    let deviceID: String
+    let rootKeyRevision: UInt64
+    let permissions: [String]
+}
+
+struct PersonalMeshModel: Identifiable, Sendable, Equatable {
+    let id: String
+    let registryAudience: String
+    let revision: UInt64
+    let policyEpoch: UInt64
+    let members: [PersonalMeshMemberModel]
+}
+
+struct PersonalMeshPairingModel: Sendable, Equatable {
+    let sessionID: Data
+    let invitationCode: String
+    let role: String
+    let state: String
+    let attemptsRemaining: UInt32
+    let sas: String
+    let registryCommitPending: Bool
+}
+
 enum HealthLevel: Int, Sendable, Comparable {
     case unavailable = 0
     case degraded = 1

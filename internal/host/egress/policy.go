@@ -66,6 +66,11 @@ func (policies *Policies) Publish(snapshot Snapshot) error {
 func (policies *Policies) Clear() { policies.state.Store(nil) }
 
 func (policies *Policies) Resolve(bootID string, address netip.Addr) (Source, bool) {
+	result, found := policies.Lookup(bootID, address)
+	return result, found && result.Mode == PublicInternet
+}
+
+func (policies *Policies) Lookup(bootID string, address netip.Addr) (Source, bool) {
 	state := policies.state.Load()
 	if state == nil || state.bootID != bootID {
 		return Source{}, false
@@ -80,7 +85,7 @@ func (policies *Policies) Resolve(bootID string, address netip.Addr) (Source, bo
 			result, found = source, true
 		}
 	}
-	return result, found && result.Mode == PublicInternet
+	return result, found
 }
 
 var deniedDestinations = []netip.Prefix{

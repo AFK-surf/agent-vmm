@@ -19,6 +19,7 @@ func directoryEntries(path string) ([]os.DirEntry, error) {
 func removeNamespaceState(namespaceID string) error {
 	for _, path := range []string{
 		volumePath(namespaceID, ""),
+		workspacePath(namespaceID),
 		filepath.Join(stateRoot, "logs", namespaceID),
 		filepath.Join(stateRoot, "build-cache", namespaceID),
 		filepath.Join(stateRoot, "build-tmp", namespaceID),

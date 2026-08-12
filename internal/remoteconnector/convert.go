@@ -5,20 +5,25 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func hello(registration *hostv1.RemoteRegistration, instance string) *remotev1.HostHello {
+func hello(registration *hostv1.RemoteRegistration, instance string, epoch uint64, endpointObservation *trustv1.EndpointObservation) *remotev1.HostHello {
 	pool := registration.GetPool()
 	message := &remotev1.HostHello{
 		ProtocolVersion: ProtocolVersion, HostApiVersion: HostAPIVersion, ConnectorRelease: ConnectorRelease,
 		RegistrationId: registration.GetId(), ConnectionInstance: instance, PoolRevision: registration.GetRevision(),
-		Capacity: &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), AggregateLimits: pool.GetAggregateLimits(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
-		Health:   &remotev1.HostHealth{RuntimeReady: true, NetworkReady: true, Status: "ready"},
+		ConnectionEpoch: epoch, SupportedFeatures: append([]string(nil), protocolFeatures...),
+		RequiredFeatures:    append([]string(nil), protocolFeatures...),
+		Capacity:            &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), AggregateLimits: pool.GetAggregateLimits(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
+		Health:              &remotev1.HostHealth{RuntimeReady: true, NetworkReady: true, Status: "ready"},
+		EndpointObservation: endpointObservation,
 	}
 	for _, allocation := range registration.GetAllocations() {
 		message.Inventory = append(message.Inventory, allocationToRemote(allocation))
 	}
+	message.InventoryWatermark = inventoryWatermark(message.Inventory)
 	return message
 }
 

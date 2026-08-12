@@ -11,6 +11,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -23,7 +24,7 @@ func dialController(config Config, credential []byte) (*grpc.ClientConn, error) 
 		grpc.WithInitialWindowSize(StreamWindowBytes), grpc.WithInitialConnWindowSize(ConnectionWindowBytes),
 	}
 	if len(credential) != 0 {
-		options = append(options, grpc.WithPerRPCCredentials(bearerCredential{value: credential}))
+		options = append(options, grpc.WithPerRPCCredentials(bearerCredential{value: credential, registration: config.RegistrationID}))
 	}
 	return grpc.NewClient(config.Endpoint, options...)
 }
@@ -38,13 +39,19 @@ func dialStoredController(config Config) (*grpc.ClientConn, error) {
 	return grpc.NewClient(config.Endpoint, options...)
 }
 
-type bearerCredential struct{ value []byte }
+type bearerCredential struct {
+	value        []byte
+	registration string
+}
 
 func (credential bearerCredential) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
 	if len(credential.value) == 0 || len(credential.value) > MaxCredentialBytes {
 		return nil, fmt.Errorf("controller credential is invalid")
 	}
-	return map[string]string{"authorization": "Bearer " + string(credential.value)}, nil
+	if credential.registration == "" || len(credential.registration) > 128 {
+		return nil, fmt.Errorf("controller registration is invalid")
+	}
+	return map[string]string{"authorization": controllerremote.EncodeBearer(credential.value), "x-agent-vmm-registration": credential.registration}, nil
 }
 func (bearerCredential) RequireTransportSecurity() bool { return true }
 
@@ -62,7 +69,10 @@ func (credential storedCredential) GetRequestMetadata(ctx context.Context, _ ...
 	if len(value) == 0 || len(value) > MaxCredentialBytes {
 		return nil, fmt.Errorf("controller credential is invalid")
 	}
-	return map[string]string{"authorization": "Bearer " + string(value)}, nil
+	if credential.account == "" || len(credential.account) > 128 {
+		return nil, fmt.Errorf("controller registration is invalid")
+	}
+	return map[string]string{"authorization": controllerremote.EncodeBearer(value), "x-agent-vmm-registration": credential.account}, nil
 }
 func (storedCredential) RequireTransportSecurity() bool { return true }
 

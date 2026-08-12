@@ -41,6 +41,8 @@ var blockedEgressPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("240.0.0.0/4"),
 }
 
+var remoteServicePrefix = netip.MustParsePrefix("198.19.0.0/16")
+
 func blockedEgress(address netip.Addr) bool {
 	for _, prefix := range blockedEgressPrefixes {
 		if prefix.Contains(address) {
@@ -90,6 +92,127 @@ func (m *Manager) DeleteLink(linkID string) error {
 		return err
 	}
 	return deleteLinkConntrack(m.selectedEndpoints(link.GetSourceNamespaceId(), link.GetSource()), m.selectedEndpoints(link.GetDestinationNamespaceId(), link.GetDestination()), link.GetTcpPorts())
+}
+
+// ApplyServiceProjection is the namespace-scoped service projection boundary.
+// The host supplies exact current container instances; workloads never choose
+// destination addresses or transport endpoints.
+func (m *Manager) ApplyServiceProjection(projection *vmmdv1.ServiceProjection) error {
+	if err := validateServiceProjection(projection); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	source := m.endpoints[projection.GetSourceNamespaceId()][projection.GetSourceContainerId()]
+	if source.InstanceID != projection.GetSourceContainerInstanceId() {
+		return errors.New("service projection container instance is stale")
+	}
+	if !projection.GetRemote() {
+		destination := m.endpoints[projection.GetDestinationNamespaceId()][projection.GetDestinationContainerId()]
+		if destination.InstanceID != projection.GetDestinationContainerInstanceId() {
+			return errors.New("service projection container instance is stale")
+		}
+	}
+	if current := m.services[projection.GetId()]; current != nil && !proto.Equal(current, projection) {
+		return errors.New("service projection already exists with different policy")
+	}
+	for id, current := range m.services {
+		if id != projection.GetId() && current.GetSourceNamespaceId() == projection.GetSourceNamespaceId() && current.GetDnsAlias() == projection.GetDnsAlias() {
+			return errors.New("service projection DNS alias already exists")
+		}
+	}
+	m.services[projection.GetId()] = proto.Clone(projection).(*vmmdv1.ServiceProjection)
+	if err := m.reconcileLocked(); err != nil {
+		delete(m.services, projection.GetId())
+		return err
+	}
+	delay := time.Until(time.UnixMilli(projection.GetExpiresUnixMillis()))
+	id, expiry := projection.GetId(), projection.GetExpiresUnixMillis()
+	time.AfterFunc(max(delay, 0), func() {
+		m.mu.RLock()
+		current := m.services[id]
+		shouldDelete := current != nil && current.GetExpiresUnixMillis() == expiry
+		m.mu.RUnlock()
+		if shouldDelete {
+			_ = m.DeleteServiceProjection(id)
+		}
+	})
+	return nil
+}
+
+func (m *Manager) ServiceProjectionSourceAddress(id string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	projection := m.services[id]
+	if projection == nil {
+		return "", errors.New("service projection does not exist")
+	}
+	endpoint := m.endpoints[projection.GetSourceNamespaceId()][projection.GetSourceContainerId()]
+	if endpoint.InstanceID != projection.GetSourceContainerInstanceId() {
+		return "", errors.New("service projection source instance is stale")
+	}
+	return endpoint.Address.String(), nil
+}
+
+func (m *Manager) DeleteServiceProjection(id string) error {
+	if id == "" {
+		return errors.New("service projection id is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	projection := m.services[id]
+	if projection == nil {
+		return nil
+	}
+	delete(m.services, id)
+	if err := m.reconcileLocked(); err != nil {
+		m.services[id] = projection
+		return err
+	}
+	if !projection.GetRemote() && projection.GetSourceNamespaceId() == projection.GetDestinationNamespaceId() {
+		return nil
+	}
+	return deleteLinkConntrack(
+		m.selectedEndpoints(projection.GetSourceNamespaceId(), &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_ContainerIds{ContainerIds: &vmmdv1.ContainerIDList{Ids: []string{projection.GetSourceContainerId()}}}}),
+		m.serviceDestinationEndpoints(projection),
+		[]uint32{projection.GetDestinationPort()},
+	)
+}
+
+func validateServiceProjection(value *vmmdv1.ServiceProjection) error {
+	if value == nil || value.GetId() == "" || value.GetSourceNamespaceId() == "" || value.GetSourceContainerId() == "" ||
+		value.GetSourceContainerInstanceId() == "" || value.GetDestinationPort() == 0 || value.GetDestinationPort() > 65535 {
+		return errors.New("complete service projection identity, source, and port are required")
+	}
+	if value.GetRemote() {
+		address, err := netip.ParseAddr(value.GetVirtualAddress())
+		if err != nil || !remoteServicePrefix.Contains(address) || value.GetDestinationNamespaceId() != "" ||
+			value.GetDestinationContainerId() != "" || value.GetDestinationContainerInstanceId() != "" {
+			return errors.New("remote service projection requires only a reserved virtual destination")
+		}
+	} else if value.GetDestinationNamespaceId() == "" || value.GetDestinationContainerId() == "" ||
+		value.GetDestinationContainerInstanceId() == "" || value.GetVirtualAddress() != "" {
+		return errors.New("local service projection requires an exact destination container")
+	}
+	if value.GetExpiresUnixMillis() <= time.Now().UnixMilli() {
+		return errors.New("service projection expiry must be in the future")
+	}
+	alias := value.GetDnsAlias()
+	if alias == "" || len(alias) > 63 || strings.Trim(alias, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" || alias[0] == '-' || alias[len(alias)-1] == '-' {
+		return errors.New("service projection DNS alias must be a lowercase DNS label")
+	}
+	return nil
+}
+
+func (m *Manager) serviceDestinationEndpoints(projection *vmmdv1.ServiceProjection) []Endpoint {
+	if projection.GetRemote() {
+		address, err := netip.ParseAddr(projection.GetVirtualAddress())
+		if err != nil {
+			return nil
+		}
+		return []Endpoint{{Address: address}}
+	}
+	return m.selectedEndpoints(projection.GetDestinationNamespaceId(), &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_ContainerIds{ContainerIds: &vmmdv1.ContainerIDList{Ids: []string{projection.GetDestinationContainerId()}}}})
 }
 
 func validateLink(link *vmmdv1.NetworkLink) error {
@@ -237,6 +360,38 @@ func (m *Manager) reconcileLocked() error {
 			return err
 		}
 		if err := connection.AddSet(portSet, portElements(link.GetTcpPorts())); err != nil {
+			return err
+		}
+		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: linkRule(sourceSet, destinationSet, portSet)})
+	}
+	serviceIDs := make([]string, 0, len(m.services))
+	for id := range m.services {
+		serviceIDs = append(serviceIDs, id)
+	}
+	sort.Strings(serviceIDs)
+	for _, id := range serviceIDs {
+		service := m.services[id]
+		if service.GetExpiresUnixMillis() <= time.Now().UnixMilli() {
+			continue
+		}
+		if !service.GetRemote() && service.GetSourceNamespaceId() == service.GetDestinationNamespaceId() {
+			continue
+		}
+		sources := selectedElements(m.selectedEndpoints(service.GetSourceNamespaceId(), &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_ContainerIds{ContainerIds: &vmmdv1.ContainerIDList{Ids: []string{service.GetSourceContainerId()}}}}))
+		destinations := selectedElements(m.serviceDestinationEndpoints(service))
+		if len(sources) == 0 || len(destinations) == 0 {
+			continue
+		}
+		sourceSet := &nftables.Set{Table: filterTable, Name: "ss" + shortSetID(id), KeyType: nftables.TypeIPAddr}
+		destinationSet := &nftables.Set{Table: filterTable, Name: "sd" + shortSetID(id), KeyType: nftables.TypeIPAddr}
+		portSet := &nftables.Set{Table: filterTable, Name: "sp" + shortSetID(id), KeyType: nftables.TypeInetService, KeyByteOrder: binaryutil.BigEndian}
+		if err := connection.AddSet(sourceSet, sources); err != nil {
+			return err
+		}
+		if err := connection.AddSet(destinationSet, destinations); err != nil {
+			return err
+		}
+		if err := connection.AddSet(portSet, portElements([]uint32{service.GetDestinationPort()})); err != nil {
 			return err
 		}
 		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: linkRule(sourceSet, destinationSet, portSet)})

@@ -49,6 +49,14 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_NSHumanReadableCopyright: Copyright AFK Surf
         ENABLE_HARDENED_RUNTIME: YES
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Agent VMM
+        LSApplicationCategoryType: public.app-category.developer-tools
+        CFBundleURLTypes:
+          - CFBundleURLName: surf.afk.AgentVMM.pairing
+            CFBundleURLSchemes: [agent-vmm]
   AgentVMMTests:
     type: bundle.unit-test
     platform: macOS

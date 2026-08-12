@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -39,7 +41,7 @@ func TestE2E(t *testing.T) {
 	client := harness.runtime(t)
 	t.Run("session_auth_and_revocation", func(t *testing.T) { testSessionAuthAndRevocation(t, harness, client) })
 	t.Run("mcp_workflow", func(t *testing.T) { testMCPWorkflow(t, harness) })
-	t.Run("pgvector_image_and_volume", func(t *testing.T) { testPGVectorImageAndVolume(t, client) })
+	t.Run("workspace_file_workflow", func(t *testing.T) { testWorkspaceFileWorkflow(t, client) })
 	t.Run("image_record_lifecycle", func(t *testing.T) { testImageRecordLifecycle(t, client) })
 	t.Run("remote_workflow", func(t *testing.T) { testRemoteWorkflow(t, harness) })
 	parallel := []struct {
@@ -80,6 +82,123 @@ func TestE2E(t *testing.T) {
 	t.Run("cleanup_contract", func(t *testing.T) { testCleanupContract(t, harness, client) })
 	t.Run("residual_scan", func(t *testing.T) { testResidualScan(t, harness.runtime(t)) })
 	harness.stop(t, false)
+	t.Run("pgvector_image_and_volume", func(t *testing.T) {
+		// A failed registry download can intentionally leave an unknown runtime
+		// outcome. Keep this network-dependent contract on a dedicated final VM so
+		// it cannot cascade projection drift into the local lifecycle matrix.
+		isolated := startHostWithState(t, 8<<30)
+		isolated.start(t)
+		t.Cleanup(func() { isolated.stop(t, true) })
+		testPGVectorImageAndVolume(t, isolated.runtime(t))
+	})
+}
+
+func testWorkspaceFileWorkflow(t *testing.T, client *productClient) {
+	ensureNamespace(t, client, "workspace-files", 1<<30)
+	session, err := client.session("workspace-files")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	prefix := []byte("resume-")
+	first, err := session.client.WriteWorkspace(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Header{Header: &hostv1.WriteWorkspaceHeader{
+		RequestId: "workspace-resume", Path: "workspace.txt", Mode: 0o600}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Data{Data: prefix}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.CloseAndRecv(); err == nil {
+		t.Fatal("unfinished workspace upload unexpectedly committed")
+	}
+	prefixDigest := sha256.Sum256(prefix)
+	second, err := session.client.WriteWorkspace(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Header{Header: &hostv1.WriteWorkspaceHeader{
+		RequestId: "workspace-resume", Path: "workspace.txt", Offset: uint64(len(prefix)), ExpectedPrefixSha256: prefixDigest[:], Mode: 0o600}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Data{Data: []byte("complete")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Finish{Finish: true}}); err != nil {
+		t.Fatal(err)
+	}
+	written, err := second.CloseAndRecv()
+	if err != nil || written.GetEntry().GetSize() != uint64(len("resume-complete")) {
+		t.Fatalf("workspace write=%+v err=%v", written, err)
+	}
+	read, err := session.client.ReadWorkspace(ctx, &hostv1.ReadWorkspaceRequest{Path: "workspace.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contents []byte
+	for {
+		message, err := read.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		contents = append(contents, message.GetData()...)
+	}
+	if string(contents) != "resume-complete" {
+		t.Fatalf("workspace contents=%q", contents)
+	}
+	listed, err := session.client.ListWorkspace(ctx, &hostv1.ListWorkspaceRequest{Path: ".", Limit: 10})
+	if err != nil || len(listed.GetEntries()) != 1 || listed.GetEntries()[0].GetPath() != "workspace.txt" {
+		t.Fatalf("workspace list=%+v err=%v", listed, err)
+	}
+	if _, err := session.client.StatWorkspace(ctx, &hostv1.WorkspacePathRequest{Path: "../escape"}); err == nil {
+		t.Fatal("workspace traversal path was accepted")
+	}
+	archive, err := session.client.ArchiveWorkspace(ctx, &hostv1.ArchiveWorkspaceRequest{Path: "workspace.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var archiveBytes []byte
+	for {
+		message, err := archive.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		archiveBytes = append(archiveBytes, message.GetData()...)
+	}
+	extract, err := session.client.ExtractWorkspace(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := extract.Send(&hostv1.ExtractWorkspaceRequest{Payload: &hostv1.ExtractWorkspaceRequest_Header{Header: &hostv1.ExtractWorkspaceHeader{
+		RequestId: "workspace-extract", Path: "restored"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for len(archiveBytes) != 0 {
+		count := min(len(archiveBytes), 64<<10)
+		if err := extract.Send(&hostv1.ExtractWorkspaceRequest{Payload: &hostv1.ExtractWorkspaceRequest_Data{Data: archiveBytes[:count]}}); err != nil {
+			t.Fatal(err)
+		}
+		archiveBytes = archiveBytes[count:]
+	}
+	if err := extract.Send(&hostv1.ExtractWorkspaceRequest{Payload: &hostv1.ExtractWorkspaceRequest_Finish{Finish: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extract.CloseAndRecv(); err != nil {
+		t.Fatal(err)
+	}
+	if restored, err := session.client.StatWorkspace(ctx, &hostv1.WorkspacePathRequest{Path: "restored/workspace.txt"}); err != nil || restored.GetSha256() == nil {
+		t.Fatalf("restored workspace entry=%+v err=%v", restored, err)
+	}
 }
 
 func testImageRecordLifecycle(t *testing.T, client *productClient) {
@@ -211,11 +330,17 @@ func assertImageDeleteReason(t *testing.T, err error, reason string) {
 
 func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
 	const environmentID = "pgvector"
-	const image = "pgvector/pgvector:pg16"
+	// Mirror the same immutable upstream image through the registry already used
+	// by the E2E workload fixture. Docker Hub is intermittently unreachable from
+	// the VM network and must not poison the shared namespace projection.
+	const image = "mirror.gcr.io/pgvector/pgvector@sha256:386f17b2364a613752d23b4e23c6e27b87b2997b3ac3ea23dac42df579670524"
 	ensureNamespace(t, client, environmentID, 2<<30)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	if digest, err := pullImageReference(ctx, client, environmentID, "pull-pgvector", image); err != nil || !strings.HasPrefix(digest, "sha256:") {
+		if externalRegistryUnavailable(err) {
+			t.Skipf("external pgvector registry unavailable: %v", err)
+		}
 		t.Fatalf("pull pgvector = %q, %v", digest, err)
 	}
 	owner, mode := uint32(999), uint32(0o700)
@@ -248,6 +373,39 @@ func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
 	stopDeleteContainer(t, client, environmentID, "postgres")
 	deleteVolume(t, client, environmentID, "data")
 	deleteNamespace(t, client, environmentID)
+}
+
+func externalRegistryUnavailable(err error) bool {
+	if status.Code(err) != codes.Unavailable {
+		return false
+	}
+	for _, detail := range status.Convert(err).Details() {
+		info, ok := detail.(*errdetails.ErrorInfo)
+		if !ok {
+			continue
+		}
+		switch info.GetReason() {
+		case "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_TIMEOUT",
+			"IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_BLOB_FETCH_FAILED":
+			return true
+		}
+	}
+	return false
+}
+
+func TestExternalRegistryUnavailable(t *testing.T) {
+	registry, err := status.New(codes.Unavailable, "image registry could not be reached").WithDetails(
+		&errdetails.ErrorInfo{Reason: "IMAGE_REGISTRY_UNAVAILABLE", Domain: "agent-vmm"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !externalRegistryUnavailable(registry.Err()) {
+		t.Fatal("registry-specific unavailable error was not classified as external")
+	}
+	if externalRegistryUnavailable(status.Error(codes.Unavailable, "guest control service is unavailable")) {
+		t.Fatal("generic VM/control unavailable error was classified as external registry failure")
+	}
 }
 
 func testCleanupContract(t *testing.T, harness *hostHarness, client *productClient) {
@@ -1183,6 +1341,8 @@ type hostHarness struct {
 	runtimeSocket       string
 	operatorSocket      string
 	remoteComputeSocket string
+	trustSocket         string
+	trustCapabilityFile string
 	runtimeClient       *productClient
 	starts              int
 }
@@ -1210,6 +1370,8 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	}
 	operatorSocket := filepath.Join(directory, "operator.sock")
 	remoteComputeSocket := filepath.Join(directory, "remote-compute.sock")
+	trustSocket := filepath.Join(directory, "trust.sock")
+	trustCapabilityFile := filepath.Join(directory, "connector-trust.cap")
 	runtimeSocket := filepath.Join(directory, "runtime.sock")
 	database := filepath.Join(directory, "host.sqlite")
 	sessions := filepath.Join(directory, "sessions")
@@ -1245,6 +1407,8 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 		}
 	})
 	waitForPath(t, operatorSocket, 10*time.Second)
+	waitForPath(t, trustSocket, 10*time.Second)
+	waitForPath(t, trustCapabilityFile, 10*time.Second)
 	connection, err := grpc.NewClient("passthrough:///host", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", operatorSocket)
 	}))
@@ -1255,7 +1419,9 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	operator := hostv1.NewOperatorServiceClient(connection)
 	runtimeClient := newProductClient(operator)
 	t.Cleanup(runtimeClient.close)
-	return &hostHarness{client: operator, connection: connection, process: process, instance: instance, database: database, runtimeSocket: runtimeSocket, operatorSocket: operatorSocket, remoteComputeSocket: remoteComputeSocket, runtimeClient: runtimeClient}
+	return &hostHarness{client: operator, connection: connection, process: process, instance: instance, database: database,
+		runtimeSocket: runtimeSocket, operatorSocket: operatorSocket, remoteComputeSocket: remoteComputeSocket,
+		trustSocket: trustSocket, trustCapabilityFile: trustCapabilityFile, runtimeClient: runtimeClient}
 }
 
 func readFileTail(path string, limit int64) []byte {

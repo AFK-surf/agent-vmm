@@ -21,6 +21,16 @@ protocol HostServing: Sendable {
     func runDiagnostics(environmentID: String?) async throws -> OperationModel
     func supportPreview(environmentID: String?) async throws -> [SupportItem]
     func exportSupportBundle(environmentID: String?, sensitiveItems: [String]) async throws -> OperationModel
+    func deviceIdentity() async throws -> DeviceIdentityModel
+    func listPersonalMeshes() async throws -> [PersonalMeshModel]
+    func createPersonalMesh(registryAudience: String) async throws -> PersonalMeshModel
+    func revokePersonalMeshMember(meshID: String, deviceID: String, expectedRevision: UInt64) async throws -> PersonalMeshModel
+    func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String) async throws -> PersonalMeshPairingModel
+    func joinPersonalMeshPairing(invitationCode: String, pin: String, canManageMembers: Bool) async throws -> PersonalMeshPairingModel
+    func getPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel
+    func confirmPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel
+    func rejectPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel
+    func repairDeviceIdentity(confirmMembershipReset: Bool) async throws -> DeviceIdentityModel
     func beginRemoteEnrollment(endpoint: String, displayName: String, pool: RemotePoolSettings) async throws -> RemoteRegistrationModel
     func completeRemoteEnrollment(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
     func failRemoteEnrollment(registrationID: String, expectedRevision: UInt64, code: String, message: String) async throws -> RemoteRegistrationModel

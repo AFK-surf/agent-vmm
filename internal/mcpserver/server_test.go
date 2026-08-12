@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
@@ -14,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -21,6 +24,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -33,6 +37,76 @@ type fakeRuntime struct {
 	containerError    error
 	deletedGeneration string
 	deletedImage      *hostv1.DeleteImageRequest
+	createdExport     *hostv1.CreateServiceExportRequest
+	createdImport     *hostv1.CreateServiceImportRequest
+	createdPersonal   *hostv1.CreatePersonalServiceImportRequest
+	revokedExport     *hostv1.RevokeOwnServiceExportRequest
+	revokedImport     *hostv1.RevokeServiceImportRequest
+}
+
+func (server *fakeRuntime) CreatePersonalServiceImport(_ context.Context, request *hostv1.CreatePersonalServiceImportRequest) (*servicev1.ServiceImport, error) {
+	server.mu.Lock()
+	server.createdPersonal = proto.Clone(request).(*hostv1.CreatePersonalServiceImportRequest)
+	server.mu.Unlock()
+	return &servicev1.ServiceImport{ImportId: "personal-import", SourceContainerId: request.GetSourceContainerId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}, nil
+}
+
+func (*fakeRuntime) ListServiceExports(context.Context, *hostv1.ListOwnServiceExportsRequest) (*servicev1.ListServiceExportsResponse, error) {
+	return &servicev1.ListServiceExportsResponse{Exports: []*servicev1.ServiceExport{{ExportId: "export-current", ContainerId: "api", ContainerInstanceId: "api-v1", Port: 8080, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP, Revision: 3}}}, nil
+}
+
+func TestPersonalMeshServiceImportUsesHostOwnedRouteRequest(t *testing.T) {
+	runtime := &fakeRuntime{}
+	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "service_import", Arguments: map[string]any{
+		"source_container_id": "worker", "source_container_instance_id": "worker-v3", "destination_device_id": "device-c",
+		"destination_export_id": "export-c", "destination_port": 9443, "virtual_service_name": "mesh-api", "mesh_id": "mesh-a",
+		"connection_limit": 4, "byte_limit": 1048576, "concurrency_limit": 2,
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("personal service_import: err=%v result=%#v", err, result)
+	}
+	runtime.mu.Lock()
+	request := runtime.createdPersonal
+	runtime.mu.Unlock()
+	if request.GetRequestId() == "" || request.GetMeshId() != "mesh-a" || request.GetDestinationDeviceId() != "device-c" ||
+		request.GetBudget().GetConnectionLimit() != 4 || request.GetBudget().GetByteLimit() != 1048576 || request.GetBudget().GetConcurrencyLimit() != 2 {
+		t.Fatalf("personal import request = %#v", request)
+	}
+}
+
+func (*fakeRuntime) ListServiceImports(context.Context, *hostv1.ListServiceImportsRequest) (*hostv1.ListServiceImportsResponse, error) {
+	return &hostv1.ListServiceImportsResponse{Imports: []*servicev1.ServiceImport{{ImportId: "import-current", SourceContainerId: "worker", SourceContainerInstanceId: "worker-v1", DestinationDeviceId: "device-b", DestinationExportId: "export-b", VirtualServiceName: "peer-api", Revision: 5}}}, nil
+}
+
+func (server *fakeRuntime) CreateServiceExport(_ context.Context, request *hostv1.CreateServiceExportRequest) (*servicev1.ServiceExport, error) {
+	server.mu.Lock()
+	server.createdExport = proto.Clone(request).(*hostv1.CreateServiceExportRequest)
+	server.mu.Unlock()
+	return &servicev1.ServiceExport{ExportId: "export-new", ContainerId: request.GetContainerId(), ContainerInstanceId: request.GetContainerInstanceId(), Port: request.GetPort(), Protocol: request.GetProtocol(), Revision: 1}, nil
+}
+
+func (server *fakeRuntime) CreateServiceImport(_ context.Context, request *hostv1.CreateServiceImportRequest) (*servicev1.ServiceImport, error) {
+	server.mu.Lock()
+	server.createdImport = proto.Clone(request).(*hostv1.CreateServiceImportRequest)
+	server.mu.Unlock()
+	return &servicev1.ServiceImport{ImportId: "import-new", SourceContainerId: request.GetSourceContainerId(), SourceContainerInstanceId: request.GetSourceContainerInstanceId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}, nil
+}
+
+func (server *fakeRuntime) RevokeServiceExport(_ context.Context, request *hostv1.RevokeOwnServiceExportRequest) (*emptypb.Empty, error) {
+	server.mu.Lock()
+	server.revokedExport = proto.Clone(request).(*hostv1.RevokeOwnServiceExportRequest)
+	server.mu.Unlock()
+	return &emptypb.Empty{}, nil
+}
+
+func (server *fakeRuntime) RevokeServiceImport(_ context.Context, request *hostv1.RevokeServiceImportRequest) (*emptypb.Empty, error) {
+	server.mu.Lock()
+	server.revokedImport = proto.Clone(request).(*hostv1.RevokeServiceImportRequest)
+	server.mu.Unlock()
+	return &emptypb.Empty{}, nil
 }
 
 func (*fakeRuntime) GetEnvironment(context.Context, *hostv1.GetOwnEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
@@ -243,7 +317,7 @@ func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_delete", "image_list", "image_pull", "port_forward_list", "port_forward_start", "port_forward_stop", "volume_create", "volume_delete", "volume_list"}
+	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_delete", "image_list", "image_pull", "mesh_service_list", "port_forward_list", "port_forward_start", "port_forward_stop", "service_export", "service_import", "service_route_revoke", "volume_create", "volume_delete", "volume_list"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v", names)
 	}
@@ -268,6 +342,61 @@ func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
 	page, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "container_list", Arguments: map[string]any{"limit": 1}})
 	if err != nil || page.IsError {
 		t.Fatalf("container_list: %v %#v", err, page)
+	}
+}
+
+func TestServiceToolsUseOnlyBoundRuntimeAndPreserveCapability(t *testing.T) {
+	runtime := &fakeRuntime{}
+	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for _, call := range []*mcp.CallToolParams{
+		{Name: "mesh_service_list", Arguments: map[string]any{}},
+		{Name: "service_export", Arguments: map[string]any{"container_id": "api", "container_instance_id": "api-v2", "port": 8443, "protocol": "http"}},
+	} {
+		result, err := client.CallTool(ctx, call)
+		if err != nil || result.IsError {
+			t.Fatalf("%s: err=%v result=%#v", call.Name, err, result)
+		}
+	}
+
+	capability := &trustv1.RouteCapability{CapabilityId: "capability-current", RouteGeneration: 7}
+	encoded, err := proto.Marshal(capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "service_import", Arguments: map[string]any{
+		"source_container_id": "worker", "source_container_instance_id": "worker-v2",
+		"destination_device_id": "device-b", "destination_export_id": "export-b", "destination_port": 8080,
+		"virtual_service_name": "peer-api", "capability": base64.RawURLEncoding.EncodeToString(encoded),
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("service_import: err=%v result=%#v", err, result)
+	}
+	for _, arguments := range []map[string]any{
+		{"kind": "export", "id": "export-new", "expected_revision": 1},
+		{"kind": "import", "id": "import-new", "expected_revision": 2},
+	} {
+		result, err = client.CallTool(ctx, &mcp.CallToolParams{Name: "service_route_revoke", Arguments: arguments})
+		if err != nil || result.IsError {
+			t.Fatalf("service_route_revoke: err=%v result=%#v", err, result)
+		}
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.createdExport.GetRequestId() == "" || runtime.createdExport.GetContainerId() != "api" || runtime.createdExport.GetContainerInstanceId() != "api-v2" || runtime.createdExport.GetPort() != 8443 {
+		t.Fatalf("created export = %#v", runtime.createdExport)
+	}
+	if runtime.createdImport.GetRequestId() == "" || runtime.createdImport.GetSourceContainerId() != "worker" || runtime.createdImport.GetSourceContainerInstanceId() != "worker-v2" || !proto.Equal(runtime.createdImport.GetCapability(), capability) {
+		t.Fatalf("created import = %#v", runtime.createdImport)
+	}
+	if runtime.revokedExport.GetExportId() != "export-new" || runtime.revokedExport.GetExpectedRevision() != 1 || runtime.revokedExport.GetRequestId() == "" {
+		t.Fatalf("revoked export = %#v", runtime.revokedExport)
+	}
+	if runtime.revokedImport.GetImportId() != "import-new" || runtime.revokedImport.GetExpectedRevision() != 2 || runtime.revokedImport.GetRequestId() == "" {
+		t.Fatalf("revoked import = %#v", runtime.revokedImport)
 	}
 }
 

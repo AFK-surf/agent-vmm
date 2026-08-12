@@ -76,3 +76,4 @@ Do not record temporary failures or narrow implementation mistakes.
 - Treat a new remote connection instance after the stored state became `DISCONNECTED` as grace-period recovery. Revoke remote leases for a replacement instance only when the previous instance is still `CONNECTED`.
 - A valid remote lease may open a new runtime session after connector recovery. Revoke the previous session capability before issuing its replacement; do not reject the lease as already open.
 - Keep remote admission state separate from connector transport state. Draining rejects new allocations and leases but preserves existing leases and runtime sessions; only revocation tears them down.
+- Remote leases are in-memory while allocation state is persisted. On host restart, reconcile every persisted `LEASED` allocation to a fail-closed non-leased state before admitting a replacement connector; an empty in-memory lease map cannot revoke or recover that allocation.

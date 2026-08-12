@@ -8,6 +8,7 @@ package hostv1
 
 import (
 	context "context"
+	v1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -20,31 +21,46 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentRuntimeService_GetEnvironment_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/GetEnvironment"
-	AgentRuntimeService_PullImage_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/PullImage"
-	AgentRuntimeService_ListImages_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/ListImages"
-	AgentRuntimeService_DeleteImage_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/DeleteImage"
-	AgentRuntimeService_CreateContainer_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/CreateContainer"
-	AgentRuntimeService_StartContainer_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/StartContainer"
-	AgentRuntimeService_StopContainer_FullMethodName          = "/agentvmm.host.v1.AgentRuntimeService/StopContainer"
-	AgentRuntimeService_WaitContainer_FullMethodName          = "/agentvmm.host.v1.AgentRuntimeService/WaitContainer"
-	AgentRuntimeService_DeleteContainer_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/DeleteContainer"
-	AgentRuntimeService_GetContainer_FullMethodName           = "/agentvmm.host.v1.AgentRuntimeService/GetContainer"
-	AgentRuntimeService_ListContainers_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/ListContainers"
-	AgentRuntimeService_Logs_FullMethodName                   = "/agentvmm.host.v1.AgentRuntimeService/Logs"
-	AgentRuntimeService_Exec_FullMethodName                   = "/agentvmm.host.v1.AgentRuntimeService/Exec"
-	AgentRuntimeService_SignalContainer_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/SignalContainer"
-	AgentRuntimeService_CreateVolume_FullMethodName           = "/agentvmm.host.v1.AgentRuntimeService/CreateVolume"
-	AgentRuntimeService_DeleteVolume_FullMethodName           = "/agentvmm.host.v1.AgentRuntimeService/DeleteVolume"
-	AgentRuntimeService_GetVolume_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/GetVolume"
-	AgentRuntimeService_ListVolumes_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/ListVolumes"
-	AgentRuntimeService_ForwardTCP_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/ForwardTCP"
-	AgentRuntimeService_BuildImage_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/BuildImage"
-	AgentRuntimeService_ReleaseSession_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/ReleaseSession"
-	AgentRuntimeService_PlanResetEnvironment_FullMethodName   = "/agentvmm.host.v1.AgentRuntimeService/PlanResetEnvironment"
-	AgentRuntimeService_PlanDiscardEnvironment_FullMethodName = "/agentvmm.host.v1.AgentRuntimeService/PlanDiscardEnvironment"
-	AgentRuntimeService_RequestReset_FullMethodName           = "/agentvmm.host.v1.AgentRuntimeService/RequestReset"
-	AgentRuntimeService_RequestDiscard_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/RequestDiscard"
+	AgentRuntimeService_GetEnvironment_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/GetEnvironment"
+	AgentRuntimeService_PullImage_FullMethodName                   = "/agentvmm.host.v1.AgentRuntimeService/PullImage"
+	AgentRuntimeService_ListImages_FullMethodName                  = "/agentvmm.host.v1.AgentRuntimeService/ListImages"
+	AgentRuntimeService_DeleteImage_FullMethodName                 = "/agentvmm.host.v1.AgentRuntimeService/DeleteImage"
+	AgentRuntimeService_CreateContainer_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/CreateContainer"
+	AgentRuntimeService_StartContainer_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/StartContainer"
+	AgentRuntimeService_StopContainer_FullMethodName               = "/agentvmm.host.v1.AgentRuntimeService/StopContainer"
+	AgentRuntimeService_WaitContainer_FullMethodName               = "/agentvmm.host.v1.AgentRuntimeService/WaitContainer"
+	AgentRuntimeService_DeleteContainer_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/DeleteContainer"
+	AgentRuntimeService_GetContainer_FullMethodName                = "/agentvmm.host.v1.AgentRuntimeService/GetContainer"
+	AgentRuntimeService_ListContainers_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/ListContainers"
+	AgentRuntimeService_Logs_FullMethodName                        = "/agentvmm.host.v1.AgentRuntimeService/Logs"
+	AgentRuntimeService_Exec_FullMethodName                        = "/agentvmm.host.v1.AgentRuntimeService/Exec"
+	AgentRuntimeService_SignalContainer_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/SignalContainer"
+	AgentRuntimeService_CreateVolume_FullMethodName                = "/agentvmm.host.v1.AgentRuntimeService/CreateVolume"
+	AgentRuntimeService_DeleteVolume_FullMethodName                = "/agentvmm.host.v1.AgentRuntimeService/DeleteVolume"
+	AgentRuntimeService_GetVolume_FullMethodName                   = "/agentvmm.host.v1.AgentRuntimeService/GetVolume"
+	AgentRuntimeService_ListVolumes_FullMethodName                 = "/agentvmm.host.v1.AgentRuntimeService/ListVolumes"
+	AgentRuntimeService_ForwardTCP_FullMethodName                  = "/agentvmm.host.v1.AgentRuntimeService/ForwardTCP"
+	AgentRuntimeService_BuildImage_FullMethodName                  = "/agentvmm.host.v1.AgentRuntimeService/BuildImage"
+	AgentRuntimeService_ReleaseSession_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/ReleaseSession"
+	AgentRuntimeService_PlanResetEnvironment_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/PlanResetEnvironment"
+	AgentRuntimeService_PlanDiscardEnvironment_FullMethodName      = "/agentvmm.host.v1.AgentRuntimeService/PlanDiscardEnvironment"
+	AgentRuntimeService_RequestReset_FullMethodName                = "/agentvmm.host.v1.AgentRuntimeService/RequestReset"
+	AgentRuntimeService_RequestDiscard_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/RequestDiscard"
+	AgentRuntimeService_StatWorkspace_FullMethodName               = "/agentvmm.host.v1.AgentRuntimeService/StatWorkspace"
+	AgentRuntimeService_ListWorkspace_FullMethodName               = "/agentvmm.host.v1.AgentRuntimeService/ListWorkspace"
+	AgentRuntimeService_ReadWorkspace_FullMethodName               = "/agentvmm.host.v1.AgentRuntimeService/ReadWorkspace"
+	AgentRuntimeService_WriteWorkspace_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/WriteWorkspace"
+	AgentRuntimeService_ArchiveWorkspace_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/ArchiveWorkspace"
+	AgentRuntimeService_ExtractWorkspace_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/ExtractWorkspace"
+	AgentRuntimeService_CreateServiceExport_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/CreateServiceExport"
+	AgentRuntimeService_ListServiceExports_FullMethodName          = "/agentvmm.host.v1.AgentRuntimeService/ListServiceExports"
+	AgentRuntimeService_GetServiceExport_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/GetServiceExport"
+	AgentRuntimeService_RevokeServiceExport_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/RevokeServiceExport"
+	AgentRuntimeService_CreateServiceImport_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/CreateServiceImport"
+	AgentRuntimeService_CreatePersonalServiceImport_FullMethodName = "/agentvmm.host.v1.AgentRuntimeService/CreatePersonalServiceImport"
+	AgentRuntimeService_ListServiceImports_FullMethodName          = "/agentvmm.host.v1.AgentRuntimeService/ListServiceImports"
+	AgentRuntimeService_GetServiceImport_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/GetServiceImport"
+	AgentRuntimeService_RevokeServiceImport_FullMethodName         = "/agentvmm.host.v1.AgentRuntimeService/RevokeServiceImport"
 )
 
 // AgentRuntimeServiceClient is the client API for AgentRuntimeService service.
@@ -76,6 +92,21 @@ type AgentRuntimeServiceClient interface {
 	PlanDiscardEnvironment(ctx context.Context, in *GetOwnEnvironmentRequest, opts ...grpc.CallOption) (*CleanupPlanResponse, error)
 	RequestReset(ctx context.Context, in *EnvironmentOperationRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	RequestDiscard(ctx context.Context, in *EnvironmentOperationRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	StatWorkspace(ctx context.Context, in *WorkspacePathRequest, opts ...grpc.CallOption) (*WorkspaceEntry, error)
+	ListWorkspace(ctx context.Context, in *ListWorkspaceRequest, opts ...grpc.CallOption) (*ListWorkspaceResponse, error)
+	ReadWorkspace(ctx context.Context, in *ReadWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadWorkspaceResponse], error)
+	WriteWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse], error)
+	ArchiveWorkspace(ctx context.Context, in *ArchiveWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArchiveWorkspaceResponse], error)
+	ExtractWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse], error)
+	CreateServiceExport(ctx context.Context, in *CreateServiceExportRequest, opts ...grpc.CallOption) (*v1.ServiceExport, error)
+	ListServiceExports(ctx context.Context, in *ListOwnServiceExportsRequest, opts ...grpc.CallOption) (*v1.ListServiceExportsResponse, error)
+	GetServiceExport(ctx context.Context, in *GetOwnServiceExportRequest, opts ...grpc.CallOption) (*v1.ServiceExport, error)
+	RevokeServiceExport(ctx context.Context, in *RevokeOwnServiceExportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	CreateServiceImport(ctx context.Context, in *CreateServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error)
+	CreatePersonalServiceImport(ctx context.Context, in *CreatePersonalServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error)
+	ListServiceImports(ctx context.Context, in *ListServiceImportsRequest, opts ...grpc.CallOption) (*ListServiceImportsResponse, error)
+	GetServiceImport(ctx context.Context, in *GetServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error)
+	RevokeServiceImport(ctx context.Context, in *RevokeServiceImportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type agentRuntimeServiceClient struct {
@@ -363,6 +394,180 @@ func (c *agentRuntimeServiceClient) RequestDiscard(ctx context.Context, in *Envi
 	return out, nil
 }
 
+func (c *agentRuntimeServiceClient) StatWorkspace(ctx context.Context, in *WorkspacePathRequest, opts ...grpc.CallOption) (*WorkspaceEntry, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkspaceEntry)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_StatWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) ListWorkspace(ctx context.Context, in *ListWorkspaceRequest, opts ...grpc.CallOption) (*ListWorkspaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkspaceResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_ListWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) ReadWorkspace(ctx context.Context, in *ReadWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[5], AgentRuntimeService_ReadWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ReadWorkspaceRequest, ReadWorkspaceResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ReadWorkspaceClient = grpc.ServerStreamingClient[ReadWorkspaceResponse]
+
+func (c *agentRuntimeServiceClient) WriteWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[6], AgentRuntimeService_WriteWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WriteWorkspaceRequest, WriteWorkspaceResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_WriteWorkspaceClient = grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse]
+
+func (c *agentRuntimeServiceClient) ArchiveWorkspace(ctx context.Context, in *ArchiveWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArchiveWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[7], AgentRuntimeService_ArchiveWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ArchiveWorkspaceRequest, ArchiveWorkspaceResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ArchiveWorkspaceClient = grpc.ServerStreamingClient[ArchiveWorkspaceResponse]
+
+func (c *agentRuntimeServiceClient) ExtractWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[8], AgentRuntimeService_ExtractWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExtractWorkspaceRequest, WriteWorkspaceResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ExtractWorkspaceClient = grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse]
+
+func (c *agentRuntimeServiceClient) CreateServiceExport(ctx context.Context, in *CreateServiceExportRequest, opts ...grpc.CallOption) (*v1.ServiceExport, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v1.ServiceExport)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_CreateServiceExport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) ListServiceExports(ctx context.Context, in *ListOwnServiceExportsRequest, opts ...grpc.CallOption) (*v1.ListServiceExportsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v1.ListServiceExportsResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_ListServiceExports_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) GetServiceExport(ctx context.Context, in *GetOwnServiceExportRequest, opts ...grpc.CallOption) (*v1.ServiceExport, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v1.ServiceExport)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_GetServiceExport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) RevokeServiceExport(ctx context.Context, in *RevokeOwnServiceExportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_RevokeServiceExport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) CreateServiceImport(ctx context.Context, in *CreateServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v1.ServiceImport)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_CreateServiceImport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) CreatePersonalServiceImport(ctx context.Context, in *CreatePersonalServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v1.ServiceImport)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_CreatePersonalServiceImport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) ListServiceImports(ctx context.Context, in *ListServiceImportsRequest, opts ...grpc.CallOption) (*ListServiceImportsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListServiceImportsResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_ListServiceImports_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) GetServiceImport(ctx context.Context, in *GetServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(v1.ServiceImport)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_GetServiceImport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) RevokeServiceImport(ctx context.Context, in *RevokeServiceImportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_RevokeServiceImport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentRuntimeServiceServer is the server API for AgentRuntimeService service.
 // All implementations must embed UnimplementedAgentRuntimeServiceServer
 // for forward compatibility.
@@ -392,6 +597,21 @@ type AgentRuntimeServiceServer interface {
 	PlanDiscardEnvironment(context.Context, *GetOwnEnvironmentRequest) (*CleanupPlanResponse, error)
 	RequestReset(context.Context, *EnvironmentOperationRequest) (*OperationResponse, error)
 	RequestDiscard(context.Context, *EnvironmentOperationRequest) (*OperationResponse, error)
+	StatWorkspace(context.Context, *WorkspacePathRequest) (*WorkspaceEntry, error)
+	ListWorkspace(context.Context, *ListWorkspaceRequest) (*ListWorkspaceResponse, error)
+	ReadWorkspace(*ReadWorkspaceRequest, grpc.ServerStreamingServer[ReadWorkspaceResponse]) error
+	WriteWorkspace(grpc.ClientStreamingServer[WriteWorkspaceRequest, WriteWorkspaceResponse]) error
+	ArchiveWorkspace(*ArchiveWorkspaceRequest, grpc.ServerStreamingServer[ArchiveWorkspaceResponse]) error
+	ExtractWorkspace(grpc.ClientStreamingServer[ExtractWorkspaceRequest, WriteWorkspaceResponse]) error
+	CreateServiceExport(context.Context, *CreateServiceExportRequest) (*v1.ServiceExport, error)
+	ListServiceExports(context.Context, *ListOwnServiceExportsRequest) (*v1.ListServiceExportsResponse, error)
+	GetServiceExport(context.Context, *GetOwnServiceExportRequest) (*v1.ServiceExport, error)
+	RevokeServiceExport(context.Context, *RevokeOwnServiceExportRequest) (*emptypb.Empty, error)
+	CreateServiceImport(context.Context, *CreateServiceImportRequest) (*v1.ServiceImport, error)
+	CreatePersonalServiceImport(context.Context, *CreatePersonalServiceImportRequest) (*v1.ServiceImport, error)
+	ListServiceImports(context.Context, *ListServiceImportsRequest) (*ListServiceImportsResponse, error)
+	GetServiceImport(context.Context, *GetServiceImportRequest) (*v1.ServiceImport, error)
+	RevokeServiceImport(context.Context, *RevokeServiceImportRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedAgentRuntimeServiceServer()
 }
 
@@ -476,6 +696,51 @@ func (UnimplementedAgentRuntimeServiceServer) RequestReset(context.Context, *Env
 }
 func (UnimplementedAgentRuntimeServiceServer) RequestDiscard(context.Context, *EnvironmentOperationRequest) (*OperationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RequestDiscard not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) StatWorkspace(context.Context, *WorkspacePathRequest) (*WorkspaceEntry, error) {
+	return nil, status.Error(codes.Unimplemented, "method StatWorkspace not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ListWorkspace(context.Context, *ListWorkspaceRequest) (*ListWorkspaceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkspace not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ReadWorkspace(*ReadWorkspaceRequest, grpc.ServerStreamingServer[ReadWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method ReadWorkspace not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) WriteWorkspace(grpc.ClientStreamingServer[WriteWorkspaceRequest, WriteWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method WriteWorkspace not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ArchiveWorkspace(*ArchiveWorkspaceRequest, grpc.ServerStreamingServer[ArchiveWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method ArchiveWorkspace not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ExtractWorkspace(grpc.ClientStreamingServer[ExtractWorkspaceRequest, WriteWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method ExtractWorkspace not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) CreateServiceExport(context.Context, *CreateServiceExportRequest) (*v1.ServiceExport, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateServiceExport not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ListServiceExports(context.Context, *ListOwnServiceExportsRequest) (*v1.ListServiceExportsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListServiceExports not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) GetServiceExport(context.Context, *GetOwnServiceExportRequest) (*v1.ServiceExport, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetServiceExport not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) RevokeServiceExport(context.Context, *RevokeOwnServiceExportRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeServiceExport not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) CreateServiceImport(context.Context, *CreateServiceImportRequest) (*v1.ServiceImport, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateServiceImport not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) CreatePersonalServiceImport(context.Context, *CreatePersonalServiceImportRequest) (*v1.ServiceImport, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreatePersonalServiceImport not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ListServiceImports(context.Context, *ListServiceImportsRequest) (*ListServiceImportsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListServiceImports not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) GetServiceImport(context.Context, *GetServiceImportRequest) (*v1.ServiceImport, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetServiceImport not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) RevokeServiceImport(context.Context, *RevokeServiceImportRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeServiceImport not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) mustEmbedUnimplementedAgentRuntimeServiceServer() {}
 func (UnimplementedAgentRuntimeServiceServer) testEmbeddedByValue()                             {}
@@ -901,6 +1166,240 @@ func _AgentRuntimeService_RequestDiscard_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentRuntimeService_StatWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspacePathRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).StatWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_StatWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).StatWorkspace(ctx, req.(*WorkspacePathRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_ListWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).ListWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_ListWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).ListWorkspace(ctx, req.(*ListWorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_ReadWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ReadWorkspaceRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentRuntimeServiceServer).ReadWorkspace(m, &grpc.GenericServerStream[ReadWorkspaceRequest, ReadWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ReadWorkspaceServer = grpc.ServerStreamingServer[ReadWorkspaceResponse]
+
+func _AgentRuntimeService_WriteWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentRuntimeServiceServer).WriteWorkspace(&grpc.GenericServerStream[WriteWorkspaceRequest, WriteWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_WriteWorkspaceServer = grpc.ClientStreamingServer[WriteWorkspaceRequest, WriteWorkspaceResponse]
+
+func _AgentRuntimeService_ArchiveWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ArchiveWorkspaceRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentRuntimeServiceServer).ArchiveWorkspace(m, &grpc.GenericServerStream[ArchiveWorkspaceRequest, ArchiveWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ArchiveWorkspaceServer = grpc.ServerStreamingServer[ArchiveWorkspaceResponse]
+
+func _AgentRuntimeService_ExtractWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentRuntimeServiceServer).ExtractWorkspace(&grpc.GenericServerStream[ExtractWorkspaceRequest, WriteWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ExtractWorkspaceServer = grpc.ClientStreamingServer[ExtractWorkspaceRequest, WriteWorkspaceResponse]
+
+func _AgentRuntimeService_CreateServiceExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateServiceExportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).CreateServiceExport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_CreateServiceExport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).CreateServiceExport(ctx, req.(*CreateServiceExportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_ListServiceExports_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListOwnServiceExportsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).ListServiceExports(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_ListServiceExports_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).ListServiceExports(ctx, req.(*ListOwnServiceExportsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_GetServiceExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOwnServiceExportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).GetServiceExport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_GetServiceExport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).GetServiceExport(ctx, req.(*GetOwnServiceExportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_RevokeServiceExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeOwnServiceExportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).RevokeServiceExport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_RevokeServiceExport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).RevokeServiceExport(ctx, req.(*RevokeOwnServiceExportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_CreateServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateServiceImportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).CreateServiceImport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_CreateServiceImport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).CreateServiceImport(ctx, req.(*CreateServiceImportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_CreatePersonalServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePersonalServiceImportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).CreatePersonalServiceImport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_CreatePersonalServiceImport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).CreatePersonalServiceImport(ctx, req.(*CreatePersonalServiceImportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_ListServiceImports_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListServiceImportsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).ListServiceImports(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_ListServiceImports_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).ListServiceImports(ctx, req.(*ListServiceImportsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_GetServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServiceImportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).GetServiceImport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_GetServiceImport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).GetServiceImport(ctx, req.(*GetServiceImportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_RevokeServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeServiceImportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).RevokeServiceImport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_RevokeServiceImport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).RevokeServiceImport(ctx, req.(*RevokeServiceImportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentRuntimeService_ServiceDesc is the grpc.ServiceDesc for AgentRuntimeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -988,6 +1487,50 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RequestDiscard",
 			Handler:    _AgentRuntimeService_RequestDiscard_Handler,
 		},
+		{
+			MethodName: "StatWorkspace",
+			Handler:    _AgentRuntimeService_StatWorkspace_Handler,
+		},
+		{
+			MethodName: "ListWorkspace",
+			Handler:    _AgentRuntimeService_ListWorkspace_Handler,
+		},
+		{
+			MethodName: "CreateServiceExport",
+			Handler:    _AgentRuntimeService_CreateServiceExport_Handler,
+		},
+		{
+			MethodName: "ListServiceExports",
+			Handler:    _AgentRuntimeService_ListServiceExports_Handler,
+		},
+		{
+			MethodName: "GetServiceExport",
+			Handler:    _AgentRuntimeService_GetServiceExport_Handler,
+		},
+		{
+			MethodName: "RevokeServiceExport",
+			Handler:    _AgentRuntimeService_RevokeServiceExport_Handler,
+		},
+		{
+			MethodName: "CreateServiceImport",
+			Handler:    _AgentRuntimeService_CreateServiceImport_Handler,
+		},
+		{
+			MethodName: "CreatePersonalServiceImport",
+			Handler:    _AgentRuntimeService_CreatePersonalServiceImport_Handler,
+		},
+		{
+			MethodName: "ListServiceImports",
+			Handler:    _AgentRuntimeService_ListServiceImports_Handler,
+		},
+		{
+			MethodName: "GetServiceImport",
+			Handler:    _AgentRuntimeService_GetServiceImport_Handler,
+		},
+		{
+			MethodName: "RevokeServiceImport",
+			Handler:    _AgentRuntimeService_RevokeServiceImport_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -1016,6 +1559,26 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "BuildImage",
 			Handler:       _AgentRuntimeService_BuildImage_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ReadWorkspace",
+			Handler:       _AgentRuntimeService_ReadWorkspace_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WriteWorkspace",
+			Handler:       _AgentRuntimeService_WriteWorkspace_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ArchiveWorkspace",
+			Handler:       _AgentRuntimeService_ArchiveWorkspace_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ExtractWorkspace",
+			Handler:       _AgentRuntimeService_ExtractWorkspace_Handler,
 			ClientStreams: true,
 		},
 	},
@@ -1069,6 +1632,21 @@ const (
 	OperatorService_UpdateRemotePool_FullMethodName                   = "/agentvmm.host.v1.OperatorService/UpdateRemotePool"
 	OperatorService_SetRemoteRegistrationState_FullMethodName         = "/agentvmm.host.v1.OperatorService/SetRemoteRegistrationState"
 	OperatorService_GetRemoteRegistration_FullMethodName              = "/agentvmm.host.v1.OperatorService/GetRemoteRegistration"
+	OperatorService_GetDeviceIdentity_FullMethodName                  = "/agentvmm.host.v1.OperatorService/GetDeviceIdentity"
+	OperatorService_RotateDeviceRoot_FullMethodName                   = "/agentvmm.host.v1.OperatorService/RotateDeviceRoot"
+	OperatorService_ListPersonalMeshes_FullMethodName                 = "/agentvmm.host.v1.OperatorService/ListPersonalMeshes"
+	OperatorService_CreatePersonalMesh_FullMethodName                 = "/agentvmm.host.v1.OperatorService/CreatePersonalMesh"
+	OperatorService_ApplyPersonalMeshSnapshot_FullMethodName          = "/agentvmm.host.v1.OperatorService/ApplyPersonalMeshSnapshot"
+	OperatorService_RevokePersonalMeshMember_FullMethodName           = "/agentvmm.host.v1.OperatorService/RevokePersonalMeshMember"
+	OperatorService_BeginPersonalMeshPairing_FullMethodName           = "/agentvmm.host.v1.OperatorService/BeginPersonalMeshPairing"
+	OperatorService_JoinPersonalMeshPairing_FullMethodName            = "/agentvmm.host.v1.OperatorService/JoinPersonalMeshPairing"
+	OperatorService_GetPersonalMeshPairing_FullMethodName             = "/agentvmm.host.v1.OperatorService/GetPersonalMeshPairing"
+	OperatorService_ConfirmPersonalMeshPairing_FullMethodName         = "/agentvmm.host.v1.OperatorService/ConfirmPersonalMeshPairing"
+	OperatorService_RejectPersonalMeshPairing_FullMethodName          = "/agentvmm.host.v1.OperatorService/RejectPersonalMeshPairing"
+	OperatorService_RepairDeviceIdentity_FullMethodName               = "/agentvmm.host.v1.OperatorService/RepairDeviceIdentity"
+	OperatorService_CreatePersonalServiceListener_FullMethodName      = "/agentvmm.host.v1.OperatorService/CreatePersonalServiceListener"
+	OperatorService_ListServiceListeners_FullMethodName               = "/agentvmm.host.v1.OperatorService/ListServiceListeners"
+	OperatorService_RevokeServiceListener_FullMethodName              = "/agentvmm.host.v1.OperatorService/RevokeServiceListener"
 )
 
 // OperatorServiceClient is the client API for OperatorService service.
@@ -1121,6 +1699,21 @@ type OperatorServiceClient interface {
 	UpdateRemotePool(ctx context.Context, in *UpdateRemotePoolRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	SetRemoteRegistrationState(ctx context.Context, in *SetRemoteRegistrationStateRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(ctx context.Context, in *GetRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	GetDeviceIdentity(ctx context.Context, in *GetDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error)
+	RotateDeviceRoot(ctx context.Context, in *RotateDeviceRootRequest, opts ...grpc.CallOption) (*RotateDeviceRootResponse, error)
+	ListPersonalMeshes(ctx context.Context, in *ListPersonalMeshesRequest, opts ...grpc.CallOption) (*ListPersonalMeshesResponse, error)
+	CreatePersonalMesh(ctx context.Context, in *CreatePersonalMeshRequest, opts ...grpc.CallOption) (*PersonalMeshResponse, error)
+	ApplyPersonalMeshSnapshot(ctx context.Context, in *ApplyPersonalMeshSnapshotRequest, opts ...grpc.CallOption) (*PersonalMeshResponse, error)
+	RevokePersonalMeshMember(ctx context.Context, in *RevokePersonalMeshMemberRequest, opts ...grpc.CallOption) (*PersonalMeshResponse, error)
+	BeginPersonalMeshPairing(ctx context.Context, in *BeginPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error)
+	JoinPersonalMeshPairing(ctx context.Context, in *JoinPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error)
+	GetPersonalMeshPairing(ctx context.Context, in *GetPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error)
+	ConfirmPersonalMeshPairing(ctx context.Context, in *ConfirmPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error)
+	RejectPersonalMeshPairing(ctx context.Context, in *RejectPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error)
+	RepairDeviceIdentity(ctx context.Context, in *RepairDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error)
+	CreatePersonalServiceListener(ctx context.Context, in *CreatePersonalServiceListenerRequest, opts ...grpc.CallOption) (*ServiceListenerResponse, error)
+	ListServiceListeners(ctx context.Context, in *ListServiceListenersRequest, opts ...grpc.CallOption) (*ListServiceListenersResponse, error)
+	RevokeServiceListener(ctx context.Context, in *RevokeServiceListenerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type operatorServiceClient struct {
@@ -1618,6 +2211,156 @@ func (c *operatorServiceClient) GetRemoteRegistration(ctx context.Context, in *G
 	return out, nil
 }
 
+func (c *operatorServiceClient) GetDeviceIdentity(ctx context.Context, in *GetDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeviceIdentityResponse)
+	err := c.cc.Invoke(ctx, OperatorService_GetDeviceIdentity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RotateDeviceRoot(ctx context.Context, in *RotateDeviceRootRequest, opts ...grpc.CallOption) (*RotateDeviceRootResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RotateDeviceRootResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RotateDeviceRoot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListPersonalMeshes(ctx context.Context, in *ListPersonalMeshesRequest, opts ...grpc.CallOption) (*ListPersonalMeshesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPersonalMeshesResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListPersonalMeshes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) CreatePersonalMesh(ctx context.Context, in *CreatePersonalMeshRequest, opts ...grpc.CallOption) (*PersonalMeshResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CreatePersonalMesh_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ApplyPersonalMeshSnapshot(ctx context.Context, in *ApplyPersonalMeshSnapshotRequest, opts ...grpc.CallOption) (*PersonalMeshResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ApplyPersonalMeshSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RevokePersonalMeshMember(ctx context.Context, in *RevokePersonalMeshMemberRequest, opts ...grpc.CallOption) (*PersonalMeshResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RevokePersonalMeshMember_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) BeginPersonalMeshPairing(ctx context.Context, in *BeginPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshPairingResponse)
+	err := c.cc.Invoke(ctx, OperatorService_BeginPersonalMeshPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) JoinPersonalMeshPairing(ctx context.Context, in *JoinPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshPairingResponse)
+	err := c.cc.Invoke(ctx, OperatorService_JoinPersonalMeshPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) GetPersonalMeshPairing(ctx context.Context, in *GetPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshPairingResponse)
+	err := c.cc.Invoke(ctx, OperatorService_GetPersonalMeshPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ConfirmPersonalMeshPairing(ctx context.Context, in *ConfirmPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshPairingResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ConfirmPersonalMeshPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RejectPersonalMeshPairing(ctx context.Context, in *RejectPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PersonalMeshPairingResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RejectPersonalMeshPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RepairDeviceIdentity(ctx context.Context, in *RepairDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeviceIdentityResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RepairDeviceIdentity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) CreatePersonalServiceListener(ctx context.Context, in *CreatePersonalServiceListenerRequest, opts ...grpc.CallOption) (*ServiceListenerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ServiceListenerResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CreatePersonalServiceListener_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListServiceListeners(ctx context.Context, in *ListServiceListenersRequest, opts ...grpc.CallOption) (*ListServiceListenersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListServiceListenersResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListServiceListeners_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RevokeServiceListener(ctx context.Context, in *RevokeServiceListenerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, OperatorService_RevokeServiceListener_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OperatorServiceServer is the server API for OperatorService service.
 // All implementations must embed UnimplementedOperatorServiceServer
 // for forward compatibility.
@@ -1668,6 +2411,21 @@ type OperatorServiceServer interface {
 	UpdateRemotePool(context.Context, *UpdateRemotePoolRequest) (*RemoteRegistrationResponse, error)
 	SetRemoteRegistrationState(context.Context, *SetRemoteRegistrationStateRequest) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error)
+	GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentityResponse, error)
+	RotateDeviceRoot(context.Context, *RotateDeviceRootRequest) (*RotateDeviceRootResponse, error)
+	ListPersonalMeshes(context.Context, *ListPersonalMeshesRequest) (*ListPersonalMeshesResponse, error)
+	CreatePersonalMesh(context.Context, *CreatePersonalMeshRequest) (*PersonalMeshResponse, error)
+	ApplyPersonalMeshSnapshot(context.Context, *ApplyPersonalMeshSnapshotRequest) (*PersonalMeshResponse, error)
+	RevokePersonalMeshMember(context.Context, *RevokePersonalMeshMemberRequest) (*PersonalMeshResponse, error)
+	BeginPersonalMeshPairing(context.Context, *BeginPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error)
+	JoinPersonalMeshPairing(context.Context, *JoinPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error)
+	GetPersonalMeshPairing(context.Context, *GetPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error)
+	ConfirmPersonalMeshPairing(context.Context, *ConfirmPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error)
+	RejectPersonalMeshPairing(context.Context, *RejectPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error)
+	RepairDeviceIdentity(context.Context, *RepairDeviceIdentityRequest) (*DeviceIdentityResponse, error)
+	CreatePersonalServiceListener(context.Context, *CreatePersonalServiceListenerRequest) (*ServiceListenerResponse, error)
+	ListServiceListeners(context.Context, *ListServiceListenersRequest) (*ListServiceListenersResponse, error)
+	RevokeServiceListener(context.Context, *RevokeServiceListenerRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedOperatorServiceServer()
 }
 
@@ -1815,6 +2573,51 @@ func (UnimplementedOperatorServiceServer) SetRemoteRegistrationState(context.Con
 }
 func (UnimplementedOperatorServiceServer) GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRemoteRegistration not implemented")
+}
+func (UnimplementedOperatorServiceServer) GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentityResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDeviceIdentity not implemented")
+}
+func (UnimplementedOperatorServiceServer) RotateDeviceRoot(context.Context, *RotateDeviceRootRequest) (*RotateDeviceRootResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RotateDeviceRoot not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListPersonalMeshes(context.Context, *ListPersonalMeshesRequest) (*ListPersonalMeshesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPersonalMeshes not implemented")
+}
+func (UnimplementedOperatorServiceServer) CreatePersonalMesh(context.Context, *CreatePersonalMeshRequest) (*PersonalMeshResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreatePersonalMesh not implemented")
+}
+func (UnimplementedOperatorServiceServer) ApplyPersonalMeshSnapshot(context.Context, *ApplyPersonalMeshSnapshotRequest) (*PersonalMeshResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyPersonalMeshSnapshot not implemented")
+}
+func (UnimplementedOperatorServiceServer) RevokePersonalMeshMember(context.Context, *RevokePersonalMeshMemberRequest) (*PersonalMeshResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokePersonalMeshMember not implemented")
+}
+func (UnimplementedOperatorServiceServer) BeginPersonalMeshPairing(context.Context, *BeginPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BeginPersonalMeshPairing not implemented")
+}
+func (UnimplementedOperatorServiceServer) JoinPersonalMeshPairing(context.Context, *JoinPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method JoinPersonalMeshPairing not implemented")
+}
+func (UnimplementedOperatorServiceServer) GetPersonalMeshPairing(context.Context, *GetPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPersonalMeshPairing not implemented")
+}
+func (UnimplementedOperatorServiceServer) ConfirmPersonalMeshPairing(context.Context, *ConfirmPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfirmPersonalMeshPairing not implemented")
+}
+func (UnimplementedOperatorServiceServer) RejectPersonalMeshPairing(context.Context, *RejectPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RejectPersonalMeshPairing not implemented")
+}
+func (UnimplementedOperatorServiceServer) RepairDeviceIdentity(context.Context, *RepairDeviceIdentityRequest) (*DeviceIdentityResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RepairDeviceIdentity not implemented")
+}
+func (UnimplementedOperatorServiceServer) CreatePersonalServiceListener(context.Context, *CreatePersonalServiceListenerRequest) (*ServiceListenerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreatePersonalServiceListener not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListServiceListeners(context.Context, *ListServiceListenersRequest) (*ListServiceListenersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListServiceListeners not implemented")
+}
+func (UnimplementedOperatorServiceServer) RevokeServiceListener(context.Context, *RevokeServiceListenerRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeServiceListener not implemented")
 }
 func (UnimplementedOperatorServiceServer) mustEmbedUnimplementedOperatorServiceServer() {}
 func (UnimplementedOperatorServiceServer) testEmbeddedByValue()                         {}
@@ -2644,6 +3447,276 @@ func _OperatorService_GetRemoteRegistration_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_GetDeviceIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeviceIdentityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).GetDeviceIdentity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_GetDeviceIdentity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).GetDeviceIdentity(ctx, req.(*GetDeviceIdentityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RotateDeviceRoot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RotateDeviceRootRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RotateDeviceRoot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RotateDeviceRoot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RotateDeviceRoot(ctx, req.(*RotateDeviceRootRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListPersonalMeshes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPersonalMeshesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListPersonalMeshes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListPersonalMeshes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListPersonalMeshes(ctx, req.(*ListPersonalMeshesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_CreatePersonalMesh_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePersonalMeshRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CreatePersonalMesh(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CreatePersonalMesh_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CreatePersonalMesh(ctx, req.(*CreatePersonalMeshRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ApplyPersonalMeshSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyPersonalMeshSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ApplyPersonalMeshSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ApplyPersonalMeshSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ApplyPersonalMeshSnapshot(ctx, req.(*ApplyPersonalMeshSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RevokePersonalMeshMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokePersonalMeshMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RevokePersonalMeshMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RevokePersonalMeshMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RevokePersonalMeshMember(ctx, req.(*RevokePersonalMeshMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_BeginPersonalMeshPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginPersonalMeshPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).BeginPersonalMeshPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_BeginPersonalMeshPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).BeginPersonalMeshPairing(ctx, req.(*BeginPersonalMeshPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_JoinPersonalMeshPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinPersonalMeshPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).JoinPersonalMeshPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_JoinPersonalMeshPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).JoinPersonalMeshPairing(ctx, req.(*JoinPersonalMeshPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_GetPersonalMeshPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPersonalMeshPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).GetPersonalMeshPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_GetPersonalMeshPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).GetPersonalMeshPairing(ctx, req.(*GetPersonalMeshPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ConfirmPersonalMeshPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfirmPersonalMeshPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ConfirmPersonalMeshPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ConfirmPersonalMeshPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ConfirmPersonalMeshPairing(ctx, req.(*ConfirmPersonalMeshPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RejectPersonalMeshPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectPersonalMeshPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RejectPersonalMeshPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RejectPersonalMeshPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RejectPersonalMeshPairing(ctx, req.(*RejectPersonalMeshPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RepairDeviceIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RepairDeviceIdentityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RepairDeviceIdentity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RepairDeviceIdentity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RepairDeviceIdentity(ctx, req.(*RepairDeviceIdentityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_CreatePersonalServiceListener_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePersonalServiceListenerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CreatePersonalServiceListener(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CreatePersonalServiceListener_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CreatePersonalServiceListener(ctx, req.(*CreatePersonalServiceListenerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListServiceListeners_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListServiceListenersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListServiceListeners(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListServiceListeners_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListServiceListeners(ctx, req.(*ListServiceListenersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RevokeServiceListener_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeServiceListenerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RevokeServiceListener(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RevokeServiceListener_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RevokeServiceListener(ctx, req.(*RevokeServiceListenerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OperatorService_ServiceDesc is the grpc.ServiceDesc for OperatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2822,6 +3895,66 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRemoteRegistration",
 			Handler:    _OperatorService_GetRemoteRegistration_Handler,
+		},
+		{
+			MethodName: "GetDeviceIdentity",
+			Handler:    _OperatorService_GetDeviceIdentity_Handler,
+		},
+		{
+			MethodName: "RotateDeviceRoot",
+			Handler:    _OperatorService_RotateDeviceRoot_Handler,
+		},
+		{
+			MethodName: "ListPersonalMeshes",
+			Handler:    _OperatorService_ListPersonalMeshes_Handler,
+		},
+		{
+			MethodName: "CreatePersonalMesh",
+			Handler:    _OperatorService_CreatePersonalMesh_Handler,
+		},
+		{
+			MethodName: "ApplyPersonalMeshSnapshot",
+			Handler:    _OperatorService_ApplyPersonalMeshSnapshot_Handler,
+		},
+		{
+			MethodName: "RevokePersonalMeshMember",
+			Handler:    _OperatorService_RevokePersonalMeshMember_Handler,
+		},
+		{
+			MethodName: "BeginPersonalMeshPairing",
+			Handler:    _OperatorService_BeginPersonalMeshPairing_Handler,
+		},
+		{
+			MethodName: "JoinPersonalMeshPairing",
+			Handler:    _OperatorService_JoinPersonalMeshPairing_Handler,
+		},
+		{
+			MethodName: "GetPersonalMeshPairing",
+			Handler:    _OperatorService_GetPersonalMeshPairing_Handler,
+		},
+		{
+			MethodName: "ConfirmPersonalMeshPairing",
+			Handler:    _OperatorService_ConfirmPersonalMeshPairing_Handler,
+		},
+		{
+			MethodName: "RejectPersonalMeshPairing",
+			Handler:    _OperatorService_RejectPersonalMeshPairing_Handler,
+		},
+		{
+			MethodName: "RepairDeviceIdentity",
+			Handler:    _OperatorService_RepairDeviceIdentity_Handler,
+		},
+		{
+			MethodName: "CreatePersonalServiceListener",
+			Handler:    _OperatorService_CreatePersonalServiceListener_Handler,
+		},
+		{
+			MethodName: "ListServiceListeners",
+			Handler:    _OperatorService_ListServiceListeners_Handler,
+		},
+		{
+			MethodName: "RevokeServiceListener",
+			Handler:    _OperatorService_RevokeServiceListener_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

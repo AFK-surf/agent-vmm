@@ -31,16 +31,17 @@ type TunnelMetrics struct {
 }
 
 type tunnelManager struct {
-	ctx            context.Context
-	controller     remotev1.RemoteControllerServiceClient
-	local          hostv1.RemoteComputeServiceClient
-	registrationID string
-	logger         Logger
-	mu             sync.Mutex
-	active         map[string]*activeTunnel
-	completed      []TunnelMetrics
-	pool           sync.Pool
-	bandwidth      *rate.Limiter
+	ctx             context.Context
+	controller      remotev1.RemoteControllerServiceClient
+	local           hostv1.RemoteComputeServiceClient
+	registrationID  string
+	connectionEpoch uint64
+	logger          Logger
+	mu              sync.Mutex
+	active          map[string]*activeTunnel
+	completed       []TunnelMetrics
+	pool            sync.Pool
+	bandwidth       *rate.Limiter
 }
 
 type activeTunnel struct {
@@ -56,8 +57,8 @@ type activeTunnel struct {
 	blockedNanos atomic.Int64
 }
 
-func newTunnelManager(ctx context.Context, controller remotev1.RemoteControllerServiceClient, local hostv1.RemoteComputeServiceClient, registrationID string, logger Logger) *tunnelManager {
-	manager := &tunnelManager{ctx: ctx, controller: controller, local: local, registrationID: registrationID, logger: logger, active: make(map[string]*activeTunnel), bandwidth: rate.NewLimiter(rate.Limit(MaxTunnelBytesPerSecond), MaxInFlightBytes)}
+func newTunnelManager(ctx context.Context, controller remotev1.RemoteControllerServiceClient, local hostv1.RemoteComputeServiceClient, registrationID string, connectionEpoch uint64, logger Logger) *tunnelManager {
+	manager := &tunnelManager{ctx: ctx, controller: controller, local: local, registrationID: registrationID, connectionEpoch: connectionEpoch, logger: logger, active: make(map[string]*activeTunnel), bandwidth: rate.NewLimiter(rate.Limit(MaxTunnelBytesPerSecond), MaxInFlightBytes)}
 	manager.pool.New = func() any { return make([]byte, FrameBytes) }
 	return manager
 }
@@ -100,7 +101,7 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 		connection.Close()
 		return nil, err
 	}
-	header := &remotev1.SessionHeader{ProtocolVersion: ProtocolVersion, RegistrationId: manager.registrationID, AllocationId: request.GetAllocationId(), LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), TunnelNonce: nonce, FrameBytes: FrameBytes, MaxInFlightBytes: MaxInFlightBytes}
+	header := &remotev1.SessionHeader{ProtocolVersion: ProtocolVersion, RegistrationId: manager.registrationID, AllocationId: request.GetAllocationId(), LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), TunnelNonce: nonce, FrameBytes: FrameBytes, MaxInFlightBytes: MaxInFlightBytes, ConnectionEpoch: manager.connectionEpoch}
 	if err := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: header}}); err != nil {
 		cancel()
 		connection.Close()

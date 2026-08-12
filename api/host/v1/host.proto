@@ -5,6 +5,8 @@ package agentvmm.host.v1;
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "service/v1/service.proto";
+import "trust/v1/trust.proto";
 
 option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
 
@@ -34,6 +36,21 @@ service AgentRuntimeService {
   rpc PlanDiscardEnvironment(GetOwnEnvironmentRequest) returns (CleanupPlanResponse);
   rpc RequestReset(EnvironmentOperationRequest) returns (OperationResponse);
   rpc RequestDiscard(EnvironmentOperationRequest) returns (OperationResponse);
+  rpc StatWorkspace(WorkspacePathRequest) returns (WorkspaceEntry);
+  rpc ListWorkspace(ListWorkspaceRequest) returns (ListWorkspaceResponse);
+  rpc ReadWorkspace(ReadWorkspaceRequest) returns (stream ReadWorkspaceResponse);
+  rpc WriteWorkspace(stream WriteWorkspaceRequest) returns (WriteWorkspaceResponse);
+  rpc ArchiveWorkspace(ArchiveWorkspaceRequest) returns (stream ArchiveWorkspaceResponse);
+  rpc ExtractWorkspace(stream ExtractWorkspaceRequest) returns (WriteWorkspaceResponse);
+  rpc CreateServiceExport(CreateServiceExportRequest) returns (agentvmm.service.v1.ServiceExport);
+  rpc ListServiceExports(ListOwnServiceExportsRequest) returns (agentvmm.service.v1.ListServiceExportsResponse);
+  rpc GetServiceExport(GetOwnServiceExportRequest) returns (agentvmm.service.v1.ServiceExport);
+  rpc RevokeServiceExport(RevokeOwnServiceExportRequest) returns (google.protobuf.Empty);
+  rpc CreateServiceImport(CreateServiceImportRequest) returns (agentvmm.service.v1.ServiceImport);
+  rpc CreatePersonalServiceImport(CreatePersonalServiceImportRequest) returns (agentvmm.service.v1.ServiceImport);
+  rpc ListServiceImports(ListServiceImportsRequest) returns (ListServiceImportsResponse);
+  rpc GetServiceImport(GetServiceImportRequest) returns (agentvmm.service.v1.ServiceImport);
+  rpc RevokeServiceImport(RevokeServiceImportRequest) returns (google.protobuf.Empty);
 }
 
 service OperatorService {
@@ -83,6 +100,158 @@ service OperatorService {
   rpc UpdateRemotePool(UpdateRemotePoolRequest) returns (RemoteRegistrationResponse);
   rpc SetRemoteRegistrationState(SetRemoteRegistrationStateRequest) returns (RemoteRegistrationResponse);
   rpc GetRemoteRegistration(GetRemoteRegistrationRequest) returns (RemoteRegistrationResponse);
+  rpc GetDeviceIdentity(GetDeviceIdentityRequest) returns (DeviceIdentityResponse);
+  rpc RotateDeviceRoot(RotateDeviceRootRequest) returns (RotateDeviceRootResponse);
+  rpc ListPersonalMeshes(ListPersonalMeshesRequest) returns (ListPersonalMeshesResponse);
+  rpc CreatePersonalMesh(CreatePersonalMeshRequest) returns (PersonalMeshResponse);
+  rpc ApplyPersonalMeshSnapshot(ApplyPersonalMeshSnapshotRequest) returns (PersonalMeshResponse);
+  rpc RevokePersonalMeshMember(RevokePersonalMeshMemberRequest) returns (PersonalMeshResponse);
+  rpc BeginPersonalMeshPairing(BeginPersonalMeshPairingRequest) returns (PersonalMeshPairingResponse);
+  rpc JoinPersonalMeshPairing(JoinPersonalMeshPairingRequest) returns (PersonalMeshPairingResponse);
+  rpc GetPersonalMeshPairing(GetPersonalMeshPairingRequest) returns (PersonalMeshPairingResponse);
+  rpc ConfirmPersonalMeshPairing(ConfirmPersonalMeshPairingRequest) returns (PersonalMeshPairingResponse);
+  rpc RejectPersonalMeshPairing(RejectPersonalMeshPairingRequest) returns (PersonalMeshPairingResponse);
+  rpc RepairDeviceIdentity(RepairDeviceIdentityRequest) returns (DeviceIdentityResponse);
+  rpc CreatePersonalServiceListener(CreatePersonalServiceListenerRequest) returns (ServiceListenerResponse);
+  rpc ListServiceListeners(ListServiceListenersRequest) returns (ListServiceListenersResponse);
+  rpc RevokeServiceListener(RevokeServiceListenerRequest) returns (google.protobuf.Empty);
+}
+
+message GetDeviceIdentityRequest {}
+
+message DeviceIdentityResponse {
+  agentvmm.trust.v1.DeviceIdentity identity = 1;
+  DeviceIdentityState state = 2;
+}
+
+enum DeviceIdentityState {
+  DEVICE_IDENTITY_STATE_UNSPECIFIED = 0;
+  DEVICE_IDENTITY_STATE_READY = 1;
+  DEVICE_IDENTITY_STATE_NEEDS_REPAIR = 2;
+}
+
+message RotateDeviceRootRequest {
+  string request_id = 1;
+  uint64 expected_root_key_revision = 2;
+}
+
+message RotateDeviceRootResponse {
+  agentvmm.trust.v1.DeviceIdentity identity = 1;
+  agentvmm.trust.v1.DeviceRootRotation rotation = 2;
+}
+
+message CreatePersonalMeshRequest {
+  string request_id = 1;
+  string registry_audience = 2;
+}
+
+message ListPersonalMeshesRequest {}
+
+message ListPersonalMeshesResponse {
+  repeated PersonalMeshResponse meshes = 1;
+}
+
+enum ServiceListenerExposure {
+  SERVICE_LISTENER_EXPOSURE_UNSPECIFIED = 0;
+  SERVICE_LISTENER_EXPOSURE_DEVICE_LOOPBACK = 1;
+  SERVICE_LISTENER_EXPOSURE_LAN = 2;
+}
+
+message CreatePersonalServiceListenerRequest {
+  string request_id = 1;
+  string mesh_id = 2;
+  string destination_device_id = 3;
+  string destination_export_id = 4;
+  ServiceListenerExposure exposure = 5;
+  string bind_address = 6;
+  uint32 bind_port = 7;
+  agentvmm.trust.v1.RouteBudget budget = 8;
+}
+
+message ServiceListener {
+  string id = 1;
+  string mesh_id = 2;
+  string destination_device_id = 3;
+  string destination_export_id = 4;
+  ServiceListenerExposure exposure = 5;
+  string listen_address = 6;
+  string route_id = 7;
+  string capability_id = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  uint64 revision = 10;
+  bool revoked = 11;
+}
+
+message ServiceListenerResponse { ServiceListener listener = 1; }
+message ListServiceListenersRequest {}
+message ListServiceListenersResponse { repeated ServiceListener listeners = 1; }
+message RevokeServiceListenerRequest {
+  string request_id = 1;
+  string listener_id = 2;
+  uint64 expected_revision = 3;
+}
+
+message PersonalMeshResponse {
+  agentvmm.trust.v1.PersonalMeshDescriptor mesh_descriptor = 1;
+  agentvmm.trust.v1.MeshSnapshot snapshot = 2;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 3;
+}
+
+message ApplyPersonalMeshSnapshotRequest {
+  string request_id = 1;
+  agentvmm.trust.v1.MeshSnapshot snapshot = 2;
+  uint64 expected_revision = 3;
+}
+
+message RevokePersonalMeshMemberRequest {
+  string request_id = 1;
+  string mesh_id = 2;
+  string device_id = 3;
+  uint64 expected_revision = 4;
+}
+
+message PersonalMeshPairingInvitation {
+  bytes session_id = 1;
+  string mesh_id = 2;
+  uint64 invite_revision = 3;
+  string manager_device_id = 4;
+  bytes manager_root_public_key = 5;
+  uint64 manager_root_key_revision = 6;
+  bytes endpoint_address_json = 7;
+  string invite_id = 8;
+  bytes nonce = 9;
+  google.protobuf.Timestamp expires_at = 10;
+}
+
+message BeginPersonalMeshPairingRequest {
+  string request_id = 1;
+  string mesh_id = 2;
+  uint64 expected_revision = 3;
+  string pin = 4;
+}
+
+message JoinPersonalMeshPairingRequest {
+  PersonalMeshPairingInvitation invitation = 1;
+  string pin = 2;
+  repeated agentvmm.trust.v1.MeshPermission permissions = 3;
+}
+
+message GetPersonalMeshPairingRequest { bytes session_id = 1; }
+message ConfirmPersonalMeshPairingRequest { bytes session_id = 1; }
+message RejectPersonalMeshPairingRequest { bytes session_id = 1; }
+
+message PersonalMeshPairingResponse {
+  PersonalMeshPairingInvitation invitation = 1;
+  string role = 2;
+  string state = 3;
+  uint32 attempts_remaining = 4;
+  string sas = 5;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 6;
+}
+
+message RepairDeviceIdentityRequest {
+  string request_id = 1;
+  bool confirm_membership_reset = 2;
 }
 
 service RemoteComputeService {
@@ -99,6 +268,79 @@ service RemoteComputeService {
   rpc ReleaseLease(ReleaseLeaseRequest) returns (LeaseResponse);
   rpc OpenRuntimeSession(OpenRuntimeSessionRequest) returns (CreateAgentSessionResponse);
 }
+
+enum WorkspaceEntryKind {
+  WORKSPACE_ENTRY_KIND_UNSPECIFIED = 0;
+  WORKSPACE_ENTRY_KIND_FILE = 1;
+  WORKSPACE_ENTRY_KIND_DIRECTORY = 2;
+}
+
+message WorkspacePathRequest { string path = 1; }
+message WorkspaceEntry {
+  string path = 1;
+  WorkspaceEntryKind kind = 2;
+  uint64 size = 3;
+  uint32 mode = 4;
+  int64 modified_unix_nanos = 5;
+  bytes sha256 = 6;
+}
+message ListWorkspaceRequest { string path = 1; uint32 limit = 2; }
+message ListWorkspaceResponse { repeated WorkspaceEntry entries = 1; }
+message ReadWorkspaceRequest { string path = 1; uint64 offset = 2; uint64 max_bytes = 3; }
+message ReadWorkspaceResponse { bytes data = 1; uint64 offset = 2; bytes sha256 = 3; bool final = 4; }
+message WriteWorkspaceHeader {
+  string request_id = 1;
+  string path = 2;
+  uint64 offset = 3;
+  bytes expected_prefix_sha256 = 4;
+  uint32 mode = 5;
+}
+message WriteWorkspaceRequest {
+  oneof payload { WriteWorkspaceHeader header = 1; bytes data = 2; bool finish = 3; }
+}
+message WriteWorkspaceResponse { WorkspaceEntry entry = 1; bytes sha256 = 2; }
+message ArchiveWorkspaceRequest { string path = 1; }
+message ArchiveWorkspaceResponse { bytes data = 1; bytes sha256 = 2; bool final = 3; }
+message ExtractWorkspaceHeader { string request_id = 1; string path = 2; }
+message ExtractWorkspaceRequest {
+  oneof payload { ExtractWorkspaceHeader header = 1; bytes data = 2; bool finish = 3; }
+}
+
+message CreateServiceExportRequest {
+  string request_id = 1;
+  string container_id = 2;
+  string container_instance_id = 3;
+  uint32 port = 4;
+  agentvmm.service.v1.ServiceProtocol protocol = 5;
+}
+message ListOwnServiceExportsRequest {}
+message GetOwnServiceExportRequest { string export_id = 1; }
+message RevokeOwnServiceExportRequest { string request_id = 1; string export_id = 2; uint64 expected_revision = 3; }
+message CreateServiceImportRequest {
+  string request_id = 1;
+  string source_container_id = 2;
+  string source_container_instance_id = 3;
+  string destination_device_id = 4;
+  string destination_export_id = 5;
+  string virtual_service_name = 6;
+  agentvmm.trust.v1.RouteCapability capability = 7;
+  uint32 destination_port = 8;
+}
+
+message CreatePersonalServiceImportRequest {
+  string request_id = 1;
+  string mesh_id = 2;
+  string source_container_id = 3;
+  string source_container_instance_id = 4;
+  string destination_device_id = 5;
+  string destination_export_id = 6;
+  string virtual_service_name = 7;
+  agentvmm.trust.v1.RouteBudget budget = 8;
+}
+message ListServiceImportsRequest {}
+message ListServiceImportsResponse { repeated agentvmm.service.v1.ServiceImport imports = 1; }
+message GetServiceImportRequest { string import_id = 1; }
+message RevokeServiceImportRequest { string request_id = 1; string import_id = 2; uint64 expected_revision = 3; }
 
 enum VMState {
   VM_STATE_UNSPECIFIED = 0;

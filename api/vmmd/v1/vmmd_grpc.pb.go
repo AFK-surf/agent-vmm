@@ -19,40 +19,48 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	VMMDService_Health_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/Health"
-	VMMDService_PrepareShutdown_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/PrepareShutdown"
-	VMMDService_EnsureNamespace_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/EnsureNamespace"
-	VMMDService_DeleteNamespace_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/DeleteNamespace"
-	VMMDService_GetNamespace_FullMethodName      = "/agentvmm.vmmd.v1.VMMDService/GetNamespace"
-	VMMDService_ListNamespaces_FullMethodName    = "/agentvmm.vmmd.v1.VMMDService/ListNamespaces"
-	VMMDService_GetNamespaceUsage_FullMethodName = "/agentvmm.vmmd.v1.VMMDService/GetNamespaceUsage"
-	VMMDService_GetSystemUsage_FullMethodName    = "/agentvmm.vmmd.v1.VMMDService/GetSystemUsage"
-	VMMDService_PullImage_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/PullImage"
-	VMMDService_CreateVolume_FullMethodName      = "/agentvmm.vmmd.v1.VMMDService/CreateVolume"
-	VMMDService_DeleteVolume_FullMethodName      = "/agentvmm.vmmd.v1.VMMDService/DeleteVolume"
-	VMMDService_GetVolume_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/GetVolume"
-	VMMDService_ListVolumes_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/ListVolumes"
-	VMMDService_GetImage_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/GetImage"
-	VMMDService_ListImages_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ListImages"
-	VMMDService_DeleteImage_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/DeleteImage"
-	VMMDService_CreateContainer_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/CreateContainer"
-	VMMDService_StartContainer_FullMethodName    = "/agentvmm.vmmd.v1.VMMDService/StartContainer"
-	VMMDService_StopContainer_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/StopContainer"
-	VMMDService_WaitContainer_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/WaitContainer"
-	VMMDService_DeleteContainer_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/DeleteContainer"
-	VMMDService_InspectContainer_FullMethodName  = "/agentvmm.vmmd.v1.VMMDService/InspectContainer"
-	VMMDService_ListContainers_FullMethodName    = "/agentvmm.vmmd.v1.VMMDService/ListContainers"
-	VMMDService_GetContainerUsage_FullMethodName = "/agentvmm.vmmd.v1.VMMDService/GetContainerUsage"
-	VMMDService_Logs_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/Logs"
-	VMMDService_Exec_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/Exec"
-	VMMDService_SignalContainer_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/SignalContainer"
-	VMMDService_ApplyNetworkLink_FullMethodName  = "/agentvmm.vmmd.v1.VMMDService/ApplyNetworkLink"
-	VMMDService_DeleteNetworkLink_FullMethodName = "/agentvmm.vmmd.v1.VMMDService/DeleteNetworkLink"
-	VMMDService_ForwardTCP_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ForwardTCP"
-	VMMDService_BuildImage_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/BuildImage"
-	VMMDService_ComponentHealth_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/ComponentHealth"
-	VMMDService_ProbeEgress_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/ProbeEgress"
-	VMMDService_WatchEvents_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/WatchEvents"
+	VMMDService_Health_FullMethodName                  = "/agentvmm.vmmd.v1.VMMDService/Health"
+	VMMDService_PrepareShutdown_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/PrepareShutdown"
+	VMMDService_EnsureNamespace_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/EnsureNamespace"
+	VMMDService_DeleteNamespace_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/DeleteNamespace"
+	VMMDService_GetNamespace_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/GetNamespace"
+	VMMDService_ListNamespaces_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/ListNamespaces"
+	VMMDService_GetNamespaceUsage_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/GetNamespaceUsage"
+	VMMDService_GetSystemUsage_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/GetSystemUsage"
+	VMMDService_PullImage_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/PullImage"
+	VMMDService_CreateVolume_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/CreateVolume"
+	VMMDService_DeleteVolume_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/DeleteVolume"
+	VMMDService_GetVolume_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/GetVolume"
+	VMMDService_ListVolumes_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/ListVolumes"
+	VMMDService_GetImage_FullMethodName                = "/agentvmm.vmmd.v1.VMMDService/GetImage"
+	VMMDService_ListImages_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/ListImages"
+	VMMDService_DeleteImage_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/DeleteImage"
+	VMMDService_CreateContainer_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/CreateContainer"
+	VMMDService_StartContainer_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/StartContainer"
+	VMMDService_StopContainer_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/StopContainer"
+	VMMDService_WaitContainer_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/WaitContainer"
+	VMMDService_DeleteContainer_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/DeleteContainer"
+	VMMDService_InspectContainer_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/InspectContainer"
+	VMMDService_ListContainers_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/ListContainers"
+	VMMDService_GetContainerUsage_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/GetContainerUsage"
+	VMMDService_Logs_FullMethodName                    = "/agentvmm.vmmd.v1.VMMDService/Logs"
+	VMMDService_Exec_FullMethodName                    = "/agentvmm.vmmd.v1.VMMDService/Exec"
+	VMMDService_SignalContainer_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/SignalContainer"
+	VMMDService_ApplyNetworkLink_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ApplyNetworkLink"
+	VMMDService_DeleteNetworkLink_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/DeleteNetworkLink"
+	VMMDService_ApplyServiceProjection_FullMethodName  = "/agentvmm.vmmd.v1.VMMDService/ApplyServiceProjection"
+	VMMDService_DeleteServiceProjection_FullMethodName = "/agentvmm.vmmd.v1.VMMDService/DeleteServiceProjection"
+	VMMDService_ForwardTCP_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/ForwardTCP"
+	VMMDService_BuildImage_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/BuildImage"
+	VMMDService_ComponentHealth_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/ComponentHealth"
+	VMMDService_ProbeEgress_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/ProbeEgress"
+	VMMDService_WatchEvents_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/WatchEvents"
+	VMMDService_StatWorkspace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/StatWorkspace"
+	VMMDService_ListWorkspace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/ListWorkspace"
+	VMMDService_ReadWorkspace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/ReadWorkspace"
+	VMMDService_WriteWorkspace_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/WriteWorkspace"
+	VMMDService_ArchiveWorkspace_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ArchiveWorkspace"
+	VMMDService_ExtractWorkspace_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ExtractWorkspace"
 )
 
 // VMMDServiceClient is the client API for VMMDService service.
@@ -88,11 +96,19 @@ type VMMDServiceClient interface {
 	SignalContainer(ctx context.Context, in *SignalContainerRequest, opts ...grpc.CallOption) (*SignalContainerResponse, error)
 	ApplyNetworkLink(ctx context.Context, in *ApplyNetworkLinkRequest, opts ...grpc.CallOption) (*ApplyNetworkLinkResponse, error)
 	DeleteNetworkLink(ctx context.Context, in *DeleteNetworkLinkRequest, opts ...grpc.CallOption) (*DeleteNetworkLinkResponse, error)
+	ApplyServiceProjection(ctx context.Context, in *ApplyServiceProjectionRequest, opts ...grpc.CallOption) (*ApplyServiceProjectionResponse, error)
+	DeleteServiceProjection(ctx context.Context, in *DeleteServiceProjectionRequest, opts ...grpc.CallOption) (*DeleteServiceProjectionResponse, error)
 	ForwardTCP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ForwardTCPRequest, ForwardTCPResponse], error)
 	BuildImage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse], error)
 	ComponentHealth(ctx context.Context, in *ComponentHealthRequest, opts ...grpc.CallOption) (*ComponentHealthResponse, error)
 	ProbeEgress(ctx context.Context, in *ProbeEgressRequest, opts ...grpc.CallOption) (*ProbeEgressResponse, error)
 	WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RuntimeEvent], error)
+	StatWorkspace(ctx context.Context, in *WorkspacePathRequest, opts ...grpc.CallOption) (*WorkspaceEntry, error)
+	ListWorkspace(ctx context.Context, in *ListWorkspaceRequest, opts ...grpc.CallOption) (*ListWorkspaceResponse, error)
+	ReadWorkspace(ctx context.Context, in *ReadWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadWorkspaceResponse], error)
+	WriteWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse], error)
+	ArchiveWorkspace(ctx context.Context, in *ArchiveWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArchiveWorkspaceResponse], error)
+	ExtractWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse], error)
 }
 
 type vMMDServiceClient struct {
@@ -414,6 +430,26 @@ func (c *vMMDServiceClient) DeleteNetworkLink(ctx context.Context, in *DeleteNet
 	return out, nil
 }
 
+func (c *vMMDServiceClient) ApplyServiceProjection(ctx context.Context, in *ApplyServiceProjectionRequest, opts ...grpc.CallOption) (*ApplyServiceProjectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyServiceProjectionResponse)
+	err := c.cc.Invoke(ctx, VMMDService_ApplyServiceProjection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) DeleteServiceProjection(ctx context.Context, in *DeleteServiceProjectionRequest, opts ...grpc.CallOption) (*DeleteServiceProjectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteServiceProjectionResponse)
+	err := c.cc.Invoke(ctx, VMMDService_DeleteServiceProjection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vMMDServiceClient) ForwardTCP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ForwardTCPRequest, ForwardTCPResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[3], VMMDService_ForwardTCP_FullMethodName, cOpts...)
@@ -479,6 +515,90 @@ func (c *vMMDServiceClient) WatchEvents(ctx context.Context, in *WatchEventsRequ
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type VMMDService_WatchEventsClient = grpc.ServerStreamingClient[RuntimeEvent]
 
+func (c *vMMDServiceClient) StatWorkspace(ctx context.Context, in *WorkspacePathRequest, opts ...grpc.CallOption) (*WorkspaceEntry, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkspaceEntry)
+	err := c.cc.Invoke(ctx, VMMDService_StatWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) ListWorkspace(ctx context.Context, in *ListWorkspaceRequest, opts ...grpc.CallOption) (*ListWorkspaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkspaceResponse)
+	err := c.cc.Invoke(ctx, VMMDService_ListWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) ReadWorkspace(ctx context.Context, in *ReadWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[6], VMMDService_ReadWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ReadWorkspaceRequest, ReadWorkspaceResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_ReadWorkspaceClient = grpc.ServerStreamingClient[ReadWorkspaceResponse]
+
+func (c *vMMDServiceClient) WriteWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[7], VMMDService_WriteWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WriteWorkspaceRequest, WriteWorkspaceResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_WriteWorkspaceClient = grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse]
+
+func (c *vMMDServiceClient) ArchiveWorkspace(ctx context.Context, in *ArchiveWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArchiveWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[8], VMMDService_ArchiveWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ArchiveWorkspaceRequest, ArchiveWorkspaceResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_ArchiveWorkspaceClient = grpc.ServerStreamingClient[ArchiveWorkspaceResponse]
+
+func (c *vMMDServiceClient) ExtractWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[9], VMMDService_ExtractWorkspace_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExtractWorkspaceRequest, WriteWorkspaceResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_ExtractWorkspaceClient = grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse]
+
 // VMMDServiceServer is the server API for VMMDService service.
 // All implementations must embed UnimplementedVMMDServiceServer
 // for forward compatibility.
@@ -512,11 +632,19 @@ type VMMDServiceServer interface {
 	SignalContainer(context.Context, *SignalContainerRequest) (*SignalContainerResponse, error)
 	ApplyNetworkLink(context.Context, *ApplyNetworkLinkRequest) (*ApplyNetworkLinkResponse, error)
 	DeleteNetworkLink(context.Context, *DeleteNetworkLinkRequest) (*DeleteNetworkLinkResponse, error)
+	ApplyServiceProjection(context.Context, *ApplyServiceProjectionRequest) (*ApplyServiceProjectionResponse, error)
+	DeleteServiceProjection(context.Context, *DeleteServiceProjectionRequest) (*DeleteServiceProjectionResponse, error)
 	ForwardTCP(grpc.BidiStreamingServer[ForwardTCPRequest, ForwardTCPResponse]) error
 	BuildImage(grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]) error
 	ComponentHealth(context.Context, *ComponentHealthRequest) (*ComponentHealthResponse, error)
 	ProbeEgress(context.Context, *ProbeEgressRequest) (*ProbeEgressResponse, error)
 	WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error
+	StatWorkspace(context.Context, *WorkspacePathRequest) (*WorkspaceEntry, error)
+	ListWorkspace(context.Context, *ListWorkspaceRequest) (*ListWorkspaceResponse, error)
+	ReadWorkspace(*ReadWorkspaceRequest, grpc.ServerStreamingServer[ReadWorkspaceResponse]) error
+	WriteWorkspace(grpc.ClientStreamingServer[WriteWorkspaceRequest, WriteWorkspaceResponse]) error
+	ArchiveWorkspace(*ArchiveWorkspaceRequest, grpc.ServerStreamingServer[ArchiveWorkspaceResponse]) error
+	ExtractWorkspace(grpc.ClientStreamingServer[ExtractWorkspaceRequest, WriteWorkspaceResponse]) error
 	mustEmbedUnimplementedVMMDServiceServer()
 }
 
@@ -614,6 +742,12 @@ func (UnimplementedVMMDServiceServer) ApplyNetworkLink(context.Context, *ApplyNe
 func (UnimplementedVMMDServiceServer) DeleteNetworkLink(context.Context, *DeleteNetworkLinkRequest) (*DeleteNetworkLinkResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteNetworkLink not implemented")
 }
+func (UnimplementedVMMDServiceServer) ApplyServiceProjection(context.Context, *ApplyServiceProjectionRequest) (*ApplyServiceProjectionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyServiceProjection not implemented")
+}
+func (UnimplementedVMMDServiceServer) DeleteServiceProjection(context.Context, *DeleteServiceProjectionRequest) (*DeleteServiceProjectionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteServiceProjection not implemented")
+}
 func (UnimplementedVMMDServiceServer) ForwardTCP(grpc.BidiStreamingServer[ForwardTCPRequest, ForwardTCPResponse]) error {
 	return status.Error(codes.Unimplemented, "method ForwardTCP not implemented")
 }
@@ -628,6 +762,24 @@ func (UnimplementedVMMDServiceServer) ProbeEgress(context.Context, *ProbeEgressR
 }
 func (UnimplementedVMMDServiceServer) WatchEvents(*WatchEventsRequest, grpc.ServerStreamingServer[RuntimeEvent]) error {
 	return status.Error(codes.Unimplemented, "method WatchEvents not implemented")
+}
+func (UnimplementedVMMDServiceServer) StatWorkspace(context.Context, *WorkspacePathRequest) (*WorkspaceEntry, error) {
+	return nil, status.Error(codes.Unimplemented, "method StatWorkspace not implemented")
+}
+func (UnimplementedVMMDServiceServer) ListWorkspace(context.Context, *ListWorkspaceRequest) (*ListWorkspaceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkspace not implemented")
+}
+func (UnimplementedVMMDServiceServer) ReadWorkspace(*ReadWorkspaceRequest, grpc.ServerStreamingServer[ReadWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method ReadWorkspace not implemented")
+}
+func (UnimplementedVMMDServiceServer) WriteWorkspace(grpc.ClientStreamingServer[WriteWorkspaceRequest, WriteWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method WriteWorkspace not implemented")
+}
+func (UnimplementedVMMDServiceServer) ArchiveWorkspace(*ArchiveWorkspaceRequest, grpc.ServerStreamingServer[ArchiveWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method ArchiveWorkspace not implemented")
+}
+func (UnimplementedVMMDServiceServer) ExtractWorkspace(grpc.ClientStreamingServer[ExtractWorkspaceRequest, WriteWorkspaceResponse]) error {
+	return status.Error(codes.Unimplemented, "method ExtractWorkspace not implemented")
 }
 func (UnimplementedVMMDServiceServer) mustEmbedUnimplementedVMMDServiceServer() {}
 func (UnimplementedVMMDServiceServer) testEmbeddedByValue()                     {}
@@ -1147,6 +1299,42 @@ func _VMMDService_DeleteNetworkLink_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VMMDService_ApplyServiceProjection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyServiceProjectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).ApplyServiceProjection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_ApplyServiceProjection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).ApplyServiceProjection(ctx, req.(*ApplyServiceProjectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_DeleteServiceProjection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteServiceProjectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).DeleteServiceProjection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_DeleteServiceProjection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).DeleteServiceProjection(ctx, req.(*DeleteServiceProjectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _VMMDService_ForwardTCP_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(VMMDServiceServer).ForwardTCP(&grpc.GenericServerStream[ForwardTCPRequest, ForwardTCPResponse]{ServerStream: stream})
 }
@@ -1207,6 +1395,78 @@ func _VMMDService_WatchEvents_Handler(srv interface{}, stream grpc.ServerStream)
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type VMMDService_WatchEventsServer = grpc.ServerStreamingServer[RuntimeEvent]
+
+func _VMMDService_StatWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspacePathRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).StatWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_StatWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).StatWorkspace(ctx, req.(*WorkspacePathRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_ListWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).ListWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_ListWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).ListWorkspace(ctx, req.(*ListWorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_ReadWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ReadWorkspaceRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(VMMDServiceServer).ReadWorkspace(m, &grpc.GenericServerStream[ReadWorkspaceRequest, ReadWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_ReadWorkspaceServer = grpc.ServerStreamingServer[ReadWorkspaceResponse]
+
+func _VMMDService_WriteWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(VMMDServiceServer).WriteWorkspace(&grpc.GenericServerStream[WriteWorkspaceRequest, WriteWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_WriteWorkspaceServer = grpc.ClientStreamingServer[WriteWorkspaceRequest, WriteWorkspaceResponse]
+
+func _VMMDService_ArchiveWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ArchiveWorkspaceRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(VMMDServiceServer).ArchiveWorkspace(m, &grpc.GenericServerStream[ArchiveWorkspaceRequest, ArchiveWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_ArchiveWorkspaceServer = grpc.ServerStreamingServer[ArchiveWorkspaceResponse]
+
+func _VMMDService_ExtractWorkspace_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(VMMDServiceServer).ExtractWorkspace(&grpc.GenericServerStream[ExtractWorkspaceRequest, WriteWorkspaceResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_ExtractWorkspaceServer = grpc.ClientStreamingServer[ExtractWorkspaceRequest, WriteWorkspaceResponse]
 
 // VMMDService_ServiceDesc is the grpc.ServiceDesc for VMMDService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -1320,12 +1580,28 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _VMMDService_DeleteNetworkLink_Handler,
 		},
 		{
+			MethodName: "ApplyServiceProjection",
+			Handler:    _VMMDService_ApplyServiceProjection_Handler,
+		},
+		{
+			MethodName: "DeleteServiceProjection",
+			Handler:    _VMMDService_DeleteServiceProjection_Handler,
+		},
+		{
 			MethodName: "ComponentHealth",
 			Handler:    _VMMDService_ComponentHealth_Handler,
 		},
 		{
 			MethodName: "ProbeEgress",
 			Handler:    _VMMDService_ProbeEgress_Handler,
+		},
+		{
+			MethodName: "StatWorkspace",
+			Handler:    _VMMDService_StatWorkspace_Handler,
+		},
+		{
+			MethodName: "ListWorkspace",
+			Handler:    _VMMDService_ListWorkspace_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
@@ -1361,6 +1637,26 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "WatchEvents",
 			Handler:       _VMMDService_WatchEvents_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "ReadWorkspace",
+			Handler:       _VMMDService_ReadWorkspace_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WriteWorkspace",
+			Handler:       _VMMDService_WriteWorkspace_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ArchiveWorkspace",
+			Handler:       _VMMDService_ArchiveWorkspace_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ExtractWorkspace",
+			Handler:       _VMMDService_ExtractWorkspace_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "vmmd/v1/vmmd.proto",

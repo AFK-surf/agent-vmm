@@ -10,6 +10,14 @@ struct AgentVMMApp: App {
             RootView(model: model)
                 .frame(minWidth: 1120, minHeight: 680)
                 .task { await model.start() }
+                .onOpenURL { url in
+                    guard url.scheme == "agent-vmm", url.host == "pair",
+                          let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                          let invitation = components.queryItems?.first(where: { $0.name == "invite" })?.value,
+                          Data(base64Encoded: invitation) != nil else { return }
+                    model.incomingPairingInvitation = invitation
+                    model.section = .devices
+                }
                 .sheet(isPresented: $showingUninstall) { UninstallView(model: model) }
         }
         .defaultSize(width: 1280, height: 800)

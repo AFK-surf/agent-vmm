@@ -93,7 +93,13 @@ func remoteRuntimeDenied(method string) bool {
 		hostv1.AgentRuntimeService_ListVolumes_FullMethodName,
 		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
 		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
-		hostv1.AgentRuntimeService_ReleaseSession_FullMethodName:
+		hostv1.AgentRuntimeService_ReleaseSession_FullMethodName,
+		hostv1.AgentRuntimeService_StatWorkspace_FullMethodName,
+		hostv1.AgentRuntimeService_ListWorkspace_FullMethodName,
+		hostv1.AgentRuntimeService_ReadWorkspace_FullMethodName,
+		hostv1.AgentRuntimeService_WriteWorkspace_FullMethodName,
+		hostv1.AgentRuntimeService_ArchiveWorkspace_FullMethodName,
+		hostv1.AgentRuntimeService_ExtractWorkspace_FullMethodName:
 		return false
 	default:
 		return true
@@ -202,7 +208,8 @@ func isMutation(method string) bool {
 	switch name {
 	case "GetEnvironment", "GetContainer", "ListContainers", "WaitContainer", "GetVolume", "ListVolumes", "Logs",
 		"GetVM", "GetSystemSnapshot", "ListEnvironments", "WatchEvents", "WatchMetrics", "GetOperation",
-		"PlanResetEnvironment", "PlanDiscardEnvironment", "PreviewSupportBundle":
+		"PlanResetEnvironment", "PlanDiscardEnvironment", "PreviewSupportBundle", "GetDeviceIdentity",
+		"StatWorkspace", "ListWorkspace", "ReadWorkspace", "ArchiveWorkspace":
 		return false
 	default:
 		return true

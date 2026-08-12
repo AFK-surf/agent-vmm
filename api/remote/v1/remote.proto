@@ -3,6 +3,7 @@ syntax = "proto3";
 package agentvmm.remote.v1;
 
 import "host/v1/host.proto";
+import "trust/v1/trust.proto";
 
 option go_package = "github.com/AFK-surf/agent-vmm/api/remote/v1;remotev1";
 
@@ -18,6 +19,9 @@ message EnrollRequest {
   bytes enrollment_token = 3;
   string endpoint_identity = 4;
   string connector_release = 5;
+  repeated string supported_features = 6;
+  repeated string required_features = 7;
+  agentvmm.trust.v1.DeviceIdentity device_identity = 8;
 }
 
 message EnrollResponse {
@@ -25,6 +29,9 @@ message EnrollResponse {
   string registration_id = 2;
   string controller_display_name = 3;
   bytes credential = 4;
+  repeated string enabled_features = 5;
+  agentvmm.trust.v1.TrustAnchor trust_anchor = 6;
+  agentvmm.trust.v1.MembershipCredential membership_credential = 7;
 }
 
 message HostControlMessage {
@@ -32,6 +39,8 @@ message HostControlMessage {
     HostHello hello = 1;
     CommandResult result = 2;
     HostEvent event = 3;
+    CommandAck ack = 4;
+    CommandEvidence evidence = 5;
   }
 }
 
@@ -45,6 +54,12 @@ message HostHello {
   Capacity capacity = 7;
   repeated Allocation inventory = 8;
   HostHealth health = 9;
+  uint64 connection_epoch = 10;
+  uint64 inventory_watermark = 11;
+  uint64 acknowledged_controller_sequence = 12;
+  repeated string supported_features = 13;
+  repeated string required_features = 14;
+  agentvmm.trust.v1.EndpointObservation endpoint_observation = 15;
 }
 
 message Capacity {
@@ -90,17 +105,23 @@ message ControllerControlMessage {
 }
 
 message ControllerCommand {
-  string correlation_id = 1;
+  string command_id = 1;
+  uint64 sequence = 2;
+  uint64 connection_epoch = 3;
+  int64 deadline_unix_millis = 4;
+  uint64 target_revision = 5;
+  uint64 lease_generation = 6;
+  uint64 acknowledged_host_sequence = 7;
   oneof command {
-    EnsureAllocation ensure_allocation = 2;
-    ReleaseAllocation release_allocation = 3;
-    PlanDiscardAllocation plan_discard_allocation = 4;
-    ExecuteDiscardAllocation execute_discard_allocation = 5;
-    AcquireLease acquire_lease = 6;
-    RenewLease renew_lease = 7;
-    ReleaseLease release_lease = 8;
-    DrainRegistration drain_registration = 9;
-    OpenSession open_session = 10;
+    EnsureAllocation ensure_allocation = 10;
+    ReleaseAllocation release_allocation = 11;
+    PlanDiscardAllocation plan_discard_allocation = 12;
+    ExecuteDiscardAllocation execute_discard_allocation = 13;
+    AcquireLease acquire_lease = 14;
+    RenewLease renew_lease = 15;
+    ReleaseLease release_lease = 16;
+    DrainRegistration drain_registration = 17;
+    OpenSession open_session = 18;
   }
 }
 
@@ -140,8 +161,8 @@ message OpenSession {
 }
 
 message CommandResult {
-  string correlation_id = 1;
-  bool success = 2;
+  string command_id = 1;
+  CommandOutcome outcome = 2;
   ErrorReason reason = 3;
   string message = 4;
   oneof result {
@@ -150,6 +171,46 @@ message CommandResult {
     CleanupPlan cleanup_plan = 7;
     SessionReady session_ready = 8;
   }
+  uint64 sequence = 9;
+  uint64 connection_epoch = 10;
+  uint64 inventory_watermark = 11;
+}
+
+enum CommandAckDisposition {
+  COMMAND_ACK_DISPOSITION_UNSPECIFIED = 0;
+  COMMAND_ACK_DISPOSITION_ADMITTED = 1;
+  COMMAND_ACK_DISPOSITION_REJECTED = 2;
+  COMMAND_ACK_DISPOSITION_DUPLICATE = 3;
+}
+
+message CommandAck {
+  string command_id = 1;
+  uint64 sequence = 2;
+  uint64 connection_epoch = 3;
+  CommandAckDisposition disposition = 4;
+  ErrorReason reason = 5;
+  string message = 6;
+}
+
+enum ExecutionStage {
+  EXECUTION_STAGE_UNSPECIFIED = 0;
+  EXECUTION_STAGE_STARTED = 1;
+  EXECUTION_STAGE_FINISHED = 2;
+}
+
+message CommandEvidence {
+  string command_id = 1;
+  uint64 sequence = 2;
+  uint64 connection_epoch = 3;
+  ExecutionStage stage = 4;
+  int64 observed_unix_millis = 5;
+}
+
+enum CommandOutcome {
+  COMMAND_OUTCOME_UNSPECIFIED = 0;
+  COMMAND_OUTCOME_SUCCEEDED = 1;
+  COMMAND_OUTCOME_REJECTED = 2;
+  COMMAND_OUTCOME_UNKNOWN = 3;
 }
 
 enum ErrorReason {
@@ -166,6 +227,10 @@ enum ErrorReason {
   ERROR_REASON_STALE_REVISION = 10;
   ERROR_REASON_UNAVAILABLE = 11;
   ERROR_REASON_INTERNAL = 12;
+  ERROR_REASON_STALE_CONNECTION_EPOCH = 13;
+  ERROR_REASON_SEQUENCE_CONFLICT = 14;
+  ERROR_REASON_DEADLINE_EXCEEDED = 15;
+  ERROR_REASON_FEATURE_MISMATCH = 16;
 }
 
 message CleanupPlan {
@@ -184,6 +249,9 @@ message HostEvent {
   string allocation_id = 2;
   string lease_id = 3;
   string status = 4;
+  uint64 sequence = 5;
+  uint64 connection_epoch = 6;
+  uint64 inventory_watermark = 7;
 }
 message RotateCredential { bytes credential = 1; }
 message RevokeCredential { string reason = 1; }
@@ -197,6 +265,7 @@ message SessionHeader {
   string tunnel_nonce = 6;
   uint32 frame_bytes = 7;
   uint32 max_in_flight_bytes = 8;
+  uint64 connection_epoch = 9;
 }
 message HostSessionFrame {
   oneof payload {

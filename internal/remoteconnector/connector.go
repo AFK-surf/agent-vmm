@@ -11,9 +11,16 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+const (
+	endpointConnectionMaxAge = 5 * time.Minute
+	endpointRefreshWindow    = 6 * time.Minute
 )
 
 var ErrCredentialRevoked = errors.New("controller credential revoked")
@@ -23,12 +30,60 @@ func Run(ctx context.Context, config Config) error {
 	if err := config.validate(); err != nil {
 		return err
 	}
+	if config.TrustSocket != "" {
+		if err := probeTrust(ctx, config.TrustSocket, config.TrustCapabilityFile); err != nil {
+			return fmt.Errorf("local trust boundary unavailable: %w", err)
+		}
+	}
+	var worker *dataworker.Supervisor
+	if config.DataWorkerPath != "" {
+		startedWorker, err := dataworker.Start(ctx, config.DataWorkerPath, config.DataWorkerSocket, config.ServiceTunnelSocket, config.MeshControlSocket, config.TrustCapabilityFile)
+		if err != nil {
+			return fmt.Errorf("data worker unavailable: %w", err)
+		}
+		worker = startedWorker
+		status, err := worker.Status(ctx)
+		if err != nil {
+			return fmt.Errorf("data worker status unavailable: %w", err)
+		}
+		observation, err := signEndpointObservation(ctx, config.TrustSocket, config.TrustCapabilityFile, status.EndpointID, status.EndpointGeneration)
+		if err != nil {
+			return fmt.Errorf("data endpoint observation unavailable: %w", err)
+		}
+		config.endpointObservation = observation
+		defer func() {
+			drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := worker.Close(drainCtx); err != nil && config.Logger != nil {
+				config.Logger.Printf("data worker drain failed")
+			}
+		}()
+	}
 	delay := time.Second
 	var attempt uint32
 	for ctx.Err() == nil {
 		attempt++
+		if config.DataWorkerPath != "" && (config.endpointObservation == nil ||
+			config.endpointObservation.GetExpiresAt() == nil ||
+			time.Until(config.endpointObservation.GetExpiresAt().AsTime()) <= endpointRefreshWindow) {
+			status, statusErr := worker.Status(ctx)
+			if statusErr != nil {
+				return fmt.Errorf("data worker status unavailable: %w", statusErr)
+			}
+			observation, observationErr := signEndpointObservation(ctx, config.TrustSocket, config.TrustCapabilityFile, status.EndpointID, status.EndpointGeneration)
+			if observationErr != nil {
+				return fmt.Errorf("data endpoint observation renewal unavailable: %w", observationErr)
+			}
+			config.endpointObservation = observation
+		}
 		reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTING, "", attempt, time.Time{}, "", "")
-		err := connectOnce(ctx, config)
+		connectionContext := ctx
+		cancelConnection := func() {}
+		if config.DataWorkerPath != "" {
+			connectionContext, cancelConnection = context.WithTimeout(ctx, endpointConnectionMaxAge)
+		}
+		err := connectOnce(connectionContext, config)
+		cancelConnection()
 		if errors.Is(err, ErrCredentialRevoked) {
 			reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, "", attempt, time.Time{}, "CREDENTIAL_REVOKED", "Controller access was revoked.")
 			return err
@@ -94,6 +149,11 @@ func connectOnce(ctx context.Context, config Config) error {
 	if err != nil {
 		return err
 	}
+	epoch, err := randomEpoch()
+	if err != nil {
+		return err
+	}
+	helloMessage := hello(registration, instance, epoch, config.endpointObservation)
 	connectionContext, stopConnection := context.WithCancel(ctx)
 	var heartbeatDone <-chan struct{}
 	defer func() {
@@ -106,8 +166,11 @@ func connectOnce(ctx context.Context, config Config) error {
 	if err != nil {
 		return fmt.Errorf("controller control stream failed: %w", err)
 	}
-	if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Hello{Hello: hello(registration, instance)}}); err != nil {
+	if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Hello{Hello: helloMessage}}); err != nil {
 		return fmt.Errorf("controller handshake failed: %w", err)
+	}
+	if config.TrustSocket != "" && config.endpointObservation != nil {
+		go personalMeshSyncLoop(connectionContext, config, trustv1.NewPersonalMeshRegistryServiceClient(controller.connection))
 	}
 	if _, err := local.client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{ConnectionInstance: instance, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED}); err != nil {
 		return fmt.Errorf("local connection fence failed")
@@ -123,9 +186,10 @@ func connectOnce(ctx context.Context, config Config) error {
 		defer cancel()
 		_, _ = local.client.SetConnectionState(disconnectContext, &hostv1.SetConnectionStateRequest{ConnectionInstance: instance, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED})
 	}()
-	tunnels := newTunnelManager(connectionContext, controller.client, local.client, registration.GetId(), config.Logger)
+	tunnels := newTunnelManager(connectionContext, controller.client, local.client, registration.GetId(), epoch, config.Logger)
 	defer tunnels.Close()
 	handler := commandHandler{client: local.client, connectionInstance: instance, tunnels: tunnels}
+	tracker := newCommandTracker(epoch, helloMessage.GetInventoryWatermark())
 	for {
 		message, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -136,9 +200,31 @@ func connectOnce(ctx context.Context, config Config) error {
 		}
 		switch payload := message.GetPayload().(type) {
 		case *remotev1.ControllerControlMessage_Command:
-			commandContext, cancel := context.WithTimeout(connectionContext, 30*time.Second)
+			ack, cached := tracker.admit(payload.Command, time.Now())
+			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Ack{Ack: ack}}); err != nil {
+				return fmt.Errorf("controller acknowledgement send failed")
+			}
+			if ack.GetDisposition() == remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED {
+				continue
+			}
+			if cached != nil {
+				if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: cached}}); err != nil {
+					return fmt.Errorf("controller cached result send failed")
+				}
+				continue
+			}
+			started := &remotev1.CommandEvidence{CommandId: payload.Command.GetCommandId(), Sequence: payload.Command.GetSequence(), ConnectionEpoch: epoch, Stage: remotev1.ExecutionStage_EXECUTION_STAGE_STARTED, ObservedUnixMillis: time.Now().UnixMilli()}
+			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Evidence{Evidence: started}}); err != nil {
+				return fmt.Errorf("controller execution evidence send failed")
+			}
+			commandContext, cancel := context.WithDeadline(connectionContext, time.UnixMilli(payload.Command.GetDeadlineUnixMillis()))
 			result := handler.handle(commandContext, payload.Command)
 			cancel()
+			tracker.record(payload.Command, result)
+			finished := &remotev1.CommandEvidence{CommandId: payload.Command.GetCommandId(), Sequence: payload.Command.GetSequence(), ConnectionEpoch: epoch, Stage: remotev1.ExecutionStage_EXECUTION_STAGE_FINISHED, ObservedUnixMillis: time.Now().UnixMilli()}
+			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Evidence{Evidence: finished}}); err != nil {
+				return fmt.Errorf("controller completion evidence send failed")
+			}
 			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: result}}); err != nil {
 				return fmt.Errorf("controller result send failed")
 			}

@@ -244,6 +244,73 @@ actor GRPCHostClient: HostServing {
         return operation(try await service.exportSupportBundle(request).operation)
     }
 
+    func deviceIdentity() async throws -> DeviceIdentityModel {
+        deviceIdentity(try await service.getDeviceIdentity(.init()))
+    }
+
+    func listPersonalMeshes() async throws -> [PersonalMeshModel] {
+        try await service.listPersonalMeshes(.init()).meshes.map(personalMesh)
+    }
+
+    func createPersonalMesh(registryAudience: String) async throws -> PersonalMeshModel {
+        var request = Agentvmm_Host_V1_CreatePersonalMeshRequest()
+        request.requestID = UUID().uuidString
+        request.registryAudience = registryAudience
+        return personalMesh(try await service.createPersonalMesh(request))
+    }
+
+    func revokePersonalMeshMember(meshID: String, deviceID: String, expectedRevision: UInt64) async throws -> PersonalMeshModel {
+        var request = Agentvmm_Host_V1_RevokePersonalMeshMemberRequest()
+        request.requestID = UUID().uuidString
+        request.meshID = meshID
+        request.deviceID = deviceID
+        request.expectedRevision = expectedRevision
+        return personalMesh(try await service.revokePersonalMeshMember(request))
+    }
+
+    func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String) async throws -> PersonalMeshPairingModel {
+        var request = Agentvmm_Host_V1_BeginPersonalMeshPairingRequest()
+        request.requestID = UUID().uuidString
+        request.meshID = meshID
+        request.expectedRevision = expectedRevision
+        request.pin = pin
+        return try pairing(try await service.beginPersonalMeshPairing(request))
+    }
+
+    func joinPersonalMeshPairing(invitationCode: String, pin: String, canManageMembers: Bool) async throws -> PersonalMeshPairingModel {
+        guard let data = Data(base64Encoded: invitationCode) else { throw HostClientError.invalidResponse("pairing invitation") }
+        var request = Agentvmm_Host_V1_JoinPersonalMeshPairingRequest()
+        request.invitation = try Agentvmm_Host_V1_PersonalMeshPairingInvitation(serializedBytes: data)
+        request.pin = pin
+        request.permissions = canManageMembers ? [.useServices, .manageMembers] : [.useServices]
+        return try pairing(try await service.joinPersonalMeshPairing(request))
+    }
+
+    func getPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel {
+        var request = Agentvmm_Host_V1_GetPersonalMeshPairingRequest()
+        request.sessionID = sessionID
+        return try pairing(try await service.getPersonalMeshPairing(request))
+    }
+
+    func confirmPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel {
+        var request = Agentvmm_Host_V1_ConfirmPersonalMeshPairingRequest()
+        request.sessionID = sessionID
+        return try pairing(try await service.confirmPersonalMeshPairing(request))
+    }
+
+    func rejectPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel {
+        var request = Agentvmm_Host_V1_RejectPersonalMeshPairingRequest()
+        request.sessionID = sessionID
+        return try pairing(try await service.rejectPersonalMeshPairing(request))
+    }
+
+    func repairDeviceIdentity(confirmMembershipReset: Bool) async throws -> DeviceIdentityModel {
+        var request = Agentvmm_Host_V1_RepairDeviceIdentityRequest()
+        request.requestID = UUID().uuidString
+        request.confirmMembershipReset = confirmMembershipReset
+        return deviceIdentity(try await service.repairDeviceIdentity(request))
+    }
+
     func beginRemoteEnrollment(endpoint: String, displayName: String, pool: RemotePoolSettings) async throws -> RemoteRegistrationModel {
         var request = Agentvmm_Host_V1_BeginRemoteEnrollmentRequest()
         request.requestID = UUID().uuidString
@@ -686,6 +753,50 @@ private extension GRPCHostClient {
         return OperationModel(
             id: value.id, kind: value.kind, state: state, stage: value.stage,
             reason: value.error.reason.nilIfEmpty, message: value.error.message.nilIfEmpty, resource: resource
+        )
+    }
+
+    nonisolated func deviceIdentity(_ value: Agentvmm_Host_V1_DeviceIdentityResponse) -> DeviceIdentityModel {
+        let state: DeviceIdentityModel.State = switch value.state {
+        case .ready: .ready
+        case .needsRepair: .needsRepair
+        default: .unavailable
+        }
+        return DeviceIdentityModel(id: value.identity.deviceID, rootKeyRevision: value.identity.rootKeyRevision, state: state)
+    }
+
+    nonisolated func personalMesh(_ value: Agentvmm_Host_V1_PersonalMeshResponse) -> PersonalMeshModel {
+        PersonalMeshModel(
+            id: value.meshDescriptor.meshID,
+            registryAudience: value.meshDescriptor.registryAudience,
+            revision: value.snapshot.revision,
+            policyEpoch: value.snapshot.policyEpoch,
+            members: value.snapshot.activeMembers.map { member in
+                PersonalMeshMemberModel(
+                    deviceID: member.deviceID,
+                    rootKeyRevision: member.rootKeyRevision,
+                    permissions: member.permissions.compactMap { permission in
+                        switch permission {
+                        case .useServices: "Use services"
+                        case .manageMembers: "Manage members"
+                        default: nil
+                        }
+                    }
+                )
+            }
+        )
+    }
+
+    nonisolated func pairing(_ value: Agentvmm_Host_V1_PersonalMeshPairingResponse) throws -> PersonalMeshPairingModel {
+        guard value.invitation.sessionID.count == 16 else { throw HostClientError.invalidResponse("pairing session") }
+        return PersonalMeshPairingModel(
+            sessionID: value.invitation.sessionID,
+            invitationCode: try value.invitation.serializedData().base64EncodedString(),
+            role: value.role,
+            state: value.state,
+            attemptsRemaining: value.attemptsRemaining,
+            sas: value.sas,
+            registryCommitPending: value.hasPendingOperation
         )
     }
 }

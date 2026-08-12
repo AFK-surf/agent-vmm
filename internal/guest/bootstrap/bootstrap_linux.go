@@ -49,7 +49,7 @@ func Prepare() (*Result, error) {
 	if err := unix.Mount(stateDevice, StateMount, "ext4", unix.MS_NOATIME, "prjquota"); err != nil && !errors.Is(err, unix.EBUSY) {
 		return nil, fmt.Errorf("mount state: %w", err)
 	}
-	for _, directory := range []string{"containerd", "volumes", "logs", "build-cache", "build-tmp", "cni"} {
+	for _, directory := range []string{"containerd", "volumes", "workspaces", "logs", "build-cache", "build-tmp", "cni"} {
 		if err := os.MkdirAll(filepath.Join(StateMount, directory), 0o700); err != nil {
 			return nil, err
 		}

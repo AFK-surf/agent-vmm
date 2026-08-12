@@ -17,11 +17,14 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -57,11 +60,12 @@ func (store *e2eCredentialStore) Delete(context.Context, string) error {
 
 type remoteE2EController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
-	registrationID string
-	sessions       chan remoteE2ESession
-	finish         chan struct{}
-	connections    chan int
-	failures       chan string
+	registrationID  string
+	sessions        chan remoteE2ESession
+	finish          chan struct{}
+	connections     chan int
+	failures        chan string
+	connectionEpoch atomic.Uint64
 }
 type remoteE2ESession struct {
 	allocationID string
@@ -73,17 +77,15 @@ func (server *remoteE2EController) Enroll(context.Context, *remotev1.EnrollReque
 }
 
 func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage]) error {
-	if values := metadata.ValueFromIncomingContext(stream.Context(), "authorization"); len(values) != 1 || values[0] != "Bearer remote-e2e" {
+	if values := metadata.ValueFromIncomingContext(stream.Context(), "authorization"); len(values) != 1 || values[0] != controllerremote.EncodeBearer([]byte("remote-e2e")) {
 		return status.Error(codes.Unauthenticated, "rejected")
 	}
-	first, err := stream.Recv()
+	session, err := controllerremote.AcceptControl(stream, server.registrationID)
 	if err != nil {
-		return err
-	}
-	hello := first.GetHello()
-	if hello == nil || hello.GetRegistrationId() != server.registrationID {
 		return status.Error(codes.FailedPrecondition, "invalid initial inventory")
 	}
+	hello := session.Hello()
+	server.connectionEpoch.Store(hello.GetConnectionEpoch())
 	leases := make([]*remotev1.Lease, 0, 2)
 	for _, allocation := range hello.GetInventory() {
 		if allocation.GetLease() != nil {
@@ -99,19 +101,19 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 			egress = hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
 		}
 		limits := &hostv1.ResourceLimits{CpuMillis: optional(uint32(1000)), MemoryBytes: optional(uint64(1 << 30)), Pids: optional(uint32(256)), DiskBytes: optional(uint64(2 << 30))}
-		result, err := server.command(stream, &remotev1.ControllerCommand{CorrelationId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, DisplayLabel: allocationID, Limits: limits, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
+		result, err := server.command(session, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, DisplayLabel: allocationID, Limits: limits, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
 		if err != nil {
 			return err
 		}
-		if !result.GetSuccess() {
+		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			server.failures <- "ensure " + result.GetReason().String()
 			return status.Error(codes.Internal, "ensure failed")
 		}
-		result, err = server.command(stream, &remotev1.ControllerCommand{CorrelationId: "acquire-" + allocationID, Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: allocationID, DurationSeconds: 300, WorkloadRef: "e2e-" + allocationID}}})
+		result, err = server.command(session, &remotev1.ControllerCommand{CommandId: "acquire-" + allocationID, Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: allocationID, DurationSeconds: 300, WorkloadRef: "e2e-" + allocationID}}})
 		if err != nil {
 			return err
 		}
-		if !result.GetSuccess() {
+		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			server.failures <- "acquire " + result.GetReason().String()
 			return status.Error(codes.Internal, "acquire failed")
 		}
@@ -119,11 +121,11 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 	}
 	server.connections <- len(leases)
 	for _, lease := range leases {
-		result, err := server.command(stream, &remotev1.ControllerCommand{CorrelationId: "open-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: lease.GetAllocationId(), LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+		result, err := server.command(session, &remotev1.ControllerCommand{CommandId: "open-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: lease.GetAllocationId(), LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
 		if err != nil {
 			return err
 		}
-		if !result.GetSuccess() {
+		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			server.failures <- "open " + lease.GetAllocationId() + " lease=" + lease.GetLeaseId() + " generation=" + strconv.FormatUint(lease.GetGeneration(), 10) + " " + result.GetReason().String() + " " + result.GetMessage()
 			return status.Error(codes.Internal, "open failed")
 		}
@@ -134,13 +136,13 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 		return stream.Context().Err()
 	}
 	for _, lease := range leases {
-		_, _ = server.command(stream, &remotev1.ControllerCommand{CorrelationId: "release-lease-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
-		_, _ = server.command(stream, &remotev1.ControllerCommand{CorrelationId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId()}}})
-		plan, err := server.command(stream, &remotev1.ControllerCommand{CorrelationId: "plan-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanDiscardAllocation{PlanDiscardAllocation: &remotev1.PlanDiscardAllocation{AllocationId: lease.GetAllocationId()}}})
+		_, _ = server.command(session, &remotev1.ControllerCommand{CommandId: "release-lease-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+		_, _ = server.command(session, &remotev1.ControllerCommand{CommandId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId()}}})
+		plan, err := server.command(session, &remotev1.ControllerCommand{CommandId: "plan-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanDiscardAllocation{PlanDiscardAllocation: &remotev1.PlanDiscardAllocation{AllocationId: lease.GetAllocationId()}}})
 		if err != nil {
 			return err
 		}
-		_, err = server.command(stream, &remotev1.ControllerCommand{CorrelationId: "discard-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteDiscardAllocation{ExecuteDiscardAllocation: &remotev1.ExecuteDiscardAllocation{AllocationId: lease.GetAllocationId(), PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
+		_, err = server.command(session, &remotev1.ControllerCommand{CommandId: "discard-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteDiscardAllocation{ExecuteDiscardAllocation: &remotev1.ExecuteDiscardAllocation{AllocationId: lease.GetAllocationId(), PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
 		if err != nil {
 			return err
 		}
@@ -148,106 +150,54 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 	return nil
 }
 
-func (server *remoteE2EController) command(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage], command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
-	if err := stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_Command{Command: command}}); err != nil {
-		return nil, err
+func (server *remoteE2EController) command(session *controllerremote.ControlSession, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
+	if ensure := command.GetEnsureAllocation(); ensure != nil {
+		command.TargetRevision = ensure.GetPolicyRevision()
 	}
-	message, err := stream.Recv()
-	if err != nil {
-		return nil, err
+	switch value := command.GetCommand().(type) {
+	case *remotev1.ControllerCommand_RenewLease:
+		command.LeaseGeneration = value.RenewLease.GetGeneration()
+	case *remotev1.ControllerCommand_ReleaseLease:
+		command.LeaseGeneration = value.ReleaseLease.GetGeneration()
+	case *remotev1.ControllerCommand_OpenSession:
+		command.LeaseGeneration = value.OpenSession.GetGeneration()
 	}
-	if message.GetResult().GetCorrelationId() != command.GetCorrelationId() {
-		return nil, status.Error(codes.Internal, "correlation mismatch")
-	}
-	return message.GetResult(), nil
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	transcript, err := session.Dispatch(ctx, command)
+	return transcript.Result, err
 }
 
 func (server *remoteE2EController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
-	first, err := stream.Recv()
+	header, connection, err := controllerremote.AcceptSession(stream, server.registrationID, server.connectionEpoch.Load())
 	if err != nil {
-		return err
-	}
-	header := first.GetHeader()
-	if header == nil || header.GetRegistrationId() != server.registrationID {
 		return status.Error(codes.Unauthenticated, "bad session header")
 	}
-	connection := newRemoteStreamConn(stream)
 	select {
 	case server.sessions <- remoteE2ESession{allocationID: header.GetAllocationId(), connection: connection}:
 	case <-stream.Context().Done():
 		return stream.Context().Err()
 	}
 	select {
-	case <-connection.closed:
+	case <-connection.Done():
 		return nil
 	case <-stream.Context().Done():
 		return stream.Context().Err()
 	}
 }
 
-type remoteStreamConn struct {
-	stream  grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]
-	readMu  sync.Mutex
-	writeMu sync.Mutex
-	buffer  []byte
-	closed  chan struct{}
-	once    sync.Once
-}
-
-func newRemoteStreamConn(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) *remoteStreamConn {
-	return &remoteStreamConn{stream: stream, closed: make(chan struct{})}
-}
-func (connection *remoteStreamConn) Read(value []byte) (int, error) {
-	connection.readMu.Lock()
-	defer connection.readMu.Unlock()
-	for len(connection.buffer) == 0 {
-		frame, err := connection.stream.Recv()
-		if err != nil {
-			return 0, err
-		}
-		if frame.GetCloseWrite() {
-			return 0, io.EOF
-		}
-		connection.buffer = frame.GetData()
-	}
-	count := copy(value, connection.buffer)
-	connection.buffer = connection.buffer[count:]
-	return count, nil
-}
-func (connection *remoteStreamConn) Write(value []byte) (int, error) {
-	connection.writeMu.Lock()
-	defer connection.writeMu.Unlock()
-	total := len(value)
-	for len(value) != 0 {
-		count := min(len(value), remoteconnector.FrameBytes)
-		if err := connection.stream.Send(&remotev1.ControllerSessionFrame{Payload: &remotev1.ControllerSessionFrame_Data{Data: append([]byte(nil), value[:count]...)}}); err != nil {
-			return total - len(value), err
-		}
-		value = value[count:]
-	}
-	return total, nil
-}
-func (connection *remoteStreamConn) Close() error {
-	connection.once.Do(func() {
-		connection.writeMu.Lock()
-		_ = connection.stream.Send(&remotev1.ControllerSessionFrame{Payload: &remotev1.ControllerSessionFrame_CloseWrite{CloseWrite: true}})
-		connection.writeMu.Unlock()
-		close(connection.closed)
-	})
-	return nil
-}
-func (*remoteStreamConn) LocalAddr() net.Addr              { return remoteAddr("controller") }
-func (*remoteStreamConn) RemoteAddr() net.Addr             { return remoteAddr("host") }
-func (*remoteStreamConn) SetDeadline(time.Time) error      { return nil }
-func (*remoteStreamConn) SetReadDeadline(time.Time) error  { return nil }
-func (*remoteStreamConn) SetWriteDeadline(time.Time) error { return nil }
-
-type remoteAddr string
-
-func (remoteAddr) Network() string        { return "agent-vmm-session" }
-func (address remoteAddr) String() string { return string(address) }
-
 func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
+	trustConnection, err := grpc.NewClient("passthrough:///trust", grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", harness.trustSocket)
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer trustConnection.Close()
+	if _, err := trustv1.NewTrustServiceClient(trustConnection).GetDeviceIdentity(context.Background(), &trustv1.GetDeviceIdentityRequest{}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("same-UID trust client without connector capability code=%s err=%v", status.Code(err), err)
+	}
 	controller := &remoteE2EController{sessions: make(chan remoteE2ESession, 4), finish: make(chan struct{}), connections: make(chan int, 8), failures: make(chan string, 8)}
 	endpoint, roots, stopController := startRemoteController(t, controller)
 	defer stopController()
@@ -271,7 +221,9 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		connectorContext, stop := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() {
-			done <- remoteconnector.Run(connectorContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: controller.registrationID, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: store, TLSRoots: roots})
+			done <- remoteconnector.Run(connectorContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost",
+				RegistrationID: controller.registrationID, RemoteComputeSocket: harness.remoteComputeSocket, TrustSocket: harness.trustSocket,
+				TrustCapabilityFile: harness.trustCapabilityFile, CredentialStore: store, TLSRoots: roots})
 		}()
 		return stop, done
 	}
@@ -359,12 +311,18 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	}
 	close(controller.finish)
 	deadline := time.Now().Add(30 * time.Second)
+	drained := false
 	for time.Now().Before(deadline) {
 		current, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{})
 		if err == nil && len(current.GetRegistration().GetAllocations()) == 0 {
+			drained = true
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if !drained {
+		current, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{})
+		t.Fatalf("remote allocations did not drain: state=%+v err=%v", current.GetRegistration().GetAllocations(), err)
 	}
 	stopConnector()
 	select {

@@ -43,6 +43,8 @@ fi
 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-mcp" "$repo/cmd/agent-vmm-mcp"
 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-connect" "$repo/cmd/agent-vmm-connect"
 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
+CARGO_TARGET_DIR="$derived/rust" cargo build --locked --release --target aarch64-apple-darwin --manifest-path "$repo/data/agent-vmm-data/Cargo.toml"
+cp "$derived/rust/aarch64-apple-darwin/release/agent-vmm-data" "$product/Contents/Helpers/agent-vmm-data"
 go version -m "$product/Contents/Helpers/agent-vmm-mcp" > "$product/Contents/Resources/mcp-build-info.txt"
 go version -m "$product/Contents/Helpers/agent-vmm-connect" > "$product/Contents/Resources/connect-build-info.txt"
 cp "$repo/LICENSE" "$product/Contents/Resources/LICENSE"
@@ -52,6 +54,7 @@ codesign --force --sign "$identity" --options runtime --entitlements "$repo/buil
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-mcp"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-connect"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-lifecycle"
+codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-data"
 codesign --force --sign "$identity" --options runtime "$product"
 codesign --verify --deep --strict --verbose=2 "$product"
 
