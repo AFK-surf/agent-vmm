@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -71,6 +72,7 @@ func TestRemoteRuntimeMethodFilter(t *testing.T) {
 	for _, method := range []string{
 		hostv1.AgentRuntimeService_GetEnvironment_FullMethodName,
 		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
+		hostv1.AgentRuntimeService_ImportImage_FullMethodName,
 		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
 		hostv1.AgentRuntimeService_DeleteImage_FullMethodName,
 	} {
@@ -119,13 +121,25 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	grpcServer := controller.NewRemoteComputeServer()
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(func() { grpcServer.Stop(); listener.Close() })
-	connection, err := grpc.NewClient("passthrough:///remote", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	connection, err := grpc.NewClient("passthrough:///remote", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+		return invoke(metadata.AppendToOutgoingContext(ctx, "x-agent-vmm-registration", registration.ID), method, request, reply, connection, options...)
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer connection.Close()
 	client := hostv1.NewRemoteComputeServiceClient(connection)
-	state, err := client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{})
+	allocationRevision := func() uint64 {
+		environment, err := database.GetEnvironment(ctx, remote.ID)
+		if err != nil {
+			t.Fatalf("get allocation revision: %v", err)
+		}
+		return environment.PolicyRevision
+	}
+	if _, err := client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: "other"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("cross-registration transport identity error=%v", err)
+	}
+	state, err := client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registration.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,40 +147,69 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 		t.Fatalf("remote inventory leaked or omitted environments: %+v", state)
 	}
 	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
-		ConnectionInstance: "connection-a", State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+		RegistrationId:     registration.ID,
+		ConnectionInstance: "connection-a", ConnectionEpoch: 1, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
-		ConnectionInstance: "connection-b", State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+		RegistrationId:     registration.ID,
+		ConnectionInstance: "connection-b", ConnectionEpoch: 2, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"}); status.Code(err) != codes.Aborted {
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()}); status.Code(err) != codes.Aborted {
 		t.Fatalf("replaced connection admitted a lease: %v", err)
 	}
 	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
-		ConnectionInstance: "connection-a", State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+		RegistrationId:     registration.ID,
+		ConnectionInstance: "connection-a", ConnectionEpoch: 3, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), WorkloadRef: "work", ConnectionInstance: "connection-a"})
+	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
+		RegistrationId:     registration.ID,
+		ConnectionInstance: "connection-a", ConnectionEpoch: 1, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED,
+	}); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale same-instance disconnect was accepted: %v", err)
+	}
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision() + 1}); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale allocation revision admitted a lease: %v", err)
+	}
+	first, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), WorkloadRef: "work", ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()})
 	if err != nil {
 		t.Fatal(err)
 	}
+	controller.mu.Lock()
+	controller.remoteLeases[first.GetLease().GetLeaseId()].sessionID = "replacement-session"
+	controller.mu.Unlock()
+	if _, err := client.RevokeRuntimeSession(ctx, &hostv1.RevokeRuntimeSessionRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), SessionId: "stale-session"}); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale runtime session revoke error=%v", err)
+	}
+	controller.mu.Lock()
+	if sessionID := controller.remoteLeases[first.GetLease().GetLeaseId()].sessionID; sessionID != "replacement-session" {
+		controller.mu.Unlock()
+		t.Fatalf("stale revoke cleared replacement session %q", sessionID)
+	}
+	controller.remoteLeases[first.GetLease().GetLeaseId()].sessionID = ""
+	controller.mu.Unlock()
 	if _, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+		RegistrationId:     registration.ID,
 		ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	first, err = client.RenewLease(ctx, &hostv1.RenewLeaseRequest{
-		LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), Duration: durationpb.New(500 * time.Millisecond),
+		RegistrationId:     registration.ID,
+		ConnectionInstance: "connection-a",
+		LeaseId:            first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), Duration: durationpb.New(500 * time.Millisecond),
 	})
 	if err != nil {
 		t.Fatalf("drain interrupted an existing lease: %v", err)
 	}
 	if _, err := client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{
-		AllocationId: "new-while-draining", DisplayLabel: "new", PolicyRevision: state.GetRegistration().GetRevision(),
+		RegistrationId: registration.ID,
+		AllocationId:   "new-while-draining", DisplayLabel: "new", PolicyRevision: state.GetRegistration().GetPoolPolicyRevision(),
 		Limits:             &hostv1.ResourceLimits{CpuMillis: testOptional(uint32(1)), MemoryBytes: testOptional(uint64(1)), Pids: testOptional(uint32(1)), DiskBytes: testOptional(uint64(1))},
 		EgressMode:         hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
 		ConnectionInstance: "connection-a",
@@ -174,25 +217,26 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 		t.Fatalf("draining admitted a new allocation: %v", err)
 	}
 	if _, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+		RegistrationId:     registration.ID,
 		ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), AllocationId: "other"}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := client.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), AllocationId: "other"}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("cross-allocation session error=%v", err)
 	}
-	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("second active lease error=%v", err)
 	}
-	renewed, err := client.RenewLease(ctx, &hostv1.RenewLeaseRequest{LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), Duration: durationpb.New(500 * time.Millisecond)})
-	if err != nil || renewed.GetLease().GetGeneration() == first.GetLease().GetGeneration() {
+	renewed, err := client.RenewLease(ctx, &hostv1.RenewLeaseRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: first.GetLease().GetLeaseId(), Generation: first.GetLease().GetGeneration(), Duration: durationpb.New(500 * time.Millisecond)})
+	if err != nil || renewed.GetLease().GetGeneration() != first.GetLease().GetGeneration() || !renewed.GetLease().GetExpiresAt().AsTime().After(first.GetLease().GetExpiresAt().AsTime()) {
 		t.Fatalf("renewed=%+v err=%v", renewed, err)
 	}
-	released, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{LeaseId: renewed.GetLease().GetLeaseId(), Generation: renewed.GetLease().GetGeneration()})
+	released, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: renewed.GetLease().GetLeaseId(), Generation: renewed.GetLease().GetGeneration()})
 	if err != nil || released.GetLease().GetState() != hostv1.LeaseState_LEASE_STATE_RELEASED {
 		t.Fatalf("released=%+v err=%v", released, err)
 	}
-	if _, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{LeaseId: renewed.GetLease().GetLeaseId(), Generation: renewed.GetLease().GetGeneration()}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: renewed.GetLease().GetLeaseId(), Generation: renewed.GetLease().GetGeneration()}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("second release error=%v", err)
 	}
 	type admissionResult struct {
@@ -202,11 +246,12 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	}
 	results := make(chan admissionResult, 2)
 	go func() {
-		response, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"})
+		response, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()})
 		results <- admissionResult{kind: "lease", lease: response.GetLease(), err: err}
 	}()
 	go func() {
 		_, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+			RegistrationId:     registration.ID,
 			ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
 		})
 		results <- admissionResult{kind: "drain", err: err}
@@ -220,12 +265,13 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	}
 	for _, result := range []admissionResult{firstRace, secondRace} {
 		if result.kind == "lease" && result.err == nil {
-			if _, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{LeaseId: result.lease.GetLeaseId(), Generation: result.lease.GetGeneration()}); err != nil {
+			if _, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: result.lease.GetLeaseId(), Generation: result.lease.GetGeneration()}); err != nil {
 				t.Fatalf("raced lease release failed: %v", err)
 			}
 		}
 	}
 	if _, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+		RegistrationId:     registration.ID,
 		ConnectionInstance: "connection-a", State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED,
 	}); err != nil {
 		t.Fatal(err)
@@ -238,14 +284,14 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a"}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("retained allocation admitted a lease: %v", err)
 	}
 	current, err = database.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_READY))
 	if err != nil {
 		t.Fatal(err)
 	}
-	expiring, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: "allocation", Duration: durationpb.New(20 * time.Millisecond), ConnectionInstance: "connection-a"})
+	expiring, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(20 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()})
 	if err != nil || expiring.GetLease().GetState() != hostv1.LeaseState_LEASE_STATE_ACTIVE {
 		t.Fatalf("expiring=%+v err=%v", expiring, err)
 	}

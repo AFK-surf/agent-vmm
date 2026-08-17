@@ -8,20 +8,31 @@ import (
 	"os"
 	"runtime"
 	"syscall"
+	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
+
+var controllerConnectParams = grpc.ConnectParams{
+	Backoff:           backoff.Config{BaseDelay: time.Second, Multiplier: 1.6, Jitter: 0.2, MaxDelay: MaxReconnectDelay},
+	MinConnectTimeout: 10 * time.Second,
+}
+
+var controllerKeepalive = keepalive.ClientParameters{Time: 5 * time.Minute, Timeout: 10 * time.Second}
 
 func dialController(config Config, credential []byte) (*grpc.ClientConn, error) {
 	options := []grpc.DialOption{
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.EndpointIdentity, RootCAs: config.TLSRoots})),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxControlBytes), grpc.MaxCallSendMsgSize(MaxControlBytes)),
 		grpc.WithInitialWindowSize(StreamWindowBytes), grpc.WithInitialConnWindowSize(ConnectionWindowBytes),
+		grpc.WithConnectParams(controllerConnectParams), grpc.WithKeepaliveParams(controllerKeepalive),
 	}
 	if len(credential) != 0 {
 		options = append(options, grpc.WithPerRPCCredentials(bearerCredential{value: credential, registration: config.RegistrationID}))
@@ -34,6 +45,7 @@ func dialStoredController(config Config) (*grpc.ClientConn, error) {
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.EndpointIdentity, RootCAs: config.TLSRoots})),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxControlBytes), grpc.MaxCallSendMsgSize(MaxControlBytes)),
 		grpc.WithInitialWindowSize(StreamWindowBytes), grpc.WithInitialConnWindowSize(ConnectionWindowBytes),
+		grpc.WithConnectParams(controllerConnectParams), grpc.WithKeepaliveParams(controllerKeepalive),
 		grpc.WithPerRPCCredentials(storedCredential{store: config.CredentialStore, account: config.RegistrationID}),
 	}
 	return grpc.NewClient(config.Endpoint, options...)
@@ -76,14 +88,24 @@ func (credential storedCredential) GetRequestMetadata(ctx context.Context, _ ...
 }
 func (storedCredential) RequireTransportSecurity() bool { return true }
 
-func dialRemoteCompute(ctx context.Context, socket string) (*grpc.ClientConn, error) {
+func dialRemoteCompute(ctx context.Context, socket, registrationID string) (*grpc.ClientConn, error) {
 	if err := validateSocket(socket); err != nil {
 		return nil, err
 	}
+	if registrationID == "" || len(registrationID) > 128 {
+		return nil, fmt.Errorf("remote registration identity is required")
+	}
 	return grpc.NewClient("passthrough:///agent-vmm-remote", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
-	}), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxControlBytes), grpc.MaxCallSendMsgSize(MaxControlBytes)))
+	}), grpc.WithPerRPCCredentials(localRegistrationCredential(registrationID)), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxControlBytes), grpc.MaxCallSendMsgSize(MaxControlBytes)))
 }
+
+type localRegistrationCredential string
+
+func (credential localRegistrationCredential) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	return map[string]string{"x-agent-vmm-registration": string(credential)}, nil
+}
+func (localRegistrationCredential) RequireTransportSecurity() bool { return false }
 
 func validateSocket(path string) error {
 	info, err := os.Lstat(path)
@@ -128,8 +150,8 @@ type localClient struct {
 	client     hostv1.RemoteComputeServiceClient
 }
 
-func newLocalClient(ctx context.Context, socket string) (*localClient, error) {
-	connection, err := dialRemoteCompute(ctx, socket)
+func newLocalClient(ctx context.Context, socket, registrationID string) (*localClient, error) {
+	connection, err := dialRemoteCompute(ctx, socket, registrationID)
 	if err != nil {
 		return nil, err
 	}

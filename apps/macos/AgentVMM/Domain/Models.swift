@@ -219,13 +219,14 @@ struct SystemSnapshotModel: Sendable, Equatable {
     let components: [ComponentStatus]
     let usage: UsageSnapshot?
     let environments: [AgentEnvironmentModel]
-    let remoteRegistration: RemoteRegistrationModel?
+    let remoteRegistrations: [RemoteRegistrationModel]
     let collectedAt: Date
 
-    static let loading = SystemSnapshotModel(vmState: "Loading", bootID: "", health: .unavailable, components: [], usage: nil, environments: [], remoteRegistration: nil, collectedAt: .distantPast)
+    static let loading = SystemSnapshotModel(vmState: "Loading", bootID: "", health: .unavailable, components: [], usage: nil, environments: [], remoteRegistrations: [], collectedAt: .distantPast)
 }
 
 struct RemoteRegistrationModel: Sendable, Equatable {
+    enum Owner: Sendable, Equatable { case external, appliance(installationID: String), unknown }
     let id: String
     let displayName: String
     let endpoint: String
@@ -233,6 +234,8 @@ struct RemoteRegistrationModel: Sendable, Equatable {
     let connectionState: RemoteConnectionStatus
     let enrollmentState: RemoteEnrollmentStatus
     let revision: UInt64
+    let inventoryRevision: UInt64
+    let owner: Owner
     let pool: RemotePoolSettings
     let allocations: [RemoteAllocationModel]
     let connector: ConnectorStatusModel
@@ -252,9 +255,9 @@ struct RemotePoolSettings: Sendable, Equatable {
 
     static let defaults = RemotePoolSettings(
         maxEnvironments: 2,
-        aggregateLimits: EnvironmentLimits(cpuMillis: 2_000, memoryBytes: 2 << 30, pids: 512, diskBytes: 4 << 30),
+        aggregateLimits: EnvironmentLimits(cpuMillis: 2_000, memoryBytes: 1 << 30, pids: 512, diskBytes: 4 << 30),
         perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 1 << 30, pids: 256, diskBytes: 2 << 30),
-        allowsPublicEgress: true,
+        allowsPublicEgress: false,
         maxLeaseSeconds: 3_600,
         disconnectGraceSeconds: 30,
         stopGraceSeconds: 10
@@ -321,44 +324,78 @@ struct RemoteLeaseModel: Sendable, Equatable {
     let state: State
 }
 
-struct AgentIntegrationModel: Identifiable, Sendable, Equatable {
-    enum ConfigurationRemoval: Equatable { case none, verified(String), requiresRepair }
-    enum Scope: String, Sendable { case user = "User", workspace = "Workspace", manual = "Manual" }
-    enum ConfigState: String, Sendable { case pending = "Adding", configuring = "Writing configuration", ready = "Ready", needsRestart = "Needs restart", conflict = "Config changed externally", error = "Needs repair", removing = "Removing", removed = "Removed", unknown = "Unavailable" }
-    let id: String
-    let adapterID: String
-    let displayName: String
-    let scope: Scope
-    let configTarget: String
-    let environmentID: String
-    let configState: ConfigState
-    let fingerprint: String
-    let revision: UInt64
-    let errorMessage: String?
-    let createdAt: Date
-    let lastVerifiedAt: Date?
-
-    var configurationRemoval: ConfigurationRemoval {
-        guard adapterID == "codex", configState != .pending else { return .none }
-        return fingerprint.isEmpty ? .requiresRepair : .verified(fingerprint)
-    }
-    var canRepairConfiguration: Bool {
-        adapterID == "codex" && (configurationRemoval == .requiresRepair || configState == .conflict || configState == .error || configState == .configuring)
-    }
-    var canRetryRemoval: Bool { configState == .removing && configurationRemoval != .requiresRepair }
+struct ApplianceFrontendModel: Identifiable, Sendable, Equatable {
+    var id: String { name }
+    let name: String
+    let transport: String
+    let endpoint: String
+    let available: Bool
 }
 
-struct AgentSessionModel: Identifiable, Sendable, Equatable {
-    enum State: String, Sendable { case listening = "Ready", connected = "Connected", revoked = "Revoked", expired = "Expired", closed = "Closed", unknown = "Unavailable" }
+struct ApplianceFrontendGrantModel: Identifiable, Sendable, Equatable {
+    var id: String { name }
+    let name: String
+    let transport: String
+    let exposure: String
+}
+
+struct ApplianceStatusModel: Identifiable, Sendable, Equatable {
     let id: String
-    let integrationID: String?
-    let environmentID: String
-    let state: State
-    let createdAt: Date
-    let expiresAt: Date
-    let lastActivityAt: Date?
-    let activeConnections: UInt32
-    let terminalReason: String?
+    let productID: String
+    let revision: UInt64
+    let artifactID: String
+    let state: String
+    let channelState: String
+    let enabled: Bool
+    let healthy: Bool
+    let healthMessage: String?
+    let grant: ApplianceGrantModel
+    let frontends: [ApplianceFrontendModel]
+}
+
+struct ApplianceGrantModel: Sendable, Equatable {
+    var maxEnvironments: UInt32
+    var aggregateLimits: EnvironmentLimits
+    var perEnvironmentLimits: EnvironmentLimits
+    var allowsPublicEgress: Bool
+    var maxLeaseSeconds: UInt32
+    var disconnectGraceSeconds: UInt32
+    var enabledFrontendNames: Set<String>
+    var dynamicHostLoopbackEnabled: Bool
+
+    static let bundledMCPDefault = ApplianceGrantModel(
+        maxEnvironments: 4,
+        aggregateLimits: EnvironmentLimits(cpuMillis: 2_000, memoryBytes: 1 << 30, pids: 512, diskBytes: 8 << 30),
+        perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 512 << 20, pids: 256, diskBytes: 4 << 30),
+        allowsPublicEgress: true,
+        maxLeaseSeconds: 3_600,
+        disconnectGraceSeconds: 30,
+        enabledFrontendNames: [BundledMCPAppliance.frontendName, BundledMCPAppliance.httpFrontendName],
+        dynamicHostLoopbackEnabled: true
+    )
+}
+
+struct ApplianceImpactModel: Identifiable, Sendable, Equatable {
+    var id: String { "\(resourceType):\(resourceID)" }
+    let resourceType: String
+    let resourceID: String
+    let effect: String
+    let irreversible: Bool
+    let blocker: Bool
+}
+
+struct ApplianceRemovePlanModel: Sendable, Equatable {
+    let revision: UInt64
+    let impacts: [ApplianceImpactModel]
+    var blockers: [ApplianceImpactModel] { impacts.filter(\.blocker) }
+    var requiredConfirmations: [String] { impacts.filter(\.irreversible).map(\.resourceID) }
+}
+
+struct BundledApplianceArtifact: Sendable, Equatable {
+    let manifest: Data
+    let signature: Data
+    let requestedFrontends: [ApplianceFrontendGrantModel]
+    let requestsDynamicHostLoopback: Bool
 }
 
 struct ActivityEvent: Identifiable, Sendable, Equatable {

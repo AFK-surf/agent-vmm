@@ -25,6 +25,9 @@ func (server *operatorServer) DeleteEnvironmentImage(ctx context.Context, reques
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
 	}
+	if err := requireLocalOperatorEnvironment(environment); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err

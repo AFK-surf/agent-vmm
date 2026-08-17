@@ -114,192 +114,6 @@ func TestServiceListenerPersistenceRevocationAndRestartFence(t *testing.T) {
 	}
 }
 
-func TestSchemaV1MigrationAssignsLocalOwner(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := database.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrateV1(tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (1, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO environments(id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, created_at, updated_at)
-		VALUES ('existing', 'namespace', 'Existing', 1000, 1073741824, 128, 4294967296, 1, 1, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	environment, err := store.GetEnvironment(context.Background(), "existing")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if environment.OwnerKind != OwnerLocal || environment.RegistrationID != "" || environment.AllocationID != "" || environment.AllocationState != 0 {
-		t.Fatalf("migrated environment = %+v", environment)
-	}
-}
-
-func TestSchemaV2MigrationRequiresVerificationForExistingRemoteRegistration(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := database.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrateV1(tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := migrateV2(tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (1, 1), (2, 2)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO remote_registrations(
-		id, endpoint, display_name, protocol_version, max_environments,
-		aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
-		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
-		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds,
-		state, connection_state, created_at, updated_at)
-		VALUES ('legacy', 'controller.example:443', 'Legacy', '1', 2,
-		2000, 2147483648, 256, 8589934592, 1000, 1073741824, 128, 4294967296,
-		1, 3600, 30, 10, 1, 2, 1, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-	migrated, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer migrated.Close()
-	registration, err := migrated.GetRemoteRegistration(context.Background(), "legacy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if registration.EnrollmentState != 3 || registration.ConnectionState != 1 || registration.ConnectorPhase != 1 {
-		t.Fatalf("legacy registration was trusted without verification: %+v", registration)
-	}
-	var version int
-	if err := migrated.db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != schemaVersion {
-		t.Fatalf("schema version=%d err=%v", version, err)
-	}
-}
-
-func TestSchemaV3MigrationAllowsConfiguringIntegrations(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := database.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrateV1(tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := migrateV2(tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := migrateV3(tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (1, 1), (2, 2), (3, 3)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO environments(
-		id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode,
-		owner_kind, created_at, updated_at) VALUES ('environment', 'namespace', 'Development', 1000, 1, 1, 1, 1, 1, 1, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO agent_integrations(
-		id, adapter_id, display_name, scope, config_target, environment_id, desired_state, config_state,
-		created_at, updated_at, prepare_request_id)
-		VALUES ('integration', 'codex', 'Codex', 1, 'config', 'environment', 1, 1, 1, 1, 'prepare')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO sessions(
-		id, environment_id, socket_path, expires_at, integration_id, origin, created_at)
-		VALUES ('session', 'environment', '/tmp/session', 2, 'integration', 1, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	migrated, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer migrated.Close()
-	prepared, err := migrated.GetAgentIntegration(context.Background(), "integration")
-	if err != nil {
-		t.Fatal(err)
-	}
-	configuring, err := migrated.BeginAgentIntegrationConfiguration(context.Background(), prepared.ID, prepared.Revision)
-	if err != nil || configuring.ConfigState != 8 {
-		t.Fatalf("configuring integration = %+v, %v", configuring, err)
-	}
-	var foreignKeyViolation string
-	if err := migrated.db.QueryRow("PRAGMA foreign_key_check").Scan(&foreignKeyViolation); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("foreign key check = %q, %v", foreignKeyViolation, err)
-	}
-}
-
-func TestNewerSchemaIsRejectedWithoutRollback(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
-		INSERT INTO schema_migrations(version, applied_at) VALUES (5, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if store, err := Open(path); err == nil {
-		store.Close()
-		t.Fatal("newer schema was opened")
-	}
-}
-
 func TestEnvironmentOwnerConstraints(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
@@ -324,9 +138,12 @@ func TestEnvironmentOwnerConstraints(t *testing.T) {
 	if _, err := store.CreateEnvironment(ctx, remote); err == nil {
 		t.Fatal("duplicate registration/allocation mapping was accepted")
 	}
+	if _, err := store.UpdatePolicy(ctx, "remote-a", 1, Environment{CPUMillis: 2, MemoryBytes: 2, PIDs: 2, DiskBytes: 2, EgressMode: 1}); err == nil {
+		t.Fatal("remote allocation policy was mutable through the local store path")
+	}
 }
 
-func TestSingleActiveRemoteRegistration(t *testing.T) {
+func TestMultipleRemoteRegistrations(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -345,14 +162,23 @@ func TestSingleActiveRemoteRegistration(t *testing.T) {
 		t.Fatalf("created=%+v err=%v", created, err)
 	}
 	registration.ID = "two"
-	if _, err := store.CreateRemoteRegistration(ctx, registration); err == nil {
-		t.Fatal("second active registration was accepted")
-	}
-	if _, err := store.SetRemoteRegistrationState(ctx, created.ID, created.Revision, 3); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.CreateRemoteRegistration(ctx, registration); err != nil {
 		t.Fatal(err)
+	}
+	registration.ID = "private"
+	registration.OwnerKind = RemoteRegistrationPrivate
+	registration.InstallationID = "installation"
+	if _, err := store.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	registrations, err := store.ListRemoteRegistrations(ctx)
+	if err != nil || len(registrations) != 3 {
+		t.Fatalf("registrations=%+v err=%v", registrations, err)
+	}
+	registration.ID = "invalid-private"
+	registration.InstallationID = ""
+	if _, err := store.CreateRemoteRegistration(ctx, registration); err == nil {
+		t.Fatal("private registration without installation was accepted")
 	}
 }
 
@@ -634,8 +460,8 @@ func TestRemoteEnrollmentTransitionsAreRevisionAndStateFenced(t *testing.T) {
 	if _, err := database.SetRemoteEnrollment(ctx, ready.ID, ready.Revision, 1, 3, "FAILED", "invalid transition"); err == nil {
 		t.Fatal("invalid enrollment transition was accepted")
 	}
-	revoking, err := database.SetRemoteEnrollment(ctx, ready.ID, ready.Revision, 2, 4, "", "")
-	if err != nil || revoking.State != 1 || revoking.EnrollmentState != 4 {
+	revoking, err := database.BeginRemoteRevocation(ctx, ready.ID, ready.Revision)
+	if err != nil || revoking.State != 2 || revoking.EnrollmentState != 4 || revoking.ConnectionState != 1 || revoking.ConnectionInstance != "" {
 		t.Fatalf("revoking=%+v err=%v", revoking, err)
 	}
 	revoked, err := database.CompleteRemoteRevocation(ctx, revoking.ID, revoking.Revision)
@@ -680,6 +506,44 @@ func TestConnectorStatusRejectsStaleInstances(t *testing.T) {
 	}
 	if _, err := database.ReportConnectorStatus(ctx, disconnected.ID, "", 5, "test", time.Now(), time.Time{}, 1, "CONNECTION_FAILED", "retrying"); err != nil {
 		t.Fatalf("disconnected status report error=%v", err)
+	}
+}
+
+func TestRemotePoolPolicyRevisionIsIndependentFromLifecycleRevision(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	registration, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{
+		ID: "policy-revision", Endpoint: "controller.example:443", ProtocolVersion: "1", MaxEnvironments: 1,
+		AggregateCPUMillis: 1, AggregateMemoryBytes: 1, AggregatePIDs: 1, AggregateDiskBytes: 1,
+		PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
+		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registration.PoolPolicyRevision != 1 {
+		t.Fatalf("initial pool policy revision = %d", registration.PoolPolicyRevision)
+	}
+	draining, err := database.SetRemoteRegistrationState(ctx, registration.ID, registration.Revision, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draining.Revision == registration.Revision || draining.PoolPolicyRevision != registration.PoolPolicyRevision {
+		t.Fatalf("lifecycle transition changed the wrong revision: before=%+v after=%+v", registration, draining)
+	}
+	updated := draining
+	updated.MaxEnvironments = 2
+	updated, err = database.UpdateRemotePool(ctx, updated, draining.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Revision != draining.Revision+1 || updated.PoolPolicyRevision != draining.PoolPolicyRevision+1 {
+		t.Fatalf("pool update revisions: before=%+v after=%+v", draining, updated)
 	}
 }
 

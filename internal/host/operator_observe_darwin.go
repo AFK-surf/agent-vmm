@@ -20,8 +20,10 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 		return nil, err
 	}
 	response := &hostv1.GetSystemSnapshotResponse{Vm: server.controller.manager.Snapshot(), CollectedAt: timestamppb.Now()}
-	if registration, registrationErr := server.controller.store.ActiveRemoteRegistration(ctx); registrationErr == nil {
-		response.RemoteRegistration = server.controller.remoteRegistrationResponse(ctx, registration).GetRegistration()
+	if registrations, registrationErr := server.controller.store.ListRemoteRegistrations(ctx); registrationErr == nil {
+		for _, registration := range registrations {
+			response.RemoteRegistrations = append(response.RemoteRegistrations, server.controller.remoteRegistrationResponse(ctx, registration).GetRegistration())
+		}
 	}
 	environments, err := server.controller.store.ListEnvironments(ctx)
 	if err != nil {
@@ -99,7 +101,7 @@ func (controller *Controller) hostEgressHealth(vm *hostv1.VM, observedAt *timest
 	active, bootID, revision, sources := controller.egress.Status()
 	metrics := controller.egress.Metrics()
 	state := hostv1.HealthState_HEALTH_STATE_HEALTHY
-	reason := fmt.Sprintf("policy_revision=%d sources=%d packets_rx=%d packets_tx=%d drops=%d rejected=%d active_tcp=%d active_udp=%d active_dns=%d", revision, sources, metrics.PacketsReceived, metrics.PacketsSent, metrics.PacketDrops, metrics.RejectedFlows, metrics.ActiveTCP, metrics.ActiveUDP, metrics.ActiveDNS)
+	reason := fmt.Sprintf("policy_revision=%d sources=%d packets_rx=%d packets_tx=%d drops=%d rejected=%d dial_failures=%d active_tcp=%d active_udp=%d active_dns=%d last_error=%q last_dial_error=%q", revision, sources, metrics.PacketsReceived, metrics.PacketsSent, metrics.PacketDrops, metrics.RejectedFlows, metrics.DialFailures, metrics.ActiveTCP, metrics.ActiveUDP, metrics.ActiveDNS, metrics.LastError, metrics.LastDialError)
 	if !active || bootID != vm.GetBootId() || revision == 0 {
 		state = hostv1.HealthState_HEALTH_STATE_DEGRADED
 		reason = "egress session or source policy is not ready"

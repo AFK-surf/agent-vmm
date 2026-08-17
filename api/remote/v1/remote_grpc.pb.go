@@ -8,6 +8,7 @@ package remotev1
 
 import (
 	context "context"
+	v1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -19,9 +20,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RemoteControllerService_Enroll_FullMethodName       = "/agentvmm.remote.v1.RemoteControllerService/Enroll"
-	RemoteControllerService_Connect_FullMethodName      = "/agentvmm.remote.v1.RemoteControllerService/Connect"
-	RemoteControllerService_ServeSession_FullMethodName = "/agentvmm.remote.v1.RemoteControllerService/ServeSession"
+	RemoteControllerService_Enroll_FullMethodName        = "/agentvmm.remote.v1.RemoteControllerService/Enroll"
+	RemoteControllerService_Connect_FullMethodName       = "/agentvmm.remote.v1.RemoteControllerService/Connect"
+	RemoteControllerService_ServeSession_FullMethodName  = "/agentvmm.remote.v1.RemoteControllerService/ServeSession"
+	RemoteControllerService_ServeFrontend_FullMethodName = "/agentvmm.remote.v1.RemoteControllerService/ServeFrontend"
 )
 
 // RemoteControllerServiceClient is the client API for RemoteControllerService service.
@@ -31,6 +33,7 @@ type RemoteControllerServiceClient interface {
 	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HostControlMessage, ControllerControlMessage], error)
 	ServeSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HostSessionFrame, ControllerSessionFrame], error)
+	ServeFrontend(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[v1.HostFrontendFrame, v1.ControllerFrontendFrame], error)
 }
 
 type remoteControllerServiceClient struct {
@@ -77,6 +80,19 @@ func (c *remoteControllerServiceClient) ServeSession(ctx context.Context, opts .
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RemoteControllerService_ServeSessionClient = grpc.BidiStreamingClient[HostSessionFrame, ControllerSessionFrame]
 
+func (c *remoteControllerServiceClient) ServeFrontend(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[v1.HostFrontendFrame, v1.ControllerFrontendFrame], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RemoteControllerService_ServiceDesc.Streams[2], RemoteControllerService_ServeFrontend_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[v1.HostFrontendFrame, v1.ControllerFrontendFrame]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RemoteControllerService_ServeFrontendClient = grpc.BidiStreamingClient[v1.HostFrontendFrame, v1.ControllerFrontendFrame]
+
 // RemoteControllerServiceServer is the server API for RemoteControllerService service.
 // All implementations must embed UnimplementedRemoteControllerServiceServer
 // for forward compatibility.
@@ -84,6 +100,7 @@ type RemoteControllerServiceServer interface {
 	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
 	Connect(grpc.BidiStreamingServer[HostControlMessage, ControllerControlMessage]) error
 	ServeSession(grpc.BidiStreamingServer[HostSessionFrame, ControllerSessionFrame]) error
+	ServeFrontend(grpc.BidiStreamingServer[v1.HostFrontendFrame, v1.ControllerFrontendFrame]) error
 	mustEmbedUnimplementedRemoteControllerServiceServer()
 }
 
@@ -102,6 +119,9 @@ func (UnimplementedRemoteControllerServiceServer) Connect(grpc.BidiStreamingServ
 }
 func (UnimplementedRemoteControllerServiceServer) ServeSession(grpc.BidiStreamingServer[HostSessionFrame, ControllerSessionFrame]) error {
 	return status.Error(codes.Unimplemented, "method ServeSession not implemented")
+}
+func (UnimplementedRemoteControllerServiceServer) ServeFrontend(grpc.BidiStreamingServer[v1.HostFrontendFrame, v1.ControllerFrontendFrame]) error {
+	return status.Error(codes.Unimplemented, "method ServeFrontend not implemented")
 }
 func (UnimplementedRemoteControllerServiceServer) mustEmbedUnimplementedRemoteControllerServiceServer() {
 }
@@ -157,6 +177,13 @@ func _RemoteControllerService_ServeSession_Handler(srv interface{}, stream grpc.
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RemoteControllerService_ServeSessionServer = grpc.BidiStreamingServer[HostSessionFrame, ControllerSessionFrame]
 
+func _RemoteControllerService_ServeFrontend_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RemoteControllerServiceServer).ServeFrontend(&grpc.GenericServerStream[v1.HostFrontendFrame, v1.ControllerFrontendFrame]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RemoteControllerService_ServeFrontendServer = grpc.BidiStreamingServer[v1.HostFrontendFrame, v1.ControllerFrontendFrame]
+
 // RemoteControllerService_ServiceDesc is the grpc.ServiceDesc for RemoteControllerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -179,6 +206,12 @@ var RemoteControllerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ServeSession",
 			Handler:       _RemoteControllerService_ServeSession_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ServeFrontend",
+			Handler:       _RemoteControllerService_ServeFrontend_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

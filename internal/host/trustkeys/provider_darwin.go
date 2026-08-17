@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !development && !e2e
 
 package trustkeys
 

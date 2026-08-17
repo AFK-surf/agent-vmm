@@ -12,17 +12,30 @@ import (
 	"strconv"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	corecontent "github.com/containerd/containerd/v2/core/content"
 	coreimages "github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/containerd/v2/core/leases"
+	"github.com/containerd/errdefs"
 )
 
 const labelPrefix = "agentvmm.afk.surf/"
 
 func (r *Runtime) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureNamespaceRequest) (*vmmdv1.Namespace, error) {
+	return r.ensureNamespace(ctx, request, false)
+}
+
+func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNamespaceRequest, system bool) (*vmmdv1.Namespace, error) {
 	if err := validateRequestID(request.GetRequestId()); err != nil {
 		return nil, err
 	}
-	if err := validateID("namespace_id", request.GetNamespaceId()); err != nil {
-		return nil, err
+	var identityErr error
+	if system {
+		identityErr = validateSystemNamespace(request.GetNamespaceId())
+	} else {
+		identityErr = validateID("namespace_id", request.GetNamespaceId())
+	}
+	if identityErr != nil {
+		return nil, identityErr
 	}
 	if err := validateNamespaceLimits(request.GetLimits()); err != nil {
 		return nil, err
@@ -51,6 +64,9 @@ func (r *Runtime) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		if err != nil {
 			return nil, err
 		}
+		if system && labels[labelPrefix+"role"] != "system-appliance" {
+			return nil, errors.New("system namespace role does not match")
+		}
 		projectID, current, err := namespaceFromLabels(request.GetNamespaceId(), labels)
 		if err != nil {
 			return nil, err
@@ -69,6 +85,9 @@ func (r *Runtime) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 			return nil, allocationErr
 		}
 		labels = namespaceLabels(request.GetLimits(), request.GetEgressMode(), projectID, subnet)
+		if system {
+			labels[labelPrefix+"role"] = "system-appliance"
+		}
 		if err := store.Create(ctx, request.GetNamespaceId(), labels); err != nil {
 			return nil, err
 		}
@@ -131,8 +150,29 @@ func (r *Runtime) DeleteNamespace(ctx context.Context, namespaceID string) error
 	if err := r.network.CanDeleteNamespace(namespaceID); err != nil {
 		return err
 	}
+	activeLeases, err := r.client.LeasesService().List(nsctx)
+	if err != nil {
+		return err
+	}
+	for _, lease := range activeLeases {
+		if err := r.client.LeasesService().Delete(nsctx, lease, leases.SynchronousDelete); err != nil {
+			return err
+		}
+	}
 	for _, image := range images {
 		if err := r.client.ImageService().Delete(nsctx, image.Name(), coreimages.SynchronousDelete()); err != nil {
+			return err
+		}
+	}
+	var blobs []corecontent.Info
+	if err := r.client.ContentStore().Walk(nsctx, func(info corecontent.Info) error {
+		blobs = append(blobs, info)
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, blob := range blobs {
+		if err := r.client.ContentStore().Delete(nsctx, blob.Digest); err != nil && !errdefs.IsNotFound(err) {
 			return err
 		}
 	}
@@ -161,7 +201,6 @@ func (r *Runtime) DeleteNamespace(ctx context.Context, namespaceID string) error
 	}
 	return nil
 }
-
 func validateNamespaceLimits(limits *vmmdv1.NamespaceLimits) error {
 	if limits == nil || limits.GetCpuMillis() == 0 || limits.GetMemoryBytes() < 16<<20 || limits.GetPids() == 0 || limits.GetDiskBytes() == 0 {
 		return errors.New("positive cpu, memory, pids, and disk limits are required")

@@ -75,6 +75,7 @@ func remoteRuntimeDenied(method string) bool {
 	switch method {
 	case hostv1.AgentRuntimeService_GetEnvironment_FullMethodName,
 		hostv1.AgentRuntimeService_PullImage_FullMethodName,
+		hostv1.AgentRuntimeService_ImportImage_FullMethodName,
 		hostv1.AgentRuntimeService_CreateContainer_FullMethodName,
 		hostv1.AgentRuntimeService_StartContainer_FullMethodName,
 		hostv1.AgentRuntimeService_StopContainer_FullMethodName,
@@ -251,7 +252,14 @@ func deadlineUnary(ctx context.Context, request any, _ *grpc.UnaryServerInfo, ha
 	if _, ok := ctx.Deadline(); ok {
 		return handler(ctx, request)
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	timeout := 30 * time.Second
+	if mutation, ok := request.(interface{ GetDeadlineUnixMillis() int64 }); ok {
+		requested := time.Until(time.UnixMilli(mutation.GetDeadlineUnixMillis()))
+		if requested > timeout {
+			timeout = min(requested, 15*time.Minute)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return handler(ctx, request)
 }
@@ -323,6 +331,7 @@ func deadlineStream(server any, stream grpc.ServerStream, info *grpc.StreamServe
 	case hostv1.AgentRuntimeService_Exec_FullMethodName,
 		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
 		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
+		hostv1.AgentRuntimeService_ImportImage_FullMethodName,
 		hostv1.AgentRuntimeService_Logs_FullMethodName,
 		hostv1.OperatorService_WatchEvents_FullMethodName,
 		hostv1.OperatorService_WatchMetrics_FullMethodName,

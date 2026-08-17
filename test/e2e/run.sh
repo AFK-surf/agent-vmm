@@ -4,14 +4,20 @@ set -u
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 bundle=${AGENT_VMM_E2E_BUNDLE:-/tmp/agent-vmm-e2e-bundle}
 host_binary=${AGENT_VMM_E2E_HOST_BINARY:-/tmp/agent-vmm-e2e-host}
-json=$repository/.context/e2e/test.json
-report=$repository/.context/e2e/report.md
-mkdir -p "$repository/.context/e2e"
+json=$repository/.build/test-results/e2e/test.json
+report=$repository/.build/test-results/e2e/report.md
+mkdir -p "$repository/.build/test-results/e2e"
 
 if [ -z "${AGENT_VMM_E2E_BUNDLE:-}" ]; then
   mkdir -p "$bundle"
+  download_cache=${AGENT_VMM_DOWNLOAD_CACHE:-/tmp/agent-vmm-download-cache}
+  go_module_cache=${AGENT_VMM_GO_MODULE_CACHE:-/tmp/agent-vmm-go-module-cache}
+  go_build_cache=${AGENT_VMM_GO_BUILD_CACHE:-/tmp/agent-vmm-go-build-cache}
+  mkdir -p "$download_cache" "$go_module_cache" "$go_build_cache"
   docker run --rm --platform linux/arm64 --privileged \
-    -v "$repository:/src" -v "$bundle:/bundle" -w /src alpine:3.24 \
+    -v "$repository:/src" -v "$bundle:/bundle" -v "$download_cache:/download-cache" \
+    -v "$go_module_cache:/go/pkg/mod" -v "$go_build_cache:/root/.cache/go-build" \
+    -e AGENT_VMM_DOWNLOAD_CACHE=/download-cache -e GOPATH=/go -e GOCACHE=/root/.cache/go-build -w /src alpine:3.24 \
     sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && build/guest/build.sh /bundle'
   prepare_status=$?
 else

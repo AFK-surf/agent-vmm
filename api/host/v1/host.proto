@@ -13,6 +13,7 @@ option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
 service AgentRuntimeService {
   rpc GetEnvironment(GetOwnEnvironmentRequest) returns (GetEnvironmentResponse);
   rpc PullImage(PullImageRequest) returns (stream PullImageResponse);
+  rpc ImportImage(stream ImportImageRequest) returns (Image);
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
   rpc DeleteImage(DeleteImageRequest) returns (google.protobuf.Empty);
   rpc CreateContainer(CreateContainerRequest) returns (ContainerResponse);
@@ -100,6 +101,7 @@ service OperatorService {
   rpc UpdateRemotePool(UpdateRemotePoolRequest) returns (RemoteRegistrationResponse);
   rpc SetRemoteRegistrationState(SetRemoteRegistrationStateRequest) returns (RemoteRegistrationResponse);
   rpc GetRemoteRegistration(GetRemoteRegistrationRequest) returns (RemoteRegistrationResponse);
+  rpc ListRemoteRegistrations(ListRemoteRegistrationsRequest) returns (ListRemoteRegistrationsResponse);
   rpc GetDeviceIdentity(GetDeviceIdentityRequest) returns (DeviceIdentityResponse);
   rpc RotateDeviceRoot(RotateDeviceRootRequest) returns (RotateDeviceRootResponse);
   rpc ListPersonalMeshes(ListPersonalMeshesRequest) returns (ListPersonalMeshesResponse);
@@ -261,12 +263,138 @@ service RemoteComputeService {
   rpc ReportConnectorStatus(ReportConnectorStatusRequest) returns (GetRemoteStateResponse);
   rpc EnsureAllocation(EnsureAllocationRequest) returns (AllocationResponse);
   rpc ReleaseAllocation(ReleaseAllocationRequest) returns (AllocationResponse);
-  rpc PlanDiscardAllocation(PlanDiscardAllocationRequest) returns (AllocationCleanupPlanResponse);
-  rpc ExecuteDiscardAllocation(ExecuteDiscardAllocationRequest) returns (AllocationResponse);
+  rpc PlanCleanupAllocation(PlanCleanupAllocationRequest) returns (AllocationCleanupPlanResponse);
+  rpc ExecuteCleanupAllocation(ExecuteCleanupAllocationRequest) returns (AllocationResponse);
   rpc AcquireLease(AcquireLeaseRequest) returns (LeaseResponse);
   rpc RenewLease(RenewLeaseRequest) returns (LeaseResponse);
   rpc ReleaseLease(ReleaseLeaseRequest) returns (LeaseResponse);
   rpc OpenRuntimeSession(OpenRuntimeSessionRequest) returns (CreateAgentSessionResponse);
+  rpc RevokeRuntimeSession(RevokeRuntimeSessionRequest) returns (google.protobuf.Empty);
+  rpc AcquireHostLoopbackFrontend(AcquireHostLoopbackFrontendRequest) returns (HostLoopbackFrontendLease);
+  rpc RenewHostLoopbackFrontend(RenewHostLoopbackFrontendRequest) returns (HostLoopbackFrontendLease);
+  rpc ReleaseHostLoopbackFrontend(ReleaseHostLoopbackFrontendRequest) returns (google.protobuf.Empty);
+  rpc AcceptHostLoopbackFrontend(stream ControllerFrontendFrame) returns (stream HostFrontendFrame);
+}
+
+message HostLoopbackFrontendCapacity {
+  uint32 max_active_leases = 1;
+  uint32 max_active_leases_per_allocation = 2;
+  uint32 max_lease_seconds = 3;
+  uint32 max_concurrent_connections = 4;
+  uint32 max_concurrent_connections_per_lease = 5;
+  uint32 max_frame_bytes = 6;
+  uint64 max_connection_bytes = 7;
+  uint32 connection_deadline_seconds = 8;
+  uint32 connection_idle_seconds = 9;
+  uint32 max_use_count = 10;
+}
+
+message HostLoopbackFrontendLease {
+  string frontend_lease_id = 1;
+  uint64 generation = 2;
+  string registration_id = 3;
+  string connection_instance = 4;
+  string allocation_id = 5;
+  string allocation_lease_id = 6;
+  uint64 allocation_lease_generation = 7;
+  uint64 allocation_revision = 8;
+  string assignment_id = 9;
+  string endpoint = 10;
+  bytes access_token = 11;
+  google.protobuf.Timestamp expires_at = 12;
+  HostLoopbackFrontendCapacity effective_capacity = 13;
+  uint64 connection_epoch = 14;
+}
+
+message AcquireHostLoopbackFrontendRequest {
+  string registration_id = 1;
+  string connection_instance = 2;
+  string allocation_id = 3;
+  string allocation_lease_id = 4;
+  uint64 allocation_lease_generation = 5;
+  uint64 target_revision = 6;
+  string assignment_id = 7;
+  google.protobuf.Duration duration = 8;
+  uint64 connection_epoch = 9;
+}
+
+message RenewHostLoopbackFrontendRequest {
+  string registration_id = 1;
+  string connection_instance = 2;
+  string frontend_lease_id = 3;
+  uint64 generation = 4;
+  string allocation_lease_id = 5;
+  uint64 allocation_lease_generation = 6;
+  google.protobuf.Duration duration = 7;
+  uint64 connection_epoch = 8;
+}
+
+message ReleaseHostLoopbackFrontendRequest {
+  string registration_id = 1;
+  string connection_instance = 2;
+  string frontend_lease_id = 3;
+  uint64 generation = 4;
+  uint64 connection_epoch = 5;
+}
+
+message HostLoopbackFrontendAccept {
+  string registration_id = 1;
+  string connection_instance = 2;
+  uint64 connection_epoch = 3;
+}
+
+message HostLoopbackFrontendConnectionHeader {
+  string registration_id = 1;
+  string connection_instance = 2;
+  string frontend_lease_id = 3;
+  uint64 frontend_lease_generation = 4;
+  string allocation_id = 5;
+  string allocation_lease_id = 6;
+  uint64 allocation_lease_generation = 7;
+  uint64 allocation_revision = 8;
+  string assignment_id = 9;
+  string connection_id = 10;
+  HostLoopbackFrontendCapacity effective_capacity = 11;
+  uint64 connection_epoch = 12;
+}
+
+message HostLoopbackFrontendConnectionAck {
+  string connection_id = 1;
+  bool accepted = 2;
+  string reason = 3;
+}
+
+message HostLoopbackFrontendEvent {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_EXPIRED = 1;
+    KIND_REVOKED = 2;
+    KIND_RELEASED = 3;
+    KIND_CLOSED = 4;
+  }
+  Kind kind = 1;
+  string frontend_lease_id = 2;
+  uint64 generation = 3;
+  string assignment_id = 4;
+  string connection_id = 5;
+}
+
+message HostFrontendFrame {
+  oneof payload {
+    HostLoopbackFrontendConnectionHeader header = 1;
+    bytes data = 2;
+    bool close_write = 3;
+    HostLoopbackFrontendEvent event = 4;
+  }
+}
+
+message ControllerFrontendFrame {
+  oneof payload {
+    HostLoopbackFrontendAccept accept = 1;
+    HostLoopbackFrontendConnectionAck ack = 2;
+    bytes data = 3;
+    bool close_write = 4;
+  }
 }
 
 enum WorkspaceEntryKind {
@@ -286,7 +414,7 @@ message WorkspaceEntry {
 }
 message ListWorkspaceRequest { string path = 1; uint32 limit = 2; }
 message ListWorkspaceResponse { repeated WorkspaceEntry entries = 1; }
-message ReadWorkspaceRequest { string path = 1; uint64 offset = 2; uint64 max_bytes = 3; }
+message ReadWorkspaceRequest { string path = 1; uint64 offset = 2; uint64 max_bytes = 3; string volume_id = 4; }
 message ReadWorkspaceResponse { bytes data = 1; uint64 offset = 2; bytes sha256 = 3; bool final = 4; }
 message WriteWorkspaceHeader {
   string request_id = 1;
@@ -294,6 +422,7 @@ message WriteWorkspaceHeader {
   uint64 offset = 3;
   bytes expected_prefix_sha256 = 4;
   uint32 mode = 5;
+  string volume_id = 6;
 }
 message WriteWorkspaceRequest {
   oneof payload { WriteWorkspaceHeader header = 1; bytes data = 2; bool finish = 3; }
@@ -670,6 +799,20 @@ message PullImageResponse {
   uint64 logical_bytes = 3;
   string canonical_reference = 4;
 }
+message ImportImageHeader {
+  string request_id = 1;
+  string image_reference = 2;
+  bytes archive_sha256 = 3;
+  string manifest_digest = 4;
+  string platform = 5;
+  uint64 archive_size = 6;
+}
+message ImportImageRequest {
+  oneof payload {
+    ImportImageHeader header = 1;
+    bytes archive_chunk = 2;
+  }
+}
 message Image {
   string reference = 1;
   string digest = 2;
@@ -898,7 +1041,7 @@ message GetSystemSnapshotResponse {
   Usage usage = 3;
   repeated AgentEnvironment environments = 4;
   google.protobuf.Timestamp collected_at = 5;
-  RemoteRegistration remote_registration = 6;
+  repeated RemoteRegistration remote_registrations = 6;
 }
 message WatchEventsRequest {
   uint64 after_sequence = 1;
@@ -1077,6 +1220,12 @@ enum RemoteRegistrationState {
   REMOTE_REGISTRATION_STATE_REVOKED = 3;
 }
 
+enum RemoteRegistrationOwnerKind {
+  REMOTE_REGISTRATION_OWNER_KIND_UNSPECIFIED = 0;
+  REMOTE_REGISTRATION_OWNER_KIND_EXTERNAL = 1;
+  REMOTE_REGISTRATION_OWNER_KIND_APPLIANCE = 2;
+}
+
 enum RemoteConnectionState {
   reserved 3;
   REMOTE_CONNECTION_STATE_UNSPECIFIED = 0;
@@ -1113,6 +1262,20 @@ message ConnectorStatus {
   uint32 reconnect_attempt = 7;
   string failure_code = 8;
   string failure_message = 9;
+  ControllerDomainMetrics domain_metrics = 10;
+}
+
+message ControllerDomainMetrics {
+  uint64 bytes_to_controller = 1;
+  uint64 bytes_to_runtime = 2;
+  uint64 send_stalls = 3;
+  uint64 window_blocked_millis = 4;
+  uint32 active_sessions = 5;
+  uint32 active_leases = 6;
+  uint64 connector_restarts = 7;
+  uint64 reconciliations = 8;
+  uint64 last_stop_latency_millis = 9;
+  google.protobuf.Timestamp sampled_at = 10;
 }
 
 message RemotePoolPolicy {
@@ -1123,6 +1286,7 @@ message RemotePoolPolicy {
   google.protobuf.Duration max_lease_duration = 5;
   google.protobuf.Duration disconnect_grace = 6;
   google.protobuf.Duration stop_grace = 7;
+  HostLoopbackFrontendCapacity host_loopback_frontend = 8;
 }
 
 message RemoteRegistration {
@@ -1141,6 +1305,11 @@ message RemoteRegistration {
   ConnectorStatus connector_status = 13;
   google.protobuf.Timestamp created_at = 14;
   google.protobuf.Timestamp updated_at = 15;
+  RemoteRegistrationOwnerKind owner_kind = 16;
+  string installation_id = 17;
+  uint64 inventory_revision = 18;
+  ControllerDomainMetrics domain_metrics = 19;
+  uint64 pool_policy_revision = 20;
 }
 
 message BeginRemoteEnrollmentRequest {
@@ -1188,15 +1357,20 @@ message UpdateRemotePoolRequest {
   string request_id = 1;
   uint64 expected_revision = 2;
   RemotePoolPolicy pool = 3;
+  string registration_id = 4;
 }
 
 message SetRemoteRegistrationStateRequest {
   string request_id = 1;
   uint64 expected_revision = 2;
   RemoteRegistrationState state = 3;
+  string registration_id = 4;
 }
 
-message GetRemoteRegistrationRequest {}
+message GetRemoteRegistrationRequest { string registration_id = 1; }
+
+message ListRemoteRegistrationsRequest {}
+message ListRemoteRegistrationsResponse { repeated RemoteRegistration registrations = 1; }
 
 message RemoteRegistrationResponse {
   RemoteRegistration registration = 1;
@@ -1239,7 +1413,7 @@ message RemoteLease {
   LeaseState state = 6;
 }
 
-message GetRemoteStateRequest {}
+message GetRemoteStateRequest { string registration_id = 1; }
 
 message GetRemoteStateResponse {
   RemoteRegistration registration = 1;
@@ -1248,14 +1422,20 @@ message GetRemoteStateResponse {
 message SetConnectionStateRequest {
   string connection_instance = 1;
   RemoteConnectionState state = 2;
+  string registration_id = 3;
+  uint64 connection_epoch = 4;
 }
 message SetRemoteAdmissionStateRequest {
   string connection_instance = 1;
   RemoteRegistrationState state = 2;
+  string registration_id = 3;
+  uint64 expected_inventory_revision = 4;
+  uint64 expected_pool_policy_revision = 5;
 }
 message ReportConnectorStatusRequest {
   string connection_instance = 1;
   ConnectorStatus status = 2;
+  string registration_id = 3;
 }
 
 message EnsureAllocationRequest {
@@ -1265,6 +1445,7 @@ message EnsureAllocationRequest {
   EgressMode egress_mode = 4;
   uint64 policy_revision = 5;
   string connection_instance = 6;
+  string registration_id = 7;
 }
 
 message AllocationResponse {
@@ -1273,10 +1454,16 @@ message AllocationResponse {
 
 message ReleaseAllocationRequest {
   string allocation_id = 1;
+  uint64 expected_policy_revision = 2;
+  string registration_id = 3;
+  string connection_instance = 4;
 }
 
-message PlanDiscardAllocationRequest {
+message PlanCleanupAllocationRequest {
   string allocation_id = 1;
+  string registration_id = 2;
+  string connection_instance = 3;
+  CleanupKind kind = 4;
 }
 
 message AllocationCleanupPlan {
@@ -1284,16 +1471,22 @@ message AllocationCleanupPlan {
   uint64 revision = 2;
   repeated string volume_ids = 3;
   repeated CleanupImpact impacts = 4;
+  CleanupKind kind = 5;
 }
 
 message AllocationCleanupPlanResponse {
   AllocationCleanupPlan plan = 1;
 }
 
-message ExecuteDiscardAllocationRequest {
+message ExecuteCleanupAllocationRequest {
   string allocation_id = 1;
   uint64 plan_revision = 2;
   repeated string confirmed_volume_ids = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
+  CleanupKind kind = 6;
+  string expected_lease_id = 7;
+  uint64 expected_lease_generation = 8;
 }
 
 message AcquireLeaseRequest {
@@ -1301,25 +1494,42 @@ message AcquireLeaseRequest {
   google.protobuf.Duration duration = 2;
   string workload_ref = 3;
   string connection_instance = 4;
+  string registration_id = 5;
+  uint64 expected_policy_revision = 6;
 }
 
 message RenewLeaseRequest {
   string lease_id = 1;
   uint64 generation = 2;
   google.protobuf.Duration duration = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
 }
 
 message ReleaseLeaseRequest {
   string lease_id = 1;
   uint64 generation = 2;
+  string registration_id = 3;
+  string connection_instance = 4;
 }
 
 message LeaseResponse {
   RemoteLease lease = 1;
+  uint64 allocation_revision = 2;
 }
 
 message OpenRuntimeSessionRequest {
   string lease_id = 1;
   uint64 generation = 2;
   string allocation_id = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
+}
+
+message RevokeRuntimeSessionRequest {
+  string session_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
 }

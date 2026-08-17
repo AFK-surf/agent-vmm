@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -20,6 +21,17 @@ const (
 )
 
 var ErrTrustRevisionConflict = errors.New("trust revision conflict")
+
+const (
+	ApplianceTrustActive  = 1
+	ApplianceTrustRevoked = 2
+)
+
+type ApplianceTrustAuthority struct {
+	AuthorityID, InstallationID, RegistrationID, BootID, ContainerInstance string
+	ConfigRevision                                                         uint64
+	State                                                                  int
+}
 
 type DeviceIdentityRecord struct {
 	Identity           *trustv1.DeviceIdentity
@@ -306,6 +318,14 @@ func (store *Store) InstallManagedTrust(ctx context.Context, anchor *trustv1.Tru
 	}
 	defer tx.Rollback()
 	now := time.Now().UnixNano()
+	if err := installManagedTrustTx(ctx, tx, anchor, credential, anchorPayload, credentialPayload, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func installManagedTrustTx(ctx context.Context, tx *sql.Tx, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential, anchorPayload, credentialPayload []byte, now int64) error {
+	var err error
 	var currentAnchorRevision uint64
 	var currentAnchorPayload []byte
 	err = tx.QueryRowContext(ctx, `SELECT revision, anchor FROM trust_anchors WHERE authority_id=?`, anchor.GetAuthority().GetAuthorityId()).Scan(&currentAnchorRevision, &currentAnchorPayload)
@@ -356,7 +376,164 @@ func (store *Store) InstallManagedTrust(ctx context.Context, anchor *trustv1.Tru
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (store *Store) InstallApplianceManagedTrust(ctx context.Context, binding ApplianceTrustAuthority, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
+	anchorPayload, err := marshalTrust(anchor)
+	if err != nil {
+		return err
+	}
+	credentialPayload, err := marshalTrust(credential)
+	if err != nil {
+		return err
+	}
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var retired int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM revoked_appliance_authorities WHERE authority_id=?`, binding.AuthorityID).Scan(&retired); err != nil {
+		return err
+	}
+	if retired != 0 {
+		return ErrTrustRevisionConflict
+	}
+	var revision uint64
+	var registration, bootID, containerInstance string
+	if err := tx.QueryRowContext(ctx, `SELECT revision, registration_id, current_boot_id, current_container_instance
+		FROM appliance_installations WHERE id=?`, binding.InstallationID).Scan(&revision, &registration, &bootID, &containerInstance); err != nil {
+		return err
+	}
+	if binding.AuthorityID != anchor.GetAuthority().GetAuthorityId() || binding.RegistrationID == "" || binding.RegistrationID != registration ||
+		binding.BootID == "" || binding.BootID != bootID || binding.ContainerInstance == "" || binding.ContainerInstance != containerInstance ||
+		binding.ConfigRevision != revision {
+		return ErrTrustRevisionConflict
+	}
+	var existing ApplianceTrustAuthority
+	err = tx.QueryRowContext(ctx, `SELECT authority_id, installation_id, registration_id, boot_id, container_instance, config_revision, state
+		FROM appliance_trust_authorities WHERE authority_id=? OR installation_id=?`, binding.AuthorityID, binding.InstallationID).
+		Scan(&existing.AuthorityID, &existing.InstallationID, &existing.RegistrationID, &existing.BootID, &existing.ContainerInstance, &existing.ConfigRevision, &existing.State)
+	now := time.Now().UnixNano()
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if err := installManagedTrustTx(ctx, tx, anchor, credential, anchorPayload, credentialPayload, now); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO appliance_trust_authorities(authority_id, installation_id, registration_id,
+			boot_id, container_instance, config_revision, state, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, binding.AuthorityID,
+			binding.InstallationID, binding.RegistrationID, binding.BootID, binding.ContainerInstance, binding.ConfigRevision, ApplianceTrustActive, now)
+	case err != nil:
+		return err
+	default:
+		if existing.InstallationID != binding.InstallationID || existing.RegistrationID != binding.RegistrationID || existing.State != ApplianceTrustActive {
+			return ErrTrustRevisionConflict
+		}
+		var storedAnchor, storedCredential []byte
+		if err := tx.QueryRowContext(ctx, `SELECT a.anchor, m.credential FROM trust_anchors a JOIN membership_credentials m
+			ON m.authority_id=a.authority_id WHERE a.authority_id=? AND m.subject_device_id=?`, binding.AuthorityID,
+			credential.GetSubjectDeviceId()).Scan(&storedAnchor, &storedCredential); err != nil {
+			return err
+		}
+		if !bytes.Equal(storedAnchor, anchorPayload) || !bytes.Equal(storedCredential, credentialPayload) {
+			return ErrTrustRevisionConflict
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE appliance_trust_authorities SET boot_id=?, container_instance=?, config_revision=?, updated_at=? WHERE authority_id=?`, binding.BootID, binding.ContainerInstance, binding.ConfigRevision, now, binding.AuthorityID); err != nil {
+			return err
+		}
+	}
+	if err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+func (store *Store) GetApplianceTrustAuthority(ctx context.Context, authorityID string) (ApplianceTrustAuthority, error) {
+	var value ApplianceTrustAuthority
+	err := store.db.QueryRowContext(ctx, `SELECT authority_id, installation_id, registration_id, boot_id, container_instance, config_revision, state
+		FROM appliance_trust_authorities WHERE authority_id=?`, authorityID).Scan(&value.AuthorityID, &value.InstallationID,
+		&value.RegistrationID, &value.BootID, &value.ContainerInstance, &value.ConfigRevision, &value.State)
+	return value, err
+}
+
+func (store *Store) ValidateApplianceRouteAuthority(ctx context.Context, authorityID, allocationID string, routeGeneration, policyRevision uint64) error {
+	var retired int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM revoked_appliance_authorities WHERE authority_id=?`, authorityID).Scan(&retired); err != nil {
+		return err
+	}
+	if retired != 0 {
+		return ErrTrustRevisionConflict
+	}
+	var state int
+	var registration string
+	var generation, environmentPolicy uint64
+	err := store.db.QueryRowContext(ctx, `SELECT a.state, a.registration_id, a.config_revision, e.policy_revision
+		FROM appliance_trust_authorities a JOIN environments e ON e.registration_id=a.registration_id
+		WHERE a.authority_id=? AND e.allocation_id=?`, authorityID, allocationID).Scan(&state, &registration, &generation, &environmentPolicy)
+	if errors.Is(err, sql.ErrNoRows) {
+		var scoped int
+		if lookupErr := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM appliance_trust_authorities WHERE authority_id=?`, authorityID).Scan(&scoped); lookupErr != nil {
+			return lookupErr
+		}
+		if scoped == 0 {
+			return nil
+		}
+	}
+	if err != nil || registration == "" || state != ApplianceTrustActive || generation != routeGeneration || environmentPolicy != policyRevision {
+		return errors.Join(ErrTrustRevisionConflict, err)
+	}
+	return nil
+}
+
+func (store *Store) RevokeApplianceTrustAuthority(ctx context.Context, installationID string) error {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var registration string
+	if err := tx.QueryRowContext(ctx, `SELECT registration_id FROM appliance_trust_authorities WHERE installation_id=?`, installationID).Scan(&registration); err != nil {
+		return err
+	}
+	now := time.Now().UnixNano()
+	if _, err := tx.ExecContext(ctx, `UPDATE appliance_trust_authorities SET state=?, updated_at=? WHERE installation_id=? AND state=?`,
+		ApplianceTrustRevoked, now, installationID, ApplianceTrustActive); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE service_imports SET revoked=1, revision=revision+1, updated_at=? WHERE revoked=0 AND
+		(source_environment_id IN (SELECT id FROM environments WHERE registration_id=?) OR destination_export_id IN
+		(SELECT x.export_id FROM service_exports x JOIN environments e ON e.id=x.environment_id WHERE e.registration_id=?))`, now, registration, registration); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE access_routes SET state=?, revision=revision+1, generation=generation+1, updated_at=?
+		WHERE state=? AND import_id IN (SELECT import_id FROM service_imports WHERE revoked=1)`, servicev1.RouteState_ROUTE_STATE_REVOKED,
+		now, servicev1.RouteState_ROUTE_STATE_ACTIVE); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (store *Store) ListApplianceRouteImports(ctx context.Context, installationID string) ([]string, error) {
+	rows, err := store.db.QueryContext(ctx, `SELECT DISTINCT i.import_id FROM appliance_trust_authorities a
+		JOIN environments se ON se.registration_id=a.registration_id
+		JOIN service_imports i ON i.source_environment_id=se.id
+		WHERE a.installation_id=? AND i.revoked=0 UNION SELECT DISTINCT i.import_id FROM appliance_trust_authorities a
+		JOIN environments de ON de.registration_id=a.registration_id JOIN service_exports x ON x.environment_id=de.id
+		JOIN service_imports i ON i.destination_export_id=x.export_id WHERE a.installation_id=? AND i.revoked=0 ORDER BY 1`, installationID, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		result = append(result, id)
+	}
+	return result, rows.Err()
 }
 
 func (store *Store) CreatePersonalMesh(ctx context.Context, descriptor *trustv1.PersonalMeshDescriptor, snapshot *trustv1.MeshSnapshot, operation *trustv1.RegistryOperation) error {

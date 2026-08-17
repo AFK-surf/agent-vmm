@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,15 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
 )
 
 const (
-	version        = "0.1.0"
-	hostLabel      = "com.afk-surf.agent-vmm"
-	connectorLabel = "com.afk-surf.agent-vmm-connect"
+	version   = "0.1.0"
+	hostLabel = "com.afk-surf.agent-vmm"
 )
 
 type paths struct {
@@ -25,20 +20,14 @@ type paths struct {
 	app             string
 	resources       string
 	hostPlist       string
-	connectorPlist  string
 	applicationData string
 	logs            string
 }
 
 type serviceStatus struct {
-	AppInstalled       bool `json:"appInstalled"`
-	HostInstalled      bool `json:"hostInstalled"`
-	MCPInstalled       bool `json:"mcpInstalled"`
-	ConnectorInstalled bool `json:"connectorInstalled"`
-	HostLoaded         bool `json:"hostLoaded"`
-	ConnectorLoaded    bool `json:"connectorLoaded"`
-	SalixReady         bool `json:"salixReady"`
-	SalixRevoked       bool `json:"salixRevoked"`
+	AppInstalled  bool `json:"appInstalled"`
+	HostInstalled bool `json:"hostInstalled"`
+	HostLoaded    bool `json:"hostLoaded"`
 }
 
 func main() {
@@ -117,7 +106,6 @@ func lifecyclePaths() (paths, error) {
 	return paths{
 		home: home, app: app, resources: filepath.Join(contents, "Resources"),
 		hostPlist:       filepath.Join(launchAgents, hostLabel+".plist"),
-		connectorPlist:  filepath.Join(launchAgents, connectorLabel+".plist"),
 		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"),
 		logs:            filepath.Join(home, "Library", "Logs", "AgentVMM"),
 	}, nil
@@ -126,19 +114,9 @@ func lifecyclePaths() (paths, error) {
 func readStatus(value paths) serviceStatus {
 	helper := filepath.Join(value.app, "Contents", "Helpers")
 	result := serviceStatus{
-		AppInstalled:       directory(value.app),
-		HostInstalled:      regular(filepath.Join(helper, "agent-vmm-host")) && regular(value.hostPlist),
-		MCPInstalled:       regular(filepath.Join(helper, "agent-vmm-mcp")),
-		ConnectorInstalled: regular(filepath.Join(helper, "agent-vmm-connect")) && regular(value.connectorPlist),
-		HostLoaded:         launchctl("print", domain()+"/"+hostLabel) == nil,
-		ConnectorLoaded:    launchctl("print", domain()+"/"+connectorLabel) == nil,
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	registration, err := remoteconnector.ObserveRegistration(ctx, filepath.Join(value.applicationData, "remote-compute.sock"))
-	if err == nil {
-		result.SalixReady = registration.Ready
-		result.SalixRevoked = registration.Revoked
+		AppInstalled:  directory(value.app),
+		HostInstalled: regular(filepath.Join(helper, "agent-vmm-host")) && regular(value.hostPlist),
+		HostLoaded:    launchctl("print", domain()+"/"+hostLabel) == nil,
 	}
 	return result
 }
@@ -166,10 +144,7 @@ func repairWithOptions(value paths, run func(...string) error, disablePairing bo
 	if err := os.MkdirAll(value.logs, 0o700); err != nil {
 		return errors.New("log directory could not be created")
 	}
-	for _, item := range []struct{ resource, destination string }{
-		{hostLabel + ".plist", value.hostPlist},
-		{connectorLabel + ".plist", value.connectorPlist},
-	} {
+	for _, item := range []struct{ resource, destination string }{{hostLabel + ".plist", value.hostPlist}} {
 		template, err := os.ReadFile(filepath.Join(value.resources, item.resource))
 		if err != nil {
 			return errors.New("bundled service definition is missing")
@@ -184,18 +159,11 @@ func repairWithOptions(value paths, run func(...string) error, disablePairing bo
 		}
 	}
 	_ = run("bootout", domain()+"/"+hostLabel)
-	_ = run("bootout", domain()+"/"+connectorLabel)
 	if err := run("bootstrap", domain(), value.hostPlist); err != nil {
 		return errors.New("host service could not be loaded")
 	}
 	if err := run("enable", domain()+"/"+hostLabel); err != nil {
 		return errors.New("host service could not be enabled")
-	}
-	if err := run("bootstrap", domain(), value.connectorPlist); err != nil {
-		return errors.New("connector service could not be loaded")
-	}
-	if err := run("enable", domain()+"/"+connectorLabel); err != nil {
-		return errors.New("connector service could not be enabled")
 	}
 	return nil
 }
@@ -213,13 +181,8 @@ func uninstall(value paths, purge bool) error { return uninstallWith(value, purg
 
 func drain(value paths) error { return drainWith(value, launchctl) }
 
-// drain closes connector admission before stopping the host. launchctl bootout
-// waits for each LaunchAgent to terminate, so lifecycle callers receive an
-// acknowledgement only after the current runtime owner has exited.
+// launchctl bootout waits for the host and its supervised workers to terminate.
 func drainWith(value paths, run func(...string) error) error {
-	if err := run("bootout", domain()+"/"+connectorLabel); err != nil && regular(value.connectorPlist) {
-		return errors.New("connector service could not be drained")
-	}
 	if err := run("bootout", domain()+"/"+hostLabel); err != nil && regular(value.hostPlist) {
 		return errors.New("host service could not be drained")
 	}
@@ -228,12 +191,8 @@ func drainWith(value paths, run func(...string) error) error {
 
 func uninstallWith(value paths, purge bool, run func(...string) error) error {
 	_ = run("bootout", domain()+"/"+hostLabel)
-	_ = run("bootout", domain()+"/"+connectorLabel)
 	if err := os.Remove(value.hostPlist); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return errors.New("host service definition could not be removed")
-	}
-	if err := os.Remove(value.connectorPlist); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return errors.New("connector service definition could not be removed")
 	}
 	if purge {
 		if err := os.RemoveAll(value.applicationData); err != nil {

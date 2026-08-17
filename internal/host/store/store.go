@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 9
+const schemaVersion = 16
 
 const (
 	OwnerLocal              = 1
@@ -110,10 +110,9 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("recover interrupted operations: %w", err)
 	}
-	if _, err := db.Exec(`UPDATE environments SET allocation_state=4, policy_revision=policy_revision+1,
-		updated_at=? WHERE owner_kind=2 AND allocation_state=2`, time.Now().UnixNano()); err != nil {
+	if err := result.RecoverRemoteLeaseProjections(context.Background()); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("recover remote allocations: %w", err)
+		return nil, fmt.Errorf("recover remote lease projections: %w", err)
 	}
 	if _, err := db.Exec(`UPDATE sessions SET revoked_at=?, terminal_reason='SIDECAR_RESTARTED'
 		WHERE revoked_at IS NULL AND closed_at IS NULL`, time.Now().UnixNano()); err != nil {
@@ -165,10 +164,12 @@ func (store *Store) CreateEnvironment(ctx context.Context, environment Environme
 	return store.GetEnvironment(ctx, environment.ID)
 }
 
+const environmentSelect = `SELECT id, namespace_id, display_name, cpu_millis,
+	memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+	COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments`
+
 func (store *Store) GetEnvironment(ctx context.Context, id string) (Environment, error) {
-	return scanEnvironment(store.db.QueryRowContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
-		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
-		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments WHERE id = ?`, id))
+	return scanEnvironment(store.db.QueryRowContext(ctx, environmentSelect+" WHERE id = ?", id))
 }
 
 func (store *Store) GetRemoteEnvironment(ctx context.Context, registrationID, allocationID string) (Environment, error) {
@@ -215,8 +216,8 @@ func (store *Store) ListEnvironments(ctx context.Context) ([]Environment, error)
 
 func (store *Store) UpdatePolicy(ctx context.Context, id string, expectedRevision uint64, limits Environment) (Environment, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE environments SET cpu_millis=?, memory_bytes=?, pids=?, disk_bytes=?,
-		egress_mode=?, policy_revision=policy_revision+1, updated_at=? WHERE id=? AND policy_revision=?`,
-		limits.CPUMillis, limits.MemoryBytes, limits.PIDs, limits.DiskBytes, limits.EgressMode, time.Now().UnixNano(), id, expectedRevision)
+		egress_mode=?, policy_revision=policy_revision+1, updated_at=? WHERE id=? AND owner_kind=? AND policy_revision=?`,
+		limits.CPUMillis, limits.MemoryBytes, limits.PIDs, limits.DiskBytes, limits.EgressMode, time.Now().UnixNano(), id, OwnerLocal, expectedRevision)
 	if err != nil {
 		return Environment{}, err
 	}

@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !development && !e2e
 
 package remoteconnector
 
@@ -12,7 +12,7 @@ import (
 
 type KeychainStore struct{}
 
-func NewCredentialStore() CredentialStore { return KeychainStore{} }
+func NewCredentialStore(string) CredentialStore { return KeychainStore{} }
 
 func keychainQuery(account string) keychain.Item {
 	item := keychain.NewItem()

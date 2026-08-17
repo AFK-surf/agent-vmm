@@ -6,6 +6,7 @@ import SwiftProtobuf
 actor GRPCHostClient: HostServing {
     private let client: GRPCClient<HTTP2ClientTransport.Posix>
     private let service: Agentvmm_Host_V1_OperatorService.Client<HTTP2ClientTransport.Posix>
+    let applianceService: Agentvmm_Appliance_V1_ApplianceAdminService.Client<HTTP2ClientTransport.Posix>
     private var runTask: Task<Void, Error>?
 
     init(socketPath: String) throws {
@@ -16,6 +17,7 @@ actor GRPCHostClient: HostServing {
         let client = GRPCClient(transport: transport)
         self.client = client
         self.service = Agentvmm_Host_V1_OperatorService.Client(wrapping: client)
+        self.applianceService = Agentvmm_Appliance_V1_ApplianceAdminService.Client(wrapping: client)
         self.runTask = Task { try await client.runConnections() }
     }
 
@@ -371,17 +373,19 @@ actor GRPCHostClient: HostServing {
         return remoteRegistration(try await service.completeRemoteRevocation(request).registration)
     }
 
-    func updateRemotePool(_ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+    func updateRemotePool(registrationID: String, _ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
         var request = Agentvmm_Host_V1_UpdateRemotePoolRequest()
         request.requestID = UUID().uuidString
+        request.registrationID = registrationID
         request.expectedRevision = expectedRevision
         request.pool = remotePool(pool)
         return remoteRegistration(try await service.updateRemotePool(request).registration)
     }
 
-    func setRemoteAdmission(_ state: RemoteAdmissionState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
+    func setRemoteAdmission(registrationID: String, _ state: RemoteAdmissionState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel {
         var request = Agentvmm_Host_V1_SetRemoteRegistrationStateRequest()
         request.requestID = UUID().uuidString
+        request.registrationID = registrationID
         request.expectedRevision = expectedRevision
         switch state {
         case .accepting: request.state = .enabled
@@ -391,81 +395,9 @@ actor GRPCHostClient: HostServing {
         return remoteRegistration(try await service.setRemoteRegistrationState(request).registration)
     }
 
-    func listAgentIntegrations() async throws -> [AgentIntegrationModel] {
-        try await service.listAgentIntegrations(.init()).integrations.map(agentIntegration)
-    }
-
-    func prepareAgentIntegration(adapterID: String, displayName: String, scope: AgentIntegrationModel.Scope, configTarget: String, environmentID: String?) async throws -> AgentIntegrationModel {
-        var request = Agentvmm_Host_V1_PrepareAgentIntegrationRequest()
-        request.requestID = UUID().uuidString
-        request.adapterID = adapterID
-        request.displayName = displayName
-        request.scope = switch scope { case .user: .user; case .workspace: .workspace; case .manual: .manual }
-        request.configTarget = configTarget
-        if let environmentID { request.environmentID = environmentID }
-        return agentIntegration(try await service.prepareAgentIntegration(request).integration)
-    }
-
-    func commitAgentIntegration(id: String, expectedRevision: UInt64, fingerprint: String, needsRestart: Bool) async throws -> AgentIntegrationModel {
-        var request = Agentvmm_Host_V1_CommitAgentIntegrationRequest()
-        request.requestID = UUID().uuidString
-        request.integrationID = id
-        request.expectedRevision = expectedRevision
-        request.configFingerprint = fingerprint
-        request.needsRestart = needsRestart
-        return agentIntegration(try await service.commitAgentIntegration(request).integration)
-    }
-
-    func beginAgentIntegrationConfiguration(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel {
-        var request = Agentvmm_Host_V1_BeginAgentIntegrationConfigurationRequest()
-        request.requestID = UUID().uuidString
-        request.integrationID = id
-        request.expectedRevision = expectedRevision
-        return agentIntegration(try await service.beginAgentIntegrationConfiguration(request).integration)
-    }
-
-    func failAgentIntegration(id: String, expectedRevision: UInt64, code: String, message: String) async throws -> AgentIntegrationModel {
-        var request = Agentvmm_Host_V1_FailAgentIntegrationRequest()
-        request.requestID = UUID().uuidString
-        request.integrationID = id
-        request.expectedRevision = expectedRevision
-        request.errorCode = code
-        request.errorMessage = message
-        return agentIntegration(try await service.failAgentIntegration(request).integration)
-    }
-
-    func beginAgentIntegrationRemoval(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel {
-        var request = Agentvmm_Host_V1_BeginAgentIntegrationRemovalRequest()
-        request.requestID = UUID().uuidString
-        request.integrationID = id
-        request.expectedRevision = expectedRevision
-        return agentIntegration(try await service.beginAgentIntegrationRemoval(request).integration)
-    }
-
-    func completeAgentIntegrationRemoval(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel {
-        var request = Agentvmm_Host_V1_CompleteAgentIntegrationRemovalRequest()
-        request.requestID = UUID().uuidString
-        request.integrationID = id
-        request.expectedRevision = expectedRevision
-        return agentIntegration(try await service.completeAgentIntegrationRemoval(request).integration)
-    }
-
-    func listAgentSessions(integrationID: String?, includeTerminal: Bool) async throws -> [AgentSessionModel] {
-        var request = Agentvmm_Host_V1_ListAgentSessionsRequest()
-        if let integrationID { request.integrationID = integrationID }
-        request.includeTerminal = includeTerminal
-        return try await service.listAgentSessions(request).sessions.map(agentSession)
-    }
-
-    func revokeAgentSessions(integrationID: String) async throws {
-        var request = Agentvmm_Host_V1_RevokeAgentSessionsRequest()
-        request.requestID = UUID().uuidString
-        request.integrationID = integrationID
-        _ = try await service.revokeAgentSessions(request)
-    }
 }
 
-private extension GRPCHostClient {
+extension GRPCHostClient {
     nonisolated func remotePool(_ value: RemotePoolSettings) -> Agentvmm_Host_V1_RemotePoolPolicy {
         var pool = Agentvmm_Host_V1_RemotePoolPolicy()
         pool.maxEnvironments = value.maxEnvironments
@@ -496,7 +428,7 @@ private extension GRPCHostClient {
             },
             usage: usage(response.usage),
             environments: response.environments.map(environment),
-            remoteRegistration: response.hasRemoteRegistration ? remoteRegistration(response.remoteRegistration) : nil,
+            remoteRegistrations: response.remoteRegistrations.map(remoteRegistration),
             collectedAt: response.collectedAt.date
         )
     }
@@ -571,6 +503,11 @@ private extension GRPCHostClient {
         case .revoking: .revoking
         default: .incomplete
         }
+        let owner: RemoteRegistrationModel.Owner = switch value.ownerKind {
+        case .external: .external
+        case .appliance: .appliance(installationID: value.installationID)
+        default: .unknown
+        }
         return RemoteRegistrationModel(
             id: value.id,
             displayName: value.displayName,
@@ -579,6 +516,8 @@ private extension GRPCHostClient {
             connectionState: connectionState,
             enrollmentState: enrollmentState,
             revision: value.revision,
+            inventoryRevision: value.inventoryRevision,
+            owner: owner,
             pool: RemotePoolSettings(
                 maxEnvironments: value.pool.maxEnvironments,
                 aggregateLimits: environmentLimits(value.pool.aggregateLimits),
@@ -646,49 +585,36 @@ private extension GRPCHostClient {
         )
     }
 
-    nonisolated func agentIntegration(_ value: Agentvmm_Host_V1_AgentIntegration) -> AgentIntegrationModel {
-        let scope: AgentIntegrationModel.Scope = switch value.scope {
-        case .user: .user
-        case .workspace: .workspace
-        default: .manual
-        }
-        let configState: AgentIntegrationModel.ConfigState = switch value.configState {
-        case .pending: .pending
-        case .ready: .ready
-        case .needsRestart: .needsRestart
-        case .conflict: .conflict
-        case .error: .error
-        case .removing: .removing
-        case .removed: .removed
-        case .configuring: .configuring
-        default: .unknown
-        }
-        return AgentIntegrationModel(
-            id: value.id, adapterID: value.adapterID, displayName: value.displayName,
-            scope: scope,
-            configTarget: value.configTarget, environmentID: value.environmentID,
-            configState: configState,
-            fingerprint: value.configFingerprint, revision: value.revision,
-            errorMessage: value.lastErrorMessage.nilIfEmpty, createdAt: value.createdAt.date,
-            lastVerifiedAt: optionalDate(value.lastVerifiedAt)
-        )
-    }
-
-    nonisolated func agentSession(_ value: Agentvmm_Host_V1_AgentSession) -> AgentSessionModel {
-        let state: AgentSessionModel.State = switch value.state {
-        case .listening: .listening
-        case .connected: .connected
-        case .revoked: .revoked
-        case .expired: .expired
-        case .closed: .closed
-        default: .unknown
-        }
-        return AgentSessionModel(
-            id: value.id, integrationID: value.integrationID.nilIfEmpty, environmentID: value.environmentID,
-            state: state,
-            createdAt: value.createdAt.date, expiresAt: value.expiresAt.date,
-            lastActivityAt: optionalDate(value.lastActivityAt), activeConnections: value.activeConnectionCount,
-            terminalReason: value.terminalReason.nilIfEmpty
+    nonisolated func applianceStatus(_ value: Agentvmm_Appliance_V1_ApplianceStatus) -> ApplianceStatusModel {
+        let grant = value.approvedGrant
+        return ApplianceStatusModel(
+            id: value.installationID,
+            productID: value.productID,
+            revision: value.revision,
+            artifactID: value.artifactID,
+            state: String(describing: value.applianceState).replacingOccurrences(of: "_", with: " ").capitalized,
+            channelState: String(describing: value.channelState).replacingOccurrences(of: "_", with: " ").capitalized,
+            enabled: value.enabled,
+            healthy: value.health.healthy,
+            healthMessage: value.health.status.nilIfEmpty,
+            grant: ApplianceGrantModel(
+                maxEnvironments: grant.capacity.maxEnvironments,
+                aggregateLimits: environmentLimits(grant.capacity.aggregateLimits),
+                perEnvironmentLimits: environmentLimits(grant.capacity.perEnvironmentLimits),
+                allowsPublicEgress: grant.capacity.maxEgressMode == .publicInternet,
+                maxLeaseSeconds: grant.capacity.maxLeaseSeconds,
+                disconnectGraceSeconds: grant.capacity.disconnectGraceSeconds,
+                enabledFrontendNames: Set(grant.frontends.map(\.name)),
+                dynamicHostLoopbackEnabled: grant.hasDynamicHostLoopback
+            ),
+            frontends: value.frontends.map {
+                ApplianceFrontendModel(
+                    name: $0.name,
+                    transport: String(describing: $0.transport).replacingOccurrences(of: "_", with: " ").capitalized,
+                    endpoint: $0.endpoint,
+                    available: $0.available
+                )
+            }
         )
     }
 

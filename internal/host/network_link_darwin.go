@@ -28,9 +28,15 @@ func (server *operatorServer) ApplyNetworkLink(ctx context.Context, request *hos
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "SOURCE_ENVIRONMENT_NOT_FOUND", "environment", request.GetLink().GetSourceEnvironmentId(), "source environment does not exist")
 	}
+	if err := requireLocalOperatorEnvironment(source); err != nil {
+		return nil, err
+	}
 	destination, err := server.controller.store.GetEnvironment(ctx, request.GetLink().GetDestinationEnvironmentId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "DESTINATION_ENVIRONMENT_NOT_FOUND", "environment", request.GetLink().GetDestinationEnvironmentId(), "destination environment does not exist")
+	}
+	if err := requireLocalOperatorEnvironment(destination); err != nil {
+		return nil, err
 	}
 	link, err := guestLinkFromHost(request.GetLink(), source.NamespaceID, destination.NamespaceID)
 	if err != nil {

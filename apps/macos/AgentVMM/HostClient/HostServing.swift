@@ -38,17 +38,15 @@ protocol HostServing: Sendable {
     func removeIncompleteRemoteRegistration(registrationID: String, expectedRevision: UInt64) async throws
     func beginRemoteRevocation(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
     func completeRemoteRevocation(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func updateRemotePool(_ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func setRemoteAdmission(_ state: RemoteAdmissionState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func listAgentIntegrations() async throws -> [AgentIntegrationModel]
-    func prepareAgentIntegration(adapterID: String, displayName: String, scope: AgentIntegrationModel.Scope, configTarget: String, environmentID: String?) async throws -> AgentIntegrationModel
-    func beginAgentIntegrationConfiguration(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel
-    func commitAgentIntegration(id: String, expectedRevision: UInt64, fingerprint: String, needsRestart: Bool) async throws -> AgentIntegrationModel
-    func failAgentIntegration(id: String, expectedRevision: UInt64, code: String, message: String) async throws -> AgentIntegrationModel
-    func beginAgentIntegrationRemoval(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel
-    func completeAgentIntegrationRemoval(id: String, expectedRevision: UInt64) async throws -> AgentIntegrationModel
-    func listAgentSessions(integrationID: String?, includeTerminal: Bool) async throws -> [AgentSessionModel]
-    func revokeAgentSessions(integrationID: String) async throws
+    func updateRemotePool(registrationID: String, _ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
+    func setRemoteAdmission(registrationID: String, _ state: RemoteAdmissionState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
+    func listAppliances() async throws -> [ApplianceStatusModel]
+    func installBundledMCP(artifact: BundledApplianceArtifact, grant: ApplianceGrantModel) async throws
+    func activateAppliance(_ appliance: ApplianceStatusModel) async throws
+    func stopAppliance(_ appliance: ApplianceStatusModel) async throws
+    func restartAppliance(_ appliance: ApplianceStatusModel) async throws
+    func planRemoveAppliance(_ appliance: ApplianceStatusModel) async throws -> ApplianceRemovePlanModel
+    func executeRemoveAppliance(_ appliance: ApplianceStatusModel, plan: ApplianceRemovePlanModel) async throws
 }
 
 extension HostServing {

@@ -18,11 +18,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const (
-	endpointConnectionMaxAge = 5 * time.Minute
-	endpointRefreshWindow    = 6 * time.Minute
-)
-
 var ErrCredentialRevoked = errors.New("controller credential revoked")
 var errConnectorConfiguration = errors.New("connector configuration is invalid")
 
@@ -59,13 +54,14 @@ func Run(ctx context.Context, config Config) error {
 			}
 		}()
 	}
+	observations := newEndpointObservationState(config.endpointObservation)
 	delay := time.Second
 	var attempt uint32
 	for ctx.Err() == nil {
 		attempt++
-		if config.DataWorkerPath != "" && (config.endpointObservation == nil ||
-			config.endpointObservation.GetExpiresAt() == nil ||
-			time.Until(config.endpointObservation.GetExpiresAt().AsTime()) <= endpointRefreshWindow) {
+		currentObservation := observations.Load()
+		if config.DataWorkerPath != "" && (currentObservation == nil || currentObservation.GetExpiresAt() == nil ||
+			time.Until(currentObservation.GetExpiresAt().AsTime()) <= endpointRefreshWindow) {
 			status, statusErr := worker.Status(ctx)
 			if statusErr != nil {
 				return fmt.Errorf("data worker status unavailable: %w", statusErr)
@@ -74,19 +70,19 @@ func Run(ctx context.Context, config Config) error {
 			if observationErr != nil {
 				return fmt.Errorf("data endpoint observation renewal unavailable: %w", observationErr)
 			}
-			config.endpointObservation = observation
+			observations.Store(observation)
 		}
 		reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTING, "", attempt, time.Time{}, "", "")
-		connectionContext := ctx
-		cancelConnection := func() {}
-		if config.DataWorkerPath != "" {
-			connectionContext, cancelConnection = context.WithTimeout(ctx, endpointConnectionMaxAge)
+		connected, err := connectAttempt(ctx, config, worker, observations)
+		if connected {
+			delay = time.Second
 		}
-		err := connectOnce(connectionContext, config)
-		cancelConnection()
 		if errors.Is(err, ErrCredentialRevoked) {
 			reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, "", attempt, time.Time{}, "CREDENTIAL_REVOKED", "Controller access was revoked.")
 			return err
+		}
+		if err != nil && config.OnAttemptError != nil {
+			config.OnAttemptError(err)
 		}
 		if ctx.Err() != nil {
 			return nil
@@ -119,157 +115,262 @@ func Run(ctx context.Context, config Config) error {
 }
 
 func connectOnce(ctx context.Context, config Config) error {
-	credential, err := config.CredentialStore.Load(ctx, config.RegistrationID)
-	if err != nil {
-		return err
-	}
-	defer wipe(credential)
-	controller, err := newStoredControllerClient(config)
-	if err != nil {
-		return fmt.Errorf("%w: controller TLS configuration", errConnectorConfiguration)
+	_, err := connectAttempt(ctx, config, nil, newEndpointObservationState(config.endpointObservation))
+	return err
+}
+
+func connectAttempt(ctx context.Context, config Config, worker *dataworker.Supervisor, observations *endpointObservationState) (bool, error) {
+	var controller *controllerClient
+	var err error
+	if config.PrivateControllerDialer != nil {
+		connection, dialErr := config.PrivateControllerDialer(ctx)
+		if dialErr != nil {
+			return false, dialErr
+		}
+		controller = &controllerClient{connection: connection, client: remotev1.NewRemoteControllerServiceClient(connection)}
+	} else {
+		credential, loadErr := config.CredentialStore.Load(ctx, config.RegistrationID)
+		if loadErr != nil {
+			return false, loadErr
+		}
+		wipe(credential)
+		controller, err = newStoredControllerClient(config)
+		if err != nil {
+			return false, fmt.Errorf("%w: controller TLS configuration: %w", errConnectorConfiguration, err)
+		}
 	}
 	defer controller.connection.Close()
-	local, err := newLocalClient(ctx, config.RemoteComputeSocket)
+	local, err := newLocalClient(ctx, config.RemoteComputeSocket, config.RegistrationID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer local.connection.Close()
-	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{})
+	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: config.RegistrationID})
 	if err != nil {
-		return fmt.Errorf("remote compute state unavailable")
+		return false, fmt.Errorf("remote compute state unavailable: %w", err)
 	}
 	registration := state.GetRegistration()
 	if registration.GetId() != config.RegistrationID || registration.GetProtocolVersion() != ProtocolVersion || registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
-		return fmt.Errorf("%w: local registration identity or version", errConnectorConfiguration)
+		return false, fmt.Errorf("%w: local registration identity or version", errConnectorConfiguration)
 	}
 	if len(registration.GetAllocations()) > MaxInventoryItems {
-		return fmt.Errorf("%w: remote inventory limit", errConnectorConfiguration)
+		return false, fmt.Errorf("%w: remote inventory limit", errConnectorConfiguration)
 	}
 	instance, err := randomInstance()
 	if err != nil {
-		return err
+		return false, err
 	}
 	epoch, err := randomEpoch()
 	if err != nil {
-		return err
+		return false, err
 	}
-	helloMessage := hello(registration, instance, epoch, config.endpointObservation)
-	connectionContext, stopConnection := context.WithCancel(ctx)
+	initialObservation := observations.Load()
+	if initialObservation != nil {
+		if err := validateEndpointObservation(initialObservation, time.Now()); err != nil {
+			return false, fmt.Errorf("%w: initial endpoint observation: %w", errConnectorConfiguration, err)
+		}
+	}
+	helloMessage := hello(registration, instance, epoch, initialObservation)
+	connectionContext, stopConnection := context.WithCancelCause(ctx)
 	var heartbeatDone <-chan struct{}
 	defer func() {
-		stopConnection()
+		stopConnection(context.Canceled)
 		if heartbeatDone != nil {
 			<-heartbeatDone
 		}
 	}()
 	stream, err := controller.client.Connect(connectionContext)
 	if err != nil {
-		return fmt.Errorf("controller control stream failed: %w", err)
+		return false, fmt.Errorf("controller control stream failed: %w", err)
 	}
-	if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Hello{Hello: helloMessage}}); err != nil {
-		return fmt.Errorf("controller handshake failed: %w", err)
+	writer := newControlWriter(connectionContext, stream, stopConnection)
+	if err := writer.Send(connectionContext, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Hello{Hello: helloMessage}}); err != nil {
+		if errors.Is(err, io.EOF) {
+			if _, receiveErr := stream.Recv(); receiveErr != nil {
+				err = receiveErr
+			}
+		}
+		return false, fmt.Errorf("controller handshake failed: %w", err)
 	}
-	if config.TrustSocket != "" && config.endpointObservation != nil {
-		go personalMeshSyncLoop(connectionContext, config, trustv1.NewPersonalMeshRegistryServiceClient(controller.connection))
+	readyMessage, err := stream.Recv()
+	if err != nil {
+		return false, fmt.Errorf("controller ready handshake failed: %w", err)
 	}
-	if _, err := local.client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{ConnectionInstance: instance, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED}); err != nil {
-		return fmt.Errorf("local connection fence failed")
+	if err := validateControllerReady(readyMessage.GetControllerReady(), registration.GetId(), epoch, helloMessage.GetInventoryWatermark()); err != nil {
+		return false, err
 	}
-	if _, err := reportConnectorStatusWithClient(ctx, local.client, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", ""); err != nil {
-		return fmt.Errorf("connector status fence failed")
+	if config.TrustSocket != "" && observations.Load() != nil {
+		go personalMeshSyncLoop(connectionContext, config, observations, trustv1.NewPersonalMeshRegistryServiceClient(controller.connection))
+	}
+	if worker != nil && observations.Load() != nil {
+		go func() {
+			err := renewEndpointObservations(connectionContext, epoch, observations, writer, func(renewContext context.Context) (*trustv1.EndpointObservation, error) {
+				status, err := worker.Status(renewContext)
+				if err != nil {
+					return nil, fmt.Errorf("data worker status unavailable: %w", err)
+				}
+				return signEndpointObservation(renewContext, config.TrustSocket, config.TrustCapabilityFile, status.EndpointID, status.EndpointGeneration)
+			}, endpointRefreshWindow)
+			if err != nil && connectionContext.Err() == nil {
+				stopConnection(fmt.Errorf("endpoint observation renewal failed: %w", err))
+			}
+		}()
+	}
+	connectedState, err := local.client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{RegistrationId: config.RegistrationID, ConnectionInstance: instance, ConnectionEpoch: epoch, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED})
+	if err != nil {
+		return false, fmt.Errorf("local connection fence failed: %w", err)
+	}
+	abortConnectedState := func() {
+		disconnectContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_, _ = local.client.SetConnectionState(disconnectContext, &hostv1.SetConnectionStateRequest{RegistrationId: config.RegistrationID, ConnectionInstance: instance, ConnectionEpoch: epoch, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED})
+	}
+	// Replacing a connected instance can revoke its leases and advance the
+	// authoritative inventory revision. Do not admit commands or frontends
+	// against the snapshot acknowledged by ControllerReady if that happened.
+	connectedRegistration := connectedState.GetRegistration()
+	if connectedRegistration == nil {
+		abortConnectedState()
+		return false, errors.New("local connection fence returned no registration")
+	}
+	if connectedRegistration.GetInventoryRevision() != helloMessage.GetInventoryWatermark() || connectedRegistration.GetPoolPolicyRevision() != registration.GetPoolPolicyRevision() {
+		abortConnectedState()
+		return false, fmt.Errorf("local connection fence changed registration snapshot: expected inventory %d/pool %d got inventory %d/pool %d", helloMessage.GetInventoryWatermark(), registration.GetPoolPolicyRevision(), connectedRegistration.GetInventoryRevision(), connectedRegistration.GetPoolPolicyRevision())
+	}
+	if _, err := local.client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
+		RegistrationId: config.RegistrationID, ConnectionInstance: instance,
+		State:                      connectedRegistration.GetState(),
+		ExpectedInventoryRevision:  helloMessage.GetInventoryWatermark(),
+		ExpectedPoolPolicyRevision: registration.GetPoolPolicyRevision(),
+	}); err != nil {
+		abortConnectedState()
+		return false, fmt.Errorf("local admission fence failed: %w", err)
+	}
+	tunnels := newTunnelManager(connectionContext, controller.client, local.client, registration.GetId(), instance, epoch, config.Logger)
+	defer tunnels.Close()
+	frontends := newFrontendManager(connectionContext, controller.client, local.client, registration.GetId(), instance, epoch, func(event *hostv1.HostLoopbackFrontendEvent) error {
+		return writer.Send(connectionContext, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_FrontendEvent{FrontendEvent: event}})
+	})
+	defer frontends.Close()
+	if _, err := reportConnectorStatusWithClient(ctx, local.client, config.RegistrationID, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", "", tunnels.DomainMetrics()); err != nil {
+		return false, fmt.Errorf("connector status fence failed: %w", err)
+	}
+	if config.OnReady != nil {
+		config.OnReady()
+	}
+	if config.CommandAdmission != nil {
+		select {
+		case <-config.CommandAdmission:
+		case <-connectionContext.Done():
+			return true, context.Cause(connectionContext)
+		}
 	}
 	done := make(chan struct{})
 	heartbeatDone = done
-	go connectorHeartbeat(connectionContext, local.client, instance, 5*time.Second, stopConnection, done)
+	go connectorHeartbeat(connectionContext, local.client, config.RegistrationID, instance, 5*time.Second, stopConnection, tunnels.DomainMetrics, done)
 	defer func() {
 		disconnectContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_, _ = local.client.SetConnectionState(disconnectContext, &hostv1.SetConnectionStateRequest{ConnectionInstance: instance, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED})
+		_, _ = local.client.SetConnectionState(disconnectContext, &hostv1.SetConnectionStateRequest{RegistrationId: config.RegistrationID, ConnectionInstance: instance, ConnectionEpoch: epoch, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED})
 	}()
-	tunnels := newTunnelManager(connectionContext, controller.client, local.client, registration.GetId(), epoch, config.Logger)
-	defer tunnels.Close()
-	handler := commandHandler{client: local.client, connectionInstance: instance, tunnels: tunnels}
+	handler := commandHandler{client: local.client, registrationID: config.RegistrationID, connectionInstance: instance, connectionEpoch: epoch, tunnels: tunnels}
 	tracker := newCommandTracker(epoch, helloMessage.GetInventoryWatermark())
 	for {
 		message, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return true, nil
 		}
 		if err != nil {
-			return fmt.Errorf("controller receive failed")
+			if cause := context.Cause(connectionContext); cause != nil && !errors.Is(cause, context.Canceled) {
+				return true, cause
+			}
+			return true, fmt.Errorf("controller receive failed: %w", err)
 		}
 		switch payload := message.GetPayload().(type) {
 		case *remotev1.ControllerControlMessage_Command:
 			ack, cached := tracker.admit(payload.Command, time.Now())
-			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Ack{Ack: ack}}); err != nil {
-				return fmt.Errorf("controller acknowledgement send failed")
+			if err := writer.Send(connectionContext, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Ack{Ack: ack}}); err != nil {
+				return true, fmt.Errorf("controller acknowledgement send failed: %w", err)
 			}
 			if ack.GetDisposition() == remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED {
 				continue
 			}
 			if cached != nil {
-				if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: cached}}); err != nil {
-					return fmt.Errorf("controller cached result send failed")
+				if err := writer.Send(connectionContext, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: cached}}); err != nil {
+					return true, fmt.Errorf("controller cached result send failed: %w", err)
 				}
 				continue
 			}
 			started := &remotev1.CommandEvidence{CommandId: payload.Command.GetCommandId(), Sequence: payload.Command.GetSequence(), ConnectionEpoch: epoch, Stage: remotev1.ExecutionStage_EXECUTION_STAGE_STARTED, ObservedUnixMillis: time.Now().UnixMilli()}
-			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Evidence{Evidence: started}}); err != nil {
-				return fmt.Errorf("controller execution evidence send failed")
+			if err := writer.Send(connectionContext, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Evidence{Evidence: started}}); err != nil {
+				return true, fmt.Errorf("controller execution evidence send failed: %w", err)
 			}
 			commandContext, cancel := context.WithDeadline(connectionContext, time.UnixMilli(payload.Command.GetDeadlineUnixMillis()))
 			result := handler.handle(commandContext, payload.Command)
 			cancel()
-			tracker.record(payload.Command, result)
-			finished := &remotev1.CommandEvidence{CommandId: payload.Command.GetCommandId(), Sequence: payload.Command.GetSequence(), ConnectionEpoch: epoch, Stage: remotev1.ExecutionStage_EXECUTION_STAGE_FINISHED, ObservedUnixMillis: time.Now().UnixMilli()}
-			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Evidence{Evidence: finished}}); err != nil {
-				return fmt.Errorf("controller completion evidence send failed")
+			state, stateErr := local.client.GetRemoteState(connectionContext, &hostv1.GetRemoteStateRequest{RegistrationId: config.RegistrationID})
+			if stateErr != nil || state.GetRegistration().GetId() != config.RegistrationID || state.GetRegistration().GetInventoryRevision() == 0 {
+				return true, fmt.Errorf("authoritative inventory watermark unavailable after command")
 			}
-			if err := stream.Send(&remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: result}}); err != nil {
-				return fmt.Errorf("controller result send failed")
+			result.InventoryWatermark = state.GetRegistration().GetInventoryRevision()
+			if err := tracker.record(payload.Command, result); err != nil {
+				return true, err
+			}
+			finished := &remotev1.CommandEvidence{CommandId: payload.Command.GetCommandId(), Sequence: payload.Command.GetSequence(), ConnectionEpoch: epoch, Stage: remotev1.ExecutionStage_EXECUTION_STAGE_FINISHED, ObservedUnixMillis: time.Now().UnixMilli()}
+			if err := writer.Send(connectionContext, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Evidence{Evidence: finished}}); err != nil {
+				return true, fmt.Errorf("controller completion evidence send failed: %w", err)
+			}
+			if err := writer.Send(connectionContext, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: result}}); err != nil {
+				return true, fmt.Errorf("controller result send failed: %w", err)
 			}
 		case *remotev1.ControllerControlMessage_RotateCredential:
+			if config.CredentialStore == nil {
+				return true, fmt.Errorf("private controller cannot rotate a connector credential")
+			}
 			value := payload.RotateCredential.GetCredential()
 			if len(value) == 0 || len(value) > MaxCredentialBytes {
-				return fmt.Errorf("controller rotation credential is invalid")
+				return true, fmt.Errorf("controller rotation credential is invalid")
 			}
 			if err := config.CredentialStore.Replace(ctx, config.RegistrationID, value); err != nil {
-				return err
+				return true, err
 			}
 			wipe(value)
 		case *remotev1.ControllerControlMessage_RevokeCredential:
-			if err := config.CredentialStore.Delete(ctx, config.RegistrationID); err != nil {
-				return err
+			if config.CredentialStore == nil {
+				return true, fmt.Errorf("private controller cannot revoke a connector credential")
 			}
-			return ErrCredentialRevoked
+			if err := config.CredentialStore.Delete(ctx, config.RegistrationID); err != nil {
+				return true, err
+			}
+			return true, ErrCredentialRevoked
 		default:
-			return fmt.Errorf("controller sent an unknown control message")
+			return true, fmt.Errorf("controller sent an unknown control message")
 		}
 	}
 }
 
 func reportConnectorStatus(ctx context.Context, config Config, phase hostv1.ConnectorPhase, instance string, attempt uint32, nextRetry time.Time, code, message string) {
-	local, err := newLocalClient(ctx, config.RemoteComputeSocket)
+	local, err := newLocalClient(ctx, config.RemoteComputeSocket, config.RegistrationID)
 	if err != nil {
 		return
 	}
 	defer local.connection.Close()
-	_, _ = reportConnectorStatusWithClient(ctx, local.client, phase, instance, attempt, nextRetry, code, message)
+	_, _ = reportConnectorStatusWithClient(ctx, local.client, config.RegistrationID, phase, instance, attempt, nextRetry, code, message, nil)
 }
 
-func reportConnectorStatusWithClient(ctx context.Context, client hostv1.RemoteComputeServiceClient, phase hostv1.ConnectorPhase, instance string, attempt uint32, nextRetry time.Time, code, message string) (*hostv1.RemoteRegistration, error) {
-	statusValue := &hostv1.ConnectorStatus{Phase: phase, ConnectorRelease: ConnectorRelease, ObservedAt: timestamppb.Now(), ReconnectAttempt: attempt, FailureCode: code, FailureMessage: message}
+func reportConnectorStatusWithClient(ctx context.Context, client hostv1.RemoteComputeServiceClient, registrationID string, phase hostv1.ConnectorPhase, instance string, attempt uint32, nextRetry time.Time, code, message string, metrics *hostv1.ControllerDomainMetrics) (*hostv1.RemoteRegistration, error) {
+	statusValue := &hostv1.ConnectorStatus{Phase: phase, ConnectorRelease: ConnectorRelease, ObservedAt: timestamppb.Now(), ReconnectAttempt: attempt, FailureCode: code, FailureMessage: message, DomainMetrics: metrics}
 	if !nextRetry.IsZero() {
 		statusValue.NextRetryAt = timestamppb.New(nextRetry)
 	}
-	response, err := client.ReportConnectorStatus(ctx, &hostv1.ReportConnectorStatusRequest{ConnectionInstance: instance, Status: statusValue})
+	response, err := client.ReportConnectorStatus(ctx, &hostv1.ReportConnectorStatusRequest{RegistrationId: registrationID, ConnectionInstance: instance, Status: statusValue})
 	if err != nil {
 		return nil, err
 	}
 	return response.GetRegistration(), nil
 }
 
-func connectorHeartbeat(ctx context.Context, client hostv1.RemoteComputeServiceClient, instance string, interval time.Duration, cancel context.CancelFunc, done chan<- struct{}) {
+func connectorHeartbeat(ctx context.Context, client hostv1.RemoteComputeServiceClient, registrationID, instance string, interval time.Duration, cancel context.CancelCauseFunc, metrics func() *hostv1.ControllerDomainMetrics, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -279,10 +380,14 @@ func connectorHeartbeat(ctx context.Context, client hostv1.RemoteComputeServiceC
 			return
 		case <-ticker.C:
 			heartbeatContext, heartbeatCancel := context.WithTimeout(ctx, 3*time.Second)
-			registration, err := reportConnectorStatusWithClient(heartbeatContext, client, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", "")
+			registration, err := reportConnectorStatusWithClient(heartbeatContext, client, registrationID, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", "", metrics())
 			heartbeatCancel()
-			if err != nil || registration.GetEnrollmentState() != hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY || registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
-				cancel()
+			if err != nil {
+				cancel(fmt.Errorf("local connector heartbeat failed: %w", err))
+				return
+			}
+			if registration.GetEnrollmentState() != hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY || registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
+				cancel(errors.New("local connector heartbeat rejected"))
 				return
 			}
 		}

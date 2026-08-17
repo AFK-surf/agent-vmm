@@ -8,6 +8,11 @@ service VMMDService {
   rpc Health(HealthRequest) returns (HealthResponse);
   rpc PrepareShutdown(PrepareShutdownRequest) returns (PrepareShutdownResponse);
 
+  rpc EnsureSystemAppliance(EnsureSystemApplianceRequest) returns (SystemApplianceResponse);
+  rpc StopSystemAppliance(StopSystemApplianceRequest) returns (SystemApplianceResponse);
+  rpc ListSystemAppliances(ListSystemAppliancesRequest) returns (ListSystemAppliancesResponse);
+  rpc OpenSystemStream(stream SystemStreamFrame) returns (stream SystemStreamFrame);
+
   rpc EnsureNamespace(EnsureNamespaceRequest) returns (EnsureNamespaceResponse);
   rpc DeleteNamespace(DeleteNamespaceRequest) returns (DeleteNamespaceResponse);
   rpc GetNamespace(GetNamespaceRequest) returns (GetNamespaceResponse);
@@ -15,6 +20,7 @@ service VMMDService {
   rpc GetNamespaceUsage(GetNamespaceUsageRequest) returns (GetUsageResponse);
   rpc GetSystemUsage(GetSystemUsageRequest) returns (GetUsageResponse);
   rpc PullImage(PullImageRequest) returns (stream PullImageResponse);
+  rpc ImportImage(stream ImportImageRequest) returns (Image);
 
   rpc CreateVolume(CreateVolumeRequest) returns (CreateVolumeResponse);
   rpc DeleteVolume(DeleteVolumeRequest) returns (DeleteVolumeResponse);
@@ -44,6 +50,9 @@ service VMMDService {
   rpc DeleteServiceProjection(DeleteServiceProjectionRequest) returns (DeleteServiceProjectionResponse);
   rpc ForwardTCP(stream ForwardTCPRequest) returns (stream ForwardTCPResponse);
   rpc BuildImage(stream BuildImageRequest) returns (stream BuildImageResponse);
+	// BuildAppliance is reserved for the host operator. It runs the locked
+	// BuildKit worker without importing the result into an environment.
+  rpc BuildAppliance(stream BuildApplianceRequest) returns (stream BuildApplianceResponse);
   rpc ComponentHealth(ComponentHealthRequest) returns (ComponentHealthResponse);
   rpc ProbeEgress(ProbeEgressRequest) returns (ProbeEgressResponse);
   rpc WatchEvents(WatchEventsRequest) returns (stream RuntimeEvent);
@@ -57,38 +66,57 @@ service VMMDService {
 
 enum WorkspaceEntryKind {
   WORKSPACE_ENTRY_KIND_UNSPECIFIED = 0;
-  WORKSPACE_ENTRY_KIND_FILE = 1;
-  WORKSPACE_ENTRY_KIND_DIRECTORY = 2;
+  WORKSPACE_ENTRY_KIND_FILE        = 1;
+  WORKSPACE_ENTRY_KIND_DIRECTORY   = 2;
 }
 
 message WorkspacePathRequest { string actor_namespace_id = 1; string path = 2; }
+
 message WorkspaceEntry {
-  string path = 1;
-  WorkspaceEntryKind kind = 2;
-  uint64 size = 3;
-  uint32 mode = 4;
-  int64 modified_unix_nanos = 5;
-  bytes sha256 = 6;
+  string             path                = 1;
+  WorkspaceEntryKind kind                = 2;
+  uint64             size                = 3;
+  uint32             mode                = 4;
+  int64              modified_unix_nanos = 5;
+  bytes              sha256              = 6;
 }
+
 message ListWorkspaceRequest { string actor_namespace_id = 1; string path = 2; uint32 limit = 3; }
+
 message ListWorkspaceResponse { repeated WorkspaceEntry entries = 1; }
-message ReadWorkspaceRequest { string actor_namespace_id = 1; string path = 2; uint64 offset = 3; uint64 max_bytes = 4; }
-message ReadWorkspaceResponse { bytes data = 1; uint64 offset = 2; bytes sha256 = 3; bool final = 4; }
-message WriteWorkspaceHeader {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string path = 3;
-  uint64 offset = 4;
-  bytes expected_prefix_sha256 = 5;
-  uint32 mode = 6;
+
+message ReadWorkspaceRequest {
+  string actor_namespace_id = 1;
+  string path               = 2;
+  uint64 offset             = 3;
+  uint64 max_bytes          = 4;
+  string volume_id          = 5;
 }
+
+message ReadWorkspaceResponse { bytes data = 1; uint64 offset = 2; bytes sha256 = 3; bool final = 4; }
+
+message WriteWorkspaceHeader {
+  string request_id             = 1;
+  string actor_namespace_id     = 2;
+  string path                   = 3;
+  uint64 offset                 = 4;
+  bytes  expected_prefix_sha256 = 5;
+  uint32 mode                   = 6;
+  string volume_id              = 7;
+}
+
 message WriteWorkspaceRequest {
   oneof payload { WriteWorkspaceHeader header = 1; bytes data = 2; bool finish = 3; }
 }
+
 message WriteWorkspaceResponse { WorkspaceEntry entry = 1; bytes sha256 = 2; }
+
 message ArchiveWorkspaceRequest { string actor_namespace_id = 1; string path = 2; }
+
 message ArchiveWorkspaceResponse { bytes data = 1; bytes sha256 = 2; bool final = 3; }
+
 message ExtractWorkspaceHeader { string request_id = 1; string actor_namespace_id = 2; string path = 3; }
+
 message ExtractWorkspaceRequest {
   oneof payload { ExtractWorkspaceHeader header = 1; bytes data = 2; bool finish = 3; }
 }
@@ -96,188 +124,315 @@ message ExtractWorkspaceRequest {
 message HealthRequest {}
 
 message HealthResponse {
-  bool ready = 1;
-  bool state_initialized = 2;
-  bool root_read_only = 3;
-  string boot_id = 4;
-  string manifest_digest = 5;
-  map<string, string> runtime_versions = 6;
+  bool                ready             = 1;
+  bool                state_initialized = 2;
+  bool                root_read_only    = 3;
+  string              boot_id           = 4;
+  string              manifest_digest   = 5;
+  map<string, string> runtime_versions  = 6;
 }
 
 message PrepareShutdownRequest {
   string request_id = 1;
 }
+
 message PrepareShutdownResponse {}
 
+enum SystemApplianceState {
+  SYSTEM_APPLIANCE_STATE_UNSPECIFIED = 0;
+  SYSTEM_APPLIANCE_STATE_STARTING    = 1;
+  SYSTEM_APPLIANCE_STATE_RUNNING     = 2;
+  SYSTEM_APPLIANCE_STATE_STOPPED     = 3;
+  SYSTEM_APPLIANCE_STATE_FAILED      = 4;
+  SYSTEM_APPLIANCE_STATE_SEALED      = 5;
+}
+
+enum SystemStreamKind {
+  SYSTEM_STREAM_KIND_UNSPECIFIED = 0;
+  SYSTEM_STREAM_KIND_BOOTSTRAP   = 1;
+  SYSTEM_STREAM_KIND_CONTROLLER  = 2;
+  SYSTEM_STREAM_KIND_FRONTEND    = 3;
+}
+
+message SystemApplianceIdentity {
+  string installation_id       = 1;
+  string boot_id               = 2;
+  string namespace_id          = 3;
+  string container_id          = 4;
+  string container_instance_id = 5;
+  string image_manifest_digest = 6;
+  bytes  boot_nonce            = 7;
+}
+
+message EnsureSystemApplianceRequest {
+  string                  request_id             = 1;
+  SystemApplianceIdentity identity               = 2;
+  string                  image_reference        = 3;
+  string                  data_device_identifier = 4;
+  string                  data_volume_id         = 5;
+  string                  data_volume_identity   = 6;
+  bytes                   data_volume_key        = 7;
+  bool                    initialize_data_volume = 8;
+  NamespaceLimits         limits                 = 9;
+  EgressMode              egress_mode            = 10;
+  uint64                  config_revision        = 11;
+}
+
+message StopSystemApplianceRequest {
+  string                  request_id      = 1;
+  SystemApplianceIdentity identity        = 2;
+  uint32                  timeout_seconds = 3;
+}
+
+message ListSystemAppliancesRequest {}
+
+message SystemAppliance {
+  SystemApplianceIdentity identity             = 1;
+  string                  data_volume_id       = 2;
+  string                  data_volume_identity = 3;
+  SystemApplianceState    state                = 4;
+  uint64                  config_revision      = 5;
+  uint32                  restart_count        = 6;
+  string                  status               = 7;
+  bytes                   bounded_log          = 8;
+}
+
+message SystemApplianceResponse { SystemAppliance appliance = 1; }
+
+message ListSystemAppliancesResponse { repeated SystemAppliance appliances = 1; }
+
+message SystemStreamHeader {
+  SystemApplianceIdentity identity               = 1;
+  SystemStreamKind        kind                   = 2;
+  string                  name                   = 3;
+  bytes                   nonce                  = 4;
+  uint32                  max_frame_bytes        = 5;
+  uint64                  max_total_bytes        = 6;
+  uint32                  idle_seconds           = 7;
+  uint32                  max_concurrent_streams = 8;
+  uint32                  max_use_count          = 9;
+}
+
+message SystemStreamFrame {
+  oneof payload {
+    SystemStreamHeader header      = 1;
+    bytes              data        = 2;
+    bool               close_write = 3;
+  }
+}
+
 enum EgressMode {
-  EGRESS_MODE_UNSPECIFIED = 0;
-  EGRESS_MODE_DENY_ALL = 1;
+  EGRESS_MODE_UNSPECIFIED     = 0;
+  EGRESS_MODE_DENY_ALL        = 1;
   EGRESS_MODE_PUBLIC_INTERNET = 2;
 }
 
 message NamespaceLimits {
-  uint32 cpu_millis = 1;
+  uint32 cpu_millis   = 1;
   uint64 memory_bytes = 2;
-  uint32 pids = 3;
-  uint64 disk_bytes = 4;
+  uint32 pids         = 3;
+  uint64 disk_bytes   = 4;
 }
 
 message Namespace {
-  string id = 1;
-  NamespaceLimits limits = 2;
-  EgressMode egress_mode = 3;
-  uint32 project_id = 4;
-  string subnet = 5;
-  string observed_status = 6;
+  string          id              = 1;
+  NamespaceLimits limits          = 2;
+  EgressMode      egress_mode     = 3;
+  uint32          project_id      = 4;
+  string          subnet          = 5;
+  string          observed_status = 6;
 }
 
 message EnsureNamespaceRequest {
-  string request_id = 1;
-  string namespace_id = 2;
-  NamespaceLimits limits = 3;
-  EgressMode egress_mode = 4;
+  string          request_id   = 1;
+  string          namespace_id = 2;
+  NamespaceLimits limits       = 3;
+  EgressMode      egress_mode  = 4;
 }
+
 message EnsureNamespaceResponse {
   Namespace namespace = 1;
 }
 
 message DeleteNamespaceRequest {
-  string request_id = 1;
+  string request_id   = 1;
   string namespace_id = 2;
 }
+
 message DeleteNamespaceResponse {}
+
 message GetNamespaceRequest {
   string namespace_id = 1;
 }
+
 message GetNamespaceResponse {
   Namespace namespace = 1;
 }
+
 message ListNamespacesRequest {}
+
 message ListNamespacesResponse {
   repeated Namespace namespaces = 1;
 }
+
 message GetNamespaceUsageRequest {
   string namespace_id = 1;
 }
+
 message GetSystemUsageRequest {}
 
 message PullImageRequest {
-  string request_id = 1;
+  string request_id         = 1;
   string actor_namespace_id = 2;
-  string reference = 3;
+  string reference          = 3;
 }
+
 message PullImageResponse {
-  string status = 1;
-  optional string digest = 2;
-  uint64 logical_bytes = 3;
-  string canonical_reference = 4;
+  string          status              = 1;
+  optional string digest              = 2;
+  uint64          logical_bytes       = 3;
+  string          canonical_reference = 4;
+}
+
+message ImportImageHeader {
+  string          request_id         = 1;
+  string          actor_namespace_id = 2;
+  string          image_reference    = 3;
+  bytes           archive_sha256     = 4;
+  string          manifest_digest    = 5;
+  string          platform           = 6;
+  uint64          archive_size       = 7;
+  bool            system_import      = 8;
+  NamespaceLimits system_limits      = 9;
+  EgressMode      system_egress_mode = 10;
+}
+
+message ImportImageRequest {
+  oneof payload {
+    ImportImageHeader header        = 1;
+    bytes             archive_chunk = 2;
+  }
 }
 
 message Volume {
-  string id = 1;
-  string namespace_id = 2;
-  uint64 current_bytes = 3;
-  uint64 limit_bytes = 4;
-  repeated string mounted_by = 5;
-  int64 usage_observed_at_unix_nano = 6;
-  bool usage_stale = 7;
-  string usage_unavailable_reason = 8;
+  string          id                          = 1;
+  string          namespace_id                = 2;
+  uint64          current_bytes               = 3;
+  uint64          limit_bytes                 = 4;
+  repeated string mounted_by                  = 5;
+  int64           usage_observed_at_unix_nano = 6;
+  bool            usage_stale                 = 7;
+  string          usage_unavailable_reason    = 8;
 }
+
 message CreateVolumeRequest {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string volume_id = 3;
-  optional uint32 owner_uid = 4;
-  optional uint32 owner_gid = 5;
-  optional uint32 mode = 6;
+  string          request_id         = 1;
+  string          actor_namespace_id = 2;
+  string          volume_id          = 3;
+  optional uint32 owner_uid          = 4;
+  optional uint32 owner_gid          = 5;
+  optional uint32 mode               = 6;
 }
+
 message CreateVolumeResponse {
   Volume volume = 1;
 }
+
 message DeleteVolumeRequest {
-  string request_id = 1;
+  string request_id         = 1;
   string actor_namespace_id = 2;
-  string volume_id = 3;
+  string volume_id          = 3;
 }
+
 message DeleteVolumeResponse {}
+
 message GetVolumeRequest {
   string actor_namespace_id = 1;
-  string volume_id = 2;
+  string volume_id          = 2;
 }
+
 message GetVolumeResponse {
   Volume volume = 1;
 }
+
 message ListVolumesRequest {
   string actor_namespace_id = 1;
 }
+
 message ListVolumesResponse {
   repeated Volume volumes = 1;
 }
 
 message Image {
-  string reference = 1;
-  string digest = 2;
-  uint64 logical_bytes = 3;
-  repeated string platforms = 4;
-  string generation_id = 5;
+  string          reference     = 1;
+  string          digest        = 2;
+  uint64          logical_bytes = 3;
+  repeated string platforms     = 4;
+  string          generation_id = 5;
 }
+
 message GetImageRequest {
   string actor_namespace_id = 1;
-  string reference = 2;
+  string reference          = 2;
 }
+
 message GetImageResponse {
   Image image = 1;
 }
+
 message ListImagesRequest {
   string actor_namespace_id = 1;
 }
+
 message ListImagesResponse {
   repeated Image images = 1;
 }
+
 message DeleteImageRequest {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string reference = 3;
+  string request_id             = 1;
+  string actor_namespace_id     = 2;
+  string reference              = 3;
   string expected_generation_id = 4;
-  string expected_digest = 5;
+  string expected_digest        = 5;
 }
+
 message DeleteImageResponse {}
 
 message ResourceLimits {
-  optional uint32 cpu_millis = 1;
+  optional uint32 cpu_millis   = 1;
   optional uint64 memory_bytes = 2;
-  optional uint32 pids = 3;
+  optional uint32 pids         = 3;
 }
 
 message VolumeMount {
-  string volume_id = 1;
+  string volume_id   = 1;
   string destination = 2;
-  bool read_only = 3;
+  bool   read_only   = 3;
 }
 
 enum ContainerState {
   CONTAINER_STATE_UNSPECIFIED = 0;
-  CONTAINER_STATE_CREATED = 1;
-  CONTAINER_STATE_RUNNING = 2;
-  CONTAINER_STATE_STOPPED = 3;
+  CONTAINER_STATE_CREATED     = 1;
+  CONTAINER_STATE_RUNNING     = 2;
+  CONTAINER_STATE_STOPPED     = 3;
 }
 
 message Container {
-  string id = 1;
-  string namespace_id = 2;
-  string image = 3;
-  ContainerState state = 4;
-  optional uint32 exit_code = 5;
-  repeated VolumeMount volumes = 6;
-  repeated string argv = 7;
-  repeated string env = 8;
-  optional string workdir = 9;
-  optional string user = 10;
-  string instance_id = 11;
-  int64 created_at_unix_nano = 12;
-  int64 started_at_unix_nano = 13;
-  int64 finished_at_unix_nano = 14;
-  string generation_id = 15;
+  string               id                    = 1;
+  string               namespace_id          = 2;
+  string               image                 = 3;
+  ContainerState       state                 = 4;
+  optional uint32      exit_code             = 5;
+  repeated VolumeMount volumes               = 6;
+  repeated string      argv                  = 7;
+  repeated string      env                   = 8;
+  optional string      workdir               = 9;
+  optional string      user                  = 10;
+  string               instance_id           = 11;
+  int64                created_at_unix_nano  = 12;
+  int64                started_at_unix_nano  = 13;
+  int64                finished_at_unix_nano = 14;
+  string               generation_id         = 15;
 }
 
 message StringList {
@@ -285,161 +440,178 @@ message StringList {
 }
 
 message CreateContainerRequest {
-  string request_id = 1;
+  string request_id         = 1;
   string actor_namespace_id = 2;
-  string container_id = 3;
-  string image = 4;
+  string container_id       = 3;
+  string image              = 4;
   reserved 5;
   reserved "argv";
-  repeated string env = 6;
-  optional string workdir = 7;
-  optional string user = 8;
-  ResourceLimits limits = 9;
-  repeated VolumeMount volumes = 10;
-  bool read_only_root = 11;
-  uint64 log_limit_bytes = 12;
-  StringList entrypoint_override = 13;
-  StringList command_override = 14;
+  repeated string      env                 = 6;
+  optional string      workdir             = 7;
+  optional string      user                = 8;
+  ResourceLimits       limits              = 9;
+  repeated VolumeMount volumes             = 10;
+  bool                 read_only_root      = 11;
+  uint64               log_limit_bytes     = 12;
+  StringList           entrypoint_override = 13;
+  StringList           command_override    = 14;
 }
+
 message CreateContainerResponse {
   Container container = 1;
 }
 
 message StartContainerRequest {
-  string request_id = 1;
+  string request_id         = 1;
   string actor_namespace_id = 2;
-  string container_id = 3;
+  string container_id       = 3;
 }
+
 message StartContainerResponse {
   Container container = 1;
 }
 
 message StopContainerRequest {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string container_id = 3;
-  optional uint32 timeout_seconds = 4;
+  string          request_id         = 1;
+  string          actor_namespace_id = 2;
+  string          container_id       = 3;
+  optional uint32 timeout_seconds    = 4;
 }
+
 message StopContainerResponse {
   Container container = 1;
 }
 
 message WaitContainerRequest {
   string actor_namespace_id = 1;
-  string container_id = 2;
+  string container_id       = 2;
 }
+
 message WaitContainerResponse {
   uint32 exit_code = 1;
 }
 
 message DeleteContainerRequest {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string container_id = 3;
+  string request_id             = 1;
+  string actor_namespace_id     = 2;
+  string container_id           = 3;
   string expected_generation_id = 4;
 }
+
 message DeleteContainerResponse {}
 
 message InspectContainerRequest {
   string actor_namespace_id = 1;
-  string container_id = 2;
+  string container_id       = 2;
 }
+
 message InspectContainerResponse {
   Container container = 1;
 }
+
 message ListContainersRequest {
   string actor_namespace_id = 1;
 }
+
 message ListContainersResponse {
   repeated Container containers = 1;
 }
+
 message GetContainerUsageRequest {
   string actor_namespace_id = 1;
-  string container_id = 2;
+  string container_id       = 2;
 }
 
 message Usage {
-  uint64 cpu_nanos = 1;
-  uint64 memory_bytes = 2;
-  uint32 pids = 3;
-  uint64 read_bytes = 4;
-  uint64 write_bytes = 5;
-  uint64 disk_bytes = 6;
-  int64 sampled_at_unix_nano = 7;
-  bool unavailable = 8;
-  string unavailable_reason = 9;
-  uint64 network_rx_bytes = 10;
-  uint64 network_tx_bytes = 11;
+  uint64 cpu_nanos            = 1;
+  uint64 memory_bytes         = 2;
+  uint32 pids                 = 3;
+  uint64 read_bytes           = 4;
+  uint64 write_bytes          = 5;
+  uint64 disk_bytes           = 6;
+  int64  sampled_at_unix_nano = 7;
+  bool   unavailable          = 8;
+  string unavailable_reason   = 9;
+  uint64 network_rx_bytes     = 10;
+  uint64 network_tx_bytes     = 11;
 }
+
 message GetUsageResponse {
   Usage usage = 1;
 }
 
 enum LogStream {
   LOG_STREAM_UNSPECIFIED = 0;
-  LOG_STREAM_STDOUT = 1;
-  LOG_STREAM_STDERR = 2;
+  LOG_STREAM_STDOUT      = 1;
+  LOG_STREAM_STDERR      = 2;
 }
+
 message LogsRequest {
   string actor_namespace_id = 1;
-  string container_id = 2;
-  uint64 tail_records = 3;
-  int64 since_unix_nano = 4;
-  string after_cursor = 5;
-  bool follow = 6;
+  string container_id       = 2;
+  uint64 tail_records       = 3;
+  int64  since_unix_nano    = 4;
+  string after_cursor       = 5;
+  bool   follow             = 6;
 }
+
 message LogsResponse {
-  string cursor = 1;
-  int64 timestamp_unix_nano = 2;
-  LogStream stream = 3;
-  bytes data = 4;
-  bool truncated = 5;
-  uint64 dropped_records = 6;
+  string    cursor              = 1;
+  int64     timestamp_unix_nano = 2;
+  LogStream stream              = 3;
+  bytes     data                = 4;
+  bool      truncated           = 5;
+  uint64    dropped_records     = 6;
 }
 
 enum ProcessSignal {
   PROCESS_SIGNAL_UNSPECIFIED = 0;
-  PROCESS_SIGNAL_TERM = 1;
-  PROCESS_SIGNAL_KILL = 2;
-  PROCESS_SIGNAL_INT = 3;
+  PROCESS_SIGNAL_TERM        = 1;
+  PROCESS_SIGNAL_KILL        = 2;
+  PROCESS_SIGNAL_INT         = 3;
 }
+
 message SignalContainerRequest {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string container_id = 3;
-  ProcessSignal signal = 4;
+  string        request_id         = 1;
+  string        actor_namespace_id = 2;
+  string        container_id       = 3;
+  ProcessSignal signal             = 4;
 }
+
 message SignalContainerResponse {}
 
 message ExecStart {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string container_id = 3;
-  repeated string argv = 4;
-  repeated string env = 5;
-  optional string workdir = 6;
-  optional string user = 7;
-  bool tty = 8;
-  uint32 rows = 9;
-  uint32 columns = 10;
+  string          request_id         = 1;
+  string          actor_namespace_id = 2;
+  string          container_id       = 3;
+  repeated string argv               = 4;
+  repeated string env                = 5;
+  optional string workdir            = 6;
+  optional string user               = 7;
+  bool            tty                = 8;
+  uint32          rows               = 9;
+  uint32          columns            = 10;
 }
+
 message ExecResize {
-  uint32 rows = 1;
+  uint32 rows    = 1;
   uint32 columns = 2;
 }
+
 message ExecRequest {
   oneof event {
-    ExecStart start = 1;
-    bytes stdin = 2;
-    bool close_stdin = 3;
-    ExecResize resize = 4;
-    ProcessSignal signal = 5;
+    ExecStart     start       = 1;
+    bytes         stdin       = 2;
+    bool          close_stdin = 3;
+    ExecResize    resize      = 4;
+    ProcessSignal signal      = 5;
   }
 }
+
 message ExecResponse {
   oneof event {
-    bytes stdout = 1;
-    bytes stderr = 2;
+    bytes  stdout    = 1;
+    bytes  stderr    = 2;
     uint32 exit_code = 3;
   }
 }
@@ -447,133 +619,179 @@ message ExecResponse {
 message ContainerIDList {
   repeated string ids = 1;
 }
+
 message ContainerSelector {
   oneof selection {
-    bool all_containers = 1;
-    ContainerIDList container_ids = 2;
+    bool            all_containers = 1;
+    ContainerIDList container_ids  = 2;
   }
 }
+
 message NetworkLink {
-  string id = 1;
-  string source_namespace_id = 2;
-  string destination_namespace_id = 3;
-  ContainerSelector source = 4;
-  ContainerSelector destination = 5;
-  repeated uint32 tcp_ports = 6;
-  string dns_alias = 7;
+  string            id                       = 1;
+  string            source_namespace_id      = 2;
+  string            destination_namespace_id = 3;
+  ContainerSelector source                   = 4;
+  ContainerSelector destination              = 5;
+  repeated uint32   tcp_ports                = 6;
+  string            dns_alias                = 7;
 }
+
 message ApplyNetworkLinkRequest {
-  string request_id = 1;
-  NetworkLink link = 2;
+  string      request_id = 1;
+  NetworkLink link       = 2;
 }
+
 message ApplyNetworkLinkResponse {}
+
 message DeleteNetworkLinkRequest {
   string request_id = 1;
-  string link_id = 2;
+  string link_id    = 2;
 }
+
 message DeleteNetworkLinkResponse {}
 
 message ServiceProjection {
-  string id = 1;
-  string source_namespace_id = 2;
-  string source_container_id = 3;
-  string source_container_instance_id = 4;
-  string destination_namespace_id = 5;
-  string destination_container_id = 6;
+  string id                                = 1;
+  string source_namespace_id               = 2;
+  string source_container_id               = 3;
+  string source_container_instance_id      = 4;
+  string destination_namespace_id          = 5;
+  string destination_container_id          = 6;
   string destination_container_instance_id = 7;
-  uint32 destination_port = 8;
-  string dns_alias = 9;
-  int64 expires_unix_millis = 10;
-  bool remote = 11;
-  string virtual_address = 12;
+  uint32 destination_port                  = 8;
+  string dns_alias                         = 9;
+  int64  expires_unix_millis               = 10;
+  bool   remote                            = 11;
+  string virtual_address                   = 12;
 }
+
 message ApplyServiceProjectionRequest { string request_id = 1; ServiceProjection projection = 2; }
+
 message ApplyServiceProjectionResponse { string source_address = 1; }
+
 message DeleteServiceProjectionRequest { string request_id = 1; string projection_id = 2; }
+
 message DeleteServiceProjectionResponse {}
 
 message ForwardTCPHeader {
-  string actor_namespace_id = 1;
-  string container_id = 2;
-  uint32 port = 3;
+  string actor_namespace_id    = 1;
+  string container_id          = 2;
+  uint32 port                  = 3;
   string container_instance_id = 4;
 }
+
 message ForwardTCPRequest {
   oneof event {
-    ForwardTCPHeader header = 1;
-    bytes data = 2;
-    bool close_write = 3;
+    ForwardTCPHeader header      = 1;
+    bytes            data        = 2;
+    bool             close_write = 3;
   }
 }
+
 message ForwardTCPResponse {
   oneof event {
-    bytes data = 1;
-    bool close_read = 2;
+    bytes data       = 1;
+    bool  close_read = 2;
   }
 }
 
 enum BuildNetworkMode {
-  BUILD_NETWORK_MODE_UNSPECIFIED = 0;
-  BUILD_NETWORK_MODE_NONE = 1;
+  BUILD_NETWORK_MODE_UNSPECIFIED      = 0;
+  BUILD_NETWORK_MODE_NONE             = 1;
   BUILD_NETWORK_MODE_NAMESPACE_EGRESS = 2;
 }
+
 message BuildArgument {
-  string name = 1;
+  string name  = 1;
   string value = 2;
 }
+
 message BuildSecret {
   string id = 1;
 }
+
 message BuildImageHeader {
-  string request_id = 1;
-  string actor_namespace_id = 2;
-  string dockerfile_path = 3;
-  string image = 4;
-  optional string target = 5;
-  repeated BuildArgument build_args = 6;
-  BuildNetworkMode network_mode = 7;
-  repeated BuildSecret secrets = 8;
+  string                 request_id         = 1;
+  string                 actor_namespace_id = 2;
+  string                 dockerfile_path    = 3;
+  string                 image              = 4;
+  optional string        target             = 5;
+  repeated BuildArgument build_args         = 6;
+  BuildNetworkMode       network_mode       = 7;
+  repeated BuildSecret   secrets            = 8;
 }
+
 message BuildContextChunk {
-  bytes data = 1;
-  bool final = 2;
+  bytes data  = 1;
+  bool  final = 2;
 }
+
 message BuildSecretChunk {
-  string id = 1;
-  bytes data = 2;
-  bool final = 3;
+  string id    = 1;
+  bytes  data  = 2;
+  bool   final = 3;
 }
+
 message BuildImageRequest {
   oneof event {
-    BuildImageHeader header = 1;
+    BuildImageHeader  header  = 1;
     BuildContextChunk context = 2;
-    BuildSecretChunk secret = 3;
+    BuildSecretChunk  secret  = 3;
   }
 }
+
 message BuildImageResult {
-  string image = 1;
+  string image  = 1;
   string digest = 2;
 }
+
 message BuildImageResponse {
   oneof event {
-    string progress = 1;
-    BuildImageResult result = 2;
+    string           progress = 1;
+    BuildImageResult result   = 2;
+  }
+}
+
+message BuildApplianceRequest {
+  oneof event {
+    BuildImageHeader  header  = 1;
+    BuildContextChunk context = 2;
+    BuildSecretChunk  secret  = 3;
+  }
+}
+
+message BuildApplianceResult {
+  bytes  archive_sha256  = 1;
+  string manifest_digest = 2;
+  uint64 archive_size    = 3;
+  bool   cache_hit       = 4;
+}
+
+message BuildApplianceResponse {
+  oneof event {
+    string               progress      = 1;
+    bytes                archive_chunk = 2;
+    BuildApplianceResult result        = 3;
   }
 }
 
 enum ComponentState {
   COMPONENT_STATE_UNSPECIFIED = 0;
-  COMPONENT_STATE_HEALTHY = 1;
-  COMPONENT_STATE_DEGRADED = 2;
+  COMPONENT_STATE_HEALTHY     = 1;
+  COMPONENT_STATE_DEGRADED    = 2;
   COMPONENT_STATE_UNAVAILABLE = 3;
 }
+
 message ComponentStatus {
-  string component = 1;
-  ComponentState state = 2;
-  string reason = 3;
-  int64 observed_at_unix_nano = 4;
+  string         component             = 1;
+  ComponentState state                 = 2;
+  string         reason                = 3;
+  int64          observed_at_unix_nano = 4;
 }
+
 message ComponentHealthRequest {}
+
 message ComponentHealthResponse {
   repeated ComponentStatus components = 1;
 }
@@ -583,28 +801,30 @@ message ProbeEgressRequest {
 }
 
 message ProbeEgressResponse {
-  bool policy_enforced = 1;
-  bool dns_ok = 2;
-  bool tcp_ok = 3;
-  bool private_denied = 4;
-  string failure_layer = 5;
-  string reason = 6;
+  bool   policy_enforced = 1;
+  bool   dns_ok          = 2;
+  bool   tcp_ok          = 3;
+  bool   private_denied  = 4;
+  string failure_layer   = 5;
+  string reason          = 6;
 }
 
 message ResourceReference {
-  string kind = 1;
+  string kind         = 1;
   string namespace_id = 2;
-  string resource_id = 3;
+  string resource_id  = 3;
 }
+
 message WatchEventsRequest {
   uint64 after_sequence = 1;
 }
+
 message RuntimeEvent {
-  uint64 sequence = 1;
-  string type = 2;
-  ResourceReference resource = 3;
-  string guest_boot_id = 4;
-  string request_id = 5;
-  string operation_id = 6;
-  int64 timestamp_unix_nano = 7;
+  uint64            sequence            = 1;
+  string            type                = 2;
+  ResourceReference resource            = 3;
+  string            guest_boot_id       = 4;
+  string            request_id          = 5;
+  string            operation_id        = 6;
+  int64             timestamp_unix_nano = 7;
 }

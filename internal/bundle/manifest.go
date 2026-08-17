@@ -85,7 +85,7 @@ func Verify(directory string, publicKey ed25519.PublicKey) (*Verified, error) {
 	if manifest.SchemaVersion != 1 || manifest.Architecture != "arm64" || manifest.MinimumMacOS != "14.0" {
 		return nil, errors.New("unsupported bundle manifest")
 	}
-	if manifest.RootFS.Filesystem != "squashfs" || manifest.RootFS.Compressor != "xz" || manifest.RootFS.BlockSize != 1<<20 || manifest.RootFS.Dictionary != 1<<20 || manifest.RootFS.Filter != "arm64-bcj" {
+	if manifest.RootFS.Filesystem != "squashfs" || manifest.RootFS.BlockSize != 1<<20 || !supportedRootFS(manifest.Signer, manifest.RootFS) {
 		return nil, errors.New("unsupported rootfs format")
 	}
 	for _, name := range []string{"kernel", "initramfs", "rootfs", "sbom", "provenance", "checksums"} {
@@ -99,6 +99,11 @@ func Verify(directory string, publicKey ed25519.PublicKey) (*Verified, error) {
 	}
 	digest := sha256.Sum256(manifestBytes)
 	return &Verified{Directory: directory, Manifest: manifest, ManifestDigest: hex.EncodeToString(digest[:])}, nil
+}
+
+func supportedRootFS(signer string, root RootFS) bool {
+	return signer == "release" && root.Compressor == "xz" && root.Dictionary == 1<<20 && root.Filter == "arm64-bcj" ||
+		signer == "development" && root.Compressor == "zstd" && root.Dictionary == 0 && root.Filter == "none"
 }
 
 func verifyArtifact(directory string, artifact Artifact) error {

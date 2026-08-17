@@ -224,28 +224,6 @@ type CleanupImpactData struct {
 	Blocker      bool     `json:"blocker"`
 }
 
-type ForwardData struct {
-	ID                  string    `json:"id"`
-	ContainerID         string    `json:"container_id"`
-	ContainerInstanceID string    `json:"container_instance_id"`
-	RemotePort          uint32    `json:"remote_port"`
-	LocalPort           uint32    `json:"local_port"`
-	ExpiresAt           time.Time `json:"expires_at"`
-}
-
-type ForwardListData struct {
-	Items []ForwardData `json:"items"`
-}
-
-type PortForwardStartInput struct {
-	ContainerID string `json:"container_id"`
-	Port        uint32 `json:"port"`
-	LocalPort   uint32 `json:"local_port,omitempty"`
-	TTLSeconds  int    `json:"ttl_seconds,omitempty"`
-}
-type PortForwardStopInput struct {
-	ForwardID string `json:"forward_id"`
-}
 type CleanupExecuteInput struct {
 	Kind                string   `json:"kind"`
 	PlanRevision        string   `json:"plan_revision"`
@@ -253,12 +231,9 @@ type CleanupExecuteInput struct {
 	ConfirmIrreversible bool     `json:"confirm_irreversible,omitempty"`
 	ConfirmedVolumeIDs  []string `json:"confirmed_volume_ids,omitempty"`
 }
-type OperationData struct {
-	ID    string     `json:"id"`
-	Kind  string     `json:"kind"`
-	State string     `json:"state"`
-	Stage string     `json:"stage,omitempty"`
-	Error *ToolError `json:"error,omitempty"`
+type CleanupResultData struct {
+	Kind  string `json:"kind"`
+	State string `json:"state"`
 }
 
 type ServiceExportInput struct {

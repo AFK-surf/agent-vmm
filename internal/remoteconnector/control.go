@@ -3,6 +3,7 @@ package remoteconnector
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"time"
 
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
@@ -12,7 +13,10 @@ import (
 var protocolFeatures = []string{
 	"command-evidence-v1",
 	"connection-epoch-v1",
+	"controller-ready-v1",
+	"endpoint-observation-renewal-v1",
 	"inventory-watermark-v1",
+	"host-loopback-frontend-v1",
 	"unknown-outcome-v1",
 }
 
@@ -69,23 +73,33 @@ func (tracker *commandTracker) admit(command *remotev1.ControllerCommand, now ti
 	if ensure := command.GetEnsureAllocation(); ensure != nil && command.GetTargetRevision() != ensure.GetPolicyRevision() {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "target revision fence mismatch"), nil
 	}
+	if command.GetAcquireLease() != nil && command.GetTargetRevision() == 0 {
+		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation revision fence is required"), nil
+	}
+	if command.GetAcquireHostLoopbackFrontend() != nil && command.GetTargetRevision() == 0 {
+		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "frontend allocation revision fence is required"), nil
+	}
+	if cleanup := command.GetExecuteCleanupAllocation(); cleanup != nil && command.GetTargetRevision() != cleanup.GetPlanRevision() {
+		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "cleanup plan revision fence mismatch"), nil
+	}
 	tracker.commandIDs[command.GetSequence()] = command.GetCommandId()
 	tracker.nextSequence++
 	ack.Disposition = remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_ADMITTED
 	return ack, nil
 }
 
-func (tracker *commandTracker) record(command *remotev1.ControllerCommand, result *remotev1.CommandResult) {
-	if allocation := result.GetAllocation(); allocation != nil && allocation.GetRevision() > tracker.inventoryWatermark {
-		tracker.inventoryWatermark = allocation.GetRevision()
+func (tracker *commandTracker) record(command *remotev1.ControllerCommand, result *remotev1.CommandResult) error {
+	if result.GetInventoryWatermark() < tracker.inventoryWatermark {
+		return errors.New("authoritative inventory watermark regressed")
 	}
-	result.InventoryWatermark = tracker.inventoryWatermark
+	tracker.inventoryWatermark = result.GetInventoryWatermark()
 	tracker.results[command.GetSequence()] = proto.Clone(result).(*remotev1.CommandResult)
 	if len(tracker.results) <= 128 {
-		return
+		return nil
 	}
 	delete(tracker.results, command.GetSequence()-128)
 	delete(tracker.commandIDs, command.GetSequence()-128)
+	return nil
 }
 
 func rejectAck(ack *remotev1.CommandAck, reason remotev1.ErrorReason, message string) *remotev1.CommandAck {
@@ -103,6 +117,10 @@ func validGenerationFence(command *remotev1.ControllerCommand) bool {
 		return command.GetLeaseGeneration() == value.ReleaseLease.GetGeneration()
 	case *remotev1.ControllerCommand_OpenSession:
 		return command.GetLeaseGeneration() == value.OpenSession.GetGeneration()
+	case *remotev1.ControllerCommand_RenewHostLoopbackFrontend:
+		return command.GetLeaseGeneration() == value.RenewHostLoopbackFrontend.GetGeneration()
+	case *remotev1.ControllerCommand_ReleaseHostLoopbackFrontend:
+		return command.GetLeaseGeneration() == value.ReleaseHostLoopbackFrontend.GetGeneration()
 	default:
 		return command.GetLeaseGeneration() == 0
 	}
@@ -120,12 +138,9 @@ func randomEpoch() (uint64, error) {
 	return epoch, nil
 }
 
-func inventoryWatermark(inventory []*remotev1.Allocation) uint64 {
-	var watermark uint64
-	for _, allocation := range inventory {
-		if allocation.GetRevision() > watermark {
-			watermark = allocation.GetRevision()
-		}
+func validateControllerReady(ready *remotev1.ControllerReady, registrationID string, epoch, watermark uint64) error {
+	if ready == nil || ready.GetRegistrationId() != registrationID || ready.GetConnectionEpoch() != epoch || ready.GetAcknowledgedInventoryWatermark() != watermark {
+		return errors.New("controller ready fence does not match the authoritative inventory snapshot")
 	}
-	return watermark
+	return nil
 }

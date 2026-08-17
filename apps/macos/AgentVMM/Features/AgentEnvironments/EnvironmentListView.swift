@@ -90,9 +90,7 @@ struct EnvironmentListView: View {
                 .padding(.vertical, 6)
                 .contextMenu {
                     Button("Open") { model.showEnvironment(environment.id) }
-                    if model.integrations.contains(where: { $0.environmentID == environment.id }) {
-                        Button("Open Agent Access") { model.showAccess(.local) }
-                    } else if environment.origin == .remote {
+                    if environment.origin == .remote {
                         Button("Open Remote Controller") { model.showAccess(.remote) }
                     }
                     if model.snapshot.vmState == "Stopped" {
@@ -130,7 +128,7 @@ struct EnvironmentListView: View {
         if environment.origin == .remote {
             return remoteAllocation(for: environment)?.state == "Retained"
         }
-        return !model.integrations.contains { $0.environmentID == environment.id }
+        return true
     }
 
     private func cleanupDisabledReason(for environment: AgentEnvironmentModel, mode: CleanupMode) -> String? {
@@ -145,12 +143,6 @@ struct EnvironmentListView: View {
                 return "Release the active remote lease first."
             }
         }
-        if model.integrations.contains(where: { $0.environmentID == environment.id }) {
-            return "Remove agent access before deleting this environment."
-        }
-        if model.sessions.contains(where: { $0.environmentID == environment.id && $0.activeConnections > 0 }) {
-            return "Disconnect active agent sessions first."
-        }
         if environment.workloads.contains(where: { $0.state == .running }) {
             return "Stop running workspaces and services first."
         }
@@ -159,7 +151,7 @@ struct EnvironmentListView: View {
 
     private func remoteAllocation(for environment: AgentEnvironmentModel) -> RemoteAllocationModel? {
         guard let allocationID = environment.allocationID else { return nil }
-        return model.snapshot.remoteRegistration?.allocations.first { $0.allocationID == allocationID }
+        return model.snapshot.remoteRegistrations.lazy.flatMap(\.allocations).first { $0.allocationID == allocationID }
     }
 
     private func prepareCleanup(_ environment: AgentEnvironmentModel, mode: CleanupMode) {
@@ -218,15 +210,6 @@ private struct EnvironmentDetailView: View {
     let resetDisabledReason: String?
     let discardDisabledReason: String?
 
-    private var integration: AgentIntegrationModel? {
-        model.integrations.first { $0.environmentID == environment.id }
-    }
-
-    private var activeConnections: UInt32 {
-        guard let integration else { return 0 }
-        return model.sessions(for: integration.id).reduce(0) { $0 + $1.activeConnections }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -263,12 +246,10 @@ private struct EnvironmentDetailView: View {
                 HStack(spacing: 12) {
                     Label(environment.origin.rawValue, systemImage: environment.origin == .local ? "desktopcomputer" : "network")
                     Text("\(environment.workloads.filter { $0.state == .running }.count) running")
-                    if integration != nil {
-                        Text(activeConnections > 0 ? "\(activeConnections) agent connection\(activeConnections == 1 ? "" : "s")" : "Agent awaiting connection")
-                    } else if environment.origin == .remote {
+                    if environment.origin == .remote {
                         Text("Remote allocation")
                     } else {
-                        Text("No agent access")
+                        Text("Local environment")
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)
@@ -278,8 +259,6 @@ private struct EnvironmentDetailView: View {
                 Button("Start Virtual Machine") { Task { await model.startVM() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.vmAction != nil)
-            } else if integration != nil {
-                Button("Agent Access") { model.showAccess(.local) }
             }
         }
         .padding(.horizontal, 24)

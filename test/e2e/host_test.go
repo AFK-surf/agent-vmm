@@ -6,6 +6,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
@@ -21,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -38,12 +41,14 @@ func TestE2E(t *testing.T) {
 
 	harness := startHostWithState(t, 8<<30)
 	harness.start(t)
+	t.Run("system_appliance", func(t *testing.T) { testSystemAppliance(t, harness) })
 	client := harness.runtime(t)
 	t.Run("session_auth_and_revocation", func(t *testing.T) { testSessionAuthAndRevocation(t, harness, client) })
+	t.Run("remote_workflow", func(t *testing.T) { testRemoteWorkflow(t, harness) })
+	t.Run("three_remote_domains", func(t *testing.T) { testThreeRemoteDomains(t, harness) })
 	t.Run("mcp_workflow", func(t *testing.T) { testMCPWorkflow(t, harness) })
 	t.Run("workspace_file_workflow", func(t *testing.T) { testWorkspaceFileWorkflow(t, client) })
 	t.Run("image_record_lifecycle", func(t *testing.T) { testImageRecordLifecycle(t, client) })
-	t.Run("remote_workflow", func(t *testing.T) { testRemoteWorkflow(t, harness) })
 	parallel := []struct {
 		name string
 		run  func(*testing.T, *productClient)
@@ -91,6 +96,205 @@ func TestE2E(t *testing.T) {
 		t.Cleanup(func() { isolated.stop(t, true) })
 		testPGVectorImageAndVolume(t, isolated.runtime(t))
 	})
+}
+
+func testSystemAppliance(t *testing.T, harness *hostHarness) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := openE2EDatabase(harness.database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`INSERT INTO appliance_publishers(publisher_key_id, public_key, revision, revoked, updated_at)
+		VALUES ('e2e-reference', ?, 1, 0, ?)`, publicKey, time.Now().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	bundle := os.Getenv("AGENT_VMM_E2E_BUNDLE")
+	if bundle == "" {
+		bundle = "/tmp/agent-vmm-e2e-bundle"
+	}
+	lockedDigest, err := os.ReadFile(filepath.Join(bundle, "reference-appliance.digest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageDigest := strings.TrimSpace(string(lockedDigest))
+	limits := func(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
+		return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
+	}
+	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: "reference",
+		PublisherKeyId: "e2e-reference", Release: "e2e", ImageReference: "agent-vmm.local/reference@" + imageDigest,
+		ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1",
+		ControllerProtocolVersion: "controller-ready-v1", SystemResources: &appliancev1.ResourceRange{
+			Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(400, 256<<20, 128, 1<<30)},
+		DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{MaxEnvironments: 2,
+			AggregateLimits: limits(200, 256<<20, 128, 512<<20), PerEnvironmentLimits: limits(100, 128<<20, 64, 256<<20),
+			MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
+		RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StartupDeadlineSeconds: 60,
+		ProbationSeconds: 1, HealthTimeoutSeconds: 10, MinimumApplianceRuntime: "1"}
+	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
+	client := appliancev1.NewApplianceAdminServiceClient(harness.connection)
+	signature := ed25519.Sign(privateKey, canonical)
+	secretA := []byte("phase2-e2e-bootstrap-secret-a-4d57af9b")
+	secretB := []byte("phase2-e2e-bootstrap-secret-b-9c34b572")
+	statusA := activateReferenceAppliance(t, client, "e2e-reference-a", manifest, signature, deadline, secretA)
+	manifestB := proto.Clone(manifest).(*appliancev1.ControllerApplianceManifest)
+	manifestB.Release = "e2e-b"
+	canonicalB, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifestB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusB := activateReferenceAppliance(t, client, "e2e-reference-b", manifestB, ed25519.Sign(privateKey, canonicalB), deadline, secretB)
+	for _, status := range []*appliancev1.ApplianceStatus{statusA, statusB} {
+		if status.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !status.GetHealth().GetHealthy() || status.GetHealth().GetStatus() != "ready;bootstrap-secret-surfaces-clean" {
+			t.Fatalf("appliance status = %+v", status)
+		}
+	}
+	if _, err := client.Restart(context.Background(), &appliancev1.RestartApplianceRequest{InstallationId: "e2e-reference-b", RequestId: "reference-b-explicit-restart",
+		ExpectedRevision: statusB.GetRevision(), DeadlineUnixMillis: deadline}); err != nil {
+		t.Fatal(err)
+	}
+	statusB = waitApplianceState(t, client, "e2e-reference-b", appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING)
+	if statusB.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !statusB.GetHealth().GetHealthy() {
+		t.Fatalf("explicit appliance restart failed: %+v", statusB)
+	}
+	support, err := harness.client.ExportSupportBundle(context.Background(), &hostv1.ExportSupportBundleRequest{RequestId: "phase2-secret-scan"})
+	if err != nil || support.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
+		t.Fatalf("support bundle = %+v, %v", support, err)
+	}
+	for _, secret := range [][]byte{secretA, secretB} {
+		assertSecretAbsent(t, harness.database, secret)
+		assertSecretAbsent(t, harness.instance, secret)
+		assertSecretAbsent(t, support.GetOperation().GetOutputPath(), secret)
+		assertProcessSecretAbsent(t, harness.process, secret)
+	}
+	harness.stop(t, false)
+	harness.start(t)
+	for _, installationID := range []string{"e2e-reference-a", "e2e-reference-b"} {
+		status := waitApplianceState(t, client, installationID, appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING)
+		if status.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !status.GetHealth().GetHealthy() {
+			t.Fatalf("appliance did not unlock after ordinary restart: %+v", status)
+		}
+	}
+}
+
+func activateReferenceAppliance(t *testing.T, client appliancev1.ApplianceAdminServiceClient, installationID string, manifest *appliancev1.ControllerApplianceManifest, signature []byte, deadline int64, secret []byte) *appliancev1.ApplianceStatus {
+	t.Helper()
+	prefix := strings.TrimPrefix(installationID, "e2e-")
+	stage, err := client.StageArtifact(context.Background(), &appliancev1.StageArtifactRequest{
+		RequestId: prefix + "-stage", DeadlineUnixMillis: deadline, Manifest: manifest,
+		PublisherSignature: append([]byte(nil), signature...)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactID := stage.GetArtifactId()
+	current := applianceStatus(t, client, installationID)
+	grant := &appliancev1.ApprovedGrant{SystemResources: manifest.GetSystemResources(), Capacity: manifest.GetRequestedCapacity(), EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, Revision: current.GetRevision()}
+	_, err = client.PlanInstall(context.Background(), &appliancev1.PlanInstallRequest{InstallationId: installationID, RequestId: prefix + "-install-plan", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Install(context.Background(), &appliancev1.InstallRequest{InstallationId: installationID, RequestId: prefix + "-install", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID,
+		DeadlineUnixMillis: deadline, ApprovedGrant: grant, OpaqueBootstrapSeed: append([]byte(nil), secret...)}); err != nil {
+		t.Fatal(err)
+	}
+	current = applianceStatus(t, client, installationID)
+	_, err = client.PlanActivation(context.Background(), &appliancev1.PlanActivationRequest{InstallationId: installationID, RequestId: prefix + "-activation-plan", ExpectedRevision: current.GetRevision(), DeadlineUnixMillis: deadline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Activate(context.Background(), &appliancev1.ActivateRequest{InstallationId: installationID, RequestId: prefix + "-activate", ExpectedRevision: current.GetRevision(), DeadlineUnixMillis: deadline}); err != nil {
+		t.Fatal(err)
+	}
+	return applianceStatus(t, client, installationID)
+}
+
+func assertProcessSecretAbsent(t *testing.T, process *exec.Cmd, secret []byte) {
+	t.Helper()
+	if bytes.Contains([]byte(strings.Join(process.Args, "\x00")), secret) || bytes.Contains([]byte(strings.Join(process.Env, "\x00")), secret) {
+		t.Fatal("bootstrap secret found in host process argv or environment")
+	}
+}
+
+func applianceStatus(t *testing.T, client appliancev1.ApplianceAdminServiceClient, installationID string) *appliancev1.ApplianceStatus {
+	t.Helper()
+	response, err := client.GetStatus(context.Background(), &appliancev1.GetApplianceStatusRequest{InstallationId: installationID})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return &appliancev1.ApplianceStatus{InstallationId: installationID}
+		}
+		t.Fatal(err)
+	}
+	return response.GetStatus()
+}
+
+func waitApplianceState(t *testing.T, client appliancev1.ApplianceAdminServiceClient, installationID string, expected appliancev1.ApplianceState) *appliancev1.ApplianceStatus {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	var current *appliancev1.ApplianceStatus
+	for time.Now().Before(deadline) {
+		current = applianceStatus(t, client, installationID)
+		if current.GetApplianceState() == expected && (expected != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || current.GetHealth().GetHealthy()) {
+			return current
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("appliance %q did not reach %s: %+v", installationID, expected, current)
+	return nil
+}
+
+func assertSecretAbsent(t *testing.T, root string, secret []byte) {
+	t.Helper()
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{root}
+	if info.IsDir() {
+		paths = paths[:0]
+		if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr == nil && !entry.IsDir() {
+				paths = append(paths, path)
+			}
+			return walkErr
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buffer := make([]byte, 1<<20)
+		window := make([]byte, 0, len(secret)-1)
+		for {
+			count, readErr := file.Read(buffer)
+			if count != 0 {
+				data := append(window, buffer[:count]...)
+				if bytes.Contains(data, secret) {
+					file.Close()
+					t.Fatalf("bootstrap secret found in %s", path)
+				}
+				keep := min(len(secret)-1, len(data))
+				window = append(window[:0], data[len(data)-keep:]...)
+			}
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			if readErr != nil {
+				file.Close()
+				t.Fatal(readErr)
+			}
+		}
+		file.Close()
+	}
 }
 
 func testWorkspaceFileWorkflow(t *testing.T, client *productClient) {
@@ -338,17 +542,24 @@ func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	if digest, err := pullImageReference(ctx, client, environmentID, "pull-pgvector", image); err != nil || !strings.HasPrefix(digest, "sha256:") {
+		if snapshot, snapshotErr := client.Snapshot(ctx); snapshotErr == nil {
+			t.Logf("pgvector pull failure snapshot: health=%+v usage=%+v", snapshot.GetHealth(), snapshot.GetUsage())
+		} else {
+			t.Logf("pgvector pull failure snapshot unavailable: %v", snapshotErr)
+		}
 		if externalRegistryUnavailable(err) {
 			t.Skipf("external pgvector registry unavailable: %v", err)
 		}
-		t.Fatalf("pull pgvector = %q, %v", digest, err)
+		t.Fatalf("pull pgvector = %q, %v details=%v", digest, err, status.Convert(err).Details())
 	}
 	owner, mode := uint32(999), uint32(0o700)
+	user := "999:999"
 	if _, err := client.CreateVolume(ctx, environmentID, &hostv1.CreateVolumeRequest{RequestId: "create-pgvector-data", VolumeId: "data", OwnerUid: &owner, OwnerGid: &owner, Mode: &mode}); err != nil {
 		t.Fatal(err)
 	}
 	created, err := client.CreateContainer(ctx, environmentID, &hostv1.CreateContainerRequest{
 		RequestId: "create-pgvector", ContainerId: "postgres", Image: image,
+		User:    &user,
 		Env:     []string{"POSTGRES_PASSWORD=agent-vmm-e2e", "PGDATA=/var/lib/postgresql/data/pgdata"},
 		Volumes: []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/var/lib/postgresql/data"}}, LogLimitBytes: 1 << 20,
 	})
@@ -361,6 +572,13 @@ func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
 	}
 	deadline := time.Now().Add(90 * time.Second)
 	for {
+		current, err := client.GetContainer(ctx, environmentID, &hostv1.ContainerRequest{ContainerId: "postgres"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_RUNNING {
+			t.Fatalf("pgvector stopped before readiness: %q", readLogs(t, client, environmentID, "postgres"))
+		}
 		output, code := execContainer(t, client, environmentID, "postgres", []string{"pg_isready", "-U", "postgres"})
 		if code == 0 && bytes.Contains(output, []byte("accepting connections")) {
 			break
@@ -386,7 +604,7 @@ func externalRegistryUnavailable(err error) bool {
 		}
 		switch info.GetReason() {
 		case "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_TIMEOUT",
-			"IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_BLOB_FETCH_FAILED":
+			"IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_MANIFEST_FETCH_FAILED":
 			return true
 		}
 	}
@@ -402,6 +620,15 @@ func TestExternalRegistryUnavailable(t *testing.T) {
 	}
 	if !externalRegistryUnavailable(registry.Err()) {
 		t.Fatal("registry-specific unavailable error was not classified as external")
+	}
+	blobFailure, err := status.New(codes.Unavailable, "image content could not be downloaded").WithDetails(
+		&errdetails.ErrorInfo{Reason: "IMAGE_BLOB_FETCH_FAILED", Domain: "agent-vmm"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if externalRegistryUnavailable(blobFailure.Err()) {
+		t.Fatal("unclassified image blob failure was incorrectly classified as external registry failure")
 	}
 	if externalRegistryUnavailable(status.Error(codes.Unavailable, "guest control service is unavailable")) {
 		t.Fatal("generic VM/control unavailable error was classified as external registry failure")
@@ -428,7 +655,7 @@ func testCleanupContract(t *testing.T, harness *hostHarness, client *productClie
 	if err != nil || afterPolicy.GetEnvironment().GetPolicyRevision() != beforePolicy.GetEnvironment().GetPolicyRevision() {
 		t.Fatalf("invalid policy changed revision: before=%v after=%v err=%v", beforePolicy.GetEnvironment().GetPolicyRevision(), afterPolicy.GetEnvironment().GetPolicyRevision(), err)
 	}
-	database, err := sql.Open("sqlite", harness.database)
+	database, err := openE2EDatabase(harness.database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1330,12 +1557,17 @@ func testResidualScan(t *testing.T, client *productClient) {
 	}
 }
 
-const workloadImage = "mirror.gcr.io/library/alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce"
+// Keep the fixture on the immutable linux/arm64 child manifest. The mirror's
+// multi-platform index has intermittently evicted older child blobs.
+const workloadImage = "mirror.gcr.io/library/alpine@sha256:1832327faf048390adc33852575d37c7ba155e064a339e78b9bd81983a8c7a00"
 
 type hostHarness struct {
 	client              hostv1.OperatorServiceClient
 	connection          *grpc.ClientConn
 	process             *exec.Cmd
+	binary              string
+	processArgs         []string
+	serial              string
 	instance            string
 	database            string
 	runtimeSocket       string
@@ -1349,6 +1581,20 @@ type hostHarness struct {
 
 func startHost(t *testing.T) *hostHarness {
 	return startHostWithState(t, 1<<30)
+}
+
+func openE2EDatabase(path string) (*sql.DB, error) {
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	if _, err := database.Exec("PRAGMA busy_timeout=10000"); err != nil {
+		database.Close()
+		return nil, err
+	}
+	return database, nil
 }
 
 func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
@@ -1377,35 +1623,22 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	sessions := filepath.Join(directory, "sessions")
 	instance := filepath.Join(directory, "instance")
 	serial := filepath.Join(directory, "serial.log")
-	process := exec.Command(binary,
+	processArgs := []string{
 		"--bundle", bundle, "--instance", instance, "--state-size", fmt.Sprint(stateBytes),
-		"--memory", "4294967296",
+		"--cpus", "4", "--memory", "4294967296",
 		"--serial-log", serial, "--operator-socket", operatorSocket, "--remote-compute-socket", remoteComputeSocket,
 		"--database", database, "--session-directory", sessions,
-	)
-	process.Stdout = os.Stdout
-	process.Stderr = os.Stderr
-	if err := process.Start(); err != nil {
-		t.Fatal(err)
 	}
+	harness := &hostHarness{binary: binary, processArgs: processArgs, serial: serial, instance: instance, database: database,
+		runtimeSocket: runtimeSocket, operatorSocket: operatorSocket, remoteComputeSocket: remoteComputeSocket,
+		trustSocket: trustSocket, trustCapabilityFile: trustCapabilityFile}
+	harness.launchHostProcess(t)
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Logf("serial log tail:\n%s", readFileTail(serial, 64<<10))
 		}
 	})
-	t.Cleanup(func() {
-		if process.ProcessState == nil || !process.ProcessState.Exited() {
-			_ = process.Process.Signal(os.Interrupt)
-			done := make(chan struct{})
-			go func() { _ = process.Wait(); close(done) }()
-			select {
-			case <-done:
-			case <-time.After(20 * time.Second):
-				_ = process.Process.Kill()
-				<-done
-			}
-		}
-	})
+	t.Cleanup(func() { harness.shutdownHostProcess() })
 	waitForPath(t, operatorSocket, 10*time.Second)
 	waitForPath(t, trustSocket, 10*time.Second)
 	waitForPath(t, trustCapabilityFile, 10*time.Second)
@@ -1419,9 +1652,68 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	operator := hostv1.NewOperatorServiceClient(connection)
 	runtimeClient := newProductClient(operator)
 	t.Cleanup(runtimeClient.close)
-	return &hostHarness{client: operator, connection: connection, process: process, instance: instance, database: database,
-		runtimeSocket: runtimeSocket, operatorSocket: operatorSocket, remoteComputeSocket: remoteComputeSocket,
-		trustSocket: trustSocket, trustCapabilityFile: trustCapabilityFile, runtimeClient: runtimeClient}
+	harness.client, harness.connection, harness.runtimeClient = operator, connection, runtimeClient
+	return harness
+}
+
+func (harness *hostHarness) launchHostProcess(t *testing.T) {
+	t.Helper()
+	process := exec.Command(harness.binary, harness.processArgs...)
+	process.Stdout = os.Stdout
+	process.Stderr = os.Stderr
+	if err := process.Start(); err != nil {
+		t.Fatal(err)
+	}
+	harness.process = process
+}
+
+func (harness *hostHarness) shutdownHostProcess() {
+	process := harness.process
+	if process == nil || (process.ProcessState != nil && process.ProcessState.Exited()) {
+		return
+	}
+	_ = process.Process.Signal(os.Interrupt)
+	done := make(chan struct{})
+	go func() { _ = process.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		_ = process.Process.Kill()
+		<-done
+	}
+}
+
+func (harness *hostHarness) crashAndRestartHost(t *testing.T) {
+	t.Helper()
+	if err := harness.process.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.process.Wait(); err == nil {
+		t.Fatal("SIGKILL host unexpectedly exited successfully")
+	}
+	for _, path := range []string{harness.operatorSocket, harness.remoteComputeSocket, harness.trustSocket, harness.trustCapabilityFile} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	harness.launchHostProcess(t)
+	waitForPath(t, harness.operatorSocket, 10*time.Second)
+	waitForPath(t, harness.trustSocket, 10*time.Second)
+	waitForPath(t, harness.trustCapabilityFile, 10*time.Second)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, err := harness.client.GetVM(ctx, &hostv1.GetVMRequest{})
+		cancel()
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restarted host did not become ready: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	harness.start(t)
 }
 
 func readFileTail(path string, limit int64) []byte {
@@ -1476,6 +1768,11 @@ func (harness *hostHarness) stop(t *testing.T, force bool) {
 
 func (harness *hostHarness) runtime(t *testing.T) *productClient {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := harness.runtimeClient.refreshSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
 	return harness.runtimeClient
 }
 
@@ -1881,10 +2178,10 @@ func deleteNamespace(t *testing.T, client *productClient, namespaceID string) {
 
 func deleteNamespaceEventually(t *testing.T, client *productClient, namespaceID string) {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(45 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		lastErr = client.DeleteEnvironment(ctx, namespaceID, "delete-"+namespaceID)
 		cancel()
 		if lastErr == nil {
@@ -1901,14 +2198,14 @@ func execContainer(t *testing.T, client *productClient, namespaceID, containerID
 	defer cancel()
 	stream, err := client.Exec(ctx, namespaceID)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("exec %s: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 	}
 	requestID := "exec-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000")
 	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: requestID, ContainerId: containerID, Argv: argv}}}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("exec %s send: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 	}
 	if err := stream.CloseSend(); err != nil {
-		t.Fatal(err)
+		t.Fatalf("exec %s close: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 	}
 	var output bytes.Buffer
 	var exitCode uint32
@@ -1918,7 +2215,7 @@ func execContainer(t *testing.T, client *productClient, namespaceID, containerID
 			return output.Bytes(), exitCode
 		}
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("exec %s receive: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 		}
 		output.Write(response.GetStdout())
 		output.Write(response.GetStderr())

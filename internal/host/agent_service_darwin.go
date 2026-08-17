@@ -34,6 +34,10 @@ func (server *agentServer) CreateServiceExport(ctx context.Context, request *hos
 	if err != nil {
 		return nil, err
 	}
+	if identity.RegistrationID != "" {
+		unlock := server.controller.lockIntegration("service-domain:" + identity.RegistrationID)
+		defer unlock()
+	}
 	if request.GetRequestId() == "" || request.GetContainerId() == "" || request.GetContainerInstanceId() == "" || request.GetPort() == 0 || request.GetPort() > 65535 ||
 		(request.GetProtocol() != servicev1.ServiceProtocol_SERVICE_PROTOCOL_TCP && request.GetProtocol() != servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP) {
 		return nil, invalidField("request_id/container_instance/port/protocol", "complete current service export is required")
@@ -112,6 +116,10 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 	if err != nil {
 		return nil, err
 	}
+	if identity.RegistrationID != "" {
+		unlock := server.controller.lockIntegration("service-domain:" + identity.RegistrationID)
+		defer unlock()
+	}
 	if request.GetRequestId() == "" || request.GetSourceContainerId() == "" || request.GetSourceContainerInstanceId() == "" ||
 		request.GetDestinationDeviceId() == "" || request.GetDestinationExportId() == "" || !virtualServiceName.MatchString(request.GetVirtualServiceName()) || request.GetCapability() == nil {
 		return nil, invalidField("service_import", "complete service import and route capability are required")
@@ -133,6 +141,12 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 		destination, err = server.controller.store.GetServiceExport(ctx, request.GetDestinationExportId())
 		if err != nil || destination.GetRevoked() {
 			return nil, resourceError(codes.NotFound, "SERVICE_EXPORT_NOT_FOUND", "service_export", request.GetDestinationExportId(), "destination export is unavailable")
+		}
+		if identity.RegistrationID != "" {
+			destinationEnvironment, environmentErr := server.controller.store.GetEnvironment(ctx, destination.GetEnvironmentId())
+			if environmentErr != nil || destinationEnvironment.RegistrationID == "" || destinationEnvironment.RegistrationID != identity.RegistrationID {
+				return nil, resourceError(codes.PermissionDenied, "CROSS_DOMAIN_SERVICE_ROUTE", "service_export", request.GetDestinationExportId(), "service route destination is outside the controller domain")
+			}
 		}
 	} else {
 		if request.GetDestinationPort() == 0 || request.GetDestinationPort() > 65535 || server.controller.dataWorkerSocket == "" {
@@ -374,16 +388,16 @@ func serviceExportForAgent(value *servicev1.ServiceExport) *servicev1.ServiceExp
 	if value == nil {
 		return nil
 	}
-	result := *value
+	result := proto.Clone(value).(*servicev1.ServiceExport)
 	result.EnvironmentId = ""
-	return &result
+	return result
 }
 
 func serviceImportForAgent(value *servicev1.ServiceImport) *servicev1.ServiceImport {
 	if value == nil {
 		return nil
 	}
-	result := *value
+	result := proto.Clone(value).(*servicev1.ServiceImport)
 	result.SourceEnvironmentId = ""
-	return &result
+	return result
 }

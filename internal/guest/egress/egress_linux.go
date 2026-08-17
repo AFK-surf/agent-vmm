@@ -106,33 +106,45 @@ func (pump *Pump) Run(ctx context.Context) error {
 
 func (pump *Pump) runSession(ctx context.Context, connection net.Conn, packets <-chan []byte) error {
 	if err := netprotocol.WriteHandshake(connection, netprotocol.Handshake{BootID: pump.bootID}); err != nil {
-		return err
+		return fmt.Errorf("egress handshake write: %w", err)
 	}
 	if _, err := netprotocol.ReadHandshake(connection, pump.bootID); err != nil {
-		return err
+		return fmt.Errorf("egress handshake read: %w", err)
 	}
 	pump.connected.Store(true)
 	pump.reconnecting.Store(false)
-	pump.lastError.Store(nil)
 	readErr := make(chan error, 1)
 	go func() { readErr <- pump.readFrames(ctx, connection) }()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
+		// A busy TUN can keep packets continuously ready. Give the keepalive
+		// clock priority so the host's read deadline cannot expire while a
+		// large download is producing ACK traffic.
+		select {
+		case sent := <-ticker.C:
+			payload := make([]byte, 8)
+			binaryPutUint64(payload, uint64(sent.UnixNano()))
+			if err := pump.writeFrame(connection, netprotocol.Ping, payload); err != nil {
+				return fmt.Errorf("egress ping write: %w", err)
+			}
+			continue
+		default:
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case err := <-readErr:
-			return err
+			return fmt.Errorf("egress frame read: %w", err)
 		case packet := <-packets:
 			if err := pump.writeFrame(connection, netprotocol.Data, packet); err != nil {
-				return err
+				return fmt.Errorf("egress data write: %w", err)
 			}
 		case sent := <-ticker.C:
 			payload := make([]byte, 8)
 			binaryPutUint64(payload, uint64(sent.UnixNano()))
 			if err := pump.writeFrame(connection, netprotocol.Ping, payload); err != nil {
-				return err
+				return fmt.Errorf("egress ping write: %w", err)
 			}
 		}
 	}
@@ -178,6 +190,10 @@ func (pump *Pump) readTUN(ctx context.Context, packets chan<- []byte, result cha
 			continue
 		}
 		packet := append([]byte(nil), buffer[:count]...)
+		if err := netprotocol.ValidateDataPacket(packet); err != nil {
+			pump.drops.Add(1)
+			continue
+		}
 		select {
 		case packets <- packet:
 		default:
@@ -227,7 +243,11 @@ func (pump *Pump) Ready() error {
 
 func (pump *Pump) Status() string {
 	health := pump.Health()
-	return fmt.Sprintf("connected=%t reconnecting=%t reconnects=%d drops=%d rtt_ms=%d", health.Connected, health.Reconnecting, health.ReconnectCount, health.Drops, health.LastRTT.Milliseconds())
+	lastError := health.LastError
+	if len(lastError) > 160 {
+		lastError = lastError[:160]
+	}
+	return fmt.Sprintf("connected=%t reconnecting=%t reconnects=%d drops=%d rtt_ms=%d last_error=%q", health.Connected, health.Reconnecting, health.ReconnectCount, health.Drops, health.LastRTT.Milliseconds(), lastError)
 }
 
 func jitter(base time.Duration) time.Duration {

@@ -21,7 +21,11 @@ import (
 )
 
 func (r *Runtime) GetNamespace(ctx context.Context, namespaceID string) (*vmmdv1.Namespace, error) {
-	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+	return r.getNamespaceForRole(ctx, namespaceID, false)
+}
+
+func (r *Runtime) getNamespaceForRole(ctx context.Context, namespaceID string, system bool) (*vmmdv1.Namespace, error) {
+	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
 		return nil, err
 	}
 	labels, err := r.client.NamespaceService().Labels(ctx, namespaceID)
@@ -44,6 +48,9 @@ func (r *Runtime) ListNamespaces(ctx context.Context) ([]*vmmdv1.Namespace, erro
 	sort.Strings(names)
 	result := make([]*vmmdv1.Namespace, 0, len(names))
 	for _, name := range names {
+		if isSystemNamespace(name) {
+			continue
+		}
 		namespace, err := r.GetNamespace(ctx, name)
 		if err != nil {
 			return nil, err
@@ -262,7 +269,11 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 }
 
 func (r *Runtime) GetImage(ctx context.Context, namespaceID, reference string) (*vmmdv1.Image, error) {
-	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+	return r.getImageForRole(ctx, namespaceID, reference, false)
+}
+
+func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference string, system bool) (*vmmdv1.Image, error) {
+	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
 		return nil, err
 	}
 	canonical, err := normalizeImageReference(reference)

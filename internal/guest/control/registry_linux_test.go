@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/containerd/containerd/v2/core/remotes"
@@ -30,12 +32,14 @@ func TestRegistryDownloadErrorClassifiesSafeFailure(t *testing.T) {
 		code    codes.Code
 		reason  string
 		message string
+		class   string
 	}{
-		{name: "rate limited", err: errors.New("unexpected status from HEAD request: 429 Too Many Requests"), code: codes.ResourceExhausted, reason: "IMAGE_REGISTRY_RATE_LIMITED", message: "image registry rate limit was reached"},
-		{name: "timeout", err: context.DeadlineExceeded, code: codes.Unavailable, reason: "IMAGE_DOWNLOAD_TIMEOUT", message: "image download timed out"},
-		{name: "authorization", err: errors.New("failed to authorize: failed to fetch anonymous token: EOF"), code: codes.Unavailable, reason: "IMAGE_AUTH_UNAVAILABLE", message: "image registry authentication was interrupted"},
-		{name: "transfer", err: io.ErrUnexpectedEOF, code: codes.Unavailable, reason: "IMAGE_DOWNLOAD_INTERRUPTED", message: "image download was interrupted"},
-		{name: "other", err: errors.New("content verification failed"), code: codes.Unavailable, reason: "IMAGE_BLOB_FETCH_FAILED", message: "image content could not be downloaded"},
+		{name: "rate limited", err: errors.New("unexpected status from HEAD request: 429 Too Many Requests"), code: codes.ResourceExhausted, reason: "IMAGE_REGISTRY_RATE_LIMITED", message: "image registry rate limit was reached", class: "rate_limited"},
+		{name: "timeout", err: context.DeadlineExceeded, code: codes.Unavailable, reason: "IMAGE_DOWNLOAD_TIMEOUT", message: "image download timed out", class: "timeout"},
+		{name: "authorization", err: errors.New("failed to authorize: failed to fetch anonymous token: EOF"), code: codes.Unavailable, reason: "IMAGE_AUTH_UNAVAILABLE", message: "image registry authentication was interrupted", class: "authorization"},
+		{name: "transfer", err: io.ErrUnexpectedEOF, code: codes.Unavailable, reason: "IMAGE_DOWNLOAD_INTERRUPTED", message: "image download was interrupted", class: "transport_interrupted"},
+		{name: "wrapped connection reset", err: &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}, code: codes.Unavailable, reason: "IMAGE_DOWNLOAD_INTERRUPTED", message: "image download was interrupted", class: "transport_interrupted"},
+		{name: "other", err: errors.New("content verification failed"), code: codes.Unavailable, reason: "IMAGE_BLOB_FETCH_FAILED", message: "image content could not be downloaded", class: "content_verification"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -44,19 +48,32 @@ func TestRegistryDownloadErrorClassifiesSafeFailure(t *testing.T) {
 			if value.Code() != test.code || value.Message() != test.message {
 				t.Fatalf("registryDownloadError() = %v", err)
 			}
-			var reason string
+			var reason, class string
 			for _, detail := range value.Details() {
 				if info, ok := detail.(*errdetails.ErrorInfo); ok {
 					reason = info.Reason
+					class = info.Metadata["failure_class"]
 				}
 			}
 			if reason != test.reason {
 				t.Fatalf("reason = %q, want %q", reason, test.reason)
 			}
+			if class != test.class {
+				t.Fatalf("failure class = %q, want %q", class, test.class)
+			}
 			if strings.Contains(value.Message(), test.err.Error()) {
 				t.Fatalf("unsafe source error leaked: %q", value.Message())
 			}
 		})
+	}
+}
+
+func TestUnpackRegistryFailure(t *testing.T) {
+	if !unpackRegistryFailure(errors.New("unexpected media type text/html for sha256:abc: not found")) {
+		t.Fatal("registry HTML response was not classified as a download failure")
+	}
+	if unpackRegistryFailure(errors.New("failed to apply layer: invalid whiteout")) {
+		t.Fatal("local unpack incompatibility was classified as a registry failure")
 	}
 }
 

@@ -38,6 +38,9 @@ type Metrics struct {
 	ActiveTCP       uint64
 	ActiveUDP       uint64
 	ActiveDNS       uint64
+	LastError       string
+	DialFailures    uint64
+	LastDialError   string
 }
 
 type metrics struct {
@@ -49,6 +52,9 @@ type metrics struct {
 	activeTCP       atomic.Uint64
 	activeUDP       atomic.Uint64
 	activeDNS       atomic.Uint64
+	lastError       atomic.Pointer[string]
+	dialFailures    atomic.Uint64
+	lastDialError   atomic.Pointer[string]
 }
 
 type Subsystem struct {
@@ -71,7 +77,7 @@ func New() *Subsystem {
 		services: serviceRoutes{values: make(map[serviceRouteKey]ServiceRoute)}}
 }
 
-func (subsystem *Subsystem) Serve(ctx context.Context, connection net.Conn, bootID string) error {
+func (subsystem *Subsystem) Serve(ctx context.Context, connection net.Conn, bootID string) (serveErr error) {
 	if connection == nil || bootID == "" {
 		return errors.New("connection and boot ID are required")
 	}
@@ -92,6 +98,13 @@ func (subsystem *Subsystem) Serve(ctx context.Context, connection net.Conn, boot
 	subsystem.bootID = bootID
 	subsystem.mu.Unlock()
 	defer func() {
+		if serveErr != nil && !errors.Is(serveErr, context.Canceled) {
+			message := serveErr.Error()
+			if len(message) > 160 {
+				message = message[:160]
+			}
+			subsystem.metrics.lastError.Store(&message)
+		}
 		cancel()
 		_ = connection.Close()
 		subsystem.mu.Lock()
@@ -101,10 +114,10 @@ func (subsystem *Subsystem) Serve(ctx context.Context, connection net.Conn, boot
 		subsystem.mu.Unlock()
 	}()
 	if _, err := netprotocol.ReadHandshake(connection, bootID); err != nil {
-		return err
+		return fmt.Errorf("egress handshake read: %w", err)
 	}
 	if err := netprotocol.WriteHandshake(connection, netprotocol.Handshake{BootID: bootID}); err != nil {
-		return err
+		return fmt.Errorf("egress handshake write: %w", err)
 	}
 	_ = connection.SetDeadline(time.Time{})
 	return subsystem.runStack(sessionCtx, connection, bootID)
@@ -124,12 +137,20 @@ func (subsystem *Subsystem) Close() {
 }
 
 func (subsystem *Subsystem) Metrics() Metrics {
-	return Metrics{
+	result := Metrics{
 		PacketsReceived: subsystem.metrics.packetsReceived.Load(), PacketsSent: subsystem.metrics.packetsSent.Load(),
 		PacketDrops: subsystem.metrics.packetDrops.Load(), InvalidFrames: subsystem.metrics.invalidFrames.Load(),
 		RejectedFlows: subsystem.metrics.rejectedFlows.Load(), ActiveTCP: subsystem.metrics.activeTCP.Load(),
 		ActiveUDP: subsystem.metrics.activeUDP.Load(), ActiveDNS: subsystem.metrics.activeDNS.Load(),
 	}
+	if value := subsystem.metrics.lastError.Load(); value != nil {
+		result.LastError = *value
+	}
+	result.DialFailures = subsystem.metrics.dialFailures.Load()
+	if value := subsystem.metrics.lastDialError.Load(); value != nil {
+		result.LastDialError = *value
+	}
+	return result
 }
 
 func (subsystem *Subsystem) Status() (active bool, bootID string, policyRevision uint64, sourceCount int) {
@@ -169,7 +190,7 @@ func (subsystem *Subsystem) runStack(ctx context.Context, connection net.Conn, b
 			if errors.Is(err, netprotocol.ErrInvalidFrame) {
 				subsystem.metrics.invalidFrames.Add(1)
 			}
-			return err
+			return fmt.Errorf("egress frame read: %w", err)
 		}
 		switch frameType {
 		case netprotocol.Data:
@@ -179,7 +200,7 @@ func (subsystem *Subsystem) runStack(ctx context.Context, connection net.Conn, b
 			packet.DecRef()
 		case netprotocol.Ping:
 			if err := writer.write(netprotocol.Pong, payload); err != nil {
-				return err
+				return fmt.Errorf("egress pong write: %w", err)
 			}
 		case netprotocol.Pong:
 		default:
@@ -187,7 +208,7 @@ func (subsystem *Subsystem) runStack(ctx context.Context, connection net.Conn, b
 		}
 		select {
 		case err := <-writeErr:
-			return err
+			return fmt.Errorf("egress frame write: %w", err)
 		default:
 		}
 	}

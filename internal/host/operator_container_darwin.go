@@ -20,6 +20,9 @@ func (server *operatorServer) StopContainer(ctx context.Context, request *hostv1
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
 	}
+	if err := requireLocalOperatorEnvironment(environment); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -40,6 +43,9 @@ func (server *operatorServer) ContinueContainer(ctx context.Context, request *ho
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
 	}
+	if err := requireLocalOperatorEnvironment(environment); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -59,6 +65,9 @@ func (server *operatorServer) SignalContainer(ctx context.Context, request *host
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+	}
+	if err := requireLocalOperatorEnvironment(environment); err != nil {
+		return nil, err
 	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
@@ -83,6 +92,9 @@ func (server *operatorServer) DeleteContainer(ctx context.Context, request *host
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+	}
+	if err := requireLocalOperatorEnvironment(environment); err != nil {
+		return nil, err
 	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {

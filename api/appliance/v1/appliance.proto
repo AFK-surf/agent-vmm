@@ -1,0 +1,465 @@
+syntax = "proto3";
+
+package agentvmm.appliance.v1;
+
+import "google/protobuf/timestamp.proto";
+import "host/v1/host.proto";
+import "trust/v1/trust.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/appliance/v1;appliancev1";
+
+service ApplianceAdminService {
+  rpc BuildArtifact(stream BuildArtifactRequest) returns (stream BuildArtifactResponse);
+  rpc StageArtifact(StageArtifactRequest) returns (ApplianceOperationResponse);
+  rpc PlanInstall(PlanInstallRequest) returns (AppliancePlanResponse);
+  rpc Install(InstallRequest) returns (ApplianceOperationResponse);
+  rpc PlanActivation(PlanActivationRequest) returns (AppliancePlanResponse);
+  rpc Activate(ActivateRequest) returns (ApplianceOperationResponse);
+  rpc List(ListAppliancesRequest) returns (ListAppliancesResponse);
+  rpc GetStatus(GetApplianceStatusRequest) returns (ApplianceStatusResponse);
+  rpc WatchOperation(WatchApplianceOperationRequest) returns (stream ApplianceOperationResponse);
+  rpc Stop(StopApplianceRequest) returns (ApplianceOperationResponse);
+  rpc Restart(RestartApplianceRequest) returns (ApplianceOperationResponse);
+  rpc Revoke(RevokeApplianceRequest) returns (ApplianceOperationResponse);
+  rpc PlanSealedRepair(PlanSealedRepairRequest) returns (AppliancePlanResponse);
+  rpc ExecuteSealedRepair(ExecuteSealedRepairRequest) returns (ApplianceOperationResponse);
+  rpc PlanRemove(PlanRemoveRequest) returns (AppliancePlanResponse);
+  rpc ExecuteRemove(ExecuteRemoveRequest) returns (ApplianceOperationResponse);
+}
+
+message BuildArtifactHeader {
+  string                                  request_id      = 1;
+  string                                  dockerfile_path = 2;
+  optional string                         target          = 3;
+  repeated agentvmm.host.v1.BuildArgument build_args      = 4;
+  agentvmm.host.v1.BuildNetworkMode       network_mode    = 5;
+  repeated agentvmm.host.v1.BuildSecret   secrets         = 6;
+}
+
+message BuildArtifactRequest {
+  oneof event {
+    BuildArtifactHeader                header  = 1;
+    agentvmm.host.v1.BuildContextChunk context = 2;
+    agentvmm.host.v1.BuildSecretChunk  secret  = 3;
+  }
+}
+
+message BuildArtifactResult {
+  bytes  archive_sha256  = 1;
+  string manifest_digest = 2;
+  uint64 archive_size    = 3;
+  bool   cache_hit       = 4;
+}
+
+message BuildArtifactResponse {
+  oneof event {
+    string              progress      = 1;
+    bytes               archive_chunk = 2;
+    BuildArtifactResult result        = 3;
+  }
+}
+
+service ApplianceBootstrapService {
+  rpc Bootstrap(stream HostBootstrapFrame) returns (stream ApplianceBootstrapFrame);
+}
+
+enum FrontendTransport {
+  FRONTEND_TRANSPORT_UNSPECIFIED = 0;
+  FRONTEND_TRANSPORT_BYTE_STREAM = 1;
+  FRONTEND_TRANSPORT_HTTP        = 2;
+}
+
+enum FrontendExposure {
+  FRONTEND_EXPOSURE_UNSPECIFIED   = 0;
+  FRONTEND_EXPOSURE_HOST_LOOPBACK = 1;
+  FRONTEND_EXPOSURE_OUTBOUND_ONLY = 2;
+}
+
+enum ApplianceState {
+  APPLIANCE_STATE_UNSPECIFIED = 0;
+  APPLIANCE_STATE_STOPPED     = 1;
+  APPLIANCE_STATE_STARTING    = 2;
+  APPLIANCE_STATE_RUNNING     = 3;
+  APPLIANCE_STATE_STOPPING    = 4;
+  APPLIANCE_STATE_FAILED      = 5;
+  APPLIANCE_STATE_SEALED      = 6;
+}
+
+enum ControllerChannelState {
+  CONTROLLER_CHANNEL_STATE_UNSPECIFIED  = 0;
+  CONTROLLER_CHANNEL_STATE_DISCONNECTED = 1;
+  CONTROLLER_CHANNEL_STATE_ENROLLING    = 2;
+  CONTROLLER_CHANNEL_STATE_CONNECTING   = 3;
+  CONTROLLER_CHANNEL_STATE_RECONCILING  = 4;
+  CONTROLLER_CHANNEL_STATE_ACTIVE       = 5;
+  CONTROLLER_CHANNEL_STATE_REVOKED      = 6;
+}
+
+enum ApplianceOperationState {
+  APPLIANCE_OPERATION_STATE_UNSPECIFIED = 0;
+  APPLIANCE_OPERATION_STATE_RUNNING     = 1;
+  APPLIANCE_OPERATION_STATE_SUCCEEDED   = 2;
+  APPLIANCE_OPERATION_STATE_FAILED      = 3;
+  APPLIANCE_OPERATION_STATE_INTERRUPTED = 4;
+}
+
+enum AppliancePlanKind {
+  APPLIANCE_PLAN_KIND_UNSPECIFIED   = 0;
+  APPLIANCE_PLAN_KIND_INSTALL       = 1;
+  APPLIANCE_PLAN_KIND_ACTIVATE      = 2;
+  APPLIANCE_PLAN_KIND_REMOVE        = 3;
+  APPLIANCE_PLAN_KIND_SEALED_REPAIR = 4;
+}
+
+enum ApplianceOperationKind {
+  APPLIANCE_OPERATION_KIND_UNSPECIFIED   = 0;
+  APPLIANCE_OPERATION_KIND_STAGE         = 1;
+  APPLIANCE_OPERATION_KIND_INSTALL       = 2;
+  APPLIANCE_OPERATION_KIND_ACTIVATE      = 3;
+  APPLIANCE_OPERATION_KIND_STOP          = 4;
+  APPLIANCE_OPERATION_KIND_RESTART       = 5;
+  APPLIANCE_OPERATION_KIND_REVOKE        = 6;
+  APPLIANCE_OPERATION_KIND_REMOVE        = 7;
+  APPLIANCE_OPERATION_KIND_SEALED_REPAIR = 8;
+}
+
+enum ApplianceOperationPhase {
+  APPLIANCE_OPERATION_PHASE_UNSPECIFIED      = 0;
+  APPLIANCE_OPERATION_PHASE_PLANNED          = 1;
+  APPLIANCE_OPERATION_PHASE_PROBATION        = 2;
+  APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED = 3;
+  APPLIANCE_OPERATION_PHASE_PENDING_DESTROY  = 4;
+  APPLIANCE_OPERATION_PHASE_TERMINAL         = 5;
+}
+
+enum ApplianceTerminalReason {
+  APPLIANCE_TERMINAL_REASON_UNSPECIFIED       = 0;
+  APPLIANCE_TERMINAL_REASON_SUCCEEDED         = 1;
+  APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT    = 2;
+  APPLIANCE_TERMINAL_REASON_CORRUPTION        = 3;
+  APPLIANCE_TERMINAL_REASON_KEY_LOST          = 4;
+  APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED = 5;
+  APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED  = 6;
+  APPLIANCE_TERMINAL_REASON_REMOVED           = 7;
+  APPLIANCE_TERMINAL_REASON_OPERATION_FAILED  = 8;
+}
+
+message StreamBounds {
+  uint32 max_frame_bytes        = 1;
+  uint64 max_total_bytes        = 2;
+  uint32 deadline_seconds       = 3;
+  uint32 idle_seconds           = 4;
+  uint32 max_concurrent_streams = 5;
+  uint32 max_use_count          = 6;
+}
+
+message ControllerFrontend {
+  string            name      = 1;
+  FrontendTransport transport = 2;
+  FrontendExposure  exposure  = 3;
+  StreamBounds      bounds    = 4;
+}
+
+message DynamicHostLoopbackGrant {
+  uint32       max_active_leases                    = 1;
+  uint32       max_active_leases_per_allocation     = 2;
+  uint32       max_lease_seconds                    = 3;
+  uint32       max_concurrent_connections           = 4;
+  uint32       max_concurrent_connections_per_lease = 5;
+  StreamBounds connection_bounds                    = 6;
+}
+
+message ResourceRange {
+  agentvmm.host.v1.ResourceLimits floor   = 1;
+  agentvmm.host.v1.ResourceLimits ceiling = 2;
+}
+
+message CapacityGrant {
+  uint32                          max_environments         = 1;
+  agentvmm.host.v1.ResourceLimits aggregate_limits         = 2;
+  agentvmm.host.v1.ResourceLimits per_environment_limits   = 3;
+  agentvmm.host.v1.EgressMode     max_egress_mode          = 4;
+  uint32                          max_lease_seconds        = 5;
+  uint32                          disconnect_grace_seconds = 6;
+}
+
+message ControllerApplianceManifest {
+  string                      contract_version                = 1;
+  string                      product_id                      = 2;
+  string                      publisher_key_id                = 3;
+  string                      release                         = 4;
+  string                      image_reference                 = 5;
+  string                      image_manifest_digest           = 6;
+  string                      platform                        = 7;
+  string                      bootstrap_protocol_version      = 8;
+  string                      controller_protocol_version     = 9;
+  ResourceRange               system_resources                = 10;
+  uint64                      data_volume_bytes               = 11;
+  CapacityGrant               requested_capacity              = 12;
+  agentvmm.host.v1.EgressMode requested_egress_mode           = 13;
+  repeated ControllerFrontend requested_frontends             = 14;
+  uint32                      startup_deadline_seconds        = 15;
+  uint32                      probation_seconds               = 16;
+  uint32                      health_timeout_seconds          = 17;
+  string                      minimum_appliance_runtime       = 18;
+  DynamicHostLoopbackGrant    requested_dynamic_host_loopback = 19;
+}
+
+message ApprovedGrant {
+  ResourceRange               system_resources      = 1;
+  CapacityGrant               capacity              = 2;
+  agentvmm.host.v1.EgressMode egress_mode           = 3;
+  repeated ControllerFrontend frontends             = 4;
+  uint64                      revision              = 5;
+  DynamicHostLoopbackGrant    dynamic_host_loopback = 6;
+}
+
+message ApplianceLaunchClaim {
+  string                           installation_id        = 1;
+  string                           artifact_id            = 2;
+  string                           boot_id                = 3;
+  string                           system_namespace       = 4;
+  string                           container_instance     = 5;
+  bytes                            boot_nonce             = 6;
+  string                           bootstrap_id           = 7;
+  uint64                           config_revision        = 8;
+  ApprovedGrant                    approved_grant         = 9;
+  int64                            expires_unix_millis    = 10;
+  bytes                            signature              = 11;
+  bytes                            device_root_public_key = 12;
+  uint64                           device_root_revision   = 13;
+  string                           registration_id        = 14;
+  agentvmm.trust.v1.DeviceIdentity device_identity        = 15;
+}
+
+message ApplianceManagedTrustBundle {
+  string                                 installation_id       = 1;
+  string                                 registration_id       = 2;
+  uint64                                 config_revision       = 3;
+  string                                 boot_id               = 4;
+  string                                 container_instance    = 5;
+  bytes                                  boot_nonce            = 6;
+  agentvmm.trust.v1.TrustAnchor          trust_anchor          = 7;
+  agentvmm.trust.v1.MembershipCredential membership_credential = 8;
+}
+
+message OpaqueBootstrapEnvelope {
+  string installation_id     = 1;
+  string bootstrap_id        = 2;
+  bytes  nonce               = 3;
+  bytes  ciphertext          = 4;
+  int64  expires_unix_millis = 5;
+}
+
+message BootstrapReceipt {
+  string installation_id = 1;
+  string bootstrap_id    = 2;
+  bytes  nonce           = 3;
+}
+
+message ApplianceHealth {
+  string installation_id    = 1;
+  string boot_id            = 2;
+  string container_instance = 3;
+  uint64 config_revision    = 4;
+  bool   healthy            = 5;
+  string status             = 6;
+  bytes  readiness_nonce    = 7;
+  string registration_id    = 8;
+}
+
+message HostBootstrapFrame {
+  oneof payload {
+    ApplianceLaunchClaim    launch_claim = 1;
+    OpaqueBootstrapEnvelope envelope     = 2;
+    bool                    close_write  = 3;
+  }
+}
+
+message ApplianceBootstrapFrame {
+  oneof payload {
+    BootstrapReceipt            receipt       = 1;
+    ApplianceHealth             health        = 2;
+    bool                        close_write   = 3;
+    ApplianceManagedTrustBundle managed_trust = 4;
+  }
+}
+
+message ApplianceFrontendStatus {
+  string            name               = 1;
+  FrontendTransport transport          = 2;
+  FrontendExposure  exposure           = 3;
+  string            endpoint           = 4;
+  string            container_instance = 5;
+  bool              available          = 6;
+}
+
+message ApplianceStatus {
+  string                           installation_id     = 1;
+  string                           product_id          = 2;
+  string                           artifact_id         = 3;
+  uint64                           revision            = 4;
+  ApplianceState                   appliance_state     = 5;
+  ControllerChannelState           channel_state       = 6;
+  ApprovedGrant                    approved_grant      = 7;
+  string                           registration_id     = 8;
+  uint64                           inventory_watermark = 9;
+  repeated ApplianceFrontendStatus frontends           = 10;
+  ApplianceHealth                  health              = 11;
+  bool                             enabled             = 12;
+  string                           boot_id             = 13;
+  string                           container_instance  = 14;
+}
+
+message ApplianceImpact {
+  string resource_type = 1;
+  string resource_id   = 2;
+  string effect        = 3;
+  bool   irreversible  = 4;
+  bool   blocker       = 5;
+}
+
+message AppliancePlan {
+  string                   installation_id = 1;
+  AppliancePlanKind        kind            = 2;
+  uint64                   revision        = 3;
+  string                   artifact_id     = 4;
+  repeated ApplianceImpact impacts         = 5;
+}
+
+message ApplianceOperationError {
+  string reason  = 1;
+  string message = 2;
+}
+
+message ApplianceOperation {
+  string                    operation_id      = 1;
+  string                    installation_id   = 2;
+  string                    request_id        = 3;
+  ApplianceOperationKind    kind              = 4;
+  ApplianceOperationState   state             = 5;
+  ApplianceOperationPhase   phase             = 6;
+  uint64                    expected_revision = 7;
+  google.protobuf.Timestamp started_at        = 8;
+  google.protobuf.Timestamp updated_at        = 9;
+  ApplianceOperationError   error             = 10;
+  ApplianceTerminalReason   terminal_reason   = 11;
+  bytes                     receipt           = 12;
+}
+
+message ApplianceOperationResponse {
+  ApplianceOperation operation   = 1;
+  string             artifact_id = 2;
+}
+
+message AppliancePlanResponse { AppliancePlan plan = 1; }
+
+message ApplianceStatusResponse { ApplianceStatus status = 1; }
+
+message StageArtifactRequest {
+  string                      request_id           = 1;
+  int64                       deadline_unix_millis = 2;
+  ControllerApplianceManifest manifest             = 3;
+  bytes                       publisher_signature  = 4;
+}
+
+message PlanInstallRequest {
+  string        installation_id      = 1;
+  string        request_id           = 2;
+  uint64        expected_revision    = 3;
+  string        artifact_id          = 4;
+  int64         deadline_unix_millis = 5;
+  ApprovedGrant approved_grant       = 6;
+}
+
+message InstallRequest {
+  reserved 6;
+  string        installation_id       = 1;
+  string        request_id            = 2;
+  uint64        expected_revision     = 3;
+  string        artifact_id           = 4;
+  int64         deadline_unix_millis  = 5;
+  ApprovedGrant approved_grant        = 7;
+  bytes         opaque_bootstrap_seed = 8;
+}
+
+message PlanActivationRequest {
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+}
+
+message ActivateRequest {
+  reserved 5;
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+}
+
+message ListAppliancesRequest {}
+
+message ListAppliancesResponse { repeated ApplianceStatus appliances = 1; }
+
+message GetApplianceStatusRequest { string installation_id = 1; }
+
+message WatchApplianceOperationRequest {
+  string installation_id = 1;
+  string operation_id    = 2;
+}
+
+message StopApplianceRequest {
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+}
+
+message RestartApplianceRequest {
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+}
+
+message RevokeApplianceRequest {
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+}
+
+message PlanSealedRepairRequest {
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+}
+
+message ExecuteSealedRepairRequest {
+  reserved 5;
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+  // Operator-only recovery material. It is accepted only over the local
+  // authenticated admin channel, consumed in memory, and never persisted.
+  bytes recovery_material = 6;
+}
+
+message PlanRemoveRequest {
+  string installation_id      = 1;
+  string request_id           = 2;
+  uint64 expected_revision    = 3;
+  int64  deadline_unix_millis = 4;
+}
+
+message ExecuteRemoveRequest {
+  reserved 5;
+  string          installation_id        = 1;
+  string          request_id             = 2;
+  uint64          expected_revision      = 3;
+  int64           deadline_unix_millis   = 4;
+  repeated string confirmed_resource_ids = 6;
+}

@@ -16,6 +16,7 @@ import (
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -61,6 +62,10 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 	if err := cleanupVolumeStaging(); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
+	}
+	if err := os.RemoveAll(filepath.Join(stateRoot, "imports")); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("clean incomplete image imports: %w", err)
 	}
 	if err := runtime.cleanupTasks(context.Background()); err != nil {
 		client.Close()
@@ -108,6 +113,15 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 
 func (r *Runtime) Close() error { return r.client.Close() }
 
+func syncStateFilesystem() error {
+	root, err := os.Open(stateRoot)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return unix.Syncfs(int(root.Fd()))
+}
+
 func namespaceContext(ctx context.Context, namespaceID string) context.Context {
 	return namespaces.WithNamespace(ctx, namespaceID)
 }
@@ -132,6 +146,10 @@ func (r *Runtime) namespaceExists(ctx context.Context, namespaceID string) error
 	if err := validateID("actor_namespace_id", namespaceID); err != nil {
 		return err
 	}
+	return r.namespaceExistsRaw(ctx, namespaceID)
+}
+
+func (r *Runtime) namespaceExistsRaw(ctx context.Context, namespaceID string) error {
 	names, err := r.client.NamespaceService().List(ctx)
 	if err != nil {
 		return err
@@ -142,6 +160,16 @@ func (r *Runtime) namespaceExists(ctx context.Context, namespaceID string) error
 		}
 	}
 	return errdefs.ErrNotFound
+}
+
+func (r *Runtime) namespaceExistsForRole(ctx context.Context, namespaceID string, system bool) error {
+	if system {
+		if err := validateSystemNamespace(namespaceID); err != nil {
+			return err
+		}
+		return r.namespaceExistsRaw(ctx, namespaceID)
+	}
+	return r.namespaceExists(ctx, namespaceID)
 }
 
 func ensureDirectory(path string, mode os.FileMode) error {

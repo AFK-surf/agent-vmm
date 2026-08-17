@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 var ErrUnknownOutcome = errors.New("remote command outcome is unknown")
@@ -15,7 +18,10 @@ var ErrUnknownOutcome = errors.New("remote command outcome is unknown")
 var RequiredFeatures = []string{
 	"command-evidence-v1",
 	"connection-epoch-v1",
+	"controller-ready-v1",
+	"endpoint-observation-renewal-v1",
 	"inventory-watermark-v1",
+	"host-loopback-frontend-v1",
 	"unknown-outcome-v1",
 }
 
@@ -26,9 +32,16 @@ type ControlStream interface {
 }
 
 type ControlSession struct {
-	stream   ControlStream
-	hello    *remotev1.HostHello
-	sequence uint64
+	stream         ControlStream
+	hello          *remotev1.HostHello
+	sequence       uint64
+	ready          bool
+	dispatchMu     sync.Mutex
+	messages       chan *remotev1.HostControlMessage
+	frontendEvents chan *hostv1.HostLoopbackFrontendEvent
+	done           chan struct{}
+	errMu          sync.Mutex
+	err            error
 }
 
 // ControlSession is the controller-side implementation anchor for
@@ -50,12 +63,79 @@ func AcceptControl(stream ControlStream, registrationID string) (*ControlSession
 	if err := ValidateHello(hello, registrationID); err != nil {
 		return nil, err
 	}
-	return &ControlSession{stream: stream, hello: hello}, nil
+	return &ControlSession{stream: stream, hello: hello, messages: make(chan *remotev1.HostControlMessage, 128), frontendEvents: make(chan *hostv1.HostLoopbackFrontendEvent, 64), done: make(chan struct{})}, nil
 }
 
 func (session *ControlSession) Hello() *remotev1.HostHello { return session.hello }
+func (session *ControlSession) FrontendEvents() <-chan *hostv1.HostLoopbackFrontendEvent {
+	return session.frontendEvents
+}
+func (session *ControlSession) Done() <-chan struct{} { return session.done }
+func (session *ControlSession) Err() error {
+	session.errMu.Lock()
+	defer session.errMu.Unlock()
+	return session.err
+}
+
+// Ready settles the exact authoritative inventory snapshot after the
+// controller has durably reconciled it. Commands are forbidden before this
+// explicit fence.
+func (session *ControlSession) Ready() error {
+	if session.ready {
+		return errors.New("controller session is already ready")
+	}
+	ready := &remotev1.ControllerReady{RegistrationId: session.hello.GetRegistrationId(), ConnectionEpoch: session.hello.GetConnectionEpoch(), AcknowledgedInventoryWatermark: session.hello.GetInventoryWatermark()}
+	if err := session.stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_ControllerReady{ControllerReady: ready}}); err != nil {
+		return err
+	}
+	session.ready = true
+	go session.receive()
+	return nil
+}
+
+func (session *ControlSession) receive() {
+	defer close(session.done)
+	defer close(session.frontendEvents)
+	for {
+		message, err := session.stream.Recv()
+		if err != nil {
+			session.setError(err)
+			return
+		}
+		if event := message.GetFrontendEvent(); event != nil {
+			if event.GetFrontendLeaseId() == "" || event.GetGeneration() == 0 {
+				session.setError(errors.New("invalid frontend event"))
+				return
+			}
+			select {
+			case session.frontendEvents <- proto.Clone(event).(*hostv1.HostLoopbackFrontendEvent):
+			default:
+				session.setError(errors.New("frontend event queue exhausted"))
+				return
+			}
+			continue
+		}
+		select {
+		case session.messages <- message:
+		default:
+			session.setError(errors.New("host control message queue exhausted"))
+			return
+		}
+	}
+}
+
+func (session *ControlSession) setError(err error) {
+	session.errMu.Lock()
+	session.err = err
+	session.errMu.Unlock()
+}
 
 func (session *ControlSession) Dispatch(ctx context.Context, command *remotev1.ControllerCommand) (CommandTranscript, error) {
+	session.dispatchMu.Lock()
+	defer session.dispatchMu.Unlock()
+	if !session.ready {
+		return CommandTranscript{}, errors.New("controller inventory is not settled")
+	}
 	if command == nil || command.GetCommandId() == "" {
 		return CommandTranscript{}, errors.New("command ID is required")
 	}
@@ -74,13 +154,22 @@ func (session *ControlSession) Dispatch(ctx context.Context, command *remotev1.C
 
 	transcript := CommandTranscript{}
 	for {
-		message, err := session.stream.Recv()
-		if err != nil {
-			if transcript.Ack != nil && transcript.Ack.GetDisposition() != remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED {
-				transcript.Result = unknownResult(command, session.hello.GetInventoryWatermark())
-				return transcript, fmt.Errorf("%w: %v", ErrUnknownOutcome, err)
+		var message *remotev1.HostControlMessage
+		select {
+		case message = <-session.messages:
+		case <-session.done:
+			select {
+			case message = <-session.messages:
+			default:
+				err := session.Err()
+				if transcript.Ack != nil && transcript.Ack.GetDisposition() != remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED {
+					transcript.Result = unknownResult(command, session.hello.GetInventoryWatermark())
+					return transcript, fmt.Errorf("%w: %v", ErrUnknownOutcome, err)
+				}
+				return transcript, err
 			}
-			return transcript, err
+		case <-ctx.Done():
+			return transcript, ctx.Err()
 		}
 		switch payload := message.GetPayload().(type) {
 		case *remotev1.HostControlMessage_Ack:
@@ -114,6 +203,11 @@ func (session *ControlSession) Dispatch(ctx context.Context, command *remotev1.C
 			return transcript, nil
 		case *remotev1.HostControlMessage_Event:
 			continue
+		case *remotev1.HostControlMessage_EndpointObservationRenewal:
+			if payload.EndpointObservationRenewal.GetConnectionEpoch() != session.hello.GetConnectionEpoch() || payload.EndpointObservationRenewal.GetEndpointObservation() == nil {
+				return transcript, errors.New("invalid endpoint observation renewal")
+			}
+			continue
 		default:
 			return transcript, errors.New("unexpected host control message")
 		}
@@ -134,7 +228,6 @@ func ValidateHello(hello *remotev1.HostHello, registrationID string) error {
 		return errors.New("remote inventory exceeds limit")
 	}
 	seen := make(map[string]struct{}, len(hello.GetInventory()))
-	var watermark uint64
 	for _, allocation := range hello.GetInventory() {
 		if allocation.GetAllocationId() == "" {
 			return errors.New("remote inventory contains an empty allocation ID")
@@ -143,12 +236,9 @@ func ValidateHello(hello *remotev1.HostHello, registrationID string) error {
 			return errors.New("remote inventory contains a duplicate allocation")
 		}
 		seen[allocation.GetAllocationId()] = struct{}{}
-		if allocation.GetRevision() > watermark {
-			watermark = allocation.GetRevision()
-		}
 	}
-	if hello.GetInventoryWatermark() < watermark {
-		return errors.New("remote inventory watermark is stale")
+	if hello.GetInventoryWatermark() == 0 {
+		return errors.New("remote inventory watermark is required")
 	}
 	return nil
 }

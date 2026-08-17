@@ -5,8 +5,22 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
+
+func TestDisableCoreDumps(t *testing.T) {
+	if err := disableCoreDumps(); err != nil {
+		t.Fatal(err)
+	}
+	var limit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_CORE, &limit); err != nil {
+		t.Fatal(err)
+	}
+	if limit.Cur != 0 || limit.Max != 0 {
+		t.Fatalf("core limit = %+v", limit)
+	}
+}
 
 func TestEnsureConnectorCapabilityIsStablePrivateAndRejectsSymlinks(t *testing.T) {
 	directory := t.TempDir()

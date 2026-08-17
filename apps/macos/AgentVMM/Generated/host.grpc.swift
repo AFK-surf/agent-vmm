@@ -47,6 +47,19 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
                 type: .serverStreaming
             )
         }
+        /// Namespace for "ImportImage" metadata.
+        public enum ImportImage: Sendable {
+            /// Request type for "ImportImage".
+            public typealias Input = Agentvmm_Host_V1_ImportImageRequest
+            /// Response type for "ImportImage".
+            public typealias Output = Agentvmm_Host_V1_Image
+            /// Descriptor for "ImportImage".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "ImportImage",
+                type: .clientStreaming
+            )
+        }
         /// Namespace for "ListImages" metadata.
         public enum ListImages: Sendable {
             /// Request type for "ListImages".
@@ -545,6 +558,7 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
             GetEnvironment.descriptor,
             PullImage.descriptor,
+            ImportImage.descriptor,
             ListImages.descriptor,
             DeleteImage.descriptor,
             CreateContainer.descriptor,
@@ -638,6 +652,25 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_PullImageResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Host_V1_PullImageResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ImportImage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Host_V1_ImportImageRequest` messages.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ImportImageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_Image` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func importImage<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ImportImageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ImportImageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_Image>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "ListImages" method.
@@ -1430,6 +1463,36 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
             try await self.client.serverStreaming(
                 request: request,
                 descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.PullImage.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ImportImage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Host_V1_ImportImageRequest` messages.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ImportImageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_Image` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func importImage<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ImportImageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ImportImageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_Image>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.clientStreaming(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.ImportImage.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -2618,6 +2681,31 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
         )
     }
 
+    /// Call the "ImportImage" method.
+    ///
+    /// - Parameters:
+    ///   - request: A streaming request producing `Agentvmm_Host_V1_ImportImageRequest` messages.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func importImage<Result>(
+        request: GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ImportImageRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.importImage(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ImportImageRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_Image>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "ListImages" method.
     ///
     /// - Parameters:
@@ -3610,6 +3698,36 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
             metadata: metadata
         )
         return try await self.pullImage(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ImportImage" method.
+    ///
+    /// - Parameters:
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - producer: A closure producing request messages to send to the server. The request
+    ///       stream is closed when the closure returns.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func importImage<Result>(
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        requestProducer producer: @Sendable @escaping (GRPCCore.RPCWriter<Agentvmm_Host_V1_ImportImageRequest>) async throws -> Void,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ImportImageRequest>(
+            metadata: metadata,
+            producer: producer
+        )
+        return try await self.importImage(
             request: request,
             options: options,
             onResponse: handleResponse
@@ -5319,6 +5437,19 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "ListRemoteRegistrations" metadata.
+        public enum ListRemoteRegistrations: Sendable {
+            /// Request type for "ListRemoteRegistrations".
+            public typealias Input = Agentvmm_Host_V1_ListRemoteRegistrationsRequest
+            /// Response type for "ListRemoteRegistrations".
+            public typealias Output = Agentvmm_Host_V1_ListRemoteRegistrationsResponse
+            /// Descriptor for "ListRemoteRegistrations".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "ListRemoteRegistrations",
+                type: .unary
+            )
+        }
         /// Namespace for "GetDeviceIdentity" metadata.
         public enum GetDeviceIdentity: Sendable {
             /// Request type for "GetDeviceIdentity".
@@ -5562,6 +5693,7 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             UpdateRemotePool.descriptor,
             SetRemoteRegistrationState.descriptor,
             GetRemoteRegistration.descriptor,
+            ListRemoteRegistrations.descriptor,
             GetDeviceIdentity.descriptor,
             RotateDeviceRoot.descriptor,
             ListPersonalMeshes.descriptor,
@@ -6468,6 +6600,25 @@ extension Agentvmm_Host_V1_OperatorService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RemoteRegistrationResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoteRegistrationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ListRemoteRegistrations" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListRemoteRegistrationsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListRemoteRegistrationsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListRemoteRegistrationsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func listRemoteRegistrations<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "GetDeviceIdentity" method.
@@ -8146,6 +8297,36 @@ extension Agentvmm_Host_V1_OperatorService {
             )
         }
 
+        /// Call the "ListRemoteRegistrations" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListRemoteRegistrationsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListRemoteRegistrationsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListRemoteRegistrationsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func listRemoteRegistrations<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ListRemoteRegistrations.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
         /// Call the "GetDeviceIdentity" method.
         ///
         /// - Parameters:
@@ -9740,6 +9921,31 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_GetRemoteRegistrationRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_RemoteRegistrationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListRemoteRegistrations" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ListRemoteRegistrationsRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listRemoteRegistrations<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.listRemoteRegistrations(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>(),
             options: options,
             onResponse: handleResponse
         )
@@ -11452,6 +11658,35 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
+    /// Call the "ListRemoteRegistrations" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listRemoteRegistrations<Result>(
+        _ message: Agentvmm_Host_V1_ListRemoteRegistrationsRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.listRemoteRegistrations(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "GetDeviceIdentity" method.
     ///
     /// - Parameters:
@@ -11975,29 +12210,29 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
                 type: .unary
             )
         }
-        /// Namespace for "PlanDiscardAllocation" metadata.
-        public enum PlanDiscardAllocation: Sendable {
-            /// Request type for "PlanDiscardAllocation".
-            public typealias Input = Agentvmm_Host_V1_PlanDiscardAllocationRequest
-            /// Response type for "PlanDiscardAllocation".
+        /// Namespace for "PlanCleanupAllocation" metadata.
+        public enum PlanCleanupAllocation: Sendable {
+            /// Request type for "PlanCleanupAllocation".
+            public typealias Input = Agentvmm_Host_V1_PlanCleanupAllocationRequest
+            /// Response type for "PlanCleanupAllocation".
             public typealias Output = Agentvmm_Host_V1_AllocationCleanupPlanResponse
-            /// Descriptor for "PlanDiscardAllocation".
+            /// Descriptor for "PlanCleanupAllocation".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
-                method: "PlanDiscardAllocation",
+                method: "PlanCleanupAllocation",
                 type: .unary
             )
         }
-        /// Namespace for "ExecuteDiscardAllocation" metadata.
-        public enum ExecuteDiscardAllocation: Sendable {
-            /// Request type for "ExecuteDiscardAllocation".
-            public typealias Input = Agentvmm_Host_V1_ExecuteDiscardAllocationRequest
-            /// Response type for "ExecuteDiscardAllocation".
+        /// Namespace for "ExecuteCleanupAllocation" metadata.
+        public enum ExecuteCleanupAllocation: Sendable {
+            /// Request type for "ExecuteCleanupAllocation".
+            public typealias Input = Agentvmm_Host_V1_ExecuteCleanupAllocationRequest
+            /// Response type for "ExecuteCleanupAllocation".
             public typealias Output = Agentvmm_Host_V1_AllocationResponse
-            /// Descriptor for "ExecuteDiscardAllocation".
+            /// Descriptor for "ExecuteCleanupAllocation".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
-                method: "ExecuteDiscardAllocation",
+                method: "ExecuteCleanupAllocation",
                 type: .unary
             )
         }
@@ -12053,6 +12288,71 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "RevokeRuntimeSession" metadata.
+        public enum RevokeRuntimeSession: Sendable {
+            /// Request type for "RevokeRuntimeSession".
+            public typealias Input = Agentvmm_Host_V1_RevokeRuntimeSessionRequest
+            /// Response type for "RevokeRuntimeSession".
+            public typealias Output = SwiftProtobuf.Google_Protobuf_Empty
+            /// Descriptor for "RevokeRuntimeSession".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
+                method: "RevokeRuntimeSession",
+                type: .unary
+            )
+        }
+        /// Namespace for "AcquireHostLoopbackFrontend" metadata.
+        public enum AcquireHostLoopbackFrontend: Sendable {
+            /// Request type for "AcquireHostLoopbackFrontend".
+            public typealias Input = Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest
+            /// Response type for "AcquireHostLoopbackFrontend".
+            public typealias Output = Agentvmm_Host_V1_HostLoopbackFrontendLease
+            /// Descriptor for "AcquireHostLoopbackFrontend".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
+                method: "AcquireHostLoopbackFrontend",
+                type: .unary
+            )
+        }
+        /// Namespace for "RenewHostLoopbackFrontend" metadata.
+        public enum RenewHostLoopbackFrontend: Sendable {
+            /// Request type for "RenewHostLoopbackFrontend".
+            public typealias Input = Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest
+            /// Response type for "RenewHostLoopbackFrontend".
+            public typealias Output = Agentvmm_Host_V1_HostLoopbackFrontendLease
+            /// Descriptor for "RenewHostLoopbackFrontend".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
+                method: "RenewHostLoopbackFrontend",
+                type: .unary
+            )
+        }
+        /// Namespace for "ReleaseHostLoopbackFrontend" metadata.
+        public enum ReleaseHostLoopbackFrontend: Sendable {
+            /// Request type for "ReleaseHostLoopbackFrontend".
+            public typealias Input = Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest
+            /// Response type for "ReleaseHostLoopbackFrontend".
+            public typealias Output = SwiftProtobuf.Google_Protobuf_Empty
+            /// Descriptor for "ReleaseHostLoopbackFrontend".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
+                method: "ReleaseHostLoopbackFrontend",
+                type: .unary
+            )
+        }
+        /// Namespace for "AcceptHostLoopbackFrontend" metadata.
+        public enum AcceptHostLoopbackFrontend: Sendable {
+            /// Request type for "AcceptHostLoopbackFrontend".
+            public typealias Input = Agentvmm_Host_V1_ControllerFrontendFrame
+            /// Response type for "AcceptHostLoopbackFrontend".
+            public typealias Output = Agentvmm_Host_V1_HostFrontendFrame
+            /// Descriptor for "AcceptHostLoopbackFrontend".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
+                method: "AcceptHostLoopbackFrontend",
+                type: .bidirectionalStreaming
+            )
+        }
         /// Descriptors for all methods in the "agentvmm.host.v1.RemoteComputeService" service.
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
             GetRemoteState.descriptor,
@@ -12061,12 +12361,17 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
             ReportConnectorStatus.descriptor,
             EnsureAllocation.descriptor,
             ReleaseAllocation.descriptor,
-            PlanDiscardAllocation.descriptor,
-            ExecuteDiscardAllocation.descriptor,
+            PlanCleanupAllocation.descriptor,
+            ExecuteCleanupAllocation.descriptor,
             AcquireLease.descriptor,
             RenewLease.descriptor,
             ReleaseLease.descriptor,
-            OpenRuntimeSession.descriptor
+            OpenRuntimeSession.descriptor,
+            RevokeRuntimeSession.descriptor,
+            AcquireHostLoopbackFrontend.descriptor,
+            RenewHostLoopbackFrontend.descriptor,
+            ReleaseHostLoopbackFrontend.descriptor,
+            AcceptHostLoopbackFrontend.descriptor
         ]
     }
 }
@@ -12200,39 +12505,39 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
-        /// Call the "PlanDiscardAllocation" method.
+        /// Call the "PlanCleanupAllocation" method.
         ///
         /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_PlanDiscardAllocationRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_PlanDiscardAllocationRequest` messages.
+        ///   - request: A request containing a single `Agentvmm_Host_V1_PlanCleanupAllocationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_PlanCleanupAllocationRequest` messages.
         ///   - deserializer: A deserializer for `Agentvmm_Host_V1_AllocationCleanupPlanResponse` messages.
         ///   - options: Options to apply to this RPC.
         ///   - handleResponse: A closure which handles the response, the result of which is
         ///       returned to the caller. Returning from the closure will cancel the RPC if it
         ///       hasn't already finished.
         /// - Returns: The result of `handleResponse`.
-        func planDiscardAllocation<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanDiscardAllocationRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_PlanDiscardAllocationRequest>,
+        func planCleanupAllocation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanCleanupAllocationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_PlanCleanupAllocationRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationCleanupPlanResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationCleanupPlanResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
-        /// Call the "ExecuteDiscardAllocation" method.
+        /// Call the "ExecuteCleanupAllocation" method.
         ///
         /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteDiscardAllocationRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecuteDiscardAllocationRequest` messages.
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteCleanupAllocationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecuteCleanupAllocationRequest` messages.
         ///   - deserializer: A deserializer for `Agentvmm_Host_V1_AllocationResponse` messages.
         ///   - options: Options to apply to this RPC.
         ///   - handleResponse: A closure which handles the response, the result of which is
         ///       returned to the caller. Returning from the closure will cancel the RPC if it
         ///       hasn't already finished.
         /// - Returns: The result of `handleResponse`.
-        func executeDiscardAllocation<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteDiscardAllocationRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecuteDiscardAllocationRequest>,
+        func executeCleanupAllocation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteCleanupAllocationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecuteCleanupAllocationRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result
@@ -12312,6 +12617,101 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_CreateAgentSessionResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_CreateAgentSessionResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "RevokeRuntimeSession" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RevokeRuntimeSessionRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RevokeRuntimeSessionRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func revokeRuntimeSession<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeRuntimeSessionRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RevokeRuntimeSessionRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "AcquireHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostLoopbackFrontendLease` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func acquireHostLoopbackFrontend<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostLoopbackFrontendLease>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "RenewHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostLoopbackFrontendLease` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func renewHostLoopbackFrontend<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostLoopbackFrontendLease>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ReleaseHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func releaseHostLoopbackFrontend<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "AcceptHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Host_V1_ControllerFrontendFrame` messages.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ControllerFrontendFrame` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostFrontendFrame` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func acceptHostLoopbackFrontend<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ControllerFrontendFrame>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ControllerFrontendFrame>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostFrontendFrame>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Host_V1_HostFrontendFrame>) async throws -> Result
         ) async throws -> Result where Result: Sendable
     }
 
@@ -12511,20 +12911,20 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             )
         }
 
-        /// Call the "PlanDiscardAllocation" method.
+        /// Call the "PlanCleanupAllocation" method.
         ///
         /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_PlanDiscardAllocationRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_PlanDiscardAllocationRequest` messages.
+        ///   - request: A request containing a single `Agentvmm_Host_V1_PlanCleanupAllocationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_PlanCleanupAllocationRequest` messages.
         ///   - deserializer: A deserializer for `Agentvmm_Host_V1_AllocationCleanupPlanResponse` messages.
         ///   - options: Options to apply to this RPC.
         ///   - handleResponse: A closure which handles the response, the result of which is
         ///       returned to the caller. Returning from the closure will cancel the RPC if it
         ///       hasn't already finished.
         /// - Returns: The result of `handleResponse`.
-        public func planDiscardAllocation<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanDiscardAllocationRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_PlanDiscardAllocationRequest>,
+        public func planCleanupAllocation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanCleanupAllocationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_PlanCleanupAllocationRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationCleanupPlanResponse>,
             options: GRPCCore.CallOptions = .defaults,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationCleanupPlanResponse>) async throws -> Result = { response in
@@ -12533,7 +12933,7 @@ extension Agentvmm_Host_V1_RemoteComputeService {
         ) async throws -> Result where Result: Sendable {
             try await self.client.unary(
                 request: request,
-                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.PlanDiscardAllocation.descriptor,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.PlanCleanupAllocation.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -12541,20 +12941,20 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             )
         }
 
-        /// Call the "ExecuteDiscardAllocation" method.
+        /// Call the "ExecuteCleanupAllocation" method.
         ///
         /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteDiscardAllocationRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecuteDiscardAllocationRequest` messages.
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteCleanupAllocationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecuteCleanupAllocationRequest` messages.
         ///   - deserializer: A deserializer for `Agentvmm_Host_V1_AllocationResponse` messages.
         ///   - options: Options to apply to this RPC.
         ///   - handleResponse: A closure which handles the response, the result of which is
         ///       returned to the caller. Returning from the closure will cancel the RPC if it
         ///       hasn't already finished.
         /// - Returns: The result of `handleResponse`.
-        public func executeDiscardAllocation<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteDiscardAllocationRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecuteDiscardAllocationRequest>,
+        public func executeCleanupAllocation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteCleanupAllocationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecuteCleanupAllocationRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationResponse>,
             options: GRPCCore.CallOptions = .defaults,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result = { response in
@@ -12563,7 +12963,7 @@ extension Agentvmm_Host_V1_RemoteComputeService {
         ) async throws -> Result where Result: Sendable {
             try await self.client.unary(
                 request: request,
-                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.ExecuteDiscardAllocation.descriptor,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.ExecuteCleanupAllocation.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -12684,6 +13084,154 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.OpenRuntimeSession.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "RevokeRuntimeSession" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RevokeRuntimeSessionRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RevokeRuntimeSessionRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func revokeRuntimeSession<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeRuntimeSessionRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RevokeRuntimeSessionRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.RevokeRuntimeSession.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "AcquireHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostLoopbackFrontendLease` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func acquireHostLoopbackFrontend<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostLoopbackFrontendLease>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.AcquireHostLoopbackFrontend.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "RenewHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostLoopbackFrontendLease` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func renewHostLoopbackFrontend<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostLoopbackFrontendLease>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.RenewHostLoopbackFrontend.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ReleaseHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func releaseHostLoopbackFrontend<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.ReleaseHostLoopbackFrontend.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "AcceptHostLoopbackFrontend" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Host_V1_ControllerFrontendFrame` messages.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ControllerFrontendFrame` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostFrontendFrame` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func acceptHostLoopbackFrontend<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ControllerFrontendFrame>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ControllerFrontendFrame>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostFrontendFrame>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Host_V1_HostFrontendFrame>) async throws -> Result
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.bidirectionalStreaming(
+                request: request,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.AcceptHostLoopbackFrontend.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -12846,50 +13394,50 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
         )
     }
 
-    /// Call the "PlanDiscardAllocation" method.
+    /// Call the "PlanCleanupAllocation" method.
     ///
     /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_PlanDiscardAllocationRequest` message.
+    ///   - request: A request containing a single `Agentvmm_Host_V1_PlanCleanupAllocationRequest` message.
     ///   - options: Options to apply to this RPC.
     ///   - handleResponse: A closure which handles the response, the result of which is
     ///       returned to the caller. Returning from the closure will cancel the RPC if it
     ///       hasn't already finished.
     /// - Returns: The result of `handleResponse`.
-    public func planDiscardAllocation<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanDiscardAllocationRequest>,
+    public func planCleanupAllocation<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanCleanupAllocationRequest>,
         options: GRPCCore.CallOptions = .defaults,
         onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationCleanupPlanResponse>) async throws -> Result = { response in
             try response.message
         }
     ) async throws -> Result where Result: Sendable {
-        try await self.planDiscardAllocation(
+        try await self.planCleanupAllocation(
             request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_PlanDiscardAllocationRequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_PlanCleanupAllocationRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_AllocationCleanupPlanResponse>(),
             options: options,
             onResponse: handleResponse
         )
     }
 
-    /// Call the "ExecuteDiscardAllocation" method.
+    /// Call the "ExecuteCleanupAllocation" method.
     ///
     /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteDiscardAllocationRequest` message.
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteCleanupAllocationRequest` message.
     ///   - options: Options to apply to this RPC.
     ///   - handleResponse: A closure which handles the response, the result of which is
     ///       returned to the caller. Returning from the closure will cancel the RPC if it
     ///       hasn't already finished.
     /// - Returns: The result of `handleResponse`.
-    public func executeDiscardAllocation<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteDiscardAllocationRequest>,
+    public func executeCleanupAllocation<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteCleanupAllocationRequest>,
         options: GRPCCore.CallOptions = .defaults,
         onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result = { response in
             try response.message
         }
     ) async throws -> Result where Result: Sendable {
-        try await self.executeDiscardAllocation(
+        try await self.executeCleanupAllocation(
             request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ExecuteDiscardAllocationRequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ExecuteCleanupAllocationRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_AllocationResponse>(),
             options: options,
             onResponse: handleResponse
@@ -12991,6 +13539,129 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_OpenRuntimeSessionRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_CreateAgentSessionResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RevokeRuntimeSession" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_RevokeRuntimeSessionRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func revokeRuntimeSession<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeRuntimeSessionRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.revokeRuntimeSession(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RevokeRuntimeSessionRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "AcquireHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func acquireHostLoopbackFrontend<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.acquireHostLoopbackFrontend(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_HostLoopbackFrontendLease>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RenewHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func renewHostLoopbackFrontend<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.renewHostLoopbackFrontend(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_HostLoopbackFrontendLease>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ReleaseHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func releaseHostLoopbackFrontend<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.releaseHostLoopbackFrontend(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "AcceptHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - request: A streaming request producing `Agentvmm_Host_V1_ControllerFrontendFrame` messages.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func acceptHostLoopbackFrontend<Result>(
+        request: GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ControllerFrontendFrame>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Host_V1_HostFrontendFrame>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        try await self.acceptHostLoopbackFrontend(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ControllerFrontendFrame>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_HostFrontendFrame>(),
             options: options,
             onResponse: handleResponse
         )
@@ -13174,7 +13845,7 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
         )
     }
 
-    /// Call the "PlanDiscardAllocation" method.
+    /// Call the "PlanCleanupAllocation" method.
     ///
     /// - Parameters:
     ///   - message: request message to send.
@@ -13184,26 +13855,26 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
     ///       returned to the caller. Returning from the closure will cancel the RPC if it
     ///       hasn't already finished.
     /// - Returns: The result of `handleResponse`.
-    public func planDiscardAllocation<Result>(
-        _ message: Agentvmm_Host_V1_PlanDiscardAllocationRequest,
+    public func planCleanupAllocation<Result>(
+        _ message: Agentvmm_Host_V1_PlanCleanupAllocationRequest,
         metadata: GRPCCore.Metadata = [:],
         options: GRPCCore.CallOptions = .defaults,
         onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationCleanupPlanResponse>) async throws -> Result = { response in
             try response.message
         }
     ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanDiscardAllocationRequest>(
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanCleanupAllocationRequest>(
             message: message,
             metadata: metadata
         )
-        return try await self.planDiscardAllocation(
+        return try await self.planCleanupAllocation(
             request: request,
             options: options,
             onResponse: handleResponse
         )
     }
 
-    /// Call the "ExecuteDiscardAllocation" method.
+    /// Call the "ExecuteCleanupAllocation" method.
     ///
     /// - Parameters:
     ///   - message: request message to send.
@@ -13213,19 +13884,19 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
     ///       returned to the caller. Returning from the closure will cancel the RPC if it
     ///       hasn't already finished.
     /// - Returns: The result of `handleResponse`.
-    public func executeDiscardAllocation<Result>(
-        _ message: Agentvmm_Host_V1_ExecuteDiscardAllocationRequest,
+    public func executeCleanupAllocation<Result>(
+        _ message: Agentvmm_Host_V1_ExecuteCleanupAllocationRequest,
         metadata: GRPCCore.Metadata = [:],
         options: GRPCCore.CallOptions = .defaults,
         onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result = { response in
             try response.message
         }
     ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteDiscardAllocationRequest>(
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteCleanupAllocationRequest>(
             message: message,
             metadata: metadata
         )
-        return try await self.executeDiscardAllocation(
+        return try await self.executeCleanupAllocation(
             request: request,
             options: options,
             onResponse: handleResponse
@@ -13342,6 +14013,150 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
             metadata: metadata
         )
         return try await self.openRuntimeSession(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RevokeRuntimeSession" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func revokeRuntimeSession<Result>(
+        _ message: Agentvmm_Host_V1_RevokeRuntimeSessionRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeRuntimeSessionRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.revokeRuntimeSession(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "AcquireHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func acquireHostLoopbackFrontend<Result>(
+        _ message: Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.acquireHostLoopbackFrontend(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RenewHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func renewHostLoopbackFrontend<Result>(
+        _ message: Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostLoopbackFrontendLease>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.renewHostLoopbackFrontend(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ReleaseHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func releaseHostLoopbackFrontend<Result>(
+        _ message: Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseHostLoopbackFrontendRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.releaseHostLoopbackFrontend(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "AcceptHostLoopbackFrontend" method.
+    ///
+    /// - Parameters:
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - producer: A closure producing request messages to send to the server. The request
+    ///       stream is closed when the closure returns.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func acceptHostLoopbackFrontend<Result>(
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        requestProducer producer: @Sendable @escaping (GRPCCore.RPCWriter<Agentvmm_Host_V1_ControllerFrontendFrame>) async throws -> Void,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Host_V1_HostFrontendFrame>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.StreamingClientRequest<Agentvmm_Host_V1_ControllerFrontendFrame>(
+            metadata: metadata,
+            producer: producer
+        )
+        return try await self.acceptHostLoopbackFrontend(
             request: request,
             options: options,
             onResponse: handleResponse

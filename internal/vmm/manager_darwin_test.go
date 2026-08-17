@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
 
@@ -34,6 +35,35 @@ func TestStateInitializationMarker(t *testing.T) {
 	initializing, err = prepareState(directory, size)
 	if err != nil || initializing {
 		t.Fatalf("prepare initialized state = %t, %v", initializing, err)
+	}
+}
+
+func TestConfigureApplianceBlocksRequiresStoppedVMAndExactImages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "controller.luks")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(1 << 30); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPED}
+	block := ApplianceBlock{InstallationID: "controller", VolumeID: "volume", Identity: "identity", Path: path, DeviceIdentifier: "AVMM_DATA_A", Bytes: 1 << 30, Initializing: true}
+	if err := manager.ConfigureApplianceBlocks([]ApplianceBlock{block}); err != nil {
+		t.Fatal(err)
+	}
+	if len(manager.applianceBlocks) != 1 || manager.applianceBlocks[0] != block {
+		t.Fatalf("blocks = %+v", manager.applianceBlocks)
+	}
+	if err := manager.ConfigureApplianceBlocks([]ApplianceBlock{block, block}); err == nil {
+		t.Fatal("duplicate attachment accepted")
+	}
+	manager.state = hostv1.VMState_VM_STATE_RUNNING
+	if err := manager.ConfigureApplianceBlocks(nil); err == nil {
+		t.Fatal("running VM attachment mutation accepted")
 	}
 }
 

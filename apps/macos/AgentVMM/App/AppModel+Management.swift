@@ -3,7 +3,7 @@ import Foundation
 extension AppModel {
     var servicesHealthy: Bool {
         guard let status = lifecycleStatus else { return true }
-        let connectorRequired = snapshot.remoteRegistration?.enrollmentState == .ready
+        let connectorRequired = snapshot.remoteRegistrations.contains { $0.enrollmentState == .ready && $0.owner == .external }
         return status.coreHealthy && (!connectorRequired || status.connectorLoaded)
     }
 
@@ -26,13 +26,10 @@ extension AppModel {
         defer { lifecycleOperationInProgress = false }
         do {
             guard client != nil else { throw HostClientError.disconnected }
-            for integration in integrations where integration.configState != .removed {
-                guard await removeIntegration(integration) else {
-                    throw LifecycleManager.LifecycleError.failed("Resolve the managed MCP configuration conflict before uninstalling.")
+            for registration in snapshot.remoteRegistrations {
+                if case .external = registration.owner, !(await revokeRemoteAccess(registrationID: registration.id)) {
+                    throw LifecycleManager.LifecycleError.failed("Controller access could not be revoked. Repair it before uninstalling.")
                 }
-            }
-            if snapshot.remoteRegistration != nil, !(await revokeRemoteAccess()) {
-                throw LifecycleManager.LifecycleError.failed("Controller access could not be revoked. Repair it before uninstalling.")
             }
             if snapshot.vmState == "Running" {
                 _ = try await client?.stopVM(force: false)
@@ -47,10 +44,6 @@ extension AppModel {
 
     func environment(id: String) -> AgentEnvironmentModel? {
         snapshot.environments.first { $0.id == id }
-    }
-
-    func sessions(for integrationID: String) -> [AgentSessionModel] {
-        sessions.filter { $0.integrationID == integrationID }
     }
 
     func showAccess(_ tab: AccessTab) {
@@ -71,31 +64,4 @@ extension AppModel {
         return client.logs(environmentID: environmentID, containerID: containerID, since: since, after: cursor)
     }
 
-    func verifyAgentConfigurations() async {
-        guard let client else { return }
-        var changed = false
-        for integration in integrations where integration.adapterID == "codex" &&
-            (integration.configState == .ready || integration.configState == .needsRestart) && !integration.fingerprint.isEmpty {
-            do {
-                let fingerprint = try await integrationConfiguration.codexFingerprint(integrationID: integration.id)
-                if fingerprint == integration.fingerprint { continue }
-                _ = try? await client.failAgentIntegration(
-                    id: integration.id, expectedRevision: integration.revision,
-                    code: "CONFIG_CONFLICT", message: "The MCP client configuration changed outside Agent VMM."
-                )
-                changed = true
-            } catch AgentIntegrationConfiguration.ConfigurationError.codexUnavailable {
-                continue
-            } catch AgentIntegrationConfiguration.ConfigurationError.helperUnavailable {
-                continue
-            } catch {
-                _ = try? await client.failAgentIntegration(
-                    id: integration.id, expectedRevision: integration.revision,
-                    code: "CONFIG_MISSING", message: "The managed MCP client entry is missing or unreadable."
-                )
-                changed = true
-            }
-        }
-        if changed { try? await refresh() }
-    }
 }

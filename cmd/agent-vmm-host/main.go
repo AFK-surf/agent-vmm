@@ -17,16 +17,19 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 	"github.com/AFK-surf/agent-vmm/internal/host"
 	"github.com/AFK-surf/agent-vmm/internal/host/servicepreface"
-	"github.com/AFK-surf/agent-vmm/internal/host/trustkeys"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
 )
 
 func main() {
+	if err := disableCoreDumps(); err != nil {
+		log.Fatal(err)
+	}
 	var config vmm.Config
-	var operatorSocket, remoteComputeSocket, trustSocket, serviceTunnelSocket, meshControlSocket, dataWorkerSocket, trustCapabilityFile, databasePath, sessionDirectory string
+	var operatorSocket, remoteComputeSocket, trustSocket, serviceTunnelSocket, meshControlSocket, dataWorkerSocket, dataWorkerPath, trustCapabilityFile, databasePath, sessionDirectory string
 	var disablePersonalMeshPairing bool
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
 	flag.StringVar(&config.InstanceDirectory, "instance", "", "VM instance directory")
@@ -39,8 +42,9 @@ func main() {
 	flag.StringVar(&trustSocket, "trust-socket", "", "connector-only trust Unix socket")
 	flag.StringVar(&serviceTunnelSocket, "service-tunnel-socket", "", "data-worker-only destination service Unix socket")
 	flag.StringVar(&meshControlSocket, "mesh-control-socket", "", "data-worker-only personal mesh control Unix socket")
-	flag.StringVar(&dataWorkerSocket, "data-worker-socket", "", "connector-supervised data worker control Unix socket")
-	flag.StringVar(&trustCapabilityFile, "trust-capability-file", "", "install-scoped connector capability file")
+	flag.StringVar(&dataWorkerSocket, "data-worker-socket", "", "data worker control Unix socket")
+	flag.StringVar(&dataWorkerPath, "data-worker", "", "host-supervised Agent VMM data worker")
+	flag.StringVar(&trustCapabilityFile, "trust-capability-file", "", "install-scoped data worker capability file")
 	flag.StringVar(&databasePath, "database", "", "host control-plane SQLite database")
 	flag.StringVar(&sessionDirectory, "session-directory", "", "agent session socket directory")
 	flag.BoolVar(&disablePersonalMeshPairing, "disable-personal-mesh-pairing", false, "deny personal mesh genesis and new member admission while preserving revoke/repair")
@@ -64,6 +68,9 @@ func main() {
 	if meshControlSocket == "" {
 		meshControlSocket = filepath.Join(filepath.Dir(operatorSocket), "mesh-control.sock")
 	}
+	if dataWorkerPath == "" {
+		dataWorkerPath = filepath.Join(filepath.Dir(os.Args[0]), "agent-vmm-data")
+	}
 	for _, directory := range []string{filepath.Dir(operatorSocket), filepath.Dir(remoteComputeSocket), filepath.Dir(trustSocket), filepath.Dir(serviceTunnelSocket), filepath.Dir(meshControlSocket), filepath.Dir(trustCapabilityFile), filepath.Dir(databasePath), filepath.Dir(config.SerialLog), sessionDirectory} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			log.Fatal(err)
@@ -78,9 +85,10 @@ func main() {
 		InstanceID: filepath.Base(config.InstanceDirectory), BundleDirectory: config.BundleDirectory,
 		InstanceDirectory: config.InstanceDirectory, StateDiskIdentity: filepath.Join(config.InstanceDirectory, "state.raw"),
 		CPUCount: config.CPUCount, MemoryBytes: config.MemoryBytes, StateBytes: config.StateBytes,
-		TrustKeyProvider:           trustkeys.NewPlatformProvider(),
+		TrustKeyProvider:           newTrustKeyProvider(config.InstanceDirectory),
 		DisablePersonalMeshPairing: disablePersonalMeshPairing,
 		DataWorkerSocket:           dataWorkerSocket,
+		RemoteComputeSocket:        remoteComputeSocket,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -139,6 +147,17 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	worker, err := dataworker.Start(ctx, dataWorkerPath, dataWorkerSocket, serviceTunnelSocket, meshControlSocket, trustCapabilityFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		closeContext, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer closeCancel()
+		if err := worker.Close(closeContext); err != nil {
+			log.Printf("stop data worker: %v", err)
+		}
+	}()
 	go shutdown(ctx, []*grpc.Server{server, remoteServer, trustServer, serviceServer, meshServer}, manager)
 	go func() {
 		if err := meshServer.Serve(meshListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
@@ -167,6 +186,10 @@ func main() {
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
 	}
+}
+
+func disableCoreDumps() error {
+	return syscall.Setrlimit(syscall.RLIMIT_CORE, &syscall.Rlimit{Cur: 0, Max: 0})
 }
 
 func ensureConnectorCapability(path string) ([]byte, error) {

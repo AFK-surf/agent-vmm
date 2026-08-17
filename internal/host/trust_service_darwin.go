@@ -92,9 +92,9 @@ func (server *serviceRouteServer) GetServiceExport(ctx context.Context, request 
 	if err != nil || value.GetRevoked() {
 		return nil, status.Error(codes.NotFound, "service export is unavailable")
 	}
-	result := *value
+	result := proto.Clone(value).(*servicev1.ServiceExport)
 	result.EnvironmentId, result.ContainerId, result.ContainerInstanceId = "", "", ""
-	return &result, nil
+	return result, nil
 }
 
 func (server *serviceRouteServer) OpenServiceForward(stream servicev1.ServiceRouteService_OpenServiceForwardServer) error {

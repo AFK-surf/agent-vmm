@@ -1,0 +1,27 @@
+{
+  "actions": [
+    {"name": "StageArtifact", "owner": "internal/host/appliance_admin_artifact_darwin.go", "tokens": ["PublisherSignature"], "functions": ["StageArtifact"]},
+    {"name": "Install", "owner": "internal/host/appliance_admin_artifact_darwin.go", "tokens": ["InstallApplianceDomain"], "functions": ["Install"]},
+    {"name": "Start", "owner": "internal/host/appliance_supervisor_darwin.go", "tokens": ["EnsureSystemAppliance"], "functions": ["startAppliance"]},
+    {"name": "Bootstrap", "owner": "internal/host/appliance_supervisor_darwin.go", "tokens": ["bootstrapAppliance"], "functions": ["bootstrapAppliance"]},
+    {"name": "Stop", "owner": "internal/host/appliance_admin_lifecycle_darwin.go", "tokens": ["stopAppliance"], "functions": ["Stop"]},
+    {"name": "Restart", "owner": "internal/host/appliance_admin_lifecycle_darwin.go", "tokens": ["activateAppliance"], "functions": ["Restart"]},
+    {"name": "Revoke", "owner": "internal/host/appliance_admin_lifecycle_darwin.go", "tokens": ["revokeApplianceTrustAuthority"], "functions": ["Revoke"]},
+    {"name": "Crash", "owner": "internal/host/appliance_reconcile_darwin.go", "tokens": ["invalidateApplianceRuntime"], "functions": ["invalidateApplianceRuntime"]},
+    {"name": "PayloadCrash", "owner": "internal/host/appliance_reconcile_darwin.go", "tokens": ["adoptObservedAppliance"], "functions": ["adoptObservedAppliance"]},
+    {"name": "AdoptReplacement", "owner": "internal/host/appliance_reconcile_darwin.go", "tokens": ["adoptObservedAppliance"], "functions": ["adoptObservedAppliance"]},
+    {"name": "RecoverSealed", "owner": "internal/host/appliance_admin_remove_darwin.go", "tokens": ["ReplaceVolumeKey"], "functions": ["ExecuteSealedRepair"]},
+    {"name": "PlanRemove", "owner": "internal/host/appliance_admin_remove_darwin.go", "tokens": ["AppliancePlan", "PENDING_DESTROY"], "functions": ["PlanRemove"]},
+    {"name": "ExecuteRemove", "owner": "internal/host/store/appliance_operation.go", "tokens": ["pending-destroy"], "functions": ["BeginApplianceRemove"]}
+  ],
+  "negative_configs": [
+    {"config": "ApplianceLifecycleVerificationNegative", "invariant": "ActiveVerifiedExact"},
+    {"config": "ApplianceLifecycleBootstrapNegative", "invariant": "BootstrapSingleUse"},
+    {"config": "ApplianceLifecycleInstanceNegative", "invariant": "CurrentInstanceFence"},
+    {"config": "ApplianceLifecycleIsolationNegative", "invariant": "InstallationNonInterference"},
+    {"config": "ApplianceLifecycleSealedNegative", "invariant": "SealedRecoveryIsBounded"},
+    {"config": "ApplianceLifecycleRemoveNegative", "invariant": "RemoveRevisionExact"},
+    {"config": "ApplianceLifecyclePublicationNegative", "invariant": "PublicationFence"},
+    {"config": "ApplianceLifecycleBootstrapFenceNegative", "invariant": "InitialSeedDeletionFence"}
+  ]
+}

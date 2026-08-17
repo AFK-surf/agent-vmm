@@ -25,7 +25,7 @@ func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapsh
 	return &hostv1.GetSystemSnapshotResponse{
 		Vm:     &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING, BootId: "transport-fixture"},
 		Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY},
-		RemoteRegistration: &hostv1.RemoteRegistration{
+		RemoteRegistrations: []*hostv1.RemoteRegistration{{
 			Id: "remote-fixture", Endpoint: "controller.example:443", DisplayName: "Fixture Controller",
 			ProtocolVersion: "1", Revision: 7,
 			State:           hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
@@ -45,7 +45,7 @@ func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapsh
 				Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_LEASED,
 				Lease: &hostv1.RemoteLease{LeaseId: "lease-a", AllocationId: "allocation-a", WorkloadRef: "job-a", Generation: 2, ExpiresAt: timestamppb.New(now.Add(time.Minute)), State: hostv1.LeaseState_LEASE_STATE_ACTIVE},
 			}},
-		},
+		}},
 	}, nil
 }
 

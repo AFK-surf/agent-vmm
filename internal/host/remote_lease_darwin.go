@@ -4,6 +4,9 @@ package host
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -13,14 +16,15 @@ import (
 )
 
 type remoteLease struct {
-	id            string
-	allocationID  string
-	environmentID string
-	workloadRef   string
-	generation    uint64
-	expiresAt     time.Time
-	state         hostv1.LeaseState
-	sessionID     string
+	id             string
+	registrationID string
+	allocationID   string
+	environmentID  string
+	workloadRef    string
+	generation     uint64
+	expiresAt      time.Time
+	state          hostv1.LeaseState
+	sessionID      string
 }
 
 func leaseToProto(lease *remoteLease) *hostv1.RemoteLease {
@@ -32,11 +36,91 @@ func leaseToProto(lease *remoteLease) *hostv1.RemoteLease {
 
 func (controller *Controller) scheduleLease(id string, generation uint64, deadline time.Time) {
 	time.AfterFunc(time.Until(deadline), func() {
-		controller.finishLease(id, generation, hostv1.LeaseState_LEASE_STATE_EXPIRED, true)
+		controller.mu.Lock()
+		lease := controller.remoteLeases[id]
+		if lease == nil || lease.generation != generation || lease.expiresAt.After(deadline) {
+			controller.mu.Unlock()
+			return
+		}
+		controller.mu.Unlock()
+		_, _ = controller.finishLease(id, generation, hostv1.LeaseState_LEASE_STATE_EXPIRED, true)
 	})
 }
 
-func (controller *Controller) finishLease(id string, generation uint64, state hostv1.LeaseState, stop bool) *remoteLease {
+func (controller *Controller) finishLease(id string, generation uint64, state hostv1.LeaseState, stop bool) (*remoteLease, error) {
+	controller.mu.Lock()
+	lease := controller.remoteLeases[id]
+	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
+		controller.mu.Unlock()
+		return nil, nil
+	}
+	result := *lease
+	lease.state = state
+	delete(controller.remoteLeases, id)
+	delete(controller.allocationLeases, lease.environmentID)
+	controller.mu.Unlock()
+	// Remove the capability before any guest or database work. A failed stop
+	// must never leave a usable frontend/session behind.
+	controller.hostFrontends.closeAllocationLease(id, generation, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
+	if result.sessionID != "" {
+		_ = controller.revokeSession(context.Background(), result.sessionID)
+	}
+	var cleanupErr error
+	if stop {
+		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cleanupErr = controller.stopRemoteWorkload(stopContext, result.environmentID)
+		cancel()
+		if cleanupErr != nil {
+			controller.retryRemoteWorkloadStop(result.environmentID, 1)
+		}
+	}
+	environment, err := controller.store.GetEnvironment(context.Background(), result.environmentID)
+	if err != nil {
+		log.Printf("finish remote lease %q: load allocation: %v", id, err)
+		controller.retryRemoteLeaseProjection(result, targetStateForLease(stop), 1)
+		return &result, errors.Join(cleanupErr, err)
+	}
+	targetState := int32(hostv1.AllocationState_ALLOCATION_STATE_READY)
+	if stop {
+		targetState = int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)
+	}
+	if _, err := controller.store.FinishRemoteLeaseProjection(context.Background(), result.registrationID, id, result.environmentID, environment.PolicyRevision, targetState); err != nil {
+		log.Printf("finish remote lease %q: commit projection: %v", id, err)
+		controller.retryRemoteLeaseProjection(result, targetState, 1)
+		return &result, errors.Join(cleanupErr, err)
+	}
+	return &result, cleanupErr
+}
+
+func targetStateForLease(stop bool) int32 {
+	if stop {
+		return int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)
+	}
+	return int32(hostv1.AllocationState_ALLOCATION_STATE_READY)
+}
+
+func (controller *Controller) retryRemoteLeaseProjection(lease remoteLease, targetState int32, attempt int) {
+	if attempt > 4 {
+		return
+	}
+	time.AfterFunc(time.Duration(attempt)*time.Second, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		controller.remoteAdmissionMu.Lock()
+		defer controller.remoteAdmissionMu.Unlock()
+		environment, err := controller.store.GetEnvironment(ctx, lease.environmentID)
+		if err == nil {
+			_, err = controller.store.FinishRemoteLeaseProjection(ctx, lease.registrationID, lease.id, lease.environmentID, environment.PolicyRevision, targetState)
+		}
+		if err != nil {
+			controller.retryRemoteLeaseProjection(lease, targetState, attempt+1)
+		}
+	})
+}
+
+// finishLeaseMemory is used when the durable projection mutation is already
+// part of the caller's transaction. It still fences capability use first.
+func (controller *Controller) finishLeaseMemory(id string, generation uint64, state hostv1.LeaseState) *remoteLease {
 	controller.mu.Lock()
 	lease := controller.remoteLeases[id]
 	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
@@ -48,15 +132,9 @@ func (controller *Controller) finishLease(id string, generation uint64, state ho
 	delete(controller.allocationLeases, lease.environmentID)
 	result := *lease
 	controller.mu.Unlock()
+	controller.hostFrontends.closeAllocationLease(id, generation, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
 	if result.sessionID != "" {
 		_ = controller.revokeSession(context.Background(), result.sessionID)
-	}
-	if stop {
-		controller.stopRemoteWorkload(context.Background(), result.environmentID)
-		environment, err := controller.store.GetEnvironment(context.Background(), result.environmentID)
-		if err == nil && environment.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED) {
-			_, _ = controller.store.SetAllocationState(context.Background(), environment.ID, environment.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
-		}
 	}
 	return &result
 }
@@ -67,29 +145,54 @@ func (controller *Controller) revokeAllocationLease(ctx context.Context, environ
 	lease := controller.remoteLeases[id]
 	controller.mu.Unlock()
 	if lease != nil {
-		controller.finishLease(lease.id, lease.generation, state, stop)
+		_, _ = controller.finishLease(lease.id, lease.generation, state, stop)
 	} else if stop {
 		controller.stopRemoteWorkload(ctx, environment.ID)
 	}
 }
 
-func (controller *Controller) revokeAllRemoteLeases(context.Context) {
+func (controller *Controller) revokeRemoteLeases(registrationID string) error {
 	controller.mu.Lock()
 	leases := make([]remoteLease, 0, len(controller.remoteLeases))
 	for _, lease := range controller.remoteLeases {
-		leases = append(leases, *lease)
+		if lease.registrationID == registrationID {
+			leases = append(leases, *lease)
+		}
 	}
 	controller.mu.Unlock()
+	var failures []error
 	for _, lease := range leases {
-		controller.finishLease(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true)
+		finished, err := controller.finishLease(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true)
+		if finished == nil && err == nil {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, fmt.Errorf("revoke remote lease %q: %w", lease.id, err))
+		}
 	}
+	return errors.Join(failures...)
+}
+
+func (controller *Controller) retryRemoteWorkloadStop(environmentID string, attempt int) {
+	if attempt > 4 {
+		return
+	}
+	time.AfterFunc(time.Duration(attempt)*time.Second, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := controller.stopRemoteWorkload(ctx, environmentID)
+		cancel()
+		if err != nil {
+			controller.retryRemoteWorkloadStop(environmentID, attempt+1)
+		}
+	})
 }
 
 func (controller *Controller) disconnectRemoteLeases(registrationID, instance string, grace time.Duration) {
+	controller.hostFrontends.closeRegistration(registrationID, instance, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
 	controller.mu.Lock()
 	var sessions []string
 	for _, lease := range controller.remoteLeases {
-		if lease.sessionID != "" {
+		if lease.registrationID == registrationID && lease.sessionID != "" {
 			sessions = append(sessions, lease.sessionID)
 			lease.sessionID = ""
 		}
@@ -101,37 +204,42 @@ func (controller *Controller) disconnectRemoteLeases(registrationID, instance st
 	time.AfterFunc(grace, func() {
 		registration, err := controller.store.GetRemoteRegistration(context.Background(), registrationID)
 		if err == nil && registration.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) && registration.ConnectionInstance == instance {
-			controller.revokeAllRemoteLeases(context.Background())
+			controller.revokeRemoteLeases(registrationID)
 		}
 	})
 }
 
-func (controller *Controller) stopRemoteWorkload(ctx context.Context, environmentID string) {
+func (controller *Controller) stopRemoteWorkload(ctx context.Context, environmentID string) error {
 	environment, err := controller.store.GetEnvironment(ctx, environmentID)
 	if err != nil || environment.OwnerKind != store.OwnerRemoteRegistration {
-		return
+		return err
 	}
 	registration, err := controller.store.GetRemoteRegistration(ctx, environment.RegistrationID)
 	if err != nil {
-		return
+		return err
 	}
+	started := time.Now()
+	defer func() { controller.recordDomainStopLatency(registration.ID, time.Since(started)) }()
 	client, connection, err := controller.guestClient(ctx)
 	if err != nil {
-		return
+		return err
 	}
 	defer connection.Close()
 	containers, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
-		return
+		return err
 	}
 	timeout := registration.StopGraceSeconds
 	for _, container := range containers.GetContainers() {
 		if container.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 			continue
 		}
-		_, stopErr := client.StopContainer(ctx, &vmmdv1.StopContainerRequest{RequestId: randomRequestIDFor("remote-stop-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), TimeoutSeconds: &timeout})
+		_, stopErr := client.StopContainer(ctx, &vmmdv1.StopContainerRequest{RequestId: derivedRequestID("remote-stop-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), TimeoutSeconds: &timeout})
 		if stopErr != nil {
-			_, _ = client.SignalContainer(ctx, &vmmdv1.SignalContainerRequest{RequestId: randomRequestIDFor("remote-kill-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), Signal: vmmdv1.ProcessSignal_PROCESS_SIGNAL_KILL})
+			if _, killErr := client.SignalContainer(ctx, &vmmdv1.SignalContainerRequest{RequestId: derivedRequestID("remote-kill-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), Signal: vmmdv1.ProcessSignal_PROCESS_SIGNAL_KILL}); killErr != nil {
+				return errors.Join(stopErr, killErr)
+			}
 		}
 	}
+	return nil
 }

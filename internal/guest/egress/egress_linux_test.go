@@ -111,3 +111,36 @@ func TestTUNQueuePressureDropsPackets(t *testing.T) {
 	cancel()
 	_ = pump.Close()
 }
+
+func TestTUNDropsInvalidPacketsWithoutEndingPump(t *testing.T) {
+	device, input := newMemoryDevice()
+	pump := NewWithTransport(device, func(context.Context) (net.Conn, error) { return nil, errors.New("unused") }, "boot")
+	packets := make(chan []byte, 1)
+	result := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer pump.Close()
+	go pump.readTUN(ctx, packets, result)
+
+	if _, err := input.Write([]byte{0x60, 0, 0, 0}); err != nil {
+		t.Fatal(err)
+	}
+	packet := make([]byte, 20)
+	packet[0] = 0x45
+	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
+	if _, err := input.Write(packet); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-packets:
+		if !bytes.Equal(got, packet) {
+			t.Fatalf("queued packet = %x, want %x", got, packet)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("valid packet was not queued after invalid packet")
+	}
+	if pump.Health().Drops != 1 {
+		t.Fatalf("drop count = %d, want 1", pump.Health().Drops)
+	}
+	_ = input.Close()
+}

@@ -158,31 +158,31 @@ import Foundation
     #expect(stopped.coreHealthy)
 }
 
-@Test func codexConfigurationBackupIsRecoverableAndPrivate() throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let config = directory.appending(path: "config.toml")
-    try Data("managed = true".utf8).write(to: config)
-    try AgentIntegrationConfiguration().backupConfiguration(at: config)
-    let backup = config.appendingPathExtension("agent-vmm-backup")
-    #expect(try String(contentsOf: backup, encoding: .utf8) == "managed = true")
-    let attributes = try FileManager.default.attributesOfItem(atPath: backup.path)
-    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+@Test func MCPClientBindingsAreOpaqueAndIndependent() {
+    let first = MCPClientConfiguration.newBinding()
+    let second = MCPClientConfiguration.newBinding()
+    #expect(first.count == 64)
+    #expect(first.allSatisfy { "0123456789abcdef".contains($0) })
+    #expect(first != second)
 }
 
-@Test func pendingIntegrationCancellationDoesNotTouchClientConfiguration() {
-    func integration(_ state: AgentIntegrationModel.ConfigState, fingerprint: String) -> AgentIntegrationModel {
-        AgentIntegrationModel(id: "integration", adapterID: "codex", displayName: "Codex", scope: .user, configTarget: "config", environmentID: "environment", configState: state, fingerprint: fingerprint, revision: 1, errorMessage: nil, createdAt: .now, lastVerifiedAt: nil)
-    }
-    #expect(integration(.pending, fingerprint: "").configurationRemoval == .none)
-    #expect(integration(.configuring, fingerprint: "").configurationRemoval == .requiresRepair)
-    #expect(integration(.error, fingerprint: "").configurationRemoval == .requiresRepair)
-    #expect(integration(.removing, fingerprint: "").configurationRemoval == .requiresRepair)
-    #expect(integration(.ready, fingerprint: "known").configurationRemoval == .verified("known"))
-    #expect(integration(.removing, fingerprint: "").canRepairConfiguration)
-    #expect(!integration(.removing, fingerprint: "").canRetryRemoval)
-    #expect(integration(.removing, fingerprint: "known").canRetryRemoval)
+@Test func MCPProxyConfigurationHasOnlyEndpointAndOpaqueBinding() {
+    let binding = String(repeating: "a", count: 64)
+    #expect(MCPClientConfiguration.helperArguments(binding: binding, endpointFile: "/support/mcp.endpoint") == [
+        "--endpoint-file", "/support/mcp.endpoint", "--client-binding", binding
+    ])
+}
+
+@Test func applianceRemovalPreservesServerBlockers() {
+    let plan = ApplianceRemovePlanModel(
+        revision: 7,
+        impacts: [
+            ApplianceImpactModel(resourceType: "allocation", resourceID: "retained", effect: "discard-before-remove", irreversible: true, blocker: true),
+            ApplianceImpactModel(resourceType: "encrypted-volume", resourceID: "volume", effect: "delete", irreversible: true, blocker: false)
+        ]
+    )
+    #expect(plan.blockers.map(\.resourceID) == ["retained"])
+    #expect(Set(plan.requiredConfirmations) == ["retained", "volume"])
 }
 
 
@@ -199,6 +199,15 @@ import Foundation
     let draft = RemotePoolDraft(policy)
     #expect(draft.settings == policy)
     #expect(draft.isValid)
+}
+
+@Test func remoteCapacityDefaultsFitTheDefaultHostAndDenyPublicEgress() {
+    let defaults = RemotePoolSettings.defaults
+    #expect(defaults.aggregateLimits.cpuMillis <= 2_000)
+    #expect(defaults.aggregateLimits.memoryBytes <= 1 << 30)
+    #expect(defaults.aggregateLimits.diskBytes <= 8 << 30)
+    #expect(defaults.perEnvironmentLimits.memoryBytes <= defaults.aggregateLimits.memoryBytes)
+    #expect(!defaults.allowsPublicEgress)
 }
 
 @MainActor
@@ -235,19 +244,19 @@ import Foundation
     model.errorMessage = "Agent setup failed."
     let current = SystemSnapshotModel(
         vmState: "Running", bootID: "guest-a", health: .healthy, components: [], usage: nil,
-        environments: [], remoteRegistration: nil, collectedAt: Date(timeIntervalSinceReferenceDate: 20)
+        environments: [], remoteRegistrations: [], collectedAt: Date(timeIntervalSinceReferenceDate: 20)
     )
     model.applySnapshot(current)
     model.applySnapshot(SystemSnapshotModel(
         vmState: "Running", bootID: "guest-a", health: .unavailable, components: [], usage: nil,
-        environments: [], remoteRegistration: nil, collectedAt: Date(timeIntervalSinceReferenceDate: 10)
+        environments: [], remoteRegistrations: [], collectedAt: Date(timeIntervalSinceReferenceDate: 10)
     ))
     #expect(model.snapshot == current)
     #expect(model.errorMessage == "Agent setup failed.")
 }
 
 @Test func configurationCommandRunnerHandlesLargeOutputAndTimeout() async throws {
-    let configuration = AgentIntegrationConfiguration()
+    let configuration = MCPClientConfiguration()
     let output = try await configuration.run(
         URL(filePath: "/bin/sh"),
         arguments: ["-c", "/usr/bin/yes x | /usr/bin/head -c 131072"],
@@ -260,7 +269,7 @@ import Foundation
             URL(filePath: "/bin/sh"), arguments: ["-c", "sleep 5"], timeout: .milliseconds(100)
         )
         Issue.record("Expected the command to time out")
-    } catch AgentIntegrationConfiguration.ConfigurationError.commandTimedOut {
+    } catch MCPClientConfiguration.ConfigurationError.commandTimedOut {
     } catch {
         Issue.record("Unexpected error: \(error)")
     }

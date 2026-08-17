@@ -17,7 +17,9 @@ import (
 
 type commandHandler struct {
 	client             hostv1.RemoteComputeServiceClient
+	registrationID     string
 	connectionInstance string
+	connectionEpoch    uint64
 	tunnels            *tunnelManager
 }
 
@@ -35,32 +37,37 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 	case *remotev1.ControllerCommand_EnsureAllocation:
 		var response *hostv1.AllocationResponse
 		request := value.EnsureAllocation
-		response, err = handler.client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{AllocationId: request.GetAllocationId(), DisplayLabel: boundedLabel(request.GetDisplayLabel()), Limits: request.GetLimits(), EgressMode: request.GetEgressMode(), PolicyRevision: request.GetPolicyRevision(), ConnectionInstance: handler.connectionInstance})
+		response, err = handler.client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{RegistrationId: handler.registrationID, AllocationId: request.GetAllocationId(), DisplayLabel: boundedLabel(request.GetDisplayLabel()), Limits: request.GetLimits(), EgressMode: request.GetEgressMode(), PolicyRevision: request.GetPolicyRevision(), ConnectionInstance: handler.connectionInstance})
 		if err == nil {
 			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
 		}
 	case *remotev1.ControllerCommand_ReleaseAllocation:
 		var response *hostv1.AllocationResponse
-		response, err = handler.client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{AllocationId: value.ReleaseAllocation.GetAllocationId()})
+		if value.ReleaseAllocation.GetExpectedRevision() == 0 || value.ReleaseAllocation.GetExpectedRevision() != command.GetTargetRevision() {
+			err = status.Error(codes.Aborted, "allocation release revision is stale")
+			break
+		}
+		response, err = handler.client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: value.ReleaseAllocation.GetAllocationId(), ExpectedPolicyRevision: value.ReleaseAllocation.GetExpectedRevision()})
 		if err == nil {
 			if handler.tunnels != nil {
 				handler.tunnels.CloseAllocation(value.ReleaseAllocation.GetAllocationId())
 			}
 			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
 		}
-	case *remotev1.ControllerCommand_PlanDiscardAllocation:
+	case *remotev1.ControllerCommand_PlanCleanupAllocation:
 		var response *hostv1.AllocationCleanupPlanResponse
-		response, err = handler.client.PlanDiscardAllocation(ctx, &hostv1.PlanDiscardAllocationRequest{AllocationId: value.PlanDiscardAllocation.GetAllocationId()})
+		request := value.PlanCleanupAllocation
+		response, err = handler.client.PlanCleanupAllocation(ctx, &hostv1.PlanCleanupAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: request.GetAllocationId(), Kind: request.GetKind()})
 		if err == nil {
 			plan := response.GetPlan()
-			result.Result = &remotev1.CommandResult_CleanupPlan{CleanupPlan: &remotev1.CleanupPlan{AllocationId: plan.GetAllocationId(), Revision: plan.GetRevision(), VolumeIds: append([]string(nil), plan.GetVolumeIds()...)}}
+			result.Result = &remotev1.CommandResult_CleanupPlan{CleanupPlan: &remotev1.CleanupPlan{AllocationId: plan.GetAllocationId(), Revision: plan.GetRevision(), VolumeIds: append([]string(nil), plan.GetVolumeIds()...), Kind: plan.GetKind(), Impacts: cloneCleanupImpacts(plan.GetImpacts())}}
 		}
-	case *remotev1.ControllerCommand_ExecuteDiscardAllocation:
+	case *remotev1.ControllerCommand_ExecuteCleanupAllocation:
 		var response *hostv1.AllocationResponse
-		request := value.ExecuteDiscardAllocation
+		request := value.ExecuteCleanupAllocation
 		volumes := append([]string(nil), request.GetConfirmedVolumeIds()...)
 		sort.Strings(volumes)
-		response, err = handler.client.ExecuteDiscardAllocation(ctx, &hostv1.ExecuteDiscardAllocationRequest{AllocationId: request.GetAllocationId(), PlanRevision: request.GetPlanRevision(), ConfirmedVolumeIds: volumes})
+		response, err = handler.client.ExecuteCleanupAllocation(ctx, &hostv1.ExecuteCleanupAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: request.GetAllocationId(), Kind: request.GetKind(), PlanRevision: request.GetPlanRevision(), ConfirmedVolumeIds: volumes, ExpectedLeaseId: request.GetExpectedLeaseId(), ExpectedLeaseGeneration: request.GetExpectedLeaseGeneration()})
 		if err == nil {
 			if handler.tunnels != nil {
 				handler.tunnels.CloseAllocation(request.GetAllocationId())
@@ -70,32 +77,29 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 	case *remotev1.ControllerCommand_AcquireLease:
 		request := value.AcquireLease
 		var response *hostv1.LeaseResponse
-		response, err = handler.client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{AllocationId: request.GetAllocationId(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second), WorkloadRef: boundedLabel(request.GetWorkloadRef()), ConnectionInstance: handler.connectionInstance})
+		response, err = handler.client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: handler.registrationID, AllocationId: request.GetAllocationId(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second), WorkloadRef: boundedLabel(request.GetWorkloadRef()), ConnectionInstance: handler.connectionInstance, ExpectedPolicyRevision: command.GetTargetRevision()})
 		if err == nil {
-			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease())}
+			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease(), response.GetAllocationRevision())}
 		}
 	case *remotev1.ControllerCommand_RenewLease:
 		request := value.RenewLease
 		var response *hostv1.LeaseResponse
-		response, err = handler.client.RenewLease(ctx, &hostv1.RenewLeaseRequest{LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second)})
+		response, err = handler.client.RenewLease(ctx, &hostv1.RenewLeaseRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second)})
 		if err == nil {
-			if handler.tunnels != nil {
-				handler.tunnels.CloseLease(request.GetLeaseId())
-			}
-			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease())}
+			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease(), response.GetAllocationRevision())}
 		}
 	case *remotev1.ControllerCommand_ReleaseLease:
 		request := value.ReleaseLease
 		var response *hostv1.LeaseResponse
-		response, err = handler.client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{LeaseId: request.GetLeaseId(), Generation: request.GetGeneration()})
+		response, err = handler.client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, LeaseId: request.GetLeaseId(), Generation: request.GetGeneration()})
 		if err == nil {
 			if handler.tunnels != nil {
 				handler.tunnels.CloseLease(request.GetLeaseId())
 			}
-			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease())}
+			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease(), response.GetAllocationRevision())}
 		}
 	case *remotev1.ControllerCommand_DrainRegistration:
-		_, err = handler.client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{ConnectionInstance: handler.connectionInstance, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING})
+		_, err = handler.client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING})
 	case *remotev1.ControllerCommand_OpenSession:
 		if handler.tunnels == nil {
 			err = status.Error(codes.Unavailable, "session transport is unavailable")
@@ -106,6 +110,30 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		if err == nil {
 			result.Result = &remotev1.CommandResult_SessionReady{SessionReady: ready}
 		}
+	case *remotev1.ControllerCommand_AcquireHostLoopbackFrontend:
+		request := value.AcquireHostLoopbackFrontend
+		var response *hostv1.HostLoopbackFrontendLease
+		response, err = handler.client.AcquireHostLoopbackFrontend(ctx, &hostv1.AcquireHostLoopbackFrontendRequest{RegistrationId: handler.registrationID,
+			ConnectionInstance: handler.connectionInstance, ConnectionEpoch: handler.connectionEpoch, AllocationId: request.GetAllocationId(), AllocationLeaseId: request.GetAllocationLeaseId(),
+			AllocationLeaseGeneration: request.GetAllocationLeaseGeneration(), TargetRevision: command.GetTargetRevision(), AssignmentId: request.GetAssignmentId(),
+			Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second)})
+		if err == nil {
+			result.Result = &remotev1.CommandResult_HostLoopbackFrontendLease{HostLoopbackFrontendLease: response}
+		}
+	case *remotev1.ControllerCommand_RenewHostLoopbackFrontend:
+		request := value.RenewHostLoopbackFrontend
+		var response *hostv1.HostLoopbackFrontendLease
+		response, err = handler.client.RenewHostLoopbackFrontend(ctx, &hostv1.RenewHostLoopbackFrontendRequest{RegistrationId: handler.registrationID,
+			ConnectionInstance: handler.connectionInstance, ConnectionEpoch: handler.connectionEpoch, FrontendLeaseId: request.GetFrontendLeaseId(), Generation: request.GetGeneration(),
+			AllocationLeaseId: request.GetAllocationLeaseId(), AllocationLeaseGeneration: request.GetAllocationLeaseGeneration(),
+			Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second)})
+		if err == nil {
+			result.Result = &remotev1.CommandResult_HostLoopbackFrontendLease{HostLoopbackFrontendLease: response}
+		}
+	case *remotev1.ControllerCommand_ReleaseHostLoopbackFrontend:
+		request := value.ReleaseHostLoopbackFrontend
+		_, err = handler.client.ReleaseHostLoopbackFrontend(ctx, &hostv1.ReleaseHostLoopbackFrontendRequest{RegistrationId: handler.registrationID,
+			ConnectionInstance: handler.connectionInstance, ConnectionEpoch: handler.connectionEpoch, FrontendLeaseId: request.GetFrontendLeaseId(), Generation: request.GetGeneration()})
 	default:
 		return fail(result, remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, "unknown command")
 	}
@@ -113,6 +141,21 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		return fail(result, reasonFor(err), safeErrorMessage(err))
 	}
 	result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED
+	return result
+}
+
+func cloneCleanupImpacts(values []*hostv1.CleanupImpact) []*hostv1.CleanupImpact {
+	result := make([]*hostv1.CleanupImpact, 0, len(values))
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		copy := &hostv1.CleanupImpact{Effect: value.GetEffect(), Irreversible: value.GetIrreversible(), Blocker: value.GetBlocker()}
+		if resource := value.GetResource(); resource != nil {
+			copy.Resource = &hostv1.ResourceReference{Kind: resource.GetKind(), ResourceId: resource.GetResourceId()}
+		}
+		result = append(result, copy)
+	}
 	return result
 }
 

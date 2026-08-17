@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type meshControlServer struct {
@@ -40,9 +41,9 @@ func (server *meshControlServer) RequestPersonalRoute(ctx context.Context, reque
 	if err != nil {
 		return nil, status.Error(codes.PermissionDenied, "personal route request is unauthorized")
 	}
-	result := *response.DestinationExport
+	result := proto.Clone(response.DestinationExport).(*servicev1.ServiceExport)
 	result.EnvironmentId, result.ContainerId, result.ContainerInstanceId = "", "", ""
-	response.DestinationExport = &result
+	response.DestinationExport = result
 	return response, nil
 }
 

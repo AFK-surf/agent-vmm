@@ -162,21 +162,29 @@ func TestPersonalMeshSyncPublishesLocalAndAppliesRemoteEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Close()
-	published := make(map[string]bool)
-	config := Config{endpointObservation: localEndpoint}
-	if err := syncPersonalMeshesWithClients(context.Background(), config, trustv1.NewTrustServiceClient(connection),
+	published := make(map[string]string)
+	observations := newEndpointObservationState(localEndpoint)
+	if err := syncPersonalMeshesWithClients(context.Background(), observations, trustv1.NewTrustServiceClient(connection),
 		trustv1.NewPersonalMeshRegistryServiceClient(connection), published); err != nil {
 		t.Fatal(err)
 	}
-	if registryServer.published != 1 || !published[meshID] || trustServer.endpoints["device-b"].GetEndpointGeneration() != remoteEndpoint.GetEndpointGeneration() {
+	if registryServer.published != 1 || published[meshID] == "" || trustServer.endpoints["device-b"].GetEndpointGeneration() != remoteEndpoint.GetEndpointGeneration() {
 		t.Fatalf("published=%d state=%v endpoints=%v", registryServer.published, published, trustServer.endpoints)
 	}
-	if err := syncPersonalMeshesWithClients(context.Background(), config, trustv1.NewTrustServiceClient(connection),
+	if err := syncPersonalMeshesWithClients(context.Background(), observations, trustv1.NewTrustServiceClient(connection),
 		trustv1.NewPersonalMeshRegistryServiceClient(connection), published); err != nil {
 		t.Fatal(err)
 	}
 	if registryServer.published != 1 {
 		t.Fatalf("unchanged local endpoint republished %d times", registryServer.published)
+	}
+	observations.Store(&trustv1.EndpointObservation{DeviceId: "device-a", EndpointGeneration: 8})
+	if err := syncPersonalMeshesWithClients(context.Background(), observations, trustv1.NewTrustServiceClient(connection),
+		trustv1.NewPersonalMeshRegistryServiceClient(connection), published); err != nil {
+		t.Fatal(err)
+	}
+	if registryServer.published != 2 {
+		t.Fatalf("renewed local endpoint published %d times", registryServer.published)
 	}
 }
 
@@ -205,8 +213,8 @@ func TestPersonalMeshSyncDiscoversThreeDevicesWithoutCrossMeshInference(t *testi
 		t.Fatal(err)
 	}
 	defer connection.Close()
-	if err := syncPersonalMeshesWithClients(context.Background(), Config{endpointObservation: localEndpoint}, trustv1.NewTrustServiceClient(connection),
-		trustv1.NewPersonalMeshRegistryServiceClient(connection), make(map[string]bool)); err != nil {
+	if err := syncPersonalMeshesWithClients(context.Background(), newEndpointObservationState(localEndpoint), trustv1.NewTrustServiceClient(connection),
+		trustv1.NewPersonalMeshRegistryServiceClient(connection), make(map[string]string)); err != nil {
 		t.Fatal(err)
 	}
 	if got := trustServer.applied[meshABC.GetMeshId()]; len(got) != 2 || got[0] != "device-a" || got[1] != "device-c" {

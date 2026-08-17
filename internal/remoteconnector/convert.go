@@ -13,17 +13,18 @@ func hello(registration *hostv1.RemoteRegistration, instance string, epoch uint6
 	pool := registration.GetPool()
 	message := &remotev1.HostHello{
 		ProtocolVersion: ProtocolVersion, HostApiVersion: HostAPIVersion, ConnectorRelease: ConnectorRelease,
-		RegistrationId: registration.GetId(), ConnectionInstance: instance, PoolRevision: registration.GetRevision(),
+		RegistrationId: registration.GetId(), ConnectionInstance: instance, PoolRevision: registration.GetPoolPolicyRevision(),
 		ConnectionEpoch: epoch, SupportedFeatures: append([]string(nil), protocolFeatures...),
-		RequiredFeatures:    append([]string(nil), protocolFeatures...),
-		Capacity:            &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), AggregateLimits: pool.GetAggregateLimits(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
-		Health:              &remotev1.HostHealth{RuntimeReady: true, NetworkReady: true, Status: "ready"},
-		EndpointObservation: endpointObservation,
+		RequiredFeatures:     append([]string(nil), protocolFeatures...),
+		InventoryWatermark:   registration.GetInventoryRevision(),
+		Capacity:             &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), AggregateLimits: pool.GetAggregateLimits(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
+		HostLoopbackFrontend: pool.GetHostLoopbackFrontend(),
+		Health:               &remotev1.HostHealth{RuntimeReady: true, NetworkReady: true, Status: "ready"},
+		EndpointObservation:  endpointObservation,
 	}
 	for _, allocation := range registration.GetAllocations() {
 		message.Inventory = append(message.Inventory, allocationToRemote(allocation))
 	}
-	message.InventoryWatermark = inventoryWatermark(message.Inventory)
 	return message
 }
 
@@ -38,10 +39,10 @@ func allocationToRemote(allocation *hostv1.RemoteAllocation) *remotev1.Allocatio
 	if allocation == nil {
 		return nil
 	}
-	return &remotev1.Allocation{AllocationId: allocation.GetAllocationId(), DisplayLabel: boundedLabel(allocation.GetDisplayLabel()), Limits: allocation.GetLimits(), EgressMode: allocation.GetEgressMode(), Revision: allocation.GetRevision(), State: allocation.GetState(), Lease: leaseToRemote(allocation.GetLease())}
+	return &remotev1.Allocation{AllocationId: allocation.GetAllocationId(), DisplayLabel: boundedLabel(allocation.GetDisplayLabel()), Limits: allocation.GetLimits(), EgressMode: allocation.GetEgressMode(), Revision: allocation.GetRevision(), State: allocation.GetState(), Lease: leaseToRemote(allocation.GetLease(), allocation.GetRevision())}
 }
 
-func leaseToRemote(lease *hostv1.RemoteLease) *remotev1.Lease {
+func leaseToRemote(lease *hostv1.RemoteLease, allocationRevision uint64) *remotev1.Lease {
 	if lease == nil {
 		return nil
 	}
@@ -49,5 +50,5 @@ func leaseToRemote(lease *hostv1.RemoteLease) *remotev1.Lease {
 	if lease.GetExpiresAt() != nil {
 		expiry = lease.GetExpiresAt().AsTime().UnixMilli()
 	}
-	return &remotev1.Lease{LeaseId: lease.GetLeaseId(), AllocationId: lease.GetAllocationId(), WorkloadRef: boundedLabel(lease.GetWorkloadRef()), Generation: lease.GetGeneration(), ExpiresUnixMillis: expiry, State: lease.GetState()}
+	return &remotev1.Lease{LeaseId: lease.GetLeaseId(), AllocationId: lease.GetAllocationId(), WorkloadRef: boundedLabel(lease.GetWorkloadRef()), Generation: lease.GetGeneration(), ExpiresUnixMillis: expiry, State: lease.GetState(), AllocationRevision: allocationRevision}
 }

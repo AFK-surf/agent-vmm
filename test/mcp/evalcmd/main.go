@@ -42,11 +42,10 @@ var implementations = map[string]any{
 }
 
 func main() {
-	path := ".context/token.json"
-	if len(os.Args) == 2 {
-		path = os.Args[1]
+	if len(os.Args) != 2 {
+		fail(errors.New("provider config path is required"))
 	}
-	key, err := readKey(path)
+	key, err := readKey(os.Args[1])
 	if err != nil {
 		fail(err)
 	}

@@ -76,6 +76,12 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 			host, err = subsystem.dialer.DialContext(flowCtx, "tcp4", net.JoinHostPort(destination.String(), fmt.Sprint(id.LocalPort)))
 		}
 		if err != nil {
+			subsystem.metrics.dialFailures.Add(1)
+			message := err.Error()
+			if len(message) > 160 {
+				message = message[:160]
+			}
+			subsystem.metrics.lastDialError.Store(&message)
 			request.Complete(true)
 			return
 		}

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"syscall"
 	"time"
 
 	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
@@ -30,12 +31,22 @@ import (
 )
 
 func (r *Runtime) PullImage(ctx context.Context, namespaceID, imageReference string) (string, string, uint64, error) {
-	if err := validateID("actor_namespace_id", namespaceID); err != nil {
-		return "", "", 0, err
+	return r.pullImage(ctx, namespaceID, imageReference, false)
+}
+
+func (r *Runtime) pullImage(ctx context.Context, namespaceID, imageReference string, system bool) (string, string, uint64, error) {
+	var identityErr error
+	if system {
+		identityErr = validateSystemNamespace(namespaceID)
+	} else {
+		identityErr = validateID("actor_namespace_id", namespaceID)
+	}
+	if identityErr != nil {
+		return "", "", 0, identityErr
 	}
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
-	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
 		return "", "", 0, err
 	}
 	canonical, err := normalizeImageReference(imageReference)
@@ -100,7 +111,11 @@ func (r *Runtime) PullImage(ctx context.Context, namespaceID, imageReference str
 		return "", "", 0, registryDownloadError(err, canonical)
 	}
 	if err := image.Unpack(nsctx, containerSnapshotter); err != nil {
+		log.Printf("image unpack failed for %q: %v", canonical, err)
 		_ = r.client.ImageService().Delete(nsctx, image.Name(), coreimages.SynchronousDelete())
+		if unpackRegistryFailure(err) {
+			return "", "", 0, registryDownloadError(err, canonical)
+		}
 		return "", "", 0, imageError(codes.FailedPrecondition, "IMAGE_UNPACK_FAILED", "image content could not be unpacked", canonical)
 	}
 	size, err := image.Size(nsctx)
@@ -173,7 +188,7 @@ func (r *Runtime) DeleteImage(ctx context.Context, namespaceID, reference, expec
 			return imageError(codes.FailedPrecondition, "IMAGE_IN_USE", "image is used by a container", canonical)
 		}
 	}
-	return r.client.ImageService().Delete(nsctx, canonical)
+	return r.client.ImageService().Delete(nsctx, canonical, coreimages.SynchronousDelete())
 }
 
 type registryResolverFactory func() (*http.Client, remotes.Resolver)
@@ -257,6 +272,12 @@ func retryableRegistryError(err error) bool {
 	return !errdefs.IsNotFound(err) && !errdefs.IsPermissionDenied(err) && !errdefs.IsInvalidArgument(err)
 }
 
+func unpackRegistryFailure(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unexpected media type text/html") || strings.Contains(message, "failed to fetch") ||
+		strings.Contains(message, "failed to resolve")
+}
+
 func registryPullError(err error, reference string) error {
 	switch {
 	case errdefs.IsNotFound(err):
@@ -270,18 +291,50 @@ func registryPullError(err error, reference string) error {
 
 func registryDownloadError(err error, reference string) error {
 	message := strings.ToLower(err.Error())
+	class := registryFailureClass(err)
 	switch {
 	case strings.Contains(message, "429") || strings.Contains(message, "too many requests"):
-		return imageError(codes.ResourceExhausted, "IMAGE_REGISTRY_RATE_LIMITED", "image registry rate limit was reached", reference)
-	case errors.Is(err, context.DeadlineExceeded) || strings.Contains(message, "timeout") || strings.Contains(message, "deadline exceeded"):
-		return imageError(codes.Unavailable, "IMAGE_DOWNLOAD_TIMEOUT", "image download timed out", reference)
+		return imageErrorMetadata(codes.ResourceExhausted, "IMAGE_REGISTRY_RATE_LIMITED", "image registry rate limit was reached", reference, class)
+	case registryTimeoutError(err, message):
+		return imageErrorMetadata(codes.Unavailable, "IMAGE_DOWNLOAD_TIMEOUT", "image download timed out", reference, class)
 	case strings.Contains(message, "failed to authorize") || strings.Contains(message, "authorization") || strings.Contains(message, "token"):
-		return imageError(codes.Unavailable, "IMAGE_AUTH_UNAVAILABLE", "image registry authentication was interrupted", reference)
-	case errors.Is(err, io.ErrUnexpectedEOF), strings.Contains(message, "unexpected eof"), strings.Contains(message, "connection reset"), strings.Contains(message, "broken pipe"), strings.Contains(message, "tls handshake"):
-		return imageError(codes.Unavailable, "IMAGE_DOWNLOAD_INTERRUPTED", "image download was interrupted", reference)
+		return imageErrorMetadata(codes.Unavailable, "IMAGE_AUTH_UNAVAILABLE", "image registry authentication was interrupted", reference, class)
+	case registryInterruptedError(err, message):
+		return imageErrorMetadata(codes.Unavailable, "IMAGE_DOWNLOAD_INTERRUPTED", "image download was interrupted", reference, class)
 	default:
-		return imageError(codes.Unavailable, "IMAGE_BLOB_FETCH_FAILED", "image content could not be downloaded", reference)
+		return imageErrorMetadata(codes.Unavailable, "IMAGE_BLOB_FETCH_FAILED", "image content could not be downloaded", reference, class)
 	}
+}
+
+func registryFailureClass(err error) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case registryTimeoutError(err, message):
+		return "timeout"
+	case strings.Contains(message, "authorization") || strings.Contains(message, "token"):
+		return "authorization"
+	case strings.Contains(message, "429") || strings.Contains(message, "too many requests"):
+		return "rate_limited"
+	case registryInterruptedError(err, message), strings.Contains(message, "httpreadseeker"), strings.Contains(message, "failed to copy"):
+		return "transport_interrupted"
+	case strings.Contains(message, "digest"), strings.Contains(message, "checksum"), strings.Contains(message, "verification"), strings.Contains(message, "failed commit"), strings.Contains(message, "size mismatch"):
+		return "content_verification"
+	case strings.Contains(message, " 500 "), strings.Contains(message, " 502 "), strings.Contains(message, " 503 "), strings.Contains(message, " 504 "), strings.Contains(message, "server error"):
+		return "registry_http"
+	default:
+		return "unclassified"
+	}
+}
+
+func registryTimeoutError(err error, message string) bool {
+	var networkErr net.Error
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, syscall.ETIMEDOUT) ||
+		(errors.As(err, &networkErr) && networkErr.Timeout()) || strings.Contains(message, "timeout") || strings.Contains(message, "deadline exceeded")
+}
+
+func registryInterruptedError(err error, message string) bool {
+	return errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) ||
+		strings.Contains(message, "unexpected eof") || strings.Contains(message, "connection reset") || strings.Contains(message, "broken pipe") || strings.Contains(message, "tls handshake")
 }
 
 func waitRegistryRetry(ctx context.Context, attempt int) error {

@@ -33,17 +33,31 @@ type Config struct {
 	TrustRoot         ed25519.PublicKey
 }
 
+type ApplianceBlock struct {
+	InstallationID, VolumeID, Identity, Path, DeviceIdentifier string
+	Bytes                                                      int64
+	Initializing                                               bool
+}
+
 type Manager struct {
 	config Config
 
-	mu             sync.Mutex
-	state          hostv1.VMState
-	bootID         string
-	lastErr        string
-	machine        *vz.VirtualMachine
-	socket         *vz.VirtioSocketDevice
-	egressListener net.Listener
-	verified       *bundle.Verified
+	mu              sync.Mutex
+	state           hostv1.VMState
+	bootID          string
+	lastErr         string
+	machine         *vz.VirtualMachine
+	socket          *vz.VirtioSocketDevice
+	egressListener  net.Listener
+	verified        *bundle.Verified
+	applianceBlocks []ApplianceBlock
+	invalidate      func()
+}
+
+func (manager *Manager) SetInvalidationHandler(handler func()) {
+	manager.mu.Lock()
+	manager.invalidate = handler
+	manager.mu.Unlock()
 }
 
 func NewManager(config Config) (*Manager, error) {
@@ -62,6 +76,41 @@ func (manager *Manager) Snapshot() *hostv1.VM {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	return manager.snapshotLocked()
+}
+
+func (manager *Manager) ConfigureApplianceBlocks(blocks []ApplianceBlock) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.state != hostv1.VMState_VM_STATE_STOPPED && manager.state != hostv1.VMState_VM_STATE_FAILED || manager.machine != nil {
+		return errors.New("appliance block attachments can only change while the VM is stopped")
+	}
+	paths, identifiers, installations := make(map[string]bool), make(map[string]bool), make(map[string]bool)
+	for _, block := range blocks {
+		if block.InstallationID == "" || block.VolumeID == "" || block.Identity == "" || block.Path == "" || block.DeviceIdentifier == "" || block.Bytes < 1<<30 {
+			return errors.New("appliance block attachment is incomplete")
+		}
+		if paths[block.Path] || identifiers[block.DeviceIdentifier] || installations[block.InstallationID] {
+			return errors.New("appliance block attachment identity is not unique")
+		}
+		info, err := os.Stat(block.Path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() != block.Bytes {
+			return errors.New("appliance block image has an unexpected size")
+		}
+		paths[block.Path], identifiers[block.DeviceIdentifier], installations[block.InstallationID] = true, true, true
+	}
+	manager.applianceBlocks = append([]ApplianceBlock(nil), blocks...)
+	return nil
+}
+
+func (manager *Manager) HasApplianceBlock(installationID string) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	for _, block := range manager.applianceBlocks {
+		if block.InstallationID == installationID {
+			return true
+		}
+	}
+	return false
 }
 
 func (manager *Manager) Start(ctx context.Context) (*hostv1.VM, error) {
@@ -389,7 +438,11 @@ func (manager *Manager) observe(machine *vz.VirtualMachine, serial *os.File) {
 				manager.state = hostv1.VMState_VM_STATE_STOPPED
 			}
 		}
+		invalidate := manager.invalidate
 		manager.mu.Unlock()
+		if invalidate != nil {
+			invalidate()
+		}
 		return
 	}
 }

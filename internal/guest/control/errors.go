@@ -19,8 +19,12 @@ func resourceExhausted(message string) error {
 }
 
 func detailedError(code codes.Code, reason, message, resourceType, resourceName string) error {
+	return detailedErrorMetadata(code, reason, message, resourceType, resourceName, nil)
+}
+
+func detailedErrorMetadata(code codes.Code, reason, message, resourceType, resourceName string, metadata map[string]string) error {
 	value := status.New(code, message)
-	withDetails, err := value.WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "agent-vmm"})
+	withDetails, err := value.WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "agent-vmm", Metadata: metadata})
 	if err != nil {
 		return value.Err()
 	}
@@ -36,6 +40,10 @@ func detailedError(code codes.Code, reason, message, resourceType, resourceName 
 
 func imageError(code codes.Code, reason, message, reference string) error {
 	return detailedError(code, reason, message, "image", reference)
+}
+
+func imageErrorMetadata(code codes.Code, reason, message, reference, failureClass string) error {
+	return detailedErrorMetadata(code, reason, message, "image", reference, map[string]string{"failure_class": failureClass})
 }
 
 func failedPrecondition(message string) error {

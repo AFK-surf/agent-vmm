@@ -23,6 +23,7 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestShutdownWaitsForMutation(t *testing.T) {
@@ -58,6 +59,31 @@ func TestShutdownWaitsForMutation(t *testing.T) {
 	}
 	if err := <-shutdownDone; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestImportImageHeaderIsIdempotentAndRejectsConflictingReplay(t *testing.T) {
+	server := new(Server)
+	header := &vmmdv1.ImportImageHeader{RequestId: "import", ActorNamespaceId: "namespace", ImageReference: "example.com/agent/pi:latest",
+		ArchiveSha256: make([]byte, 32), ManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Platform: "linux/arm64", ArchiveSize: 4096}
+	calls := 0
+	operation := func() (any, error) {
+		calls++
+		return &vmmdv1.Image{Reference: header.GetImageReference(), Digest: header.GetManifestDigest()}, nil
+	}
+	for range 2 {
+		value, err := server.mutate(context.Background(), "import-image", header, operation)
+		if err != nil || value.(*vmmdv1.Image).GetDigest() != header.GetManifestDigest() {
+			t.Fatalf("import replay value=%+v err=%v", value, err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("import operation ran %d times", calls)
+	}
+	conflict := proto.Clone(header).(*vmmdv1.ImportImageHeader)
+	conflict.ArchiveSha256[0] = 1
+	if _, err := server.mutate(context.Background(), "import-image", conflict, operation); err == nil {
+		t.Fatal("conflicting import replay succeeded")
 	}
 }
 
@@ -192,6 +218,12 @@ func TestFixedSpecPolicy(t *testing.T) {
 	supervised := value.(*specs.Spec)
 	if !reflect.DeepEqual(supervised.Process.Args, []string{supervisorPath}) || metadata.Extensions[containerProcess] == nil {
 		t.Fatalf("supervised spec = %+v", supervised.Process)
+	}
+	if len(supervised.Process.Rlimits) != 1 || supervised.Process.Rlimits[0] != (specs.POSIXRlimit{Type: "RLIMIT_CORE", Hard: 0, Soft: 0}) {
+		t.Fatalf("supervisor core rlimit = %+v", supervised.Process.Rlimits)
+	}
+	if len(supervised.Process.Env) != 0 {
+		t.Fatalf("supervisor environment = %q", supervised.Process.Env)
 	}
 	stored := new(specs.Process)
 	if err := typeurl.UnmarshalTo(metadata.Extensions[containerProcess], stored); err != nil {

@@ -105,6 +105,12 @@ func TestSemaphoreWaitCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run() = %v", err)
 	}
+	if err := builder.CanDeleteNamespace("actor"); err != nil {
+		t.Fatalf("cancelled workspace retained namespace: %v", err)
+	}
+	if err := workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestBuildOutputIsBounded(t *testing.T) {

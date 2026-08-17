@@ -87,37 +87,54 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 	hello := session.Hello()
 	server.connectionEpoch.Store(hello.GetConnectionEpoch())
 	leases := make([]*remotev1.Lease, 0, 2)
+	initialAllocations := make(map[string]*remotev1.Allocation, len(hello.GetInventory()))
 	for _, allocation := range hello.GetInventory() {
+		initialAllocations[allocation.GetAllocationId()] = allocation
 		if allocation.GetLease() != nil {
 			leases = append(leases, allocation.GetLease())
 		}
 	}
-	for index, allocationID := range []string{"remote-a", "remote-b"} {
-		if len(hello.GetInventory()) != 0 {
-			continue
+	if err := session.Ready(); err != nil {
+		return err
+	}
+	expectedAllocations := map[string]struct{}{"remote-a": {}, "remote-b": {}}
+	for _, allocation := range hello.GetInventory() {
+		if _, ok := expectedAllocations[allocation.GetAllocationId()]; !ok {
+			return status.Errorf(codes.FailedPrecondition, "unexpected initial allocation %q", allocation.GetAllocationId())
 		}
+	}
+	for index, allocationID := range []string{"remote-a", "remote-b"} {
 		egress := hostv1.EgressMode_EGRESS_MODE_DENY_ALL
 		if index == 0 {
 			egress = hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
 		}
-		limits := &hostv1.ResourceLimits{CpuMillis: optional(uint32(1000)), MemoryBytes: optional(uint64(1 << 30)), Pids: optional(uint32(256)), DiskBytes: optional(uint64(2 << 30))}
+		if existing := initialAllocations[allocationID]; existing != nil && existing.GetLease() != nil {
+			// A reconnect may already carry a live lease. Preserve it instead of
+			// issuing EnsureAllocation against a partially settled inventory.
+			continue
+		}
+		limits := &hostv1.ResourceLimits{CpuMillis: optional(uint32(500)), MemoryBytes: optional(uint64(1 << 30)), Pids: optional(uint32(256)), DiskBytes: optional(uint64(2 << 30))}
 		result, err := server.command(session, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, DisplayLabel: allocationID, Limits: limits, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
 		if err != nil {
 			return err
 		}
 		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
-			server.failures <- "ensure " + result.GetReason().String()
+			server.reportFailure("ensure " + result.GetReason().String())
 			return status.Error(codes.Internal, "ensure failed")
 		}
-		result, err = server.command(session, &remotev1.ControllerCommand{CommandId: "acquire-" + allocationID, Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: allocationID, DurationSeconds: 300, WorkloadRef: "e2e-" + allocationID}}})
+		if lease := result.GetAllocation().GetLease(); lease != nil {
+			leases = appendLeaseOnce(leases, lease)
+			continue
+		}
+		result, err = server.command(session, &remotev1.ControllerCommand{CommandId: "acquire-" + allocationID, TargetRevision: result.GetAllocation().GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: allocationID, DurationSeconds: 300, WorkloadRef: "e2e-" + allocationID}}})
 		if err != nil {
 			return err
 		}
 		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
-			server.failures <- "acquire " + result.GetReason().String()
+			server.reportFailure("acquire " + result.GetReason().String())
 			return status.Error(codes.Internal, "acquire failed")
 		}
-		leases = append(leases, result.GetLease())
+		leases = appendLeaseOnce(leases, result.GetLease())
 	}
 	server.connections <- len(leases)
 	for _, lease := range leases {
@@ -126,7 +143,7 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 			return err
 		}
 		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
-			server.failures <- "open " + lease.GetAllocationId() + " lease=" + lease.GetLeaseId() + " generation=" + strconv.FormatUint(lease.GetGeneration(), 10) + " " + result.GetReason().String() + " " + result.GetMessage()
+			server.reportFailure("open " + lease.GetAllocationId() + " lease=" + lease.GetLeaseId() + " generation=" + strconv.FormatUint(lease.GetGeneration(), 10) + " " + result.GetReason().String() + " " + result.GetMessage())
 			return status.Error(codes.Internal, "open failed")
 		}
 	}
@@ -136,25 +153,59 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 		return stream.Context().Err()
 	}
 	for _, lease := range leases {
-		_, _ = server.command(session, &remotev1.ControllerCommand{CommandId: "release-lease-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
-		_, _ = server.command(session, &remotev1.ControllerCommand{CommandId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId()}}})
-		plan, err := server.command(session, &remotev1.ControllerCommand{CommandId: "plan-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanDiscardAllocation{PlanDiscardAllocation: &remotev1.PlanDiscardAllocation{AllocationId: lease.GetAllocationId()}}})
-		if err != nil {
-			return err
+		releasedLease, err := server.command(session, &remotev1.ControllerCommand{CommandId: "release-lease-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+		if err != nil || releasedLease.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+			return status.Errorf(codes.Internal, "release lease %s failed: %v %s", lease.GetAllocationId(), err, releasedLease.GetMessage())
 		}
-		_, err = server.command(session, &remotev1.ControllerCommand{CommandId: "discard-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteDiscardAllocation{ExecuteDiscardAllocation: &remotev1.ExecuteDiscardAllocation{AllocationId: lease.GetAllocationId(), PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
-		if err != nil {
-			return err
+		revision := releasedLease.GetLease().GetAllocationRevision()
+		releasedAllocation, err := server.command(session, &remotev1.ControllerCommand{CommandId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision}}})
+		if err != nil || releasedAllocation.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+			return status.Errorf(codes.Internal, "release allocation %s failed: %v %s", lease.GetAllocationId(), err, releasedAllocation.GetMessage())
+		}
+		plan, err := server.command(session, &remotev1.ControllerCommand{CommandId: "plan-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+		if err != nil || plan.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+			return status.Errorf(codes.Internal, "plan discard %s failed: %v %s", lease.GetAllocationId(), err, plan.GetMessage())
+		}
+		discarded, err := server.command(session, &remotev1.ControllerCommand{CommandId: "discard-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
+		if err != nil || discarded.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+			return status.Errorf(codes.Internal, "discard %s failed: %v %s", lease.GetAllocationId(), err, discarded.GetMessage())
 		}
 	}
 	return nil
 }
 
+func (server *remoteE2EController) reportFailure(message string) {
+	select {
+	case server.failures <- message:
+	default:
+	}
+}
+
+func appendLeaseOnce(leases []*remotev1.Lease, lease *remotev1.Lease) []*remotev1.Lease {
+	if lease == nil {
+		return leases
+	}
+	for _, current := range leases {
+		if current.GetAllocationId() == lease.GetAllocationId() {
+			return leases
+		}
+	}
+	return append(leases, lease)
+}
+
 func (server *remoteE2EController) command(session *controllerremote.ControlSession, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
+	return dispatchRemoteCommand(session, command)
+}
+
+func dispatchRemoteCommand(session *controllerremote.ControlSession, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
 	if ensure := command.GetEnsureAllocation(); ensure != nil {
 		command.TargetRevision = ensure.GetPolicyRevision()
 	}
 	switch value := command.GetCommand().(type) {
+	case *remotev1.ControllerCommand_ReleaseAllocation:
+		command.TargetRevision = value.ReleaseAllocation.GetExpectedRevision()
+	case *remotev1.ControllerCommand_ExecuteCleanupAllocation:
+		command.TargetRevision = value.ExecuteCleanupAllocation.GetPlanRevision()
 	case *remotev1.ControllerCommand_RenewLease:
 		command.LeaseGeneration = value.RenewLease.GetGeneration()
 	case *remotev1.ControllerCommand_ReleaseLease:
@@ -166,6 +217,99 @@ func (server *remoteE2EController) command(session *controllerremote.ControlSess
 	defer cancel()
 	transcript, err := session.Dispatch(ctx, command)
 	return transcript.Result, err
+}
+
+type isolatedDomainController struct {
+	remotev1.UnimplementedRemoteControllerServiceServer
+	registrationID string
+	session        chan net.Conn
+	finish         chan struct{}
+	cleaned        chan struct{}
+	epoch          atomic.Uint64
+	cleanedOnce    sync.Once
+	finished       atomic.Bool
+}
+
+func (server *isolatedDomainController) Enroll(context.Context, *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not used")
+}
+
+func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage]) error {
+	if values := metadata.ValueFromIncomingContext(stream.Context(), "authorization"); len(values) != 1 || values[0] != controllerremote.EncodeBearer([]byte("remote-e2e")) {
+		return status.Error(codes.Unauthenticated, "rejected")
+	}
+	if server.finished.Load() {
+		return status.Error(codes.FailedPrecondition, "domain test completed")
+	}
+	session, err := controllerremote.AcceptControl(stream, server.registrationID)
+	if err != nil {
+		return err
+	}
+	hello := session.Hello()
+	server.epoch.Store(hello.GetConnectionEpoch())
+	if err := session.Ready(); err != nil {
+		return err
+	}
+	if len(hello.GetInventory()) != 0 {
+		return status.Error(codes.FailedPrecondition, "isolated domain started with unexpected inventory")
+	}
+	limits := remoteLimits(100, 128<<20, 64, 256<<20)
+	ensured, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "ensure-shared", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "shared", DisplayLabel: "shared", Limits: limits, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision()}}})
+	if err != nil || ensured.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+		return status.Errorf(codes.Internal, "ensure failed: %v %s", err, ensured.GetMessage())
+	}
+	acquired, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "acquire-shared", TargetRevision: ensured.GetAllocation().GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: "shared", DurationSeconds: 300, WorkloadRef: "three-domain-e2e"}}})
+	if err != nil || acquired.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+		return status.Errorf(codes.Internal, "acquire failed: %v %s", err, acquired.GetMessage())
+	}
+	lease := acquired.GetLease()
+	opened, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "open-shared", Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "shared", LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+	if err != nil || opened.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+		return status.Errorf(codes.Internal, "open failed: %v %s", err, opened.GetMessage())
+	}
+	select {
+	case <-server.finish:
+	case <-stream.Context().Done():
+		return stream.Context().Err()
+	}
+	releasedLease, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "release-lease-shared", Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+	if err != nil || releasedLease.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+		return status.Errorf(codes.Internal, "release lease failed: %v %s", err, releasedLease.GetMessage())
+	}
+	revision := releasedLease.GetLease().GetAllocationRevision()
+	released, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "release-allocation-shared", Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: "shared", ExpectedRevision: revision}}})
+	if err != nil || released.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+		return status.Errorf(codes.Internal, "release allocation failed: %v %s", err, released.GetMessage())
+	}
+	plan, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "plan-shared", Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+	if err != nil || plan.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+		return status.Errorf(codes.Internal, "plan discard failed: %v %s", err, plan.GetMessage())
+	}
+	discarded, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "discard-shared", Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
+	if err != nil || discarded.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+		return status.Errorf(codes.Internal, "discard failed: %v %s", err, discarded.GetMessage())
+	}
+	server.finished.Store(true)
+	server.cleanedOnce.Do(func() { close(server.cleaned) })
+	return nil
+}
+
+func (server *isolatedDomainController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+	_, connection, err := controllerremote.AcceptSession(stream, server.registrationID, server.epoch.Load())
+	if err != nil {
+		return err
+	}
+	select {
+	case server.session <- connection:
+	case <-stream.Context().Done():
+		return stream.Context().Err()
+	}
+	select {
+	case <-connection.Done():
+		return nil
+	case <-stream.Context().Done():
+		return stream.Context().Err()
+	}
 }
 
 func (server *remoteE2EController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
@@ -203,7 +347,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	defer stopController()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	pool := &hostv1.RemotePoolPolicy{MaxEnvironments: 2, AggregateLimits: remoteLimits(2000, 2<<30, 512, 4<<30), PerEnvironmentLimits: remoteLimits(1000, 1<<30, 256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseDuration: durationpb.New(5 * time.Minute), DisconnectGrace: durationpb.New(30 * time.Second), StopGrace: durationpb.New(2 * time.Second)}
+	pool := &hostv1.RemotePoolPolicy{MaxEnvironments: 2, AggregateLimits: remoteLimits(1000, 2<<30, 512, 4<<30), PerEnvironmentLimits: remoteLimits(500, 1<<30, 256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseDuration: durationpb.New(5 * time.Minute), DisconnectGrace: durationpb.New(30 * time.Second), StopGrace: durationpb.New(2 * time.Second)}
 	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +378,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 			case session := <-controller.sessions:
 				sessions[session.allocationID] = session
 			case failure := <-controller.failures:
-				current, _ := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{})
+				current, _ := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: controller.registrationID})
 				t.Fatalf("controller command failed: %s state=%+v", failure, current.GetRegistration().GetAllocations())
 			case <-ctx.Done():
 				t.Fatal("remote sessions did not open")
@@ -242,8 +386,21 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		}
 		return sessions
 	}
+	awaitConnection := func(timeout time.Duration) int {
+		select {
+		case count := <-controller.connections:
+			return count
+		case failure := <-controller.failures:
+			current, _ := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: controller.registrationID})
+			t.Fatalf("controller connection failed: %s state=%+v", failure, current.GetRegistration().GetAllocations())
+			return 0
+		case <-time.After(timeout):
+			t.Fatal("controller did not report connection inventory")
+			return 0
+		}
+	}
 	stopConnector, connectorDone := startConnector()
-	if count := <-controller.connections; count != 2 {
+	if count := awaitConnection(30 * time.Second); count != 2 {
 		t.Fatalf("first connection lease inventory=%d", count)
 	}
 	firstSessions := collectSessions()
@@ -262,6 +419,9 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		if count != 2 {
 			t.Fatalf("reconnect lease inventory=%d", count)
 		}
+	case failure := <-controller.failures:
+		current, _ := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: controller.registrationID})
+		t.Fatalf("controller reconnect failed: %s state=%+v", failure, current.GetRegistration().GetAllocations())
 	case <-time.After(10 * time.Second):
 		t.Fatal("controller did not reconnect")
 	}
@@ -313,7 +473,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	deadline := time.Now().Add(30 * time.Second)
 	drained := false
 	for time.Now().Before(deadline) {
-		current, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{})
+		current, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: controller.registrationID})
 		if err == nil && len(current.GetRegistration().GetAllocations()) == 0 {
 			drained = true
 			break
@@ -321,7 +481,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !drained {
-		current, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{})
+		current, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: controller.registrationID})
 		t.Fatalf("remote allocations did not drain: state=%+v err=%v", current.GetRegistration().GetAllocations(), err)
 	}
 	stopConnector()
@@ -329,6 +489,153 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	case <-connectorDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("connector did not stop")
+	}
+}
+
+func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
+	type domain struct {
+		controller   *isolatedDomainController
+		registration string
+		stop         context.CancelFunc
+		done         <-chan error
+		stopServer   func()
+		connection   *grpc.ClientConn
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool := &hostv1.RemotePoolPolicy{MaxEnvironments: 1, AggregateLimits: remoteLimits(100, 128<<20, 64, 256<<20), PerEnvironmentLimits: remoteLimits(100, 128<<20, 64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseDuration: durationpb.New(5 * time.Minute), DisconnectGrace: durationpb.New(5 * time.Second), StopGrace: durationpb.New(time.Second)}
+	domains := make([]domain, 0, 3)
+	defer func() {
+		for _, current := range domains {
+			if current.connection != nil {
+				current.connection.Close()
+			}
+			current.stop()
+			current.stopServer()
+		}
+	}()
+	for index := range 3 {
+		controller := &isolatedDomainController{session: make(chan net.Conn, 1), finish: make(chan struct{}), cleaned: make(chan struct{})}
+		endpoint, roots, stopServer := startRemoteController(t, controller)
+		requestID := "three-domain-" + strconv.Itoa(index)
+		registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, Endpoint: endpoint, DisplayName: requestID, ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+		if err != nil {
+			t.Fatal(err)
+		}
+		registered, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: requestID + "-complete", RegistrationId: registered.GetRegistration().GetId(), ExpectedRevision: registered.GetRegistration().GetRevision()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		controller.registrationID = registered.GetRegistration().GetId()
+		connectorContext, stop := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() {
+			done <- remoteconnector.Run(connectorContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: controller.registrationID, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: &e2eCredentialStore{value: []byte("remote-e2e")}, TLSRoots: roots})
+		}()
+		domains = append(domains, domain{controller: controller, registration: controller.registrationID, stop: stop, done: done, stopServer: stopServer})
+	}
+
+	environmentIDs := make(map[string]struct{}, 3)
+	for index := range domains {
+		var raw net.Conn
+		select {
+		case raw = <-domains[index].controller.session:
+		case <-ctx.Done():
+			t.Fatal("three-domain runtime session did not open")
+		}
+		connection, err := grpc.NewClient("passthrough:///isolated-runtime", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return raw, nil }))
+		if err != nil {
+			t.Fatal(err)
+		}
+		domains[index].connection = connection
+		runtime := hostv1.NewAgentRuntimeServiceClient(connection)
+		if _, err := runtime.CreateVolume(ctx, &hostv1.CreateVolumeRequest{RequestId: "create-shared-volume-domain-" + strconv.Itoa(index), VolumeId: "shared-volume"}); err != nil {
+			t.Fatal(err)
+		}
+		volumes, err := runtime.ListVolumes(ctx, &hostv1.ListVolumesRequest{})
+		if err != nil || len(volumes.GetVolumes()) != 1 || volumes.GetVolumes()[0].GetId() != "shared-volume" {
+			t.Fatalf("domain %d volumes=%+v err=%v", index, volumes, err)
+		}
+		registration, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: domains[index].registration})
+		if err != nil || len(registration.GetRegistration().GetAllocations()) != 1 || registration.GetRegistration().GetAllocations()[0].GetAllocationId() != "shared" || registration.GetRegistration().GetDomainMetrics().GetActiveLeases() != 1 || registration.GetRegistration().GetDomainMetrics().GetActiveSessions() != 1 {
+			t.Fatalf("domain %d projection=%+v err=%v", index, registration, err)
+		}
+		environmentID := registration.GetRegistration().GetAllocations()[0].GetEnvironmentId()
+		if _, duplicate := environmentIDs[environmentID]; duplicate || environmentID == "" {
+			t.Fatalf("domain %d reused environment identity %q", index, environmentID)
+		}
+		environmentIDs[environmentID] = struct{}{}
+	}
+
+	metricsDeadline := time.Now().Add(8 * time.Second)
+	for {
+		complete := true
+		for _, current := range domains {
+			registration, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: current.registration})
+			if err != nil || registration.GetRegistration().GetDomainMetrics().GetBytesToController() == 0 || registration.GetRegistration().GetDomainMetrics().GetBytesToRuntime() == 0 || registration.GetRegistration().GetDomainMetrics().GetReconciliations() == 0 {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			break
+		}
+		if time.Now().After(metricsDeadline) {
+			t.Fatal("three-domain transport metrics did not settle")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	revokedBefore, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: domains[0].registration})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoking, err := harness.client.BeginRemoteRevocation(ctx, &hostv1.BeginRemoteRevocationRequest{RequestId: "revoke-three-domain-zero", RegistrationId: domains[0].registration, ExpectedRevision: revokedBefore.GetRegistration().GetRevision()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := harness.client.CompleteRemoteRevocation(ctx, &hostv1.CompleteRemoteRevocationRequest{RequestId: "complete-revoke-three-domain-zero", RegistrationId: domains[0].registration, ExpectedRevision: revoking.GetRegistration().GetRevision()})
+	if err != nil || revoked.GetRegistration().GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED || len(revoked.GetRegistration().GetAllocations()) != 1 || revoked.GetRegistration().GetAllocations()[0].GetState() != hostv1.AllocationState_ALLOCATION_STATE_RETAINED {
+		t.Fatalf("revoked domain projection=%+v err=%v", revoked, err)
+	}
+	revokedRuntime := hostv1.NewAgentRuntimeServiceClient(domains[0].connection)
+	revokedContext, cancelRevoked := context.WithTimeout(ctx, 3*time.Second)
+	_, revokedErr := revokedRuntime.ListVolumes(revokedContext, &hostv1.ListVolumesRequest{})
+	cancelRevoked()
+	if revokedErr == nil {
+		t.Fatal("revoked domain runtime session remained usable")
+	}
+	for index := 1; index < len(domains); index++ {
+		volumes, err := hostv1.NewAgentRuntimeServiceClient(domains[index].connection).ListVolumes(ctx, &hostv1.ListVolumesRequest{})
+		if err != nil || len(volumes.GetVolumes()) != 1 {
+			t.Fatalf("revoke changed domain %d runtime: volumes=%+v err=%v", index, volumes, err)
+		}
+	}
+	domains[0].connection.Close()
+	domains[0].connection = nil
+	domains[0].stop()
+	select {
+	case <-domains[0].done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("revoked domain connector did not stop")
+	}
+
+	for index := 1; index < len(domains); index++ {
+		domains[index].connection.Close()
+		domains[index].connection = nil
+		close(domains[index].controller.finish)
+	}
+	for _, current := range domains[1:] {
+		select {
+		case <-current.controller.cleaned:
+		case <-ctx.Done():
+			t.Fatal("three-domain cleanup did not finish")
+		}
+		current.stop()
+		select {
+		case <-current.done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("three-domain connector did not stop")
+		}
 	}
 }
 

@@ -6,7 +6,9 @@
 - Avoid excessive design, defensive code, and patch-based fixes.
 - Do not run `git stage`, `git reset`, `git add`, or `git commit` unless the user requests it.
 - Do not inspect the Git stage unless the user requests it.
-- Complete the following cleanup after all automated TODO items pass:
+- Spawn review agents with an empty inherited context. Put the read-only role, review scope, and required evidence in the review task instead of forking the implementation conversation.
+- During implementation, run the smallest focused test set that covers the current change or failure. Run broader phase gates only after focused tests are stable, and run the full test suite only for final convergence or when a broad regression check is specifically justified.
+- Apply the following cleanup continuously as responsibilities settle, and repeat the audit after all automated TODO items pass:
   - Compare the branch with `main` and remove low-quality generated code.
   - Remove comments that a maintainer would not add or that conflict with the local style.
   - Remove excessive checks from trusted or previously validated call paths.
@@ -33,6 +35,15 @@ Remove any text that does not affect a decision.
 
 ## Unexpected Situations
 
+- `InstallApplianceDomain` must insert the private `remote_registrations` row before the installation row because `appliance_installations.registration_id` is an immediate foreign key. Keep both writes in the same transaction so a fresh installation cannot fail with a foreign-key error after planning succeeds.
+- The MCP `ForwardTCP` bridge has one sender goroutine; do not call `CloseSend` until both copy directions have exited, or gRPC's stream state races with an in-flight `Send`.
+- The loopback forward helper can report success after an invalid capability if the host closes the TCP connection gracefully after the request is buffered; rejected frontend authentication must use a reset/observable failure so stale-token tests cannot pass spuriously.
+- `go test -json` can end with a package-level `FAIL`/interrupt before a child subtest emits a terminal event; the E2E report renderer must retain that child as `INTERRUPTED` instead of omitting the failed case.
+- Guest registry pulls collapse the containerd fetch error into `IMAGE_BLOB_FETCH_FAILED`, while the current VZ serial log path can remain empty; preserve a bounded diagnostic for the failed descriptor and egress counters when investigating large-image fetches.
+- The guest TUN can deliver a non-IPv4 packet to the egress pump; validate and count it at the TUN boundary, because letting `WriteFrame` reject it tears down the whole vsock session and surfaces as a misleading registry download failure.
+- E2E code that opens the host WAL database directly must use one connection with a busy timeout; otherwise forced-stop recovery can race a test-side write and surface `SQLITE_BUSY` from an unrelated RPC.
+- The final two-install `ApplianceLifecycle` TLC configuration explores roughly 2.3 million distinct states and can take about 50 minutes with the checked-in single-worker runner; do not treat the quiet interval as a hung checker, and preserve the independent negative-config runs.
+
 Record a surprising project issue when another agent can encounter it again.
 Tell the developer about the issue and add it to this file.
 Update or delete an entry when the issue changes or no longer applies.
@@ -42,6 +53,8 @@ Do not record temporary failures or narrow implementation mistakes.
 ### General Project Assumptions
 
 - This project is new and has no production release. Report code that does not follow current best practices.
+- `.context` contains planning documents only. Production and test code must not read from or write to it.
+- Do not preserve compatibility with previously installed MCP, connector, data-worker binaries, launchd jobs, configuration, or local state. Remove them with explicit manual cleanup instructions; production code must not detect, migrate, dual-run, or read their legacy state.
 - Build guest artifacts on Linux arm64 and a case-sensitive file system.
 - Alpine stable repositories remove superseded kernel package revisions; keep the locked kernel package and digest current or retain it in `AGENT_VMM_DOWNLOAD_CACHE`.
 - Install the complete gVisor release directory.
@@ -70,6 +83,7 @@ Do not record temporary failures or narrow implementation mistakes.
 - Do not restore nested persistent overlays.
 - Use the fixed supervisor as the sandbox init. Run the user process as a retained exec process.
 - Do not replace the supervisor with a delay, a CRI pause container, or exit-code substitution.
+- gVisor blocks sandbox-created host-visible Unix sockets by default. Keep runsc `host-uds=create` so system appliances can bind only their projected private sockets; do not grant `open` or `all`.
 - Reject new public relay connections after the VM enters `STOPPING`.
 - Permit the internal `PrepareShutdown` connection during `STOPPING` so the guest can finish cleanup.
 - Package development-signed guest bundles only with an ad-hoc-signed helper built with the development trust root. A release-signed helper requires a release-signed guest bundle.
@@ -77,3 +91,4 @@ Do not record temporary failures or narrow implementation mistakes.
 - A valid remote lease may open a new runtime session after connector recovery. Revoke the previous session capability before issuing its replacement; do not reject the lease as already open.
 - Keep remote admission state separate from connector transport state. Draining rejects new allocations and leases but preserves existing leases and runtime sessions; only revocation tears them down.
 - Remote leases are in-memory while allocation state is persisted. On host restart, reconcile every persisted `LEASED` allocation to a fail-closed non-leased state before admitting a replacement connector; an empty in-memory lease map cannot revoke or recover that allocation.
+- The supervised container process runs with an empty capability set. A root entrypoint cannot initialize a bind-mounted 0700 volume owned by a non-root UID; tests and workloads that require that ownership must start with the matching numeric UID/GID instead of relying on root capability bypass.

@@ -2,3 +2,4 @@
   platform = "systrap"
   directfs = "false"
   overlay2 = "none"
+  host-uds = "create"

@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,25 +19,22 @@ import (
 )
 
 type Adapter struct {
-	runtime         hostv1.AgentRuntimeServiceClient
-	logger          *slog.Logger
-	active          chan struct{}
-	mutations       chan struct{}
-	mu              sync.Mutex
-	forwards        map[string]*forwardLease
-	forwardSlots    chan struct{}
-	connectionSlots chan struct{}
-	lifetime        context.Context
-	cancel          context.CancelFunc
-	draining        atomic.Bool
+	runtime   hostv1.AgentRuntimeServiceClient
+	cleanup   CleanupOwner
+	logger    *slog.Logger
+	active    chan struct{}
+	mutations chan struct{}
+	lifetime  context.Context
+	cancel    context.CancelFunc
+	draining  atomic.Bool
 }
 
-func New(runtime hostv1.AgentRuntimeServiceClient, logger *slog.Logger) *Adapter {
+func New(runtime hostv1.AgentRuntimeServiceClient, cleanup CleanupOwner, logger *slog.Logger) *Adapter {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Adapter{runtime: runtime, logger: logger, active: make(chan struct{}, 16), mutations: make(chan struct{}, 4), forwards: make(map[string]*forwardLease), forwardSlots: make(chan struct{}, 16), connectionSlots: make(chan struct{}, 64), lifetime: lifetime, cancel: cancel}
+	return &Adapter{runtime: runtime, cleanup: cleanup, logger: logger, active: make(chan struct{}, 16), mutations: make(chan struct{}, 4), lifetime: lifetime, cancel: cancel}
 }
 
 func (adapter *Adapter) Server() *mcp.Server {
@@ -48,7 +44,7 @@ func (adapter *Adapter) Server() *mcp.Server {
 	})
 	adapter.registerReadTools(server)
 	adapter.registerMutationTools(server)
-	adapter.registerResourceTools(server)
+	adapter.registerCleanupTools(server)
 	adapter.registerServiceTools(server)
 	return server
 }
@@ -129,7 +125,6 @@ func (adapter *Adapter) call(ctx context.Context, timeout time.Duration, mutatio
 
 func (adapter *Adapter) Close() {
 	adapter.cancel()
-	adapter.closeAllForwards()
 }
 
 type toolFailure struct {
@@ -205,7 +200,7 @@ func retryableRuntimeReason(value string) bool {
 	}
 }
 
-func reasonFromStatus(err error, fallback string) string {
+func reasonFromStatus(err error, defaultReason string) string {
 	for _, detail := range status.Convert(err).Details() {
 		text := fmt.Sprint(detail)
 		for _, reason := range []string{"CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "CONTAINER_GENERATION_CONFLICT", "EXEC_START_FAILED", "LOG_CURSOR_STALE", "IMAGE_NOT_FOUND", "IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED"} {
@@ -214,7 +209,7 @@ func reasonFromStatus(err error, fallback string) string {
 			}
 		}
 	}
-	return fallback
+	return defaultReason
 }
 
 func pageBounds(total, requested int, cursor string) (int, int, string, error) {

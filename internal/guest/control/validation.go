@@ -16,6 +16,18 @@ func validateID(kind, value string) error {
 	if !opaqueID.MatchString(value) {
 		return errors.New(kind + " must be a 1-63 character opaque identifier")
 	}
+	if strings.Contains(kind, "namespace") && isSystemNamespace(value) {
+		return errors.New(kind + " does not name an ordinary environment")
+	}
+	return nil
+}
+
+func isSystemNamespace(value string) bool { return strings.HasPrefix(value, "system.") }
+
+func validateSystemNamespace(value string) error {
+	if !opaqueID.MatchString(value) || !isSystemNamespace(value) {
+		return errors.New("system namespace must use the reserved system. prefix")
+	}
 	return nil
 }
 

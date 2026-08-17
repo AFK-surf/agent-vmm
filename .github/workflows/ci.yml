@@ -53,6 +53,8 @@ jobs:
         run: go vet ./...
       - name: Check protobuf compatibility
         run: make proto-check
+      - name: Check RFC6 canonical models
+        run: make tla
 
   macos-26:
     name: Go and app / macOS 26

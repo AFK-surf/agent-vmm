@@ -11,6 +11,7 @@ service RemoteControllerService {
   rpc Enroll(EnrollRequest) returns (EnrollResponse);
   rpc Connect(stream HostControlMessage) returns (stream ControllerControlMessage);
   rpc ServeSession(stream HostSessionFrame) returns (stream ControllerSessionFrame);
+  rpc ServeFrontend(stream agentvmm.host.v1.HostFrontendFrame) returns (stream agentvmm.host.v1.ControllerFrontendFrame);
 }
 
 message EnrollRequest {
@@ -41,7 +42,14 @@ message HostControlMessage {
     HostEvent event = 3;
     CommandAck ack = 4;
     CommandEvidence evidence = 5;
+    EndpointObservationRenewal endpoint_observation_renewal = 6;
+    agentvmm.host.v1.HostLoopbackFrontendEvent frontend_event = 7;
   }
+}
+
+message EndpointObservationRenewal {
+  uint64 connection_epoch = 1;
+  agentvmm.trust.v1.EndpointObservation endpoint_observation = 2;
 }
 
 message HostHello {
@@ -60,6 +68,7 @@ message HostHello {
   repeated string supported_features = 13;
   repeated string required_features = 14;
   agentvmm.trust.v1.EndpointObservation endpoint_observation = 15;
+  agentvmm.host.v1.HostLoopbackFrontendCapacity host_loopback_frontend = 16;
 }
 
 message Capacity {
@@ -88,6 +97,7 @@ message Lease {
   uint64 generation = 4;
   int64 expires_unix_millis = 5;
   agentvmm.host.v1.LeaseState state = 6;
+  uint64 allocation_revision = 7;
 }
 
 message HostHealth {
@@ -101,7 +111,14 @@ message ControllerControlMessage {
     ControllerCommand command = 1;
     RotateCredential rotate_credential = 2;
     RevokeCredential revoke_credential = 3;
+    ControllerReady controller_ready = 4;
   }
+}
+
+message ControllerReady {
+  string registration_id = 1;
+  uint64 connection_epoch = 2;
+  uint64 acknowledged_inventory_watermark = 3;
 }
 
 message ControllerCommand {
@@ -115,14 +132,36 @@ message ControllerCommand {
   oneof command {
     EnsureAllocation ensure_allocation = 10;
     ReleaseAllocation release_allocation = 11;
-    PlanDiscardAllocation plan_discard_allocation = 12;
-    ExecuteDiscardAllocation execute_discard_allocation = 13;
+    PlanCleanupAllocation plan_cleanup_allocation = 12;
+    ExecuteCleanupAllocation execute_cleanup_allocation = 13;
     AcquireLease acquire_lease = 14;
     RenewLease renew_lease = 15;
     ReleaseLease release_lease = 16;
     DrainRegistration drain_registration = 17;
     OpenSession open_session = 18;
+    AcquireHostLoopbackFrontend acquire_host_loopback_frontend = 19;
+    RenewHostLoopbackFrontend renew_host_loopback_frontend = 20;
+    ReleaseHostLoopbackFrontend release_host_loopback_frontend = 21;
   }
+}
+
+message AcquireHostLoopbackFrontend {
+  string allocation_id = 1;
+  string allocation_lease_id = 2;
+  uint64 allocation_lease_generation = 3;
+  string assignment_id = 4;
+  uint32 duration_seconds = 5;
+}
+message RenewHostLoopbackFrontend {
+  string frontend_lease_id = 1;
+  uint64 generation = 2;
+  string allocation_lease_id = 3;
+  uint64 allocation_lease_generation = 4;
+  uint32 duration_seconds = 5;
+}
+message ReleaseHostLoopbackFrontend {
+  string frontend_lease_id = 1;
+  uint64 generation = 2;
 }
 
 message EnsureAllocation {
@@ -132,12 +171,21 @@ message EnsureAllocation {
   agentvmm.host.v1.EgressMode egress_mode = 4;
   uint64 policy_revision = 5;
 }
-message ReleaseAllocation { string allocation_id = 1; }
-message PlanDiscardAllocation { string allocation_id = 1; }
-message ExecuteDiscardAllocation {
+message ReleaseAllocation {
+  string allocation_id = 1;
+  uint64 expected_revision = 2;
+}
+message PlanCleanupAllocation {
+  string allocation_id = 1;
+  agentvmm.host.v1.CleanupKind kind = 2;
+}
+message ExecuteCleanupAllocation {
   string allocation_id = 1;
   uint64 plan_revision = 2;
   repeated string confirmed_volume_ids = 3;
+  agentvmm.host.v1.CleanupKind kind = 4;
+  string expected_lease_id = 5;
+  uint64 expected_lease_generation = 6;
 }
 message AcquireLease {
   string allocation_id = 1;
@@ -170,6 +218,7 @@ message CommandResult {
     Lease lease = 6;
     CleanupPlan cleanup_plan = 7;
     SessionReady session_ready = 8;
+    agentvmm.host.v1.HostLoopbackFrontendLease host_loopback_frontend_lease = 12;
   }
   uint64 sequence = 9;
   uint64 connection_epoch = 10;
@@ -237,6 +286,8 @@ message CleanupPlan {
   string allocation_id = 1;
   uint64 revision = 2;
   repeated string volume_ids = 3;
+  agentvmm.host.v1.CleanupKind kind = 4;
+  repeated agentvmm.host.v1.CleanupImpact impacts = 5;
 }
 message SessionReady {
   string allocation_id = 1;

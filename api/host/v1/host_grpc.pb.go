@@ -23,6 +23,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AgentRuntimeService_GetEnvironment_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/GetEnvironment"
 	AgentRuntimeService_PullImage_FullMethodName                   = "/agentvmm.host.v1.AgentRuntimeService/PullImage"
+	AgentRuntimeService_ImportImage_FullMethodName                 = "/agentvmm.host.v1.AgentRuntimeService/ImportImage"
 	AgentRuntimeService_ListImages_FullMethodName                  = "/agentvmm.host.v1.AgentRuntimeService/ListImages"
 	AgentRuntimeService_DeleteImage_FullMethodName                 = "/agentvmm.host.v1.AgentRuntimeService/DeleteImage"
 	AgentRuntimeService_CreateContainer_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/CreateContainer"
@@ -69,6 +70,7 @@ const (
 type AgentRuntimeServiceClient interface {
 	GetEnvironment(ctx context.Context, in *GetOwnEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PullImageResponse], error)
+	ImportImage(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ImportImageRequest, Image], error)
 	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
 	DeleteImage(ctx context.Context, in *DeleteImageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CreateContainer(ctx context.Context, in *CreateContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
@@ -145,6 +147,19 @@ func (c *agentRuntimeServiceClient) PullImage(ctx context.Context, in *PullImage
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentRuntimeService_PullImageClient = grpc.ServerStreamingClient[PullImageResponse]
+
+func (c *agentRuntimeServiceClient) ImportImage(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ImportImageRequest, Image], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[1], AgentRuntimeService_ImportImage_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ImportImageRequest, Image]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ImportImageClient = grpc.ClientStreamingClient[ImportImageRequest, Image]
 
 func (c *agentRuntimeServiceClient) ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -238,7 +253,7 @@ func (c *agentRuntimeServiceClient) ListContainers(ctx context.Context, in *List
 
 func (c *agentRuntimeServiceClient) Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogRecord], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[1], AgentRuntimeService_Logs_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[2], AgentRuntimeService_Logs_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +272,7 @@ type AgentRuntimeService_LogsClient = grpc.ServerStreamingClient[LogRecord]
 
 func (c *agentRuntimeServiceClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecRequest, ExecResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[2], AgentRuntimeService_Exec_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[3], AgentRuntimeService_Exec_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +335,7 @@ func (c *agentRuntimeServiceClient) ListVolumes(ctx context.Context, in *ListVol
 
 func (c *agentRuntimeServiceClient) ForwardTCP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ForwardTCPRequest, ForwardTCPResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[3], AgentRuntimeService_ForwardTCP_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[4], AgentRuntimeService_ForwardTCP_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +348,7 @@ type AgentRuntimeService_ForwardTCPClient = grpc.BidiStreamingClient[ForwardTCPR
 
 func (c *agentRuntimeServiceClient) BuildImage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[4], AgentRuntimeService_BuildImage_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[5], AgentRuntimeService_BuildImage_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +431,7 @@ func (c *agentRuntimeServiceClient) ListWorkspace(ctx context.Context, in *ListW
 
 func (c *agentRuntimeServiceClient) ReadWorkspace(ctx context.Context, in *ReadWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[5], AgentRuntimeService_ReadWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[6], AgentRuntimeService_ReadWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +450,7 @@ type AgentRuntimeService_ReadWorkspaceClient = grpc.ServerStreamingClient[ReadWo
 
 func (c *agentRuntimeServiceClient) WriteWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[6], AgentRuntimeService_WriteWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[7], AgentRuntimeService_WriteWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +463,7 @@ type AgentRuntimeService_WriteWorkspaceClient = grpc.ClientStreamingClient[Write
 
 func (c *agentRuntimeServiceClient) ArchiveWorkspace(ctx context.Context, in *ArchiveWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArchiveWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[7], AgentRuntimeService_ArchiveWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[8], AgentRuntimeService_ArchiveWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -467,7 +482,7 @@ type AgentRuntimeService_ArchiveWorkspaceClient = grpc.ServerStreamingClient[Arc
 
 func (c *agentRuntimeServiceClient) ExtractWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[8], AgentRuntimeService_ExtractWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentRuntimeService_ServiceDesc.Streams[9], AgentRuntimeService_ExtractWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -574,6 +589,7 @@ func (c *agentRuntimeServiceClient) RevokeServiceImport(ctx context.Context, in 
 type AgentRuntimeServiceServer interface {
 	GetEnvironment(context.Context, *GetOwnEnvironmentRequest) (*GetEnvironmentResponse, error)
 	PullImage(*PullImageRequest, grpc.ServerStreamingServer[PullImageResponse]) error
+	ImportImage(grpc.ClientStreamingServer[ImportImageRequest, Image]) error
 	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
 	DeleteImage(context.Context, *DeleteImageRequest) (*emptypb.Empty, error)
 	CreateContainer(context.Context, *CreateContainerRequest) (*ContainerResponse, error)
@@ -627,6 +643,9 @@ func (UnimplementedAgentRuntimeServiceServer) GetEnvironment(context.Context, *G
 }
 func (UnimplementedAgentRuntimeServiceServer) PullImage(*PullImageRequest, grpc.ServerStreamingServer[PullImageResponse]) error {
 	return status.Error(codes.Unimplemented, "method PullImage not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ImportImage(grpc.ClientStreamingServer[ImportImageRequest, Image]) error {
+	return status.Error(codes.Unimplemented, "method ImportImage not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListImages not implemented")
@@ -791,6 +810,13 @@ func _AgentRuntimeService_PullImage_Handler(srv interface{}, stream grpc.ServerS
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentRuntimeService_PullImageServer = grpc.ServerStreamingServer[PullImageResponse]
+
+func _AgentRuntimeService_ImportImage_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentRuntimeServiceServer).ImportImage(&grpc.GenericServerStream[ImportImageRequest, Image]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentRuntimeService_ImportImageServer = grpc.ClientStreamingServer[ImportImageRequest, Image]
 
 func _AgentRuntimeService_ListImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListImagesRequest)
@@ -1539,6 +1565,11 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 		{
+			StreamName:    "ImportImage",
+			Handler:       _AgentRuntimeService_ImportImage_Handler,
+			ClientStreams: true,
+		},
+		{
 			StreamName:    "Logs",
 			Handler:       _AgentRuntimeService_Logs_Handler,
 			ServerStreams: true,
@@ -1632,6 +1663,7 @@ const (
 	OperatorService_UpdateRemotePool_FullMethodName                   = "/agentvmm.host.v1.OperatorService/UpdateRemotePool"
 	OperatorService_SetRemoteRegistrationState_FullMethodName         = "/agentvmm.host.v1.OperatorService/SetRemoteRegistrationState"
 	OperatorService_GetRemoteRegistration_FullMethodName              = "/agentvmm.host.v1.OperatorService/GetRemoteRegistration"
+	OperatorService_ListRemoteRegistrations_FullMethodName            = "/agentvmm.host.v1.OperatorService/ListRemoteRegistrations"
 	OperatorService_GetDeviceIdentity_FullMethodName                  = "/agentvmm.host.v1.OperatorService/GetDeviceIdentity"
 	OperatorService_RotateDeviceRoot_FullMethodName                   = "/agentvmm.host.v1.OperatorService/RotateDeviceRoot"
 	OperatorService_ListPersonalMeshes_FullMethodName                 = "/agentvmm.host.v1.OperatorService/ListPersonalMeshes"
@@ -1699,6 +1731,7 @@ type OperatorServiceClient interface {
 	UpdateRemotePool(ctx context.Context, in *UpdateRemotePoolRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	SetRemoteRegistrationState(ctx context.Context, in *SetRemoteRegistrationStateRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(ctx context.Context, in *GetRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
+	ListRemoteRegistrations(ctx context.Context, in *ListRemoteRegistrationsRequest, opts ...grpc.CallOption) (*ListRemoteRegistrationsResponse, error)
 	GetDeviceIdentity(ctx context.Context, in *GetDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error)
 	RotateDeviceRoot(ctx context.Context, in *RotateDeviceRootRequest, opts ...grpc.CallOption) (*RotateDeviceRootResponse, error)
 	ListPersonalMeshes(ctx context.Context, in *ListPersonalMeshesRequest, opts ...grpc.CallOption) (*ListPersonalMeshesResponse, error)
@@ -2211,6 +2244,16 @@ func (c *operatorServiceClient) GetRemoteRegistration(ctx context.Context, in *G
 	return out, nil
 }
 
+func (c *operatorServiceClient) ListRemoteRegistrations(ctx context.Context, in *ListRemoteRegistrationsRequest, opts ...grpc.CallOption) (*ListRemoteRegistrationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRemoteRegistrationsResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListRemoteRegistrations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *operatorServiceClient) GetDeviceIdentity(ctx context.Context, in *GetDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeviceIdentityResponse)
@@ -2411,6 +2454,7 @@ type OperatorServiceServer interface {
 	UpdateRemotePool(context.Context, *UpdateRemotePoolRequest) (*RemoteRegistrationResponse, error)
 	SetRemoteRegistrationState(context.Context, *SetRemoteRegistrationStateRequest) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error)
+	ListRemoteRegistrations(context.Context, *ListRemoteRegistrationsRequest) (*ListRemoteRegistrationsResponse, error)
 	GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentityResponse, error)
 	RotateDeviceRoot(context.Context, *RotateDeviceRootRequest) (*RotateDeviceRootResponse, error)
 	ListPersonalMeshes(context.Context, *ListPersonalMeshesRequest) (*ListPersonalMeshesResponse, error)
@@ -2573,6 +2617,9 @@ func (UnimplementedOperatorServiceServer) SetRemoteRegistrationState(context.Con
 }
 func (UnimplementedOperatorServiceServer) GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRemoteRegistration not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListRemoteRegistrations(context.Context, *ListRemoteRegistrationsRequest) (*ListRemoteRegistrationsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRemoteRegistrations not implemented")
 }
 func (UnimplementedOperatorServiceServer) GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDeviceIdentity not implemented")
@@ -3447,6 +3494,24 @@ func _OperatorService_GetRemoteRegistration_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_ListRemoteRegistrations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRemoteRegistrationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListRemoteRegistrations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListRemoteRegistrations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListRemoteRegistrations(ctx, req.(*ListRemoteRegistrationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OperatorService_GetDeviceIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetDeviceIdentityRequest)
 	if err := dec(in); err != nil {
@@ -3897,6 +3962,10 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OperatorService_GetRemoteRegistration_Handler,
 		},
 		{
+			MethodName: "ListRemoteRegistrations",
+			Handler:    _OperatorService_ListRemoteRegistrations_Handler,
+		},
+		{
 			MethodName: "GetDeviceIdentity",
 			Handler:    _OperatorService_GetDeviceIdentity_Handler,
 		},
@@ -3978,18 +4047,23 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	RemoteComputeService_GetRemoteState_FullMethodName           = "/agentvmm.host.v1.RemoteComputeService/GetRemoteState"
-	RemoteComputeService_SetConnectionState_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/SetConnectionState"
-	RemoteComputeService_SetRemoteAdmissionState_FullMethodName  = "/agentvmm.host.v1.RemoteComputeService/SetRemoteAdmissionState"
-	RemoteComputeService_ReportConnectorStatus_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/ReportConnectorStatus"
-	RemoteComputeService_EnsureAllocation_FullMethodName         = "/agentvmm.host.v1.RemoteComputeService/EnsureAllocation"
-	RemoteComputeService_ReleaseAllocation_FullMethodName        = "/agentvmm.host.v1.RemoteComputeService/ReleaseAllocation"
-	RemoteComputeService_PlanDiscardAllocation_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/PlanDiscardAllocation"
-	RemoteComputeService_ExecuteDiscardAllocation_FullMethodName = "/agentvmm.host.v1.RemoteComputeService/ExecuteDiscardAllocation"
-	RemoteComputeService_AcquireLease_FullMethodName             = "/agentvmm.host.v1.RemoteComputeService/AcquireLease"
-	RemoteComputeService_RenewLease_FullMethodName               = "/agentvmm.host.v1.RemoteComputeService/RenewLease"
-	RemoteComputeService_ReleaseLease_FullMethodName             = "/agentvmm.host.v1.RemoteComputeService/ReleaseLease"
-	RemoteComputeService_OpenRuntimeSession_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/OpenRuntimeSession"
+	RemoteComputeService_GetRemoteState_FullMethodName              = "/agentvmm.host.v1.RemoteComputeService/GetRemoteState"
+	RemoteComputeService_SetConnectionState_FullMethodName          = "/agentvmm.host.v1.RemoteComputeService/SetConnectionState"
+	RemoteComputeService_SetRemoteAdmissionState_FullMethodName     = "/agentvmm.host.v1.RemoteComputeService/SetRemoteAdmissionState"
+	RemoteComputeService_ReportConnectorStatus_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/ReportConnectorStatus"
+	RemoteComputeService_EnsureAllocation_FullMethodName            = "/agentvmm.host.v1.RemoteComputeService/EnsureAllocation"
+	RemoteComputeService_ReleaseAllocation_FullMethodName           = "/agentvmm.host.v1.RemoteComputeService/ReleaseAllocation"
+	RemoteComputeService_PlanCleanupAllocation_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/PlanCleanupAllocation"
+	RemoteComputeService_ExecuteCleanupAllocation_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/ExecuteCleanupAllocation"
+	RemoteComputeService_AcquireLease_FullMethodName                = "/agentvmm.host.v1.RemoteComputeService/AcquireLease"
+	RemoteComputeService_RenewLease_FullMethodName                  = "/agentvmm.host.v1.RemoteComputeService/RenewLease"
+	RemoteComputeService_ReleaseLease_FullMethodName                = "/agentvmm.host.v1.RemoteComputeService/ReleaseLease"
+	RemoteComputeService_OpenRuntimeSession_FullMethodName          = "/agentvmm.host.v1.RemoteComputeService/OpenRuntimeSession"
+	RemoteComputeService_RevokeRuntimeSession_FullMethodName        = "/agentvmm.host.v1.RemoteComputeService/RevokeRuntimeSession"
+	RemoteComputeService_AcquireHostLoopbackFrontend_FullMethodName = "/agentvmm.host.v1.RemoteComputeService/AcquireHostLoopbackFrontend"
+	RemoteComputeService_RenewHostLoopbackFrontend_FullMethodName   = "/agentvmm.host.v1.RemoteComputeService/RenewHostLoopbackFrontend"
+	RemoteComputeService_ReleaseHostLoopbackFrontend_FullMethodName = "/agentvmm.host.v1.RemoteComputeService/ReleaseHostLoopbackFrontend"
+	RemoteComputeService_AcceptHostLoopbackFrontend_FullMethodName  = "/agentvmm.host.v1.RemoteComputeService/AcceptHostLoopbackFrontend"
 )
 
 // RemoteComputeServiceClient is the client API for RemoteComputeService service.
@@ -4002,12 +4076,17 @@ type RemoteComputeServiceClient interface {
 	ReportConnectorStatus(ctx context.Context, in *ReportConnectorStatusRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
 	EnsureAllocation(ctx context.Context, in *EnsureAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	ReleaseAllocation(ctx context.Context, in *ReleaseAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
-	PlanDiscardAllocation(ctx context.Context, in *PlanDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error)
-	ExecuteDiscardAllocation(ctx context.Context, in *ExecuteDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
+	PlanCleanupAllocation(ctx context.Context, in *PlanCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error)
+	ExecuteCleanupAllocation(ctx context.Context, in *ExecuteCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	AcquireLease(ctx context.Context, in *AcquireLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
 	RenewLease(ctx context.Context, in *RenewLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
 	ReleaseLease(ctx context.Context, in *ReleaseLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
 	OpenRuntimeSession(ctx context.Context, in *OpenRuntimeSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error)
+	RevokeRuntimeSession(ctx context.Context, in *RevokeRuntimeSessionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	AcquireHostLoopbackFrontend(ctx context.Context, in *AcquireHostLoopbackFrontendRequest, opts ...grpc.CallOption) (*HostLoopbackFrontendLease, error)
+	RenewHostLoopbackFrontend(ctx context.Context, in *RenewHostLoopbackFrontendRequest, opts ...grpc.CallOption) (*HostLoopbackFrontendLease, error)
+	ReleaseHostLoopbackFrontend(ctx context.Context, in *ReleaseHostLoopbackFrontendRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	AcceptHostLoopbackFrontend(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControllerFrontendFrame, HostFrontendFrame], error)
 }
 
 type remoteComputeServiceClient struct {
@@ -4078,20 +4157,20 @@ func (c *remoteComputeServiceClient) ReleaseAllocation(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *remoteComputeServiceClient) PlanDiscardAllocation(ctx context.Context, in *PlanDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error) {
+func (c *remoteComputeServiceClient) PlanCleanupAllocation(ctx context.Context, in *PlanCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AllocationCleanupPlanResponse)
-	err := c.cc.Invoke(ctx, RemoteComputeService_PlanDiscardAllocation_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, RemoteComputeService_PlanCleanupAllocation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *remoteComputeServiceClient) ExecuteDiscardAllocation(ctx context.Context, in *ExecuteDiscardAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error) {
+func (c *remoteComputeServiceClient) ExecuteCleanupAllocation(ctx context.Context, in *ExecuteCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AllocationResponse)
-	err := c.cc.Invoke(ctx, RemoteComputeService_ExecuteDiscardAllocation_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, RemoteComputeService_ExecuteCleanupAllocation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -4138,6 +4217,59 @@ func (c *remoteComputeServiceClient) OpenRuntimeSession(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *remoteComputeServiceClient) RevokeRuntimeSession(ctx context.Context, in *RevokeRuntimeSessionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, RemoteComputeService_RevokeRuntimeSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) AcquireHostLoopbackFrontend(ctx context.Context, in *AcquireHostLoopbackFrontendRequest, opts ...grpc.CallOption) (*HostLoopbackFrontendLease, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HostLoopbackFrontendLease)
+	err := c.cc.Invoke(ctx, RemoteComputeService_AcquireHostLoopbackFrontend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) RenewHostLoopbackFrontend(ctx context.Context, in *RenewHostLoopbackFrontendRequest, opts ...grpc.CallOption) (*HostLoopbackFrontendLease, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HostLoopbackFrontendLease)
+	err := c.cc.Invoke(ctx, RemoteComputeService_RenewHostLoopbackFrontend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) ReleaseHostLoopbackFrontend(ctx context.Context, in *ReleaseHostLoopbackFrontendRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, RemoteComputeService_ReleaseHostLoopbackFrontend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) AcceptHostLoopbackFrontend(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControllerFrontendFrame, HostFrontendFrame], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RemoteComputeService_ServiceDesc.Streams[0], RemoteComputeService_AcceptHostLoopbackFrontend_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ControllerFrontendFrame, HostFrontendFrame]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RemoteComputeService_AcceptHostLoopbackFrontendClient = grpc.BidiStreamingClient[ControllerFrontendFrame, HostFrontendFrame]
+
 // RemoteComputeServiceServer is the server API for RemoteComputeService service.
 // All implementations must embed UnimplementedRemoteComputeServiceServer
 // for forward compatibility.
@@ -4148,12 +4280,17 @@ type RemoteComputeServiceServer interface {
 	ReportConnectorStatus(context.Context, *ReportConnectorStatusRequest) (*GetRemoteStateResponse, error)
 	EnsureAllocation(context.Context, *EnsureAllocationRequest) (*AllocationResponse, error)
 	ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error)
-	PlanDiscardAllocation(context.Context, *PlanDiscardAllocationRequest) (*AllocationCleanupPlanResponse, error)
-	ExecuteDiscardAllocation(context.Context, *ExecuteDiscardAllocationRequest) (*AllocationResponse, error)
+	PlanCleanupAllocation(context.Context, *PlanCleanupAllocationRequest) (*AllocationCleanupPlanResponse, error)
+	ExecuteCleanupAllocation(context.Context, *ExecuteCleanupAllocationRequest) (*AllocationResponse, error)
 	AcquireLease(context.Context, *AcquireLeaseRequest) (*LeaseResponse, error)
 	RenewLease(context.Context, *RenewLeaseRequest) (*LeaseResponse, error)
 	ReleaseLease(context.Context, *ReleaseLeaseRequest) (*LeaseResponse, error)
 	OpenRuntimeSession(context.Context, *OpenRuntimeSessionRequest) (*CreateAgentSessionResponse, error)
+	RevokeRuntimeSession(context.Context, *RevokeRuntimeSessionRequest) (*emptypb.Empty, error)
+	AcquireHostLoopbackFrontend(context.Context, *AcquireHostLoopbackFrontendRequest) (*HostLoopbackFrontendLease, error)
+	RenewHostLoopbackFrontend(context.Context, *RenewHostLoopbackFrontendRequest) (*HostLoopbackFrontendLease, error)
+	ReleaseHostLoopbackFrontend(context.Context, *ReleaseHostLoopbackFrontendRequest) (*emptypb.Empty, error)
+	AcceptHostLoopbackFrontend(grpc.BidiStreamingServer[ControllerFrontendFrame, HostFrontendFrame]) error
 	mustEmbedUnimplementedRemoteComputeServiceServer()
 }
 
@@ -4182,11 +4319,11 @@ func (UnimplementedRemoteComputeServiceServer) EnsureAllocation(context.Context,
 func (UnimplementedRemoteComputeServiceServer) ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseAllocation not implemented")
 }
-func (UnimplementedRemoteComputeServiceServer) PlanDiscardAllocation(context.Context, *PlanDiscardAllocationRequest) (*AllocationCleanupPlanResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method PlanDiscardAllocation not implemented")
+func (UnimplementedRemoteComputeServiceServer) PlanCleanupAllocation(context.Context, *PlanCleanupAllocationRequest) (*AllocationCleanupPlanResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PlanCleanupAllocation not implemented")
 }
-func (UnimplementedRemoteComputeServiceServer) ExecuteDiscardAllocation(context.Context, *ExecuteDiscardAllocationRequest) (*AllocationResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ExecuteDiscardAllocation not implemented")
+func (UnimplementedRemoteComputeServiceServer) ExecuteCleanupAllocation(context.Context, *ExecuteCleanupAllocationRequest) (*AllocationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecuteCleanupAllocation not implemented")
 }
 func (UnimplementedRemoteComputeServiceServer) AcquireLease(context.Context, *AcquireLeaseRequest) (*LeaseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AcquireLease not implemented")
@@ -4199,6 +4336,21 @@ func (UnimplementedRemoteComputeServiceServer) ReleaseLease(context.Context, *Re
 }
 func (UnimplementedRemoteComputeServiceServer) OpenRuntimeSession(context.Context, *OpenRuntimeSessionRequest) (*CreateAgentSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OpenRuntimeSession not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) RevokeRuntimeSession(context.Context, *RevokeRuntimeSessionRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeRuntimeSession not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) AcquireHostLoopbackFrontend(context.Context, *AcquireHostLoopbackFrontendRequest) (*HostLoopbackFrontendLease, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcquireHostLoopbackFrontend not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) RenewHostLoopbackFrontend(context.Context, *RenewHostLoopbackFrontendRequest) (*HostLoopbackFrontendLease, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenewHostLoopbackFrontend not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) ReleaseHostLoopbackFrontend(context.Context, *ReleaseHostLoopbackFrontendRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseHostLoopbackFrontend not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) AcceptHostLoopbackFrontend(grpc.BidiStreamingServer[ControllerFrontendFrame, HostFrontendFrame]) error {
+	return status.Error(codes.Unimplemented, "method AcceptHostLoopbackFrontend not implemented")
 }
 func (UnimplementedRemoteComputeServiceServer) mustEmbedUnimplementedRemoteComputeServiceServer() {}
 func (UnimplementedRemoteComputeServiceServer) testEmbeddedByValue()                              {}
@@ -4329,38 +4481,38 @@ func _RemoteComputeService_ReleaseAllocation_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RemoteComputeService_PlanDiscardAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PlanDiscardAllocationRequest)
+func _RemoteComputeService_PlanCleanupAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanCleanupAllocationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RemoteComputeServiceServer).PlanDiscardAllocation(ctx, in)
+		return srv.(RemoteComputeServiceServer).PlanCleanupAllocation(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RemoteComputeService_PlanDiscardAllocation_FullMethodName,
+		FullMethod: RemoteComputeService_PlanCleanupAllocation_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RemoteComputeServiceServer).PlanDiscardAllocation(ctx, req.(*PlanDiscardAllocationRequest))
+		return srv.(RemoteComputeServiceServer).PlanCleanupAllocation(ctx, req.(*PlanCleanupAllocationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RemoteComputeService_ExecuteDiscardAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ExecuteDiscardAllocationRequest)
+func _RemoteComputeService_ExecuteCleanupAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecuteCleanupAllocationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RemoteComputeServiceServer).ExecuteDiscardAllocation(ctx, in)
+		return srv.(RemoteComputeServiceServer).ExecuteCleanupAllocation(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RemoteComputeService_ExecuteDiscardAllocation_FullMethodName,
+		FullMethod: RemoteComputeService_ExecuteCleanupAllocation_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RemoteComputeServiceServer).ExecuteDiscardAllocation(ctx, req.(*ExecuteDiscardAllocationRequest))
+		return srv.(RemoteComputeServiceServer).ExecuteCleanupAllocation(ctx, req.(*ExecuteCleanupAllocationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -4437,6 +4589,85 @@ func _RemoteComputeService_OpenRuntimeSession_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RemoteComputeService_RevokeRuntimeSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeRuntimeSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).RevokeRuntimeSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_RevokeRuntimeSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).RevokeRuntimeSession(ctx, req.(*RevokeRuntimeSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_AcquireHostLoopbackFrontend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcquireHostLoopbackFrontendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).AcquireHostLoopbackFrontend(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_AcquireHostLoopbackFrontend_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).AcquireHostLoopbackFrontend(ctx, req.(*AcquireHostLoopbackFrontendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_RenewHostLoopbackFrontend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewHostLoopbackFrontendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).RenewHostLoopbackFrontend(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_RenewHostLoopbackFrontend_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).RenewHostLoopbackFrontend(ctx, req.(*RenewHostLoopbackFrontendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_ReleaseHostLoopbackFrontend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseHostLoopbackFrontendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).ReleaseHostLoopbackFrontend(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_ReleaseHostLoopbackFrontend_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).ReleaseHostLoopbackFrontend(ctx, req.(*ReleaseHostLoopbackFrontendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_AcceptHostLoopbackFrontend_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RemoteComputeServiceServer).AcceptHostLoopbackFrontend(&grpc.GenericServerStream[ControllerFrontendFrame, HostFrontendFrame]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RemoteComputeService_AcceptHostLoopbackFrontendServer = grpc.BidiStreamingServer[ControllerFrontendFrame, HostFrontendFrame]
+
 // RemoteComputeService_ServiceDesc is the grpc.ServiceDesc for RemoteComputeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -4469,12 +4700,12 @@ var RemoteComputeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RemoteComputeService_ReleaseAllocation_Handler,
 		},
 		{
-			MethodName: "PlanDiscardAllocation",
-			Handler:    _RemoteComputeService_PlanDiscardAllocation_Handler,
+			MethodName: "PlanCleanupAllocation",
+			Handler:    _RemoteComputeService_PlanCleanupAllocation_Handler,
 		},
 		{
-			MethodName: "ExecuteDiscardAllocation",
-			Handler:    _RemoteComputeService_ExecuteDiscardAllocation_Handler,
+			MethodName: "ExecuteCleanupAllocation",
+			Handler:    _RemoteComputeService_ExecuteCleanupAllocation_Handler,
 		},
 		{
 			MethodName: "AcquireLease",
@@ -4492,7 +4723,30 @@ var RemoteComputeService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "OpenRuntimeSession",
 			Handler:    _RemoteComputeService_OpenRuntimeSession_Handler,
 		},
+		{
+			MethodName: "RevokeRuntimeSession",
+			Handler:    _RemoteComputeService_RevokeRuntimeSession_Handler,
+		},
+		{
+			MethodName: "AcquireHostLoopbackFrontend",
+			Handler:    _RemoteComputeService_AcquireHostLoopbackFrontend_Handler,
+		},
+		{
+			MethodName: "RenewHostLoopbackFrontend",
+			Handler:    _RemoteComputeService_RenewHostLoopbackFrontend_Handler,
+		},
+		{
+			MethodName: "ReleaseHostLoopbackFrontend",
+			Handler:    _RemoteComputeService_ReleaseHostLoopbackFrontend_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "AcceptHostLoopbackFrontend",
+			Handler:       _RemoteComputeService_AcceptHostLoopbackFrontend_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "host/v1/host.proto",
 }

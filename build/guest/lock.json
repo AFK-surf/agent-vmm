@@ -8,8 +8,8 @@
   },
   "kernel": {
     "package": "linux-virt",
-    "version": "6.18.42-r0",
-    "apk_sha256": "6cd988d6f5743df53bb1e516524c5ae623631b92b55f6147d0bfce88c54276bc",
+    "version": "6.18.44-r0",
+    "apk_sha256": "023c34a7e1255840074bc396cf5cd0a50cf697c7f3a94477ac17563eb8631f1a",
     "extract_vmlinux_version": "v6.18",
     "extract_vmlinux_sha256": "aacb6bb09af227a6cf508f5283458f001722a39abd9c4cfb026bc97c31624910"
   },
@@ -18,6 +18,7 @@
     "busybox": "1.37.0-r31",
     "ca-certificates-bundle": "20260611-r0",
     "cni-plugins": "1.9.1-r2",
+    "cryptsetup": "2.8.6-r0",
     "e2fsprogs": "1.47.4-r0",
     "e2fsprogs-extra": "1.47.4-r0",
     "iproute2": "7.0.0-r0",

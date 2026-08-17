@@ -1,11 +1,39 @@
 package remoteconnector
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 )
+
+func TestReleaseAllocationRequiresMatchingRevisionFence(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		target   uint64
+		expected uint64
+	}{
+		{name: "missing", target: 0, expected: 0},
+		{name: "mismatch", target: 7, expected: 6},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := &remotev1.ControllerCommand{
+				CommandId:      "release",
+				TargetRevision: test.target,
+				Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{
+					AllocationId: "allocation", ExpectedRevision: test.expected,
+				}},
+			}
+			result := (commandHandler{}).handle(context.Background(), command)
+			if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED || result.GetReason() != remotev1.ErrorReason_ERROR_REASON_STALE_REVISION {
+				t.Fatalf("release result = %+v", result)
+			}
+		})
+	}
+}
 
 func TestCommandTrackerFencesEpochSequenceDeadlineAndGeneration(t *testing.T) {
 	t.Parallel()
@@ -22,6 +50,17 @@ func TestCommandTrackerFencesEpochSequenceDeadlineAndGeneration(t *testing.T) {
 			command := testCommand(1, 9, now.Add(time.Minute))
 			command.LeaseGeneration = 3
 			command.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2}}
+			return command
+		}(), reason: remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
+		{name: "cleanup plan revision", command: func() *remotev1.ControllerCommand {
+			command := testCommand(1, 9, now.Add(time.Minute))
+			command.TargetRevision = 8
+			command.Command = &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "a", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: 9, ExpectedLeaseId: "lease", ExpectedLeaseGeneration: 2}}
+			return command
+		}(), reason: remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
+		{name: "acquire lease allocation revision", command: func() *remotev1.ControllerCommand {
+			command := testCommand(1, 9, now.Add(time.Minute))
+			command.Command = &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: "a", DurationSeconds: 30}}
 			return command
 		}(), reason: remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
 	}
@@ -45,8 +84,10 @@ func TestCommandTrackerReplaysOnlyCompletedDuplicate(t *testing.T) {
 	if ack.GetDisposition() != remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_ADMITTED || cached != nil {
 		t.Fatalf("first admission = %+v/%+v", ack, cached)
 	}
-	result := &remotev1.CommandResult{CommandId: command.GetCommandId(), Sequence: 1, ConnectionEpoch: 9, Outcome: remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED}
-	tracker.record(command, result)
+	result := &remotev1.CommandResult{CommandId: command.GetCommandId(), Sequence: 1, ConnectionEpoch: 9, Outcome: remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED, InventoryWatermark: 4}
+	if err := tracker.record(command, result); err != nil {
+		t.Fatal(err)
+	}
 
 	ack, cached = tracker.admit(command, now)
 	if ack.GetDisposition() != remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_DUPLICATE || cached.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
@@ -57,6 +98,37 @@ func TestCommandTrackerReplaysOnlyCompletedDuplicate(t *testing.T) {
 	ack, cached = tracker.admit(conflict, now)
 	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_SEQUENCE_CONFLICT {
 		t.Fatalf("conflicting duplicate = %+v/%+v", ack, cached)
+	}
+}
+
+func TestCommandTrackerRejectsInventoryWatermarkRegression(t *testing.T) {
+	t.Parallel()
+	tracker := newCommandTracker(9, 5)
+	command := testCommand(1, 9, time.Now().Add(time.Minute))
+	if err := tracker.record(command, &remotev1.CommandResult{InventoryWatermark: 4}); err == nil {
+		t.Fatal("inventory watermark regression accepted")
+	}
+}
+
+func TestControllerReadyRequiresExactSnapshotFence(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		ready *remotev1.ControllerReady
+	}{
+		{name: "missing"},
+		{name: "registration", ready: &remotev1.ControllerReady{RegistrationId: "other", ConnectionEpoch: 7, AcknowledgedInventoryWatermark: 9}},
+		{name: "epoch", ready: &remotev1.ControllerReady{RegistrationId: "registration", ConnectionEpoch: 6, AcknowledgedInventoryWatermark: 9}},
+		{name: "watermark", ready: &remotev1.ControllerReady{RegistrationId: "registration", ConnectionEpoch: 7, AcknowledgedInventoryWatermark: 8}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateControllerReady(test.ready, "registration", 7, 9); err == nil {
+				t.Fatal("invalid ControllerReady was accepted")
+			}
+		})
+	}
+	if err := validateControllerReady(&remotev1.ControllerReady{RegistrationId: "registration", ConnectionEpoch: 7, AcknowledgedInventoryWatermark: 9}, "registration", 7, 9); err != nil {
+		t.Fatal(err)
 	}
 }
 

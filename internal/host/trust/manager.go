@@ -305,6 +305,20 @@ func (manager *Manager) ListPersonalMeshes(ctx context.Context) ([]*trustv1.Pers
 // TLS-authenticated, one-time controller enrollment flow. It verifies the
 // controller-signed device credential before atomically advancing local facts.
 func (manager *Manager) InstallManagedTrust(ctx context.Context, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
+	if err := manager.validateManagedTrust(ctx, anchor, credential); err != nil {
+		return err
+	}
+	return manager.store.InstallManagedTrust(ctx, anchor, credential)
+}
+
+func (manager *Manager) InstallApplianceManagedTrust(ctx context.Context, binding store.ApplianceTrustAuthority, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
+	if err := manager.validateManagedTrust(ctx, anchor, credential); err != nil {
+		return err
+	}
+	return manager.store.InstallApplianceManagedTrust(ctx, binding, anchor, credential)
+}
+
+func (manager *Manager) validateManagedTrust(ctx context.Context, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
 	now := manager.now()
 	identity, err := manager.store.GetDeviceIdentity(ctx)
 	if err != nil || identity.State != store.DeviceIdentityReady || anchor == nil || credential == nil ||
@@ -341,7 +355,7 @@ func (manager *Manager) InstallManagedTrust(ctx context.Context, anchor *trustv1
 	if len(verificationKey) != 33 || !verifyP256(verificationKey, digest[:], credential.GetSignature()) {
 		return ErrRouteUnauthorized
 	}
-	return manager.store.InstallManagedTrust(ctx, anchor, credential)
+	return nil
 }
 
 func (manager *Manager) IssuePersonalRoute(ctx context.Context, request *servicev1.PersonalRouteRequest, destination *servicev1.ServiceExport) (*servicev1.PersonalRouteResponse, error) {

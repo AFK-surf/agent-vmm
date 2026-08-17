@@ -23,6 +23,7 @@ func removeNamespaceState(namespaceID string) error {
 		filepath.Join(stateRoot, "logs", namespaceID),
 		filepath.Join(stateRoot, "build-cache", namespaceID),
 		filepath.Join(stateRoot, "build-tmp", namespaceID),
+		filepath.Join(stateRoot, "imports", namespaceID),
 	} {
 		if err := os.RemoveAll(path); err != nil {
 			return err

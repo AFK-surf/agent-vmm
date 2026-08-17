@@ -53,6 +53,38 @@ func (client *productClient) forgetSession(environmentID string) {
 	}
 }
 
+func (client *productClient) refreshSessions(ctx context.Context) error {
+	client.mu.Lock()
+	existing := make(map[string]*productSession, len(client.sessions))
+	for environmentID, session := range client.sessions {
+		existing[environmentID] = session
+	}
+	client.mu.Unlock()
+	for environmentID, session := range existing {
+		created, err := client.operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: fmt.Sprintf("refresh-%s-%d", environmentID, time.Now().UnixNano()), IntegrationId: session.integrationID})
+		if err != nil {
+			return err
+		}
+		connection, err := grpc.NewClient("passthrough:///agent", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", created.GetSocketPath())
+		}))
+		if err != nil {
+			return err
+		}
+		replacement := &productSession{id: created.GetSessionId(), integrationID: session.integrationID, connection: connection, client: hostv1.NewAgentRuntimeServiceClient(connection)}
+		client.mu.Lock()
+		if client.sessions[environmentID] == session {
+			client.sessions[environmentID] = replacement
+			client.mu.Unlock()
+			_ = session.connection.Close()
+		} else {
+			client.mu.Unlock()
+			_ = replacement.connection.Close()
+		}
+	}
+	return nil
+}
+
 func (client *productClient) EnsureEnvironment(ctx context.Context, environmentID, requestID string, limits *hostv1.ResourceLimits, egress hostv1.EgressMode) (*hostv1.AgentEnvironment, error) {
 	client.mu.Lock()
 	if session := client.sessions[environmentID]; session != nil {

@@ -32,6 +32,10 @@ type caseResult struct {
 	Duration float64
 }
 
+type runningCase struct {
+	startedAt time.Time
+}
+
 func Render(repository, bundleDirectory, jsonPath, reportPath string, status int) error {
 	manifestBytes, err := os.ReadFile(filepath.Join(bundleDirectory, bundle.ManifestName))
 	if err != nil {
@@ -72,7 +76,7 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 	}
 	fmt.Fprintln(&output, "\n## Case results")
 	if len(cases) == 0 {
-		fmt.Fprintln(&output, "\nDetailed case timings are produced by `make e2e` in `.context/e2e/test.json`.")
+		fmt.Fprintln(&output, "\nDetailed case timings are produced by `make e2e` in `.build/test-results/e2e/test.json`.")
 	} else {
 		fmt.Fprintln(&output, "\n| Case | Result | Duration |")
 		fmt.Fprintln(&output, "| --- | --- | ---: |")
@@ -101,15 +105,24 @@ func readResults(path string) ([]caseResult, int, int64, error) {
 	}
 	defer file.Close()
 	var results []caseResult
+	running := make(map[string]runningCase)
+	terminal := make(map[string]bool)
 	active := 0
 	peak := 0
 	var coldStart int64
+	var latestEvent time.Time
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	for scanner.Scan() {
 		var event testEvent
 		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Test == "" {
 			continue
+		}
+		if event.Time.After(latestEvent) {
+			latestEvent = event.Time
+		}
+		if strings.Count(event.Test, "/") >= 1 && event.Action == "run" {
+			running[event.Test] = runningCase{startedAt: event.Time}
 		}
 		if event.Action == "output" {
 			if value, ok := metric(event.Output, "E2E_PARALLEL_PEAK="); ok {
@@ -130,9 +143,22 @@ func readResults(path string) ([]caseResult, int, int64, error) {
 				active--
 			}
 		}
-		if event.Test != "TestE2E/parallel" && strings.Count(event.Test, "/") >= 1 && (event.Action == "pass" || event.Action == "fail" || event.Action == "skip") {
-			results = append(results, caseResult{Name: strings.TrimPrefix(event.Test, "TestE2E/"), Action: event.Action, Duration: event.Elapsed})
+		if strings.Count(event.Test, "/") >= 1 && (event.Action == "pass" || event.Action == "fail" || event.Action == "skip") {
+			terminal[event.Test] = true
+			if event.Test != "TestE2E/parallel" {
+				results = append(results, caseResult{Name: strings.TrimPrefix(event.Test, "TestE2E/"), Action: event.Action, Duration: event.Elapsed})
+			}
 		}
+	}
+	for name, item := range running {
+		if terminal[name] {
+			continue
+		}
+		duration := 0.0
+		if !item.startedAt.IsZero() && !latestEvent.IsZero() && latestEvent.After(item.startedAt) {
+			duration = latestEvent.Sub(item.startedAt).Seconds()
+		}
+		results = append(results, caseResult{Name: strings.TrimPrefix(name, "TestE2E/"), Action: "interrupted", Duration: duration})
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].Name < results[j].Name })
 	return results, peak, coldStart, scanner.Err()

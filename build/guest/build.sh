@@ -18,6 +18,10 @@ fi
 output=$1
 key=${2:-build/guest/testdata/development.key}
 signer=${3:-development}
+case "$signer" in
+  development|release) ;;
+  *) echo 'signer must be development or release' >&2; exit 2 ;;
+esac
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 lock=$repository/build/guest/lock.json
 work=$(mktemp -d)
@@ -40,6 +44,12 @@ fetch() {
   partial=$destination.part
   curl -fsSL --retry 5 --retry-all-errors --continue-at - --output "$partial" "$url"
   mv "$partial" "$destination"
+  if [ -n "${AGENT_VMM_DOWNLOAD_CACHE:-}" ]; then
+    mkdir -p "$AGENT_VMM_DOWNLOAD_CACHE"
+    cache_partial=$cached.part
+    cp "$destination" "$cache_partial"
+    mv "$cache_partial" "$cached"
+  fi
 }
 verify256() {
   expected=$1
@@ -67,6 +77,7 @@ chroot "$root" /sbin/apk add --no-cache \
   "e2fsprogs=$(value '.packages.e2fsprogs')" \
   "e2fsprogs-extra=$(value '.packages["e2fsprogs-extra"]')" \
   "cni-plugins=$(value '.packages["cni-plugins"]')" \
+  "cryptsetup=$(value '.packages.cryptsetup')" \
   "xz=$(value '.packages.xz')"
 jq -r '.packages | to_entries[] | "\(.key)=\(.value)"' "$lock" | while read -r package; do
   chroot "$root" /sbin/apk info -e "$package"
@@ -79,7 +90,7 @@ verify256 "$(value .kernel.apk_sha256)" "$kernel_apk"
 mkdir -p "$work/kernel"
 tar --warning=no-unknown-keyword -xf "$kernel_apk" -C "$work/kernel"
 kernel_config=$(find "$work/kernel/boot" -name 'config-*' -type f)
-for symbol in ARM64 BLK_DEV_DM BRIDGE CGROUPS CGROUP_BPF CRYPTO_SHA256 DM_VERITY EXT4_FS INET NETFILTER NF_TABLES OVERLAY_FS RD_XZ SECCOMP SECCOMP_FILTER SQUASHFS SQUASHFS_XZ TUN VETH VIRTIO VIRTIO_BALLOON VIRTIO_BLK VIRTIO_CONSOLE VIRTIO_NET VIRTIO_VSOCKETS VSOCKETS XZ_DEC XZ_DEC_ARM64; do
+for symbol in ARM64 BLK_DEV_DM BRIDGE CGROUPS CGROUP_BPF CRYPTO_AES CRYPTO_SHA256 CRYPTO_XTS DM_CRYPT DM_VERITY EXT4_FS INET NETFILTER NF_TABLES OVERLAY_FS RD_XZ SECCOMP SECCOMP_FILTER SQUASHFS SQUASHFS_XZ SQUASHFS_ZSTD TUN VETH VIRTIO VIRTIO_BALLOON VIRTIO_BLK VIRTIO_CONSOLE VIRTIO_NET VIRTIO_VSOCKETS VSOCKETS XZ_DEC XZ_DEC_ARM64; do
   grep -Eq "^CONFIG_${symbol}=[ym]$" "$kernel_config"
 done
 cp -a "$work/kernel/lib/modules" "$root/lib/"
@@ -111,8 +122,13 @@ verify512 "$(value .runsc_shim.binary_sha512)" "$shim"
 install -m 0755 "$shim" "$root/usr/bin/containerd-shim-runsc-v1"
 
 mkdir -p "$work/builder-root"
-GOBIN=$work/tools go install "github.com/google/go-containerregistry/cmd/crane@v$(value .crane)"
-"$work/tools/crane" export --platform linux/arm64 "$(value .buildkit.image)" "$work/builder-root.tar"
+if [ -n "${AGENT_VMM_BUILDKIT_ROOT_TAR:-}" ]; then
+  test -f "$AGENT_VMM_BUILDKIT_ROOT_TAR"
+  cp "$AGENT_VMM_BUILDKIT_ROOT_TAR" "$work/builder-root.tar"
+else
+  GOBIN=$work/tools go install "github.com/google/go-containerregistry/cmd/crane@v$(value .crane)"
+  "$work/tools/crane" export --platform linux/arm64 "$(value .buildkit.image)" "$work/builder-root.tar"
+fi
 tar -xf "$work/builder-root.tar" -C "$work/builder-root"
 verify256 "$(value .buildkit.rootlesskit_sha256)" "$work/builder-root/usr/bin/rootlesskit"
 verify256 "$(value .buildkit.buildkit_runc_sha256)" "$work/builder-root/usr/bin/buildkit-runc"
@@ -123,6 +139,16 @@ mkdir -p "$root/usr/lib/agent-vmm"
 
 (cd "$repository" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -buildid=' -o "$root/usr/bin/agent-vmmd" ./cmd/agent-vmmd)
 (cd "$repository" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -buildid=' -o "$root/usr/bin/agent-vmm-supervisor" ./cmd/agent-vmm-supervisor)
+mcp_root=$work/mcp-root
+mkdir -p "$mcp_root/usr/bin"
+(cd "$repository" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -buildid=' -o "$mcp_root/usr/bin/agent-vmm-mcp-appliance" ./cmd/agent-vmm-mcp-appliance)
+find "$mcp_root" -exec touch -h -d @0 {} +
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/mcp-root.tar" -C "$mcp_root" .
+(cd "$repository" && go run ./build/guest/oci "$work/mcp-root.tar" "$root/usr/lib/agent-vmm/mcp-appliance.oci.tar" /usr/bin/agent-vmm-mcp-appliance)
+tar -xOf "$root/usr/lib/agent-vmm/mcp-appliance.oci.tar" index.json | jq -er '.manifests | select(length == 1) | .[0].digest' >"$root/usr/lib/agent-vmm/mcp-appliance.digest"
+cp "$root/usr/lib/agent-vmm/mcp-appliance.digest" "$bundle/mcp-appliance.digest"
+mkdir -p "$bundle/mcp-appliance"
+(cd "$repository" && go run ./build/appliance/manifest -output "$bundle/mcp-appliance" -image-digest "$(cat "$bundle/mcp-appliance.digest")" -key "$repository/$key" -release 1)
 cp -a "$repository/build/guest/root/." "$root/"
 ln -snf /run/resolv.conf "$root/etc/resolv.conf"
 mkdir -p "$root/state" "$root/var/lib/cni" "$root/opt/containerd" "$root/etc/cni/net.d"
@@ -145,13 +171,30 @@ cp -a "$root/lib/modules" "$initramfs/lib/"
 cp "$repository/build/guest/initramfs/init" "$initramfs/init"
 chmod 0755 "$initramfs/init"
 for applet in mount modprobe switch_root sh basename dirname tr mkdir; do ln -s /bin/busybox "$initramfs/bin/$applet"; done
-(cd "$initramfs" && find . -print0 | sort -z | cpio --null -o --format=newc --owner=0:0 --reproducible 2>/dev/null | xz --threads=1 --check=crc32 -9e >"$bundle/initramfs.xz")
+if [ "$signer" = development ]; then
+  initramfs_xz='-T0 -1'
+else
+  initramfs_xz='--threads=1 -9e'
+fi
+(cd "$initramfs" && find . -print0 | sort -z | cpio --null -o --format=newc --owner=0:0 --reproducible 2>/dev/null | xz $initramfs_xz --check=crc32 >"$bundle/initramfs.xz")
 
 find "$root" -exec touch -h -d @0 {} +
 find "$root" -printf '%p 0\n' | LC_ALL=C sort >"$work/squashfs.sort"
-mksquashfs "$root" "$bundle/rootfs.squashfs" -noappend -all-root -all-time 0 -mkfs-time 0 -comp xz -b 1M -Xdict-size 1M -Xbcj arm -sort "$work/squashfs.sort" -processors 1
+if [ "$signer" = development ]; then
+  processors=$(nproc)
+  [ "$processors" -le 8 ] || processors=8
+  mksquashfs "$root" "$bundle/rootfs.squashfs" -noappend -all-root -all-time 0 -mkfs-time 0 -comp zstd -Xcompression-level 1 -b 1M -sort "$work/squashfs.sort" -processors "$processors"
+  rootfs_compressor=zstd
+  rootfs_dictionary=0
+  rootfs_filter=none
+else
+  mksquashfs "$root" "$bundle/rootfs.squashfs" -noappend -all-root -all-time 0 -mkfs-time 0 -comp xz -b 1M -Xdict-size 1M -Xbcj arm -sort "$work/squashfs.sort" -processors 1
+  rootfs_compressor=xz
+  rootfs_dictionary=1048576
+  rootfs_filter=arm64-bcj
+fi
 logical_bytes=$(du -sb "$root" | cut -f1)
-(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -lock "$lock" -key "$repository/$key" -signer "$signer" -logical-bytes "$logical_bytes")
+(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -lock "$lock" -key "$repository/$key" -signer "$signer" -logical-bytes "$logical_bytes" -rootfs-compressor "$rootfs_compressor" -rootfs-dictionary "$rootfs_dictionary" -rootfs-filter "$rootfs_filter")
 
 mkdir -p "$output"
 cp -a "$bundle/." "$output/"

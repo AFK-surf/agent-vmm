@@ -60,7 +60,7 @@ func (server *agentServer) ReadWorkspace(request *hostv1.ReadWorkspaceRequest, s
 	}
 	defer connection.Close()
 	guest, err := client.ReadWorkspace(stream.Context(), &vmmdv1.ReadWorkspaceRequest{ActorNamespaceId: identity.NamespaceID,
-		Path: request.GetPath(), Offset: request.GetOffset(), MaxBytes: request.GetMaxBytes()})
+		Path: request.GetPath(), Offset: request.GetOffset(), MaxBytes: request.GetMaxBytes(), VolumeId: request.GetVolumeId()})
 	if err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func writeWorkspaceToGuest(message *hostv1.WriteWorkspaceRequest, namespaceID st
 		header := payload.Header
 		result.Payload = &vmmdv1.WriteWorkspaceRequest_Header{Header: &vmmdv1.WriteWorkspaceHeader{RequestId: header.GetRequestId(),
 			ActorNamespaceId: namespaceID, Path: header.GetPath(), Offset: header.GetOffset(),
-			ExpectedPrefixSha256: header.GetExpectedPrefixSha256(), Mode: header.GetMode()}}
+			ExpectedPrefixSha256: header.GetExpectedPrefixSha256(), Mode: header.GetMode(), VolumeId: header.GetVolumeId()}}
 	case *hostv1.WriteWorkspaceRequest_Data:
 		result.Payload = &vmmdv1.WriteWorkspaceRequest_Data{Data: payload.Data}
 	case *hostv1.WriteWorkspaceRequest_Finish:

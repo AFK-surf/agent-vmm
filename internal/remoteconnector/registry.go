@@ -83,16 +83,16 @@ func RefreshPersonalMesh(ctx context.Context, local trustv1.TrustServiceClient, 
 	return snapshot.GetRevision(), nil
 }
 
-func syncPersonalMeshesOnce(ctx context.Context, config Config, registry trustv1.PersonalMeshRegistryServiceClient, published map[string]bool) error {
+func syncPersonalMeshesOnce(ctx context.Context, config Config, observations *endpointObservationState, registry trustv1.PersonalMeshRegistryServiceClient, published map[string]string) error {
 	local, requestContext, closeClient, err := trustClientWithTimeout(ctx, config.TrustSocket, config.TrustCapabilityFile, 20*time.Second)
 	if err != nil {
 		return err
 	}
 	defer closeClient()
-	return syncPersonalMeshesWithClients(requestContext, config, local, registry, published)
+	return syncPersonalMeshesWithClients(requestContext, observations, local, registry, published)
 }
 
-func syncPersonalMeshesWithClients(ctx context.Context, config Config, local trustv1.TrustServiceClient, registry trustv1.PersonalMeshRegistryServiceClient, published map[string]bool) error {
+func syncPersonalMeshesWithClients(ctx context.Context, observations *endpointObservationState, local trustv1.TrustServiceClient, registry trustv1.PersonalMeshRegistryServiceClient, published map[string]string) error {
 	if _, err := SyncPersonalMeshRegistry(ctx, local, registry, 0); err != nil {
 		return err
 	}
@@ -100,22 +100,29 @@ func syncPersonalMeshesWithClients(ctx context.Context, config Config, local tru
 	if err != nil {
 		return err
 	}
+	localObservation := observations.Load()
 	localDeviceID := ""
-	if config.endpointObservation != nil {
-		localDeviceID = config.endpointObservation.GetDeviceId()
+	observationVersion := ""
+	if localObservation != nil {
+		localDeviceID = localObservation.GetDeviceId()
+		encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(localObservation)
+		if err != nil {
+			return fmt.Errorf("encode local endpoint observation: %w", err)
+		}
+		observationVersion = string(encoded)
 	}
 	for _, mesh := range listed.GetMeshes() {
 		descriptor, snapshot := mesh.GetMeshDescriptor(), mesh.GetSnapshot()
 		if descriptor == nil || snapshot == nil || descriptor.GetMeshId() == "" || snapshot.GetRevision() == 0 {
 			return errors.New("host returned an incomplete personal mesh")
 		}
-		if config.endpointObservation != nil && !published[descriptor.GetMeshId()] {
+		if localObservation != nil && published[descriptor.GetMeshId()] != observationVersion {
 			if _, err := registry.PublishEndpoint(ctx, &trustv1.PublishEndpointRequest{
-				MeshId: descriptor.GetMeshId(), ExpectedRevision: snapshot.GetRevision(), Observation: config.endpointObservation,
+				MeshId: descriptor.GetMeshId(), ExpectedRevision: snapshot.GetRevision(), Observation: localObservation,
 			}); err != nil {
 				return fmt.Errorf("publish mesh endpoint: %w", err)
 			}
-			published[descriptor.GetMeshId()] = true
+			published[descriptor.GetMeshId()] = observationVersion
 		}
 		current := snapshot
 		remoteSnapshot, snapshotErr := registry.GetSnapshot(ctx, &trustv1.GetSnapshotRequest{
@@ -158,11 +165,11 @@ func syncPersonalMeshesWithClients(ctx context.Context, config Config, local tru
 	return nil
 }
 
-func personalMeshSyncLoop(ctx context.Context, config Config, registry trustv1.PersonalMeshRegistryServiceClient) {
-	published := make(map[string]bool)
+func personalMeshSyncLoop(ctx context.Context, config Config, observations *endpointObservationState, registry trustv1.PersonalMeshRegistryServiceClient) {
+	published := make(map[string]string)
 	for ctx.Err() == nil {
 		iterationContext, cancel := context.WithTimeout(ctx, 20*time.Second)
-		err := syncPersonalMeshesOnce(iterationContext, config, registry, published)
+		err := syncPersonalMeshesOnce(iterationContext, config, observations, registry, published)
 		cancel()
 		if err != nil && config.Logger != nil {
 			config.Logger.Printf("personal mesh registry sync failed")

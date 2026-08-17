@@ -29,7 +29,7 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	template := []byte("<plist><string>__HOME__</string><string>__APP__</string></plist>")
-	for _, name := range []string{hostLabel + ".plist", connectorLabel + ".plist"} {
+	for _, name := range []string{hostLabel + ".plist"} {
 		if err := os.WriteFile(filepath.Join(value.resources, name), template, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -41,10 +41,10 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 	if err := repairWith(value, func(arguments ...string) error { commands = append(commands, strings.Join(arguments, " ")); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if !regular(value.hostPlist) || !regular(value.connectorPlist) {
+	if !regular(value.hostPlist) {
 		t.Fatal("service definitions were not installed")
 	}
-	want := []string{"bootout", "bootout", "bootstrap", "enable", "bootstrap", "enable"}
+	want := []string{"bootout", "bootstrap", "enable"}
 	if len(commands) != len(want) {
 		t.Fatalf("commands=%v", commands)
 	}
@@ -64,7 +64,7 @@ func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			for _, plist := range []string{value.hostPlist, value.connectorPlist} {
+			for _, plist := range []string{value.hostPlist} {
 				if err := os.WriteFile(plist, []byte("plist"), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -73,25 +73,25 @@ func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
 			if err := uninstallWith(value, purge, func(arguments ...string) error { commands = append(commands, strings.Join(arguments, " ")); return nil }); err != nil {
 				t.Fatal(err)
 			}
-			if directory(value.app) || regular(value.hostPlist) || regular(value.connectorPlist) {
+			if directory(value.app) || regular(value.hostPlist) {
 				t.Fatal("installed product files remain")
 			}
 			if directory(value.applicationData) == purge || directory(value.logs) == purge {
 				t.Fatalf("purge=%v data existence is wrong", purge)
 			}
-			if len(commands) != 2 || !strings.HasPrefix(commands[0], "bootout") || !strings.HasPrefix(commands[1], "bootout") {
+			if len(commands) != 1 || !strings.HasPrefix(commands[0], "bootout") {
 				t.Fatalf("commands=%v", commands)
 			}
 		})
 	}
 }
 
-func TestDrainClosesConnectorAdmissionBeforeHost(t *testing.T) {
+func TestDrainStopsHost(t *testing.T) {
 	value := testPaths(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, plist := range []string{value.hostPlist, value.connectorPlist} {
+	for _, plist := range []string{value.hostPlist} {
 		if err := os.WriteFile(plist, []byte("plist"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -103,7 +103,7 @@ func TestDrainClosesConnectorAdmissionBeforeHost(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 2 || !strings.Contains(commands[0], connectorLabel) || !strings.Contains(commands[1], hostLabel) {
+	if len(commands) != 1 || !strings.Contains(commands[0], hostLabel) {
 		t.Fatalf("drain order=%v", commands)
 	}
 }
@@ -112,7 +112,7 @@ func testPaths(root string) paths {
 	home := filepath.Join(root, "home")
 	return paths{
 		home: home, app: filepath.Join(root, "Agent VMM.app"), resources: filepath.Join(root, "resources"),
-		hostPlist: filepath.Join(home, "Library", "LaunchAgents", hostLabel+".plist"), connectorPlist: filepath.Join(home, "Library", "LaunchAgents", connectorLabel+".plist"),
+		hostPlist:       filepath.Join(home, "Library", "LaunchAgents", hostLabel+".plist"),
 		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"), logs: filepath.Join(home, "Library", "Logs", "AgentVMM"),
 	}
 }

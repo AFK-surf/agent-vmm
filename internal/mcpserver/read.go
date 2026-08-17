@@ -24,7 +24,6 @@ func (adapter *Adapter) registerReadTools(server *mcp.Server) {
 	addTool(server, toolDefinition{name: "container_logs", description: "Read a bounded snapshot of container logs using an opaque cursor.", inputSchema: containerLogsSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.containerLogs)
 	addTool(server, toolDefinition{name: "volume_list", description: "List named volumes in this environment with bounded pagination.", inputSchema: pageSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.volumeList)
 	addTool(server, toolDefinition{name: "image_list", description: "List canonical image references visible in this environment.", inputSchema: pageSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.imageList)
-	addTool(server, toolDefinition{name: "port_forward_list", description: "List at most 16 loopback port forwards owned by this MCP process. This tool accepts no arguments.", inputSchema: emptySchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.portForwardList)
 	addTool(server, toolDefinition{name: "cleanup_plan", description: "Plan an environment reset or irreversible discard without executing it.", inputSchema: cleanupPlanSchema, readOnly: true, idempotent: true, timeout: 30 * time.Second}, adapter.cleanupPlan)
 }
 
@@ -54,8 +53,8 @@ func (adapter *Adapter) environmentGet(ctx context.Context, _ *mcp.CallToolReque
 			return nil, err
 		}
 		environment := response.GetEnvironment()
-		if environment.GetOrigin() != hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_LOCAL {
-			return nil, status.Error(codes.PermissionDenied, "local MCP session requires local owner")
+		if environment == nil {
+			return nil, status.Error(codes.Internal, "runtime session returned no environment")
 		}
 		return environmentData(environment), nil
 	})
@@ -178,35 +177,23 @@ func (adapter *Adapter) volumeList(ctx context.Context, _ *mcp.CallToolRequest, 
 	})
 }
 
-func (adapter *Adapter) portForwardList(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, Envelope, error) {
-	return adapter.call(ctx, 30*time.Second, false, func(context.Context) (any, error) {
-		adapter.mu.Lock()
-		defer adapter.mu.Unlock()
-		items := make([]ForwardData, 0, len(adapter.forwards))
-		for _, forward := range adapter.forwards {
-			items = append(items, forward.data)
-		}
-		slices.SortFunc(items, func(a, b ForwardData) int { return strings.Compare(a.ID, b.ID) })
-		return ForwardListData{Items: items}, nil
-	})
-}
-
 func (adapter *Adapter) cleanupPlan(ctx context.Context, _ *mcp.CallToolRequest, input CleanupPlanInput) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.call(ctx, 30*time.Second, false, func(ctx context.Context) (any, error) {
-		var response *hostv1.CleanupPlanResponse
-		var err error
-		switch input.Kind {
-		case "reset":
-			response, err = adapter.runtime.PlanResetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
-		case "discard":
-			response, err = adapter.runtime.PlanDiscardEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
-		default:
+		if input.Kind != "reset" && input.Kind != "discard" {
 			return nil, status.Error(codes.InvalidArgument, "invalid cleanup kind")
 		}
+		plan, err := adapter.cleanup.PlanCleanup(ctx, input.Kind)
 		if err != nil {
 			return nil, err
 		}
-		return cleanupPlanData(response.GetPlan()), nil
+		if plan.Kind != input.Kind || plan.Revision == 0 {
+			return nil, status.Error(codes.Aborted, "cleanup plan kind changed")
+		}
+		result := CleanupPlanData{Kind: plan.Kind, Revision: strconv.FormatUint(plan.Revision, 10)}
+		for _, impact := range plan.Impacts {
+			result.Impacts = append(result.Impacts, CleanupImpactData{Resource: impact.Resource, Effect: impact.Effect, Irreversible: impact.Irreversible, Blocker: impact.Blocker})
+		}
+		return result, nil
 	})
 }
 
@@ -235,13 +222,6 @@ func containerData(value *hostv1.Container) ContainerData {
 }
 func volumeData(value *hostv1.Volume) VolumeData {
 	return VolumeData{ID: value.GetId(), Usage: usageData(value.GetUsage()), LimitBytes: value.GetLimitBytes(), MountedBy: append([]string(nil), value.GetMountedBy()...)}
-}
-func cleanupPlanData(value *hostv1.CleanupPlan) CleanupPlanData {
-	result := CleanupPlanData{Kind: strings.ToLower(strings.TrimPrefix(value.GetKind().String(), "CLEANUP_KIND_")), Revision: strconv.FormatUint(value.GetRevision(), 10)}
-	for _, impact := range value.GetImpacts() {
-		result.Impacts = append(result.Impacts, CleanupImpactData{Resource: Resource{Kind: impact.GetResource().GetKind(), ID: impact.GetResource().GetResourceId()}, Effect: impact.GetEffect(), Irreversible: impact.GetIrreversible(), Blocker: impact.GetBlocker()})
-	}
-	return result
 }
 func logStream(value hostv1.LogStream) string {
 	if value == hostv1.LogStream_LOG_STREAM_STDERR {

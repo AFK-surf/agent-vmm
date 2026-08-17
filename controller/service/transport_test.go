@@ -9,6 +9,7 @@ import (
 
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestMemoryTransportKeepsAuthorityIndependentOfRouteClass(t *testing.T) {
@@ -62,9 +63,9 @@ func TestMemoryTransportRejectsForgedExpiredAndRevokedRoutes(t *testing.T) {
 		"generation":            func(value *servicev1.OpenServiceForwardHeader) { value.RouteGeneration++ },
 	} {
 		t.Run(name, func(t *testing.T) {
-			forged := *base
-			mutate(&forged)
-			if connection, err := transport.Open(context.Background(), &forged, now); err == nil {
+			forged := proto.Clone(base).(*servicev1.OpenServiceForwardHeader)
+			mutate(forged)
+			if connection, err := transport.Open(context.Background(), forged, now); err == nil {
 				connection.Close()
 				t.Fatal("forged route opened")
 			}

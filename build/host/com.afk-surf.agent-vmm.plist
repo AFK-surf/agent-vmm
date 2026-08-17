@@ -21,6 +21,8 @@
     <string>__HOME__/Library/Application Support/AgentVMM/host.sqlite</string>
     <string>--session-directory</string>
     <string>__HOME__/Library/Application Support/AgentVMM/sessions</string>
+    <string>--data-worker</string>
+    <string>__APP__/Contents/Helpers/agent-vmm-data</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

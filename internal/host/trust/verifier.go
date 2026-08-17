@@ -63,6 +63,11 @@ func (manager *Manager) AuthorizeRoute(ctx context.Context, capability *trustv1.
 		capability.GetAuthority().GetAuthorityClass() == trustv1.AuthorityClass_AUTHORITY_CLASS_PERSONAL_MESH && ownerKind != store.TrustOwnerPersonalMesh {
 		return ErrRouteUnauthorized
 	}
+	if capability.GetAuthority().GetAuthorityClass() == trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER {
+		if err := manager.store.ValidateApplianceRouteAuthority(ctx, capability.GetAuthority().GetAuthorityId(), capability.GetSourceAllocationId(), capability.GetRouteGeneration(), capability.GetPolicyRevision()); err != nil {
+			return ErrRouteUnauthorized
+		}
+	}
 	input, err := signing.CanonicalInput(capability)
 	if err != nil {
 		return errors.Join(ErrRouteUnauthorized, err)

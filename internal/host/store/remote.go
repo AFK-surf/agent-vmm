@@ -5,6 +5,170 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+)
+
+type RemoteLeaseProjection struct {
+	LeaseID, RegistrationID, AllocationID, EnvironmentID, WorkloadRef string
+	Generation                                                        uint64
+	ExpiresAt                                                         time.Time
+	State                                                             int32
+}
+
+func (store *Store) AcquireRemoteLeaseProjection(ctx context.Context, lease RemoteLeaseProjection, expectedRevision uint64) (Environment, error) {
+	transaction, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Environment{}, err
+	}
+	defer transaction.Rollback()
+	result, err := transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
+		updated_at=? WHERE id=? AND owner_kind=? AND registration_id=? AND allocation_id=?
+		AND allocation_state=? AND policy_revision=?`, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
+		time.Now().UnixNano(), lease.EnvironmentID, OwnerRemoteRegistration, lease.RegistrationID,
+		lease.AllocationID, int32(hostv1.AllocationState_ALLOCATION_STATE_READY), expectedRevision)
+	if err != nil {
+		return Environment{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return Environment{}, err
+		}
+		return Environment{}, errors.New("allocation revision conflict")
+	}
+	if _, err := transaction.ExecContext(ctx, `INSERT INTO remote_lease_projections(lease_id, registration_id,
+		allocation_id, environment_id, workload_ref, generation, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		lease.LeaseID, lease.RegistrationID, lease.AllocationID, lease.EnvironmentID, lease.WorkloadRef,
+		lease.Generation, lease.ExpiresAt.UnixNano(), lease.State); err != nil {
+		return Environment{}, err
+	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE remote_registrations SET inventory_revision=inventory_revision+1,
+		updated_at=? WHERE id=?`, time.Now().UnixNano(), lease.RegistrationID); err != nil {
+		return Environment{}, err
+	}
+	environment, err := scanEnvironment(transaction.QueryRowContext(ctx, environmentSelect+" WHERE id = ?", lease.EnvironmentID))
+	if err != nil {
+		return Environment{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return Environment{}, err
+	}
+	return environment, nil
+}
+
+func (store *Store) FinishRemoteLeaseProjection(ctx context.Context, registrationID, leaseID, environmentID string, expectedRevision uint64, allocationState int32) (Environment, error) {
+	transaction, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Environment{}, err
+	}
+	defer transaction.Rollback()
+	result, err := transaction.ExecContext(ctx, `DELETE FROM remote_lease_projections
+		WHERE lease_id=? AND registration_id=? AND environment_id=?`, leaseID, registrationID, environmentID)
+	if err != nil {
+		return Environment{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return Environment{}, err
+		}
+		return Environment{}, sql.ErrNoRows
+	}
+	result, err = transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
+		updated_at=? WHERE id=? AND owner_kind=? AND registration_id=? AND allocation_state=? AND policy_revision=?`,
+		allocationState, time.Now().UnixNano(), environmentID,
+		OwnerRemoteRegistration, registrationID, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED), expectedRevision)
+	if err != nil {
+		return Environment{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return Environment{}, err
+		}
+		return Environment{}, errors.New("allocation revision conflict")
+	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE remote_registrations SET inventory_revision=inventory_revision+1,
+		updated_at=? WHERE id=?`, time.Now().UnixNano(), registrationID); err != nil {
+		return Environment{}, err
+	}
+	environment, err := scanEnvironment(transaction.QueryRowContext(ctx, environmentSelect+" WHERE id = ?", environmentID))
+	if err != nil {
+		return Environment{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return Environment{}, err
+	}
+	return environment, nil
+}
+
+func (store *Store) PutRemoteLeaseProjection(ctx context.Context, lease RemoteLeaseProjection) error {
+	transaction, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	if _, err := transaction.ExecContext(ctx, `INSERT INTO remote_lease_projections(lease_id, registration_id,
+		allocation_id, environment_id, workload_ref, generation, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(lease_id) DO UPDATE SET expires_at=excluded.expires_at, state=excluded.state
+		WHERE remote_lease_projections.registration_id=excluded.registration_id AND remote_lease_projections.generation=excluded.generation`,
+		lease.LeaseID, lease.RegistrationID, lease.AllocationID, lease.EnvironmentID, lease.WorkloadRef,
+		lease.Generation, lease.ExpiresAt.UnixNano(), lease.State); err != nil {
+		return err
+	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE remote_registrations SET inventory_revision=inventory_revision+1,
+		updated_at=? WHERE id=?`, time.Now().UnixNano(), lease.RegistrationID); err != nil {
+		return err
+	}
+	return transaction.Commit()
+}
+
+func (store *Store) DeleteRemoteLeaseProjection(ctx context.Context, registrationID, leaseID string) error {
+	transaction, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	result, err := transaction.ExecContext(ctx, `DELETE FROM remote_lease_projections WHERE lease_id=? AND registration_id=?`, leaseID, registrationID)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE remote_registrations SET inventory_revision=inventory_revision+1,
+		updated_at=? WHERE id=?`, time.Now().UnixNano(), registrationID); err != nil {
+		return err
+	}
+	return transaction.Commit()
+}
+
+func (store *Store) RecoverRemoteLeaseProjections(ctx context.Context) error {
+	transaction, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	if _, err := transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
+		updated_at=? WHERE owner_kind=? AND allocation_state=?`, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED),
+		time.Now().UnixNano(), OwnerRemoteRegistration, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED)); err != nil {
+		return err
+	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE remote_registrations SET inventory_revision=inventory_revision+1,
+		updated_at=? WHERE id IN (SELECT DISTINCT registration_id FROM remote_lease_projections)`, time.Now().UnixNano()); err != nil {
+		return err
+	}
+	if _, err := transaction.ExecContext(ctx, `DELETE FROM remote_lease_projections`); err != nil {
+		return err
+	}
+	return transaction.Commit()
+}
+
+const (
+	RemoteRegistrationExternal = 1
+	RemoteRegistrationPrivate  = 2
 )
 
 type RemoteRegistration struct {
@@ -26,6 +190,7 @@ type RemoteRegistration struct {
 	DisconnectGraceSeconds  uint32
 	StopGraceSeconds        uint32
 	Revision                uint64
+	PoolPolicyRevision      uint64
 	State                   int32
 	ConnectionState         int32
 	ConnectionInstance      string
@@ -42,6 +207,9 @@ type RemoteRegistration struct {
 	ConnectorFailureCode    string
 	ConnectorFailureMessage string
 	EnrollmentRequestID     string
+	OwnerKind               int32
+	InstallationID          string
+	InventoryRevision       uint64
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 }
@@ -67,6 +235,12 @@ func (store *Store) ListRemoteEnvironments(ctx context.Context, registrationID s
 }
 
 func (store *Store) CreateRemoteRegistration(ctx context.Context, registration RemoteRegistration) (RemoteRegistration, error) {
+	if registration.OwnerKind == 0 {
+		registration.OwnerKind = RemoteRegistrationExternal
+	}
+	if registration.InventoryRevision == 0 {
+		registration.InventoryRevision = 1
+	}
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `INSERT INTO remote_registrations(
 		id, endpoint, display_name, protocol_version, max_environments,
@@ -74,15 +248,16 @@ func (store *Store) CreateRemoteRegistration(ctx context.Context, registration R
 		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
 		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds,
 		state, connection_state, enrollment_state, connector_phase, connector_observed_at,
-		enrollment_request_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		enrollment_request_id, owner_kind, installation_id, inventory_revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
 		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
 		registration.MaxEnvironments, registration.AggregateCPUMillis, registration.AggregateMemoryBytes,
 		registration.AggregatePIDs, registration.AggregateDiskBytes, registration.PerEnvCPUMillis,
 		registration.PerEnvMemoryBytes, registration.PerEnvPIDs, registration.PerEnvDiskBytes,
 		registration.MaxEgressMode, registration.MaxLeaseSeconds, registration.DisconnectGraceSeconds,
 		registration.StopGraceSeconds, registration.State, registration.ConnectionState, registration.EnrollmentState,
-		registration.ConnectorPhase, now, registration.EnrollmentRequestID, now, now)
+		registration.ConnectorPhase, now, registration.EnrollmentRequestID, registration.OwnerKind,
+		registration.InstallationID, registration.InventoryRevision, now, now)
 	if err != nil {
 		return RemoteRegistration{}, err
 	}
@@ -97,10 +272,6 @@ func (store *Store) RemoteRegistrationByEnrollmentRequest(ctx context.Context, r
 	return scanRemoteRegistration(store.db.QueryRowContext(ctx, remoteRegistrationSelect+" WHERE enrollment_request_id = ?", requestID))
 }
 
-func (store *Store) ActiveRemoteRegistration(ctx context.Context) (RemoteRegistration, error) {
-	return scanRemoteRegistration(store.db.QueryRowContext(ctx, remoteRegistrationSelect+" WHERE state != 3"))
-}
-
 const remoteRegistrationSelect = `SELECT id, endpoint, display_name, protocol_version, max_environments,
 	aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
 	per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
@@ -108,7 +279,7 @@ const remoteRegistrationSelect = `SELECT id, endpoint, display_name, protocol_ve
 	revision, state, connection_state, connection_instance, enrollment_state, enrollment_error_code,
 	enrollment_error_message, connector_phase, connector_release, connector_observed_at, last_connected_at,
 	disconnected_at, next_retry_at, reconnect_attempt, connector_failure_code, connector_failure_message,
-	enrollment_request_id, created_at, updated_at FROM remote_registrations`
+	enrollment_request_id, owner_kind, COALESCE(installation_id, ''), inventory_revision, pool_policy_revision, created_at, updated_at FROM remote_registrations`
 
 func scanRemoteRegistration(row rowScanner) (RemoteRegistration, error) {
 	var registration RemoteRegistration
@@ -122,7 +293,8 @@ func scanRemoteRegistration(row rowScanner) (RemoteRegistration, error) {
 		&registration.ConnectionInstance, &registration.EnrollmentState, &registration.EnrollmentErrorCode,
 		&registration.EnrollmentErrorMessage, &registration.ConnectorPhase, &registration.ConnectorRelease,
 		&connectorObserved, &lastConnected, &disconnected, &nextRetry, &registration.ReconnectAttempt,
-		&registration.ConnectorFailureCode, &registration.ConnectorFailureMessage, &registration.EnrollmentRequestID, &created, &updated)
+		&registration.ConnectorFailureCode, &registration.ConnectorFailureMessage, &registration.EnrollmentRequestID,
+		&registration.OwnerKind, &registration.InstallationID, &registration.InventoryRevision, &registration.PoolPolicyRevision, &created, &updated)
 	registration.ConnectorObservedAt = time.Unix(0, connectorObserved)
 	registration.LastConnectedAt = time.Unix(0, lastConnected)
 	registration.DisconnectedAt = time.Unix(0, disconnected)
@@ -132,11 +304,28 @@ func scanRemoteRegistration(row rowScanner) (RemoteRegistration, error) {
 	return registration, err
 }
 
+func (store *Store) ListRemoteRegistrations(ctx context.Context) ([]RemoteRegistration, error) {
+	rows, err := store.db.QueryContext(ctx, remoteRegistrationSelect+" ORDER BY created_at, id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var registrations []RemoteRegistration
+	for rows.Next() {
+		registration, err := scanRemoteRegistration(rows)
+		if err != nil {
+			return nil, err
+		}
+		registrations = append(registrations, registration)
+	}
+	return registrations, rows.Err()
+}
+
 func (store *Store) UpdateRemotePool(ctx context.Context, registration RemoteRegistration, expectedRevision uint64) (RemoteRegistration, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET
 		max_environments=?, aggregate_cpu_millis=?, aggregate_memory_bytes=?, aggregate_pids=?, aggregate_disk_bytes=?,
 		per_env_cpu_millis=?, per_env_memory_bytes=?, per_env_pids=?, per_env_disk_bytes=?, max_egress_mode=?,
-		max_lease_seconds=?, disconnect_grace_seconds=?, stop_grace_seconds=?, revision=revision+1, updated_at=?
+		max_lease_seconds=?, disconnect_grace_seconds=?, stop_grace_seconds=?, revision=revision+1, pool_policy_revision=pool_policy_revision+1, updated_at=?
 		WHERE id=? AND revision=?`, registration.MaxEnvironments, registration.AggregateCPUMillis,
 		registration.AggregateMemoryBytes, registration.AggregatePIDs, registration.AggregateDiskBytes,
 		registration.PerEnvCPUMillis, registration.PerEnvMemoryBytes, registration.PerEnvPIDs,
@@ -225,6 +414,22 @@ func (store *Store) CompleteRemoteRevocation(ctx context.Context, id string, exp
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET state=3, connection_state=1,
 		connection_instance='', revision=revision+1, updated_at=? WHERE id=? AND revision=? AND enrollment_state=4`,
 		time.Now().UnixNano(), id, expectedRevision)
+	if err != nil {
+		return RemoteRegistration{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return RemoteRegistration{}, err
+		}
+		return RemoteRegistration{}, errors.New("registration revision conflict")
+	}
+	return store.GetRemoteRegistration(ctx, id)
+}
+
+func (store *Store) BeginRemoteRevocation(ctx context.Context, id string, expectedRevision uint64) (RemoteRegistration, error) {
+	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET enrollment_state=4, state=2,
+		connection_state=1, connection_instance='', revision=revision+1, updated_at=?
+		WHERE id=? AND revision=? AND state != 3 AND enrollment_state=2`, time.Now().UnixNano(), id, expectedRevision)
 	if err != nil {
 		return RemoteRegistration{}, err
 	}

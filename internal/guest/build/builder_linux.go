@@ -122,6 +122,9 @@ func (b *Builder) CleanupNamespace(ctx context.Context, namespaceID string) erro
 	if err := b.CanDeleteNamespace(namespaceID); err != nil {
 		return err
 	}
+	lock := b.namespaceLock(namespaceID)
+	lock.Lock()
+	defer lock.Unlock()
 	nsctx := namespaces.WithNamespace(ctx, namespaceID)
 	containers, err := b.client.Containers(nsctx)
 	if err != nil {
@@ -136,8 +139,19 @@ func (b *Builder) CleanupNamespace(ctx context.Context, namespaceID string) erro
 			continue
 		}
 		if task, err := container.Task(nsctx, nil); err == nil {
+			exit, waitErr := task.Wait(nsctx)
+			if waitErr != nil {
+				return waitErr
+			}
 			_ = task.Kill(nsctx, syscall.SIGKILL)
-			_, _ = task.Delete(nsctx, containerd.WithProcessKill)
+			select {
+			case <-exit:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			if _, err := task.Delete(nsctx, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
+				return err
+			}
 		} else if !errdefs.IsNotFound(err) {
 			return err
 		}
@@ -321,8 +335,14 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 	if progress != nil {
 		if err := progress("builder task started"); err != nil {
 			detach()
-			_ = task.Kill(nsctx, syscall.SIGKILL)
-			_, _ = task.Delete(nsctx, containerd.WithProcessKill)
+			cleanup, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), namespaceID), 10*time.Second)
+			_ = task.Kill(cleanup, syscall.SIGKILL)
+			select {
+			case <-exit:
+			case <-cleanup.Done():
+			}
+			_, _ = task.Delete(cleanup, containerd.WithProcessKill)
+			cancel()
 			return "", false, err
 		}
 	}
@@ -342,6 +362,10 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 		detach()
 		cleanup, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), namespaceID), 10*time.Second)
 		_ = task.Kill(cleanup, syscall.SIGKILL)
+		select {
+		case <-exit:
+		case <-cleanup.Done():
+		}
 		_, _ = task.Delete(cleanup, containerd.WithProcessKill)
 		cancel()
 		w.releaseActive()

@@ -11,7 +11,7 @@ func main() {
 	repository := flag.String("repository", ".", "repository root")
 	bundle := flag.String("bundle", "", "guest bundle directory")
 	jsonPath := flag.String("json", "", "go test JSON path")
-	report := flag.String("report", ".context/e2e/report.md", "report path")
+	report := flag.String("report", ".build/test-results/e2e/report.md", "report path")
 	status := flag.Int("status", 0, "test exit status")
 	flag.Parse()
 	if *bundle == "" {

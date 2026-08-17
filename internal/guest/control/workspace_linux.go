@@ -48,14 +48,25 @@ func (r *Runtime) acquireWorkspace(ctx context.Context) (func(), error) {
 }
 
 func openWorkspace(namespaceID, relative string, flags int) (*os.File, error) {
+	return openWorkspaceRoot(namespaceID, "", relative, flags)
+}
+
+func openWorkspaceRoot(namespaceID, volumeID, relative string, flags int) (*os.File, error) {
 	if err := validateID("actor_namespace_id", namespaceID); err != nil {
 		return nil, err
+	}
+	rootPath := workspacePath(namespaceID)
+	if volumeID != "" {
+		if err := validateID("volume_id", volumeID); err != nil {
+			return nil, err
+		}
+		rootPath = volumePath(namespaceID, volumeID)
 	}
 	clean, err := cleanWorkspaceRelative(relative)
 	if err != nil {
 		return nil, err
 	}
-	root, err := os.Open(workspacePath(namespaceID))
+	root, err := os.Open(rootPath)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +175,7 @@ func (s *Server) ReadWorkspace(request *vmmdv1.ReadWorkspaceRequest, stream vmmd
 		return rpcError(err)
 	}
 	defer release()
-	file, err := openWorkspace(request.GetActorNamespaceId(), request.GetPath(), unix.O_RDONLY)
+	file, err := openWorkspaceRoot(request.GetActorNamespaceId(), request.GetVolumeId(), request.GetPath(), unix.O_RDONLY)
 	if err != nil {
 		return rpcError(err)
 	}
@@ -226,7 +237,7 @@ func (s *Server) WriteWorkspace(stream vmmdv1.VMMDService_WriteWorkspaceServer) 
 		return rpcError(errors.New("workspace write requires a file path"))
 	}
 	parentPath, name := path.Dir(clean), path.Base(clean)
-	parent, err := openWorkspace(header.GetActorNamespaceId(), parentPath, unix.O_RDONLY|unix.O_DIRECTORY)
+	parent, err := openWorkspaceRoot(header.GetActorNamespaceId(), header.GetVolumeId(), parentPath, unix.O_RDONLY|unix.O_DIRECTORY)
 	if err != nil {
 		return rpcError(err)
 	}
@@ -299,7 +310,7 @@ func (s *Server) WriteWorkspace(stream vmmdv1.VMMDService_WriteWorkspaceServer) 
 	if err := unix.Renameat(int(parent.Fd()), stagingName, int(parent.Fd()), name); err != nil {
 		return rpcError(err)
 	}
-	result, err := openWorkspace(header.GetActorNamespaceId(), clean, unix.O_RDONLY)
+	result, err := openWorkspaceRoot(header.GetActorNamespaceId(), header.GetVolumeId(), clean, unix.O_RDONLY)
 	if err != nil {
 		return rpcError(err)
 	}

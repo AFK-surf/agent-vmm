@@ -35,7 +35,20 @@ func (server *operatorServer) StartVM(ctx context.Context, request *hostv1.Start
 	if existing {
 		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 	}
-	_, err = server.controller.manager.Start(ctx)
+	if err := server.controller.recoverInterruptedApplianceAdminOperations(ctx); err != nil {
+		server.controller.failOperation(ctx, &operation, "APPLIANCE_OPERATION_RECOVERY_FAILED", err)
+		return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_OPERATION_RECOVERY_FAILED", "vm", "local", err.Error())
+	}
+	if err := server.controller.recoverPendingApplianceRemovals(ctx); err != nil {
+		server.controller.failOperation(ctx, &operation, "APPLIANCE_REMOVE_RECOVERY_FAILED", err)
+		return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_REMOVE_RECOVERY_FAILED", "vm", "local", err.Error())
+	}
+	if server.controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		err = server.controller.configureApplianceBlocks(ctx)
+	}
+	if err == nil {
+		_, err = server.controller.manager.Start(ctx)
+	}
 	if err != nil {
 		server.controller.failOperation(ctx, &operation, "VM_START_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "VM_START_FAILED", "vm", "local", err.Error())
@@ -44,6 +57,9 @@ func (server *operatorServer) StartVM(ctx context.Context, request *hostv1.Start
 		server.controller.rollbackStartedVM()
 		server.controller.failOperation(ctx, &operation, "EGRESS_START_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "EGRESS_START_FAILED", "vm", "local", err.Error())
+	}
+	if err := server.controller.reconcileAppliances(ctx); err != nil {
+		_ = server.controller.store.Audit(ctx, "system", "system", "appliance.reconcile", "", "", int32(codes.FailedPrecondition), "APPLIANCE_RECONCILE_PARTIAL")
 	}
 	if err := server.controller.reconcilePolicies(ctx); err != nil {
 		server.controller.rollbackStartedVM()
@@ -83,6 +99,7 @@ func (server *operatorServer) StopVM(ctx context.Context, request *hostv1.StopVM
 		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 	}
 	server.controller.stopEgress()
+	server.controller.invalidateRuntimeCapabilities(ctx)
 	_, err = server.controller.manager.Stop(ctx, request.GetForce())
 	if err != nil {
 		if server.controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
@@ -179,6 +196,14 @@ func (server *operatorServer) UpdateEnvironmentPolicy(ctx context.Context, reque
 	if err := validatePolicy(limits, request.GetEgressMode()); err != nil {
 		return nil, err
 	}
+	if environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+		}
+		return nil, err
+	} else if err := requireLocalOperatorEnvironment(environment); err != nil {
+		return nil, err
+	}
 	server.controller.projectionMu.Lock()
 	defer server.controller.projectionMu.Unlock()
 	environment, err := server.controller.store.UpdatePolicy(ctx, request.GetEnvironmentId(), request.GetExpectedRevision(), store.Environment{
@@ -191,6 +216,13 @@ func (server *operatorServer) UpdateEnvironmentPolicy(ctx context.Context, reque
 		return &hostv1.GetEnvironmentResponse{Environment: environmentFromStore(environment)}, retryable("POLICY_PROJECTION_FAILED", "host policy was saved but guest projection failed", time.Second)
 	}
 	return &hostv1.GetEnvironmentResponse{Environment: environmentFromStore(environment)}, nil
+}
+
+func requireLocalOperatorEnvironment(environment store.Environment) error {
+	if environment.OwnerKind != store.OwnerLocal {
+		return resourceError(codes.FailedPrecondition, "REMOTE_ALLOCATION_CONTROLLER_OWNED", "environment", environment.ID, "active controller-owned allocation must be changed through its controller")
+	}
+	return nil
 }
 
 func validatePolicy(limits *hostv1.ResourceLimits, egress hostv1.EgressMode) error {

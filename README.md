@@ -38,9 +38,9 @@ Run the complete macOS and guest test suite:
 make e2e
 ```
 
-Regenerate and validate the product protocols with `make proto` and `make proto-check`. Generate the Xcode project with `make swift-project`; create the app/helper and LaunchAgent payload with `make release-bundle`, then use `build/host/install.sh`. The default development guest requires the default ad-hoc app signature; a release signing identity requires a release-signed guest bundle. The uninstaller retains VM data unless invoked with `--purge`.
+Regenerate and validate the product protocols with `make proto` and `make proto-check`. Generate the Xcode project with `make swift-project`; create the app/helper and LaunchAgent payload with `make release-bundle`, then use `build/host/install.sh`. The default development guest requires the default ad-hoc app signature; a release signing identity requires a release-signed guest bundle. The uninstaller retains VM data unless invoked with `--purge`; build-identity transitions and pre-release cleanup are documented in [the recovery runbook](docs/recovery.md).
 
-The E2E runner creates its report at `.context/e2e/report.md`.
+The E2E runner creates its report at `.build/test-results/e2e/report.md`.
 
 ## License
 

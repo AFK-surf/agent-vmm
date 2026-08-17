@@ -1,0 +1,430 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+var (
+	ErrInstallationRevisionConflict = errors.New("installation revision conflict")
+	ErrResourceCapacityExceeded     = errors.New("host resource capacity exceeded")
+	ErrDomainCapacityExceeded       = errors.New("controller domain capacity exceeded")
+	ErrArtifactReplay               = errors.New("appliance artifact was already staged")
+	ErrApplianceDomainNotEmpty      = errors.New("appliance domain still owns environments")
+	ErrOperationReceiptConflict     = errors.New("appliance operation receipt conflict")
+)
+
+const (
+	ReservationOwnerHost          int32 = 1
+	ReservationOwnerAppliance     int32 = 2
+	ReservationOwnerRegistration  int32 = 3
+	ReservationResourceSystem     int32 = 1
+	ReservationResourceRuntime    int32 = 2
+	ReservationResourceAllocation int32 = 3
+)
+
+type ResourceAmount struct {
+	CPUMillis   uint64
+	MemoryBytes uint64
+	PIDs        uint64
+	DiskBytes   uint64
+}
+
+func (amount ResourceAmount) add(other ResourceAmount) ResourceAmount {
+	return ResourceAmount{CPUMillis: amount.CPUMillis + other.CPUMillis, MemoryBytes: amount.MemoryBytes + other.MemoryBytes, PIDs: amount.PIDs + other.PIDs, DiskBytes: amount.DiskBytes + other.DiskBytes}
+}
+
+func (amount ResourceAmount) fits(limit ResourceAmount) bool {
+	return amount.CPUMillis <= limit.CPUMillis && amount.MemoryBytes <= limit.MemoryBytes && amount.PIDs <= limit.PIDs && amount.DiskBytes <= limit.DiskBytes
+}
+
+type ApplianceInstallation struct {
+	ID, ProductID, PublisherKeyID, ArtifactID, RegistrationID, EncryptedVolumeID  string
+	EncryptedVolumeIdentity, BootstrapID, CurrentBootID, CurrentContainerInstance string
+	DataVolumeBytes                                                               uint64
+	DesiredEnabled                                                                bool
+	State                                                                         int32
+	Revision                                                                      uint64
+	CreatedAt, UpdatedAt                                                          time.Time
+}
+
+type ApplianceArtifact struct {
+	ID, ImageDigest, ImageReference, Platform, PublisherKeyID, ProductID, Release string
+	CanonicalHash, Manifest, PublisherSignature                                   []byte
+	Verified                                                                      bool
+	CreatedAt                                                                     time.Time
+}
+
+type ApplianceVolume struct {
+	InstallationID, VolumeID, Identity string
+	Bytes                              uint64
+	UpdatedAt                          time.Time
+}
+
+type ApplianceFrontend struct {
+	Name                                        string
+	Transport, Exposure                         int32
+	MaxFrameBytes, DeadlineSeconds, IdleSeconds uint32
+	MaxTotalBytes                               uint64
+	MaxConcurrentStreams, MaxUseCount           uint32
+}
+
+type ApplianceGrant struct {
+	InstallationID                                           string
+	Revision                                                 uint64
+	System, Aggregate, PerEnvironment                        ResourceAmount
+	MaxEnvironments, MaxLeaseSeconds, DisconnectGraceSeconds uint32
+	MaxEgressMode                                            int32
+	DynamicHostLoopback                                      HostLoopbackFrontendCapacity
+}
+
+type HostLoopbackFrontendCapacity struct {
+	MaxActiveLeases, MaxActiveLeasesPerAllocation, MaxLeaseSeconds  uint32
+	MaxConcurrentConnections, MaxConcurrentConnectionsPerLease      uint32
+	MaxFrameBytes, ConnectionDeadlineSeconds, ConnectionIdleSeconds uint32
+	MaxConnectionBytes                                              uint64
+	MaxUseCount                                                     uint32
+}
+
+type ResourceReservation struct {
+	ID, OwnerID, ResourceID string
+	OwnerKind, ResourceKind int32
+	Amount                  ResourceAmount
+	Retained                bool
+}
+
+type AppliancePublisher struct {
+	KeyID     string
+	PublicKey []byte
+	Revision  uint64
+	Revoked   bool
+}
+
+type ApplianceOperation struct {
+	ID, InstallationID, RequestID, Stage, ErrorReason, ErrorMessage string
+	Receipt                                                         []byte
+	Kind, State, Phase, TerminalReason                              int32
+	ExpectedRevision                                                uint64
+	DeadlineUnixMillis                                              int64
+	CreatedAt, UpdatedAt                                            time.Time
+}
+
+type ApplianceOperationTransition struct {
+	ExpectedState, ExpectedPhase, State, Phase, TerminalReason int32
+	Stage, ErrorReason, ErrorMessage                           string
+	Receipt                                                    []byte
+}
+
+type ApplianceRemove struct {
+	InstallationID, RegistrationID, ReservationID, OperationID string
+	ExpectedRevision, CommitRevision                           uint64
+	ExpectedState, PendingState, ExpectedPhase                 int32
+	Operation                                                  ApplianceOperation
+	Receipt                                                    []byte
+}
+
+func (store *Store) PutAppliancePublisher(ctx context.Context, publisher AppliancePublisher) error {
+	_, err := store.db.ExecContext(ctx, `INSERT INTO appliance_publishers(publisher_key_id, public_key, revision, revoked, updated_at)
+		VALUES (?, ?, ?, ?, ?) ON CONFLICT(publisher_key_id) DO UPDATE SET public_key=excluded.public_key,
+		revision=excluded.revision, revoked=excluded.revoked, updated_at=excluded.updated_at`, publisher.KeyID,
+		publisher.PublicKey, publisher.Revision, publisher.Revoked, time.Now().UnixNano())
+	return err
+}
+
+func (store *Store) GetAppliancePublisher(ctx context.Context, keyID string) (AppliancePublisher, error) {
+	var publisher AppliancePublisher
+	err := store.db.QueryRowContext(ctx, `SELECT publisher_key_id, public_key, revision, revoked
+		FROM appliance_publishers WHERE publisher_key_id=?`, keyID).Scan(&publisher.KeyID, &publisher.PublicKey, &publisher.Revision, &publisher.Revoked)
+	return publisher, err
+}
+
+func (store *Store) StageApplianceArtifact(ctx context.Context, artifact ApplianceArtifact, operation ApplianceOperation) (ApplianceArtifact, ApplianceOperation, error) {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ApplianceArtifact{}, ApplianceOperation{}, err
+	}
+	defer tx.Rollback()
+	now := time.Now().UnixNano()
+	_, err = tx.ExecContext(ctx, `INSERT INTO appliance_artifacts(artifact_id, canonical_hash, image_digest,
+		image_reference, platform, publisher_key_id, product_id, release, verified, manifest,
+		publisher_signature, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID,
+		applianceBlob(artifact.CanonicalHash), artifact.ImageDigest, artifact.ImageReference, artifact.Platform,
+		artifact.PublisherKeyID, artifact.ProductID, artifact.Release, artifact.Verified,
+		applianceBlob(artifact.Manifest), applianceBlob(artifact.PublisherSignature), now)
+	if err != nil {
+		return ApplianceArtifact{}, ApplianceOperation{}, err
+	}
+	if err := insertApplianceOperation(ctx, tx, operation, now); err != nil {
+		return ApplianceArtifact{}, ApplianceOperation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ApplianceArtifact{}, ApplianceOperation{}, err
+	}
+	staged, err := store.GetApplianceArtifact(ctx, artifact.ID)
+	if err != nil {
+		return ApplianceArtifact{}, ApplianceOperation{}, err
+	}
+	created, err := store.GetApplianceOperation(ctx, operation.ID)
+	return staged, created, err
+}
+
+func (store *Store) GetApplianceArtifact(ctx context.Context, artifactID string) (ApplianceArtifact, error) {
+	return scanApplianceArtifact(store.db.QueryRowContext(ctx, applianceArtifactSelect+" WHERE artifact_id=?", artifactID))
+}
+
+func (store *Store) GetApplianceArtifactByCanonicalHash(ctx context.Context, hash []byte) (ApplianceArtifact, error) {
+	return scanApplianceArtifact(store.db.QueryRowContext(ctx, applianceArtifactSelect+" WHERE canonical_hash=?", applianceBlob(hash)))
+}
+
+const applianceArtifactSelect = `SELECT artifact_id, canonical_hash, image_digest, image_reference, platform,
+	publisher_key_id, product_id, release, verified, manifest, publisher_signature, created_at FROM appliance_artifacts`
+
+func scanApplianceArtifact(row rowScanner) (ApplianceArtifact, error) {
+	var artifact ApplianceArtifact
+	var created int64
+	err := row.Scan(&artifact.ID, &artifact.CanonicalHash, &artifact.ImageDigest, &artifact.ImageReference,
+		&artifact.Platform, &artifact.PublisherKeyID, &artifact.ProductID, &artifact.Release,
+		&artifact.Verified, &artifact.Manifest, &artifact.PublisherSignature, &created)
+	artifact.CreatedAt = time.Unix(0, created)
+	return artifact, err
+}
+
+const applianceInstallationSelect = `SELECT id, product_id, publisher_key_id, artifact_id, desired_enabled,
+	state, revision, COALESCE(registration_id, ''), encrypted_volume_id, encrypted_volume_identity,
+	data_volume_bytes, bootstrap_id, current_boot_id, current_container_instance, created_at, updated_at FROM appliance_installations`
+
+func (store *Store) GetApplianceInstallation(ctx context.Context, id string) (ApplianceInstallation, error) {
+	return scanApplianceInstallation(store.db.QueryRowContext(ctx, applianceInstallationSelect+" WHERE id=?", id))
+}
+
+func (store *Store) ListApplianceInstallations(ctx context.Context) ([]ApplianceInstallation, error) {
+	rows, err := store.db.QueryContext(ctx, applianceInstallationSelect+" ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []ApplianceInstallation
+	for rows.Next() {
+		value, err := scanApplianceInstallation(rows)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func scanApplianceInstallation(row rowScanner) (ApplianceInstallation, error) {
+	var value ApplianceInstallation
+	var created, updated int64
+	err := row.Scan(&value.ID, &value.ProductID, &value.PublisherKeyID, &value.ArtifactID,
+		&value.DesiredEnabled, &value.State, &value.Revision, &value.RegistrationID,
+		&value.EncryptedVolumeID, &value.EncryptedVolumeIdentity, &value.DataVolumeBytes, &value.BootstrapID,
+		&value.CurrentBootID, &value.CurrentContainerInstance, &created, &updated)
+	value.CreatedAt, value.UpdatedAt = time.Unix(0, created), time.Unix(0, updated)
+	return value, err
+}
+
+func (store *Store) UpdateApplianceInstallation(ctx context.Context, value ApplianceInstallation, expectedRevision uint64) (ApplianceInstallation, error) {
+	result, err := store.db.ExecContext(ctx, `UPDATE appliance_installations SET desired_enabled=?, state=?,
+		registration_id=NULLIF(?, ''), bootstrap_id=?, current_boot_id=?, current_container_instance=?, revision=revision+1,
+		updated_at=? WHERE id=? AND revision=?`, value.DesiredEnabled, value.State, value.RegistrationID,
+		value.BootstrapID, value.CurrentBootID, value.CurrentContainerInstance, time.Now().UnixNano(), value.ID, expectedRevision)
+	if err != nil {
+		return ApplianceInstallation{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return ApplianceInstallation{}, err
+		}
+		return ApplianceInstallation{}, ErrInstallationRevisionConflict
+	}
+	return store.GetApplianceInstallation(ctx, value.ID)
+}
+
+func (store *Store) GetApplianceVolume(ctx context.Context, installationID string) (ApplianceVolume, error) {
+	var value ApplianceVolume
+	var updated int64
+	err := store.db.QueryRowContext(ctx, `SELECT installation_id, volume_id, identity, bytes, updated_at
+		FROM appliance_volumes WHERE installation_id=?`, installationID).Scan(&value.InstallationID,
+		&value.VolumeID, &value.Identity, &value.Bytes, &updated)
+	value.UpdatedAt = time.Unix(0, updated)
+	return value, err
+}
+
+func (store *Store) ListApplianceFrontends(ctx context.Context, installationID string) ([]ApplianceFrontend, error) {
+	rows, err := store.db.QueryContext(ctx, `SELECT name, transport, exposure, max_frame_bytes,
+		max_total_bytes, deadline_seconds, idle_seconds, max_concurrent_streams, max_use_count
+		FROM appliance_frontends WHERE installation_id=? ORDER BY name`, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []ApplianceFrontend
+	for rows.Next() {
+		var value ApplianceFrontend
+		if err := rows.Scan(&value.Name, &value.Transport, &value.Exposure, &value.MaxFrameBytes,
+			&value.MaxTotalBytes, &value.DeadlineSeconds, &value.IdleSeconds,
+			&value.MaxConcurrentStreams, &value.MaxUseCount); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (store *Store) GetApplianceGrant(ctx context.Context, installationID string) (ApplianceGrant, error) {
+	var grant ApplianceGrant
+	err := store.db.QueryRowContext(ctx, applianceGrantSelect+" WHERE installation_id=?", installationID).Scan(applianceGrantScan(&grant)...)
+	return grant, err
+}
+
+const applianceGrantSelect = `SELECT installation_id, revision, system_cpu_millis, system_memory_bytes,
+	system_pids, system_disk_bytes, max_environments, aggregate_cpu_millis, aggregate_memory_bytes,
+	aggregate_pids, aggregate_disk_bytes, per_env_cpu_millis, per_env_memory_bytes, per_env_pids,
+	per_env_disk_bytes, max_egress_mode, max_lease_seconds, disconnect_grace_seconds,
+	dynamic_max_active_leases, dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
+	dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease, dynamic_max_frame_bytes,
+	dynamic_max_connection_bytes, dynamic_connection_deadline_seconds, dynamic_connection_idle_seconds,
+	dynamic_max_use_count FROM appliance_grants`
+
+func applianceGrantScan(grant *ApplianceGrant) []any {
+	return []any{&grant.InstallationID, &grant.Revision, &grant.System.CPUMillis, &grant.System.MemoryBytes,
+		&grant.System.PIDs, &grant.System.DiskBytes, &grant.MaxEnvironments, &grant.Aggregate.CPUMillis,
+		&grant.Aggregate.MemoryBytes, &grant.Aggregate.PIDs, &grant.Aggregate.DiskBytes,
+		&grant.PerEnvironment.CPUMillis, &grant.PerEnvironment.MemoryBytes, &grant.PerEnvironment.PIDs,
+		&grant.PerEnvironment.DiskBytes, &grant.MaxEgressMode, &grant.MaxLeaseSeconds,
+		&grant.DisconnectGraceSeconds, &grant.DynamicHostLoopback.MaxActiveLeases,
+		&grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation, &grant.DynamicHostLoopback.MaxLeaseSeconds,
+		&grant.DynamicHostLoopback.MaxConcurrentConnections,
+		&grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, &grant.DynamicHostLoopback.MaxFrameBytes,
+		&grant.DynamicHostLoopback.MaxConnectionBytes, &grant.DynamicHostLoopback.ConnectionDeadlineSeconds,
+		&grant.DynamicHostLoopback.ConnectionIdleSeconds, &grant.DynamicHostLoopback.MaxUseCount}
+}
+
+func applianceGrantArgs(grant ApplianceGrant, now int64) []any {
+	return []any{grant.InstallationID, grant.Revision, grant.System.CPUMillis, grant.System.MemoryBytes,
+		grant.System.PIDs, grant.System.DiskBytes, grant.MaxEnvironments, grant.Aggregate.CPUMillis,
+		grant.Aggregate.MemoryBytes, grant.Aggregate.PIDs, grant.Aggregate.DiskBytes,
+		grant.PerEnvironment.CPUMillis, grant.PerEnvironment.MemoryBytes, grant.PerEnvironment.PIDs,
+		grant.PerEnvironment.DiskBytes, grant.MaxEgressMode, grant.MaxLeaseSeconds, grant.DisconnectGraceSeconds,
+		grant.DynamicHostLoopback.MaxActiveLeases, grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation,
+		grant.DynamicHostLoopback.MaxLeaseSeconds, grant.DynamicHostLoopback.MaxConcurrentConnections,
+		grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, grant.DynamicHostLoopback.MaxFrameBytes,
+		grant.DynamicHostLoopback.MaxConnectionBytes, grant.DynamicHostLoopback.ConnectionDeadlineSeconds,
+		grant.DynamicHostLoopback.ConnectionIdleSeconds, grant.DynamicHostLoopback.MaxUseCount, now}
+}
+
+func (store *Store) InstallApplianceDomain(ctx context.Context, installation ApplianceInstallation,
+	grant ApplianceGrant, reservation ResourceReservation, hostCapacity ResourceAmount,
+	registration RemoteRegistration, frontends []ApplianceFrontend, operation ApplianceOperation) (ApplianceInstallation, RemoteRegistration, ApplianceOperation, error) {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	defer tx.Rollback()
+	if installation.Revision != 1 || operation.ExpectedRevision != 0 || registration.InstallationID != installation.ID {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, ErrInstallationRevisionConflict
+	}
+	var artifactProduct, artifactPublisher string
+	if err := tx.QueryRowContext(ctx, `SELECT product_id, publisher_key_id FROM appliance_artifacts
+		WHERE artifact_id=? AND verified=1`, installation.ArtifactID).Scan(&artifactProduct, &artifactPublisher); err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	if artifactProduct != installation.ProductID || artifactPublisher != installation.PublisherKeyID {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, ErrInstallationRevisionConflict
+	}
+	total, err := sumReservations(ctx, tx, "", 0)
+	if err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	if !total.add(reservation.Amount).fits(hostCapacity) {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, ErrResourceCapacityExceeded
+	}
+	now := time.Now().UnixNano()
+	if registration.InventoryRevision == 0 {
+		registration.InventoryRevision = 1
+	}
+	// The installation's registration_id is an immediate foreign key. Create
+	// the independent registration row before linking it from the installation.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO remote_registrations(id, endpoint, display_name,
+		protocol_version, max_environments, aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids,
+		aggregate_disk_bytes, per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
+		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds, state,
+		connection_state, enrollment_state, connector_phase, connector_observed_at, enrollment_request_id,
+		owner_kind, installation_id, inventory_revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
+		registration.MaxEnvironments, registration.AggregateCPUMillis, registration.AggregateMemoryBytes,
+		registration.AggregatePIDs, registration.AggregateDiskBytes, registration.PerEnvCPUMillis,
+		registration.PerEnvMemoryBytes, registration.PerEnvPIDs, registration.PerEnvDiskBytes, registration.MaxEgressMode,
+		registration.MaxLeaseSeconds, registration.DisconnectGraceSeconds, registration.StopGraceSeconds,
+		registration.State, registration.ConnectionState, registration.EnrollmentState, registration.ConnectorPhase,
+		now, registration.EnrollmentRequestID, registration.OwnerKind, registration.InstallationID,
+		registration.InventoryRevision, now, now); err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO appliance_installations(id, product_id, publisher_key_id,
+		artifact_id, desired_enabled, state, revision, registration_id, encrypted_volume_id,
+		encrypted_volume_identity, data_volume_bytes, bootstrap_id, current_boot_id, current_container_instance,
+		created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, 1, ?, ?, ?, ?, ?, '', '', ?, ?)`, installation.ID,
+		installation.ProductID, installation.PublisherKeyID, installation.ArtifactID, installation.State,
+		registration.ID, installation.EncryptedVolumeID, installation.EncryptedVolumeIdentity,
+		installation.DataVolumeBytes, installation.BootstrapID, now, now)
+	if err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO appliance_volumes(installation_id, volume_id, identity,
+		bytes, updated_at) VALUES (?, ?, ?, ?, ?)`, installation.ID, installation.EncryptedVolumeID,
+		installation.EncryptedVolumeIdentity, installation.DataVolumeBytes, now); err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	grant.InstallationID = installation.ID
+	if _, err := tx.ExecContext(ctx, `INSERT INTO appliance_grants(installation_id, revision,
+		system_cpu_millis, system_memory_bytes, system_pids, system_disk_bytes, max_environments,
+		aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
+		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
+		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, dynamic_max_active_leases,
+		dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
+		dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease,
+		dynamic_max_frame_bytes, dynamic_max_connection_bytes, dynamic_connection_deadline_seconds,
+		dynamic_connection_idle_seconds, dynamic_max_use_count, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO resource_reservations(id, owner_kind, owner_id,
+		resource_kind, resource_id, cpu_millis, memory_bytes, pids, disk_bytes, retained, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, reservation.ID, reservation.OwnerKind,
+		reservation.OwnerID, reservation.ResourceKind, reservation.ResourceID, reservation.Amount.CPUMillis,
+		reservation.Amount.MemoryBytes, reservation.Amount.PIDs, reservation.Amount.DiskBytes,
+		reservation.Retained, now); err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	for _, frontend := range frontends {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO appliance_frontends(installation_id, name,
+			transport, exposure, max_frame_bytes, max_total_bytes, deadline_seconds, idle_seconds,
+			max_concurrent_streams, max_use_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			installation.ID, frontend.Name, frontend.Transport, frontend.Exposure, frontend.MaxFrameBytes,
+			frontend.MaxTotalBytes, frontend.DeadlineSeconds, frontend.IdleSeconds,
+			frontend.MaxConcurrentStreams, frontend.MaxUseCount); err != nil {
+			return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+		}
+	}
+	if err := insertApplianceOperation(ctx, tx, operation, now); err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	installed, err := store.GetApplianceInstallation(ctx, installation.ID)
+	if err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	createdRegistration, err := store.GetRemoteRegistration(ctx, registration.ID)
+	if err != nil {
+		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
+	}
+	createdOperation, err := store.GetApplianceOperation(ctx, operation.ID)
+	return installed, createdRegistration, createdOperation, err
+}

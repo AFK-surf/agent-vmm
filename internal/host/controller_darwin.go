@@ -4,8 +4,11 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -14,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -50,6 +54,7 @@ type Config struct {
 	TrustKeyProvider           trustkeys.Provider
 	DisablePersonalMeshPairing bool
 	DataWorkerSocket           string
+	RemoteComputeSocket        string
 }
 
 type Controller struct {
@@ -60,29 +65,47 @@ type Controller struct {
 	sessionDirectory            string
 	supportDirectory            string
 	dataWorkerSocket            string
+	remoteComputeSocket         string
+	instanceDirectory           string
+	applianceSecrets            applianceSecretStore
+	trustKeyProvider            trustkeys.Provider
 
-	mu                    sync.Mutex
-	sessions              map[string]*sessionServer
-	observed              map[string][]*hostv1.Container
-	environmentLocks      sync.Map
-	integrationLocks      sync.Map
-	sessionActivity       sync.Map
-	remoteAdmissionMu     sync.Mutex
-	projectionMu          sync.Mutex
-	egress                *egress.Subsystem
-	egressCancel          context.CancelFunc
-	egressAcceptWG        sync.WaitGroup
-	egressSessionWG       sync.WaitGroup
-	policyRevision        atomic.Uint64
-	remoteCapacity        store.Environment
-	remoteLeases          map[string]*remoteLease
-	allocationLeases      map[string]string
-	remoteLeaseGeneration atomic.Uint64
-	routeBudgets          routeBudgetTracker
-	serviceListenerMu     sync.Mutex
-	serviceListeners      map[string]*serviceListenerRuntime
-	pairingMu             sync.Mutex
-	pairings              map[string]*personalMeshPairingRuntime
+	mu                       sync.Mutex
+	sessions                 map[string]*sessionServer
+	observed                 map[string][]*hostv1.Container
+	environmentLocks         sync.Map
+	integrationLocks         sync.Map
+	sessionActivity          sync.Map
+	remoteAdmissionMu        sync.Mutex
+	projectionMu             sync.Mutex
+	egress                   *egress.Subsystem
+	egressCancel             context.CancelFunc
+	egressAcceptWG           sync.WaitGroup
+	egressSessionWG          sync.WaitGroup
+	policyRevision           atomic.Uint64
+	remoteCapacity           store.Environment
+	remoteLeases             map[string]*remoteLease
+	allocationLeases         map[string]string
+	remoteLeaseGeneration    atomic.Uint64
+	hostFrontendGeneration   atomic.Uint64
+	hostFrontends            *hostLoopbackFrontendManager
+	remoteConnectionEpochs   map[string]uint64
+	routeBudgets             routeBudgetTracker
+	applianceHealthMu        sync.Mutex
+	applianceHealth          map[string]*appliancev1.ApplianceHealth
+	pendingApplianceHealth   map[string]*appliancev1.ApplianceHealth
+	serviceListenerMu        sync.Mutex
+	serviceListeners         map[string]*serviceListenerRuntime
+	pairingMu                sync.Mutex
+	pairings                 map[string]*personalMeshPairingRuntime
+	privateControllerMu      sync.Mutex
+	privateControllers       map[string]*privateControllerRoute
+	applianceFrontendMu      sync.Mutex
+	applianceFrontends       map[string]*applianceFrontendRuntime
+	domainMetricsMu          sync.Mutex
+	domainMetrics            map[string]*controllerDomainMetricState
+	applianceReconcileCancel context.CancelFunc
+	applianceReconcileWG     sync.WaitGroup
 }
 
 func (controller *Controller) lockIntegration(id string) func() {
@@ -101,6 +124,10 @@ func New(config Config) (*Controller, error) {
 	}
 	database, err := store.Open(config.DatabasePath)
 	if err != nil {
+		return nil, err
+	}
+	if err := installFirstPartyAppliancePublisher(context.Background(), database, config.BundleDirectory); err != nil {
+		database.Close()
 		return nil, err
 	}
 	if err := database.RevokeActiveSessions(context.Background()); err != nil {
@@ -140,17 +167,85 @@ func New(config Config) (*Controller, error) {
 		database.Close()
 		return nil, err
 	}
-	return &Controller{
+	if err := os.RemoveAll(filepath.Join(supportDirectory, "appliance-frontends")); err != nil {
+		database.Close()
+		return nil, err
+	}
+	applianceSecrets, err := newApplianceSecretStore(config.InstanceDirectory)
+	if err != nil {
+		database.Close()
+		return nil, err
+	}
+	controller := &Controller{
 		manager: config.Manager, store: database, trust: trustManager, personalMeshPairingDisabled: config.DisablePersonalMeshPairing, sessionDirectory: config.SessionDirectory,
-		supportDirectory: supportDirectory, dataWorkerSocket: config.DataWorkerSocket, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container),
+		supportDirectory: supportDirectory, dataWorkerSocket: config.DataWorkerSocket, remoteComputeSocket: config.RemoteComputeSocket, instanceDirectory: config.InstanceDirectory,
+		applianceSecrets: applianceSecrets, trustKeyProvider: config.TrustKeyProvider, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container),
 		egress: egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
-		serviceListeners: make(map[string]*serviceListenerRuntime),
-		pairings:         make(map[string]*personalMeshPairingRuntime),
-		remoteCapacity:   store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
-	}, nil
+		applianceHealth: make(map[string]*appliancev1.ApplianceHealth), pendingApplianceHealth: make(map[string]*appliancev1.ApplianceHealth),
+		serviceListeners:   make(map[string]*serviceListenerRuntime),
+		pairings:           make(map[string]*personalMeshPairingRuntime),
+		privateControllers: make(map[string]*privateControllerRoute),
+		applianceFrontends: make(map[string]*applianceFrontendRuntime),
+		domainMetrics:      make(map[string]*controllerDomainMetricState),
+		remoteCapacity:     store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
+	}
+	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
+	controller.remoteConnectionEpochs = make(map[string]uint64)
+	config.Manager.SetInvalidationHandler(func() { controller.invalidateRuntimeCapabilities(context.Background()) })
+	// Appliance operation receipts outlive the host process. Recover them
+	// before exposing the controller so reconciliation cannot treat an
+	// interrupted lifecycle call as an active owner forever.
+	if err := controller.recoverInterruptedApplianceAdminOperations(context.Background()); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("recover interrupted appliance operations: %w", err)
+	}
+	if err := controller.recoverPendingApplianceRemovals(context.Background()); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("recover pending appliance removals: %w", err)
+	}
+	reconcileContext, reconcileCancel := context.WithCancel(context.Background())
+	controller.applianceReconcileCancel = reconcileCancel
+	controller.applianceReconcileWG.Add(1)
+	go func() {
+		defer controller.applianceReconcileWG.Done()
+		controller.applianceReconcileLoop(reconcileContext)
+	}()
+	return controller, nil
+}
+
+func (controller *Controller) invalidateRuntimeCapabilities(ctx context.Context) {
+	controller.hostFrontends.closeAll(hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
+	controller.stopAllApplianceFrontends()
+	controller.clearAllApplianceHealth()
+	controller.stopAllPrivateControllerRoutes()
+	controller.mu.Lock()
+	sessionIDs := make([]string, 0, len(controller.sessions))
+	for id := range controller.sessions {
+		sessionIDs = append(sessionIDs, id)
+	}
+	controller.mu.Unlock()
+	for _, id := range sessionIDs {
+		_ = controller.revokeSession(ctx, id)
+	}
+	registrations, err := controller.store.ListRemoteRegistrations(ctx)
+	if err != nil {
+		return
+	}
+	for _, registration := range registrations {
+		if registration.ConnectionState == int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
+			_, _ = controller.store.SetRemoteConnection(ctx, registration.ID, registration.ConnectionInstance, int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
+		}
+	}
 }
 
 func (controller *Controller) Close() error {
+	if controller.applianceReconcileCancel != nil {
+		controller.applianceReconcileCancel()
+		controller.applianceReconcileWG.Wait()
+	}
+	controller.hostFrontends.closeAll(hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
+	controller.stopAllApplianceFrontends()
+	controller.stopAllPrivateControllerRoutes()
 	controller.stopEgress()
 	controller.closeAllServiceListeners()
 	controller.mu.Lock()
@@ -177,6 +272,7 @@ func (controller *Controller) NewOperatorServer() *grpc.Server {
 		grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), auditStream(controller), limiter.stream, deadlineStream, errorDetailsStream),
 	)
 	hostv1.RegisterOperatorServiceServer(server, &operatorServer{controller: controller})
+	appliancev1.RegisterApplianceAdminServiceServer(server, &applianceAdminServer{controller: controller})
 	return server
 }
 
@@ -304,6 +400,9 @@ func (controller *Controller) reconcileEnvironment(ctx context.Context, environm
 func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, environment store.Environment) error {
 	started := false
 	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		if err := controller.configureApplianceBlocks(ctx); err != nil {
+			return err
+		}
 		if _, err := controller.manager.Start(ctx); err != nil {
 			return err
 		}
@@ -312,6 +411,9 @@ func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, en
 	if started {
 		if err := controller.startEgress(); err != nil {
 			return err
+		}
+		if err := controller.reconcileAppliances(ctx); err != nil {
+			_ = controller.store.Audit(ctx, "system", "system", "appliance.reconcile", "", "", int32(codes.FailedPrecondition), "APPLIANCE_RECONCILE_PARTIAL")
 		}
 		return controller.reconcilePoliciesLocked(ctx)
 	}
@@ -368,7 +470,7 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 	defer connection.Close()
 	for _, grant := range grants {
 		if grant.Kind == "network-link" && grant.Revoked {
-			if _, err := client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: randomRequestIDFor("delete-" + grant.ID), LinkId: grant.ID}); err != nil {
+			if _, err := client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: derivedRequestID("delete-" + grant.ID), LinkId: grant.ID}); err != nil {
 				return err
 			}
 		}
@@ -381,7 +483,7 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 		if err != nil {
 			return err
 		}
-		_, applyErr := client.ApplyNetworkLink(ctx, &vmmdv1.ApplyNetworkLinkRequest{RequestId: randomRequestIDFor(grant.ID), Link: link})
+		_, applyErr := client.ApplyNetworkLink(ctx, &vmmdv1.ApplyNetworkLinkRequest{RequestId: derivedRequestID(grant.ID), Link: link})
 		if applyErr != nil {
 			return applyErr
 		}
@@ -392,7 +494,7 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 	}
 	for _, projection := range serviceProjections {
 		_, err := client.ApplyServiceProjection(ctx, &vmmdv1.ApplyServiceProjectionRequest{
-			RequestId: randomRequestIDFor(projection.Import.GetImportId()),
+			RequestId: derivedRequestID(projection.Import.GetImportId()),
 			Projection: &vmmdv1.ServiceProjection{Id: projection.Import.GetImportId(), SourceNamespaceId: projection.SourceNamespace,
 				SourceContainerId: projection.Import.GetSourceContainerId(), SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(),
 				DestinationNamespaceId: projection.DestinationNamespace, DestinationContainerId: projection.Export.GetContainerId(),
@@ -419,7 +521,7 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 			}
 			virtualAddress := remoteServiceAddress(projection.Import.GetImportId())
 			response, applyErr := client.ApplyServiceProjection(ctx, &vmmdv1.ApplyServiceProjectionRequest{
-				RequestId: randomRequestIDFor(projection.Import.GetImportId()),
+				RequestId: derivedRequestID(projection.Import.GetImportId()),
 				Projection: &vmmdv1.ServiceProjection{Id: projection.Import.GetImportId(), SourceNamespaceId: projection.SourceNamespace,
 					SourceContainerId: projection.Import.GetSourceContainerId(), SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(),
 					DestinationPort: projection.Import.GetDestinationPort(), DnsAlias: projection.Import.GetVirtualServiceName(),
@@ -447,8 +549,9 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 	return controller.publishSourcePolicies(ctx)
 }
 
-func randomRequestIDFor(value string) string {
-	return "reconcile-" + value
+func derivedRequestID(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return "reconcile-" + hex.EncodeToString(digest[:26])
 }
 
 func (controller *Controller) guestClient(ctx context.Context) (vmmdv1.VMMDServiceClient, *grpc.ClientConn, error) {

@@ -22,8 +22,8 @@ type descriptor struct {
 }
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: oci ROOTFS_TAR OUTPUT_OCI_TAR")
+	if len(os.Args) < 3 || len(os.Args) > 4 {
+		fmt.Fprintln(os.Stderr, "usage: oci ROOTFS_TAR OUTPUT_OCI_TAR [ENTRYPOINT]")
 		os.Exit(2)
 	}
 	directory, err := os.MkdirTemp("", "agent-vmm-builder-oci-")
@@ -37,7 +37,14 @@ func main() {
 	}
 	layer, err := copyBlob(os.Args[1], blobs)
 	check(err)
-	config := mustJSON(map[string]any{"architecture": "arm64", "os": "linux", "rootfs": map[string]any{"type": "layers", "diff_ids": []string{layer.Digest}}})
+	configValue := map[string]any{"architecture": "arm64", "os": "linux", "rootfs": map[string]any{"type": "layers", "diff_ids": []string{layer.Digest}}}
+	if len(os.Args) == 4 {
+		if !filepath.IsAbs(os.Args[3]) {
+			panic("OCI entrypoint must be absolute")
+		}
+		configValue["config"] = map[string]any{"Entrypoint": []string{os.Args[3]}}
+	}
+	config := mustJSON(configValue)
 	configDescriptor, err := writeBlob(config, "application/vnd.oci.image.config.v1+json", blobs)
 	check(err)
 	manifest := mustJSON(map[string]any{"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json", "config": configDescriptor, "layers": []descriptor{{MediaType: "application/vnd.oci.image.layer.v1.tar", Digest: layer.Digest, Size: layer.Size}}})

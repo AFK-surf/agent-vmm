@@ -23,8 +23,16 @@ import (
 )
 
 func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateContainerRequest) (*vmmdv1.Container, error) {
+	return r.createContainer(ctx, request, false, nil)
+}
+
+func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateContainerRequest, system bool, systemOption oci.SpecOpts) (*vmmdv1.Container, error) {
 	namespaceID := request.GetActorNamespaceId()
-	if err := validateID("actor_namespace_id", namespaceID); err != nil {
+	if system {
+		if err := validateSystemNamespace(namespaceID); err != nil {
+			return nil, err
+		}
+	} else if err := validateID("actor_namespace_id", namespaceID); err != nil {
 		return nil, err
 	}
 	if err := validateID("container_id", request.GetContainerId()); err != nil {
@@ -32,7 +40,7 @@ func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateCon
 	}
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
-	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
 		return nil, err
 	}
 	if request.GetImage() == "" {
@@ -87,11 +95,15 @@ func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if err != nil {
 		return nil, err
 	}
+	specOptions := r.specOptions(namespaceID, request, image)
+	if systemOption != nil {
+		specOptions = append(specOptions, systemOption)
+	}
 	container, err := r.client.NewContainer(nsctx, request.GetContainerId(),
 		containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter), containerd.WithNewSnapshot(request.GetContainerId()+"-rootfs", image),
 		containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
 		containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10)}),
-		containerd.WithNewSpec(r.specOptions(namespaceID, request, image)...), withSupervisedProcess(),
+		containerd.WithNewSpec(specOptions...), withSupervisedProcess(),
 	)
 	if err != nil {
 		return nil, err
@@ -130,7 +142,8 @@ func withSupervisedProcess() containerd.NewContainerOpts {
 			container.Extensions = make(map[string]typeurl.Any)
 		}
 		container.Extensions[containerProcess] = process
-		spec.Process = &specs.Process{Args: []string{supervisorPath}, Cwd: "/", User: specs.User{}, NoNewPrivileges: true, Capabilities: &specs.LinuxCapabilities{}}
+		spec.Process = &specs.Process{Args: []string{supervisorPath}, Cwd: "/", User: specs.User{}, NoNewPrivileges: true, Capabilities: &specs.LinuxCapabilities{},
+			Rlimits: []specs.POSIXRlimit{{Type: "RLIMIT_CORE", Hard: 0, Soft: 0}}}
 		spec.Mounts = append(spec.Mounts, specs.Mount{Destination: supervisorPath, Type: "bind", Source: supervisorHostPath, Options: []string{"bind", "ro", "nosuid", "nodev"}})
 		container.Spec, err = typeurl.MarshalAny(spec)
 		return err

@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -42,11 +44,13 @@ type Server struct {
 	prepareHost  func(context.Context) error
 	healthProbe  func(context.Context) healthProbeResult
 	events       eventBuffer
+	appliances   *applianceSupervisor
 }
 
 func NewServer(runtime *Runtime, health HealthState, prepareHost func(context.Context) error) *Server {
 	server := &Server{runtime: runtime, health: health, prepareHost: prepareHost, events: newEventBuffer()}
 	server.healthProbe = server.probeComponents
+	server.appliances = newApplianceSupervisor(runtime, health.BootID)
 	return server
 }
 
@@ -63,7 +67,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if err := s.beginShutdown(ctx); err != nil {
 		return err
 	}
-	return s.runtime.cleanupTasks(ctx)
+	return errors.Join(s.appliances.shutdown(ctx), s.runtime.cleanupTasks(ctx))
 }
 
 func (s *Server) Health(context.Context, *vmmdv1.HealthRequest) (*vmmdv1.HealthResponse, error) {
@@ -305,11 +309,17 @@ func mutationRequestID(request proto.Message) string {
 	switch request := request.(type) {
 	case *vmmdv1.PrepareShutdownRequest:
 		return request.GetRequestId()
+	case *vmmdv1.EnsureSystemApplianceRequest:
+		return request.GetRequestId()
+	case *vmmdv1.StopSystemApplianceRequest:
+		return request.GetRequestId()
 	case *vmmdv1.EnsureNamespaceRequest:
 		return request.GetRequestId()
 	case *vmmdv1.DeleteNamespaceRequest:
 		return request.GetRequestId()
 	case *vmmdv1.PullImageRequest:
+		return request.GetRequestId()
+	case *vmmdv1.ImportImageHeader:
 		return request.GetRequestId()
 	case *vmmdv1.DeleteImageRequest:
 		return request.GetRequestId()
@@ -367,7 +377,7 @@ func deadlineStreamInterceptor(server any, stream grpc.ServerStream, info *grpc.
 		return handler(server, stream)
 	}
 	duration := 30 * time.Minute
-	if info.FullMethod == vmmdv1.VMMDService_Exec_FullMethodName || info.FullMethod == vmmdv1.VMMDService_ForwardTCP_FullMethodName {
+	if info.FullMethod == vmmdv1.VMMDService_Exec_FullMethodName || info.FullMethod == vmmdv1.VMMDService_ForwardTCP_FullMethodName || info.FullMethod == vmmdv1.VMMDService_ImportImage_FullMethodName {
 		duration = 8 * time.Hour
 	}
 	ctx, cancel := context.WithTimeout(stream.Context(), duration)
@@ -392,11 +402,12 @@ func rpcError(err error) error {
 		return err
 	}
 	switch {
-	case errdefs.IsNotFound(err):
+	case errdefs.IsNotFound(err), errors.Is(err, os.ErrNotExist):
 		return status.Error(codes.NotFound, "resource was not found")
 	case errdefs.IsAlreadyExists(err):
 		return status.Error(codes.AlreadyExists, "resource already exists")
 	case errdefs.IsFailedPrecondition(err):
+		log.Printf("guest runtime precondition failed: %v", err)
 		return status.Error(codes.FailedPrecondition, "runtime precondition failed")
 	case errors.Is(err, errResourceExhausted):
 		return status.Error(codes.ResourceExhausted, err.Error())
@@ -407,6 +418,7 @@ func rpcError(err error) error {
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, err.Error())
 	default:
+		log.Printf("guest runtime operation failed: %v", err)
 		return status.Error(codes.Internal, "runtime operation failed")
 	}
 }

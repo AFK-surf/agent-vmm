@@ -82,9 +82,9 @@ struct SystemStatusView: View {
             VStack(spacing: 0) {
                 Button { model.showAccess(.local) } label: {
                     HStack {
-                        Label("Local agents", systemImage: "bolt.horizontal.circle")
+                        Label("MCP appliance", systemImage: "bolt.horizontal.circle")
                         Spacer()
-                        Text("\(readyIntegrationCount) ready · \(inUseIntegrationCount) in use")
+                        Text(mcpAccessSummary)
                             .foregroundStyle(.secondary)
                         Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                     }
@@ -110,16 +110,14 @@ struct SystemStatusView: View {
     }
 
     private var remoteAccessSummary: String {
-        guard let remote = model.snapshot.remoteRegistration else { return "Not configured" }
-        return "\(remote.connectionState.rawValue) · \(remote.state.rawValue)"
+        let remotes = model.snapshot.remoteRegistrations.filter { $0.owner == .external }
+        guard !remotes.isEmpty else { return "Not configured" }
+        return "\(remotes.count) configured"
     }
 
-    private var readyIntegrationCount: Int {
-        model.integrations.filter { $0.configState == .ready }.count
-    }
-
-    private var inUseIntegrationCount: Int {
-        Set(model.sessions.filter { $0.activeConnections > 0 }.compactMap(\.integrationID)).count
+    private var mcpAccessSummary: String {
+        guard let appliance = model.bundledMCP else { return "Not created" }
+        return appliance.enabled ? "Enabled · \(model.mcpClientBindings.count) clients" : "Disabled"
     }
 
     private var vmCard: some View {

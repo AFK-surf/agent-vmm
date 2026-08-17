@@ -6,14 +6,14 @@ import Observation
 final class AppModel {
     enum Section: String, CaseIterable, Identifiable {
         case system = "Overview"
-        case access = "Agent Access"
+        case access = "MCP"
         case devices = "My Devices"
         case environments = "Environments"
         case diagnostics = "Activity"
         var id: Self { self }
     }
 
-    enum AccessTab: String, CaseIterable, Identifiable { case local = "Local Agents", remote = "Remote Controller"; var id: Self { self } }
+    enum AccessTab: String, CaseIterable, Identifiable { case local = "Local MCP", remote = "Remote Controllers"; var id: Self { self } }
 
     enum EnvironmentSection: String, CaseIterable, Identifiable {
         case overview = "Overview"
@@ -37,19 +37,13 @@ final class AppModel {
         case connecting = "Connecting"
     }
 
-    enum IntegrationStage: String {
-        case starting = "Starting agent setup…"
-        case writingConfiguration = "Writing Codex configuration…"
-        case finalizing = "Finishing agent setup…"
-    }
-
     var section: Section? = .system
     var selectedEnvironmentID: String?
     var environmentSection: EnvironmentSection = .overview
     var accessTab: AccessTab = .local
     var snapshot = SystemSnapshotModel.loading
-    var integrations: [AgentIntegrationModel] = []
-    var sessions: [AgentSessionModel] = []
+    var appliances: [ApplianceStatusModel] = []
+    var mcpClientBindings: [MCPClientBindingModel] = []
     var deviceIdentity: DeviceIdentityModel?
     var personalMeshes: [PersonalMeshModel] = []
     var personalMeshPairing: PersonalMeshPairingModel?
@@ -64,7 +58,7 @@ final class AppModel {
     var gracefulStopFailed = false
     var vmAction: VMAction?
     var enrollmentStage: EnrollmentStage?
-    var integrationStage: IntegrationStage?
+    var applianceActionInProgress = false
     var lifecycleStatus: LifecycleStatus?
     var lifecycleOperationInProgress = false
 
@@ -73,7 +67,7 @@ final class AppModel {
     private var metricsTask: Task<Void, Never>?
     private var snapshotRefreshTask: Task<Void, Never>?
     private var eventBootID = ""
-    let integrationConfiguration = AgentIntegrationConfiguration()
+    let mcpClientConfiguration = MCPClientConfiguration()
 
     init(client: (any HostServing)? = nil) {
         self.client = client
@@ -104,11 +98,10 @@ final class AppModel {
     func refresh() async throws {
         guard let client else { throw HostClientError.disconnected }
         async let nextSnapshot = client.snapshot()
-        async let nextIntegrations = client.listAgentIntegrations()
-        async let nextSessions = client.listAgentSessions(integrationID: nil, includeTerminal: false)
+        async let nextAppliances = client.listAppliances()
         applySnapshot(try await nextSnapshot)
-        integrations = try await nextIntegrations
-        sessions = try await nextSessions
+        appliances = try await nextAppliances
+        mcpClientBindings = (try? mcpClientConfiguration.bindings()) ?? []
         isLoading = false
         errorMessage = nil
     }
@@ -343,24 +336,24 @@ final class AppModel {
         }
     }
 
-    func setRemoteAdmission(_ state: RemoteAdmissionState) async {
-        guard let registration = snapshot.remoteRegistration else { return }
+    func setRemoteAdmission(_ state: RemoteAdmissionState, registrationID: String) async {
+        guard let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return }
         do {
-            _ = try await client?.setRemoteAdmission(state, expectedRevision: registration.revision)
+            _ = try await client?.setRemoteAdmission(registrationID: registration.id, state, expectedRevision: registration.revision)
             try await refresh()
         }
         catch { errorMessage = hostErrorMessage(error) }
     }
 
-    func updateRemotePool(_ pool: RemotePoolSettings) async -> Bool {
-        guard let registration = snapshot.remoteRegistration else { return false }
-        do { _ = try await client?.updateRemotePool(pool, expectedRevision: registration.revision); try await refresh() }
+    func updateRemotePool(_ pool: RemotePoolSettings, registrationID: String) async -> Bool {
+        guard let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return false }
+        do { _ = try await client?.updateRemotePool(registrationID: registration.id, pool, expectedRevision: registration.revision); try await refresh() }
         catch { errorMessage = hostErrorMessage(error); return false }
         return true
     }
 
-    func retryRemoteEnrollment(token: String) async -> Bool {
-        guard let client, let registration = snapshot.remoteRegistration else { return false }
+    func retryRemoteEnrollment(token: String, registrationID: String) async -> Bool {
+        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return false }
         var pendingRegistration: RemoteRegistrationModel?
         enrollmentStage = .creating
         defer { enrollmentStage = nil }
@@ -383,8 +376,8 @@ final class AppModel {
         }
     }
 
-    func removeIncompleteRemoteRegistration() async {
-        guard let client, let registration = snapshot.remoteRegistration else { return }
+    func removeIncompleteRemoteRegistration(registrationID: String) async {
+        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return }
         do {
             try await revokeCredential(registrationID: registration.id)
             try await client.removeIncompleteRemoteRegistration(registrationID: registration.id, expectedRevision: registration.revision)
@@ -392,8 +385,8 @@ final class AppModel {
         } catch { errorMessage = hostErrorMessage(error) }
     }
 
-    func revokeRemoteAccess() async -> Bool {
-        guard let client, let registration = snapshot.remoteRegistration else { return true }
+    func revokeRemoteAccess(registrationID: String) async -> Bool {
+        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return true }
         do {
             let revoking = try await client.beginRemoteRevocation(registrationID: registration.id, expectedRevision: registration.revision)
             try await revokeCredential(registrationID: registration.id)
@@ -407,8 +400,8 @@ final class AppModel {
         }
     }
 
-    func finishRemoteRevocation() async {
-        guard let client, let registration = snapshot.remoteRegistration else { return }
+    func finishRemoteRevocation(registrationID: String) async {
+        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return }
         do {
             try await revokeCredential(registrationID: registration.id)
             _ = try await client.completeRemoteRevocation(registrationID: registration.id, expectedRevision: registration.revision)

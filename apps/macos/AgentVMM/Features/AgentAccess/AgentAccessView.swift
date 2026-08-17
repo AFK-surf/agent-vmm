@@ -7,257 +7,18 @@ struct AgentAccessView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if let status = model.lifecycleStatus {
-                    ServiceInstallationView(model: model, status: status)
-                }
                 Picker("Access type", selection: $model.accessTab) {
                     ForEach(AppModel.AccessTab.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 420)
-
+                .pickerStyle(.segmented).frame(maxWidth: 420)
                 switch model.accessTab {
-                case .local: LocalAgentsView(model: model)
+                case .local: BundledMCPView(model: model)
                 case .remote: RemoteControllerView(model: model)
                 }
             }
-            .frame(maxWidth: 980, alignment: .leading)
-            .padding(28)
+            .frame(maxWidth: 980, alignment: .leading).padding(28)
         }
-        .navigationTitle("Agent Access")
-        .task(id: model.accessTab) {
-            if model.accessTab == .local { await model.verifyAgentConfigurations() }
-        }
-    }
-}
-
-private struct ServiceInstallationView: View {
-    @Bindable var model: AppModel
-    let status: LifecycleStatus
-
-    var body: some View {
-        GroupBox("Installed components") {
-            HStack(spacing: 20) {
-                component("Host service", detail: status.hostInstalled ? (status.hostLoaded ? "Installed and running" : "Installed, not running") : "Not installed", healthy: status.hostInstalled && status.hostLoaded)
-                Divider().frame(height: 30)
-                component("MCP helper", detail: status.mcpInstalled ? "Installed · Runs on demand" : "Not installed", healthy: status.mcpInstalled)
-                Divider().frame(height: 30)
-                let connectorConfigured = model.snapshot.remoteRegistration != nil
-                component("Remote connector", detail: status.connectorInstalled ? (connectorConfigured ? (status.connectorLoaded ? "Installed and running" : "Installed, not running") : "Installed · Not configured") : "Not installed", healthy: status.connectorInstalled && (!connectorConfigured || status.connectorLoaded))
-                Spacer()
-                if !model.servicesHealthy {
-                    Button("Repair Services") { Task { await model.repairServices() } }
-                        .disabled(model.lifecycleOperationInProgress)
-                }
-            }.padding(6)
-        }
-    }
-
-    private func component(_ name: String, detail: String, healthy: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(name).font(.headline)
-            Label(detail, systemImage: healthy ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(healthy ? .green : .orange)
-        }
-    }
-}
-
-private struct LocalAgentsView: View {
-    @Bindable var model: AppModel
-    @State private var showingAdd = false
-    @State private var removalIntegration: AgentIntegrationModel?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Local Agents").font(.title2.weight(.semibold))
-                    Text("Agents configured to use isolated environments through MCP.").foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Add Agent…", systemImage: "plus") { showingAdd = true }
-                    .buttonStyle(.borderedProminent)
-            }
-
-            if model.integrations.isEmpty {
-                ContentUnavailableView {
-                    Label("No local agents", systemImage: "bolt.horizontal.circle")
-                } description: {
-                    Text("Add Codex automatically or copy a configuration for another MCP client.")
-                } actions: {
-                    Button("Add Agent…") { showingAdd = true }.buttonStyle(.borderedProminent)
-                }
-                .frame(maxWidth: .infinity, minHeight: 260)
-            } else {
-                GroupBox {
-                    VStack(spacing: 0) {
-                        ForEach(Array(model.integrations.enumerated()), id: \.element.id) { index, integration in
-                            IntegrationRow(
-                                model: model,
-                                integration: integration,
-                                onRemove: { removalIntegration = integration }
-                            )
-                            if index != model.integrations.count - 1 { Divider() }
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                }
-            }
-
-            Label("Removing access keeps the environment and retained data. Manage data separately in Environments.", systemImage: "info.circle")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .sheet(isPresented: $showingAdd) { AddAgentSheet(model: model) }
-        .sheet(item: $removalIntegration) { integration in
-            RemoveAgentAccessSheet(model: model, integration: integration)
-        }
-    }
-}
-
-private struct IntegrationRow: View {
-    @Bindable var model: AppModel
-    let integration: AgentIntegrationModel
-    let onRemove: () -> Void
-    @State private var showingDetails = false
-
-    private var sessions: [AgentSessionModel] { model.sessions(for: integration.id) }
-    private var activeConnections: UInt32 { sessions.reduce(0) { $0 + $1.activeConnections } }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: integration.adapterID == "codex" ? "terminal" : "curlybraces")
-                .foregroundStyle(.blue)
-                .frame(width: 28, height: 28)
-                .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(integration.displayName).font(.headline)
-                Text("\(integration.adapterID == "codex" ? "Codex" : "Other MCP client") · \(integration.scope.rawValue)")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                HStack(spacing: 6) {
-                    integrationStatus
-                    if activeConnections > 0 {
-                        AccessStatusView(label: "In use", symbol: "checkmark.circle.fill", kind: .success)
-                    }
-                }
-                Text(activeConnections > 0 ? "\(activeConnections) active connection\(activeConnections == 1 ? "" : "s")" : lastUsed)
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Button("Environment", systemImage: "arrow.right.circle") {
-                model.showEnvironment(integration.environmentID)
-            }
-            .disabled(model.environment(id: integration.environmentID) == nil)
-            .help(model.environment(id: integration.environmentID) == nil
-                  ? "The environment is not currently available. Start the virtual machine and try again."
-                  : "Open and select this agent's environment")
-            Button("Manage") { showingDetails = true }
-        }
-        .padding(.vertical, 12)
-        .sheet(isPresented: $showingDetails) {
-            IntegrationDetailSheet(model: model, integration: integration) {
-                showingDetails = false
-                Task { @MainActor in
-                    await Task.yield()
-                    onRemove()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var integrationStatus: some View {
-        switch integration.configState {
-        case .ready: AccessStatusView(label: "Ready", symbol: "checkmark.circle", kind: .neutral)
-        case .needsRestart: AccessStatusView(label: "Awaiting connection", symbol: "arrow.clockwise.circle", kind: .attention)
-        case .conflict: AccessStatusView(label: "Config changed", symbol: "exclamationmark.triangle", kind: .attention)
-        case .error: AccessStatusView(label: "Needs repair", symbol: "xmark.circle", kind: .failure)
-        case .pending: AccessStatusView(label: "Setup incomplete", symbol: "clock", kind: .attention)
-        case .configuring: AccessStatusView(label: "Writing configuration", symbol: "clock.arrow.circlepath", kind: .attention)
-        case .removing: AccessStatusView(label: "Removing", symbol: "clock", kind: .attention)
-        default: AccessStatusView(label: integration.configState.rawValue, symbol: "questionmark.circle", kind: .neutral)
-        }
-    }
-
-    private var lastUsed: String {
-        guard let latest = sessions.compactMap(\.lastActivityAt).max() else { return "No active session" }
-        return "Last used \(latest.formatted(.relative(presentation: .named)))"
-    }
-}
-
-private struct IntegrationDetailSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var model: AppModel
-    let integration: AgentIntegrationModel
-    let onRemove: () -> Void
-    @State private var showingRepair = false
-    @State private var isWorking = false
-    @State private var localError: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(integration.displayName).font(.title2.weight(.semibold))
-            Form {
-                LabeledContent("Client", value: integration.adapterID == "codex" ? "Codex" : "Other MCP client")
-                LabeledContent("Scope", value: integration.scope.rawValue)
-                LabeledContent("Configuration", value: integration.configTarget)
-                LabeledContent("Environment", value: integration.environmentID)
-                LabeledContent("Active sessions", value: String(model.sessions(for: integration.id).filter { $0.activeConnections > 0 }.count))
-                LabeledContent("Session history", value: String(model.sessions(for: integration.id).count))
-                if let error = integration.errorMessage { Text(error).foregroundStyle(.red) }
-                if let localError { Text(localError).foregroundStyle(.red) }
-                if integration.adapterID == "codex", integration.configState == .pending {
-                    Text("Setup was not completed. Resume to write the managed Codex configuration, or remove access to discard this empty setup.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("Resume Setup") {
-                        isWorking = true
-                        localError = nil
-                        Task {
-                            let succeeded = await model.installCodexIntegration(integration)
-                            isWorking = false
-                            if succeeded { dismiss() } else { localError = model.errorMessage }
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isWorking)
-                }
-                if integration.adapterID == "manual", let command = model.manualCommand(for: integration) {
-                    LabeledContent("Command") { Text(command).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-                    Button("Copy Command") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(command, forType: .string) }
-                    if integration.configState == .pending {
-                        Button("Enable and Wait for Connection") { Task { if await model.markManualIntegrationReady(integration) { dismiss() } } }
-                            .buttonStyle(.borderedProminent)
-                    }
-                }
-            }
-            HStack {
-                Button("Open Environment") { dismiss(); model.showEnvironment(integration.environmentID) }
-                Button("Disconnect Sessions") { Task { await model.disconnectIntegration(integration) } }
-                if integration.canRetryRemoval {
-                    Button("Retry Removal") { Task { await model.finishIntegrationRemoval(integration) } }
-                }
-                if integration.canRepairConfiguration {
-                    Button("Review & Repair…") { showingRepair = true }
-                }
-                Spacer()
-                if integration.configurationRemoval != .requiresRepair {
-                    Button("Remove Access…", role: .destructive) { dismiss(); onRemove() }
-                }
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 580)
-        .interactiveDismissDisabled(isWorking)
-        .overlay {
-            if isWorking {
-                ProgressView(model.integrationStage?.rawValue ?? "Resuming agent setup…")
-                    .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            }
-        }
-        .sheet(isPresented: $showingRepair) { IntegrationRepairSheet(model: model, integration: integration) }
+        .navigationTitle("MCP")
     }
 }
 
@@ -270,12 +31,19 @@ private struct RemoteControllerView: View {
     @State private var showingDrain = false
     @State private var showingIncompleteRemoval = false
     @State private var showingReconnectConfirmation = false
+    @State private var selectedRegistrationID: String?
+
+    private var externalRegistrations: [RemoteRegistrationModel] {
+        model.snapshot.remoteRegistrations.filter { $0.owner == .external }
+    }
+
+    private var selectedRegistration: RemoteRegistrationModel? {
+        externalRegistrations.first { $0.id == selectedRegistrationID }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let registration = model.snapshot.remoteRegistration {
-                controller(registration)
-            } else {
+            if externalRegistrations.isEmpty {
                 ContentUnavailableView {
                     Label("No remote controller", systemImage: "network")
                 } description: {
@@ -284,28 +52,28 @@ private struct RemoteControllerView: View {
                     Button("Connect Controller…") { showingEnrollment = true }.buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: .infinity, minHeight: 320)
-            }
+            } else { ForEach(externalRegistrations, id: \.id) { controller($0) } }
         }
         .sheet(isPresented: $showingEnrollment) { RemoteEnrollmentSheet(model: model) }
-        .sheet(isPresented: $showingRetry) { RemoteRetrySheet(model: model) }
+        .sheet(isPresented: $showingRetry) { if let registration = selectedRegistration { RemoteRetrySheet(model: model, registration: registration) } }
         .sheet(isPresented: $showingCapacity) {
-            if let registration = model.snapshot.remoteRegistration { RemoteCapacitySheet(model: model, registration: registration) }
+            if let registration = selectedRegistration { RemoteCapacitySheet(model: model, registration: registration) }
         }
         .alert("Revoke controller access?", isPresented: $showingRevoke) {
             Button("Cancel", role: .cancel) {}
-            Button("Revoke Access", role: .destructive) { Task { _ = await model.revokeRemoteAccess() } }
+            Button("Revoke Access", role: .destructive) { if let id = selectedRegistrationID { Task { _ = await model.revokeRemoteAccess(registrationID: id) } } }
         } message: {
-            Text("The connector will disconnect, its Keychain credential will be deleted, and active remote sessions will be revoked. Retained environments remain available for local inspection.")
+            Text("The connector will disconnect, its protected credential will be deleted, and active remote sessions will be revoked. Retained environments remain available for local inspection.")
         }
         .alert("Drain remote access?", isPresented: $showingDrain) {
             Button("Cancel", role: .cancel) {}
-            Button("Drain") { Task { await model.setRemoteAdmission(.draining) } }
+            Button("Drain") { if let id = selectedRegistrationID { Task { await model.setRemoteAdmission(.draining, registrationID: id) } } }
         } message: {
             Text("New allocations and leases will be rejected. Existing leases continue until they finish or expire.")
         }
         .alert("Remove incomplete registration?", isPresented: $showingIncompleteRemoval) {
             Button("Cancel", role: .cancel) {}
-            Button("Remove Registration", role: .destructive) { Task { await model.removeIncompleteRemoteRegistration() } }
+            Button("Remove Registration", role: .destructive) { if let id = selectedRegistrationID { Task { await model.removeIncompleteRemoteRegistration(registrationID: id) } } }
         } message: {
             Text("The incomplete controller setup and any stored credential will be removed. Existing environments are retained.")
         }
@@ -313,8 +81,8 @@ private struct RemoteControllerView: View {
             Button("Cancel", role: .cancel) {}
             Button("Revoke and Reconnect", role: .destructive) {
                 Task {
-                    _ = await model.revokeRemoteAccess()
-                    if model.snapshot.remoteRegistration == nil { showingEnrollment = true }
+                    if let id = selectedRegistrationID { _ = await model.revokeRemoteAccess(registrationID: id) }
+                    if externalRegistrations.isEmpty { showingEnrollment = true }
                 }
             }
         } message: {
@@ -355,7 +123,7 @@ private struct RemoteControllerView: View {
             HStack {
                 switch registration.connector.phase {
                 case .authFailed:
-                    Button("Revoke and Reconnect…") { showingReconnectConfirmation = true }.buttonStyle(.borderedProminent)
+                    Button("Revoke and Reconnect…") { selectedRegistrationID = registration.id; showingReconnectConfirmation = true }.buttonStyle(.borderedProminent)
                 case .configError, .retryWait, .stopped:
                     Button("Repair Connector") { Task { await model.repairServices() } }.buttonStyle(.borderedProminent)
                 default:
@@ -372,15 +140,15 @@ private struct RemoteControllerView: View {
                     Text(registration.enrollmentError ?? "Credential setup did not finish. Retry with a new one-time token or remove this registration.")
                     HStack {
                         if registration.enrollmentState == .incomplete || registration.enrollmentState == .pending {
-                            Button("Retry Enrollment…") { showingRetry = true }.buttonStyle(.borderedProminent)
+                            Button("Retry Enrollment…") { selectedRegistrationID = registration.id; showingRetry = true }.buttonStyle(.borderedProminent)
                         }
-                        Button("Remove Registration", role: .destructive) { showingIncompleteRemoval = true }
+                        Button("Remove Registration", role: .destructive) { selectedRegistrationID = registration.id; showingIncompleteRemoval = true }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
             }
         } else if registration.enrollmentState == .revoking {
             GroupBox("Revocation incomplete") {
-                HStack { Text("Delete the Keychain credential and finish revocation."); Spacer(); Button("Retry Revocation") { Task { await model.finishRemoteRevocation() } } }
+                HStack { Text("Delete the protected credential and finish revocation."); Spacer(); Button("Retry Revocation") { Task { await model.finishRemoteRevocation(registrationID: registration.id) } } }
                     .padding(6)
             }
         } else {
@@ -392,13 +160,13 @@ private struct RemoteControllerView: View {
     @ViewBuilder private func controllerActions(_ registration: RemoteRegistrationModel) -> some View {
         HStack {
             if registration.enrollmentState == .ready {
-                Button("Edit Capacity…") { showingCapacity = true }
+                Button("Edit Capacity…") { selectedRegistrationID = registration.id; showingCapacity = true }
                 if registration.state == .accepting {
-                    Button("Drain…") { showingDrain = true }
+                    Button("Drain…") { selectedRegistrationID = registration.id; showingDrain = true }
                 } else if registration.state == .draining {
-                    Button("Resume Accepting Work") { Task { await model.setRemoteAdmission(.accepting) } }.buttonStyle(.borderedProminent)
+                    Button("Resume Accepting Work") { Task { await model.setRemoteAdmission(.accepting, registrationID: registration.id) } }.buttonStyle(.borderedProminent)
                 }
-                Menu { Button("Revoke Access…", role: .destructive) { showingRevoke = true } } label: { Image(systemName: "ellipsis.circle") }
+                Menu { Button("Revoke Access…", role: .destructive) { selectedRegistrationID = registration.id; showingRevoke = true } } label: { Image(systemName: "ellipsis.circle") }
             }
         }
     }
@@ -493,7 +261,7 @@ private struct RemoteEnrollmentSheet: View {
                     SecureField("One-time enrollment token", text: $token)
                     RemoteCapacityEditor(draft: $pool)
                 }
-                Text("The connector opens an outbound connection. The returned credential is stored in Keychain and is never included in snapshots, logs, or support bundles.")
+                Text("The connector opens an outbound connection. The returned credential is stored by the signed build's protected credential provider and is never included in snapshots, logs, or support bundles.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let localError { Label(localError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).accessibilityAddTraits(.isHeader) }
             }
@@ -528,6 +296,7 @@ private struct RemoteEnrollmentSheet: View {
 private struct RemoteRetrySheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var model: AppModel
+    let registration: RemoteRegistrationModel
     @State private var token = ""
     @State private var isWorking = false
     @State private var localError: String?
@@ -548,7 +317,7 @@ private struct RemoteRetrySheet: View {
         token = ""
         isWorking = true
         Task {
-            let succeeded = await model.retryRemoteEnrollment(token: value)
+            let succeeded = await model.retryRemoteEnrollment(token: value, registrationID: registration.id)
             isWorking = false
             if succeeded { dismiss() } else { localError = model.errorMessage ?? "Enrollment retry failed. Enter a new one-time token and try again." }
         }
@@ -584,7 +353,7 @@ private struct RemoteCapacitySheet: View {
     private func update() {
         isWorking = true
         Task {
-            if await model.updateRemotePool(pool.settings) { dismiss() }
+            if await model.updateRemotePool(pool.settings, registrationID: registration.id) { dismiss() }
             else { localError = model.errorMessage ?? "Capacity could not be updated."; isWorking = false }
         }
     }

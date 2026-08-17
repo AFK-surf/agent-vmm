@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -44,6 +43,30 @@ type fakeRuntime struct {
 	revokedImport     *hostv1.RevokeServiceImportRequest
 }
 
+type fakeCleanupOwner struct {
+	mu         sync.Mutex
+	executions []CleanupExecution
+}
+
+func (*fakeCleanupOwner) PlanCleanup(_ context.Context, kind string) (CleanupPlan, error) {
+	if kind == "reset" {
+		return CleanupPlan{Kind: "reset", Revision: 7}, nil
+	}
+	return CleanupPlan{Kind: "discard", Revision: 8, VolumeIDs: []string{"b", "a"}, Impacts: []CleanupImpact{{Resource: Resource{Kind: "volume", ID: "b"}, Effect: "delete", Irreversible: true}, {Resource: Resource{Kind: "volume", ID: "a"}, Effect: "delete", Irreversible: true}}}, nil
+}
+
+func (owner *fakeCleanupOwner) ExecuteCleanup(_ context.Context, execution CleanupExecution) error {
+	owner.mu.Lock()
+	owner.executions = append(owner.executions, execution)
+	owner.mu.Unlock()
+	return nil
+}
+
+func newTestAdapter(t *testing.T, runtime hostv1.AgentRuntimeServiceClient) *Adapter {
+	t.Helper()
+	return New(runtime, &fakeCleanupOwner{}, nil)
+}
+
 func (server *fakeRuntime) CreatePersonalServiceImport(_ context.Context, request *hostv1.CreatePersonalServiceImportRequest) (*servicev1.ServiceImport, error) {
 	server.mu.Lock()
 	server.createdPersonal = proto.Clone(request).(*hostv1.CreatePersonalServiceImportRequest)
@@ -57,7 +80,7 @@ func (*fakeRuntime) ListServiceExports(context.Context, *hostv1.ListOwnServiceEx
 
 func TestPersonalMeshServiceImportUsesHostOwnedRouteRequest(t *testing.T) {
 	runtime := &fakeRuntime{}
-	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "service_import", Arguments: map[string]any{
@@ -239,21 +262,6 @@ func (*fakeRuntime) ForwardTCP(stream grpc.BidiStreamingServer[hostv1.ForwardTCP
 	}
 }
 
-func (*fakeRuntime) PlanResetEnvironment(context.Context, *hostv1.GetOwnEnvironmentRequest) (*hostv1.CleanupPlanResponse, error) {
-	return &hostv1.CleanupPlanResponse{Plan: &hostv1.CleanupPlan{Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, Revision: 7}}, nil
-}
-func (*fakeRuntime) PlanDiscardEnvironment(context.Context, *hostv1.GetOwnEnvironmentRequest) (*hostv1.CleanupPlanResponse, error) {
-	return &hostv1.CleanupPlanResponse{Plan: &hostv1.CleanupPlan{Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, Revision: 8, Impacts: []*hostv1.CleanupImpact{{Resource: &hostv1.ResourceReference{Kind: "volume", ResourceId: "b"}, Irreversible: true}, {Resource: &hostv1.ResourceReference{Kind: "volume", ResourceId: "a"}, Irreversible: true}}}}, nil
-}
-func (server *fakeRuntime) RequestReset(_ context.Context, request *hostv1.EnvironmentOperationRequest) (*hostv1.OperationResponse, error) {
-	server.record(request.GetRequestId())
-	return &hostv1.OperationResponse{Operation: &hostv1.Operation{Id: "operation", Kind: "reset", State: hostv1.OperationState_OPERATION_STATE_RUNNING}}, nil
-}
-func (server *fakeRuntime) RequestDiscard(_ context.Context, request *hostv1.EnvironmentOperationRequest) (*hostv1.OperationResponse, error) {
-	server.record(request.GetRequestId())
-	return &hostv1.OperationResponse{Operation: &hostv1.Operation{Id: "operation", Kind: "discard", State: hostv1.OperationState_OPERATION_STATE_RUNNING}}, nil
-}
-
 func runtimeClient(t *testing.T) hostv1.AgentRuntimeServiceClient {
 	return runtimeClientFor(t, &fakeRuntime{})
 }
@@ -289,7 +297,7 @@ func mcpClient(t *testing.T, adapter *Adapter) *mcp.ClientSession {
 }
 
 func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
-	client := mcpClient(t, New(runtimeClient(t), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClient(t)))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	listed, err := client.ListTools(ctx, nil)
@@ -317,7 +325,7 @@ func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_delete", "image_list", "image_pull", "mesh_service_list", "port_forward_list", "port_forward_start", "port_forward_stop", "service_export", "service_import", "service_route_revoke", "volume_create", "volume_delete", "volume_list"}
+	want := []string{"cleanup_execute", "cleanup_plan", "container_delete", "container_exec", "container_get", "container_list", "container_logs", "container_run", "container_signal", "container_start", "container_stop", "container_wait", "environment_get", "image_delete", "image_list", "image_pull", "mesh_service_list", "service_export", "service_import", "service_route_revoke", "volume_create", "volume_delete", "volume_list"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v", names)
 	}
@@ -347,7 +355,7 @@ func TestOfficialClientDiscoveryAndCalls(t *testing.T) {
 
 func TestServiceToolsUseOnlyBoundRuntimeAndPreserveCapability(t *testing.T) {
 	runtime := &fakeRuntime{}
-	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -402,7 +410,7 @@ func TestServiceToolsUseOnlyBoundRuntimeAndPreserveCapability(t *testing.T) {
 
 func TestImageDeleteUsesCurrentFencedIdentity(t *testing.T) {
 	runtime := &fakeRuntime{}
-	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "image_delete", Arguments: map[string]any{"reference": "docker.io/library/test:latest"}})
@@ -418,7 +426,7 @@ func TestImageDeleteUsesCurrentFencedIdentity(t *testing.T) {
 }
 
 func TestInputSchemaRejectsUnknownAndOversizeFields(t *testing.T) {
-	client := mcpClient(t, New(runtimeClient(t), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClient(t)))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, arguments := range []map[string]any{{"unknown": true}, {"container_id": "bad/id"}} {
@@ -444,7 +452,7 @@ func TestErrorMappingDoesNotExposeStatusMessage(t *testing.T) {
 }
 
 func TestSerializedResultCapAndUnicodeSanitation(t *testing.T) {
-	adapter := New(runtimeClient(t), nil)
+	adapter := newTestAdapter(t, runtimeClient(t))
 	result, envelope, err := adapter.call(context.Background(), time.Second, false, func(context.Context) (any, error) {
 		return strings.Repeat("x", maxResultBytes), nil
 	})
@@ -459,7 +467,7 @@ func TestSerializedResultCapAndUnicodeSanitation(t *testing.T) {
 }
 
 func TestOfficialClientCancellationAndShutdown(t *testing.T) {
-	client := mcpClient(t, New(runtimeClient(t), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClient(t)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -482,7 +490,7 @@ func TestOfficialClientCancellationAndShutdown(t *testing.T) {
 
 func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 	runtime := &fakeRuntime{}
-	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	calls := []struct {
@@ -527,7 +535,7 @@ func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 
 func TestContainerRunReportsObservedFastExit(t *testing.T) {
 	runtime := &fakeRuntime{containerState: hostv1.ContainerState_CONTAINER_STATE_STOPPED}
-	client := mcpClient(t, New(runtimeClientFor(t, runtime), nil))
+	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
 	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "container_run", Arguments: map[string]any{
 		"container_id": "quick", "image": "image", "entrypoint": []string{"true"}, "command": []string{}, "startup_observation_ms": 1,
 	}})
@@ -596,150 +604,10 @@ func TestMapErrorPreservesRetryableRegistryRateLimit(t *testing.T) {
 	}
 }
 
-func TestLoopbackForwardLifecycleAndHalfClose(t *testing.T) {
-	adapter := New(runtimeClient(t), nil)
-	client := mcpClient(t, adapter)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	started, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_start", Arguments: map[string]any{"container_id": "service", "port": 8080, "ttl_seconds": 10}})
-	if err != nil || started.IsError {
-		t.Fatalf("start = %v %#v", err, started)
-	}
-	var envelope struct {
-		OK   bool        `json:"ok"`
-		Data ForwardData `json:"data"`
-	}
-	payload, _ := json.Marshal(started.StructuredContent)
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if !envelope.OK || envelope.Data.LocalPort == 0 {
-		t.Fatalf("start = %s", payload)
-	}
-	connection, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(envelope.Data.LocalPort))), time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tcp := connection.(*net.TCPConn)
-	if _, err := tcp.Write([]byte("ping")); err != nil {
-		t.Fatal(err)
-	}
-	if err := tcp.CloseWrite(); err != nil {
-		t.Fatal(err)
-	}
-	response, err := io.ReadAll(tcp)
-	tcp.Close()
-	if err != nil || string(response) != "ping" {
-		t.Fatalf("forward response = %q, %v", response, err)
-	}
-	listed, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_list", Arguments: map[string]any{}})
-	if err != nil || listed.IsError {
-		t.Fatalf("list = %v %#v", err, listed)
-	}
-	invalidList, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_list", Arguments: map[string]any{"limit": 1}})
-	if err != nil || !invalidList.IsError {
-		t.Fatalf("list with arguments = %v %#v", err, invalidList)
-	}
-	stopped, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_stop", Arguments: map[string]any{"forward_id": envelope.Data.ID}})
-	if err != nil || stopped.IsError {
-		t.Fatalf("stop = %v %#v", err, stopped)
-	}
-	if _, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(envelope.Data.LocalPort))), 100*time.Millisecond); err == nil {
-		t.Fatal("stopped forward still accepts connections")
-	}
-}
-
-func TestForwardRequiresRunningContainer(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		runtime *fakeRuntime
-		code    string
-	}{
-		{name: "missing", runtime: &fakeRuntime{containerError: status.Error(codes.NotFound, "missing")}, code: "NOT_FOUND"},
-		{name: "stopped", runtime: &fakeRuntime{containerState: hostv1.ContainerState_CONTAINER_STATE_STOPPED}, code: "FAILED_PRECONDITION"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			client := mcpClient(t, New(runtimeClientFor(t, test.runtime), nil))
-			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "port_forward_start", Arguments: map[string]any{"container_id": "service", "port": 8080}})
-			if err != nil || !result.IsError {
-				t.Fatalf("start = %v %#v", err, result)
-			}
-			payload, _ := json.Marshal(result.StructuredContent)
-			if !strings.Contains(string(payload), `"code":"`+test.code+`"`) {
-				t.Fatalf("error = %s", payload)
-			}
-		})
-	}
-}
-
-func TestForwardStopsWhenContainerInstanceChanges(t *testing.T) {
-	runtime := &fakeRuntime{containerInstance: "first"}
-	adapter := New(runtimeClientFor(t, runtime), nil)
-	client := mcpClient(t, adapter)
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "port_forward_start", Arguments: map[string]any{"container_id": "service", "port": 8080, "ttl_seconds": 10}})
-	if err != nil || result.IsError {
-		t.Fatalf("start = %v %#v", err, result)
-	}
-	var envelope struct {
-		Data ForwardData `json:"data"`
-	}
-	payload, _ := json.Marshal(result.StructuredContent)
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		t.Fatal(err)
-	}
-	runtime.mu.Lock()
-	runtime.containerInstance = "replacement"
-	runtime.mu.Unlock()
-	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(envelope.Data.LocalPort)))
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		connection, dialErr := net.DialTimeout("tcp4", address, 50*time.Millisecond)
-		if dialErr != nil {
-			return
-		}
-		connection.Close()
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatal("forward remained available after container replacement")
-}
-
-func TestForwardExpiresAndProcessCloseReclaimsListener(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		expire bool
-	}{{name: "ttl", expire: true}, {name: "process_close"}} {
-		t.Run(test.name, func(t *testing.T) {
-			adapter := New(runtimeClient(t), nil)
-			client := mcpClient(t, adapter)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "port_forward_start", Arguments: map[string]any{"container_id": "service", "port": 8080, "ttl_seconds": 1}})
-			if err != nil || result.IsError {
-				t.Fatalf("start = %v %#v", err, result)
-			}
-			var envelope struct {
-				Data ForwardData `json:"data"`
-			}
-			payload, _ := json.Marshal(result.StructuredContent)
-			if err := json.Unmarshal(payload, &envelope); err != nil {
-				t.Fatal(err)
-			}
-			if test.expire {
-				time.Sleep(1200 * time.Millisecond)
-			} else {
-				adapter.Close()
-			}
-			address := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(envelope.Data.LocalPort)))
-			if connection, err := net.DialTimeout("tcp4", address, 100*time.Millisecond); err == nil {
-				connection.Close()
-				t.Fatal("reclaimed listener accepted a connection")
-			}
-		})
-	}
-}
-
 func TestCleanupReplansConfirmsAndDrains(t *testing.T) {
-	client := mcpClient(t, New(runtimeClient(t), nil))
+	runtime := &fakeRuntime{}
+	cleanup := &fakeCleanupOwner{}
+	client := mcpClient(t, New(runtimeClientFor(t, runtime), cleanup, nil))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, arguments := range []map[string]any{
@@ -755,8 +623,44 @@ func TestCleanupReplansConfirmsAndDrains(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("cleanup = %v %#v", err, result)
 	}
+	cleanup.mu.Lock()
+	executions := append([]CleanupExecution(nil), cleanup.executions...)
+	cleanup.mu.Unlock()
+	runtime.mu.Lock()
+	runtimeRequests := append([]string(nil), runtime.requestIDs...)
+	runtime.mu.Unlock()
+	if len(executions) != 1 || executions[0].Kind != "discard" || executions[0].Revision != 8 || !slices.Equal(executions[0].ConfirmedVolumeIDs, []string{"a", "b"}) {
+		t.Fatalf("cleanup execution = %#v", executions)
+	}
+	if len(runtimeRequests) != 0 {
+		t.Fatalf("cleanup reached AgentRuntime: %v", runtimeRequests)
+	}
 	time.Sleep(400 * time.Millisecond)
 	if _, err := client.ListTools(ctx, nil); err == nil {
 		t.Fatal("server did not drain after cleanup")
+	}
+}
+
+func TestCleanupResetUsesProductProjection(t *testing.T) {
+	runtime := &fakeRuntime{}
+	cleanup := &fakeCleanupOwner{}
+	client := mcpClient(t, New(runtimeClientFor(t, runtime), cleanup, nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "cleanup_execute", Arguments: map[string]any{"kind": "reset", "plan_revision": "7", "confirm_reset": true}})
+	if err != nil || result.IsError {
+		t.Fatalf("cleanup = %v %#v", err, result)
+	}
+	cleanup.mu.Lock()
+	executions := append([]CleanupExecution(nil), cleanup.executions...)
+	cleanup.mu.Unlock()
+	if len(executions) != 1 || executions[0].Kind != "reset" || executions[0].Revision != 7 || len(executions[0].ConfirmedVolumeIDs) != 0 {
+		t.Fatalf("cleanup execution = %#v", executions)
+	}
+	runtime.mu.Lock()
+	runtimeRequests := append([]string(nil), runtime.requestIDs...)
+	runtime.mu.Unlock()
+	if len(runtimeRequests) != 0 {
+		t.Fatalf("cleanup reached AgentRuntime: %v", runtimeRequests)
 	}
 }

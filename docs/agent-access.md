@@ -1,65 +1,19 @@
 # Agent access
 
-## Local MCP
+## MCP appliance
 
-Build or install the signed bundle, then configure the MCP host to execute:
+Agent VMM exposes MCP only through the bundled appliance's loopback Streamable HTTP endpoint. Enable the appliance in Agent Access, then configure a client with its generated endpoint URL. The URL contains a per-client opaque binding and creates one appliance-owned allocation; it is not an OperatorService or runtime credential.
+
+For Codex, the app runs:
 
 ```text
-~/Applications/Agent VMM.app/Contents/Helpers/agent-vmm-mcp --integration <managed-integration-id>
+codex mcp add agent-vmm --url http://127.0.0.1:<port>/mcp?access_token=<binding>
 ```
 
-The server communicates only on stdio. The managed integration binds each process to one LOCAL environment;
-ending the process releases its session and loopback forwards but retains the
-environment and named volumes.
+The MCP appliance owns its tools, allocations, leases, runtime sessions, cleanup policy, and HTTP authentication. It does not expose stdio MCP, raw TCP forwarding, or an external controller connector. Containers run without Linux capabilities; use images and volumes prepared for their fixed non-root UID/GID.
 
-Image references use the canonical OCI name returned by `image_pull`; short Docker
-Hub names such as `postgres:16-alpine` are accepted and normalize to
-`docker.io/library/postgres:16-alpine`. `container_run` preserves the image
-ENTRYPOINT and CMD. Set `entrypoint` or `command` only to override that part of the
-OCI configuration; provide both to replace the complete process command.
-`launch_succeeded` means that the initial process was launched, not that the
-service is ready. The response also contains the state observed after a short
-bounded interval; use `container_get`, logs, or an application health check for
-readiness.
+Image references use the canonical OCI name returned by `image_pull`; short Docker Hub names normalize to `docker.io/library/...`. `container_run` preserves the image ENTRYPOINT and CMD unless explicitly overridden.
 
-Image records are scoped to one agent environment, so `image_list` only returns
-images pulled into that environment. The guest stores content-addressed blobs in
-a VM-wide content store and can deduplicate identical layers across environments.
+## Cross-device services
 
-`volume_create` can set `owner_uid`, `owner_gid`, and a numeric permission `mode`
-once, when the volume is created. Use these fields for images such as PostgreSQL
-that require a non-root data directory. The sandbox does not grant workloads a
-general-purpose `CAP_CHOWN`. A port forward is created only for a running
-container and is revoked when that specific container instance stops or is
-replaced.
-
-Containers run with no Linux capabilities, including `CHOWN`, `SETUID`, and
-`SETGID`. Images must support a fixed non-root user without privileged startup.
-Some stock entrypoints, including configurations of the official nginx image,
-attempt ownership or user changes and will not run unchanged. Use an image built
-for non-root execution, pre-create retained volumes with the required numeric
-owner, or explicitly override the entrypoint and user when the image supports it.
-
-## Remote controller
-
-In Agent Access, enter a TLS `host:port`, controller name, one-time enrollment token,
-and bounded pool size. The app creates the host-owned registration and passes the
-token once to the signed connector through stdin. The returned opaque credential
-is stored in macOS Keychain and is absent from SQLite, snapshots, logs, and support
-bundles. The connector LaunchAgent discovers non-secret registration metadata
-through the restricted local socket and then connects outbound.
-
-The public contract is `api/remote/v1/remote.proto`. Controller adapters map their
-worker identity to registration/allocation/opaque workload references and use the
-per-lease AgentRuntimeService tunnel. They must not send local environment or
-namespace identities. No Salix or cue SDK is required by Agent VMM.
-
-Enable admits new leases. Drain prevents new work while existing leases finish.
-Revoke deletes the Keychain credential and closes remote access. Release retains
-containers and volumes for local inspection; discard is irreversible and requires
-the current cleanup revision and exact volume confirmation.
-
-The restricted socket prevents accidental OperatorService use but shares the
-logged-in user's UID. A compromised connector is therefore not claimed to have
-OS-level isolation. V0 also excludes multiple controllers, public ingress,
-dynamic VM resizing, oversubscription, and a cloud scheduler.
+The host supervises the data worker and owns pairing, trust, and service authorization. The data worker is not a LaunchAgent and does not provide a controller-management interface.

@@ -43,7 +43,18 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 	if err != nil {
 		return nil, err
 	}
-	configuration.SetStorageDevicesVirtualMachineConfiguration([]vz.StorageDeviceConfiguration{root, state})
+	storage := []vz.StorageDeviceConfiguration{root, state}
+	manager.mu.Lock()
+	blocks := append([]ApplianceBlock(nil), manager.applianceBlocks...)
+	manager.mu.Unlock()
+	for _, block := range blocks {
+		device, err := blockDevice(block.Path, false, block.DeviceIdentifier)
+		if err != nil {
+			return nil, err
+		}
+		storage = append(storage, device)
+	}
+	configuration.SetStorageDevicesVirtualMachineConfiguration(storage)
 	entropy, err := vz.NewVirtioEntropyDeviceConfiguration()
 	if err != nil {
 		return nil, err

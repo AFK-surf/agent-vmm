@@ -40,19 +40,29 @@ const (
 	containerFinishedLabel = labelPrefix + "finished-at-unix-nano"
 	mainProcessID          = "agent-vmm-main"
 	supervisorHostPath     = "/usr/bin/agent-vmm-supervisor"
-	supervisorPath         = "/run/agent-vmm/supervisor"
+	supervisorPath         = "/run/agent-vmm-supervisor"
 )
 
 func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID string) (*vmmdv1.Container, error) {
-	if err := validateID("actor_namespace_id", namespaceID); err != nil {
-		return nil, err
+	return r.startContainer(ctx, namespaceID, containerID, false)
+}
+
+func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID string, system bool) (*vmmdv1.Container, error) {
+	var identityErr error
+	if system {
+		identityErr = validateSystemNamespace(namespaceID)
+	} else {
+		identityErr = validateID("actor_namespace_id", namespaceID)
+	}
+	if identityErr != nil {
+		return nil, identityErr
 	}
 	if err := validateID("container_id", containerID); err != nil {
 		return nil, err
 	}
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
-	nsctx, container, current, err := r.loadContainer(ctx, namespaceID, containerID)
+	nsctx, container, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
 	if err != nil {
 		return nil, err
 	}
@@ -219,15 +229,25 @@ func withNetworkNamespace(path string) containerd.UpdateContainerOpts {
 }
 
 func (r *Runtime) StopContainer(ctx context.Context, namespaceID, containerID string, timeout time.Duration) (*vmmdv1.Container, error) {
-	if err := validateID("actor_namespace_id", namespaceID); err != nil {
-		return nil, err
+	return r.stopContainer(ctx, namespaceID, containerID, timeout, false)
+}
+
+func (r *Runtime) stopContainer(ctx context.Context, namespaceID, containerID string, timeout time.Duration, system bool) (*vmmdv1.Container, error) {
+	var identityErr error
+	if system {
+		identityErr = validateSystemNamespace(namespaceID)
+	} else {
+		identityErr = validateID("actor_namespace_id", namespaceID)
+	}
+	if identityErr != nil {
+		return nil, identityErr
 	}
 	if err := validateID("container_id", containerID); err != nil {
 		return nil, err
 	}
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
-	nsctx, container, current, err := r.loadContainer(ctx, namespaceID, containerID)
+	nsctx, container, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
 	if err != nil {
 		return nil, err
 	}
@@ -284,8 +304,12 @@ func (r *Runtime) StopContainer(ctx context.Context, namespaceID, containerID st
 }
 
 func (r *Runtime) WaitContainer(ctx context.Context, namespaceID, containerID string) (uint32, error) {
+	return r.waitContainerForRole(ctx, namespaceID, containerID, false)
+}
+
+func (r *Runtime) waitContainerForRole(ctx context.Context, namespaceID, containerID string, system bool) (uint32, error) {
 	key := namespaceID + "/" + containerID
-	_, container, current, err := r.loadContainer(ctx, namespaceID, containerID)
+	_, container, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
 	if err != nil {
 		return 0, err
 	}
@@ -348,7 +372,11 @@ func (r *Runtime) ListContainers(ctx context.Context, namespaceID string) ([]*vm
 }
 
 func (r *Runtime) loadContainer(ctx context.Context, namespaceID, containerID string) (context.Context, containerd.Container, *vmmdv1.Container, error) {
-	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+	return r.loadContainerForRole(ctx, namespaceID, containerID, false)
+}
+
+func (r *Runtime) loadContainerForRole(ctx context.Context, namespaceID, containerID string, system bool) (context.Context, containerd.Container, *vmmdv1.Container, error) {
+	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
 		return nil, nil, nil, err
 	}
 	if err := validateID("container_id", containerID); err != nil {

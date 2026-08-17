@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 
@@ -93,16 +94,21 @@ func (controller *Controller) publishSourcePolicies(ctx context.Context) error {
 		}
 		namespaces[namespace.GetId()] = namespace
 	}
-	if len(namespaces) != len(environments) {
-		controller.egress.Policies.Clear()
-		return errors.New("host and guest namespace projections differ")
+	hostNamespaces := make(map[string]struct{}, len(environments))
+	for _, environment := range environments {
+		hostNamespaces[environment.NamespaceID] = struct{}{}
+	}
+	for namespaceID := range namespaces {
+		if _, ok := hostNamespaces[namespaceID]; !ok {
+			controller.egress.Policies.Clear()
+			return fmt.Errorf("guest namespace %q has no authoritative host owner", namespaceID)
+		}
 	}
 	sources := make([]egress.Source, 0, len(environments))
 	for _, environment := range environments {
 		namespace := namespaces[environment.NamespaceID]
 		if namespace == nil {
-			controller.egress.Policies.Clear()
-			return errors.New("environment namespace is missing from guest projection")
+			continue
 		}
 		subnet, parseErr := netip.ParsePrefix(namespace.GetSubnet())
 		if parseErr != nil {

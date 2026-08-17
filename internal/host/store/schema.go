@@ -33,96 +33,16 @@ func (store *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if version > schemaVersion {
-		return fmt.Errorf("host database schema %d is newer than supported %d", version, schemaVersion)
+	if version != 0 && version != schemaVersion {
+		return fmt.Errorf("unsupported host database schema %d; remove it explicitly", version)
 	}
 	if version == 0 {
-		if err := migrateV1(tx); err != nil {
-			return err
+		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16} {
+			if err := migration(tx); err != nil {
+				return err
+			}
 		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (1, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 1
-	}
-	if version == 1 {
-		if err := migrateV2(tx); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 2
-	}
-	if version == 2 {
-		if err := migrateV3(tx); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (3, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 3
-	}
-	if version == 3 {
-		if err := migrateV4(tx); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (4, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 4
-	}
-	if version == 4 {
-		if err := migrateV5(tx); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (5, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 5
-	}
-	if version == 5 {
-		if err := migrateV6(tx); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (6, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 6
-	}
-	if version == 6 {
-		if _, err := tx.Exec(`ALTER TABLE service_imports ADD COLUMN destination_port INTEGER NOT NULL DEFAULT 0 CHECK(destination_port BETWEEN 0 AND 65535)`); err != nil {
-			return fmt.Errorf("migrate host schema to v7: %w", err)
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (7, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 7
-	}
-	if version == 7 {
-		if _, err := tx.Exec(`CREATE TABLE personal_route_issuances (
-			request_id TEXT PRIMARY KEY, mesh_id TEXT NOT NULL, source_device_id TEXT NOT NULL,
-			destination_export_id TEXT NOT NULL, expires_at INTEGER NOT NULL, response BLOB NOT NULL, created_at INTEGER NOT NULL
-		)`); err != nil {
-			return fmt.Errorf("migrate host schema to v8: %w", err)
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (8, ?)", time.Now().UnixNano()); err != nil {
-			return err
-		}
-		version = 8
-	}
-	if version == 8 {
-		if _, err := tx.Exec(`CREATE TABLE service_listeners (
-			listener_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, mesh_id TEXT NOT NULL,
-			destination_device_id TEXT NOT NULL, destination_export_id TEXT NOT NULL,
-			exposure INTEGER NOT NULL CHECK(exposure IN (1, 2)), listen_address TEXT NOT NULL,
-			route_id TEXT NOT NULL UNIQUE, capability_id TEXT NOT NULL, capability BLOB NOT NULL,
-			endpoint BLOB NOT NULL, expires_at INTEGER NOT NULL, revision INTEGER NOT NULL,
-			revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-		)`); err != nil {
-			return fmt.Errorf("migrate host schema to v9: %w", err)
-		}
-		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (9, ?)", time.Now().UnixNano()); err != nil {
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
 			return err
 		}
 	}
@@ -142,6 +62,154 @@ func (store *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("host database contains foreign key violations after schema migration")
 	}
 	return rows.Err()
+}
+
+func migrateV16(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE appliance_artifacts (
+			artifact_id TEXT PRIMARY KEY, canonical_hash BLOB NOT NULL UNIQUE,
+			image_digest TEXT NOT NULL, image_reference TEXT NOT NULL, platform TEXT NOT NULL,
+			publisher_key_id TEXT NOT NULL, product_id TEXT NOT NULL, release TEXT NOT NULL,
+			verified INTEGER NOT NULL CHECK(verified IN (0, 1)), manifest BLOB NOT NULL,
+			publisher_signature BLOB NOT NULL, created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE appliance_publishers (
+			publisher_key_id TEXT PRIMARY KEY, public_key BLOB NOT NULL, revision INTEGER NOT NULL,
+			revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)), updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE appliance_installations (
+			id TEXT PRIMARY KEY, product_id TEXT NOT NULL, publisher_key_id TEXT NOT NULL,
+			artifact_id TEXT NOT NULL REFERENCES appliance_artifacts(artifact_id),
+			desired_enabled INTEGER NOT NULL DEFAULT 0 CHECK(desired_enabled IN (0, 1)),
+			state INTEGER NOT NULL CHECK(state BETWEEN 1 AND 6), revision INTEGER NOT NULL DEFAULT 1,
+			registration_id TEXT UNIQUE REFERENCES remote_registrations(id),
+			encrypted_volume_id TEXT NOT NULL UNIQUE, encrypted_volume_identity TEXT NOT NULL UNIQUE,
+			data_volume_bytes INTEGER NOT NULL, bootstrap_id TEXT NOT NULL DEFAULT '', current_boot_id TEXT NOT NULL DEFAULT '',
+			current_container_instance TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE appliance_grants (
+			installation_id TEXT PRIMARY KEY REFERENCES appliance_installations(id) ON DELETE CASCADE,
+			revision INTEGER NOT NULL, system_cpu_millis INTEGER NOT NULL, system_memory_bytes INTEGER NOT NULL,
+			system_pids INTEGER NOT NULL, system_disk_bytes INTEGER NOT NULL, max_environments INTEGER NOT NULL,
+			aggregate_cpu_millis INTEGER NOT NULL, aggregate_memory_bytes INTEGER NOT NULL,
+			aggregate_pids INTEGER NOT NULL, aggregate_disk_bytes INTEGER NOT NULL,
+			per_env_cpu_millis INTEGER NOT NULL, per_env_memory_bytes INTEGER NOT NULL,
+			per_env_pids INTEGER NOT NULL, per_env_disk_bytes INTEGER NOT NULL,
+			max_egress_mode INTEGER NOT NULL CHECK(max_egress_mode IN (1, 2)),
+			max_lease_seconds INTEGER NOT NULL, disconnect_grace_seconds INTEGER NOT NULL,
+			dynamic_max_active_leases INTEGER NOT NULL, dynamic_max_active_leases_per_allocation INTEGER NOT NULL,
+			dynamic_max_lease_seconds INTEGER NOT NULL, dynamic_max_concurrent_connections INTEGER NOT NULL,
+			dynamic_max_concurrent_connections_per_lease INTEGER NOT NULL, dynamic_max_frame_bytes INTEGER NOT NULL,
+			dynamic_max_connection_bytes INTEGER NOT NULL, dynamic_connection_deadline_seconds INTEGER NOT NULL,
+			dynamic_connection_idle_seconds INTEGER NOT NULL, dynamic_max_use_count INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE appliance_frontends (
+			installation_id TEXT NOT NULL REFERENCES appliance_installations(id) ON DELETE CASCADE,
+			name TEXT NOT NULL, transport INTEGER NOT NULL CHECK(transport IN (1, 2)),
+			exposure INTEGER NOT NULL CHECK(exposure IN (1, 2)), max_frame_bytes INTEGER NOT NULL,
+			max_total_bytes INTEGER NOT NULL, deadline_seconds INTEGER NOT NULL, idle_seconds INTEGER NOT NULL,
+			max_concurrent_streams INTEGER NOT NULL, max_use_count INTEGER NOT NULL,
+			PRIMARY KEY(installation_id, name)
+		)`,
+		`CREATE TABLE appliance_volumes (
+			installation_id TEXT PRIMARY KEY REFERENCES appliance_installations(id) ON DELETE CASCADE,
+			volume_id TEXT NOT NULL UNIQUE, identity TEXT NOT NULL UNIQUE, bytes INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE appliance_trust_authorities (
+			authority_id TEXT PRIMARY KEY REFERENCES trust_anchors(authority_id) ON DELETE CASCADE,
+			installation_id TEXT NOT NULL UNIQUE REFERENCES appliance_installations(id) ON DELETE CASCADE,
+			registration_id TEXT NOT NULL UNIQUE REFERENCES remote_registrations(id) ON DELETE CASCADE,
+			boot_id TEXT NOT NULL, container_instance TEXT NOT NULL, config_revision INTEGER NOT NULL,
+			state INTEGER NOT NULL CHECK(state IN (1, 2)), updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE appliance_operations (
+			id TEXT PRIMARY KEY, installation_id TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE,
+			kind INTEGER NOT NULL, state INTEGER NOT NULL, expected_revision INTEGER NOT NULL,
+			deadline_unix_millis INTEGER NOT NULL, stage TEXT NOT NULL, error_reason TEXT NOT NULL DEFAULT '',
+			error_message TEXT NOT NULL DEFAULT '', operation_phase INTEGER NOT NULL DEFAULT 0,
+			terminal_reason INTEGER NOT NULL DEFAULT 0, receipt BLOB NOT NULL DEFAULT X'',
+			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE revoked_appliance_authorities (
+			authority_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL,
+			revoked_at INTEGER NOT NULL
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate host schema to v16: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrateV10(tx *sql.Tx) error {
+	statements := []string{
+		`ALTER TABLE remote_registrations ADD COLUMN owner_kind INTEGER NOT NULL DEFAULT 1 CHECK(owner_kind IN (1, 2))`,
+		`ALTER TABLE remote_registrations ADD COLUMN installation_id TEXT`,
+		`ALTER TABLE remote_registrations ADD COLUMN inventory_revision INTEGER NOT NULL DEFAULT 1 CHECK(inventory_revision > 0)`,
+		`ALTER TABLE remote_registrations ADD COLUMN pool_policy_revision INTEGER NOT NULL DEFAULT 1 CHECK(pool_policy_revision > 0)`,
+		`CREATE UNIQUE INDEX remote_registration_installation ON remote_registrations(installation_id) WHERE installation_id IS NOT NULL`,
+		`CREATE TRIGGER remote_registration_owner_insert BEFORE INSERT ON remote_registrations
+			WHEN (NEW.owner_kind = 1 AND NEW.installation_id IS NOT NULL) OR (NEW.owner_kind = 2 AND NEW.installation_id IS NULL)
+			BEGIN SELECT RAISE(ABORT, 'registration owner binding is invalid'); END`,
+		`CREATE TRIGGER remote_registration_owner_update BEFORE UPDATE OF owner_kind, installation_id ON remote_registrations
+			WHEN (NEW.owner_kind = 1 AND NEW.installation_id IS NOT NULL) OR (NEW.owner_kind = 2 AND NEW.installation_id IS NULL)
+			BEGIN SELECT RAISE(ABORT, 'registration owner binding is invalid'); END`,
+		`CREATE TABLE resource_reservations (
+			id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind IN (1, 2, 3)), owner_id TEXT NOT NULL,
+			resource_kind INTEGER NOT NULL CHECK(resource_kind IN (1, 2, 3)), resource_id TEXT NOT NULL,
+			cpu_millis INTEGER NOT NULL, memory_bytes INTEGER NOT NULL, pids INTEGER NOT NULL, disk_bytes INTEGER NOT NULL,
+			retained INTEGER NOT NULL DEFAULT 0 CHECK(retained IN (0, 1)), created_at INTEGER NOT NULL,
+			UNIQUE(owner_kind, owner_id, resource_kind, resource_id)
+		)`,
+		`CREATE TABLE remote_lease_projections (
+			lease_id TEXT PRIMARY KEY, registration_id TEXT NOT NULL REFERENCES remote_registrations(id) ON DELETE CASCADE,
+			allocation_id TEXT NOT NULL, environment_id TEXT NOT NULL, workload_ref TEXT NOT NULL,
+			generation INTEGER NOT NULL, expires_at INTEGER NOT NULL, state INTEGER NOT NULL,
+			UNIQUE(registration_id, allocation_id)
+		)`,
+		`CREATE TRIGGER remote_inventory_insert AFTER INSERT ON environments WHEN NEW.owner_kind = 2
+			BEGIN UPDATE remote_registrations SET inventory_revision=inventory_revision+1, updated_at=NEW.updated_at WHERE id=NEW.registration_id; END`,
+		`CREATE TRIGGER remote_inventory_update AFTER UPDATE OF cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, policy_revision, allocation_state ON environments WHEN NEW.owner_kind = 2
+			BEGIN UPDATE remote_registrations SET inventory_revision=inventory_revision+1, updated_at=NEW.updated_at WHERE id=NEW.registration_id; END`,
+		`CREATE TRIGGER remote_inventory_delete AFTER DELETE ON environments WHEN OLD.owner_kind = 2
+			BEGIN UPDATE remote_registrations SET inventory_revision=inventory_revision+1, updated_at=strftime('%s','now')*1000000000 WHERE id=OLD.registration_id; END`,
+		`CREATE TRIGGER remote_reservation_delete BEFORE DELETE ON environments WHEN OLD.owner_kind = 2
+			BEGIN DELETE FROM resource_reservations WHERE resource_kind=3 AND resource_id=OLD.id; END`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate host schema to v10: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrateV9(tx *sql.Tx) error {
+	statements := []string{
+		`ALTER TABLE service_imports ADD COLUMN destination_port INTEGER NOT NULL DEFAULT 0 CHECK(destination_port BETWEEN 0 AND 65535)`,
+		`CREATE TABLE personal_route_issuances (
+			request_id TEXT PRIMARY KEY, mesh_id TEXT NOT NULL, source_device_id TEXT NOT NULL,
+			destination_export_id TEXT NOT NULL, expires_at INTEGER NOT NULL, response BLOB NOT NULL, created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE service_listeners (
+			listener_id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, mesh_id TEXT NOT NULL,
+			destination_device_id TEXT NOT NULL, destination_export_id TEXT NOT NULL,
+			exposure INTEGER NOT NULL CHECK(exposure IN (1, 2)), listen_address TEXT NOT NULL,
+			route_id TEXT NOT NULL UNIQUE, capability_id TEXT NOT NULL, capability BLOB NOT NULL,
+			endpoint BLOB NOT NULL, expires_at INTEGER NOT NULL, revision INTEGER NOT NULL,
+			revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("create current route schema: %w", err)
+		}
+	}
+	return nil
 }
 
 func migrateV6(tx *sql.Tx) error {
@@ -393,7 +461,6 @@ func migrateV2(tx *sql.Tx) error {
 			connection_state INTEGER NOT NULL DEFAULT 1 CHECK(connection_state IN (1, 2, 3)),
 			connection_instance TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 		)`,
-		`CREATE UNIQUE INDEX one_active_remote_registration ON remote_registrations((1)) WHERE state != 3`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement); err != nil {

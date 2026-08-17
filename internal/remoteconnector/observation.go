@@ -2,9 +2,42 @@ package remoteconnector
 
 import (
 	"context"
+	"sync"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"google.golang.org/protobuf/proto"
 )
+
+type endpointObservationState struct {
+	mu    sync.RWMutex
+	value *trustv1.EndpointObservation
+}
+
+func newEndpointObservationState(value *trustv1.EndpointObservation) *endpointObservationState {
+	state := new(endpointObservationState)
+	state.Store(value)
+	return state
+}
+
+func (state *endpointObservationState) Load() *trustv1.EndpointObservation {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.value == nil {
+		return nil
+	}
+	return proto.Clone(state.value).(*trustv1.EndpointObservation)
+}
+
+func (state *endpointObservationState) Store(value *trustv1.EndpointObservation) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if value == nil {
+		state.value = nil
+		return
+	}
+	state.value = proto.Clone(value).(*trustv1.EndpointObservation)
+}
 
 // RegistrationObservation is the host-owned registration truth used by local
 // lifecycle surfaces. A running LaunchAgent is not proof of controller access.
@@ -13,13 +46,13 @@ type RegistrationObservation struct {
 	Revoked bool
 }
 
-func ObserveRegistration(ctx context.Context, socket string) (RegistrationObservation, error) {
-	local, err := newLocalClient(ctx, socket)
+func ObserveRegistration(ctx context.Context, socket, registrationID string) (RegistrationObservation, error) {
+	local, err := newLocalClient(ctx, socket, registrationID)
 	if err != nil {
 		return RegistrationObservation{}, err
 	}
 	defer local.connection.Close()
-	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{})
+	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID})
 	if err != nil {
 		return RegistrationObservation{}, err
 	}

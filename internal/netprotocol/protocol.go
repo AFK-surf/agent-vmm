@@ -96,6 +96,12 @@ func WriteFrame(writer io.Writer, frameType Type, payload []byte) error {
 	return writeFull(writer, payload)
 }
 
+// ValidateDataPacket checks the payload accepted by a DATA frame without
+// writing it to a transport.
+func ValidateDataPacket(payload []byte) error {
+	return validateFrame(Data, payload)
+}
+
 func ReadFrame(reader io.Reader) (Type, []byte, error) {
 	header := [HeaderSize]byte{}
 	if _, err := io.ReadFull(reader, header[:]); err != nil {

@@ -45,7 +45,7 @@ The system must let multiple agents do these tasks in one guest:
 7. Grant specific access between agent namespaces.
 8. Run untrusted code without control of the guest or the macOS host.
 
-The first release excludes distributed scheduling inside Agent VMM, Kubernetes, live migration, GPUs, and arbitrary guest operating systems. A provider-neutral outbound connector may expose a user-approved capacity pool to one remote controller; scheduling remains controller-owned.
+The first release excludes distributed scheduling inside Agent VMM, Kubernetes, live migration, GPUs, and arbitrary guest operating systems. Each controller domain has an exact private or external registration and a user-approved capacity pool; multiple domains may be active while scheduling remains controller-owned.
 It also excludes full Docker API and Compose compatibility.
 
 RFC16 extends that provider-neutral boundary without changing VM ownership.
@@ -77,8 +77,8 @@ host-owned registry operations, snapshots, and the bounded endpoint projection.
 
 ## Compatibility Position
 
-The project has no released API, persistent format, or legacy client.
-It does not need a compatibility layer or a migration engine.
+The project has no released API or persistent format.
+Compatibility layers and migration engines are out of scope.
 
 The target design starts with one shared virtual machine, one host controller, and one guest controller.
 It does not use a temporary Docker or Podman backend.
@@ -360,7 +360,7 @@ is self-contained with its signed source membership credential.
 
 The complete route class set is `LOCAL`, `DEVICE`, `COMPUTE`, `LAN`, and
 `PUBLIC_HTTP`. Reachability and transport selection never grant authority.
-Same-host optimization, direct Iroh, relay Iroh, and platform fallback all
+Same-host optimization, direct Iroh, relay Iroh, and platform-specific transport all
 validate the same source/destination/container/generation/capability fences.
 Operator-created personal service listeners use the same destination-signed
 capability: `DEVICE` binds only loopback, while `LAN` requires one explicit
@@ -581,18 +581,35 @@ Minimize the kernel and guest user space.
 Fuzz RPC inputs, paths, OCI specifications, and grant state changes.
 Add storage cleanup, cache cleanup, audit, and failure recovery tests.
 
-Remove raw runtime socket forwarding, native runc fallbacks, stale compatibility paths, and duplicate state stores.
+The implementation has no raw runtime socket forwarding, native runc path, or duplicate state store.
 
 ## Local MCP and remote compute boundaries
 
-`agent-vmm-mcp` is the only model-facing entry point. It uses MCP over stdio,
-binds one process to one LOCAL environment, and closes its short-lived operator
-connection after obtaining a filtered runtime session. It has a fixed tool set;
-there is no HTTP transport, operator tool, host path, or implicit shell.
+`agent-vmm-mcp` is the model-facing stdio entry point, but it is only a bounded
+byte proxy to the enabled first-party MCP appliance's loopback frontend. It has
+no MCP schema, OperatorService client, AgentRuntime client, environment state, or
+host runtime socket. An app-generated opaque client binding lets the appliance
+reuse one controller-owned allocation per client without exposing host identity
+fields in MCP requests. The appliance owns the MCP schema, leases, runtime
+sessions, result bounds, and cleanup policy through the public appliance and
+remote-controller contracts.
+
+Controller-owned dynamic loopback frontends are a separate public contract for
+long-lived raw TCP forwarding. A ready controller can acquire, renew, or release
+one only for its exact active allocation lease. The host owns the random loopback
+listener, consumes a 256-bit capability preface, and relays bounded bytes over a
+typed controller stream; the appliance alone maps the immutable assignment to a
+container instance and `ForwardTCP` target. These listeners are memory-only and
+close immediately on connection-epoch replacement, allocation lease/session
+revoke, controller disconnect, appliance stop, VM shutdown, or generation change.
+They do not use fixed frontend endpoint files and the host never receives a
+container ID or target port.
 
 `agent-vmm-connect` is the only controller-facing entry point. It makes an
 outbound TLS 1.3 gRPC connection, reads the opaque controller credential from
-Keychain, and connects locally only to the mode-0600 RemoteComputeService socket.
+the build-identity-specific protected store, and connects locally only to the
+mode-0600 RemoteComputeService socket. Release uses Keychain; development/E2E uses
+an instance-local mode-0600 file and does not link Keychain APIs.
 Each active lease receives a filtered AgentRuntimeService session over the single
 bounded byte transport. The controller supplies an allocation ID, while the host
 creates all local environment, namespace, lease, and capability identities.
@@ -612,8 +629,8 @@ unknown-outcome classification, and the controller-side virtual `net.Conn`;
 tests and products must not carry private copies of the stream decoder.
 
 The OperatorService owns registration and pool policy, local enable/drain/revoke,
-inventory observation, and destructive cleanup. RemoteComputeService is scoped to
-the active registration and cannot see LOCAL environments. This same-UID split is
+inventory observation, and destructive cleanup. Each RemoteComputeService transport
+is scoped to its exact registration and cannot see local or other-domain environments. This same-UID split is
 an application least-privilege boundary, not a separate macOS security principal.
 
 Release retains allocation data. Destruction requires a fresh plan and an execute
