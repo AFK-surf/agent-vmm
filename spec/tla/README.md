@@ -1,4 +1,4 @@
-# RFC6 canonical models
+# Canonical lifecycle models
 
 `ControllerDomainControl.tla` owns the host-side domain control facts. `ApplianceLifecycle.tla` owns fixed-artifact installation, single-use bootstrap, current boot/container fencing, stop/restart/revoke, sealed recovery, and revision-fenced removal. Its finite instance gives one installation the lifecycle operation while the other installation can progress or stutter independently. Run both normal configurations and every single-mechanism negative configuration with `make tla`.
 

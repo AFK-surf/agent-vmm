@@ -88,12 +88,14 @@ case "$guest_signer" in
 		;;
 esac
 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
+GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm" "$repo/cmd/agent-vmm"
 CARGO_TARGET_DIR="$derived/rust" cargo build --locked --release --target aarch64-apple-darwin --manifest-path "$repo/data/agent-vmm-data/Cargo.toml"
 cp "$derived/rust/aarch64-apple-darwin/release/agent-vmm-data" "$product/Contents/Helpers/agent-vmm-data"
 cp "$repo/LICENSE" "$product/Contents/Resources/LICENSE"
 cp "$repo/build/host/com.afk-surf.agent-vmm.plist" "$product/Contents/Resources/com.afk-surf.agent-vmm.plist"
 codesign --force --sign "$identity" --options runtime --entitlements "$repo/build/host/vz.entitlements.plist" "$product/Contents/Helpers/agent-vmm-host"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-lifecycle"
+codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-data"
 codesign --force --sign "$identity" --options runtime "$product"
 codesign --verify --deep --strict --verbose=2 "$product"

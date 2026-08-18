@@ -77,13 +77,10 @@ func TestSystemStreamFencesExactIdentityAndSingleUseBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	controllerRelease()
-	if _, _, _, err := supervisor.acquireStream(controllerHeader); err == nil {
-		t.Fatal("controller stream nonce was replayable")
-	}
-	useBound := proto.Clone(controllerHeader).(*vmmdv1.SystemStreamHeader)
-	useBound.Nonce = bytesOf(8, 32)
-	if _, _, _, err := supervisor.acquireStream(useBound); err == nil {
-		t.Fatal("controller stream exceeded its cumulative use bound")
+	if _, _, replayRelease, err := supervisor.acquireStream(controllerHeader); err != nil {
+		t.Fatalf("controller stream did not release a failed transport: %v", err)
+	} else {
+		replayRelease()
 	}
 
 	for _, mutate := range []func(*vmmdv1.SystemStreamHeader){

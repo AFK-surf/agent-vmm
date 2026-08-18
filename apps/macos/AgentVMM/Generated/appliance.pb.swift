@@ -475,6 +475,141 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProt
 
 }
 
+public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactHeader: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestID: String = String()
+
+  public var dockerfilePath: String = String()
+
+  public var target: String {
+    get {_target ?? String()}
+    set {_target = newValue}
+  }
+  /// Returns true if `target` has been explicitly set.
+  public var hasTarget: Bool {self._target != nil}
+  /// Clears the value of `target`. Subsequent reads from it will return its default value.
+  public mutating func clearTarget() {self._target = nil}
+
+  public var buildArgs: [Agentvmm_Host_V1_BuildArgument] = []
+
+  public var networkMode: Agentvmm_Host_V1_BuildNetworkMode = .unspecified
+
+  public var secrets: [Agentvmm_Host_V1_BuildSecret] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _target: String? = nil
+}
+
+public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var event: Agentvmm_Appliance_V1_BuildArtifactRequest.OneOf_Event? = nil
+
+  public var header: Agentvmm_Appliance_V1_BuildArtifactHeader {
+    get {
+      if case .header(let v)? = event {return v}
+      return Agentvmm_Appliance_V1_BuildArtifactHeader()
+    }
+    set {event = .header(newValue)}
+  }
+
+  public var context: Agentvmm_Host_V1_BuildContextChunk {
+    get {
+      if case .context(let v)? = event {return v}
+      return Agentvmm_Host_V1_BuildContextChunk()
+    }
+    set {event = .context(newValue)}
+  }
+
+  public var secret: Agentvmm_Host_V1_BuildSecretChunk {
+    get {
+      if case .secret(let v)? = event {return v}
+      return Agentvmm_Host_V1_BuildSecretChunk()
+    }
+    set {event = .secret(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum OneOf_Event: Equatable, Sendable {
+    case header(Agentvmm_Appliance_V1_BuildArtifactHeader)
+    case context(Agentvmm_Host_V1_BuildContextChunk)
+    case secret(Agentvmm_Host_V1_BuildSecretChunk)
+
+  }
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactResult: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var archiveSha256: Data = Data()
+
+  public var manifestDigest: String = String()
+
+  public var archiveSize: UInt64 = 0
+
+  public var cacheHit: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var event: Agentvmm_Appliance_V1_BuildArtifactResponse.OneOf_Event? = nil
+
+  public var progress: String {
+    get {
+      if case .progress(let v)? = event {return v}
+      return String()
+    }
+    set {event = .progress(newValue)}
+  }
+
+  public var archiveChunk: Data {
+    get {
+      if case .archiveChunk(let v)? = event {return v}
+      return Data()
+    }
+    set {event = .archiveChunk(newValue)}
+  }
+
+  public var result: Agentvmm_Appliance_V1_BuildArtifactResult {
+    get {
+      if case .result(let v)? = event {return v}
+      return Agentvmm_Appliance_V1_BuildArtifactResult()
+    }
+    set {event = .result(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum OneOf_Event: Equatable, Sendable {
+    case progress(String)
+    case archiveChunk(Data)
+    case result(Agentvmm_Appliance_V1_BuildArtifactResult)
+
+  }
+
+  public init() {}
+}
+
 public nonisolated struct Agentvmm_Appliance_V1_StreamBounds: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1745,6 +1880,268 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceOperationPhase: SwiftProtob
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPLIANCE_TERMINAL_REASON_UNSPECIFIED\0\u{1}APPLIANCE_TERMINAL_REASON_SUCCEEDED\0\u{1}APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT\0\u{1}APPLIANCE_TERMINAL_REASON_CORRUPTION\0\u{1}APPLIANCE_TERMINAL_REASON_KEY_LOST\0\u{1}APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED\0\u{1}APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED\0\u{1}APPLIANCE_TERMINAL_REASON_REMOVED\0\u{1}APPLIANCE_TERMINAL_REASON_OPERATION_FAILED\0")
+}
+
+nonisolated extension Agentvmm_Appliance_V1_BuildArtifactHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".BuildArtifactHeader"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}dockerfile_path\0\u{1}target\0\u{3}build_args\0\u{3}network_mode\0\u{1}secrets\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.dockerfilePath) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._target) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.buildArgs) }()
+      case 5: try { try decoder.decodeSingularEnumField(value: &self.networkMode) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.secrets) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if !self.dockerfilePath.isEmpty {
+      try visitor.visitSingularStringField(value: self.dockerfilePath, fieldNumber: 2)
+    }
+    try { if let v = self._target {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
+    if !self.buildArgs.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.buildArgs, fieldNumber: 4)
+    }
+    if self.networkMode != .unspecified {
+      try visitor.visitSingularEnumField(value: self.networkMode, fieldNumber: 5)
+    }
+    if !self.secrets.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.secrets, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_BuildArtifactHeader, rhs: Agentvmm_Appliance_V1_BuildArtifactHeader) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.dockerfilePath != rhs.dockerfilePath {return false}
+    if lhs._target != rhs._target {return false}
+    if lhs.buildArgs != rhs.buildArgs {return false}
+    if lhs.networkMode != rhs.networkMode {return false}
+    if lhs.secrets != rhs.secrets {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_BuildArtifactRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".BuildArtifactRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}header\0\u{1}context\0\u{1}secret\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Agentvmm_Appliance_V1_BuildArtifactHeader?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .header(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .header(v)
+        }
+      }()
+      case 2: try {
+        var v: Agentvmm_Host_V1_BuildContextChunk?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .context(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .context(v)
+        }
+      }()
+      case 3: try {
+        var v: Agentvmm_Host_V1_BuildSecretChunk?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .secret(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .secret(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.event {
+    case .header?: try {
+      guard case .header(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .context?: try {
+      guard case .context(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case .secret?: try {
+      guard case .secret(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_BuildArtifactRequest, rhs: Agentvmm_Appliance_V1_BuildArtifactRequest) -> Bool {
+    if lhs.event != rhs.event {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_BuildArtifactResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".BuildArtifactResult"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}archive_sha256\0\u{3}manifest_digest\0\u{3}archive_size\0\u{3}cache_hit\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.archiveSha256) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.manifestDigest) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.archiveSize) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.cacheHit) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.archiveSha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.archiveSha256, fieldNumber: 1)
+    }
+    if !self.manifestDigest.isEmpty {
+      try visitor.visitSingularStringField(value: self.manifestDigest, fieldNumber: 2)
+    }
+    if self.archiveSize != 0 {
+      try visitor.visitSingularUInt64Field(value: self.archiveSize, fieldNumber: 3)
+    }
+    if self.cacheHit != false {
+      try visitor.visitSingularBoolField(value: self.cacheHit, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_BuildArtifactResult, rhs: Agentvmm_Appliance_V1_BuildArtifactResult) -> Bool {
+    if lhs.archiveSha256 != rhs.archiveSha256 {return false}
+    if lhs.manifestDigest != rhs.manifestDigest {return false}
+    if lhs.archiveSize != rhs.archiveSize {return false}
+    if lhs.cacheHit != rhs.cacheHit {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_BuildArtifactResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".BuildArtifactResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}progress\0\u{3}archive_chunk\0\u{1}result\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: String?
+        try decoder.decodeSingularStringField(value: &v)
+        if let v = v {
+          if self.event != nil {try decoder.handleConflictingOneOf()}
+          self.event = .progress(v)
+        }
+      }()
+      case 2: try {
+        var v: Data?
+        try decoder.decodeSingularBytesField(value: &v)
+        if let v = v {
+          if self.event != nil {try decoder.handleConflictingOneOf()}
+          self.event = .archiveChunk(v)
+        }
+      }()
+      case 3: try {
+        var v: Agentvmm_Appliance_V1_BuildArtifactResult?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .result(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .result(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.event {
+    case .progress?: try {
+      guard case .progress(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    }()
+    case .archiveChunk?: try {
+      guard case .archiveChunk(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    }()
+    case .result?: try {
+      guard case .result(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_BuildArtifactResponse, rhs: Agentvmm_Appliance_V1_BuildArtifactResponse) -> Bool {
+    if lhs.event != rhs.event {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 nonisolated extension Agentvmm_Appliance_V1_StreamBounds: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

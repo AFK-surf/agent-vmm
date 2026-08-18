@@ -39,7 +39,7 @@ func (r *Runtime) CreateVolume(ctx context.Context, namespaceID, volumeID string
 	if err != nil {
 		return nil, err
 	}
-	projectID, _, err := namespaceFromLabels(namespaceID, labels)
+	projectID, namespace, err := namespaceFromLabels(namespaceID, labels)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (r *Runtime) CreateVolume(ctx context.Context, namespaceID, volumeID string
 		return nil, err
 	}
 	r.invalidateVolumeUsage(namespaceID, volumeID)
-	return &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID}, nil
+	return &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, LimitBytes: namespace.GetLimits().GetDiskBytes()}, nil
 }
 
 func initializeVolumeDirectory(path string, mode uint32, ownerUID, ownerGID *uint32, assign func(string) error) (result error) {

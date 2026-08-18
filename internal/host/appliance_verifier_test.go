@@ -94,6 +94,18 @@ func TestApplianceArtifactVerifierRejectsIdentityAndCapabilityChanges(t *testing
 	}
 }
 
+func TestValidateApplianceCapacityIncludesSystemReservation(t *testing.T) {
+	grant := verifierGrant()
+	grant.SystemResources.Ceiling = verifierLimits(2)
+	grant.Capacity.AggregateLimits = verifierLimits(3)
+	if err := validateApplianceCapacity(grant, store.ResourceAmount{CPUMillis: 5, MemoryBytes: 5, PIDs: 5, DiskBytes: 5}); err != nil {
+		t.Fatalf("grant that fits host rejected: %v", err)
+	}
+	if err := validateApplianceCapacity(grant, store.ResourceAmount{CPUMillis: 4, MemoryBytes: 5, PIDs: 5, DiskBytes: 5}); err == nil {
+		t.Fatal("grant whose system plus aggregate CPU exceeds host was accepted")
+	}
+}
+
 func verifierManifest() *appliancev1.ControllerApplianceManifest {
 	return &appliancev1.ControllerApplianceManifest{
 		ContractVersion: "1", ProductId: "product", PublisherKeyId: "publisher", Release: "1",

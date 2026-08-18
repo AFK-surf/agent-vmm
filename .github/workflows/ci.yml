@@ -53,7 +53,7 @@ jobs:
         run: go vet ./...
       - name: Check protobuf compatibility
         run: make proto-check
-      - name: Check RFC6 canonical models
+      - name: Check canonical lifecycle models
         run: make tla
 
   macos-26:

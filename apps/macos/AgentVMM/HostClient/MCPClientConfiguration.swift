@@ -8,6 +8,11 @@ struct MCPClientBindingModel: Identifiable, Codable, Sendable, Equatable {
     let binding: String
 }
 
+struct MCPManualConfiguration: Sendable, Equatable {
+    let endpointURL: URL
+    let bearerToken: String
+}
+
 struct MCPClientConfiguration: Sendable {
     enum ConfigurationError: LocalizedError {
         case codexUnavailable, endpointUnavailable, commandFailed, commandTimedOut
@@ -41,8 +46,23 @@ struct MCPClientConfiguration: Sendable {
         _ = try await run(executable, arguments: ["mcp", "add", "agent-vmm", "--url", try endpointURL(binding: client.binding).absoluteString])
     }
 
+    /// Rewrites the managed Codex entry when the host has recreated its
+    /// loopback listener. The binding remains stable; only the endpoint port
+    /// can change after a host restart or a listener collision.
+    func syncCodexEndpoint(for client: MCPClientBindingModel) async throws -> URL {
+        guard client.kind == .codex else { throw ConfigurationError.endpointUnavailable }
+        let executable = try codexExecutable()
+        let endpoint = try endpointURL(binding: client.binding)
+        _ = try? await run(executable, arguments: ["mcp", "remove", "agent-vmm"])
+        _ = try await run(executable, arguments: ["mcp", "add", "agent-vmm", "--url", endpoint.absoluteString])
+        return endpoint
+    }
+
     func removeCodex() async throws {
         _ = try await run(try codexExecutable(), arguments: ["mcp", "remove", "agent-vmm"])
+        var values = try bindings()
+        values.removeAll { $0.kind == .codex }
+        try save(values)
     }
 
     func createManual(displayName: String) throws -> MCPClientBindingModel {
@@ -53,8 +73,19 @@ struct MCPClientConfiguration: Sendable {
         return value
     }
 
-    func manualCommand(binding: String) throws -> String {
-        "codex mcp add agent-vmm --url \(shellQuote(try endpointURL(binding: binding).absoluteString))"
+    func manualConnection(binding: String) throws -> MCPManualConfiguration {
+        MCPManualConfiguration(endpointURL: try endpointURL(), bearerToken: binding)
+    }
+
+    func endpointURL(for client: MCPClientBindingModel) throws -> URL {
+        guard client.kind == .codex else { throw ConfigurationError.endpointUnavailable }
+        return try endpointURL(binding: client.binding)
+    }
+
+    func removeManual(id: UUID) throws {
+        var values = try bindings()
+        values.removeAll { $0.id == id && $0.kind == .manual }
+        try save(values)
     }
 
     func canConfigureCodex() -> Bool { (try? codexExecutable()) != nil }
@@ -76,12 +107,14 @@ struct MCPClientConfiguration: Sendable {
     }
 
     private var storeURL: URL { BundledMCPAppliance.defaultSupportDirectory.appending(path: "mcp-client-bindings.json") }
-    private func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    private func endpointURL() throws -> URL {
+        let endpoint = try String(contentsOf: BundledMCPAppliance.endpointFile(), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !endpoint.isEmpty, let url = URL(string: "http://\(endpoint)/mcp") else { throw ConfigurationError.endpointUnavailable }
+        return url
+    }
 
     private func endpointURL(binding: String) throws -> URL {
-        let endpoint = try String(contentsOf: BundledMCPAppliance.endpointFile(), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !endpoint.isEmpty,
-              var components = URLComponents(string: "http://\(endpoint)/mcp") else { throw ConfigurationError.endpointUnavailable }
+        guard var components = URLComponents(url: try endpointURL(), resolvingAgainstBaseURL: false) else { throw ConfigurationError.endpointUnavailable }
         components.queryItems = [URLQueryItem(name: "access_token", value: binding)]
         guard let url = components.url else { throw ConfigurationError.endpointUnavailable }
         return url

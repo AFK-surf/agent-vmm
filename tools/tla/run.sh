@@ -76,4 +76,4 @@ run_negative ApplianceLifecycle ApplianceLifecycleRemoveNegative RemoveRevisionE
 run_negative ApplianceLifecycle ApplianceLifecyclePublicationNegative PublicationFence UnsafePublishBeforeFence
 run_negative ApplianceLifecycle ApplianceLifecycleBootstrapFenceNegative InitialSeedDeletionFence UnsafeConsumeSeed
 
-echo "RFC6 TLC suites passed"
+echo "Canonical TLC suites passed"

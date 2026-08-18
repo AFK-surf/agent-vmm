@@ -10,6 +10,10 @@ if [ "$(id -u)" -ne 0 ]; then
   echo 'guest artifacts require root for the isolated chroot package assembly' >&2
   exit 1
 fi
+command -v cpio >/dev/null 2>&1 || {
+  echo 'guest artifact builds require cpio for the initramfs archive' >&2
+  exit 1
+}
 if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
   echo 'usage: build.sh OUTPUT_DIRECTORY [SIGNING_KEY] [SIGNER]' >&2
   exit 2

@@ -3,12 +3,9 @@ import Foundation
 struct LifecycleStatus: Sendable, Equatable, Decodable {
     let appInstalled: Bool
     let hostInstalled: Bool
-    let mcpInstalled: Bool
-    let connectorInstalled: Bool
-    let hostLoaded: Bool
-    let connectorLoaded: Bool
+	let hostLoaded: Bool
 
-    var coreHealthy: Bool { appInstalled && hostInstalled && mcpInstalled && connectorInstalled && hostLoaded }
+    var coreHealthy: Bool { appInstalled && hostInstalled && hostLoaded }
 }
 
 enum LifecycleManager {

@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,8 +51,15 @@ func applianceFrontendEndpointPath(supportDirectory, installationID, frontendNam
 	return filepath.Join(supportDirectory, "appliance-frontends", installationID, frontendName+".endpoint")
 }
 
+// The endpoint file describes the currently listening socket and is removed
+// when that socket is closed. Keep the selected loopback port separately so a
+// host restart does not invalidate a client configuration that points at the
+// previous endpoint.
+func applianceFrontendPortPath(supportDirectory, installationID, frontendName string) string {
+	return filepath.Join(supportDirectory, "appliance-frontend-ports", installationID, frontendName+".port")
+}
+
 func (controller *Controller) startApplianceFrontends(ctx context.Context, installation store.ApplianceInstallation, identity *vmmdv1.SystemApplianceIdentity) error {
-	controller.stopApplianceFrontends(installation.ID)
 	if identity == nil || identity.GetInstallationId() != installation.ID || identity.GetContainerInstanceId() == "" {
 		return errors.New("frontend identity does not match the appliance")
 	}
@@ -58,6 +67,10 @@ func (controller *Controller) startApplianceFrontends(ctx context.Context, insta
 	if err != nil {
 		return err
 	}
+	if controller.applianceFrontendsMatch(installation.ID, identity, frontends) {
+		return nil
+	}
+	controller.stopApplianceFrontends(installation.ID)
 	runtimes := make([]*applianceFrontendRuntime, 0, len(frontends))
 	closeCreated := func() {
 		for _, created := range runtimes {
@@ -102,6 +115,32 @@ func (controller *Controller) startApplianceFrontends(ctx context.Context, insta
 	return nil
 }
 
+func (controller *Controller) applianceFrontendsMatch(installationID string, identity *vmmdv1.SystemApplianceIdentity, frontends []store.ApplianceFrontend) bool {
+	controller.applianceFrontendMu.Lock()
+	defer controller.applianceFrontendMu.Unlock()
+	if identity == nil {
+		return false
+	}
+	expected := 0
+	for _, frontend := range frontends {
+		if frontend.Exposure == int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_OUTBOUND_ONLY) {
+			continue
+		}
+		expected++
+		runtime := controller.applianceFrontends[frontendRuntimeKey(installationID, frontend.Name)]
+		if runtime == nil || runtime.containerInstance != identity.GetContainerInstanceId() || runtime.identity.GetBootId() != identity.GetBootId() {
+			return false
+		}
+	}
+	actual := 0
+	for _, runtime := range controller.applianceFrontends {
+		if runtime.installationID == installationID {
+			actual++
+		}
+	}
+	return actual == expected
+}
+
 type applianceFrontendGuestConn struct {
 	net.Conn
 	closeConnection func() error
@@ -125,7 +164,23 @@ func (controller *Controller) newApplianceFrontendRuntime(frontend store.Applian
 		frontend.MaxConcurrentStreams == 0 || frontend.MaxConcurrentStreams > 16 || frontend.MaxUseCount == 0 || frontend.MaxUseCount > 1024 {
 		return nil, fmt.Errorf("frontend %q has incomplete stream bounds", frontend.Name)
 	}
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	portPath := applianceFrontendPortPath(controller.supportDirectory, identity.GetInstallationId(), frontend.Name)
+	listenAddress := "127.0.0.1:0"
+	if persisted, err := os.ReadFile(portPath); err == nil {
+		if value := strings.TrimSpace(string(persisted)); value != "" {
+			if host, _, splitErr := net.SplitHostPort(value); splitErr == nil {
+				if host == "127.0.0.1" {
+					listenAddress = value
+				}
+			} else if port, parseErr := strconv.Atoi(value); parseErr == nil && port > 0 && port < 1<<16 {
+				listenAddress = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+			}
+		}
+	}
+	listener, err := net.Listen("tcp4", listenAddress)
+	if err != nil && listenAddress != "127.0.0.1:0" {
+		listener, err = net.Listen("tcp4", "127.0.0.1:0")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +190,11 @@ func (controller *Controller) newApplianceFrontendRuntime(frontend store.Applian
 		endpointFile: applianceFrontendEndpointPath(controller.supportDirectory, identity.GetInstallationId(), frontend.Name),
 		frontend:     frontend, identity: proto.Clone(identity).(*vmmdv1.SystemApplianceIdentity), listener: listener,
 		open: open, ctx: runtimeCtx, cancel: cancel, connections: make(map[net.Conn]struct{}), available: true}
+	if err := writeApplianceFrontendPort(portPath, runtime.endpoint); err != nil {
+		cancel()
+		listener.Close()
+		return nil, err
+	}
 	if err := writeApplianceFrontendEndpoint(runtime.endpointFile, runtime.endpoint); err != nil {
 		cancel()
 		listener.Close()
@@ -365,4 +425,11 @@ func writeApplianceFrontendEndpoint(path, endpoint string) error {
 		return err
 	}
 	return os.Rename(temporary, path)
+}
+
+func writeApplianceFrontendPort(path, endpoint string) error {
+	if _, _, err := net.SplitHostPort(endpoint); err != nil {
+		return err
+	}
+	return writeApplianceFrontendEndpoint(path, endpoint)
 }

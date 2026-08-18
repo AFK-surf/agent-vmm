@@ -26,6 +26,8 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
+var errInvalidEnvironment = errors.New("environment must contain valid KEY=VALUE entries; values may contain newlines but not NUL")
+
 const (
 	containerStateLabel    = labelPrefix + "state"
 	containerExitLabel     = labelPrefix + "exit-code"
@@ -68,6 +70,11 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	}
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return current, nil
+	}
+	// A process can have exited while the containerd task is still being
+	// reaped by monitorTask.  Do not race a replacement task with that cleanup.
+	if err := r.removeExitedTask(nsctx, container); err != nil {
+		return nil, err
 	}
 	labels, err := container.Labels(nsctx)
 	if err != nil {
@@ -166,6 +173,12 @@ func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, conta
 	if err != nil {
 		code = containerd.UnknownExitStatus
 	}
+	// Publish the terminal process state before reaping the task.  The task
+	// cleanup is asynchronous; inspectContainer also reconciles a missing or
+	// stopped task if this metadata write races with containerd cleanup.
+	metadataContext, cancelMetadata := context.WithTimeout(namespaceContext(context.Background(), namespaceID), 5*time.Second)
+	_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10), containerInstanceLabel: "", containerFinishedLabel: strconv.FormatInt(time.Now().UnixNano(), 10)})
+	cancelMetadata()
 	processContext, cancelProcesses := context.WithTimeout(namespaceContext(context.Background(), namespaceID), 10*time.Second)
 	_ = task.Kill(processContext, syscall.SIGTERM)
 	select {
@@ -184,10 +197,20 @@ func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, conta
 	for _, log := range logs {
 		_ = log.Close()
 	}
-	metadataContext, cancelMetadata := context.WithTimeout(namespaceContext(context.Background(), namespaceID), 5*time.Second)
-	_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10), containerInstanceLabel: "", containerFinishedLabel: strconv.FormatInt(time.Now().UnixNano(), 10)})
-	cancelMetadata()
 	r.notifyWaiters(namespaceID+"/"+containerID, code)
+}
+
+func (r *Runtime) removeExitedTask(ctx context.Context, container containerd.Container) error {
+	task, err := container.Task(ctx, nil)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	cleanup, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return deleteTask(cleanup, task)
 }
 
 func deleteTask(ctx context.Context, task containerd.Task) error {
@@ -256,10 +279,23 @@ func (r *Runtime) stopContainer(ctx context.Context, namespaceID, containerID st
 	}
 	task, err := container.Task(nsctx, nil)
 	if err != nil {
+		if errdefs.IsNotFound(err) {
+			// The monitor may have reaped the task between inspect and stop.
+			// Re-read the durable container record before exposing a transient
+			// containerd NOT_FOUND to callers.
+			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+				return latest, nil
+			}
+		}
 		return nil, err
 	}
 	mainProcess, err := task.LoadProcess(nsctx, mainProcessID, nil)
 	if err != nil {
+		if errdefs.IsNotFound(err) {
+			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+				return latest, nil
+			}
+		}
 		return nil, err
 	}
 	mainExit, err := mainProcess.Wait(namespaceContext(context.Background(), namespaceID))
@@ -406,10 +442,25 @@ func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, cont
 	state := vmmdv1.ContainerState_CONTAINER_STATE_CREATED
 	if info.Labels[containerStateLabel] == "running" {
 		state = vmmdv1.ContainerState_CONTAINER_STATE_RUNNING
+		if task, taskErr := container.Task(ctx, nil); errdefs.IsNotFound(taskErr) {
+			state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
+		} else if taskErr != nil {
+			// A running label without an observable task is not a usable
+			// running container. Fail closed while containerd reaps the task.
+			state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
+		} else if taskErr == nil {
+			if taskStatus, statusErr := task.Status(ctx); statusErr != nil || taskStatus.Status != containerd.Running {
+				state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
+			}
+		}
 	} else if info.Labels[containerStateLabel] == "stopped" {
 		state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
 	}
-	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state, InstanceId: info.Labels[containerInstanceLabel], GenerationId: containerGenerationID(info.ID, info.CreatedAt)}
+	instanceID := info.Labels[containerInstanceLabel]
+	if state != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+		instanceID = ""
+	}
+	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state, InstanceId: instanceID, GenerationId: containerGenerationID(info.ID, info.CreatedAt)}
 	result.CreatedAtUnixNano = info.CreatedAt.UnixNano()
 	result.StartedAtUnixNano, err = parseTimestampLabel(info.Labels[containerStartedLabel])
 	if err != nil {
@@ -473,8 +524,8 @@ func parseTimestampLabel(value string) (int64, error) {
 func validateEnvironment(environment []string) error {
 	for _, value := range environment {
 		key, _, ok := strings.Cut(value, "=")
-		if !ok || !environmentKey.MatchString(key) || strings.ContainsAny(value, "\x00\r\n") {
-			return errors.New("environment must contain KEY=VALUE entries")
+		if !ok || !environmentKey.MatchString(key) || strings.ContainsRune(value, 0) {
+			return errInvalidEnvironment
 		}
 	}
 	return nil

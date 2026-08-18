@@ -4,6 +4,7 @@ struct EnvironmentListView: View {
     @Bindable var model: AppModel
     @State private var pendingCleanup: PendingEnvironmentCleanup?
     @State private var typedEnvironmentName = ""
+    @State private var cleanupPreparing = false
 
     var body: some View {
         Group {
@@ -39,6 +40,16 @@ struct EnvironmentListView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+            }
+        }
+        .overlay(alignment: .top) {
+            if cleanupPreparing || model.cleanupActionInProgress {
+                ProgressView(cleanupPreparing ? "Preparing cleanup…" : "Applying cleanup…")
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .shadow(radius: 4)
+                    .padding(.top, 12)
             }
         }
         .navigationTitle("Environments")
@@ -90,9 +101,6 @@ struct EnvironmentListView: View {
                 .padding(.vertical, 6)
                 .contextMenu {
                     Button("Open") { model.showEnvironment(environment.id) }
-                    if environment.origin == .remote {
-                        Button("Open Remote Controller") { model.showAccess(.remote) }
-                    }
                     if model.snapshot.vmState == "Stopped" {
                         Button("Start Virtual Machine") { Task { await model.startVM() } }
                     }
@@ -132,6 +140,7 @@ struct EnvironmentListView: View {
     }
 
     private func cleanupDisabledReason(for environment: AgentEnvironmentModel, mode: CleanupMode) -> String? {
+        if cleanupPreparing || model.cleanupActionInProgress { return "A cleanup operation is already in progress." }
         if model.snapshot.vmState != "Running" { return "Start the virtual machine first." }
         if model.vmAction != nil { return "Wait for the virtual machine operation to finish." }
         guard mode == .discard else { return nil }
@@ -159,7 +168,10 @@ struct EnvironmentListView: View {
             model.errorMessage = reason
             return
         }
+        guard !cleanupPreparing else { return }
+        cleanupPreparing = true
         Task {
+            defer { cleanupPreparing = false }
             do {
                 let preview = try await model.previewCleanup(environmentID: environment.id, mode: mode)
                 typedEnvironmentName = ""
@@ -175,7 +187,7 @@ struct EnvironmentListView: View {
     }
 
     private func executePendingCleanup() {
-        guard let cleanup = pendingCleanup else { return }
+        guard let cleanup = pendingCleanup, !model.cleanupActionInProgress else { return }
         pendingCleanup = nil
         Task {
             let succeeded = await model.executeCleanup(cleanup.preview)
@@ -317,9 +329,13 @@ private struct EnvironmentNetworkView: View {
                         }
                         .pickerStyle(.radioGroup)
                         HStack {
-                            Button("Save Policy") { save() }.disabled(allowsPublicEgress == environment.allowsPublicEgress)
+                            if model.policyActionInProgress {
+                                ProgressView("Saving policy…")
+                                    .controlSize(.small)
+                            }
+                            Button("Save Policy") { save() }.disabled(allowsPublicEgress == environment.allowsPublicEgress || model.policyActionInProgress)
                             Button("Revert") { allowsPublicEgress = environment.allowsPublicEgress }
-                                .disabled(allowsPublicEgress == environment.allowsPublicEgress)
+                                .disabled(allowsPublicEgress == environment.allowsPublicEgress || model.policyActionInProgress)
                         }
                         Text("This changes new outbound connections. Existing connections may close when policy is tightened.")
                             .font(.caption).foregroundStyle(.secondary)

@@ -106,6 +106,35 @@ func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, gr
 	return nil
 }
 
+// validateApplianceCapacity keeps a signed grant from advertising a runtime
+// pool that can never fit in this VM.  The system reservation is charged in
+// addition to the aggregate client pool when an allocation is admitted.
+func validateApplianceCapacity(grant *appliancev1.ApprovedGrant, host store.ResourceAmount) error {
+	if grant == nil || grant.GetSystemResources() == nil || grant.GetSystemResources().GetCeiling() == nil ||
+		grant.GetCapacity() == nil || grant.GetCapacity().GetAggregateLimits() == nil {
+		return errors.New("resource grant is incomplete")
+	}
+	system := grant.GetSystemResources().GetCeiling()
+	aggregate := grant.GetCapacity().GetAggregateLimits()
+	return validateResourceSumWithinHost(
+		system.GetCpuMillis(), aggregate.GetCpuMillis(), host.CPUMillis,
+		system.GetMemoryBytes(), aggregate.GetMemoryBytes(), host.MemoryBytes,
+		uint64(system.GetPids()), uint64(aggregate.GetPids()), host.PIDs,
+		system.GetDiskBytes(), aggregate.GetDiskBytes(), host.DiskBytes,
+	)
+}
+
+func validateResourceSumWithinHost(systemCPU, aggregateCPU uint32, hostCPU uint64, systemMemory, aggregateMemory, hostMemory uint64,
+	systemPIDs, aggregatePIDs, hostPIDs uint64, systemDisk, aggregateDisk, hostDisk uint64) error {
+	if uint64(systemCPU) > hostCPU || uint64(aggregateCPU) > hostCPU-uint64(systemCPU) ||
+		systemMemory > hostMemory || aggregateMemory > hostMemory-systemMemory ||
+		systemPIDs > hostPIDs || aggregatePIDs > hostPIDs-systemPIDs ||
+		systemDisk > hostDisk || aggregateDisk > hostDisk-systemDisk {
+		return errors.New("approved system and aggregate resources exceed VM capacity")
+	}
+	return nil
+}
+
 func dynamicHostLoopbackWithin(approved, requested *appliancev1.DynamicHostLoopbackGrant) bool {
 	if approved == nil {
 		return true

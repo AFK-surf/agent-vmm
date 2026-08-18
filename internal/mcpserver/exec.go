@@ -24,7 +24,7 @@ func (adapter *Adapter) containerExec(ctx context.Context, _ *mcp.CallToolReques
 	if timeout < 1 || timeout > 600 || maxOutput < 1 || maxOutput > 128<<10 {
 		return adapter.failure(status.Error(codes.InvalidArgument, "invalid exec bounds"))
 	}
-	return adapter.call(ctx, time.Duration(timeout)*time.Second, true, func(ctx context.Context) (any, error) {
+	return adapter.callExec(ctx, time.Duration(timeout)*time.Second, func(ctx context.Context) (any, error) {
 		requestID, err := newRequestID()
 		if err != nil {
 			return nil, err
@@ -33,6 +33,12 @@ func (adapter *Adapter) containerExec(ctx context.Context, _ *mcp.CallToolReques
 		if err != nil {
 			return nil, err
 		}
+		closedSend := false
+		defer func() {
+			if !closedSend {
+				_ = stream.CloseSend()
+			}
+		}()
 		if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{
 			RequestId: requestID, ContainerId: input.ContainerID, Argv: input.Argv,
 			Env: environmentList(input.Env), Workdir: optionalString(input.Workdir), User: optionalString(input.User), Tty: false,
@@ -50,6 +56,7 @@ func (adapter *Adapter) containerExec(ctx context.Context, _ *mcp.CallToolReques
 		if err := stream.CloseSend(); err != nil {
 			return nil, err
 		}
+		closedSend = true
 		stdout, stderr := newBoundedText((maxOutput+1)/2), newBoundedText(maxOutput/2)
 		var exitCode uint32
 		for {

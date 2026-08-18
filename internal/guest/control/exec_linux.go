@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"syscall"
@@ -48,6 +49,9 @@ func (s *Server) Exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv1
 		return status.Error(codes.InvalidArgument, "first exec event must be start")
 	}
 	if err := validateExecStart(start); err != nil {
+		if errors.Is(err, errInvalidEnvironment) {
+			return detailedError(codes.InvalidArgument, "ENVIRONMENT_INVALID", err.Error(), "container", start.GetContainerId())
+		}
 		return invalid(err)
 	}
 	fingerprintBytes, _ := proto.MarshalOptions{Deterministic: true}.Marshal(start)
@@ -177,7 +181,11 @@ func (r *Runtime) exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv
 	} else {
 		process.ConsoleSize = nil
 	}
-	stdinReader, stdinWriter := io.Pipe()
+	stdinReader, stdinWriter, err := os.Pipe()
+	if err != nil {
+		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())
+	}
+	defer stdinReader.Close()
 	defer stdinWriter.Close()
 	output := make(chan processOutput, 16)
 	stdout := &streamOutput{ctx: ctx, output: output}
@@ -201,7 +209,7 @@ func (r *Runtime) exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv
 		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())
 	}
 	inputErrors := make(chan error, 1)
-	go receiveExecInput(stream, processHandle, stdinWriter, inputErrors)
+	go receiveExecInput(stream, nsctx, processHandle, stdinWriter, inputErrors)
 	finished := make(chan containerd.ExitStatus, 1)
 	go func() { finished <- <-exit }()
 	ioDone := make(chan struct{})
@@ -263,7 +271,7 @@ func sendExecExit(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv1.Exe
 	return code, nil
 }
 
-func receiveExecInput(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv1.ExecResponse], process containerd.Process, stdin *io.PipeWriter, result chan<- error) {
+func receiveExecInput(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv1.ExecResponse], processContext context.Context, process containerd.Process, stdin io.WriteCloser, result chan<- error) {
 	for {
 		request, err := stream.Recv()
 		if err != nil {
@@ -278,7 +286,14 @@ func receiveExecInput(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv1
 			if !event.CloseStdin {
 				err = errors.New("close_stdin event must be true")
 			} else {
-				err = stdin.Close()
+				// Closing the caller-side pipe only stops the local copy loop.  The
+				// containerd shim owns the process FIFO and must be told to close its
+				// stdin as well, otherwise a process waiting for EOF can block forever.
+				processErr := process.CloseIO(context.WithoutCancel(processContext), containerd.WithStdinCloser)
+				closeErr := stdin.Close()
+				err = errors.Join(processErr, closeErr)
+				result <- err
+				return
 			}
 		case *vmmdv1.ExecRequest_Resize:
 			if event.Resize.GetRows() == 0 || event.Resize.GetColumns() == 0 {

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "environments": [
+    {
+      "id": "existing-local",
+      "namespace_id": "existing-namespace",
+      "display_name": "Existing Local",
+      "cpu_millis": 1000,
+      "memory_bytes": 1073741824,
+      "pids": 128,
+      "disk_bytes": 4294967296,
+      "egress_mode": 1,
+      "policy_revision": 1
+    }
+  ],
+  "migration_expectation": {
+    "owner_kind": "LOCAL",
+    "registration_id": null,
+    "allocation_id": null
+  }
+}

@@ -50,7 +50,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		return nil, errors.New("entrypoint, command, env, or log limit is outside the allowed range")
 	}
 	if err := validateEnvironment(request.GetEnv()); err != nil {
-		return nil, err
+		return nil, detailedError(codes.InvalidArgument, "ENVIRONMENT_INVALID", err.Error(), "container", request.GetContainerId())
 	}
 	processValues := append([]string(nil), request.GetEntrypointOverride().GetValues()...)
 	processValues = append(processValues, request.GetCommandOverride().GetValues()...)

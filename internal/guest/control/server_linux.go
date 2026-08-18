@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -408,9 +409,15 @@ func rpcError(err error) error {
 		return status.Error(codes.AlreadyExists, "resource already exists")
 	case errdefs.IsFailedPrecondition(err):
 		log.Printf("guest runtime precondition failed: %v", err)
-		return status.Error(codes.FailedPrecondition, "runtime precondition failed")
+		message := err.Error()
+		if len(message) > 512 {
+			message = message[:512]
+		}
+		return detailedError(codes.FailedPrecondition, "RUNTIME_PRECONDITION_FAILED", "runtime precondition failed: "+message, "runtime", "")
 	case errors.Is(err, errResourceExhausted):
 		return status.Error(codes.ResourceExhausted, err.Error())
+	case errors.Is(err, syscall.EAGAIN) || strings.Contains(strings.ToLower(err.Error()), "resource temporarily unavailable"):
+		return detailedError(codes.ResourceExhausted, "PID_LIMIT_EXCEEDED", "environment process limit was exhausted; stop finished execs or containers before retrying", "runtime", "")
 	case errors.Is(err, errPrecondition):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, context.Canceled):
@@ -419,6 +426,10 @@ func rpcError(err error) error {
 		return status.Error(codes.DeadlineExceeded, err.Error())
 	default:
 		log.Printf("guest runtime operation failed: %v", err)
-		return status.Error(codes.Internal, "runtime operation failed")
+		message := err.Error()
+		if len(message) > 512 {
+			message = message[:512]
+		}
+		return detailedError(codes.Internal, "RUNTIME_OPERATION_FAILED", "runtime operation failed: "+message, "runtime", "")
 	}
 }

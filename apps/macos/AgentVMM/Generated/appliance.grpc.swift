@@ -20,6 +20,19 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
     public static let descriptor = GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService")
     /// Namespace for method metadata.
     public enum Method: Sendable {
+        /// Namespace for "BuildArtifact" metadata.
+        public enum BuildArtifact: Sendable {
+            /// Request type for "BuildArtifact".
+            public typealias Input = Agentvmm_Appliance_V1_BuildArtifactRequest
+            /// Response type for "BuildArtifact".
+            public typealias Output = Agentvmm_Appliance_V1_BuildArtifactResponse
+            /// Descriptor for "BuildArtifact".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "BuildArtifact",
+                type: .bidirectionalStreaming
+            )
+        }
         /// Namespace for "StageArtifact" metadata.
         public enum StageArtifact: Sendable {
             /// Request type for "StageArtifact".
@@ -217,6 +230,7 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
         }
         /// Descriptors for all methods in the "agentvmm.appliance.v1.ApplianceAdminService" service.
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
+            BuildArtifact.descriptor,
             StageArtifact.descriptor,
             PlanInstall.descriptor,
             Install.descriptor,
@@ -251,6 +265,25 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
     /// You don't need to implement this protocol directly, use the generated
     /// implementation, ``Client``.
     public protocol ClientProtocol: Sendable {
+        /// Call the "BuildArtifact" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Appliance_V1_BuildArtifactRequest` messages.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_BuildArtifactRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_BuildArtifactResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func buildArtifact<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_BuildArtifactRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_BuildArtifactRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_BuildArtifactResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Appliance_V1_BuildArtifactResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
         /// Call the "StageArtifact" method.
         ///
         /// - Parameters:
@@ -551,6 +584,34 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
         ///   - client: A `GRPCCore.GRPCClient` providing a communication channel to the service.
         public init(wrapping client: GRPCCore.GRPCClient<Transport>) {
             self.client = client
+        }
+
+        /// Call the "BuildArtifact" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Appliance_V1_BuildArtifactRequest` messages.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_BuildArtifactRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_BuildArtifactResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func buildArtifact<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_BuildArtifactRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_BuildArtifactRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_BuildArtifactResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Appliance_V1_BuildArtifactResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.bidirectionalStreaming(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.BuildArtifact.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
         }
 
         /// Call the "StageArtifact" method.
@@ -1006,6 +1067,29 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
 // Helpers providing default arguments to 'ClientProtocol' methods.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
+    /// Call the "BuildArtifact" method.
+    ///
+    /// - Parameters:
+    ///   - request: A streaming request producing `Agentvmm_Appliance_V1_BuildArtifactRequest` messages.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func buildArtifact<Result>(
+        request: GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_BuildArtifactRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Appliance_V1_BuildArtifactResponse>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        try await self.buildArtifact(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_BuildArtifactRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_BuildArtifactResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "StageArtifact" method.
     ///
     /// - Parameters:
@@ -1383,6 +1467,34 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
 // Helpers providing sugared APIs for 'ClientProtocol' methods.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
+    /// Call the "BuildArtifact" method.
+    ///
+    /// - Parameters:
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - producer: A closure producing request messages to send to the server. The request
+    ///       stream is closed when the closure returns.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func buildArtifact<Result>(
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        requestProducer producer: @Sendable @escaping (GRPCCore.RPCWriter<Agentvmm_Appliance_V1_BuildArtifactRequest>) async throws -> Void,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Appliance_V1_BuildArtifactResponse>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_BuildArtifactRequest>(
+            metadata: metadata,
+            producer: producer
+        )
+        return try await self.buildArtifact(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "StageArtifact" method.
     ///
     /// - Parameters:

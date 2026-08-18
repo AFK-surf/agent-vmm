@@ -11,8 +11,14 @@ struct DiagnosticsView: View {
                 HStack {
                     Text("Diagnostics & Activity").font(.title2.weight(.semibold))
                     Spacer()
+                    if model.diagnosticsActionInProgress || model.supportPreviewInProgress {
+                        ProgressView("Working…")
+                            .controlSize(.small)
+                    }
                     Button("Run Diagnostics") { Task { await model.runDiagnostics() } }
+                        .disabled(model.diagnosticsActionInProgress || model.supportPreviewInProgress)
                     Button("Export Support Bundle…") { previewSupportBundle() }
+                        .disabled(model.diagnosticsActionInProgress || model.supportPreviewInProgress)
                 }
 
                 if let operation = model.latestOperation {
@@ -84,12 +90,14 @@ struct DiagnosticsView: View {
                     Spacer()
                     Button("Cancel", role: .cancel) { showingPreview = false }
                     Button("Export") { showingPreview = false; Task { await model.exportSupportBundle(sensitiveItems: Array(selectedSensitive)) } }
+                        .disabled(model.diagnosticsActionInProgress || model.supportPreviewInProgress)
                 }
             }.padding().frame(width: 520)
         }
     }
 
     private func previewSupportBundle() {
+        guard !model.diagnosticsActionInProgress, !model.supportPreviewInProgress else { return }
         Task {
             do { supportItems = try await model.supportPreview(); selectedSensitive = []; showingPreview = true }
             catch { model.errorMessage = hostErrorMessage(error) }

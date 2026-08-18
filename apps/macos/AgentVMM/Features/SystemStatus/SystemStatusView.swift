@@ -70,9 +70,14 @@ struct SystemStatusView: View {
                     Text("One or more signed helpers or LaunchAgents are missing or stopped.").foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Repair Services") { Task { await model.repairServices() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.lifecycleOperationInProgress)
+                if model.lifecycleOperationInProgress {
+                    ProgressView("Repairing…")
+                        .controlSize(.small)
+                } else {
+                    Button("Repair Services") { Task { await model.repairServices() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.lifecycleOperationInProgress)
+                }
             }.padding(6)
         }
     }
@@ -80,24 +85,12 @@ struct SystemStatusView: View {
     private var accessSummary: some View {
         GroupBox("Agent access") {
             VStack(spacing: 0) {
-                Button { model.showAccess(.local) } label: {
+                Button { model.showAccess() } label: {
                     HStack {
                         Label("MCP appliance", systemImage: "bolt.horizontal.circle")
                         Spacer()
                         Text(mcpAccessSummary)
                             .foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.vertical, 9)
-                Divider()
-                Button { model.showAccess(.remote) } label: {
-                    HStack {
-                        Label("Remote controller", systemImage: "network")
-                        Spacer()
-                        Text(remoteAccessSummary).foregroundStyle(.secondary)
                         Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                     }
                     .contentShape(Rectangle())

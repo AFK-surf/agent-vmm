@@ -1,4 +1,4 @@
-package rfc4contract
+package contract
 
 import (
 	"context"

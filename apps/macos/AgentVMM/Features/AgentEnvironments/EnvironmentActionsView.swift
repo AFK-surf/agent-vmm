@@ -26,8 +26,12 @@ struct EnvironmentActionsView: View {
                         GridRow {
                             Text("")
                             HStack {
-                                Button("Save Limits") { applyPolicy() }.disabled(parsedLimits == nil || !limitsChanged)
-                                Button("Revert") { loadPolicy() }.disabled(!limitsChanged)
+                                if model.policyActionInProgress {
+                                    ProgressView("Saving limits…")
+                                        .controlSize(.small)
+                                }
+                                Button("Save Limits") { applyPolicy() }.disabled(parsedLimits == nil || !limitsChanged || model.policyActionInProgress)
+                                Button("Revert") { loadPolicy() }.disabled(!limitsChanged || model.policyActionInProgress)
                             }
                         }
                     }

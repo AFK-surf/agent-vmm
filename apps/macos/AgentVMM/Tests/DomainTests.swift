@@ -151,11 +151,11 @@ import Foundation
     ) == .offline)
 }
 
-@Test func lifecycleHealthRequiresEveryManagedComponent() {
-    let healthy = LifecycleStatus(appInstalled: true, hostInstalled: true, mcpInstalled: true, connectorInstalled: true, hostLoaded: true, connectorLoaded: true)
-    let stopped = LifecycleStatus(appInstalled: true, hostInstalled: true, mcpInstalled: true, connectorInstalled: true, hostLoaded: true, connectorLoaded: false)
+@Test func lifecycleHealthRequiresHostService() {
+    let healthy = LifecycleStatus(appInstalled: true, hostInstalled: true, hostLoaded: true)
+    let stopped = LifecycleStatus(appInstalled: true, hostInstalled: true, hostLoaded: false)
     #expect(healthy.coreHealthy)
-    #expect(stopped.coreHealthy)
+    #expect(!stopped.coreHealthy)
 }
 
 @Test func MCPClientBindingsAreOpaqueAndIndependent() {
@@ -164,13 +164,6 @@ import Foundation
     #expect(first.count == 64)
     #expect(first.allSatisfy { "0123456789abcdef".contains($0) })
     #expect(first != second)
-}
-
-@Test func MCPProxyConfigurationHasOnlyEndpointAndOpaqueBinding() {
-    let binding = String(repeating: "a", count: 64)
-    #expect(MCPClientConfiguration.helperArguments(binding: binding, endpointFile: "/support/mcp.endpoint") == [
-        "--endpoint-file", "/support/mcp.endpoint", "--client-binding", binding
-    ])
 }
 
 @Test func applianceRemovalPreservesServerBlockers() {
@@ -183,6 +176,25 @@ import Foundation
     )
     #expect(plan.blockers.map(\.resourceID) == ["retained"])
     #expect(Set(plan.requiredConfirmations) == ["retained", "volume"])
+}
+
+@Test func mcpEndpointAvailabilityIsSeparateFromApplianceEnabledState() {
+    let grant = ApplianceGrantModel.bundledMCPDefault
+    let unavailable = ApplianceStatusModel(
+        id: "mcp", productID: "mcp", revision: 1, artifactID: "artifact", state: "Running",
+        channelState: "Connected", enabled: true, healthy: true, healthMessage: nil, grant: grant,
+        frontends: [ApplianceFrontendModel(name: BundledMCPAppliance.frontendName, transport: "http", endpoint: "", available: false)]
+    )
+    #expect(!unavailable.endpointAvailable)
+    #expect(unavailable.endpointStatus == "Starting or unavailable")
+
+    let ready = ApplianceStatusModel(
+        id: "mcp", productID: "mcp", revision: 1, artifactID: "artifact", state: "Running",
+        channelState: "Connected", enabled: true, healthy: true, healthMessage: nil, grant: grant,
+        frontends: [ApplianceFrontendModel(name: BundledMCPAppliance.frontendName, transport: "http", endpoint: "http://127.0.0.1:1/mcp", available: true)]
+    )
+    #expect(ready.endpointAvailable)
+    #expect(ready.endpointStatus == "Available on this Mac")
 }
 
 
@@ -208,18 +220,6 @@ import Foundation
     #expect(defaults.aggregateLimits.diskBytes <= 8 << 30)
     #expect(defaults.perEnvironmentLimits.memoryBytes <= defaults.aggregateLimits.memoryBytes)
     #expect(!defaults.allowsPublicEgress)
-}
-
-@MainActor
-@Test func agentAccessDeepLinksPreserveTargetSelection() {
-    let model = AppModel()
-    model.showAccess(.remote)
-    #expect(model.section == .access)
-    #expect(model.accessTab == .remote)
-    model.showEnvironment("environment-a")
-    #expect(model.section == .environments)
-    #expect(model.selectedEnvironmentID == "environment-a")
-    #expect(model.environmentSection == .overview)
 }
 
 @MainActor
@@ -273,16 +273,4 @@ import Foundation
     } catch {
         Issue.record("Unexpected error: \(error)")
     }
-}
-
-@Test func bundledHelperResolvesCustomHelpersDirectory() throws {
-    let bundle = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).app")
-    let helpers = bundle.appending(path: "Contents/Helpers")
-    try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: bundle) }
-    let executable = helpers.appending(path: "agent-vmm-mcp")
-    FileManager.default.createFile(atPath: executable.path, contents: Data())
-    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-    #expect(BundledHelper.executable(named: "agent-vmm-mcp", bundleURL: bundle) == executable)
-    #expect(BundledHelper.executable(named: "missing", bundleURL: bundle) == nil)
 }

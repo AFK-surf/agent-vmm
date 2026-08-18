@@ -604,8 +604,7 @@ extension GRPCHostClient {
                 allowsPublicEgress: grant.capacity.maxEgressMode == .publicInternet,
                 maxLeaseSeconds: grant.capacity.maxLeaseSeconds,
                 disconnectGraceSeconds: grant.capacity.disconnectGraceSeconds,
-                enabledFrontendNames: Set(grant.frontends.map(\.name)),
-                dynamicHostLoopbackEnabled: grant.hasDynamicHostLoopback
+				enabledFrontendNames: Set(grant.frontends.map(\.name))
             ),
             frontends: value.frontends.map {
                 ApplianceFrontendModel(

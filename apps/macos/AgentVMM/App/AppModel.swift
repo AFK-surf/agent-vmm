@@ -13,7 +13,6 @@ final class AppModel {
         var id: Self { self }
     }
 
-    enum AccessTab: String, CaseIterable, Identifiable { case local = "Local MCP", remote = "Remote Controllers"; var id: Self { self } }
 
     enum EnvironmentSection: String, CaseIterable, Identifiable {
         case overview = "Overview"
@@ -40,16 +39,17 @@ final class AppModel {
     var section: Section? = .system
     var selectedEnvironmentID: String?
     var environmentSection: EnvironmentSection = .overview
-    var accessTab: AccessTab = .local
     var snapshot = SystemSnapshotModel.loading
     var appliances: [ApplianceStatusModel] = []
     var mcpClientBindings: [MCPClientBindingModel] = []
+    var mcpManualConfigurations: [UUID: MCPManualConfiguration] = [:]
     var deviceIdentity: DeviceIdentityModel?
     var personalMeshes: [PersonalMeshModel] = []
     var personalMeshPairing: PersonalMeshPairingModel?
     var incomingPairingInvitation = ""
     let pairingDiscovery = PairingDiscovery()
     var deviceActionInProgress = false
+    var deviceRefreshInProgress = false
     var events: [ActivityEvent] = []
     var metrics: [UsageSnapshot] = []
     var errorMessage: String?
@@ -58,7 +58,13 @@ final class AppModel {
     var gracefulStopFailed = false
     var vmAction: VMAction?
     var enrollmentStage: EnrollmentStage?
-    var applianceActionInProgress = false
+    var applianceAction: ApplianceAction?
+    var applianceActionInProgress: Bool { applianceAction != nil }
+    var mcpClientActionInProgress = false
+    var cleanupActionInProgress = false
+    var policyActionInProgress = false
+    var diagnosticsActionInProgress = false
+    var supportPreviewInProgress = false
     var lifecycleStatus: LifecycleStatus?
     var lifecycleOperationInProgress = false
 
@@ -67,6 +73,7 @@ final class AppModel {
     private var metricsTask: Task<Void, Never>?
     private var snapshotRefreshTask: Task<Void, Never>?
     private var eventBootID = ""
+    private var syncedCodexEndpoint = ""
     let mcpClientConfiguration = MCPClientConfiguration()
 
     init(client: (any HostServing)? = nil) {
@@ -101,9 +108,28 @@ final class AppModel {
         async let nextAppliances = client.listAppliances()
         applySnapshot(try await nextSnapshot)
         appliances = try await nextAppliances
-        mcpClientBindings = (try? mcpClientConfiguration.bindings()) ?? []
+        reloadMCPClientBindings()
+        if let codex = mcpClientBindings.first(where: { $0.kind == .codex }),
+           let endpoint = try? mcpClientConfiguration.endpointURL(for: codex),
+           endpoint.absoluteString != syncedCodexEndpoint {
+            if let endpoint = try? await mcpClientConfiguration.syncCodexEndpoint(for: codex) {
+                syncedCodexEndpoint = endpoint.absoluteString
+            }
+        }
         isLoading = false
-        errorMessage = nil
+    }
+
+    func reloadMCPClientBindings() {
+        mcpClientBindings = (try? mcpClientConfiguration.bindings()) ?? []
+        mcpManualConfigurations = Dictionary(uniqueKeysWithValues: mcpClientBindings.compactMap { binding in
+            guard binding.kind == .manual,
+                  let configuration = try? mcpClientConfiguration.manualConnection(binding: binding.binding) else { return nil }
+            return (binding.id, configuration)
+        })
+    }
+
+    func manualMCPConfiguration(for binding: MCPClientBindingModel) -> MCPManualConfiguration? {
+        mcpManualConfigurations[binding.id]
     }
 
     func applySnapshot(_ value: SystemSnapshotModel) {
@@ -118,7 +144,9 @@ final class AppModel {
     }
 
     func refreshDevices() async {
-        guard let client else { return }
+        guard let client, !deviceRefreshInProgress else { return }
+        deviceRefreshInProgress = true
+        defer { deviceRefreshInProgress = false }
         do {
             async let identity = client.deviceIdentity()
             async let meshes = client.listPersonalMeshes()
@@ -267,6 +295,9 @@ final class AppModel {
     }
 
     func updatePolicy(environmentID: String, limits: EnvironmentLimits, allowsPublicEgress: Bool, expectedRevision: UInt64) async {
+        guard !policyActionInProgress else { return }
+        policyActionInProgress = true
+        defer { policyActionInProgress = false }
         do {
             try await client?.updatePolicy(environmentID: environmentID, limits: limits, allowsPublicEgress: allowsPublicEgress, expectedRevision: expectedRevision)
             try await refresh()
@@ -280,14 +311,17 @@ final class AppModel {
 
     @discardableResult
     func executeCleanup(_ preview: CleanupPreview) async -> Bool {
+        guard !cleanupActionInProgress else { return false }
+        cleanupActionInProgress = true
+        defer { cleanupActionInProgress = false }
         do {
             guard let operation = try await client?.executeCleanup(preview) else {
                 throw HostClientError.disconnected
             }
-            remember(operation)
+            let completed = try await waitForOperation(operation)
             try await refresh()
-            guard operation.state == "Succeeded" else {
-                errorMessage = operation.message ?? operation.reason ?? "The environment could not be cleaned up."
+            guard completed.state == "Succeeded" else {
+                errorMessage = completed.message ?? completed.reason ?? "The environment could not be cleaned up."
                 return false
             }
             return true
@@ -298,154 +332,51 @@ final class AppModel {
     }
 
     func runDiagnostics() async {
-        do { remember(try await client?.runDiagnostics(environmentID: selectedEnvironmentID)) }
+        guard !diagnosticsActionInProgress else { return }
+        diagnosticsActionInProgress = true
+        defer { diagnosticsActionInProgress = false }
+        do {
+            guard let operation = try await client?.runDiagnostics(environmentID: selectedEnvironmentID) else {
+                throw HostClientError.disconnected
+            }
+            _ = try await waitForOperation(operation)
+        }
         catch { errorMessage = hostErrorMessage(error) }
     }
 
     func supportPreview() async throws -> [SupportItem] {
         guard let client else { throw HostClientError.disconnected }
+        guard !supportPreviewInProgress else { throw HostClientError.invalidResponse("A support bundle request is already in progress.") }
+        supportPreviewInProgress = true
+        defer { supportPreviewInProgress = false }
         return try await client.supportPreview(environmentID: selectedEnvironmentID)
     }
 
     func exportSupportBundle(sensitiveItems: [String]) async {
-        do { remember(try await client?.exportSupportBundle(environmentID: selectedEnvironmentID, sensitiveItems: sensitiveItems)) }
-        catch { errorMessage = hostErrorMessage(error) }
-    }
-
-    func enrollRemote(endpoint: String, displayName: String, token: String, pool: RemotePoolSettings) async -> Bool {
-        guard let client else { errorMessage = HostClientError.disconnected.localizedDescription; return false }
-        var pendingRegistration: RemoteRegistrationModel?
-        enrollmentStage = .creating
-        defer { enrollmentStage = nil }
+        guard !diagnosticsActionInProgress else { return }
+        diagnosticsActionInProgress = true
+        defer { diagnosticsActionInProgress = false }
         do {
-            let registration = try await client.beginRemoteEnrollment(endpoint: endpoint, displayName: displayName, pool: pool)
-            pendingRegistration = registration
-            enrollmentStage = .storingCredential
-            try await runEnrollment(endpoint: endpoint, registrationID: registration.id, token: token)
-            enrollmentStage = .connecting
-            _ = try await client.completeRemoteEnrollment(registrationID: registration.id, expectedRevision: registration.revision)
-            try await refresh()
-            return true
-        } catch {
-            if let registration = pendingRegistration {
-                _ = try? await client.failRemoteEnrollment(registrationID: registration.id, expectedRevision: registration.revision, code: "ENROLLMENT_FAILED", message: "Controller enrollment failed. Retry setup.")
+            guard let operation = try await client?.exportSupportBundle(environmentID: selectedEnvironmentID, sensitiveItems: sensitiveItems) else {
+                throw HostClientError.disconnected
             }
-            errorMessage = hostErrorMessage(error)
-            try? await refresh()
-            return false
-        }
-    }
-
-    func setRemoteAdmission(_ state: RemoteAdmissionState, registrationID: String) async {
-        guard let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return }
-        do {
-            _ = try await client?.setRemoteAdmission(registrationID: registration.id, state, expectedRevision: registration.revision)
-            try await refresh()
+            _ = try await waitForOperation(operation)
         }
         catch { errorMessage = hostErrorMessage(error) }
     }
 
-    func updateRemotePool(_ pool: RemotePoolSettings, registrationID: String) async -> Bool {
-        guard let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return false }
-        do { _ = try await client?.updateRemotePool(registrationID: registration.id, pool, expectedRevision: registration.revision); try await refresh() }
-        catch { errorMessage = hostErrorMessage(error); return false }
-        return true
-    }
-
-    func retryRemoteEnrollment(token: String, registrationID: String) async -> Bool {
-        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return false }
-        var pendingRegistration: RemoteRegistrationModel?
-        enrollmentStage = .creating
-        defer { enrollmentStage = nil }
-        do {
-            let pending = try await client.retryRemoteEnrollment(registrationID: registration.id, expectedRevision: registration.revision)
-            pendingRegistration = pending
-            enrollmentStage = .storingCredential
-            try await runEnrollment(endpoint: pending.endpoint, registrationID: pending.id, token: token)
-            enrollmentStage = .connecting
-            _ = try await client.completeRemoteEnrollment(registrationID: pending.id, expectedRevision: pending.revision)
-            try await refresh()
-            return true
-        } catch {
-            if let pending = pendingRegistration {
-                _ = try? await client.failRemoteEnrollment(registrationID: pending.id, expectedRevision: pending.revision, code: "ENROLLMENT_FAILED", message: "Controller enrollment failed. Retry setup.")
-            }
-            errorMessage = hostErrorMessage(error)
-            try? await refresh()
-            return false
+    private func waitForOperation(_ operation: OperationModel) async throws -> OperationModel {
+        var current = operation
+        remember(current)
+        guard current.state == "Running" else { return current }
+        guard let client else { throw HostClientError.disconnected }
+        for _ in 0..<600 {
+            try await Task.sleep(for: .milliseconds(500))
+            current = try await client.getOperation(id: current.id)
+            remember(current)
+            if current.state != "Running" { return current }
         }
-    }
-
-    func removeIncompleteRemoteRegistration(registrationID: String) async {
-        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return }
-        do {
-            try await revokeCredential(registrationID: registration.id)
-            try await client.removeIncompleteRemoteRegistration(registrationID: registration.id, expectedRevision: registration.revision)
-            try await refresh()
-        } catch { errorMessage = hostErrorMessage(error) }
-    }
-
-    func revokeRemoteAccess(registrationID: String) async -> Bool {
-        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return true }
-        do {
-            let revoking = try await client.beginRemoteRevocation(registrationID: registration.id, expectedRevision: registration.revision)
-            try await revokeCredential(registrationID: registration.id)
-            _ = try await client.completeRemoteRevocation(registrationID: registration.id, expectedRevision: revoking.revision)
-            try await refresh()
-            return true
-        } catch {
-            errorMessage = hostErrorMessage(error)
-            try? await refresh()
-            return false
-        }
-    }
-
-    func finishRemoteRevocation(registrationID: String) async {
-        guard let client, let registration = snapshot.remoteRegistrations.first(where: { $0.id == registrationID }) else { return }
-        do {
-            try await revokeCredential(registrationID: registration.id)
-            _ = try await client.completeRemoteRevocation(registrationID: registration.id, expectedRevision: registration.revision)
-            try await refresh()
-        } catch { errorMessage = hostErrorMessage(error) }
-    }
-
-    private func runEnrollment(endpoint: String, registrationID: String, token: String) async throws {
-        guard let host = URL(string: "https://\(endpoint)")?.host, !host.isEmpty,
-              let helper = BundledHelper.executable(named: "agent-vmm-connect") else {
-            throw HostClientError.invalidResponse("invalid controller endpoint or missing connector")
-        }
-        let socketPath = AppModel.remoteComputeSocketPath
-        try await Task.detached {
-            let process = Process()
-            let input = Pipe()
-            process.executableURL = helper
-            process.arguments = ["--enroll", "--endpoint", endpoint, "--endpoint-identity", host, "--registration", registrationID,
-                                 "--remote-compute-socket", socketPath]
-            process.standardInput = input
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            input.fileHandleForWriting.write(Data(token.utf8))
-            try input.fileHandleForWriting.close()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { throw HostClientError.invalidResponse("controller enrollment failed") }
-        }.value
-    }
-
-    private func revokeCredential(registrationID: String) async throws {
-        guard let helper = BundledHelper.executable(named: "agent-vmm-connect") else {
-            throw HostClientError.invalidResponse("missing connector")
-        }
-        try await Task.detached {
-            let process = Process()
-            process.executableURL = helper
-            process.arguments = ["--revoke-credential", "--registration", registrationID]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { throw HostClientError.invalidResponse("credential revocation failed") }
-        }.value
+        throw HostClientError.invalidResponse("The operation did not finish in time. Check Activity for its current state.")
     }
 
     private func remember(_ operation: OperationModel?) {

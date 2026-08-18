@@ -1629,6 +1629,9 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 		"--serial-log", serial, "--operator-socket", operatorSocket, "--remote-compute-socket", remoteComputeSocket,
 		"--database", database, "--session-directory", sessions,
 	}
+	if dataWorker := os.Getenv("AGENT_VMM_E2E_DATA_BINARY"); dataWorker != "" {
+		processArgs = append(processArgs, "--data-worker", dataWorker)
+	}
 	harness := &hostHarness{binary: binary, processArgs: processArgs, serial: serial, instance: instance, database: database,
 		runtimeSocket: runtimeSocket, operatorSocket: operatorSocket, remoteComputeSocket: remoteComputeSocket,
 		trustSocket: trustSocket, trustCapabilityFile: trustCapabilityFile}

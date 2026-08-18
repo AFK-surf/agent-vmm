@@ -80,6 +80,21 @@ func TestRemoteRuntimeMethodFilter(t *testing.T) {
 			t.Fatalf("ordinary runtime method was denied: %s", method)
 		}
 	}
+	for _, method := range []string{
+		hostv1.AgentRuntimeService_CreateServiceExport_FullMethodName,
+		hostv1.AgentRuntimeService_ListServiceExports_FullMethodName,
+		hostv1.AgentRuntimeService_GetServiceExport_FullMethodName,
+		hostv1.AgentRuntimeService_RevokeServiceExport_FullMethodName,
+		hostv1.AgentRuntimeService_CreateServiceImport_FullMethodName,
+		hostv1.AgentRuntimeService_CreatePersonalServiceImport_FullMethodName,
+		hostv1.AgentRuntimeService_ListServiceImports_FullMethodName,
+		hostv1.AgentRuntimeService_GetServiceImport_FullMethodName,
+		hostv1.AgentRuntimeService_RevokeServiceImport_FullMethodName,
+	} {
+		if remoteRuntimeDenied(method) {
+			t.Fatalf("service method was denied: %s", method)
+		}
+	}
 	if !remoteRuntimeDenied("/agentvmm.host.v1.AgentRuntimeService/FutureOperatorMethod") {
 		t.Fatal("unknown future runtime method was allowed")
 	}

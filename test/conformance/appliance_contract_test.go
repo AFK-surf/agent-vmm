@@ -24,7 +24,7 @@ func (r resources) fits(limit resources) bool {
 	return r.CPU <= limit.CPU && r.Memory <= limit.Memory && r.PIDs <= limit.PIDs && r.Disk <= limit.Disk
 }
 
-type rfc6Fixture struct {
+type applianceFixture struct {
 	Version               uint64 `json:"version"`
 	RequiredRemoteFeature string `json:"required_remote_feature"`
 	Limits                struct {
@@ -87,21 +87,21 @@ type rfc6Fixture struct {
 	} `json:"bundled_mcp"`
 }
 
-func loadRFC6Fixture(t *testing.T) rfc6Fixture {
+func loadApplianceFixture(t *testing.T) applianceFixture {
 	t.Helper()
-	data, err := os.ReadFile("testdata/rfc6-contract.json")
+	data, err := os.ReadFile("testdata/appliance-contract.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fixture rfc6Fixture
+	var fixture applianceFixture
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
 	return fixture
 }
 
-func TestRFC6ContractIdentitiesAndIsolation(t *testing.T) {
-	fixture := loadRFC6Fixture(t)
+func TestApplianceContractIdentitiesAndIsolation(t *testing.T) {
+	fixture := loadApplianceFixture(t)
 	if fixture.Version != 1 || fixture.RequiredRemoteFeature != "controller-ready-v1" || len(fixture.Domains) != 2 {
 		t.Fatal("contract must freeze two domains")
 	}
@@ -140,8 +140,8 @@ func TestRFC6ContractIdentitiesAndIsolation(t *testing.T) {
 	}
 }
 
-func TestRFC6AggregateAdmissionAndBounds(t *testing.T) {
-	fixture := loadRFC6Fixture(t)
+func TestApplianceAggregateAdmissionAndBounds(t *testing.T) {
+	fixture := loadApplianceFixture(t)
 	used := fixture.Host.Reserve
 	for _, domain := range fixture.Domains {
 		used = used.add(domain.SystemReservation).add(domain.AllocationReservation)
@@ -164,8 +164,8 @@ func TestRFC6AggregateAdmissionAndBounds(t *testing.T) {
 	}
 }
 
-func TestRFC6BundledMCPContract(t *testing.T) {
-	fixture := loadRFC6Fixture(t)
+func TestBundledMCPContract(t *testing.T) {
+	fixture := loadApplianceFixture(t)
 	mcp := fixture.BundledMCP
 	if mcp.ProductID == "" || mcp.Platform != "linux/arm64" || !mcp.DigestPinned || !mcp.PublisherSigned || mcp.DefaultEnabled {
 		t.Fatal("bundled MCP artifact must be signed, pinned, arm64, and disabled by default")
@@ -175,7 +175,7 @@ func TestRFC6BundledMCPContract(t *testing.T) {
 	}
 }
 
-func TestRFC6ControllerReadyContract(t *testing.T) {
+func TestControllerReadyContract(t *testing.T) {
 	tests := []struct {
 		name         string
 		ready        *remotev1.ControllerReady
@@ -214,7 +214,7 @@ func validateControllerReady(ready *remotev1.ControllerReady, registration strin
 	return nil
 }
 
-func TestRFC6InventoryRevisionAdvancesForEveryMutation(t *testing.T) {
+func TestInventoryRevisionAdvancesForEveryMutation(t *testing.T) {
 	type snapshot struct {
 		watermark           uint64
 		allocationRevisions []uint64

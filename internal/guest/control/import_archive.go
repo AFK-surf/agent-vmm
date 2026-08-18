@@ -1,3 +1,5 @@
+//go:build linux
+
 package control
 
 import (
@@ -32,9 +34,16 @@ func importFingerprint(header *vmmdv1.ImportImageHeader) (string, error) {
 }
 
 func validateImportHeader(header *vmmdv1.ImportImageHeader, maxArchiveBytes uint64) (string, digest.Digest, error) {
-	if header == nil || validateRequestID(header.GetRequestId()) != nil || validateID("actor_namespace_id", header.GetActorNamespaceId()) != nil ||
+	if header == nil || validateRequestID(header.GetRequestId()) != nil ||
 		len(header.GetArchiveSha256()) != 32 || header.GetPlatform() != "linux/arm64" || header.GetArchiveSize() == 0 || header.GetArchiveSize() > maxArchiveBytes {
 		return "", "", errors.New("complete bounded linux/arm64 OCI import metadata is required")
+	}
+	if header.GetSystemImport() {
+		if validateSystemNamespace(header.GetActorNamespaceId()) != nil || validateNamespaceLimits(header.GetSystemLimits()) != nil || header.GetSystemEgressMode() == vmmdv1.EgressMode_EGRESS_MODE_UNSPECIFIED {
+			return "", "", errors.New("system image import identity is invalid")
+		}
+	} else if validateID("actor_namespace_id", header.GetActorNamespaceId()) != nil {
+		return "", "", errors.New("actor_namespace_id is invalid")
 	}
 	reference, err := guestimage.NormalizeReference(header.GetImageReference())
 	if err != nil || reference != header.GetImageReference() {

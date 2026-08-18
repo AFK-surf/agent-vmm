@@ -23,6 +23,7 @@ type Adapter struct {
 	cleanup   CleanupOwner
 	logger    *slog.Logger
 	active    chan struct{}
+	execs     chan struct{}
 	mutations chan struct{}
 	lifetime  context.Context
 	cancel    context.CancelFunc
@@ -34,7 +35,7 @@ func New(runtime hostv1.AgentRuntimeServiceClient, cleanup CleanupOwner, logger 
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Adapter{runtime: runtime, cleanup: cleanup, logger: logger, active: make(chan struct{}, 16), mutations: make(chan struct{}, 4), lifetime: lifetime, cancel: cancel}
+	return &Adapter{runtime: runtime, cleanup: cleanup, logger: logger, active: make(chan struct{}, 16), execs: make(chan struct{}, 8), mutations: make(chan struct{}, 4), lifetime: lifetime, cancel: cancel}
 }
 
 func (adapter *Adapter) Server() *mcp.Server {
@@ -123,6 +124,19 @@ func (adapter *Adapter) call(ctx context.Context, timeout time.Duration, mutatio
 	return nil, envelope, nil
 }
 
+// callExec reserves at most half of the MCP request slots for exec streams.
+// Long-running processes must not starve lifecycle, observation, or cleanup
+// requests for the same client.
+func (adapter *Adapter) callExec(ctx context.Context, timeout time.Duration, operation func(context.Context) (any, error)) (*mcp.CallToolResult, Envelope, error) {
+	select {
+	case adapter.execs <- struct{}{}:
+		defer func() { <-adapter.execs }()
+	case <-ctx.Done():
+		return adapter.failure(ctx.Err())
+	}
+	return adapter.call(ctx, timeout, false, operation)
+}
+
 func (adapter *Adapter) Close() {
 	adapter.cancel()
 }
@@ -151,7 +165,7 @@ func mapError(err error) ToolError {
 	case errors.Is(err, context.DeadlineExceeded), code == codes.DeadlineExceeded:
 		result.Code, result.Message, result.Retryable = "TIMEOUT", "request timed out", true
 	case code == codes.InvalidArgument:
-		result.Code, result.Message = "INVALID_ARGUMENT", "request is invalid"
+		result.Code, result.Message = "INVALID_ARGUMENT", invalidArgumentMessage(grpcStatus)
 	case code == codes.NotFound:
 		result.Code, result.Message = "NOT_FOUND", "resource was not found"
 	case code == codes.AlreadyExists:
@@ -160,6 +174,12 @@ func mapError(err error) ToolError {
 		result.Code, result.Message = reasonFromStatus(err, "FAILED_PRECONDITION"), "runtime precondition failed"
 	case code == codes.PermissionDenied || code == codes.Unauthenticated:
 		result.Code, result.Message = "PERMISSION_DENIED", "operation is not permitted"
+	case code == codes.Internal || code == codes.Unknown:
+		// Host and guest interceptors attach a structured reason to most
+		// failures, but a low-level storage or transport error can still arrive
+		// as plain Internal. Keep the MCP contract machine-readable instead of
+		// exposing a bare INTERNAL result.
+		result.Code, result.Message = "RUNTIME_OPERATION_FAILED", "runtime operation failed"
 	case code == codes.ResourceExhausted:
 		result.Code, result.Message = "RESOURCE_EXHAUSTED", "resource limit exceeded"
 	case code == codes.Aborted:
@@ -182,9 +202,37 @@ func mapError(err error) ToolError {
 	return result
 }
 
+func invalidArgumentMessage(value *status.Status) string {
+	violations := make([]string, 0)
+	for _, detail := range value.Details() {
+		badRequest, ok := detail.(*errdetails.BadRequest)
+		if !ok {
+			continue
+		}
+		for _, violation := range badRequest.GetFieldViolations() {
+			field, description := violation.GetField(), violation.GetDescription()
+			switch {
+			case field != "" && description != "":
+				violations = append(violations, field+": "+description)
+			case field != "":
+				violations = append(violations, field)
+			case description != "":
+				violations = append(violations, description)
+			}
+		}
+	}
+	if len(violations) != 0 {
+		return "request validation failed: " + strings.Join(violations, "; ")
+	}
+	if value.Message() != "" {
+		return value.Message()
+	}
+	return "request is invalid"
+}
+
 func allowedRuntimeReason(value string) bool {
 	switch value {
-	case "IMAGE_REFERENCE_INVALID", "IMAGE_RESOLVE_FAILED", "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_PLATFORM_UNAVAILABLE", "IMAGE_BLOB_FETCH_FAILED", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_DOWNLOAD_TIMEOUT", "IMAGE_REGISTRY_RATE_LIMITED", "IMAGE_UNPACK_FAILED", "IMAGE_METADATA_FAILED", "IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT", "CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "CONTAINER_GENERATION_CONFLICT", "EXEC_START_FAILED", "LOG_CURSOR_STALE", "IMAGE_NOT_FOUND", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED":
+	case "IMAGE_REFERENCE_INVALID", "IMAGE_RESOLVE_FAILED", "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_PLATFORM_UNAVAILABLE", "IMAGE_BLOB_FETCH_FAILED", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_DOWNLOAD_TIMEOUT", "IMAGE_REGISTRY_RATE_LIMITED", "IMAGE_UNPACK_FAILED", "IMAGE_METADATA_FAILED", "IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT", "CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "CONTAINER_GENERATION_CONFLICT", "EXEC_START_FAILED", "PID_LIMIT_EXCEEDED", "LOG_CURSOR_STALE", "IMAGE_NOT_FOUND", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED", "ENVIRONMENT_INVALID", "RUNTIME_OPERATION_FAILED", "RUNTIME_PRECONDITION_FAILED", "SOURCE_CONTAINER_INSTANCE_STALE", "DESTINATION_CONTAINER_INSTANCE_STALE", "SERVICE_EXPORT_NOT_FOUND", "SERVICE_EXPORT_ENVIRONMENT_NOT_FOUND", "CROSS_DOMAIN_SERVICE_ROUTE", "REMOTE_SERVICE_TRANSPORT_UNAVAILABLE", "DESTINATION_ENDPOINT_STALE", "ROUTE_CAPABILITY_DENIED", "SERVICE_PROJECTION_APPLY_FAILED", "SERVICE_PROJECTION_DELETE_FAILED", "SERVICE_ROUTE_APPLY_FAILED", "SERVICE_EXPORT_INVALIDATION_FAILED", "SERVICE_EXPORT_REVISION_CONFLICT", "SERVICE_IMPORT_NOT_FOUND", "SERVICE_IMPORT_REVISION_CONFLICT", "SERVICE_IMPORT_PERSIST_FAILED", "SERVICE_IMPORT_ENVIRONMENT_UNAVAILABLE", "PERSONAL_ROUTE_DESTINATION_INVALID", "PERSONAL_ROUTE_REQUEST_DENIED", "PERSONAL_ROUTE_RESULT_UNKNOWN", "DEVICE_IDENTITY_UNAVAILABLE", "TRUST_UNAVAILABLE":
 		return true
 	default:
 		return false
@@ -203,7 +251,7 @@ func retryableRuntimeReason(value string) bool {
 func reasonFromStatus(err error, defaultReason string) string {
 	for _, detail := range status.Convert(err).Details() {
 		text := fmt.Sprint(detail)
-		for _, reason := range []string{"CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "CONTAINER_GENERATION_CONFLICT", "EXEC_START_FAILED", "LOG_CURSOR_STALE", "IMAGE_NOT_FOUND", "IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED"} {
+		for _, reason := range []string{"CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "CONTAINER_GENERATION_CONFLICT", "EXEC_START_FAILED", "PID_LIMIT_EXCEEDED", "LOG_CURSOR_STALE", "IMAGE_NOT_FOUND", "IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED", "ENVIRONMENT_INVALID", "RUNTIME_OPERATION_FAILED", "SOURCE_CONTAINER_INSTANCE_STALE", "DESTINATION_CONTAINER_INSTANCE_STALE", "SERVICE_EXPORT_NOT_FOUND", "SERVICE_EXPORT_ENVIRONMENT_NOT_FOUND", "CROSS_DOMAIN_SERVICE_ROUTE", "REMOTE_SERVICE_TRANSPORT_UNAVAILABLE", "DESTINATION_ENDPOINT_STALE", "ROUTE_CAPABILITY_DENIED", "SERVICE_PROJECTION_APPLY_FAILED", "SERVICE_PROJECTION_DELETE_FAILED", "SERVICE_ROUTE_APPLY_FAILED", "SERVICE_EXPORT_INVALIDATION_FAILED", "SERVICE_EXPORT_REVISION_CONFLICT", "SERVICE_IMPORT_NOT_FOUND", "SERVICE_IMPORT_REVISION_CONFLICT", "SERVICE_IMPORT_PERSIST_FAILED", "SERVICE_IMPORT_ENVIRONMENT_UNAVAILABLE", "PERSONAL_ROUTE_DESTINATION_INVALID", "PERSONAL_ROUTE_REQUEST_DENIED", "PERSONAL_ROUTE_RESULT_UNKNOWN", "DEVICE_IDENTITY_UNAVAILABLE", "TRUST_UNAVAILABLE"} {
 			if strings.Contains(text, reason) {
 				return reason
 			}

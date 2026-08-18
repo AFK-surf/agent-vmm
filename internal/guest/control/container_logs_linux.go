@@ -306,11 +306,28 @@ func (r *Runtime) SignalContainer(ctx context.Context, namespaceID, containerID 
 		return err
 	}
 	if current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-		return failedPrecondition("container is not running")
+		return detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", containerID)
 	}
 	task, err := container.Task(nsctx, nil)
 	if err != nil {
+		if errdefs.IsNotFound(err) {
+			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+				return detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", containerID)
+			}
+		}
 		return err
 	}
-	return task.Kill(nsctx, signal)
+	// The task is the sandbox supervisor; the retained workload is its named
+	// exec process. Signal the workload directly so INT and TERM keep their
+	// normal application semantics instead of stopping the supervisor.
+	mainProcess, err := task.LoadProcess(nsctx, mainProcessID, nil)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+				return detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", containerID)
+			}
+		}
+		return err
+	}
+	return mainProcess.Kill(nsctx, signal)
 }

@@ -67,6 +67,51 @@ func TestServiceRoutePersistenceAndRevocationFences(t *testing.T) {
 	}
 }
 
+func TestStaleServiceExportsAreRevokedWithTheirRoutes(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	for _, environment := range []Environment{
+		{ID: "source", NamespaceID: "source-ns", DisplayName: "Source", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+		{ID: "destination", NamespaceID: "destination-ns", DisplayName: "Destination", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+	} {
+		if _, err := database.CreateEnvironment(ctx, environment); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exported, err := database.CreateServiceExport(ctx, "stale-export-request", &servicev1.ServiceExport{ExportId: "stale-export", EnvironmentId: "destination", ContainerId: "server", ContainerInstanceId: "old-instance", Port: 8080, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := timestamppb.New(time.Now().Add(time.Hour))
+	capability := &trustv1.RouteCapability{CapabilityId: "stale-capability", DestinationExportId: exported.GetExportId(), ExpiresAt: expires}
+	if _, err := database.CreateServiceImport(ctx, "stale-import-request",
+		&servicev1.ServiceImport{ImportId: "stale-import", SourceEnvironmentId: "source", SourceContainerId: "client", SourceContainerInstanceId: "client-instance", DestinationDeviceId: "destination-device", DestinationExportId: exported.GetExportId(), VirtualServiceName: "database"},
+		&servicev1.AccessRoute{RouteId: "stale-route", RouteClass: servicev1.RouteClass_ROUTE_CLASS_COMPUTE, DestinationDeviceId: "destination-device", DestinationExportId: exported.GetExportId(), State: servicev1.RouteState_ROUTE_STATE_ACTIVE, Revision: 1, Generation: 1, ExpiresAt: expires, SourceEnvironmentId: "source", SourceContainerInstanceId: "client-instance"},
+		&servicev1.RouteLease{LeaseId: "stale-lease", RouteId: "stale-route", RouteRevision: 1, Generation: 1, ExpiresAt: expires, Capability: capability}); err != nil {
+		t.Fatal(err)
+	}
+	imports, err := database.RevokeStaleServiceExports(ctx, "destination", "server", "new-instance")
+	if err != nil || len(imports) != 1 || imports[0] != "stale-import" {
+		t.Fatalf("invalidated imports=%v err=%v", imports, err)
+	}
+	updatedExport, err := database.GetServiceExport(ctx, exported.GetExportId())
+	if err != nil || !updatedExport.GetRevoked() || updatedExport.GetRevision() != 2 {
+		t.Fatalf("stale export=%+v err=%v", updatedExport, err)
+	}
+	updatedImport, err := database.GetServiceImport(ctx, "stale-import")
+	if err != nil || !updatedImport.GetRevoked() || updatedImport.GetRevision() != 2 {
+		t.Fatalf("stale import=%+v err=%v", updatedImport, err)
+	}
+	record, err := database.GetServiceRoute(ctx, "stale-route", "stale-lease", 2)
+	if err != nil || record.Route.GetState() != servicev1.RouteState_ROUTE_STATE_REVOKED || record.Route.GetGeneration() != 2 {
+		t.Fatalf("stale route=%+v err=%v", record, err)
+	}
+}
+
 func TestServiceListenerPersistenceRevocationAndRestartFence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.db")
 	database, err := Open(path)

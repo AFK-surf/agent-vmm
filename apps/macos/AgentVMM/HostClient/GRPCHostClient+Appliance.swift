@@ -72,6 +72,7 @@ extension GRPCHostClient {
     func executeRemoveAppliance(_ appliance: ApplianceStatusModel, plan: ApplianceRemovePlanModel) async throws {
         var request = Agentvmm_Appliance_V1_ExecuteRemoveRequest()
         applyIdentity(appliance, deadline: deadlineMillis(), to: &request)
+        request.expectedRevision = plan.revision
         request.confirmedResourceIds = plan.requiredConfirmations
         _ = try await applianceService.executeRemove(request)
     }
@@ -101,9 +102,6 @@ private extension GRPCHostClient {
         grant.capacity.disconnectGraceSeconds = value.disconnectGraceSeconds
         grant.egressMode = manifest.requestedEgressMode
         grant.frontends = manifest.requestedFrontends.filter { value.enabledFrontendNames.contains($0.name) }
-        if value.dynamicHostLoopbackEnabled, manifest.hasRequestedDynamicHostLoopback {
-            grant.dynamicHostLoopback = manifest.requestedDynamicHostLoopback
-        }
         return grant
     }
 

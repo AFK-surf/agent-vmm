@@ -96,8 +96,14 @@ func (server *applianceAdminServer) PlanInstall(ctx context.Context, request *ap
 		return nil, resourceError(codes.FailedPrecondition, "ARTIFACT_ID_INVALID", "appliance_artifact", request.GetArtifactId(), "verified artifact is unavailable")
 	}
 	manifest := new(appliancev1.ControllerApplianceManifest)
-	if err := proto.Unmarshal(artifact.Manifest, manifest); err != nil || validateApprovedGrant(manifest, request.GetApprovedGrant()) != nil {
+	if err := proto.Unmarshal(artifact.Manifest, manifest); err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, "approved grant exceeds the signed manifest")
+	}
+	if err := validateApprovedGrant(manifest, request.GetApprovedGrant()); err != nil {
+		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, err.Error())
+	}
+	if err := validateApplianceCapacity(request.GetApprovedGrant(), controllerCapacity(server.controller)); err != nil {
+		return nil, resourceError(codes.ResourceExhausted, "RESOURCE_LEDGER_EXHAUSTED", "appliance_installation", request.GetInstallationId(), err.Error())
 	}
 	return &appliancev1.AppliancePlanResponse{Plan: &appliancev1.AppliancePlan{InstallationId: request.GetInstallationId(),
 		Kind: appliancev1.AppliancePlanKind_APPLIANCE_PLAN_KIND_INSTALL, ArtifactId: artifact.ID}}, nil
@@ -138,8 +144,14 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 		return nil, resourceError(codes.FailedPrecondition, "ARTIFACT_ID_INVALID", "appliance_artifact", request.GetArtifactId(), "verified artifact is unavailable")
 	}
 	manifest := new(appliancev1.ControllerApplianceManifest)
-	if err := proto.Unmarshal(artifact.Manifest, manifest); err != nil || validateApprovedGrant(manifest, request.GetApprovedGrant()) != nil {
+	if err := proto.Unmarshal(artifact.Manifest, manifest); err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, "approved grant exceeds the signed manifest")
+	}
+	if err := validateApprovedGrant(manifest, request.GetApprovedGrant()); err != nil {
+		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, err.Error())
+	}
+	if err := validateApplianceCapacity(request.GetApprovedGrant(), controllerCapacity(server.controller)); err != nil {
+		return nil, resourceError(codes.ResourceExhausted, "RESOURCE_LEDGER_EXHAUSTED", "appliance_installation", request.GetInstallationId(), err.Error())
 	}
 	volumeID, err := randomID()
 	if err != nil {

@@ -1,4 +1,4 @@
-package rfc4contract
+package contract
 
 import (
 	"encoding/json"
@@ -47,7 +47,7 @@ func repositoryRoot(t *testing.T) string {
 
 func loadJSON(t *testing.T, name string, target any) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), ".context", "rfc4", name))
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "test", "contract", "testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -118,6 +118,63 @@ func (store *Store) RevokeServiceExport(ctx context.Context, environmentID, expo
 	return tx.Commit()
 }
 
+// RevokeStaleServiceExports closes exports whose container was replaced.  The
+// export, its imports, and their route fences change in one transaction so a
+// new container instance can never inherit the old service capability.
+func (store *Store) RevokeStaleServiceExports(ctx context.Context, environmentID, containerID, currentInstanceID string) ([]string, error) {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT i.import_id
+		FROM service_imports i JOIN service_exports e ON e.export_id=i.destination_export_id
+		WHERE e.environment_id=? AND e.container_id=? AND e.container_instance_id<>? AND e.revoked=0 AND i.revoked=0
+		ORDER BY i.import_id`, environmentID, containerID, currentInstanceID)
+	if err != nil {
+		return nil, err
+	}
+	var importIDs []string
+	for rows.Next() {
+		var importID string
+		if err := rows.Scan(&importID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		importIDs = append(importIDs, importID)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	now := time.Now().UnixNano()
+	if _, err := tx.ExecContext(ctx, `UPDATE service_imports SET revoked=1, revision=revision+1, updated_at=?
+		WHERE revoked=0 AND destination_export_id IN (
+			SELECT export_id FROM service_exports
+			WHERE environment_id=? AND container_id=? AND container_instance_id<>? AND revoked=0
+		)`, now, environmentID, containerID, currentInstanceID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE access_routes SET state=?, revision=revision+1, generation=generation+1, updated_at=?
+		WHERE destination_export_id IN (
+			SELECT export_id FROM service_exports
+			WHERE environment_id=? AND container_id=? AND container_instance_id<>? AND revoked=0
+		) AND state NOT IN (?, ?)`, servicev1.RouteState_ROUTE_STATE_REVOKED, now, environmentID, containerID, currentInstanceID,
+		servicev1.RouteState_ROUTE_STATE_REVOKED, servicev1.RouteState_ROUTE_STATE_EXPIRED); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE service_exports SET revoked=1, revision=revision+1, updated_at=?
+		WHERE environment_id=? AND container_id=? AND container_instance_id<>? AND revoked=0`, now, environmentID, containerID, currentInstanceID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return importIDs, nil
+}
+
 func (store *Store) CreateServiceImport(ctx context.Context, requestID string, value *servicev1.ServiceImport, route *servicev1.AccessRoute, lease *servicev1.RouteLease) (*servicev1.ServiceImport, error) {
 	if existing, err := store.serviceImportByRequest(ctx, requestID); err == nil {
 		return existing, nil

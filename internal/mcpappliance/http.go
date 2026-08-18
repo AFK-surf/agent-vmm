@@ -14,6 +14,7 @@ import (
 )
 
 const httpSessionIdleTimeout = 5 * time.Minute
+const runtimeOpenAttempts = 3
 
 type httpFrontend struct {
 	controller *Controller
@@ -113,6 +114,8 @@ func (frontend *httpFrontend) middleware(next http.Handler) http.Handler {
 		}
 		agent, err := frontend.acquire(request.Context(), identity.UserID)
 		if err != nil {
+			frontend.controller.logger.Error("open MCP runtime", "allocation", identity.UserID, "error", err)
+			response.Header().Set("Retry-After", "1")
 			http.Error(response, "MCP runtime unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -133,7 +136,27 @@ func (frontend *httpFrontend) acquire(ctx context.Context, allocationID string) 
 	}
 	frontend.mu.Unlock()
 	if opener {
-		runtime, err := frontend.controller.openClientRuntime(frontend.context, allocationID)
+		var runtime *clientRuntime
+		var err error
+		for attempt := 0; attempt < runtimeOpenAttempts; attempt++ {
+			runtime, err = frontend.controller.openClientRuntime(frontend.context, allocationID)
+			if err == nil {
+				break
+			}
+			if attempt+1 == runtimeOpenAttempts {
+				break
+			}
+			timer := time.NewTimer(time.Duration(1<<attempt) * 100 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				err = ctx.Err()
+				attempt = runtimeOpenAttempts
+			case <-timer.C:
+			}
+		}
 		frontend.mu.Lock()
 		retained := frontend.agents[allocationID] == agent
 		agent.runtime, agent.err = runtime, err

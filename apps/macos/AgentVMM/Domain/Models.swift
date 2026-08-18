@@ -351,6 +351,38 @@ struct ApplianceStatusModel: Identifiable, Sendable, Equatable {
     let healthMessage: String?
     let grant: ApplianceGrantModel
     let frontends: [ApplianceFrontendModel]
+
+    var endpointAvailable: Bool {
+        enabled && frontends.contains { frontend in
+            frontend.name == BundledMCPAppliance.frontendName && frontend.available && !frontend.endpoint.isEmpty
+        }
+    }
+
+    var endpointStatus: String {
+        if !enabled { return "Closed while MCP is disabled" }
+        if endpointAvailable { return "Available on this Mac" }
+        return "Starting or unavailable"
+    }
+}
+
+enum ApplianceAction: Sendable, Equatable {
+    case installing
+    case planningRemoval
+    case removing
+    case enabling
+    case disabling
+    case restarting
+
+    var title: String {
+        switch self {
+        case .installing: "Setting up MCP…"
+        case .planningRemoval: "Preparing removal…"
+        case .removing: "Removing MCP appliance…"
+        case .enabling: "Enabling MCP…"
+        case .disabling: "Disabling MCP…"
+        case .restarting: "Restarting MCP…"
+        }
+    }
 }
 
 struct ApplianceGrantModel: Sendable, Equatable {
@@ -361,17 +393,15 @@ struct ApplianceGrantModel: Sendable, Equatable {
     var maxLeaseSeconds: UInt32
     var disconnectGraceSeconds: UInt32
     var enabledFrontendNames: Set<String>
-    var dynamicHostLoopbackEnabled: Bool
 
     static let bundledMCPDefault = ApplianceGrantModel(
         maxEnvironments: 4,
-        aggregateLimits: EnvironmentLimits(cpuMillis: 2_000, memoryBytes: 1 << 30, pids: 512, diskBytes: 8 << 30),
-        perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 512 << 20, pids: 256, diskBytes: 4 << 30),
+        aggregateLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 512 << 20, pids: 1_024, diskBytes: 4 << 30),
+        perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 512 << 20, pids: 512, diskBytes: 4 << 30),
         allowsPublicEgress: true,
         maxLeaseSeconds: 3_600,
         disconnectGraceSeconds: 30,
-        enabledFrontendNames: [BundledMCPAppliance.frontendName, BundledMCPAppliance.httpFrontendName],
-        dynamicHostLoopbackEnabled: true
+		enabledFrontendNames: [BundledMCPAppliance.frontendName]
     )
 }
 

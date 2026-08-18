@@ -1,0 +1,19 @@
+{
+  "frozen_before_tunnel_implementation": true,
+  "frame_bytes": 32768,
+  "outer_stream_window_bytes": 8388608,
+  "outer_connection_window_bytes": 16777216,
+  "max_in_flight_bytes_per_direction": 2097152,
+  "rtt_ms": [1, 20, 50, 100],
+  "workloads": ["exec", "logs", "forward-tcp", "build-context"],
+  "gate": {
+    "minimum_aggregate_throughput_fraction_of_direct": 0.70,
+    "maximum_interactive_p99_multiplier_of_direct": 2.50,
+    "maximum_rss_growth_bytes_per_active_tunnel": 6291456,
+    "minimum_fairness_ratio": 0.70,
+    "maximum_stall_seconds": 5,
+    "maximum_window_blocked_fraction": 0.50,
+    "maximum_total_in_flight_bytes_per_tunnel": 4194304
+  },
+  "failure_action": "Stop Phase 6, delete the tunnel spike, and return to RFC review with role-reversal reachability and inbound/NAT evidence. Do not implement another transport before the RFC and structural budget change."
+}

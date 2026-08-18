@@ -279,6 +279,7 @@ type ServiceImportData struct {
 	SourceContainerInstanceID string `json:"source_container_instance_id"`
 	DestinationDeviceID       string `json:"destination_device_id"`
 	DestinationExportID       string `json:"destination_export_id"`
+	DestinationPort           uint32 `json:"destination_port,omitempty"`
 	VirtualServiceName        string `json:"virtual_service_name"`
 	Revision                  uint64 `json:"revision"`
 	Revoked                   bool   `json:"revoked"`

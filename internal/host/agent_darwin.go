@@ -169,6 +169,13 @@ func (server *agentServer) StartContainer(ctx context.Context, request *hostv1.C
 	if err != nil {
 		return nil, err
 	}
+	instanceID := response.GetContainer().GetInstanceId()
+	if response.GetContainer().GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+		instanceID = ""
+	}
+	if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), instanceID); err != nil {
+		return nil, err
+	}
 	return &hostv1.ContainerResponse{Container: containerFromGuest(response.GetContainer())}, nil
 }
 
@@ -186,6 +193,11 @@ func (server *agentServer) StopContainer(ctx context.Context, request *hostv1.St
 	if err != nil {
 		return nil, err
 	}
+	if response.GetContainer().GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+		if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
+			return nil, err
+		}
+	}
 	return &hostv1.ContainerResponse{Container: containerFromGuest(response.GetContainer())}, nil
 }
 
@@ -201,6 +213,11 @@ func (server *agentServer) WaitContainer(ctx context.Context, request *hostv1.Co
 	defer connection.Close()
 	response, err := client.WaitContainer(ctx, &vmmdv1.WaitContainerRequest{ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId()})
 	if err != nil {
+		return nil, err
+	}
+	// Waiting observes the terminal generation.  Revoke any routes that still
+	// reference that generation before reporting the exit to the caller.
+	if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
 		return nil, err
 	}
 	return &hostv1.WaitContainerResponse{ExitCode: response.GetExitCode()}, nil
@@ -220,6 +237,9 @@ func (server *agentServer) DeleteContainer(ctx context.Context, request *hostv1.
 	}
 	defer connection.Close()
 	if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), ExpectedGenerationId: request.GetExpectedGenerationId()}); err != nil {
+		return nil, err
+	}
+	if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil

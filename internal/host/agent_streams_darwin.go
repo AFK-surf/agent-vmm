@@ -26,15 +26,25 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 	}
 	receiveError := make(chan error, 1)
 	go func() {
+		stdinClosed := false
 		for {
 			request, err := stream.Recv()
 			if err == io.EOF {
+				if !stdinClosed {
+					if sendErr := guest.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_CloseStdin{CloseStdin: true}}); sendErr != nil {
+						receiveError <- sendErr
+						return
+					}
+				}
 				receiveError <- guest.CloseSend()
 				return
 			}
 			if err != nil {
 				receiveError <- err
 				return
+			}
+			if request.GetCloseStdin() {
+				stdinClosed = true
 			}
 			if err := guest.Send(execRequestToGuest(request, identity.NamespaceID)); err != nil {
 				receiveError <- err

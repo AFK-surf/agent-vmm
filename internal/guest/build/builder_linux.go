@@ -254,7 +254,61 @@ func (w *Workspace) Run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 	lock := w.builder.namespaceLock(w.header.GetActorNamespaceId())
 	lock.Lock()
 	defer lock.Unlock()
-	return w.run(ctx, limits, progress)
+	cacheHit, err := w.run(ctx, limits, progress)
+	if err != nil {
+		return "", false, err
+	}
+	digest, err := w.importOutput(ctx)
+	return digest, cacheHit, err
+}
+
+// RunArchive builds the uploaded Dockerfile without importing it into an
+// allocation namespace. The caller owns the returned archive bytes and must
+// persist or stream them before closing the workspace.
+func (w *Workspace) RunArchive(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error, output io.Writer) (ArchiveResult, error) {
+	if output == nil {
+		return ArchiveResult{}, errors.New("archive output is required")
+	}
+	if !w.contextClosed || w.secretFile != nil || w.secretIndex != len(w.header.GetSecrets()) {
+		return ArchiveResult{}, errors.New("build upload is incomplete")
+	}
+	dockerfile := filepath.Join(w.contextRoot, filepath.FromSlash(w.header.GetDockerfilePath()))
+	if info, err := os.Stat(dockerfile); err != nil || !info.Mode().IsRegular() {
+		return ArchiveResult{}, errors.New("Dockerfile is not a regular context file")
+	}
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-ctx.Done():
+			w.releaseActive()
+		case <-finished:
+		}
+	}()
+	select {
+	case w.builder.semaphore <- struct{}{}:
+		defer func() { <-w.builder.semaphore }()
+	case <-ctx.Done():
+		return ArchiveResult{}, ctx.Err()
+	}
+	lock := w.builder.namespaceLock(w.header.GetActorNamespaceId())
+	lock.Lock()
+	defer lock.Unlock()
+	cacheHit, err := w.run(ctx, limits, progress)
+	if err != nil {
+		return ArchiveResult{}, err
+	}
+	archive, err := os.Open(filepath.Join(w.outputRoot, "image.tar"))
+	if err != nil {
+		return ArchiveResult{}, err
+	}
+	defer archive.Close()
+	result, err := copyOCIArchive(archive, output)
+	if err != nil {
+		return ArchiveResult{}, err
+	}
+	result.CacheHit = cacheHit
+	return result, nil
 }
 
 func (w *Workspace) Close() error {
@@ -283,19 +337,19 @@ func (w *Workspace) releaseActive() {
 	})
 }
 
-func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error) (string, bool, error) {
+func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error) (bool, error) {
 	namespaceID := w.header.GetActorNamespaceId()
 	nsctx := namespaces.WithNamespace(ctx, namespaceID)
 	if err := os.Chown(filepath.Join("/state/build-cache", namespaceID), 1000, 1000); err != nil {
-		return "", false, err
+		return false, err
 	}
 	image, err := w.builder.ensureBuilderImage(nsctx)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	netNSPath, detachNetwork, err := w.attachNetwork(ctx)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	var detachOnce sync.Once
 	detach := func() { detachOnce.Do(detachNetwork) }
@@ -310,7 +364,7 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 		containerd.WithNewSpec(w.specOptions(image, netNSPath, limits)...),
 	)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	cleaned := false
 	defer func() {
@@ -321,16 +375,16 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 	output := new(buildOutput)
 	task, err := container.NewTask(nsctx, cio.NewCreator(cio.WithStreams(nil, output, output)))
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	exit, err := task.Wait(namespaces.WithNamespace(context.Background(), namespaceID))
 	if err != nil {
 		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		return "", false, err
+		return false, err
 	}
 	if err := task.Start(nsctx); err != nil {
 		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		return "", false, err
+		return false, err
 	}
 	if progress != nil {
 		if err := progress("builder task started"); err != nil {
@@ -343,7 +397,7 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 			}
 			_, _ = task.Delete(cleanup, containerd.WithProcessKill)
 			cancel()
-			return "", false, err
+			return false, err
 		}
 	}
 	select {
@@ -356,7 +410,7 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 			if ctx.Err() != nil {
 				w.releaseActive()
 			}
-			return "", false, errors.New("isolated BuildKit build failed")
+			return false, errors.New("isolated BuildKit build failed")
 		}
 	case <-ctx.Done():
 		detach()
@@ -369,14 +423,13 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 		_, _ = task.Delete(cleanup, containerd.WithProcessKill)
 		cancel()
 		w.releaseActive()
-		return "", false, ctx.Err()
+		return false, ctx.Err()
 	}
 	if err := deleteBuildContainer(namespaceID, container); err != nil {
-		return "", false, err
+		return false, err
 	}
 	cleaned = true
-	digest, err := w.importOutput(ctx)
-	return digest, output.Contains([]byte(" CACHED")), err
+	return output.Contains([]byte(" CACHED")), nil
 }
 
 func deleteBuildContainer(namespaceID string, container containerd.Container) error {

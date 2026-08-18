@@ -218,6 +218,16 @@ func (supervisor *applianceSupervisor) acquireStream(header *vmmdv1.SystemStream
 		supervisor.mu.Lock()
 		if current := supervisor.records[header.GetIdentity().GetInstallationId()]; current == record && record.streams[key] != 0 {
 			record.streams[key]--
+			// The controller stream is a retained transport, not a consumable
+			// frontend request. A failed connection attempt must not permanently
+			// consume one of its bounded lifetime uses: gRPC may redial before the
+			// appliance accepts the control RPC.
+			if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_CONTROLLER {
+				delete(record.usedNonces, nonce)
+				if record.streamUses[key] != 0 {
+					record.streamUses[key]--
+				}
+			}
 			if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP && !committed && record.bootstrapUse == 1 {
 				record.bootstrapUse = 0
 				delete(record.usedNonces, nonce)

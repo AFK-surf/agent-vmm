@@ -18,8 +18,10 @@ import (
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/egress"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	hosttrust "github.com/AFK-surf/agent-vmm/internal/host/trust"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -28,6 +30,8 @@ import (
 var virtualServiceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
 
 const serviceTunnelAudience = "agent-vmm/service-tunnel/1"
+
+const localServiceRouteLease = 24 * time.Hour
 
 func (server *agentServer) CreateServiceExport(ctx context.Context, request *hostv1.CreateServiceExportRequest) (*servicev1.ServiceExport, error) {
 	identity, err := auth.AgentIdentity(ctx)
@@ -121,8 +125,8 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 		defer unlock()
 	}
 	if request.GetRequestId() == "" || request.GetSourceContainerId() == "" || request.GetSourceContainerInstanceId() == "" ||
-		request.GetDestinationDeviceId() == "" || request.GetDestinationExportId() == "" || !virtualServiceName.MatchString(request.GetVirtualServiceName()) || request.GetCapability() == nil {
-		return nil, invalidField("service_import", "complete service import and route capability are required")
+		request.GetDestinationDeviceId() == "" || request.GetDestinationExportId() == "" || !virtualServiceName.MatchString(request.GetVirtualServiceName()) {
+		return nil, invalidField("service_import", "source, destination, and virtual service name are required")
 	}
 	if err := server.controller.validateContainerInstance(ctx, identity.NamespaceID, request.GetSourceContainerId(), request.GetSourceContainerInstanceId()); err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "SOURCE_CONTAINER_INSTANCE_STALE", "container", request.GetSourceContainerId(), err.Error())
@@ -134,33 +138,54 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 	if err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "DEVICE_IDENTITY_UNAVAILABLE", "device", "local", "device identity is unavailable")
 	}
-	localDestination := request.GetDestinationDeviceId() == device.Identity.GetDeviceId()
+	effectiveRequest := request
+	if request.GetDestinationDeviceId() == "local" {
+		effectiveRequest = proto.Clone(request).(*hostv1.CreateServiceImportRequest)
+		effectiveRequest.DestinationDeviceId = device.Identity.GetDeviceId()
+	}
+	localDestination := effectiveRequest.GetDestinationDeviceId() == device.Identity.GetDeviceId()
 	var destination *servicev1.ServiceExport
 	var endpoint *trustv1.EndpointObservation
+	var destinationEnvironment store.Environment
 	if localDestination {
-		destination, err = server.controller.store.GetServiceExport(ctx, request.GetDestinationExportId())
+		destination, err = server.controller.store.GetServiceExport(ctx, effectiveRequest.GetDestinationExportId())
 		if err != nil || destination.GetRevoked() {
-			return nil, resourceError(codes.NotFound, "SERVICE_EXPORT_NOT_FOUND", "service_export", request.GetDestinationExportId(), "destination export is unavailable")
+			return nil, resourceError(codes.NotFound, "SERVICE_EXPORT_NOT_FOUND", "service_export", effectiveRequest.GetDestinationExportId(), "destination export is unavailable")
 		}
-		if identity.RegistrationID != "" {
-			destinationEnvironment, environmentErr := server.controller.store.GetEnvironment(ctx, destination.GetEnvironmentId())
-			if environmentErr != nil || destinationEnvironment.RegistrationID == "" || destinationEnvironment.RegistrationID != identity.RegistrationID {
-				return nil, resourceError(codes.PermissionDenied, "CROSS_DOMAIN_SERVICE_ROUTE", "service_export", request.GetDestinationExportId(), "service route destination is outside the controller domain")
+		destinationEnvironment, err = server.controller.store.GetEnvironment(ctx, destination.GetEnvironmentId())
+		if err != nil {
+			return nil, resourceError(codes.NotFound, "SERVICE_EXPORT_ENVIRONMENT_NOT_FOUND", "service_export", effectiveRequest.GetDestinationExportId(), "destination export environment is unavailable")
+		}
+		if err := server.controller.validateContainerInstance(ctx, destinationEnvironment.NamespaceID, destination.GetContainerId(), destination.GetContainerInstanceId()); err != nil {
+			if status.Code(err) == codes.Unavailable || errors.Is(err, context.DeadlineExceeded) {
+				return nil, resourceError(codes.Unavailable, "SERVICE_PROJECTION_APPLY_FAILED", "service_import", effectiveRequest.GetDestinationExportId(), "destination runtime is unavailable while validating the exported container")
 			}
+			return nil, resourceError(codes.FailedPrecondition, "DESTINATION_CONTAINER_INSTANCE_STALE", "container", destination.GetContainerId(), "destination export references a stopped or replaced container instance")
+		}
+		if effectiveRequest.GetDestinationPort() != 0 {
+			return nil, invalidField("destination_port", "destination_port must be omitted for a local route")
+		}
+		if !sameServiceDomain(identity.EnvironmentID, identity.RegistrationID, &destinationEnvironment) {
+			return nil, resourceError(codes.PermissionDenied, "CROSS_DOMAIN_SERVICE_ROUTE", "service_export", effectiveRequest.GetDestinationExportId(), "service route destination is outside the local controller domain")
 		}
 	} else {
-		if request.GetDestinationPort() == 0 || request.GetDestinationPort() > 65535 || server.controller.dataWorkerSocket == "" {
-			return nil, resourceError(codes.FailedPrecondition, "REMOTE_SERVICE_TRANSPORT_UNAVAILABLE", "device", request.GetDestinationDeviceId(), "remote destination port and data worker are required")
+		if effectiveRequest.GetDestinationPort() == 0 || effectiveRequest.GetDestinationPort() > 65535 || server.controller.dataWorkerSocket == "" {
+			return nil, resourceError(codes.FailedPrecondition, "REMOTE_SERVICE_TRANSPORT_UNAVAILABLE", "device", effectiveRequest.GetDestinationDeviceId(), "remote destination port and data worker are required")
 		}
-		endpoint, err = server.controller.trust.GetEndpointObservation(ctx, request.GetDestinationDeviceId())
+		endpoint, err = server.controller.trust.GetEndpointObservation(ctx, effectiveRequest.GetDestinationDeviceId())
 		if err != nil || endpoint.GetExpiresAt() == nil || !endpoint.GetExpiresAt().AsTime().After(time.Now()) {
-			return nil, resourceError(codes.FailedPrecondition, "DESTINATION_ENDPOINT_STALE", "device", request.GetDestinationDeviceId(), "a current signed destination endpoint is required")
+			return nil, resourceError(codes.FailedPrecondition, "DESTINATION_ENDPOINT_STALE", "device", effectiveRequest.GetDestinationDeviceId(), "a current signed destination endpoint is required")
 		}
-		destination = &servicev1.ServiceExport{ExportId: request.GetDestinationExportId(), Port: request.GetDestinationPort(), Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_TCP}
+		destination = &servicev1.ServiceExport{ExportId: effectiveRequest.GetDestinationExportId(), Port: effectiveRequest.GetDestinationPort(), Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_TCP}
 	}
-	capability := request.GetCapability()
-	if err := server.controller.trust.AuthorizeRoute(ctx, capability, hosttrust.RouteExpectation{SourceDeviceID: device.Identity.GetDeviceId(),
-		SourceAllocationID: identity.AllocationID, DestinationDeviceID: request.GetDestinationDeviceId(), DestinationExportID: destination.GetExportId(),
+	capability := effectiveRequest.GetCapability()
+	if capability == nil {
+		if !localDestination {
+			return nil, invalidField("capability", "a controller capability is required for a cross-device route")
+		}
+		capability = localServiceRouteCapability(effectiveRequest.GetRequestId(), device.Identity.GetDeviceId(), identity.AllocationID, destination.GetExportId(), destination.GetEnvironmentId() == identity.EnvironmentID)
+	} else if err := server.controller.trust.AuthorizeRoute(ctx, capability, hosttrust.RouteExpectation{SourceDeviceID: device.Identity.GetDeviceId(),
+		SourceAllocationID: identity.AllocationID, DestinationDeviceID: effectiveRequest.GetDestinationDeviceId(), DestinationExportID: destination.GetExportId(),
 		RouteClass: routeClassValueForImport(localDestination, destination.GetEnvironmentId() == identity.EnvironmentID),
 		Audience:   serviceTunnelAudience, RouteGeneration: capability.GetRouteGeneration(), PolicyRevision: capability.GetPolicyRevision(), ObservedAt: time.Now()}); err != nil {
 		return nil, resourceError(codes.PermissionDenied, "ROUTE_CAPABILITY_DENIED", "service_export", destination.GetExportId(), err.Error())
@@ -183,25 +208,25 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 	}
 	expires := capability.GetExpiresAt()
 	value := &servicev1.ServiceImport{ImportId: importID, SourceEnvironmentId: identity.EnvironmentID,
-		SourceContainerId: request.GetSourceContainerId(), SourceContainerInstanceId: request.GetSourceContainerInstanceId(),
-		DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(),
-		VirtualServiceName: request.GetVirtualServiceName(), DestinationPort: destination.GetPort()}
+		SourceContainerId: effectiveRequest.GetSourceContainerId(), SourceContainerInstanceId: effectiveRequest.GetSourceContainerInstanceId(),
+		DestinationDeviceId: effectiveRequest.GetDestinationDeviceId(), DestinationExportId: effectiveRequest.GetDestinationExportId(),
+		VirtualServiceName: effectiveRequest.GetVirtualServiceName(), DestinationPort: destination.GetPort()}
 	route := &servicev1.AccessRoute{RouteId: routeID, RouteClass: routeClass, SourceDeviceId: device.Identity.GetDeviceId(),
-		DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(),
+		DestinationDeviceId: effectiveRequest.GetDestinationDeviceId(), DestinationExportId: effectiveRequest.GetDestinationExportId(),
 		State: servicev1.RouteState_ROUTE_STATE_ACTIVE, Revision: 1, Generation: capability.GetRouteGeneration(), ExpiresAt: expires,
-		SourceEnvironmentId: identity.EnvironmentID, SourceContainerInstanceId: request.GetSourceContainerInstanceId(), PolicyRevision: capability.GetPolicyRevision()}
+		SourceEnvironmentId: identity.EnvironmentID, SourceContainerInstanceId: effectiveRequest.GetSourceContainerInstanceId(), PolicyRevision: capability.GetPolicyRevision()}
 	if identity.AllocationID != "" {
 		route.SourceAllocationId = &identity.AllocationID
 	}
 	lease := &servicev1.RouteLease{LeaseId: leaseID, RouteId: routeID, RouteRevision: 1, Generation: capability.GetRouteGeneration(),
 		ExpiresAt: expires, Capability: capability}
-	created, err := server.controller.store.CreateServiceImport(ctx, request.GetRequestId(), value, route, lease)
+	created, err := server.controller.store.CreateServiceImport(ctx, effectiveRequest.GetRequestId(), value, route, lease)
 	if err != nil {
-		return nil, err
+		return nil, resourceError(codes.Internal, "SERVICE_IMPORT_PERSIST_FAILED", "service_import", effectiveRequest.GetDestinationExportId(), "service import could not be recorded")
 	}
 	sourceEnvironment, err := server.controller.store.GetEnvironment(ctx, created.GetSourceEnvironmentId())
 	if err != nil {
-		return nil, err
+		return nil, resourceError(codes.Internal, "SERVICE_IMPORT_ENVIRONMENT_UNAVAILABLE", "environment", created.GetSourceEnvironmentId(), "source environment is unavailable")
 	}
 	projection := &vmmdv1.ServiceProjection{
 		Id: created.GetImportId(), SourceNamespaceId: sourceEnvironment.NamespaceID, SourceContainerId: created.GetSourceContainerId(),
@@ -209,10 +234,6 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 		DnsAlias: created.GetVirtualServiceName(), ExpiresUnixMillis: expires.AsTime().UnixMilli(),
 	}
 	if localDestination {
-		destinationEnvironment, environmentErr := server.controller.store.GetEnvironment(ctx, destination.GetEnvironmentId())
-		if environmentErr != nil {
-			return nil, environmentErr
-		}
 		projection.DestinationNamespaceId = destinationEnvironment.NamespaceID
 		projection.DestinationContainerId = destination.GetContainerId()
 		projection.DestinationContainerInstanceId = destination.GetContainerInstanceId()
@@ -220,7 +241,7 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 		projection.Remote = true
 		projection.VirtualAddress = remoteServiceAddress(created.GetImportId()).String()
 	}
-	projected, err := server.controller.applyServiceProjection(ctx, request.GetRequestId(), projection)
+	projected, err := server.controller.applyServiceProjection(ctx, effectiveRequest.GetRequestId(), projection)
 	if err != nil {
 		_ = server.controller.store.RevokeServiceImport(ctx, identity.EnvironmentID, created.GetImportId(), created.GetRevision())
 		return nil, resourceError(codes.Unavailable, "SERVICE_PROJECTION_APPLY_FAILED", "service_import", created.GetImportId(), err.Error())
@@ -234,7 +255,7 @@ func (server *agentServer) CreateServiceImport(ctx context.Context, request *hos
 			Dial: func(routeContext context.Context) (net.Conn, error) {
 				return server.controller.dialRemoteService(routeContext, header, endpoint)
 			}}) != nil {
-			_ = server.controller.deleteServiceProjection(ctx, request.GetRequestId()+":rollback", created.GetImportId())
+			_ = server.controller.deleteServiceProjection(ctx, effectiveRequest.GetRequestId()+":rollback", created.GetImportId())
 			_ = server.controller.store.RevokeServiceImport(ctx, identity.EnvironmentID, created.GetImportId(), created.GetRevision())
 			return nil, resourceError(codes.Unavailable, "SERVICE_ROUTE_APPLY_FAILED", "service_import", created.GetImportId(), "remote service route could not be installed")
 		}
@@ -294,6 +315,42 @@ func routeClassValueForImport(localDestination, sameEnvironment bool) string {
 		return "local"
 	}
 	return "compute"
+}
+
+func sameServiceDomain(sourceEnvironmentID, sourceRegistrationID string, destination *store.Environment) bool {
+	if destination == nil {
+		return false
+	}
+	if destination.ID == sourceEnvironmentID {
+		return true
+	}
+	return sourceRegistrationID != "" && destination.RegistrationID != "" && destination.RegistrationID == sourceRegistrationID
+}
+
+func localServiceRouteCapability(requestID, deviceID, allocationID, exportID string, sameEnvironment bool) *trustv1.RouteCapability {
+	digest := sha256.Sum256([]byte(requestID))
+	generation := binary.BigEndian.Uint64(digest[:8])
+	if generation == 0 {
+		generation = 1
+	}
+	now := time.Now()
+	capability := &trustv1.RouteCapability{
+		CapabilityId:        "local-" + requestID,
+		SourceDeviceId:      deviceID,
+		DestinationDeviceId: deviceID,
+		DestinationExportId: exportID,
+		RouteGeneration:     generation,
+		PolicyRevision:      1,
+		NotBefore:           timestamppb.New(now),
+		ExpiresAt:           timestamppb.New(now.Add(localServiceRouteLease)),
+		Nonce:               digest[:],
+		Audience:            serviceTunnelAudience,
+		RouteClass:          routeClassValueForImport(true, sameEnvironment),
+	}
+	if allocationID != "" {
+		capability.SourceAllocationId = &allocationID
+	}
+	return capability
 }
 
 func (server *agentServer) ListServiceImports(ctx context.Context, _ *hostv1.ListServiceImportsRequest) (*hostv1.ListServiceImportsResponse, error) {
@@ -366,6 +423,18 @@ func (controller *Controller) deleteServiceProjection(ctx context.Context, reque
 	defer connection.Close()
 	_, err = client.DeleteServiceProjection(ctx, &vmmdv1.DeleteServiceProjectionRequest{RequestId: requestID, ProjectionId: projectionID})
 	return err
+}
+
+func (controller *Controller) invalidateStaleServiceExports(ctx context.Context, environmentID, containerID, currentInstanceID string) error {
+	imports, err := controller.store.RevokeStaleServiceExports(ctx, environmentID, containerID, currentInstanceID)
+	if err != nil {
+		return resourceError(codes.Unavailable, "SERVICE_EXPORT_INVALIDATION_FAILED", "container", containerID, err.Error())
+	}
+	for _, importID := range imports {
+		controller.egress.DeleteServiceRoute(importID)
+		_ = controller.deleteServiceProjection(ctx, derivedRequestID("stale-service-"+importID), importID)
+	}
+	return nil
 }
 
 func (controller *Controller) validateContainerInstance(ctx context.Context, namespaceID, containerID, instanceID string) error {

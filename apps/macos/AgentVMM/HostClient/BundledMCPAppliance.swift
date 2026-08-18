@@ -34,7 +34,7 @@ enum BundledMCPAppliance {
     }
 
     static func endpointFile(supportDirectory: URL = defaultSupportDirectory) -> URL {
-        supportDirectory.appending(path: "appliance-frontends/\(installationID)/\(frontendName).endpoint")
+        supportDirectory.appending(path: "instance/support/appliance-frontends/\(installationID)/\(frontendName).endpoint")
     }
 
     static var defaultSupportDirectory: URL {

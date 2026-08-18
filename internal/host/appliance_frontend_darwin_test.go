@@ -129,6 +129,28 @@ func TestStoppingApplianceFrontendClosesConnectionsAndDiscovery(t *testing.T) {
 	}
 }
 
+func TestApplianceFrontendReusesLoopbackPort(t *testing.T) {
+	controller := &Controller{supportDirectory: t.TempDir(), applianceFrontends: make(map[string]*applianceFrontendRuntime)}
+	identity := &vmmdv1.SystemApplianceIdentity{InstallationId: "installation-port", BootId: "boot", ContainerInstanceId: "instance"}
+	frontend := store.ApplianceFrontend{Name: "mcp", Transport: int32(appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP),
+		Exposure: int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK), MaxFrameBytes: 1024,
+		MaxTotalBytes: 4096, DeadlineSeconds: 10, IdleSeconds: 5, MaxConcurrentStreams: 1, MaxUseCount: 4}
+	first, err := controller.newApplianceFrontendRuntime(frontend, identity, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := first.endpoint
+	first.close()
+	second, err := controller.newApplianceFrontendRuntime(frontend, identity, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.close()
+	if second.endpoint != endpoint {
+		t.Fatalf("endpoint changed across runtime restart: %q -> %q", endpoint, second.endpoint)
+	}
+}
+
 func TestApplianceFrontendRejectsUnboundedProjection(t *testing.T) {
 	controller := &Controller{supportDirectory: t.TempDir()}
 	identity := &vmmdv1.SystemApplianceIdentity{InstallationId: "installation-c"}

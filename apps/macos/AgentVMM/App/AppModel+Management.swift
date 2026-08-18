@@ -3,8 +3,7 @@ import Foundation
 extension AppModel {
     var servicesHealthy: Bool {
         guard let status = lifecycleStatus else { return true }
-        let connectorRequired = snapshot.remoteRegistrations.contains { $0.enrollmentState == .ready && $0.owner == .external }
-        return status.coreHealthy && (!connectorRequired || status.connectorLoaded)
+		return status.coreHealthy
     }
 
     func refreshLifecycleStatus() async {
@@ -26,11 +25,6 @@ extension AppModel {
         defer { lifecycleOperationInProgress = false }
         do {
             guard client != nil else { throw HostClientError.disconnected }
-            for registration in snapshot.remoteRegistrations {
-                if case .external = registration.owner, !(await revokeRemoteAccess(registrationID: registration.id)) {
-                    throw LifecycleManager.LifecycleError.failed("Controller access could not be revoked. Repair it before uninstalling.")
-                }
-            }
             if snapshot.vmState == "Running" {
                 _ = try await client?.stopVM(force: false)
             }
@@ -46,10 +40,7 @@ extension AppModel {
         snapshot.environments.first { $0.id == id }
     }
 
-    func showAccess(_ tab: AccessTab) {
-        accessTab = tab
-        section = .access
-    }
+	func showAccess() { section = .access }
 
     func showEnvironment(_ id: String) {
         selectedEnvironmentID = id

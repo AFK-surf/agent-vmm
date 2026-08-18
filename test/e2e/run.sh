@@ -4,6 +4,7 @@ set -u
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 bundle=${AGENT_VMM_E2E_BUNDLE:-/tmp/agent-vmm-e2e-bundle}
 host_binary=${AGENT_VMM_E2E_HOST_BINARY:-/tmp/agent-vmm-e2e-host}
+data_worker_binary=${AGENT_VMM_E2E_DATA_BINARY:-/tmp/agent-vmm-e2e-data}
 json=$repository/.build/test-results/e2e/test.json
 report=$repository/.build/test-results/e2e/report.md
 mkdir -p "$repository/.build/test-results/e2e"
@@ -30,8 +31,14 @@ if [ "$prepare_status" -eq 0 ]; then
   prepare_status=$?
 fi
 
+if [ "$prepare_status" -eq 0 ] && [ ! -x "$data_worker_binary" ]; then
+  (cd "$repository" && cargo build --locked --release --manifest-path data/agent-vmm-data/Cargo.toml && cp data/agent-vmm-data/target/release/agent-vmm-data "$data_worker_binary")
+  prepare_status=$?
+fi
+
 if [ "$prepare_status" -eq 0 ]; then
   (cd "$repository" && AGENT_VMM_E2E_BUNDLE="$bundle" AGENT_VMM_E2E_HOST_BINARY="$host_binary" \
+    AGENT_VMM_E2E_DATA_BINARY="$data_worker_binary" \
     go test -json -tags=e2e ./test/e2e -count=1 -timeout=45m) >"$json"
   test_status=$?
 else

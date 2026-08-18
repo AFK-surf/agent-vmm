@@ -36,6 +36,14 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		return rpcError(err)
 	}
 	header := first.GetHeader()
+	if header == nil {
+		return invalid(errors.New("image import header is required"))
+	}
+	if header.GetSystemImport() {
+		if _, err := s.runtime.ensureNamespace(stream.Context(), &vmmdv1.EnsureNamespaceRequest{RequestId: header.GetRequestId(), NamespaceId: header.GetActorNamespaceId(), Limits: header.GetSystemLimits(), EgressMode: header.GetSystemEgressMode()}, true); err != nil {
+			return rpcError(err)
+		}
+	}
 	namespace, err := s.runtime.GetNamespace(stream.Context(), header.GetActorNamespaceId())
 	if err != nil {
 		return rpcError(err)
@@ -88,7 +96,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		return invalid(err)
 	}
 	value, err := s.mutate(stream.Context(), "import-image", header, func() (any, error) {
-		image, err := s.runtime.importImage(stream.Context(), archive, header, imageReference, *manifest, false)
+		image, err := s.runtime.importImage(stream.Context(), archive, header, imageReference, *manifest, header.GetSystemImport())
 		return image, err
 	})
 	if err != nil {

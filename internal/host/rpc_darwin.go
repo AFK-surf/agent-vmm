@@ -100,7 +100,16 @@ func remoteRuntimeDenied(method string) bool {
 		hostv1.AgentRuntimeService_ReadWorkspace_FullMethodName,
 		hostv1.AgentRuntimeService_WriteWorkspace_FullMethodName,
 		hostv1.AgentRuntimeService_ArchiveWorkspace_FullMethodName,
-		hostv1.AgentRuntimeService_ExtractWorkspace_FullMethodName:
+		hostv1.AgentRuntimeService_ExtractWorkspace_FullMethodName,
+		hostv1.AgentRuntimeService_CreateServiceExport_FullMethodName,
+		hostv1.AgentRuntimeService_ListServiceExports_FullMethodName,
+		hostv1.AgentRuntimeService_GetServiceExport_FullMethodName,
+		hostv1.AgentRuntimeService_RevokeServiceExport_FullMethodName,
+		hostv1.AgentRuntimeService_CreateServiceImport_FullMethodName,
+		hostv1.AgentRuntimeService_CreatePersonalServiceImport_FullMethodName,
+		hostv1.AgentRuntimeService_ListServiceImports_FullMethodName,
+		hostv1.AgentRuntimeService_GetServiceImport_FullMethodName,
+		hostv1.AgentRuntimeService_RevokeServiceImport_FullMethodName:
 		return false
 	default:
 		return true

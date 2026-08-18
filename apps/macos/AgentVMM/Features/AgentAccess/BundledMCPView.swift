@@ -9,6 +9,10 @@ struct BundledMCPView: View {
     @State private var showingSetupPolicy = false
     @State private var showingOtherClient = false
     @State private var removePlan: ApplianceRemovePlanModel?
+    @State private var removeError: String?
+    @State private var removalTask: Task<Void, Never>?
+    @State private var removalPlanning = false
+    @State private var manualBindingToRemove: MCPClientBindingModel?
     @State private var manualName = ""
 
     var body: some View {
@@ -27,8 +31,8 @@ struct BundledMCPView: View {
                 healthAndAdvanced(appliance)
             } else {
                 setup
+                if !model.mcpClientBindings.isEmpty { staleClients }
             }
-            if let error = model.errorMessage { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) }
         }
         .confirmationDialog("Disable MCP appliance?", isPresented: $showingDisable) {
             Button("Disable and Retain Agent Data") { Task { await model.setBundledMCPEnabled(false) } }
@@ -36,8 +40,24 @@ struct BundledMCPView: View {
         } message: {
             Text("The MCP frontend closes and active leases are revoked. Agent allocations and retained volumes stay on this Mac.")
         }
-        .sheet(isPresented: $showingRemove) { removeSheet }
+        .sheet(isPresented: $showingRemove, onDismiss: cancelRemovalPlanning) { removeSheet }
         .sheet(isPresented: $showingSetupPolicy) { setupPolicySheet }
+        .confirmationDialog(
+            "Remove \(manualBindingToRemove?.displayName ?? "client")?",
+            isPresented: Binding(
+                get: { manualBindingToRemove != nil },
+                set: { if !$0 { manualBindingToRemove = nil } }
+            ),
+            presenting: manualBindingToRemove
+        ) { binding in
+            Button("Remove client", role: .destructive) {
+                model.removeManualMCPConfiguration(binding)
+                manualBindingToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { manualBindingToRemove = nil }
+        } message: { binding in
+            Text("This removes its connection details from Agent VMM. A bearer token already copied to the client remains valid until the MCP appliance is removed.")
+        }
     }
 
     private var setup: some View {
@@ -47,12 +67,28 @@ struct BundledMCPView: View {
                 HStack {
                     Button("Set Up MCP") { Task { _ = await model.installBundledMCP(grant: grant) } }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.applianceActionInProgress)
+                        .disabled(model.applianceActionInProgress || model.mcpClientActionInProgress)
                     Button("Customize…") { showingSetupPolicy = true }
+                        .disabled(model.applianceActionInProgress || model.mcpClientActionInProgress)
                 }
                 Text("The service starts disabled. You can enable it from Health and advanced after setup.")
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(8)
+        }
+    }
+
+    private var staleClients: some View {
+        GroupBox("Saved client configurations") {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("MCP is not installed, but client connection details are still saved on this Mac.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                Text("Set up MCP again to use them, or remove them here.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(model.mcpClientBindings) { binding in
+                    MCPClientRow(model: model, binding: binding, applianceReady: false, onRemoveManual: { manualBindingToRemove = $0 })
+                }
+            }
+            .padding(8)
         }
     }
 
@@ -62,9 +98,8 @@ struct BundledMCPView: View {
             Form {
                 Stepper("Maximum clients: \(grant.maxEnvironments)", value: $grant.maxEnvironments, in: 1...16)
                 Toggle("Allow client workloads to access the public internet", isOn: $grant.allowsPublicEgress)
-                Toggle("Allow workload port forwards on this Mac", isOn: $grant.dynamicHostLoopbackEnabled)
                 LabeledContent("Per-client maximum", value: "1 CPU · 512 MiB memory · 4 GiB disk")
-                LabeledContent("Aggregate maximum", value: "2 CPU · 1 GiB memory · 8 GiB disk")
+                LabeledContent("Aggregate maximum", value: "1 CPU · 512 MiB memory · 4 GiB disk")
             }
             HStack {
                 Spacer()
@@ -72,7 +107,7 @@ struct BundledMCPView: View {
                 Button("Set Up MCP") {
                     showingSetupPolicy = false
                     Task { _ = await model.installBundledMCP(grant: grant) }
-                }.buttonStyle(.borderedProminent).disabled(model.applianceActionInProgress)
+                }.buttonStyle(.borderedProminent).disabled(model.applianceActionInProgress || model.mcpClientActionInProgress)
             }
         }.padding(24).frame(width: 520)
     }
@@ -97,29 +132,35 @@ struct BundledMCPView: View {
                     .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
                     ForEach(model.mcpClientBindings) { binding in
-                        MCPClientRow(model: model, binding: binding, applianceEnabled: appliance.enabled)
+                        MCPClientRow(
+                            model: model,
+                            binding: binding,
+                            applianceReady: appliance.endpointAvailable,
+                            onRemoveManual: { manualBindingToRemove = $0 }
+                        )
                         if binding.id != model.mcpClientBindings.last?.id { Divider() }
                     }
                 }
                 HStack {
                     if !model.mcpClientBindings.contains(where: { $0.kind == .codex }) {
                         Button("Set up Codex") { Task { await model.installCodexMCPConfiguration() } }
-                            .buttonStyle(.borderedProminent).disabled(!appliance.enabled || !model.canConfigureCodex)
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!appliance.endpointAvailable || !model.canConfigureCodex || model.applianceActionInProgress || model.mcpClientActionInProgress)
                     }
-                    Button("Add other client…") { showingOtherClient = true }.disabled(!appliance.enabled)
+                    Button("Add other client…") { showingOtherClient = true }.disabled(!appliance.endpointAvailable || model.applianceActionInProgress || model.mcpClientActionInProgress)
                     if !model.canConfigureCodex { Text("Codex CLI not found").font(.caption).foregroundStyle(.secondary) }
                 }
                 if showingOtherClient {
                     Divider()
                     HStack {
                         TextField("Client name", text: $manualName, prompt: Text("Pi or another MCP client"))
-                        Button("Create setup command") {
+                        Button("Create client configuration") {
                             let name = manualName.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !name.isEmpty, model.createManualMCPConfiguration(displayName: name) != nil {
                                 manualName = ""
                                 showingOtherClient = false
                             }
-                        }.disabled(manualName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }.disabled(manualName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.applianceActionInProgress || model.mcpClientActionInProgress)
                     }
                 }
             }.padding(8)
@@ -131,7 +172,6 @@ struct BundledMCPView: View {
             VStack(alignment: .leading, spacing: 8) {
                 LabeledContent("Capacity", value: "Up to \(appliance.grant.maxEnvironments) clients")
                 LabeledContent("Internet", value: appliance.grant.allowsPublicEgress ? "Allowed" : "Blocked")
-                LabeledContent("Port forwarding", value: appliance.grant.dynamicHostLoopbackEnabled ? "Local Mac only" : "Disabled")
                 Text("These limits apply to every client environment.").font(.caption).foregroundStyle(.secondary)
             }.padding(8)
         }
@@ -142,16 +182,23 @@ struct BundledMCPView: View {
             VStack(alignment: .leading, spacing: 10) {
                 LabeledContent("State", value: appliance.state)
                 LabeledContent("Health", value: appliance.healthy ? "Healthy" : (appliance.healthMessage ?? "Needs attention"))
-                LabeledContent("MCP endpoint", value: appliance.enabled && appliance.frontends.contains(where: \.available) ? "Available on this Mac" : "Closed")
+                LabeledContent("MCP endpoint", value: appliance.endpointStatus)
                 HStack {
-                    if appliance.enabled {
-                        Button("Disable…") { showingDisable = true }
-                        Button("Restart") { Task { await model.restartBundledMCP() } }
+                    if let action = model.applianceAction {
+                        ProgressView(action.title)
+                            .controlSize(.small)
+                            .accessibilityLabel(action.title)
                     } else {
-                        Button("Enable") { Task { await model.setBundledMCPEnabled(true) } }.buttonStyle(.borderedProminent)
+                        if appliance.enabled {
+                            Button("Disable…") { showingDisable = true }
+                            Button("Restart") { Task { await model.restartBundledMCP() } }
+                        } else {
+                            Button("Enable") { Task { await model.setBundledMCPEnabled(true) } }.buttonStyle(.borderedProminent)
+                        }
                     }
                     Spacer()
                     Button("Remove MCP…", role: .destructive) { loadRemovePlan() }
+                        .disabled(model.applianceActionInProgress || model.mcpClientActionInProgress)
                 }
             }.padding(.top, 8)
         }
@@ -162,9 +209,15 @@ struct BundledMCPView: View {
         let symbol: String
         let kind: AccessStatusView.Kind
         if let appliance {
-            label = appliance.enabled ? (appliance.healthy ? "Ready" : "Needs attention") : "Disabled"
-            symbol = appliance.enabled && appliance.healthy ? "checkmark.circle.fill" : "pause.circle"
-            kind = appliance.enabled && appliance.healthy ? .success : .attention
+            if let action = model.applianceAction {
+                label = action.title
+                symbol = "hourglass"
+                kind = .attention
+            } else {
+                label = appliance.endpointAvailable && appliance.healthy ? "Ready" : (appliance.enabled ? "Needs attention" : "Disabled")
+                symbol = appliance.endpointAvailable && appliance.healthy ? "checkmark.circle.fill" : "pause.circle"
+                kind = appliance.endpointAvailable && appliance.healthy ? .success : (appliance.enabled ? .attention : .neutral)
+            }
         } else {
             label = "Not set up"
             symbol = "plus.circle"
@@ -178,16 +231,41 @@ struct BundledMCPView: View {
     }
 
     private func loadRemovePlan() {
-        Task {
-            do { removePlan = try await model.planBundledMCPRemoval(); showingRemove = true }
-            catch { model.errorMessage = hostErrorMessage(error) }
+        guard !model.applianceActionInProgress else { return }
+        removalTask?.cancel()
+        removePlan = nil
+        removeError = nil
+        removalPlanning = true
+        showingRemove = true
+        removalTask = Task {
+            defer {
+                removalPlanning = false
+                removalTask = nil
+            }
+            do {
+                removePlan = try await model.planBundledMCPRemoval()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                removeError = hostErrorMessage(error)
+            }
         }
+    }
+
+    private func cancelRemovalPlanning() {
+        removalTask?.cancel()
+        removalTask = nil
+        removalPlanning = false
     }
 
     @ViewBuilder private var removeSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Remove MCP Appliance").font(.title2.weight(.semibold))
-            if let plan = removePlan {
+            if removalPlanning || model.applianceAction != nil {
+                ProgressView(model.applianceAction?.title ?? "Preparing removal…")
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            } else if let plan = removePlan {
                 Text("Client setup files and the local MCP service will be removed. Existing environments are listed below.")
                     .foregroundStyle(.secondary)
                 ForEach(plan.impacts) { impact in
@@ -202,18 +280,41 @@ struct BundledMCPView: View {
                 }
                 HStack {
                     Spacer(); Button("Cancel") { showingRemove = false }
-                    Button("Permanently Remove", role: .destructive) { Task { if await model.removeBundledMCP(plan: plan) { showingRemove = false } } }
+                    Button("Permanently Remove", role: .destructive) {
+                        Task {
+                            if await model.removeBundledMCP(plan: plan) {
+                                removePlan = nil
+                                showingRemove = false
+                            } else {
+                                removeError = model.errorMessage
+                            }
+                        }
+                    }
                         .disabled(!plan.blockers.isEmpty || model.applianceActionInProgress)
                 }
-            } else { ProgressView() }
-        }.padding(24).frame(width: 560)
+            } else if let removeError {
+                Label(removeError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { showingRemove = false }
+                    Button("Retry") { loadRemovePlan() }.buttonStyle(.borderedProminent)
+                }
+            } else {
+                ProgressView("Preparing removal…")
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            }
+        }
+        .padding(24)
+        .frame(width: 560)
+        .interactiveDismissDisabled(model.applianceAction == .removing)
     }
 }
 
 private struct MCPClientRow: View {
     @Bindable var model: AppModel
     let binding: MCPClientBindingModel
-    let applianceEnabled: Bool
+    let applianceReady: Bool
+    let onRemoveManual: (MCPClientBindingModel) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -221,19 +322,24 @@ private struct MCPClientRow: View {
                 .font(.title3).foregroundStyle(.blue).frame(width: 28)
             VStack(alignment: .leading, spacing: 4) {
                 Text(binding.displayName).font(.headline)
-                Text(binding.kind == .codex ? "Managed Codex MCP client" : "MCP client · setup command")
+                Text(binding.kind == .codex ? "Managed Codex MCP client" : "MCP client · manual configuration")
                     .font(.caption).foregroundStyle(.secondary)
                 AccessStatusView(
-                    label: applianceEnabled ? (binding.kind == .codex ? "Managed setup" : "Setup command ready") : "MCP disabled",
-                    symbol: applianceEnabled ? "checkmark.circle" : "pause.circle",
-                    kind: applianceEnabled ? .success : .neutral
+                    label: applianceReady ? (binding.kind == .codex ? "Managed setup" : "Connection details ready") : "MCP endpoint unavailable",
+                    symbol: applianceReady ? "checkmark.circle" : "pause.circle",
+                    kind: applianceReady ? .success : .neutral
                 )
             }
             Spacer()
             if binding.kind == .codex {
                 HStack(spacing: 8) {
-                    Button("Configure Codex") { Task { await model.installCodexMCPConfiguration() } }
-                        .disabled(!applianceEnabled || !model.canConfigureCodex)
+                    if model.mcpClientActionInProgress {
+                        ProgressView("Updating…")
+                            .controlSize(.small)
+                    } else {
+                        Button("Configure Codex") { Task { await model.installCodexMCPConfiguration() } }
+                            .disabled(!applianceReady || !model.canConfigureCodex || model.applianceActionInProgress)
+                    }
                     Menu {
                         Button("Remove Codex setup", role: .destructive) {
                             Task { await model.removeCodexMCPConfiguration() }
@@ -242,21 +348,57 @@ private struct MCPClientRow: View {
                         Image(systemName: "ellipsis.circle")
                     }
                     .menuStyle(.borderlessButton)
+                    .disabled(model.applianceActionInProgress || model.mcpClientActionInProgress)
                 }
-            } else if let command = model.manualMCPCommand(for: binding) {
+            } else if let connection = model.manualMCPConfiguration(for: binding) {
                 VStack(alignment: .trailing, spacing: 8) {
-                    Button("Copy setup command") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(command, forType: .string)
-                    }.disabled(!applianceEnabled)
-                    DisclosureGroup("Show setup command") {
-                        Text(command).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    HStack(spacing: 8) {
+                        Button("Copy connection details") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(connectionDetails(connection), forType: .string)
+                        }.disabled(!applianceReady || model.applianceActionInProgress || model.mcpClientActionInProgress)
+                        Menu {
+                            Button("Remove client…", role: .destructive) { onRemoveManual(binding) }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .disabled(model.applianceActionInProgress || model.mcpClientActionInProgress)
+                    }
+                    DisclosureGroup("Show connection details") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Transport: Streamable HTTP")
+                            Text("Endpoint\n\(connection.endpointURL.absoluteString)")
+                            Text("Authorization header\nBearer \(connection.bearerToken)")
+                        }
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
                             .frame(maxWidth: 360, alignment: .trailing)
                     }
                     .fixedSize(horizontal: false, vertical: true)
                 }
+            } else {
+                HStack(spacing: 8) {
+                    Label("Endpoint unavailable", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Menu {
+                        Button("Remove client…", role: .destructive) { onRemoveManual(binding) }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .disabled(model.applianceActionInProgress || model.mcpClientActionInProgress)
+                }
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func connectionDetails(_ connection: MCPManualConfiguration) -> String {
+        """
+        Streamable HTTP MCP
+        Endpoint: \(connection.endpointURL.absoluteString)
+        Authorization: Bearer \(connection.bearerToken)
+        """
     }
 }

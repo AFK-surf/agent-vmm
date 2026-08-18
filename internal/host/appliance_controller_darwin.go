@@ -270,6 +270,22 @@ func privateControllerIdentity(identity *vmmdv1.SystemApplianceIdentity) string 
 	return fmt.Sprintf("%s/%s/%s", identity.GetInstallationId(), identity.GetBootId(), identity.GetContainerInstanceId())
 }
 
+func (controller *Controller) privateControllerRouteCurrent(installationID string, identity *vmmdv1.SystemApplianceIdentity) bool {
+	controller.privateControllerMu.Lock()
+	route := controller.privateControllers[installationID]
+	controller.privateControllerMu.Unlock()
+	if route == nil || route.identity != privateControllerIdentity(identity) {
+		return false
+	}
+	select {
+	case <-route.done:
+		controller.removePrivateControllerRoute(installationID, route)
+		return false
+	default:
+		return true
+	}
+}
+
 func (controller *Controller) removePrivateControllerRoute(installationID string, route *privateControllerRoute) {
 	controller.privateControllerMu.Lock()
 	if controller.privateControllers[installationID] == route {

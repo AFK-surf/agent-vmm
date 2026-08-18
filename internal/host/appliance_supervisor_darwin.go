@@ -192,6 +192,9 @@ func (controller *Controller) startAppliance(ctx context.Context, client vmmdv1.
 	if err != nil {
 		return controller.sealAppliance(ctx, installation, "DATA_VOLUME_FACT_UNAVAILABLE")
 	}
+	if err := controller.importApplianceArchive(ctx, client, installation, artifact, grant); err != nil {
+		return controller.failAppliance(ctx, installation, "ARTIFACT_IMAGE_IMPORT_FAILED", err)
+	}
 	identity, err := controller.startApplianceInstance(ctx, client, installation, artifact, grant, volume, installation.Revision+1)
 	if err != nil {
 		if strings.Contains(err.Error(), "appliance data volume is sealed") {
@@ -282,8 +285,10 @@ func (controller *Controller) startApplianceInstance(ctx context.Context, client
 }
 
 func (controller *Controller) publishApplianceInstance(ctx context.Context, installation store.ApplianceInstallation, identity *vmmdv1.SystemApplianceIdentity, health *appliancev1.ApplianceHealth) error {
-	if err := controller.startPrivateControllerRoute(ctx, installation, identity); err != nil {
-		return err
+	if !controller.privateControllerRouteCurrent(installation.ID, identity) {
+		if err := controller.startPrivateControllerRoute(ctx, installation, identity); err != nil {
+			return err
+		}
 	}
 	return controller.admitApplianceInstance(ctx, installation, identity, health)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"slices"
@@ -85,7 +86,7 @@ func TestPersonalMeshServiceImportUsesHostOwnedRouteRequest(t *testing.T) {
 	defer cancel()
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "service_import", Arguments: map[string]any{
 		"source_container_id": "worker", "source_container_instance_id": "worker-v3", "destination_device_id": "device-c",
-		"destination_export_id": "export-c", "destination_port": 9443, "virtual_service_name": "mesh-api", "mesh_id": "mesh-a",
+		"destination_export_id": "export-c", "virtual_service_name": "mesh-api", "mesh_id": "mesh-a",
 		"connection_limit": 4, "byte_limit": 1048576, "concurrency_limit": 2,
 	}})
 	if err != nil || result.IsError {
@@ -115,7 +116,7 @@ func (server *fakeRuntime) CreateServiceImport(_ context.Context, request *hostv
 	server.mu.Lock()
 	server.createdImport = proto.Clone(request).(*hostv1.CreateServiceImportRequest)
 	server.mu.Unlock()
-	return &servicev1.ServiceImport{ImportId: "import-new", SourceContainerId: request.GetSourceContainerId(), SourceContainerInstanceId: request.GetSourceContainerInstanceId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}, nil
+	return &servicev1.ServiceImport{ImportId: "import-new", SourceContainerId: request.GetSourceContainerId(), SourceContainerInstanceId: request.GetSourceContainerInstanceId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), DestinationPort: request.GetDestinationPort(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}, nil
 }
 
 func (server *fakeRuntime) RevokeServiceExport(_ context.Context, request *hostv1.RevokeOwnServiceExportRequest) (*emptypb.Empty, error) {
@@ -408,6 +409,52 @@ func TestServiceToolsUseOnlyBoundRuntimeAndPreserveCapability(t *testing.T) {
 	}
 }
 
+func TestServiceImportLocalShortcutOmitsCapability(t *testing.T) {
+	runtime := &fakeRuntime{}
+	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "service_import", Arguments: map[string]any{
+		"source_container_id": "worker", "source_container_instance_id": "worker-v2",
+		"destination_device_id": "local", "destination_export_id": "export-local", "virtual_service_name": "local-api",
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("local service_import: err=%v result=%#v", err, result)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.createdImport == nil || runtime.createdImport.GetDestinationDeviceId() != "local" || runtime.createdImport.GetCapability() != nil || runtime.createdImport.GetDestinationPort() != 0 {
+		t.Fatalf("created local import = %#v", runtime.createdImport)
+	}
+}
+
+func TestServiceImportRemoteRequiresCapability(t *testing.T) {
+	runtime := &fakeRuntime{}
+	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "service_import", Arguments: map[string]any{
+		"source_container_id": "worker", "source_container_instance_id": "worker-v2",
+		"destination_device_id": "device-b", "destination_export_id": "export-b", "destination_port": 8080,
+		"virtual_service_name": "peer-api",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("remote service_import result = %#v", result)
+	}
+	payload, marshalErr := json.Marshal(result.StructuredContent)
+	if marshalErr != nil || !strings.Contains(string(payload), "capability is required") {
+		t.Fatalf("remote service_import error = %s", payload)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.createdImport != nil {
+		t.Fatalf("remote import was sent without capability: %#v", runtime.createdImport)
+	}
+}
+
 func TestImageDeleteUsesCurrentFencedIdentity(t *testing.T) {
 	runtime := &fakeRuntime{}
 	client := mcpClient(t, newTestAdapter(t, runtimeClientFor(t, runtime)))
@@ -448,6 +495,65 @@ func TestErrorMappingDoesNotExposeStatusMessage(t *testing.T) {
 	errorValue := mapError(context.DeadlineExceeded)
 	if errorValue.Code != "TIMEOUT" || !errorValue.Retryable || errorValue.Message != "request timed out" {
 		t.Fatalf("mapped = %#v", errorValue)
+	}
+}
+
+func TestErrorMappingIncludesInvalidArgumentFields(t *testing.T) {
+	value, err := status.New(codes.InvalidArgument, "request validation failed").WithDetails(&errdetails.BadRequest{FieldViolations: []*errdetails.BadRequest_FieldViolation{{Field: "destination_port", Description: "must be omitted for a local route"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := mapError(value.Err())
+	if mapped.Code != "INVALID_ARGUMENT" || mapped.Message != "request validation failed: destination_port: must be omitted for a local route" {
+		t.Fatalf("mapped = %#v", mapped)
+	}
+}
+
+func TestErrorMappingPreservesPIDLimitReason(t *testing.T) {
+	value, err := status.New(codes.ResourceExhausted, "environment process limit was exhausted").WithDetails(&errdetails.ErrorInfo{Reason: "PID_LIMIT_EXCEEDED", Domain: "agent-vmm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := mapError(value.Err())
+	if mapped.Code != "PID_LIMIT_EXCEEDED" || mapped.Message != "environment process limit was exhausted" {
+		t.Fatalf("mapped = %#v", mapped)
+	}
+}
+
+func TestErrorMappingNamesBareInternalFailures(t *testing.T) {
+	mapped := mapError(status.Error(codes.Internal, "sqlite failure"))
+	if mapped.Code != "RUNTIME_OPERATION_FAILED" || mapped.Message != "runtime operation failed" {
+		t.Fatalf("mapped = %#v", mapped)
+	}
+	value, err := status.New(codes.Internal, "service import could not be recorded").WithDetails(&errdetails.ErrorInfo{Reason: "SERVICE_IMPORT_PERSIST_FAILED", Domain: "agent-vmm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped = mapError(value.Err())
+	if mapped.Code != "SERVICE_IMPORT_PERSIST_FAILED" || mapped.Message != "service import could not be recorded" {
+		t.Fatalf("structured mapped = %#v", mapped)
+	}
+	mapped = mapError(errors.New("untyped host failure"))
+	if mapped.Code != "RUNTIME_OPERATION_FAILED" || mapped.Message != "runtime operation failed" {
+		t.Fatalf("unknown mapped = %#v", mapped)
+	}
+}
+
+func TestExecReservationLeavesControlCapacity(t *testing.T) {
+	adapter := newTestAdapter(t, runtimeClient(t))
+	for index := 0; index < cap(adapter.execs); index++ {
+		adapter.execs <- struct{}{}
+	}
+	defer func() {
+		for index := 0; index < cap(adapter.execs); index++ {
+			<-adapter.execs
+		}
+	}()
+	result, envelope, err := adapter.call(context.Background(), time.Second, false, func(context.Context) (any, error) {
+		return EmptyData{}, nil
+	})
+	if err != nil || result != nil || !envelope.OK {
+		t.Fatalf("control call while execs are reserved = result=%#v envelope=%#v err=%v", result, envelope, err)
 	}
 }
 

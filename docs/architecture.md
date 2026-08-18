@@ -48,7 +48,7 @@ The system must let multiple agents do these tasks in one guest:
 The first release excludes distributed scheduling inside Agent VMM, Kubernetes, live migration, GPUs, and arbitrary guest operating systems. Each controller domain has an exact private or external registration and a user-approved capacity pool; multiple domains may be active while scheduling remains controller-owned.
 It also excludes full Docker API and Compose compatibility.
 
-RFC16 extends that provider-neutral boundary without changing VM ownership.
+The provider-neutral transport extension does not change VM ownership.
 `agent-vmm-host` remains the only local trust, runtime, and policy owner.
 It owns the platform root-key provider, SQLite trust/mesh CAS state, local deny
 ledger, and separate operator/remote-compute/connector-trust Unix listeners.
@@ -585,14 +585,11 @@ The implementation has no raw runtime socket forwarding, native runc path, or du
 
 ## Local MCP and remote compute boundaries
 
-`agent-vmm-mcp` is the model-facing stdio entry point, but it is only a bounded
-byte proxy to the enabled first-party MCP appliance's loopback frontend. It has
-no MCP schema, OperatorService client, AgentRuntime client, environment state, or
-host runtime socket. An app-generated opaque client binding lets the appliance
-reuse one controller-owned allocation per client without exposing host identity
-fields in MCP requests. The appliance owns the MCP schema, leases, runtime
-sessions, result bounds, and cleanup policy through the public appliance and
-remote-controller contracts.
+The bundled MCP appliance is the only model-facing entry point. It serves
+Streamable HTTP on a host-loopback frontend and owns the MCP schema, opaque
+client bindings, allocations, leases, runtime sessions, result bounds, and
+cleanup policy. The host app only publishes the current endpoint and never
+exposes an OperatorService or AgentRuntime credential to a client.
 
 Controller-owned dynamic loopback frontends are a separate public contract for
 long-lived raw TCP forwarding. A ready controller can acquire, renew, or release
@@ -605,14 +602,10 @@ revoke, controller disconnect, appliance stop, VM shutdown, or generation change
 They do not use fixed frontend endpoint files and the host never receives a
 container ID or target port.
 
-`agent-vmm-connect` is the only controller-facing entry point. It makes an
-outbound TLS 1.3 gRPC connection, reads the opaque controller credential from
-the build-identity-specific protected store, and connects locally only to the
-mode-0600 RemoteComputeService socket. Release uses Keychain; development/E2E uses
-an instance-local mode-0600 file and does not link Keychain APIs.
-Each active lease receives a filtered AgentRuntimeService session over the single
-bounded byte transport. The controller supplies an allocation ID, while the host
-creates all local environment, namespace, lease, and capability identities.
+Controller-facing management runs inside the appliance over its authenticated
+controller channel. The host keeps only the local lifecycle and transport
+supervision needed to publish that channel; no separate connector or stdio proxy
+is installed.
 
 Every control connection has a nonzero unpredictable epoch and a fresh ordered
 command sequence. The initial full inventory carries an inventory watermark and

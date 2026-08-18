@@ -100,6 +100,11 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 		}
 		identityMatches := installation.CurrentBootID == identity.GetBootId() && installation.CurrentContainerInstance == identity.GetContainerInstanceId()
 		if identityMatches && installation.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING) {
+			health := &appliancev1.ApplianceHealth{InstallationId: installation.ID, BootId: identity.GetBootId(), ContainerInstance: identity.GetContainerInstanceId(), ConfigRevision: runtime.GetConfigRevision(), Healthy: true, Status: runtime.GetStatus()}
+			if err := controller.publishApplianceInstance(ctx, installation, identity, health); err != nil {
+				controller.setObservedApplianceFailure(installation, runtime, "INSTANCE_PUBLICATION_FAILED")
+				result = errors.Join(result, fmt.Errorf("restore appliance publication %s: %w", installation.ID, err))
+			}
 			continue
 		}
 		if identityMatches && installation.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STARTING) {

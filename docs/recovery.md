@@ -32,7 +32,7 @@ key, controller credentials, encrypted appliance volumes, and VM state. Product
 data must be exported by the product before this step; the host does not migrate
 it.
 
-Pre-RFC6 developer installations are unsupported. Remove them once, manually,
+Older developer installations are unsupported. Remove them once, manually,
 while Agent VMM is stopped:
 
 1. Boot out `com.afk-surf.agent-vmm` and

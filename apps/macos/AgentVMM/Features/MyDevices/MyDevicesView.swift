@@ -12,6 +12,12 @@ struct MyDevicesView: View {
 
     var body: some View {
         Form {
+            if model.deviceActionInProgress || model.deviceRefreshInProgress {
+                Section {
+                    ProgressView(model.deviceRefreshInProgress ? "Refreshing device state…" : "Updating device…")
+                        .controlSize(.small)
+                }
+            }
             Section("This device") {
                 if let identity = model.deviceIdentity {
                     LabeledContent("Device ID", value: identity.id)
@@ -126,6 +132,7 @@ struct MyDevicesView: View {
                     }
                     HStack {
                         Button("Refresh") { Task { await model.refreshPersonalMeshPairing() } }
+                            .disabled(model.deviceActionInProgress || model.deviceRefreshInProgress)
                         Button("Confirm codes match") { Task { await model.confirmPersonalMeshPairing() } }
                             .disabled(model.deviceActionInProgress || pairing.sas.isEmpty || pairing.state == "committed")
                         Button("Reject", role: .destructive) { Task { await model.rejectPersonalMeshPairing() } }
@@ -138,7 +145,7 @@ struct MyDevicesView: View {
         .navigationTitle("My Devices")
         .toolbar {
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refreshDevices() } }
-                .disabled(model.deviceActionInProgress)
+                .disabled(model.deviceActionInProgress || model.deviceRefreshInProgress)
         }
         .confirmationDialog("Revoke this device?", isPresented: Binding(
             get: { memberToRevoke != nil },
