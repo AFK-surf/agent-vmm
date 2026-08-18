@@ -44,6 +44,8 @@ Remove any text that does not affect a decision.
 - The guest TUN can deliver a non-IPv4 packet to the egress pump; validate and count it at the TUN boundary, because letting `WriteFrame` reject it tears down the whole vsock session and surfaces as a misleading registry download failure.
 - E2E code that opens the host WAL database directly must use one connection with a busy timeout; otherwise forced-stop recovery can race a test-side write and surface `SQLITE_BUSY` from an unrelated RPC.
 - The final two-install `ApplianceLifecycle` TLC configuration explores roughly 2.3 million distinct states and can take about 50 minutes with the checked-in single-worker runner; do not treat the quiet interval as a hung checker, and preserve the independent negative-config runs.
+- macOS 27 App Attest is supported only by a fully signed Mac app running in a user context, not by a daemon or bare LaunchAgent helper. If Patchouli is linked into `agent-vmm-host`, package the host as the attested app's `Contents/MacOS` executable with the required provisioning profile and entitlements; the current `Contents/Helpers/agent-vmm-host` LaunchAgent layout cannot be assumed to satisfy `DCAppAttestService.isSupported`.
+- The development branch of `build/host/package.sh` intentionally requires an ad-hoc host and rejects `_SecItem`/`SecKey` symbols, so the default development bundle cannot exercise Patchouli's Keychain, Secure Enclave, or App Attest path. Use Patchouli's mock/synthetic tests there and a separately provisioned attestation build for real-device validation.
 
 Record a surprising project issue when another agent can encounter it again.
 Tell the developer about the issue and add it to this file.

@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 )
 
 func TestXMLEscape(t *testing.T) {
@@ -108,12 +111,107 @@ func TestDrainStopsHost(t *testing.T) {
 	}
 }
 
+func TestLifecycleOperationIsDurableAndRequestIdempotent(t *testing.T) {
+	value := testPaths(t.TempDir())
+	calls := 0
+	first, err := runLifecycleOperation(value, "install", "request-1", func() error {
+		calls++
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Outcome != "succeeded" || calls != 1 {
+		t.Fatalf("first operation=%+v calls=%d", first, calls)
+	}
+	second, err := runLifecycleOperation(value, "install", "request-1", func() error {
+		calls++
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.OperationID != first.OperationID || calls != 1 {
+		t.Fatalf("duplicate operation=%+v calls=%d", second, calls)
+	}
+	observed := readOperation(value.operationFile)
+	if observed == nil || observed.OperationID != first.OperationID || observed.Outcome != "succeeded" {
+		t.Fatalf("durable operation=%+v", observed)
+	}
+}
+
+func TestLifecycleOperationFailureIsRecorded(t *testing.T) {
+	value := testPaths(t.TempDir())
+	_, err := runLifecycleOperation(value, "remove", "request-2", func() error { return os.ErrPermission })
+	if err == nil {
+		t.Fatal("expected operation failure")
+	}
+	observed := readOperation(value.operationFile)
+	if observed == nil || observed.Outcome != "failed" || observed.Kind != "remove" {
+		t.Fatalf("failed operation=%+v", observed)
+	}
+}
+
+func TestLifecycleOperationDoesNotReplayAnUnconfirmedPendingRequest(t *testing.T) {
+	value := testPaths(t.TempDir())
+	first, err := runLifecycleOperation(value, "install", "request-3", func() error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Outcome = "pending"
+	if err := persistOperation(value.operationFile, first); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	_, err = runLifecycleOperation(value, "install", "request-3", func() error {
+		calls++
+		return nil
+	})
+	if err == nil || calls != 0 {
+		t.Fatalf("pending operation was replayed: err=%v calls=%d", err, calls)
+	}
+	if observed := readOperation(value.operationFile); observed == nil || observed.Outcome != "unknown" {
+		t.Fatalf("pending operation outcome=%+v", observed)
+	}
+}
+
+func TestLifecycleOperationSerializesDuplicateRequests(t *testing.T) {
+	value := testPaths(t.TempDir())
+	var mu sync.Mutex
+	calls := 0
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := runLifecycleOperation(value, "install", "request-concurrent", func() error {
+				mu.Lock()
+				calls++
+				mu.Unlock()
+				<-start
+				return nil
+			})
+			results <- err
+		}()
+	}
+	// Let the first action finish; the second must observe its durable result.
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("duplicate request executed %d actions", calls)
+	}
+}
+
 func testPaths(root string) paths {
 	home := filepath.Join(root, "home")
 	return paths{
 		home: home, app: filepath.Join(root, "Agent VMM.app"), resources: filepath.Join(root, "resources"),
 		hostPlist:       filepath.Join(home, "Library", "LaunchAgents", hostLabel+".plist"),
 		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"), logs: filepath.Join(home, "Library", "Logs", "AgentVMM"),
+		operationFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
 	}
 }
 
@@ -132,5 +230,45 @@ func TestAtomicWriteReplacesDefinition(t *testing.T) {
 	info, err := os.Stat(path)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode=%v err=%v", info.Mode().Perm(), err)
+	}
+}
+
+func TestApplianceFactsDoNotCrossContaminateReadiness(t *testing.T) {
+	healthy := &appliancev1.ApplianceStatus{
+		ApplianceState: appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING,
+		Health:         &appliancev1.ApplianceHealth{Healthy: true},
+	}
+	controller := &appliancev1.ApplianceStatus{
+		ChannelState:   appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE,
+		RegistrationId: "registration-b",
+		Health:         &appliancev1.ApplianceHealth{ReadinessNonce: []byte("nonce")},
+	}
+	inventory := &appliancev1.ApplianceStatus{
+		InventoryWatermark: 1,
+		RegistrationId:     "registration-c",
+		Health:             &appliancev1.ApplianceHealth{},
+	}
+
+	facts := mergeApplianceFacts(operatorFacts{}, []*appliancev1.ApplianceStatus{healthy, controller, inventory})
+	if !facts.applianceHealthy || !facts.controllerActive || !facts.inventoryComplete {
+		t.Fatalf("diagnostic facts=%+v", facts)
+	}
+	if facts.salixReady {
+		t.Fatalf("readiness combined facts across appliances: %+v", facts)
+	}
+}
+
+func TestApplianceFactsRequireOneRegisteredReadyAppliance(t *testing.T) {
+	appliance := &appliancev1.ApplianceStatus{
+		ApplianceState:     appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING,
+		ChannelState:       appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE,
+		InventoryWatermark: 1,
+		RegistrationId:     "registration-a",
+		Health:             &appliancev1.ApplianceHealth{Healthy: true, ReadinessNonce: []byte("nonce")},
+	}
+
+	facts := mergeApplianceFacts(operatorFacts{}, []*appliancev1.ApplianceStatus{appliance})
+	if !facts.salixReady {
+		t.Fatalf("registered appliance was not ready: %+v", facts)
 	}
 }
