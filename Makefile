@@ -1,4 +1,4 @@
-.PHONY: e2e proto proto-check tla swift-project release-bundle test-data-worker lint-data-worker audit-data-worker
+.PHONY: e2e proto proto-check tla swift-project release-bundle headless-release test-data-worker lint-data-worker audit-data-worker
 
 proto:
 	PATH="$$(go env GOPATH)/bin:$$PATH" buf generate
@@ -16,6 +16,8 @@ swift-project:
 
 release-bundle:
 	sh build/host/package.sh
+
+headless-release: release-bundle
 
 install-bundle:
 	sh build/host/install.sh

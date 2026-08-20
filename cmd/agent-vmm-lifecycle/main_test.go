@@ -16,6 +16,14 @@ func TestXMLEscape(t *testing.T) {
 	}
 }
 
+func TestLifecyclePathsRejectsTheDebugAppBundle(t *testing.T) {
+	root := t.TempDir()
+	_, err := lifecyclePathsFor(filepath.Join(root, "home"), filepath.Join(root, "Agent VMM.app", "Contents", "Helpers", "agent-vmm-lifecycle"))
+	if err == nil || !strings.Contains(err.Error(), "Agent VMM Host.app") {
+		t.Fatalf("debug app was accepted: %v", err)
+	}
+}
+
 func TestManagedRepairArgumentIsIdempotent(t *testing.T) {
 	input := "<array>\n<string>agent-vmm-host</string>\n</array>"
 	once := addProgramArgument(input, "--disable-personal-mesh-pairing")
@@ -32,7 +40,7 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	template := []byte("<plist><string>__HOME__</string><string>__APP__</string></plist>")
-	for _, name := range []string{hostLabel + ".plist"} {
+	for _, name := range []string{hostTemplateResource} {
 		if err := os.WriteFile(filepath.Join(value.resources, name), template, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -208,7 +216,7 @@ func TestLifecycleOperationSerializesDuplicateRequests(t *testing.T) {
 func testPaths(root string) paths {
 	home := filepath.Join(root, "home")
 	return paths{
-		home: home, app: filepath.Join(root, "Agent VMM.app"), resources: filepath.Join(root, "resources"),
+		home: home, app: filepath.Join(root, "Agent VMM Host.app"), resources: filepath.Join(root, "resources"),
 		hostPlist:       filepath.Join(home, "Library", "LaunchAgents", hostLabel+".plist"),
 		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"), logs: filepath.Join(home, "Library", "Logs", "AgentVMM"),
 		operationFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),

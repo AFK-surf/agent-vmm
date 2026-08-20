@@ -30,16 +30,27 @@ delegates `install`, `init`, appliance installation, bootstrap, registration,
 reconnect, and final observation through that one coordinator. The narrower
 `repair` command remains host-service repair plus VM start.
 
-Fresh appliance installation requires `AGENT_VMM_APPLIANCE_CONFIG` to point to
-an operator-owned JSON file containing absolute paths for the signed manifest,
-publisher signature, approved grant, and opaque bootstrap seed, plus the
-installation id. Existing installations may omit the config when their single
-local appliance can be identified unambiguously. Missing configuration fails
+Fresh appliance installation consumes a bounded, one-use JSON enrollment ticket
+on stdin with `install --ticket-stdin --request-id <opaque-id>`. The helper
+materializes the signed manifest, publisher signature, approved grant, and
+opaque bootstrap seed into a mode-0600 temporary workspace and removes it after
+the operation. Ticket material never appears in argv, logs, or the operation
+record. Existing installations may omit the ticket when their single local
+appliance can be identified unambiguously. Missing ticket/configuration fails
 closed; the helper never reports readiness or fabricates an install result.
+
+There is no environment-based product configuration path. The only config
+path is the helper-owned temporary workspace created from the ticket.
 
 The BFT `compute-node install` command invokes this same helper, so it reaches
 the same coordinator and durable operation record rather than maintaining a
 second lifecycle state machine.
+
+The helper only accepts `Agent VMM Host.app` with the fixed `Contents/MacOS`
+host executable, the two approved `Contents/Helpers` binaries, the Guest
+payload, and the embedded release inventory. The bundle validator also rejects
+SwiftUI/window/menu/Dock metadata and debug executables before lifecycle paths
+are resolved.
 
 `SalixReady` is an observed control-plane fact. Host health, appliance health,
 controller activity, and inventory settlement are reported alongside it for

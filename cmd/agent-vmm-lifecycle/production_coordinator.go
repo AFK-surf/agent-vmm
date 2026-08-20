@@ -7,9 +7,11 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,10 +21,11 @@ import (
 )
 
 const (
-	lifecycleApplianceConfigEnv     = "AGENT_VMM_APPLIANCE_CONFIG"
 	lifecycleInstallationIDEnv      = "AGENT_VMM_APPLIANCE_INSTALLATION_ID"
 	lifecycleAppliancePollInterval  = 100 * time.Millisecond
 	lifecycleApplianceConfigVersion = 1
+	lifecycleInstallTicketVersion   = 1
+	lifecycleInstallTicketMaxBytes  = 8 << 20
 )
 
 var errApplianceLifecycleConfigUnavailable = errors.New("Agent VMM appliance lifecycle configuration is unavailable")
@@ -48,11 +51,15 @@ type applianceInstallSpec struct {
 }
 
 type productionLifecycleAdapter struct {
-	value paths
+	value      paths
+	configPath string
 }
 
-func newProductionLifecycleAdapter(value paths) LifecycleAdapter {
+func newProductionLifecycleAdapter(value paths, configPath ...string) LifecycleAdapter {
 	adapter := &productionLifecycleAdapter{value: value}
+	if len(configPath) != 0 {
+		adapter.configPath = configPath[0]
+	}
 	return newHelperLifecycleAdapter(value, lifecycleAdapterHooks{
 		ApplianceInstall: adapter.applianceInstall,
 		Bootstrap:        adapter.bootstrap,
@@ -60,6 +67,117 @@ func newProductionLifecycleAdapter(value paths) LifecycleAdapter {
 		Reconnect:        adapter.reconnect,
 		Observe:          adapter.observe,
 	})
+}
+
+// lifecycleInstallTicket is the bounded helper exchange contract. It carries
+// only one-use enrollment material; it is never accepted through argv, an
+// operation record, or a renderer-owned value. The server-side ticket service
+// is responsible for issuing and invalidating the corresponding secret.
+type lifecycleInstallTicket struct {
+	Version                  int    `json:"version"`
+	InstallationID           string `json:"installation_id"`
+	ManifestBase64           string `json:"manifest_base64"`
+	PublisherSignatureBase64 string `json:"publisher_signature_base64"`
+	ApprovedGrantBase64      string `json:"approved_grant_base64"`
+	BootstrapSeedBase64      string `json:"bootstrap_seed_base64"`
+}
+
+func materializeInstallTicket(value paths, _ string, input io.Reader) (func(), string, error) {
+	limited := io.LimitReader(input, lifecycleInstallTicketMaxBytes+1)
+	decoder := json.NewDecoder(limited)
+	decoder.DisallowUnknownFields()
+	var ticket lifecycleInstallTicket
+	if err := decoder.Decode(&ticket); err != nil {
+		return nil, "", fmt.Errorf("decode install ticket: %w", err)
+	}
+	if ticket.Version != lifecycleInstallTicketVersion {
+		return nil, "", fmt.Errorf("unsupported install ticket version %d", ticket.Version)
+	}
+	if ticket.InstallationID == "" {
+		return nil, "", errors.New("install ticket installation_id is required")
+	}
+	manifest, err := decodeTicketField("manifest_base64", ticket.ManifestBase64, 4<<20)
+	if err != nil {
+		return nil, "", err
+	}
+	signature, err := decodeTicketField("publisher_signature_base64", ticket.PublisherSignatureBase64, 128<<10)
+	if err != nil {
+		return nil, "", err
+	}
+	grant, err := decodeTicketField("approved_grant_base64", ticket.ApprovedGrantBase64, 1<<20)
+	if err != nil {
+		return nil, "", err
+	}
+	seed, err := decodeTicketField("bootstrap_seed_base64", ticket.BootstrapSeedBase64, 128<<10)
+	if err != nil {
+		return nil, "", err
+	}
+
+	root := filepath.Join(value.applicationData, "installation-tickets")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, "", fmt.Errorf("create install ticket directory: %w", err)
+	}
+	directory, err := os.MkdirTemp(root, "ticket-")
+	if err != nil {
+		return nil, "", fmt.Errorf("create install ticket workspace: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(directory) }
+	cleanupOnError := true
+	defer func() {
+		if cleanupOnError {
+			cleanup()
+		}
+	}()
+
+	manifestPath := filepath.Join(directory, "manifest.pb")
+	signaturePath := filepath.Join(directory, "publisher-signature.bin")
+	grantPath := filepath.Join(directory, "approved-grant.pb")
+	seedPath := filepath.Join(directory, "bootstrap-seed.bin")
+	for _, artifact := range []struct {
+		path string
+		data []byte
+	}{
+		{manifestPath, manifest},
+		{signaturePath, signature},
+		{grantPath, grant},
+		{seedPath, seed},
+	} {
+		if err := os.WriteFile(artifact.path, artifact.data, 0o600); err != nil {
+			return nil, "", fmt.Errorf("materialize install ticket artifact: %w", err)
+		}
+	}
+	config := applianceLifecycleConfig{
+		Version:                lifecycleApplianceConfigVersion,
+		InstallationID:         ticket.InstallationID,
+		ManifestPath:           manifestPath,
+		PublisherSignaturePath: signaturePath,
+		ApprovedGrantPath:      grantPath,
+		BootstrapSeedPath:      seedPath,
+	}
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		return nil, "", fmt.Errorf("encode install ticket config: %w", err)
+	}
+	configPath := filepath.Join(directory, "appliance.json")
+	if err := os.WriteFile(configPath, configBytes, 0o600); err != nil {
+		return nil, "", fmt.Errorf("materialize install ticket config: %w", err)
+	}
+	cleanupOnError = false
+	return cleanup, configPath, nil
+}
+
+func decodeTicketField(name, encoded string, maxBytes int) ([]byte, error) {
+	if encoded == "" {
+		return nil, fmt.Errorf("install ticket %s is required", name)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("decode install ticket %s: %w", name, err)
+	}
+	if len(decoded) == 0 || len(decoded) > maxBytes {
+		return nil, fmt.Errorf("install ticket %s has invalid size", name)
+	}
+	return decoded, nil
 }
 
 func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context, request LifecycleRequest) error {
@@ -307,17 +425,17 @@ func (adapter *productionLifecycleAdapter) installSpec() (applianceInstallSpec, 
 }
 
 func (adapter *productionLifecycleAdapter) readConfig() (applianceLifecycleConfig, error) {
-	path := os.Getenv(lifecycleApplianceConfigEnv)
+	path := adapter.configPath
 	if path == "" {
 		return applianceLifecycleConfig{}, errApplianceLifecycleConfigUnavailable
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return applianceLifecycleConfig{}, fmt.Errorf("read %s: %w", lifecycleApplianceConfigEnv, err)
+		return applianceLifecycleConfig{}, fmt.Errorf("read appliance lifecycle config: %w", err)
 	}
 	var config applianceLifecycleConfig
 	if err := json.Unmarshal(data, &config); err != nil {
-		return applianceLifecycleConfig{}, fmt.Errorf("decode %s: %w", lifecycleApplianceConfigEnv, err)
+		return applianceLifecycleConfig{}, fmt.Errorf("decode appliance lifecycle config: %w", err)
 	}
 	if config.Version != 0 && config.Version != lifecycleApplianceConfigVersion {
 		return applianceLifecycleConfig{}, fmt.Errorf("unsupported appliance lifecycle config version %d", config.Version)

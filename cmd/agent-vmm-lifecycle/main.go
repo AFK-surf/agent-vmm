@@ -16,14 +16,21 @@ import (
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
-	version   = "0.1.0"
-	hostLabel = "com.afk-surf.agent-vmm"
+	version              = "0.1.0"
+	hostLabel            = "com.afk-surf.agent-vmm-host"
+	hostTemplateResource = hostLabel + ".plist.template"
 )
+
+// releaseID is injected by the Host package build and is the identity that
+// BFT signs and independently verifies for this archive. Development builds
+// retain the stable local version until a release target is supplied.
+var releaseID = version
 
 type paths struct {
 	home            string
@@ -78,7 +85,7 @@ func main() {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
 			fatal("version requires --json")
 		}
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]string{"component": "agent-vmm", "version": version}); err != nil {
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]string{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID}); err != nil {
 			fatal("version encoding failed")
 		}
 		return
@@ -93,10 +100,19 @@ func main() {
 			fatal("status encoding failed")
 		}
 	case "install", "repair":
-		disablePairing, requestID := parseRepairArgs(os.Args[2:])
+		disablePairing, requestID, ticketStdin := parseInstallArgs(os.Args[1], os.Args[2:])
+		var ticketCleanup func()
+		var ticketConfigPath string
+		if os.Args[1] == "install" && ticketStdin {
+			ticketCleanup, ticketConfigPath, err = materializeInstallTicket(resolved, requestID, os.Stdin)
+			if err != nil {
+				fatal(err.Error())
+			}
+			defer ticketCleanup()
+		}
 		operation, operationErr := runLifecycleOperation(resolved, os.Args[1], requestID, func() error {
 			if os.Args[1] == "install" {
-				coordinator, err := NewLifecycleCoordinator(newProductionLifecycleAdapter(resolved), LifecycleCoordinatorConfig{})
+				coordinator, err := NewLifecycleCoordinator(newProductionLifecycleAdapter(resolved, ticketConfigPath), LifecycleCoordinatorConfig{})
 				if err != nil {
 					return err
 				}
@@ -152,6 +168,13 @@ func lifecyclePaths() (paths, error) {
 	if err != nil {
 		return paths{}, errors.New("helper location is invalid")
 	}
+	return lifecyclePathsFor(home, executable)
+}
+
+func lifecyclePathsFor(home, executable string) (paths, error) {
+	if !filepath.IsAbs(home) || home == string(filepath.Separator) {
+		return paths{}, errors.New("user home directory is invalid")
+	}
 	helpers := filepath.Dir(executable)
 	if filepath.Base(helpers) != "Helpers" || filepath.Base(executable) != "agent-vmm-lifecycle" {
 		return paths{}, errors.New("helper is not inside an Agent VMM application bundle")
@@ -161,8 +184,11 @@ func lifecyclePaths() (paths, error) {
 		return paths{}, errors.New("application bundle layout is invalid")
 	}
 	app := filepath.Dir(contents)
-	if filepath.Ext(app) != ".app" {
-		return paths{}, errors.New("application bundle is invalid")
+	if filepath.Base(app) != bundle.HostAppName {
+		return paths{}, fmt.Errorf("application bundle must be %q", bundle.HostAppName)
+	}
+	if _, err := bundle.ValidateHostApp(app); err != nil {
+		return paths{}, fmt.Errorf("host application bundle is invalid: %w", err)
 	}
 	launchAgents := filepath.Join(home, "Library", "LaunchAgents")
 	return paths{
@@ -179,10 +205,9 @@ func readStatus(value paths) serviceStatus {
 }
 
 func readStatusContext(ctx context.Context, value paths) serviceStatus {
-	helper := filepath.Join(value.app, "Contents", "Helpers")
 	result := serviceStatus{
 		AppInstalled:  directory(value.app),
-		HostInstalled: regular(filepath.Join(helper, "agent-vmm-host")) && regular(value.hostPlist),
+		HostInstalled: regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
 		HostLoaded:    launchctlContext(ctx, "print", domain()+"/"+hostLabel) == nil,
 		Operation:     readOperation(value.operationFile),
 	}
@@ -207,13 +232,19 @@ func readStatusContext(ctx context.Context, value paths) serviceStatus {
 	return result
 }
 
-func parseRepairArgs(args []string) (bool, string) {
+func parseInstallArgs(action string, args []string) (bool, string, bool) {
 	disablePairing := false
 	requestID := ""
+	ticketStdin := false
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
 		case "--disable-personal-mesh-pairing":
 			disablePairing = true
+		case "--ticket-stdin":
+			if action != "install" {
+				fatal("--ticket-stdin is only valid for install")
+			}
+			ticketStdin = true
 		case "--request-id":
 			if index+1 >= len(args) {
 				fatal("--request-id requires a value")
@@ -221,9 +252,14 @@ func parseRepairArgs(args []string) (bool, string) {
 			index++
 			requestID = args[index]
 		default:
-			fatal("install and repair accept --disable-personal-mesh-pairing and --request-id")
+			fatal("install and repair accept --disable-personal-mesh-pairing, --request-id, and install --ticket-stdin")
 		}
 	}
+	return disablePairing, requestID, ticketStdin
+}
+
+func parseRepairArgs(args []string) (bool, string) {
+	disablePairing, requestID, _ := parseInstallArgs("repair", args)
 	return disablePairing, requestID
 }
 
@@ -542,7 +578,7 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	if err := os.MkdirAll(value.logs, 0o700); err != nil {
 		return errors.New("log directory could not be created")
 	}
-	for _, item := range []struct{ resource, destination string }{{hostLabel + ".plist", value.hostPlist}} {
+	for _, item := range []struct{ resource, destination string }{{hostTemplateResource, value.hostPlist}} {
 		template, err := os.ReadFile(filepath.Join(value.resources, item.resource))
 		if err != nil {
 			return errors.New("bundled service definition is missing")

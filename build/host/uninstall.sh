@@ -7,11 +7,11 @@ case "$user_home" in
   *) echo "cannot resolve the user home directory" >&2; exit 1 ;;
 esac
 test "$user_home" != "/"
-app="$user_home/Applications/Agent VMM.app"
-plist="$user_home/Library/LaunchAgents/com.afk-surf.agent-vmm.plist"
+app="$user_home/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app"
+plist="$user_home/Library/LaunchAgents/com.afk-surf.agent-vmm-host.plist"
 domain="gui/$(id -u)"
 
-launchctl bootout "$domain/com.afk-surf.agent-vmm" 2>/dev/null || true
+launchctl bootout "$domain/com.afk-surf.agent-vmm-host" 2>/dev/null || true
 launchctl bootout "$domain/com.afk-surf.agent-vmm-connect" 2>/dev/null || true
 rm -f "$plist" "$user_home/Library/LaunchAgents/com.afk-surf.agent-vmm-connect.plist"
 rm -rf "$app"

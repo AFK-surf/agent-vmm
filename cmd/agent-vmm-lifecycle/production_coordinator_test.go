@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -65,9 +67,7 @@ func TestReadConfigFailsClosedForRelativeArtifactPaths(t *testing.T) {
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(lifecycleApplianceConfigEnv, configPath)
-
-	adapter := &productionLifecycleAdapter{}
+	adapter := &productionLifecycleAdapter{configPath: configPath}
 	_, err = adapter.readConfig()
 	if err == nil || !strings.Contains(err.Error(), "manifest_path") {
 		t.Fatalf("relative artifact path was not rejected: %v", err)
@@ -75,9 +75,43 @@ func TestReadConfigFailsClosedForRelativeArtifactPaths(t *testing.T) {
 }
 
 func TestProductionAdapterRequiresPackagedInstallInputs(t *testing.T) {
-	t.Setenv(lifecycleApplianceConfigEnv, "")
 	adapter := &productionLifecycleAdapter{}
 	if _, err := adapter.installSpec(); err == nil {
 		t.Fatal("fresh installation must fail closed without signed inputs")
+	}
+}
+
+func TestMaterializeInstallTicketUsesPrivateEphemeralWorkspace(t *testing.T) {
+	value := testPaths(t.TempDir())
+	ticket := map[string]any{
+		"version":                    lifecycleInstallTicketVersion,
+		"installation_id":            "installation-1",
+		"manifest_base64":            base64.StdEncoding.EncodeToString([]byte("manifest")),
+		"publisher_signature_base64": base64.StdEncoding.EncodeToString([]byte("signature")),
+		"approved_grant_base64":      base64.StdEncoding.EncodeToString([]byte("grant")),
+		"bootstrap_seed_base64":      base64.StdEncoding.EncodeToString([]byte("seed")),
+	}
+	data, err := json.Marshal(ticket)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cleanup, configPath, err := materializeInstallTicket(value, "request-1", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configPath == "" || !strings.HasPrefix(configPath, filepath.Join(value.applicationData, "installation-tickets")) {
+		t.Fatalf("config path escaped helper-owned ticket workspace: %q", configPath)
+	}
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("config mode = %o, want 600", info.Mode().Perm())
+	}
+	cleanup()
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("ticket workspace was not removed: %v", err)
 	}
 }

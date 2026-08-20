@@ -16,7 +16,11 @@ The current implementation targets Apple Silicon and macOS 15 or later. Guest ar
 
 `agent-vmm-host` exposes one `0600` operator Unix socket and creates a separate `0600` Unix socket for each agent session. An agent cannot choose or replace its guest namespace in a request. The private guest protocol is reachable only by the host controller; no raw runtime relay is installed.
 
-The SwiftUI app shows system health, Agent environments, resource use, structured logs, activity, and diagnostics. Closing the app does not stop the sidecar, VM, sessions, or workloads.
+The SwiftUI `Agent VMM.app` is a development harness for observing and operating
+the host API; it is not a production runtime dependency. Production packaging
+uses the headless, product-neutral `Agent VMM Host.app`, whose main executable
+is `Contents/MacOS/agent-vmm-host` and whose background-only bundle contains
+only the host, data/lifecycle helpers, and verified Guest payload.
 
 ## Design
 
@@ -38,7 +42,7 @@ Run the complete macOS and guest test suite:
 make e2e
 ```
 
-Regenerate and validate the product protocols with `make proto` and `make proto-check`. Generate the Xcode project with `make swift-project`; create the app/helper and LaunchAgent payload with `make release-bundle`, then use `build/host/install.sh`. The default development guest requires the default ad-hoc app signature; a release signing identity requires a release-signed guest bundle. The uninstaller retains VM data unless invoked with `--purge`; build-identity transitions and pre-release cleanup are documented in [the recovery runbook](docs/recovery.md).
+Regenerate and validate the product protocols with `make proto` and `make proto-check`. Generate the development Xcode harness with `make swift-project`; create the headless Host App and LaunchAgent payload with `make headless-release`, then use `build/host/install.sh`. The default development guest requires the default ad-hoc test identity; a release signing identity requires a release-signed guest bundle. Test packaging may use the guest SBOM/provenance as explicitly marked fixture metadata; release packaging requires `AGENT_VMM_HOST_SBOM` and `AGENT_VMM_HOST_PROVENANCE`. Real signing, notarization, and publication are release-owner steps and are not performed by local conformance checks. The uninstaller retains VM data unless invoked with `--purge`; build-identity transitions and pre-release cleanup are documented in [the recovery runbook](docs/recovery.md).
 
 The E2E runner creates its report at `.build/test-results/e2e/report.md`.
 

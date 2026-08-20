@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.afk-surf.agent-vmm</string>
+  <string>com.afk-surf.agent-vmm-host</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__APP__/Contents/Helpers/agent-vmm-host</string>
+    <string>__APP__/Contents/MacOS/agent-vmm-host</string>
     <string>--bundle</string>
     <string>__APP__/Contents/Resources/Guest</string>
     <string>--instance</string>
