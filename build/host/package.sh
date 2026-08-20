@@ -105,9 +105,9 @@ case "$guest_signer" in
 		fi
 		;;
 esac
-GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-X main.releaseID=$release_id" -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
+GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-X main.releaseID=$release_id -X main.targetRevision=$target_revision" -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
 printf '%s\n' "$("$product/Contents/Helpers/agent-vmm-lifecycle" version --json)" |
-	jq -e --arg release_id "$release_id" '.version == $release_id and .release_id == $release_id' >/dev/null
+	jq -e --arg release_id "$release_id" --argjson target_revision "$target_revision" '.version == $release_id and .release_id == $release_id and .target_revision == $target_revision' >/dev/null
 CARGO_TARGET_DIR="$derived/rust" cargo build --locked --release --target aarch64-apple-darwin --manifest-path "$repo/data/agent-vmm-data/Cargo.toml"
 cp "$derived/rust/aarch64-apple-darwin/release/agent-vmm-data" "$product/Contents/Helpers/agent-vmm-data"
 cp "$repo/LICENSE" "$product/Contents/Resources/LICENSE"

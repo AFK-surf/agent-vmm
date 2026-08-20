@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ const (
 // BFT signs and independently verifies for this archive. Development builds
 // retain the stable local version until a release target is supplied.
 var releaseID = version
+var targetRevision = "0"
 
 type paths struct {
 	home            string
@@ -85,7 +87,8 @@ func main() {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
 			fatal("version requires --json")
 		}
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]string{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID}); err != nil {
+		revision, _ := strconv.ParseUint(targetRevision, 10, 64)
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID, "target_revision": revision}); err != nil {
 			fatal("version encoding failed")
 		}
 		return
