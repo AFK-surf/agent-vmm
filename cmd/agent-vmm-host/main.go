@@ -89,6 +89,10 @@ func main() {
 		DisablePersonalMeshPairing: disablePersonalMeshPairing,
 		DataWorkerSocket:           dataWorkerSocket,
 		RemoteComputeSocket:        remoteComputeSocket,
+		TrustSocket:                trustSocket,
+		TrustCapabilityFile:        trustCapabilityFile,
+		ServiceTunnelSocket:        serviceTunnelSocket,
+		MeshControlSocket:          meshControlSocket,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -183,6 +187,9 @@ func main() {
 			server.Stop()
 		}
 	}()
+	if err := controller.StartExternalConnectors(ctx); err != nil {
+		log.Fatal(err)
+	}
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
 	}

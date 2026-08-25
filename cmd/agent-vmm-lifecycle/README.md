@@ -9,7 +9,7 @@ The composite contracts are:
 
 | Action | Delegation order | Completion rule |
 | --- | --- | --- |
-| `install` | `install`, `init`, `appliance-install`, `bootstrap`, `register`, `reconnect` | Every step settles and `Observe` reports `SalixReady` |
+| `install` | `install`, `init`, `appliance-install`, `bootstrap`, `register`, `reconnect` | Every step settles and `Observe` reports the exact managed registration attached |
 | `init` | `init` | The adapter settles the local initialization |
 | `appliance-install` | `appliance-install` | The adapter settles appliance installation |
 | `bootstrap` | `bootstrap` | The adapter settles bootstrap |
@@ -52,14 +52,13 @@ payload, and the embedded release inventory. The bundle validator also rejects
 SwiftUI/window/menu/Dock metadata and debug executables before lifecycle paths
 are resolved.
 
-`SalixReady` is an observed control-plane fact. Host health, appliance health,
-controller activity, and inventory settlement are reported alongside it for
-diagnostics but are never combined by this coordinator to manufacture
-readiness.
+The helper reports local Host/appliance diagnostics and whether the exact
+managed registration is attached. It never projects Salix admission or product
+Node readiness; the server owns those facts from current observation.
 
-The implementation anchors to `spec/tla/ApplianceLifecycle.tla` for install,
-bootstrap, current-instance fencing, stop, and revision-fenced remove, and to
-`spec/tla/ControllerDomainControl.tla` for ready, inventory, epoch, and
-reconnect facts. The models and their checked configurations are unchanged by
-this seam; the mapping is intentionally limited to orchestration ordering and
-bounded delegation.
+The implementation anchors to `spec/tla/ApplianceActivationLifecycle.tla` for
+install, bootstrap, current-instance fencing, stop, revoke, sealed recovery,
+and revision-fenced remove. Ready, inventory, epoch, and reconnect facts are
+owned by `spec/tla/ControllerAllocationLifecycle.tla`; cross-domain accounting
+and isolation stay in the smaller models documented in `spec/tla/README.md`.
+The mapping is intentionally limited to orchestration ordering and bounded delegation.

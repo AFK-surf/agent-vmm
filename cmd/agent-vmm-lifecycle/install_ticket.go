@@ -1,0 +1,592 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
+	"google.golang.org/protobuf/types/known/durationpb"
+)
+
+const installDescriptorMaxBytes = 4096
+
+var operationIDPattern = regexp.MustCompile(`\A[A-Za-z0-9_-]{1,128}\z`)
+var installHTTPClient = &http.Client{Timeout: 20 * time.Second}
+var errManagedInstallPlanUnavailable = errors.New("managed install plan is unavailable")
+
+type installDescriptor struct {
+	Version       int    `json:"version"`
+	OperationID   string `json:"operation_id"`
+	ExchangeURL   string `json:"exchange_url"`
+	OneTimeSecret string `json:"one_time_secret"`
+	ExpiresAt     string `json:"expires_at"`
+}
+
+type hostReleaseMaterial struct {
+	ArtifactURL    string `json:"artifact_url"`
+	Digest         string `json:"digest"`
+	ReleaseID      string `json:"release_id"`
+	Signature      string `json:"signature"`
+	TargetRevision uint64 `json:"target_revision"`
+}
+
+type applianceMaterial struct {
+	InstallationID     string `json:"installation_id"`
+	Manifest           string `json:"manifest"`
+	PublisherSignature string `json:"publisher_signature"`
+	ApprovedGrant      string `json:"approved_grant"`
+	BootstrapSeed      string `json:"bootstrap_seed"`
+}
+
+type resourcePolicy struct {
+	CPUMillis   uint32 `json:"cpu_millis"`
+	MemoryBytes uint64 `json:"memory_bytes"`
+	PIDs        uint32 `json:"pids"`
+	DiskBytes   uint64 `json:"disk_bytes"`
+}
+
+type remotePoolMaterial struct {
+	MaxEnvironments        uint32         `json:"max_environments"`
+	AggregateLimits        resourcePolicy `json:"aggregate_limits"`
+	PerEnvironmentLimits   resourcePolicy `json:"per_environment_limits"`
+	MaxEgressMode          string         `json:"max_egress_mode"`
+	MaxLeaseSeconds        uint64         `json:"max_lease_seconds"`
+	DisconnectGraceSeconds uint64         `json:"disconnect_grace_seconds"`
+	StopGraceSeconds       uint64         `json:"stop_grace_seconds"`
+}
+
+type remoteEnrollmentMaterial struct {
+	GatewayEndpoint string             `json:"gateway_endpoint"`
+	EnrollmentToken string             `json:"enrollment_token"`
+	TrustBundle     string             `json:"trust_bundle"`
+	PolicyRevision  uint64             `json:"policy_revision"`
+	PoolPolicy      remotePoolMaterial `json:"pool_policy"`
+}
+
+type installMaterial struct {
+	Version            int                      `json:"version"`
+	OperationID        string                   `json:"operation_id"`
+	RegistrationID     string                   `json:"registration_id"`
+	ScopeDigest        string                   `json:"scope_digest"`
+	HostRelease        hostReleaseMaterial      `json:"host_release"`
+	Appliance          applianceMaterial        `json:"appliance"`
+	RemoteEnrollment   remoteEnrollmentMaterial `json:"remote_enrollment"`
+	MaterialDigest     string                   `json:"material_digest"`
+	HostIdentityDigest string                   `json:"host_identity_digest"`
+}
+
+type persistedInstallPlan struct {
+	Version            int                `json:"version"`
+	OperationID        string             `json:"operation_id"`
+	DeadlineUnixMillis int64              `json:"deadline_unix_millis"`
+	Acknowledged       bool               `json:"acknowledged"`
+	AckDescriptor      *installDescriptor `json:"ack_descriptor,omitempty"`
+	Material           installMaterial    `json:"material"`
+}
+
+type completedInstallReceipt struct {
+	Version           int    `json:"version"`
+	OperationID       string `json:"operation_id"`
+	RegistrationID    string `json:"registration_id"`
+	InstallationID    string `json:"installation_id"`
+	MaterialDigest    string `json:"material_digest"`
+	HostReleaseID     string `json:"host_release_id"`
+	HostReleaseDigest string `json:"host_release_digest"`
+}
+
+type installTicketHTTPError struct {
+	operation string
+	status    int
+}
+
+func (err installTicketHTTPError) Error() string {
+	return fmt.Sprintf("install ticket %s returned HTTP %d", err.operation, err.status)
+}
+
+func terminalInstallTicketError(err error) bool {
+	var responseError installTicketHTTPError
+	return errors.As(err, &responseError) && responseError.status >= 400 && responseError.status < 500
+}
+
+// newProductionLifecycleAdapterForResume follows the durable
+// plan/ACK-capability recovery modeled in the Cue repository at
+// tla/salix/VMMDurablePlanHandoff.tla. Unknown ACK keeps the exact capability;
+// known ACK rewrites the plan without it.
+func newProductionLifecycleAdapterForResume(value paths, operationID string) (LifecycleAdapter, error) {
+	adapter, err := productionLifecycleAdapterForResume(value, operationID)
+	if err != nil {
+		return nil, err
+	}
+	return lifecycleAdapterFor(adapter), nil
+}
+
+func productionLifecycleAdapterForResume(value paths, operationID string) (*productionLifecycleAdapter, error) {
+	directory := filepath.Join(value.applicationData, "install-operations", operationID)
+	data, err := os.ReadFile(filepath.Join(directory, "plan.json"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, errManagedInstallPlanUnavailable
+		}
+		return nil, fmt.Errorf("read managed install plan: %w", err)
+	}
+	var plan persistedInstallPlan
+	if len(data) > lifecycleInstallTicketMaxBytes || json.Unmarshal(data, &plan) != nil ||
+		plan.Version != 1 || plan.OperationID != operationID || plan.Material.OperationID != operationID ||
+		plan.DeadlineUnixMillis <= 0 ||
+		(!plan.Acknowledged && !validPersistedAckDescriptor(plan.AckDescriptor, operationID)) {
+		return nil, errors.New("managed install plan is invalid")
+	}
+	adapter := &productionLifecycleAdapter{
+		value:              value,
+		configPath:         filepath.Join(directory, "appliance.json"),
+		descriptor:         plan.AckDescriptor,
+		material:           &plan.Material,
+		deadlineUnixMillis: plan.DeadlineUnixMillis,
+	}
+	return adapter, nil
+}
+
+func decodeInstallDescriptor(input io.Reader) (installDescriptor, error) {
+	decoder := json.NewDecoder(io.LimitReader(input, installDescriptorMaxBytes+1))
+	decoder.DisallowUnknownFields()
+	var descriptor installDescriptor
+	if err := decoder.Decode(&descriptor); err != nil {
+		return descriptor, fmt.Errorf("decode install descriptor: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return descriptor, errors.New("install descriptor must contain one JSON object")
+	}
+	parsed, err := url.Parse(descriptor.ExchangeURL)
+	if descriptor.Version != 1 || !operationIDPattern.MatchString(descriptor.OperationID) || descriptor.OneTimeSecret == "" || len(descriptor.OneTimeSecret) > 128 ||
+		err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		!strings.HasSuffix(parsed.Path, "/install-tickets/exchange") {
+		return descriptor, errors.New("install descriptor is invalid")
+	}
+	expiresAt, err := time.Parse(time.RFC3339, descriptor.ExpiresAt)
+	if err != nil || time.Now().After(expiresAt) {
+		return descriptor, errors.New("install descriptor is expired")
+	}
+	return descriptor, nil
+}
+
+func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context) error {
+	if adapter.descriptor == nil && adapter.material == nil {
+		return nil
+	}
+	operationID := ""
+	if adapter.material != nil {
+		operationID = adapter.material.OperationID
+	}
+	if adapter.descriptor != nil {
+		operationID = adapter.descriptor.OperationID
+	}
+	directory := filepath.Join(adapter.value.applicationData, "install-operations", operationID)
+	planPath := filepath.Join(directory, "plan.json")
+	if data, err := os.ReadFile(planPath); err == nil {
+		var plan persistedInstallPlan
+		if json.Unmarshal(data, &plan) != nil || plan.Version != 1 || plan.OperationID != operationID || plan.Material.OperationID != operationID || plan.DeadlineUnixMillis <= 0 {
+			return errors.New("managed install plan is invalid")
+		}
+		if !plan.Acknowledged {
+			if !validPersistedAckDescriptor(plan.AckDescriptor, operationID) {
+				return errors.New("managed install acknowledgement capability is unavailable")
+			}
+			if adapter.descriptor != nil && *adapter.descriptor != *plan.AckDescriptor {
+				return errors.New("managed install acknowledgement capability changed")
+			}
+			if err := acknowledgeInstallMaterial(ctx, *plan.AckDescriptor, plan.Material); err != nil {
+				if terminalInstallTicketError(err) {
+					return terminalManagedInstallError(err)
+				}
+				return err
+			}
+			if _, err := persistInstallMaterial(directory, plan.Material, plan.DeadlineUnixMillis, true); err != nil {
+				return err
+			}
+		}
+		adapter.material = &plan.Material
+		adapter.descriptor = nil
+		adapter.configPath = filepath.Join(directory, "appliance.json")
+		adapter.deadlineUnixMillis = plan.DeadlineUnixMillis
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read durable install plan: %w", err)
+	}
+	if adapter.descriptor == nil {
+		return errors.New("managed install acknowledgement capability is unavailable")
+	}
+
+	connection, err := operatorConnection(ctx, filepath.Join(adapter.value.applicationData, "operator.sock"))
+	if err != nil {
+		return errors.New("Agent VMM operator is not readable for ticket exchange")
+	}
+	identityResponse, err := hostv1.NewOperatorServiceClient(connection).GetDeviceIdentity(ctx, &hostv1.GetDeviceIdentityRequest{})
+	connection.Close()
+	if err != nil || identityResponse.GetState() != hostv1.DeviceIdentityState_DEVICE_IDENTITY_STATE_READY {
+		return errors.New("Agent VMM device identity is not ready")
+	}
+	identity := identityResponse.GetIdentity()
+	requestBody, _ := json.Marshal(map[string]any{"version": 1, "operation_id": adapter.descriptor.OperationID, "device_id": identity.GetDeviceId(),
+		"root_public_key": base64.StdEncoding.EncodeToString(identity.GetRootPublicKey()), "root_key_revision": identity.GetRootKeyRevision()})
+	material, err := exchangeInstallMaterial(ctx, *adapter.descriptor, requestBody)
+	if err != nil {
+		return err
+	}
+	if err := validateInstallMaterial(material, *adapter.descriptor); err != nil {
+		return terminalManagedInstallError(err)
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("create install operation directory: %w", err)
+	}
+	if err := syncInstallDirectory(filepath.Dir(directory)); err != nil {
+		return fmt.Errorf("persist install operation directory: %w", err)
+	}
+	deadlineUnixMillis := time.Now().Add(defaultCoordinatorOperationTimeout).UnixMilli()
+	configPath, err := persistInstallMaterial(directory, material, deadlineUnixMillis, false, adapter.descriptor)
+	if err != nil {
+		return err
+	}
+	if err := acknowledgeInstallMaterial(ctx, *adapter.descriptor, material); err != nil {
+		if terminalInstallTicketError(err) {
+			return terminalManagedInstallError(err)
+		}
+		return err
+	}
+	if _, err := persistInstallMaterial(directory, material, deadlineUnixMillis, true); err != nil {
+		return err
+	}
+	adapter.material = &material
+	adapter.descriptor = nil
+	adapter.configPath = configPath
+	adapter.deadlineUnixMillis = deadlineUnixMillis
+	return nil
+}
+
+func validPersistedAckDescriptor(descriptor *installDescriptor, operationID string) bool {
+	if descriptor == nil || descriptor.Version != 1 || descriptor.OperationID != operationID ||
+		descriptor.OneTimeSecret == "" || len(descriptor.OneTimeSecret) > 128 {
+		return false
+	}
+	parsed, err := url.Parse(descriptor.ExchangeURL)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil &&
+		parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasSuffix(parsed.Path, "/install-tickets/exchange")
+}
+
+func exchangeInstallMaterial(ctx context.Context, descriptor installDescriptor, body []byte) (installMaterial, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, descriptor.ExchangeURL, bytes.NewReader(body))
+	if err != nil {
+		return installMaterial{}, errors.New("create install exchange request failed")
+	}
+	request.Header.Set("Authorization", "InstallTicket "+descriptor.OneTimeSecret)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := installHTTPClient.Do(request)
+	if err != nil {
+		return installMaterial{}, errors.New("install ticket exchange failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return installMaterial{}, installTicketHTTPError{operation: "exchange", status: response.StatusCode}
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, lifecycleInstallTicketMaxBytes+1))
+	decoder.DisallowUnknownFields()
+	var material installMaterial
+	if err := decoder.Decode(&material); err != nil {
+		return installMaterial{}, fmt.Errorf("decode install material: %w", err)
+	}
+	return material, nil
+}
+
+func acknowledgeInstallMaterial(ctx context.Context, descriptor installDescriptor, material installMaterial) error {
+	parsed, _ := url.Parse(descriptor.ExchangeURL)
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/exchange") + "/ack"
+	body, _ := json.Marshal(map[string]string{"operation_id": material.OperationID, "host_identity_digest": material.HostIdentityDigest, "material_digest": material.MaterialDigest})
+	var lastStatus int
+	for attempt := 0; attempt < 3; attempt++ {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(body))
+		if err == nil {
+			request.Header.Set("Authorization", "InstallTicket "+descriptor.OneTimeSecret)
+			request.Header.Set("Content-Type", "application/json")
+			response, requestErr := installHTTPClient.Do(request)
+			if requestErr == nil {
+				lastStatus = response.StatusCode
+				io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+				response.Body.Close()
+				if response.StatusCode == http.StatusOK {
+					return nil
+				}
+				if !retryableInstallTicketStatus(response.StatusCode) {
+					return installTicketHTTPError{operation: "acknowledgement", status: response.StatusCode}
+				}
+			}
+		}
+		if attempt < 2 {
+			timer := time.NewTimer(time.Duration(attempt+1) * 250 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	if lastStatus != 0 {
+		return installTicketHTTPError{operation: "acknowledgement", status: lastStatus}
+	}
+	return errors.New("install ticket acknowledgement failed")
+}
+
+func retryableInstallTicketStatus(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
+}
+
+func validateInstallMaterial(material installMaterial, descriptor installDescriptor) error {
+	revision, err := strconv.ParseUint(targetRevision, 10, 64)
+	if err != nil || material.Version != 1 || material.OperationID != descriptor.OperationID || !operationIDPattern.MatchString(material.RegistrationID) ||
+		material.HostRelease.ReleaseID != releaseID || material.HostRelease.TargetRevision != revision {
+		return errors.New("install material identity or Host release does not match this helper")
+	}
+	for name, value := range map[string]string{"scope_digest": material.ScopeDigest, "material_digest": material.MaterialDigest, "host_identity_digest": material.HostIdentityDigest} {
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(value)
+		if decodeErr != nil || len(decoded) != 32 {
+			return fmt.Errorf("install material %s is invalid", name)
+		}
+	}
+	if material.RemoteEnrollment.PolicyRevision == 0 || material.RemoteEnrollment.GatewayEndpoint == "" || material.RemoteEnrollment.PoolPolicy.MaxEnvironments == 0 {
+		return errors.New("install material remote enrollment policy is incomplete")
+	}
+	return nil
+}
+
+func persistInstallMaterial(directory string, material installMaterial, deadlineUnixMillis int64, acknowledged bool, descriptors ...*installDescriptor) (string, error) {
+	if deadlineUnixMillis <= 0 {
+		return "", errors.New("managed install deadline is invalid")
+	}
+	var ackDescriptor *installDescriptor
+	if !acknowledged && len(descriptors) != 0 {
+		ackDescriptor = descriptors[0]
+	}
+	if !acknowledged && !validPersistedAckDescriptor(ackDescriptor, material.OperationID) {
+		return "", errors.New("managed install acknowledgement capability is invalid")
+	}
+	manifest, err := decodeTicketField("manifest", material.Appliance.Manifest, 4<<20)
+	if err != nil {
+		return "", err
+	}
+	signature, err := decodeTicketField("publisher_signature", material.Appliance.PublisherSignature, 128<<10)
+	if err != nil {
+		return "", err
+	}
+	grant, err := decodeTicketField("approved_grant", material.Appliance.ApprovedGrant, 1<<20)
+	if err != nil {
+		return "", err
+	}
+	seed, err := decodeTicketField("bootstrap_seed", material.Appliance.BootstrapSeed, 128<<10)
+	if err != nil {
+		return "", err
+	}
+	artifacts := []struct {
+		name string
+		data []byte
+	}{{"manifest.pb", manifest}, {"publisher-signature.bin", signature}, {"approved-grant.pb", grant}, {"bootstrap-seed.bin", seed}}
+	for _, artifact := range artifacts {
+		if err := atomicWritePlan(filepath.Join(directory, artifact.name), artifact.data); err != nil {
+			return "", err
+		}
+	}
+	config := applianceLifecycleConfig{Version: 1, InstallationID: material.Appliance.InstallationID, ManifestPath: filepath.Join(directory, "manifest.pb"), PublisherSignaturePath: filepath.Join(directory, "publisher-signature.bin"), ApprovedGrantPath: filepath.Join(directory, "approved-grant.pb"), BootstrapSeedPath: filepath.Join(directory, "bootstrap-seed.bin")}
+	configBytes, _ := json.Marshal(config)
+	configPath := filepath.Join(directory, "appliance.json")
+	if err := atomicWritePlan(configPath, configBytes); err != nil {
+		return "", err
+	}
+	planBytes, _ := json.Marshal(persistedInstallPlan{Version: 1, OperationID: material.OperationID, DeadlineUnixMillis: deadlineUnixMillis, Acknowledged: acknowledged, AckDescriptor: ackDescriptor, Material: material})
+	if err := atomicWritePlan(filepath.Join(directory, "plan.json"), planBytes); err != nil {
+		return "", err
+	}
+	return configPath, nil
+}
+
+func atomicWritePlan(path string, data []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".install-plan-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return syncInstallDirectory(filepath.Dir(path))
+}
+
+func syncInstallDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
+}
+
+func (material installMaterial) remotePoolPolicy() (*hostv1.RemotePoolPolicy, error) {
+	policy := material.RemoteEnrollment.PoolPolicy
+	egress := hostv1.EgressMode_EGRESS_MODE_UNSPECIFIED
+	switch policy.MaxEgressMode {
+	case "deny_all":
+		egress = hostv1.EgressMode_EGRESS_MODE_DENY_ALL
+	case "public_internet":
+		egress = hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
+	default:
+		return nil, errors.New("remote pool egress mode is invalid")
+	}
+	limits := func(value resourcePolicy) *hostv1.ResourceLimits {
+		return &hostv1.ResourceLimits{CpuMillis: &value.CPUMillis, MemoryBytes: &value.MemoryBytes, Pids: &value.PIDs, DiskBytes: &value.DiskBytes}
+	}
+	return &hostv1.RemotePoolPolicy{MaxEnvironments: policy.MaxEnvironments, AggregateLimits: limits(policy.AggregateLimits), PerEnvironmentLimits: limits(policy.PerEnvironmentLimits), MaxEgressMode: egress,
+		MaxLeaseDuration: durationpb.New(time.Duration(policy.MaxLeaseSeconds) * time.Second), DisconnectGrace: durationpb.New(time.Duration(policy.DisconnectGraceSeconds) * time.Second), StopGrace: durationpb.New(time.Duration(policy.StopGraceSeconds) * time.Second)}, nil
+}
+
+func (adapter *productionLifecycleAdapter) applyManagedEnrollment(ctx context.Context, request LifecycleRequest) error {
+	if adapter.material == nil {
+		return nil
+	}
+	material := adapter.material
+	pool, err := material.remotePoolPolicy()
+	if err != nil {
+		return terminalManagedInstallError(err)
+	}
+	trustBundle, err := base64.StdEncoding.DecodeString(material.RemoteEnrollment.TrustBundle)
+	if err != nil {
+		return terminalManagedInstallError(errors.New("decode managed trust bundle failed"))
+	}
+	token, err := base64.StdEncoding.DecodeString(material.RemoteEnrollment.EnrollmentToken)
+	if err != nil {
+		return terminalManagedInstallError(errors.New("decode managed enrollment token failed"))
+	}
+	connection, err := operatorConnection(ctx, filepath.Join(adapter.value.applicationData, "operator.sock"))
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	client := hostv1.NewOperatorServiceClient(connection)
+	response, err := client.ApplyManagedRemoteEnrollment(ctx, &hostv1.ApplyManagedRemoteEnrollmentRequest{Registration: &hostv1.BeginRemoteEnrollmentRequest{
+		RequestId: request.RequestID + ":managed-enrollment", RegistrationId: material.RegistrationID, Endpoint: material.RemoteEnrollment.GatewayEndpoint,
+		DisplayName: "Salix managed compute", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool, TrustBundle: trustBundle,
+		ScopeDigest: material.ScopeDigest, SourcePolicyRevision: material.RemoteEnrollment.PolicyRevision}, EnrollmentToken: token})
+	for index := range token {
+		token[index] = 0
+	}
+	if err != nil {
+		return fmt.Errorf("apply managed remote enrollment: %w", err)
+	}
+	if response.GetRegistration().GetId() != material.RegistrationID {
+		return terminalManagedInstallError(errors.New("managed enrollment registration identity mismatch"))
+	}
+	deadline := time.NewTicker(250 * time.Millisecond)
+	defer deadline.Stop()
+	for {
+		observed, observeErr := client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: material.RegistrationID})
+		registration := observed.GetRegistration()
+		if observeErr == nil && registration.GetEnrollmentState() == hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY && registration.GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("managed connector readiness was not observed")
+		case <-deadline.C:
+		}
+	}
+}
+
+func cleanupInstallPlan(value paths, operationID string) error {
+	if operationID == "" {
+		return nil
+	}
+	return os.RemoveAll(filepath.Join(value.applicationData, "install-operations", operationID))
+}
+
+func completedInstallPath(value paths, operationID string) string {
+	return filepath.Join(value.applicationData, "install-completions", operationID+".json")
+}
+
+func persistCompletedInstall(value paths, adapter *productionLifecycleAdapter) error {
+	if adapter == nil || adapter.material == nil {
+		return errors.New("managed install completion material is unavailable")
+	}
+	material := adapter.material
+	receipt := completedInstallReceipt{
+		Version:           1,
+		OperationID:       material.OperationID,
+		RegistrationID:    material.RegistrationID,
+		InstallationID:    material.Appliance.InstallationID,
+		MaterialDigest:    material.MaterialDigest,
+		HostReleaseID:     material.HostRelease.ReleaseID,
+		HostReleaseDigest: material.HostRelease.Digest,
+	}
+	if !validCompletedInstallReceipt(receipt, material.OperationID) {
+		return errors.New("managed install completion receipt is invalid")
+	}
+	directory := filepath.Dir(completedInstallPath(value, material.OperationID))
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("create install completion directory: %w", err)
+	}
+	if err := syncInstallDirectory(filepath.Dir(directory)); err != nil {
+		return fmt.Errorf("persist install completion directory: %w", err)
+	}
+	encoded, _ := json.Marshal(receipt)
+	return atomicWritePlan(completedInstallPath(value, material.OperationID), encoded)
+}
+
+func completedInstallExists(value paths, operationID string) (bool, error) {
+	data, err := os.ReadFile(completedInstallPath(value, operationID))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read managed install completion: %w", err)
+	}
+	var receipt completedInstallReceipt
+	if len(data) > 4096 || json.Unmarshal(data, &receipt) != nil || !validCompletedInstallReceipt(receipt, operationID) {
+		return false, errors.New("managed install completion receipt is invalid")
+	}
+	return true, nil
+}
+
+func validCompletedInstallReceipt(receipt completedInstallReceipt, operationID string) bool {
+	materialDigest, materialErr := base64.RawURLEncoding.DecodeString(receipt.MaterialDigest)
+	return receipt.Version == 1 && receipt.OperationID == operationID &&
+		operationIDPattern.MatchString(operationID) && operationIDPattern.MatchString(receipt.RegistrationID) &&
+		receipt.InstallationID != "" && len(receipt.InstallationID) <= 160 &&
+		receipt.HostReleaseID == releaseID && receipt.HostReleaseDigest != "" &&
+		materialErr == nil && len(materialDigest) == 32
+}

@@ -81,7 +81,7 @@ func newTestCoordinator(t *testing.T, mock *coordinatorMock, operationTimeout, s
 }
 
 func TestLifecycleCoordinatorInstallRunsBoundedForwardContract(t *testing.T) {
-	mock := &coordinatorMock{facts: LifecycleFacts{SalixReady: true}}
+	mock := &coordinatorMock{facts: LifecycleFacts{RemoteAttached: true}}
 	coordinator := newTestCoordinator(t, mock, time.Second, time.Second)
 	request := LifecycleRequest{RequestID: "request-1", InstallationID: "appliance-1", ExpectedRevision: 7}
 
@@ -101,7 +101,7 @@ func TestLifecycleCoordinatorInstallRunsBoundedForwardContract(t *testing.T) {
 func TestLifecycleCoordinatorDoesNotDeriveSalixReadinessFromHealth(t *testing.T) {
 	mock := &coordinatorMock{facts: LifecycleFacts{
 		HostHealthy: true, ApplianceHealthy: true, ControllerActive: true, InventoryComplete: true,
-		SalixReady: false,
+		RemoteAttached: false,
 	}}
 	coordinator := newTestCoordinator(t, mock, time.Second, time.Second)
 

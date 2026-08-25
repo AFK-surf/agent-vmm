@@ -49,6 +49,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/guest-bundle"
           docker run --rm --platform linux/arm64 --privileged \
+            -e GOFLAGS=-buildvcs=false \
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$RUNNER_TEMP/guest-bundle:/bundle" \
             -w /src \

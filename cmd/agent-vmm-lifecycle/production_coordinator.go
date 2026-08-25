@@ -11,12 +11,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -24,7 +24,6 @@ const (
 	lifecycleInstallationIDEnv      = "AGENT_VMM_APPLIANCE_INSTALLATION_ID"
 	lifecycleAppliancePollInterval  = 100 * time.Millisecond
 	lifecycleApplianceConfigVersion = 1
-	lifecycleInstallTicketVersion   = 1
 	lifecycleInstallTicketMaxBytes  = 8 << 20
 )
 
@@ -51,119 +50,33 @@ type applianceInstallSpec struct {
 }
 
 type productionLifecycleAdapter struct {
-	value      paths
-	configPath string
+	value              paths
+	configPath         string
+	descriptor         *installDescriptor
+	material           *installMaterial
+	deadlineUnixMillis int64
 }
 
 func newProductionLifecycleAdapter(value paths, configPath ...string) LifecycleAdapter {
-	adapter := &productionLifecycleAdapter{value: value}
+	return newProductionLifecycleAdapterWithDescriptor(value, nil, configPath...)
+}
+
+func newProductionLifecycleAdapterWithDescriptor(value paths, descriptor *installDescriptor, configPath ...string) LifecycleAdapter {
+	adapter := &productionLifecycleAdapter{value: value, descriptor: descriptor}
 	if len(configPath) != 0 {
 		adapter.configPath = configPath[0]
 	}
-	return newHelperLifecycleAdapter(value, lifecycleAdapterHooks{
+	return lifecycleAdapterFor(adapter)
+}
+
+func lifecycleAdapterFor(adapter *productionLifecycleAdapter) LifecycleAdapter {
+	return newHelperLifecycleAdapter(adapter.value, lifecycleAdapterHooks{
 		ApplianceInstall: adapter.applianceInstall,
 		Bootstrap:        adapter.bootstrap,
 		Register:         adapter.register,
 		Reconnect:        adapter.reconnect,
 		Observe:          adapter.observe,
 	})
-}
-
-// lifecycleInstallTicket is the bounded helper exchange contract. It carries
-// only one-use enrollment material; it is never accepted through argv, an
-// operation record, or a renderer-owned value. The server-side ticket service
-// is responsible for issuing and invalidating the corresponding secret.
-type lifecycleInstallTicket struct {
-	Version                  int    `json:"version"`
-	InstallationID           string `json:"installation_id"`
-	ManifestBase64           string `json:"manifest_base64"`
-	PublisherSignatureBase64 string `json:"publisher_signature_base64"`
-	ApprovedGrantBase64      string `json:"approved_grant_base64"`
-	BootstrapSeedBase64      string `json:"bootstrap_seed_base64"`
-}
-
-func materializeInstallTicket(value paths, _ string, input io.Reader) (func(), string, error) {
-	limited := io.LimitReader(input, lifecycleInstallTicketMaxBytes+1)
-	decoder := json.NewDecoder(limited)
-	decoder.DisallowUnknownFields()
-	var ticket lifecycleInstallTicket
-	if err := decoder.Decode(&ticket); err != nil {
-		return nil, "", fmt.Errorf("decode install ticket: %w", err)
-	}
-	if ticket.Version != lifecycleInstallTicketVersion {
-		return nil, "", fmt.Errorf("unsupported install ticket version %d", ticket.Version)
-	}
-	if ticket.InstallationID == "" {
-		return nil, "", errors.New("install ticket installation_id is required")
-	}
-	manifest, err := decodeTicketField("manifest_base64", ticket.ManifestBase64, 4<<20)
-	if err != nil {
-		return nil, "", err
-	}
-	signature, err := decodeTicketField("publisher_signature_base64", ticket.PublisherSignatureBase64, 128<<10)
-	if err != nil {
-		return nil, "", err
-	}
-	grant, err := decodeTicketField("approved_grant_base64", ticket.ApprovedGrantBase64, 1<<20)
-	if err != nil {
-		return nil, "", err
-	}
-	seed, err := decodeTicketField("bootstrap_seed_base64", ticket.BootstrapSeedBase64, 128<<10)
-	if err != nil {
-		return nil, "", err
-	}
-
-	root := filepath.Join(value.applicationData, "installation-tickets")
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return nil, "", fmt.Errorf("create install ticket directory: %w", err)
-	}
-	directory, err := os.MkdirTemp(root, "ticket-")
-	if err != nil {
-		return nil, "", fmt.Errorf("create install ticket workspace: %w", err)
-	}
-	cleanup := func() { _ = os.RemoveAll(directory) }
-	cleanupOnError := true
-	defer func() {
-		if cleanupOnError {
-			cleanup()
-		}
-	}()
-
-	manifestPath := filepath.Join(directory, "manifest.pb")
-	signaturePath := filepath.Join(directory, "publisher-signature.bin")
-	grantPath := filepath.Join(directory, "approved-grant.pb")
-	seedPath := filepath.Join(directory, "bootstrap-seed.bin")
-	for _, artifact := range []struct {
-		path string
-		data []byte
-	}{
-		{manifestPath, manifest},
-		{signaturePath, signature},
-		{grantPath, grant},
-		{seedPath, seed},
-	} {
-		if err := os.WriteFile(artifact.path, artifact.data, 0o600); err != nil {
-			return nil, "", fmt.Errorf("materialize install ticket artifact: %w", err)
-		}
-	}
-	config := applianceLifecycleConfig{
-		Version:                lifecycleApplianceConfigVersion,
-		InstallationID:         ticket.InstallationID,
-		ManifestPath:           manifestPath,
-		PublisherSignaturePath: signaturePath,
-		ApprovedGrantPath:      grantPath,
-		BootstrapSeedPath:      seedPath,
-	}
-	configBytes, err := json.Marshal(config)
-	if err != nil {
-		return nil, "", fmt.Errorf("encode install ticket config: %w", err)
-	}
-	configPath := filepath.Join(directory, "appliance.json")
-	if err := os.WriteFile(configPath, configBytes, 0o600); err != nil {
-		return nil, "", fmt.Errorf("materialize install ticket config: %w", err)
-	}
-	cleanupOnError = false
-	return cleanup, configPath, nil
 }
 
 func decodeTicketField(name, encoded string, maxBytes int) ([]byte, error) {
@@ -181,6 +94,9 @@ func decodeTicketField(name, encoded string, maxBytes int) ([]byte, error) {
 }
 
 func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context, request LifecycleRequest) error {
+	if err := adapter.ensureInstallPlan(ctx); err != nil {
+		return err
+	}
 	connection, client, err := adapter.applianceClient(ctx)
 	if err != nil {
 		return err
@@ -191,15 +107,6 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	if status, found, err := findAppliance(ctx, client, installationID); err != nil {
-		return err
-	} else if found {
-		if status.GetRegistrationId() == "" {
-			return errors.New("existing appliance has no registration identity")
-		}
-		return nil
-	}
-
 	spec, err := adapter.installSpec()
 	if err != nil {
 		return err
@@ -207,7 +114,7 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	if spec.installationID != "" && spec.installationID != installationID {
 		return fmt.Errorf("appliance installation id %q does not match configured id %q", installationID, spec.installationID)
 	}
-	deadline := lifecycleDeadline(ctx)
+	deadline := adapter.lifecycleDeadline(ctx)
 	stage, err := client.StageArtifact(ctx, &appliancev1.StageArtifactRequest{
 		RequestId:          request.RequestID + ":stage",
 		DeadlineUnixMillis: deadline,
@@ -220,6 +127,11 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	artifactID := stage.GetArtifactId()
 	if artifactID == "" {
 		return errors.New("stage appliance artifact returned no artifact id")
+	}
+	if status, found, err := findAppliance(ctx, client, installationID); err != nil {
+		return err
+	} else if found {
+		return validateExistingAppliance(status, artifactID)
 	}
 	grant := proto.Clone(spec.grant).(*appliancev1.ApprovedGrant)
 	plan, err := client.PlanInstall(ctx, &appliancev1.PlanInstallRequest{
@@ -254,6 +166,16 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	return nil
 }
 
+func validateExistingAppliance(status *appliancev1.ApplianceStatus, artifactID string) error {
+	if status.GetRegistrationId() == "" {
+		return errors.New("existing appliance has no registration identity")
+	}
+	if status.GetArtifactId() != artifactID {
+		return errors.New("existing appliance artifact does not match the requested install material")
+	}
+	return nil
+}
+
 func (adapter *productionLifecycleAdapter) bootstrap(ctx context.Context, request LifecycleRequest) error {
 	connection, client, err := adapter.applianceClient(ctx)
 	if err != nil {
@@ -278,7 +200,7 @@ func (adapter *productionLifecycleAdapter) bootstrap(ctx context.Context, reques
 		InstallationId:     installationID,
 		RequestId:          request.RequestID + ":activate",
 		ExpectedRevision:   status.GetRevision(),
-		DeadlineUnixMillis: lifecycleDeadline(ctx),
+		DeadlineUnixMillis: adapter.lifecycleDeadline(ctx),
 	})
 	if err != nil {
 		return fmt.Errorf("activate appliance: %w", err)
@@ -324,7 +246,7 @@ func (adapter *productionLifecycleAdapter) reconnect(ctx context.Context, reques
 			return statusErr
 		}
 		if found && applianceReady(status) {
-			return nil
+			return adapter.applyManagedEnrollment(ctx, request)
 		}
 		select {
 		case <-ctx.Done():
@@ -352,13 +274,27 @@ func (adapter *productionLifecycleAdapter) observe(ctx context.Context, request 
 		return LifecycleFacts{}, errors.New("target appliance was not observed")
 	}
 	host := readStatusContext(ctx, adapter.value)
-	return LifecycleFacts{
+	facts := LifecycleFacts{
 		HostHealthy:       host.HostHealthy,
 		ApplianceHealthy:  status.GetHealth().GetHealthy(),
 		ControllerActive:  status.GetChannelState() == appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE,
 		InventoryComplete: status.GetInventoryWatermark() > 0,
-		SalixReady:        host.HostHealthy && applianceReady(status),
-	}, nil
+		RemoteAttached:    false,
+	}
+	if adapter.material != nil {
+		operatorConnection, connectionErr := operatorConnection(ctx, filepath.Join(adapter.value.applicationData, "operator.sock"))
+		if connectionErr != nil {
+			return LifecycleFacts{}, connectionErr
+		}
+		remote, remoteErr := hostv1.NewOperatorServiceClient(operatorConnection).GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: adapter.material.RegistrationID})
+		operatorConnection.Close()
+		if remoteErr != nil {
+			return LifecycleFacts{}, remoteErr
+		}
+		registration := remote.GetRegistration()
+		facts.RemoteAttached = facts.HostHealthy && registration.GetEnrollmentState() == hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY && registration.GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
+	}
+	return facts, nil
 }
 
 func (adapter *productionLifecycleAdapter) applianceClient(ctx context.Context) (interface{ Close() error }, appliancev1.ApplianceAdminServiceClient, error) {
@@ -379,14 +315,7 @@ func (adapter *productionLifecycleAdapter) installationID(ctx context.Context, c
 	if config, err := adapter.readConfig(); err == nil && config.InstallationID != "" {
 		return config.InstallationID, nil
 	}
-	response, err := client.List(ctx, &appliancev1.ListAppliancesRequest{})
-	if err != nil {
-		return "", fmt.Errorf("list appliance installations: %w", err)
-	}
-	if len(response.GetAppliances()) == 1 && response.GetAppliances()[0].GetInstallationId() != "" {
-		return response.GetAppliances()[0].GetInstallationId(), nil
-	}
-	return "", errors.New("one appliance installation id is required")
+	return "", errors.New("appliance installation id is required")
 }
 
 func (adapter *productionLifecycleAdapter) installSpec() (applianceInstallSpec, error) {
@@ -478,4 +407,11 @@ func lifecycleDeadline(ctx context.Context) int64 {
 		return deadline.UnixMilli()
 	}
 	return time.Now().Add(defaultCoordinatorStepTimeout).UnixMilli()
+}
+
+func (adapter *productionLifecycleAdapter) lifecycleDeadline(ctx context.Context) int64 {
+	if adapter.deadlineUnixMillis > 0 {
+		return adapter.deadlineUnixMillis
+	}
+	return lifecycleDeadline(ctx)
 }

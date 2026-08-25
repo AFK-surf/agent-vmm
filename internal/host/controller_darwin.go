@@ -26,6 +26,7 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	hosttrust "github.com/AFK-surf/agent-vmm/internal/host/trust"
 	"github.com/AFK-surf/agent-vmm/internal/host/trustkeys"
+	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -55,6 +56,10 @@ type Config struct {
 	DisablePersonalMeshPairing bool
 	DataWorkerSocket           string
 	RemoteComputeSocket        string
+	TrustSocket                string
+	TrustCapabilityFile        string
+	ServiceTunnelSocket        string
+	MeshControlSocket          string
 }
 
 type Controller struct {
@@ -66,9 +71,14 @@ type Controller struct {
 	supportDirectory            string
 	dataWorkerSocket            string
 	remoteComputeSocket         string
+	trustSocket                 string
+	trustCapabilityFile         string
+	serviceTunnelSocket         string
+	meshControlSocket           string
 	instanceDirectory           string
 	applianceSecrets            applianceSecretStore
 	trustKeyProvider            trustkeys.Provider
+	remoteCredentials           remoteconnector.CredentialStore
 
 	mu                       sync.Mutex
 	sessions                 map[string]*sessionServer
@@ -106,6 +116,10 @@ type Controller struct {
 	domainMetrics            map[string]*controllerDomainMetricState
 	applianceReconcileCancel context.CancelFunc
 	applianceReconcileWG     sync.WaitGroup
+	externalConnectorMu      sync.Mutex
+	externalConnectors       map[string]*externalConnectorRoute
+	externalConnectorContext context.Context
+	externalConnectorRunner  func(context.Context, remoteconnector.Config) error
 }
 
 func (controller *Controller) lockIntegration(id string) func() {
@@ -178,15 +192,19 @@ func New(config Config) (*Controller, error) {
 	}
 	controller := &Controller{
 		manager: config.Manager, store: database, trust: trustManager, personalMeshPairingDisabled: config.DisablePersonalMeshPairing, sessionDirectory: config.SessionDirectory,
-		supportDirectory: supportDirectory, dataWorkerSocket: config.DataWorkerSocket, remoteComputeSocket: config.RemoteComputeSocket, instanceDirectory: config.InstanceDirectory,
+		supportDirectory: supportDirectory, dataWorkerSocket: config.DataWorkerSocket, remoteComputeSocket: config.RemoteComputeSocket,
+		trustSocket: config.TrustSocket, trustCapabilityFile: config.TrustCapabilityFile,
+		serviceTunnelSocket: config.ServiceTunnelSocket, meshControlSocket: config.MeshControlSocket, instanceDirectory: config.InstanceDirectory,
 		applianceSecrets: applianceSecrets, trustKeyProvider: config.TrustKeyProvider, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container),
-		egress: egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
+		remoteCredentials: remoteconnector.NewCredentialStore(filepath.Join(supportDirectory, "remote-credentials")),
+		egress:            egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
 		applianceHealth: make(map[string]*appliancev1.ApplianceHealth), pendingApplianceHealth: make(map[string]*appliancev1.ApplianceHealth),
 		serviceListeners:   make(map[string]*serviceListenerRuntime),
 		pairings:           make(map[string]*personalMeshPairingRuntime),
 		privateControllers: make(map[string]*privateControllerRoute),
 		applianceFrontends: make(map[string]*applianceFrontendRuntime),
 		domainMetrics:      make(map[string]*controllerDomainMetricState),
+		externalConnectors: make(map[string]*externalConnectorRoute),
 		remoteCapacity:     store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
 	}
 	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
@@ -218,6 +236,7 @@ func (controller *Controller) invalidateRuntimeCapabilities(ctx context.Context)
 	controller.stopAllApplianceFrontends()
 	controller.clearAllApplianceHealth()
 	controller.stopAllPrivateControllerRoutes()
+	controller.stopAllExternalConnectors()
 	controller.mu.Lock()
 	sessionIDs := make([]string, 0, len(controller.sessions))
 	for id := range controller.sessions {
@@ -246,6 +265,7 @@ func (controller *Controller) Close() error {
 	controller.hostFrontends.closeAll(hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
 	controller.stopAllApplianceFrontends()
 	controller.stopAllPrivateControllerRoutes()
+	controller.stopAllExternalConnectors()
 	controller.stopEgress()
 	controller.closeAllServiceListeners()
 	controller.mu.Lock()

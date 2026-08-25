@@ -176,6 +176,9 @@ type RemoteRegistration struct {
 	Endpoint                string
 	DisplayName             string
 	ProtocolVersion         string
+	TrustBundle             []byte
+	ScopeDigest             string
+	SourcePolicyRevision    uint64
 	MaxEnvironments         uint32
 	AggregateCPUMillis      uint32
 	AggregateMemoryBytes    uint64
@@ -241,16 +244,20 @@ func (store *Store) CreateRemoteRegistration(ctx context.Context, registration R
 	if registration.InventoryRevision == 0 {
 		registration.InventoryRevision = 1
 	}
+	if registration.TrustBundle == nil {
+		registration.TrustBundle = []byte{}
+	}
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `INSERT INTO remote_registrations(
-		id, endpoint, display_name, protocol_version, max_environments,
+		id, endpoint, display_name, protocol_version, trust_bundle, scope_digest, source_policy_revision, max_environments,
 		aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
 		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
 		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds,
 		state, connection_state, enrollment_state, connector_phase, connector_observed_at,
 		enrollment_request_id, owner_kind, installation_id, inventory_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
 		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
+		registration.TrustBundle, registration.ScopeDigest, registration.SourcePolicyRevision,
 		registration.MaxEnvironments, registration.AggregateCPUMillis, registration.AggregateMemoryBytes,
 		registration.AggregatePIDs, registration.AggregateDiskBytes, registration.PerEnvCPUMillis,
 		registration.PerEnvMemoryBytes, registration.PerEnvPIDs, registration.PerEnvDiskBytes,
@@ -272,7 +279,7 @@ func (store *Store) RemoteRegistrationByEnrollmentRequest(ctx context.Context, r
 	return scanRemoteRegistration(store.db.QueryRowContext(ctx, remoteRegistrationSelect+" WHERE enrollment_request_id = ?", requestID))
 }
 
-const remoteRegistrationSelect = `SELECT id, endpoint, display_name, protocol_version, max_environments,
+const remoteRegistrationSelect = `SELECT id, endpoint, display_name, protocol_version, trust_bundle, scope_digest, source_policy_revision, max_environments,
 	aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
 	per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
 	max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds,
@@ -285,6 +292,7 @@ func scanRemoteRegistration(row rowScanner) (RemoteRegistration, error) {
 	var registration RemoteRegistration
 	var connectorObserved, lastConnected, disconnected, nextRetry, created, updated int64
 	err := row.Scan(&registration.ID, &registration.Endpoint, &registration.DisplayName, &registration.ProtocolVersion,
+		&registration.TrustBundle, &registration.ScopeDigest, &registration.SourcePolicyRevision,
 		&registration.MaxEnvironments, &registration.AggregateCPUMillis, &registration.AggregateMemoryBytes,
 		&registration.AggregatePIDs, &registration.AggregateDiskBytes, &registration.PerEnvCPUMillis,
 		&registration.PerEnvMemoryBytes, &registration.PerEnvPIDs, &registration.PerEnvDiskBytes,

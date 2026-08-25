@@ -2,11 +2,25 @@
 set -eu
 
 version=1.8.0
-expected_sha=ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f
+expected_sha=eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a
 cache_root=${AGENT_VMM_DOWNLOAD_CACHE:-${TMPDIR:-/tmp}/agent-vmm-download-cache}
 jar="$cache_root/tla2tools-$version.jar"
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/agent-vmm-tla.XXXXXX")
+temp_root=${TMPDIR:-/tmp}
+scratch=$(mktemp -d "$temp_root/agent-vmm-tla.XXXXXX")
 spec_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../../spec/tla" && pwd)
+
+cleanup() {
+  case "$scratch" in
+    "$temp_root"/agent-vmm-tla.*) rm -rf -- "$scratch" ;;
+    *) echo "refusing to clean unexpected TLC scratch path: $scratch" >&2 ;;
+  esac
+}
+terminate() {
+  trap - HUP INT TERM
+  exit 130
+}
+trap cleanup EXIT
+trap terminate HUP INT TERM
 
 mkdir -p "$cache_root"
 if [ ! -f "$jar" ] || [ "$(shasum -a 256 "$jar" | awk '{print $1}')" != "$expected_sha" ]; then
@@ -49,31 +63,37 @@ run_negative() {
     sed -n '1,160p' "$output" >&2
     exit 1
   fi
-  if [ -n "$expected_action" ] && ! grep -q "<$expected_action(" "$output"; then
+  if [ -n "$expected_action" ] && ! grep -q "<$expected_action" "$output"; then
     echo "$config did not reach $expected_action in its counterexample" >&2
     sed -n '1,160p' "$output" >&2
     exit 1
   fi
 }
 
-run_model ControllerDomainControl ControllerDomainControl
-run_negative ControllerDomainControl ControllerDomainControlReadyNegative NoCommandBeforeReady
-run_negative ControllerDomainControl ControllerDomainControlIdentityNegative ExactRegistrationIdentity
-run_negative ControllerDomainControl ControllerDomainControlWatermarkNegative ExactInventorySettlement
-run_negative ControllerDomainControl ControllerDomainControlAdmissionNegative AggregateNoOvercommit
-run_negative ControllerDomainControl ControllerDomainControlSessionNegative SingleCurrentCapability
-run_negative ControllerDomainControl ControllerDomainControlRevokeNegative RevokeIsTerminal
-run_negative ControllerDomainControl ControllerDomainControlIsolationNegative DomainNonInterference
-run_negative ControllerDomainControl ControllerDomainControlSystemNegative SystemExcludedFromInventory
-run_negative ControllerDomainControl ControllerDomainControlSequenceNegative CommandFenceExact Allocate
-run_model ApplianceLifecycle ApplianceLifecycle
-run_negative ApplianceLifecycle ApplianceLifecycleVerificationNegative ActiveVerifiedExact Start
-run_negative ApplianceLifecycle ApplianceLifecycleBootstrapNegative BootstrapSingleUse ReplayBootstrap
-run_negative ApplianceLifecycle ApplianceLifecycleInstanceNegative CurrentInstanceFence StaleInstance
-run_negative ApplianceLifecycle ApplianceLifecycleIsolationNegative InstallationNonInterference CrossDomainRemove
-run_negative ApplianceLifecycle ApplianceLifecycleSealedNegative SealedRecoveryIsBounded UnsafeReopenSealed
-run_negative ApplianceLifecycle ApplianceLifecycleRemoveNegative RemoveRevisionExact ExecuteRemove
-run_negative ApplianceLifecycle ApplianceLifecyclePublicationNegative PublicationFence UnsafePublishBeforeFence
-run_negative ApplianceLifecycle ApplianceLifecycleBootstrapFenceNegative InitialSeedDeletionFence UnsafeConsumeSeed
+run_model ControllerAllocationLifecycle ControllerAllocationLifecycle
+run_negative ControllerAllocationLifecycle ControllerAllocationLifecycleReadyNegative NoCommandBeforeReady Allocate
+run_negative ControllerAllocationLifecycle ControllerAllocationLifecycleWatermarkNegative ExactInventorySettlement ControllerReady
+run_negative ControllerAllocationLifecycle ControllerAllocationLifecycleSequenceNegative CommandFenceExact Allocate
+run_negative ControllerAllocationLifecycle ControllerAllocationLifecycleAdmissionNegative NoAllocationWithoutAdmission Allocate
+run_negative ControllerAllocationLifecycle ControllerAllocationLifecycleSessionNegative SingleCurrentCapability OpenSession
+run_negative ControllerAllocationLifecycle ControllerAllocationLifecycleRevokeNegative RevokeIsTerminal Allocate
+run_negative ControllerAllocationLifecycle ControllerAllocationLifecycleDeleteLeaseNegative LeaseBlocksDelete DeleteAllocation
+run_model AggregateAdmission AggregateAdmission
+run_negative AggregateAdmission AggregateAdmissionNegative AggregateNoOvercommit Allocate
+run_model DomainAuthorityIsolation DomainAuthorityIsolation
+run_negative DomainAuthorityIsolation DomainAuthorityIsolationIdentityNegative ExactRegistrationIdentity WrongIdentityCommand
+run_negative DomainAuthorityIsolation DomainAuthorityIsolationIsolationNegative DomainNonInterference CrossDomainFailure
+run_model SystemInventorySeparation SystemInventorySeparation
+run_negative SystemInventorySeparation SystemInventorySeparationNegative SystemExcludedFromInventory ExposeSystem
+run_model ApplianceActivationLifecycle ApplianceActivationLifecycle
+run_negative ApplianceActivationLifecycle ApplianceActivationLifecycleVerificationNegative ActiveVerifiedExact Start
+run_negative ApplianceActivationLifecycle ApplianceActivationLifecycleBootstrapNegative BootstrapSingleUse ReplayBootstrap
+run_negative ApplianceActivationLifecycle ApplianceActivationLifecycleInstanceNegative CurrentInstanceFence StaleInstance
+run_negative ApplianceActivationLifecycle ApplianceActivationLifecyclePublicationNegative PublicationFence UnsafePublishBeforeFence
+run_negative ApplianceActivationLifecycle ApplianceActivationLifecycleBootstrapFenceNegative InitialSeedDeletionFence UnsafeConsumeSeed
+run_negative ApplianceActivationLifecycle ApplianceActivationLifecycleSealedNegative SealedRecoveryIsBounded UnsafeReopenSealed
+run_negative ApplianceActivationLifecycle ApplianceActivationLifecycleRemoveNegative RemoveRevisionExact ExecuteRemove
+run_model ApplianceInstallationIsolation ApplianceInstallationIsolation
+run_negative ApplianceInstallationIsolation ApplianceInstallationIsolationNegative InstallationNonInterference CrossDomainRemove
 
 echo "Canonical TLC suites passed"

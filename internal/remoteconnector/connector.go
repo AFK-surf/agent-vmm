@@ -31,12 +31,22 @@ func Run(ctx context.Context, config Config) error {
 		}
 	}
 	var worker *dataworker.Supervisor
+	ownedWorker := false
 	if config.DataWorkerPath != "" {
 		startedWorker, err := dataworker.Start(ctx, config.DataWorkerPath, config.DataWorkerSocket, config.ServiceTunnelSocket, config.MeshControlSocket, config.TrustCapabilityFile)
 		if err != nil {
 			return fmt.Errorf("data worker unavailable: %w", err)
 		}
 		worker = startedWorker
+		ownedWorker = true
+	} else if config.UseExistingDataWorker {
+		attachedWorker, err := dataworker.Attach(config.DataWorkerSocket)
+		if err != nil {
+			return err
+		}
+		worker = attachedWorker
+	}
+	if worker != nil {
 		status, err := worker.Status(ctx)
 		if err != nil {
 			return fmt.Errorf("data worker status unavailable: %w", err)
@@ -46,6 +56,8 @@ func Run(ctx context.Context, config Config) error {
 			return fmt.Errorf("data endpoint observation unavailable: %w", err)
 		}
 		config.endpointObservation = observation
+	}
+	if ownedWorker {
 		defer func() {
 			drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -60,7 +72,7 @@ func Run(ctx context.Context, config Config) error {
 	for ctx.Err() == nil {
 		attempt++
 		currentObservation := observations.Load()
-		if config.DataWorkerPath != "" && (currentObservation == nil || currentObservation.GetExpiresAt() == nil ||
+		if worker != nil && (currentObservation == nil || currentObservation.GetExpiresAt() == nil ||
 			time.Until(currentObservation.GetExpiresAt().AsTime()) <= endpointRefreshWindow) {
 			status, statusErr := worker.Status(ctx)
 			if statusErr != nil {

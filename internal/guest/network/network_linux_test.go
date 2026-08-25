@@ -150,9 +150,9 @@ func TestServiceProjectionIsSourceScopedAndInstanceFenced(t *testing.T) {
 	if err := validateServiceProjection(projection); err != nil {
 		t.Fatal(err)
 	}
-	invalid := *projection
+	invalid := proto.Clone(projection).(*vmmdv1.ServiceProjection)
 	invalid.DnsAlias = "database.example"
-	if err := validateServiceProjection(&invalid); err == nil {
+	if err := validateServiceProjection(invalid); err == nil {
 		t.Fatal("service projection accepted a non-label DNS alias")
 	}
 	manager := &Manager{

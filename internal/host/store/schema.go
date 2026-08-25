@@ -444,6 +444,8 @@ func migrateV2(tx *sql.Tx) error {
 		`CREATE UNIQUE INDEX environments_remote_allocation ON environments(registration_id, allocation_id) WHERE owner_kind = 2`,
 		`CREATE TABLE remote_registrations (
 			id TEXT PRIMARY KEY, endpoint TEXT NOT NULL, display_name TEXT NOT NULL, protocol_version TEXT NOT NULL,
+			trust_bundle BLOB NOT NULL DEFAULT X'', scope_digest TEXT NOT NULL DEFAULT '',
+			source_policy_revision INTEGER NOT NULL DEFAULT 0 CHECK(source_policy_revision >= 0),
 			max_environments INTEGER NOT NULL CHECK(max_environments > 0),
 			aggregate_cpu_millis INTEGER NOT NULL CHECK(aggregate_cpu_millis > 0),
 			aggregate_memory_bytes INTEGER NOT NULL CHECK(aggregate_memory_bytes > 0),

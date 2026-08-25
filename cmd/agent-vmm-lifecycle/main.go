@@ -18,15 +18,47 @@ import (
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 const (
-	version              = "0.1.0"
-	hostLabel            = "com.afk-surf.agent-vmm-host"
-	hostTemplateResource = hostLabel + ".plist.template"
+	version                     = "0.1.0"
+	hostLabel                   = "com.afk-surf.agent-vmm-host"
+	hostTemplateResource        = hostLabel + ".plist.template"
+	boundedOperationMaxAttempts = 3
 )
+
+type managedInstallDispositionError struct {
+	err         error
+	disposition string
+}
+
+func (err managedInstallDispositionError) Error() string { return err.err.Error() }
+func (err managedInstallDispositionError) Unwrap() error { return err.err }
+func (err managedInstallDispositionError) ManagedSecretDisposition() string {
+	return err.disposition
+}
+
+func terminalManagedInstallError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return managedInstallDispositionError{err: err, disposition: secretDispositionDestroyTerminal}
+}
+
+func managedInstallSecretDisposition(err error) string {
+	var dispositionError interface {
+		ManagedSecretDisposition() string
+	}
+	if errors.As(err, &dispositionError) && dispositionError.ManagedSecretDisposition() == secretDispositionDestroyTerminal {
+		return secretDispositionDestroyTerminal
+	}
+	return secretDispositionRetain
+}
 
 // releaseID is injected by the Host package build and is the identity that
 // BFT signs and independently verifies for this archive. Development builds
@@ -56,17 +88,14 @@ type serviceStatus struct {
 	ApplianceHealthy   bool                `json:"applianceHealthy"`
 	ControllerActive   bool                `json:"controllerActive"`
 	InventoryComplete  bool                `json:"inventoryComplete"`
-	RegistrationID     string              `json:"registrationId,omitempty"`
-	SalixReady         bool                `json:"salixReady"`
 	Operation          *lifecycleOperation `json:"operation,omitempty"`
 }
 
 // The helper is the shared Cue/BFT local operation boundary. Its durable
-// request identity and observation-only recovery refine
-// Cue's tla/salix/VMMNodeLifecycle.tla; it never grants Salix Workload
-// authority from host or runner health alone. The install command delegates
-// lifecycle ordering to LifecycleCoordinator; repair remains the narrow
-// host-service repair action.
+// request identity and observation-only recovery refine the local appliance
+// lifecycle. Salix admission remains server-owned and is deliberately absent
+// from this local status. The install command delegates lifecycle ordering to
+// LifecycleCoordinator; repair remains the narrow host-service repair action.
 
 type lifecycleOperation struct {
 	OperationID    string `json:"operationId"`
@@ -75,13 +104,28 @@ type lifecycleOperation struct {
 	TargetRef      string `json:"targetRef"`
 	TargetRevision uint64 `json:"targetRevision"`
 	Outcome        string `json:"outcome"`
-	StartedAt      int64  `json:"startedAt"`
-	UpdatedAt      int64  `json:"updatedAt"`
+	Attempt        int    `json:"attempt,omitempty"`
+	FailureStage   string `json:"failureStage,omitempty"`
+	FailureCode    string `json:"failureCode,omitempty"`
+	FailureMessage string `json:"failureMessage,omitempty"`
+	Retryable      bool   `json:"retryable,omitempty"`
+	// SecretDisposition is independent from scheduling retryability. Only an
+	// explicitly persisted terminal result or durable completion receipt may
+	// authorize destruction of the managed install plan.
+	SecretDisposition string `json:"secretDisposition,omitempty"`
+	StartedAt         int64  `json:"startedAt"`
+	UpdatedAt         int64  `json:"updatedAt"`
 }
+
+const (
+	secretDispositionRetain           = "retain"
+	secretDispositionDestroyTerminal  = "destroy_terminal"
+	secretDispositionDestroyCompleted = "destroy_completed"
+)
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|status|install|repair [--request-id ID]|drain|uninstall [--purge]")
+		fatal("usage: agent-vmm-lifecycle version --json|status|install|repair [--request-id ID]|registration-state --registration-id ID --state enabled|draining [--request-id ID]|drain|uninstall [--purge]")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
@@ -103,32 +147,95 @@ func main() {
 			fatal("status encoding failed")
 		}
 	case "install", "repair":
-		disablePairing, requestID, ticketStdin := parseInstallArgs(os.Args[1], os.Args[2:])
-		var ticketCleanup func()
-		var ticketConfigPath string
+		disablePairing, requestID, ticketStdin, resumeOperationID := parseInstallArgs(os.Args[1], os.Args[2:])
+		var descriptor *installDescriptor
 		if os.Args[1] == "install" && ticketStdin {
-			ticketCleanup, ticketConfigPath, err = materializeInstallTicket(resolved, requestID, os.Stdin)
+			decoded, decodeErr := decodeInstallDescriptor(os.Stdin)
+			err = decodeErr
 			if err != nil {
 				fatal(err.Error())
 			}
-			defer ticketCleanup()
+			if requestID == "" || requestID != decoded.OperationID {
+				fatal("--request-id must match the install descriptor operation_id")
+			}
+			descriptor = &decoded
 		}
-		operation, operationErr := runLifecycleOperation(resolved, os.Args[1], requestID, func() error {
+		if ticketStdin && resumeOperationID != "" {
+			fatal("--ticket-stdin and --resume-operation are mutually exclusive")
+		}
+		var adapter LifecycleAdapter
+		var productionAdapter *productionLifecycleAdapter
+		completedResume := false
+		var resumePreparationErr error
+		if resumeOperationID != "" {
+			if !operationIDPattern.MatchString(resumeOperationID) || requestID == "" {
+				fatal("--resume-operation requires a valid operation id and --request-id")
+			}
+			completedResume, err = completedInstallExists(resolved, resumeOperationID)
+			if err != nil {
+				fatal(err.Error())
+			}
+			if !completedResume {
+				productionAdapter, err = productionLifecycleAdapterForResume(resolved, resumeOperationID)
+				if err != nil {
+					resumePreparationErr = err
+					if errors.Is(err, errManagedInstallPlanUnavailable) {
+						resumePreparationErr = terminalManagedInstallError(err)
+					}
+				} else {
+					adapter = lifecycleAdapterFor(productionAdapter)
+				}
+			}
+		} else if descriptor != nil {
+			productionAdapter = &productionLifecycleAdapter{value: resolved, descriptor: descriptor}
+			adapter = lifecycleAdapterFor(productionAdapter)
+		} else {
+			adapter = newProductionLifecycleAdapter(resolved)
+		}
+		operationKind := os.Args[1]
+		if descriptor != nil || resumeOperationID != "" {
+			operationKind = "install-managed"
+		}
+		runOperation := runLifecycleOperation
+		if operationKind == "install-managed" {
+			runOperation = runManagedLifecycleOperation
+		}
+		operation, operationErr := runOperation(resolved, operationKind, requestID, func() error {
 			if os.Args[1] == "install" {
-				coordinator, err := NewLifecycleCoordinator(newProductionLifecycleAdapter(resolved, ticketConfigPath), LifecycleCoordinatorConfig{})
+				if descriptor == nil && resumeOperationID == "" {
+					if err := repairWithOptions(resolved, launchctl, disablePairing); err != nil {
+						return err
+					}
+					return ensureVMStarted(resolved, requestID)
+				}
+				if completedResume {
+					return nil
+				}
+				if resumePreparationErr != nil {
+					return resumePreparationErr
+				}
+				coordinator, err := NewLifecycleCoordinator(adapter, LifecycleCoordinatorConfig{})
 				if err != nil {
 					return err
 				}
-				return coordinator.Run(context.Background(), LifecycleInstall, LifecycleRequest{
+				if err := coordinator.Run(context.Background(), LifecycleInstall, LifecycleRequest{
 					RequestID:                  requestID,
 					DisablePersonalMeshPairing: disablePairing,
-				})
+				}); err != nil {
+					return err
+				}
+				return persistCompletedInstall(resolved, productionAdapter)
 			}
 			if err := repairWithOptions(resolved, launchctl, disablePairing); err != nil {
 				return err
 			}
 			return ensureVMStarted(resolved, requestID)
 		})
+		completedOperationID := resumeOperationID
+		if descriptor != nil {
+			completedOperationID = descriptor.OperationID
+		}
+		operation, operationErr = finalizeManagedInstallOperation(resolved, completedOperationID, operation, operationErr)
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
 		}
@@ -138,6 +245,20 @@ func main() {
 	case "drain":
 		requestID := requestIDArg(os.Args[2:])
 		operation, operationErr := runLifecycleOperation(resolved, "drain", requestID, func() error { return drain(resolved) })
+		if err := writeOperation(operation); err != nil {
+			fatal("operation encoding failed")
+		}
+		if operationErr != nil {
+			fatal(operationErr.Error())
+		}
+	case "registration-state":
+		registrationID, state, requestID := parseRegistrationStateArgs(os.Args[2:])
+		if requestID == "" {
+			requestID = newOperationID("req")
+		}
+		operation, operationErr := runRegistrationStateOperation(resolved, "registration-"+state.String(), requestID, func() error {
+			return setRemoteRegistrationState(context.Background(), resolved, registrationID, state, requestID)
+		})
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
 		}
@@ -214,9 +335,8 @@ func readStatusContext(ctx context.Context, value paths) serviceStatus {
 		HostLoaded:    launchctlContext(ctx, "print", domain()+"/"+hostLabel) == nil,
 		Operation:     readOperation(value.operationFile),
 	}
-	// The local controller channel is the only connector owned by this
-	// installation. It is derived from the same operator observation as
-	// salixReady; no endpoint or runner process is promoted to readiness.
+	// Local Host and appliance diagnostics never claim Salix admission or
+	// product Node readiness. Those facts are owned by the server observation.
 	result.ConnectorInstalled = result.HostInstalled
 	if result.HostLoaded {
 		facts, err := readOperatorFactsContext(ctx, filepath.Join(value.applicationData, "operator.sock"))
@@ -227,18 +347,17 @@ func readStatusContext(ctx context.Context, value paths) serviceStatus {
 			result.ApplianceHealthy = facts.applianceHealthy
 			result.ControllerActive = facts.controllerActive
 			result.InventoryComplete = facts.inventoryComplete
-			result.RegistrationID = facts.registrationID
-			result.SalixReady = facts.salixReady
-			result.ConnectorLoaded = facts.controllerActive && facts.salixReady
+			result.ConnectorLoaded = facts.controllerActive
 		}
 	}
 	return result
 }
 
-func parseInstallArgs(action string, args []string) (bool, string, bool) {
+func parseInstallArgs(action string, args []string) (bool, string, bool, string) {
 	disablePairing := false
 	requestID := ""
 	ticketStdin := false
+	resumeOperationID := ""
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
 		case "--disable-personal-mesh-pairing":
@@ -248,6 +367,12 @@ func parseInstallArgs(action string, args []string) (bool, string, bool) {
 				fatal("--ticket-stdin is only valid for install")
 			}
 			ticketStdin = true
+		case "--resume-operation":
+			if action != "install" || index+1 >= len(args) {
+				fatal("--resume-operation requires an install operation id")
+			}
+			index++
+			resumeOperationID = args[index]
 		case "--request-id":
 			if index+1 >= len(args) {
 				fatal("--request-id requires a value")
@@ -255,14 +380,14 @@ func parseInstallArgs(action string, args []string) (bool, string, bool) {
 			index++
 			requestID = args[index]
 		default:
-			fatal("install and repair accept --disable-personal-mesh-pairing, --request-id, and install --ticket-stdin")
+			fatal("install and repair accept --disable-personal-mesh-pairing, --request-id, and install --ticket-stdin or --resume-operation")
 		}
 	}
-	return disablePairing, requestID, ticketStdin
+	return disablePairing, requestID, ticketStdin, resumeOperationID
 }
 
 func parseRepairArgs(args []string) (bool, string) {
-	disablePairing, requestID, _ := parseInstallArgs("repair", args)
+	disablePairing, requestID, _, _ := parseInstallArgs("repair", args)
 	return disablePairing, requestID
 }
 
@@ -298,52 +423,228 @@ func parseUninstallArgs(args []string) (bool, string) {
 	return purge, requestID
 }
 
+func parseRegistrationStateArgs(args []string) (string, hostv1.RemoteRegistrationState, string) {
+	registrationID := ""
+	requestID := ""
+	state := hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_UNSPECIFIED
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--registration-id":
+			if index+1 >= len(args) {
+				fatal("--registration-id requires a value")
+			}
+			index++
+			registrationID = args[index]
+		case "--state":
+			if index+1 >= len(args) {
+				fatal("--state requires a value")
+			}
+			index++
+			switch args[index] {
+			case "enabled":
+				state = hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED
+			case "draining":
+				state = hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING
+			default:
+				fatal("--state must be enabled or draining")
+			}
+		case "--request-id":
+			if index+1 >= len(args) {
+				fatal("--request-id requires a value")
+			}
+			index++
+			requestID = args[index]
+		default:
+			fatal("registration-state accepts --registration-id, --state, and --request-id")
+		}
+	}
+	if !operationIDPattern.MatchString(registrationID) || state == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_UNSPECIFIED {
+		fatal("registration-state requires a valid --registration-id and --state")
+	}
+	return registrationID, state, requestID
+}
+
+func setRemoteRegistrationState(ctx context.Context, value paths, registrationID string, state hostv1.RemoteRegistrationState, requestID string) error {
+	connection, err := operatorConnection(ctx, filepath.Join(value.applicationData, "operator.sock"))
+	if err != nil {
+		return errors.New("Agent VMM operator is not readable for registration state change")
+	}
+	defer connection.Close()
+	client := hostv1.NewOperatorServiceClient(connection)
+	return setRemoteRegistrationStateWith(ctx, registrationID, state, requestID, client.GetRemoteRegistration, client.SetRemoteRegistrationState)
+}
+
+func setRemoteRegistrationStateWith(
+	ctx context.Context,
+	registrationID string,
+	state hostv1.RemoteRegistrationState,
+	requestID string,
+	get func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error),
+	set func(context.Context, *hostv1.SetRemoteRegistrationStateRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error),
+) error {
+	current, err := get(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
+	if err != nil || current.GetRegistration().GetId() != registrationID {
+		return errors.New("managed registration is not readable")
+	}
+	if current.GetRegistration().GetState() == state {
+		return nil
+	}
+	_, err = set(ctx, &hostv1.SetRemoteRegistrationStateRequest{
+		RegistrationId:   registrationID,
+		ExpectedRevision: current.GetRegistration().GetRevision(),
+		RequestId:        requestID,
+		State:            state,
+	})
+	if err != nil {
+		return fmt.Errorf("set managed registration state: %w", err)
+	}
+	return nil
+}
+
 func runLifecycleOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, false, action)
+}
+
+// Managed install retries must retain the server operation id as their request
+// identity. The durable plan and its acknowledgement capability fence replay;
+// unrelated lifecycle operations continue to require a new request id after a
+// recorded failure.
+func runManagedLifecycleOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
+	if kind != "install-managed" || requestID == "" {
+		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown", SecretDisposition: secretDispositionRetain}, errors.New("managed install retry requires its stable request identity")
+	}
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, true, action)
+}
+
+func runRegistrationStateOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
+	if !strings.HasPrefix(kind, "registration-") || requestID == "" {
+		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}, errors.New("registration state retry requires its stable request identity")
+	}
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, true, action)
+}
+
+func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, retryFailed bool, action func() error) (lifecycleOperation, error) {
 	release, err := acquireOperationLock(value.operationFile)
 	if err != nil {
-		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}, err
+		operation := lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}
+		if kind == "install-managed" {
+			operation.SecretDisposition = secretDispositionRetain
+		}
+		return operation, err
 	}
 	defer release()
 	if requestID == "" {
 		requestID = newOperationID("req")
 	}
+	var operation lifecycleOperation
 	if previous := readOperation(value.operationFile); previous != nil && previous.RequestID == requestID {
 		if previous.Outcome == "succeeded" {
 			return *previous, nil
 		}
 		if previous.Outcome == "failed" {
-			return *previous, errors.New("operation already failed; use a new request id after reviewing status")
-		}
-		observed := readStatus(value)
-		if operationConfirmed(previous.Kind, observed) {
-			previous.Outcome = "succeeded"
-			previous.UpdatedAt = time.Now().UnixMilli()
-			if err := persistOperation(value.operationFile, *previous); err != nil {
-				return *previous, err
+			if !retryFailed || previous.Kind != kind {
+				return *previous, errors.New("operation already failed; use a new request id after reviewing status")
 			}
-			return *previous, nil
+			if !previous.Retryable {
+				return *previous, errors.New("managed install failure requires operator action")
+			}
+			if previous.Attempt >= boundedOperationMaxAttempts {
+				previous.Retryable = false
+				previous.SecretDisposition = secretDispositionDestroyTerminal
+				previous.FailureCode = "retry_limit_reached"
+				previous.FailureMessage = "Operation reached its retry limit. Review the failed stage before taking explicit action."
+				previous.UpdatedAt = time.Now().UnixMilli()
+				if err := persistOperation(value.operationFile, *previous); err != nil {
+					previous.SecretDisposition = secretDispositionRetain
+					return *previous, err
+				}
+				return *previous, errors.New("managed install retry limit reached")
+			}
+			operation = *previous
+			operation.Outcome = "pending"
+			operation.Attempt++
+			operation.FailureStage = ""
+			operation.FailureCode = ""
+			operation.FailureMessage = ""
+			operation.Retryable = false
+			operation.SecretDisposition = secretDispositionRetain
+			operation.UpdatedAt = time.Now().UnixMilli()
+			if err := persistOperation(value.operationFile, operation); err != nil {
+				return operation, err
+			}
+		} else if retryFailed && previous.Kind == kind {
+			if previous.Attempt >= boundedOperationMaxAttempts {
+				previous.Outcome = "failed"
+				previous.Retryable = false
+				previous.SecretDisposition = secretDispositionDestroyTerminal
+				previous.FailureStage = kind
+				previous.FailureCode = "retry_limit_reached"
+				previous.FailureMessage = "Operation outcome remained unknown through its retry limit. Review local state before taking explicit action."
+				previous.UpdatedAt = time.Now().UnixMilli()
+				if err := persistOperation(value.operationFile, *previous); err != nil {
+					previous.SecretDisposition = secretDispositionRetain
+					return *previous, err
+				}
+				return *previous, errors.New("operation retry limit reached")
+			}
+			operation = *previous
+			operation.Outcome = "pending"
+			operation.Attempt++
+			operation.FailureStage = ""
+			operation.FailureCode = ""
+			operation.FailureMessage = ""
+			operation.Retryable = false
+			operation.SecretDisposition = secretDispositionRetain
+			operation.UpdatedAt = time.Now().UnixMilli()
+			if err := persistOperation(value.operationFile, operation); err != nil {
+				return operation, err
+			}
+		} else {
+			observed := readStatus(value)
+			if operationConfirmed(previous.Kind, observed) {
+				previous.Outcome = "succeeded"
+				previous.UpdatedAt = time.Now().UnixMilli()
+				if err := persistOperation(value.operationFile, *previous); err != nil {
+					return *previous, err
+				}
+				return *previous, nil
+			}
+			previous.Outcome = "unknown"
+			previous.UpdatedAt = time.Now().UnixMilli()
+			_ = persistOperation(value.operationFile, *previous)
+			return *previous, errors.New("operation outcome is unknown; read status and use a new request id only after review")
 		}
-		previous.Outcome = "unknown"
-		previous.UpdatedAt = time.Now().UnixMilli()
-		_ = persistOperation(value.operationFile, *previous)
-		return *previous, errors.New("operation outcome is unknown; read status and use a new request id only after review")
-	}
-	now := time.Now().UnixMilli()
-	operation := lifecycleOperation{
-		OperationID: newOperationID("op"), RequestID: requestID, Kind: kind,
-		TargetRef: "compute-node/local", TargetRevision: uint64(now), Outcome: "pending",
-		StartedAt: now, UpdatedAt: now,
-	}
-	if err := persistOperation(value.operationFile, operation); err != nil {
-		return operation, err
+	} else {
+		now := time.Now().UnixMilli()
+		operation = lifecycleOperation{
+			OperationID: newOperationID("op"), RequestID: requestID, Kind: kind,
+			TargetRef: "compute-node/local", TargetRevision: uint64(now), Outcome: "pending",
+			Attempt: 1, StartedAt: now, UpdatedAt: now,
+		}
+		if kind == "install-managed" {
+			operation.SecretDisposition = secretDispositionRetain
+		}
+		if err := persistOperation(value.operationFile, operation); err != nil {
+			return operation, err
+		}
 	}
 	if err := action(); err != nil {
 		operation.Outcome = "failed"
+		operation.FailureStage, operation.FailureCode, operation.FailureMessage, operation.Retryable = lifecycleFailure(kind, err)
+		if kind == "install-managed" {
+			operation.SecretDisposition = managedInstallSecretDisposition(err)
+		}
 		operation.UpdatedAt = time.Now().UnixMilli()
-		_ = persistOperation(value.operationFile, operation)
+		if persistErr := persistOperation(value.operationFile, operation); persistErr != nil {
+			operation.SecretDisposition = secretDispositionRetain
+			return operation, errors.Join(err, persistErr)
+		}
 		return operation, err
 	}
 	operation.Outcome = "succeeded"
+	if kind == "install-managed" {
+		operation.SecretDisposition = secretDispositionDestroyCompleted
+	}
 	operation.UpdatedAt = time.Now().UnixMilli()
 	if err := persistOperation(value.operationFile, operation); err != nil {
 		return operation, err
@@ -351,34 +652,81 @@ func runLifecycleOperation(value paths, kind, requestID string, action func() er
 	return operation, nil
 }
 
+func lifecycleFailure(kind string, err error) (string, string, string, bool) {
+	message := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " "))
+	if len(message) > 512 {
+		message = message[:512]
+	}
+	stage := kind
+	if strings.HasPrefix(message, "lifecycle ") {
+		if end := strings.IndexByte(strings.TrimPrefix(message, "lifecycle "), ':'); end > 0 {
+			stage = strings.TrimSpace(strings.TrimPrefix(message, "lifecycle ")[:end])
+		}
+	}
+	retryClass := kind == "install-managed" || strings.HasPrefix(kind, "registration-")
+	if !retryClass {
+		return stage, "operation_failed", message, false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrCoordinatorNotReady) {
+		return stage, "transient_timeout", message, true
+	}
+	switch status.Code(err) {
+	case codes.Unavailable:
+		return stage, "transient_unavailable", message, true
+	case codes.DeadlineExceeded:
+		return stage, "transient_timeout", message, true
+	}
+	for code := 500; code <= 599; code++ {
+		if strings.Contains(message, fmt.Sprintf("HTTP %d", code)) {
+			return stage, "upstream_unavailable", message, true
+		}
+	}
+	if strings.Contains(message, "ticket exchange failed") ||
+		strings.Contains(message, "ticket acknowledgement failed") {
+		return stage, "upstream_unavailable", message, true
+	}
+	return stage, "install_failed", message, false
+}
+
 func acquireOperationLock(operationPath string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(operationPath), 0o700); err != nil {
 		return func() {}, err
 	}
 	lockPath := operationPath + ".lock"
+	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return func() {}, err
+	}
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		err = unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
-			if _, writeErr := file.WriteString(fmt.Sprintf("%d\n", os.Getpid())); writeErr != nil {
+			if truncateErr := file.Truncate(0); truncateErr != nil {
+				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
 				_ = file.Close()
-				_ = os.Remove(lockPath)
+				return func() {}, truncateErr
+			}
+			if _, seekErr := file.Seek(0, 0); seekErr != nil {
+				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+				_ = file.Close()
+				return func() {}, seekErr
+			}
+			if _, writeErr := file.WriteString(fmt.Sprintf("%d\n", os.Getpid())); writeErr != nil {
+				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+				_ = file.Close()
 				return func() {}, writeErr
 			}
-			if closeErr := file.Close(); closeErr != nil {
-				_ = os.Remove(lockPath)
-				return func() {}, closeErr
-			}
-			return func() { _ = os.Remove(lockPath) }, nil
+			return func() {
+				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+				_ = file.Close()
+			}, nil
 		}
-		if !errors.Is(err, os.ErrExist) {
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
+			_ = file.Close()
 			return func() {}, err
 		}
-		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > 30*time.Second {
-			_ = os.Remove(lockPath)
-			continue
-		}
 		if time.Now().After(deadline) {
+			_ = file.Close()
 			return func() {}, errors.New("another Agent VMM lifecycle operation is still running")
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -388,7 +736,11 @@ func acquireOperationLock(operationPath string) (func(), error) {
 func operationConfirmed(kind string, status serviceStatus) bool {
 	switch kind {
 	case "install", "repair":
-		return status.HostInstalled && status.HostLoaded && status.SalixReady
+		return status.HostInstalled && status.HostLoaded && status.HostHealthy
+	case "install-managed":
+		// The generic operation record does not persist the registration
+		// identity needed to prove a managed attach after a process crash.
+		return false
 	case "drain":
 		return !status.HostLoaded
 	case "remove":
@@ -439,8 +791,6 @@ type operatorFacts struct {
 	applianceHealthy   bool
 	controllerActive   bool
 	inventoryComplete  bool
-	registrationID     string
-	salixReady         bool
 }
 
 func readOperatorFacts(socket string) (operatorFacts, error) {
@@ -472,10 +822,8 @@ func readOperatorFactsContext(ctx context.Context, socket string) (operatorFacts
 	return facts, nil
 }
 
-// mergeApplianceFacts keeps diagnostic facts aggregate, but computes SalixReady
-// only from one registered appliance. Readiness is an identity-bound
-// conjunction; facts from independent appliance/controller instances must not
-// be assembled into a synthetic ready result.
+// mergeApplianceFacts keeps appliance diagnostics aggregate. It deliberately
+// does not project Salix admission or product Node readiness.
 func mergeApplianceFacts(facts operatorFacts, appliances []*appliancev1.ApplianceStatus) operatorFacts {
 	facts.applianceInstalled = len(appliances) > 0
 	for _, appliance := range appliances {
@@ -488,15 +836,6 @@ func mergeApplianceFacts(facts operatorFacts, appliances []*appliancev1.Applianc
 		facts.applianceHealthy = facts.applianceHealthy || applianceHealthy
 		facts.controllerActive = facts.controllerActive || controllerActive
 		facts.inventoryComplete = facts.inventoryComplete || inventoryComplete
-		if facts.registrationID == "" && appliance.GetRegistrationId() != "" {
-			facts.registrationID = appliance.GetRegistrationId()
-		}
-		if appliance.GetRegistrationId() != "" &&
-			applianceHealthy &&
-			controllerActive &&
-			inventoryComplete {
-			facts.salixReady = true
-		}
 	}
 	return facts
 }
@@ -724,4 +1063,37 @@ func xmlEscape(value string) string {
 func fatal(message string) {
 	fmt.Fprintln(os.Stderr, message)
 	os.Exit(1)
+}
+
+// finalizeManagedInstallOperation never infers secret ownership from an error
+// or Retryable. Only the operation owner's explicit persisted disposition may
+// destroy the plan.
+func finalizeManagedInstallOperation(value paths, operationID string, operation lifecycleOperation, operationErr error) (lifecycleOperation, error) {
+	retain := func(err error) (lifecycleOperation, error) {
+		operation.SecretDisposition = secretDispositionRetain
+		return operation, errors.Join(operationErr, err)
+	}
+	if operation.SecretDisposition == secretDispositionDestroyCompleted {
+		completed, err := completedInstallExists(value, operationID)
+		if err != nil {
+			return retain(fmt.Errorf("verify managed install completion receipt: %w", err))
+		}
+		if !completed {
+			return retain(errors.New("managed install completion receipt is not durable; retaining install plan"))
+		}
+	} else if operation.SecretDisposition == secretDispositionDestroyTerminal {
+		recorded := readOperation(value.operationFile)
+		if recorded == nil || recorded.RequestID != operationID || recorded.Kind != "install-managed" ||
+			recorded.Outcome != "failed" || recorded.SecretDisposition != secretDispositionDestroyTerminal {
+			return retain(errors.New("managed install terminal result is not durable; retaining install plan"))
+		}
+	} else if operation.SecretDisposition == secretDispositionRetain || operationID == "" {
+		return operation, operationErr
+	} else {
+		return retain(errors.New("managed install secret disposition is unavailable; retaining install plan"))
+	}
+	if err := cleanupInstallPlan(value, operationID); err != nil {
+		return retain(fmt.Errorf("cleanup managed install plan: %w", err))
+	}
+	return operation, operationErr
 }

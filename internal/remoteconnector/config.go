@@ -58,6 +58,7 @@ type Config struct {
 	MeshControlSocket       string
 	DataWorkerPath          string
 	DataWorkerSocket        string
+	UseExistingDataWorker   bool
 	CredentialStore         CredentialStore
 	PrivateControllerDialer func(context.Context) (*grpc.ClientConn, error)
 	OnReady                 func()
@@ -119,17 +120,23 @@ func (config Config) validate() error {
 	if config.TrustSocket != "" && (!filepath.IsAbs(config.TrustSocket) || !filepath.IsAbs(config.TrustCapabilityFile)) {
 		return fmt.Errorf("trust socket and connector capability file must be absolute")
 	}
-	if (config.DataWorkerPath == "") != (config.DataWorkerSocket == "") {
+	if config.UseExistingDataWorker && config.DataWorkerPath != "" {
+		return fmt.Errorf("an existing data worker cannot also be started by the connector")
+	}
+	if !config.UseExistingDataWorker && (config.DataWorkerPath == "") != (config.DataWorkerSocket == "") {
 		return fmt.Errorf("data worker path and socket must be configured together")
+	}
+	if config.UseExistingDataWorker && !filepath.IsAbs(config.DataWorkerSocket) {
+		return fmt.Errorf("existing data worker socket must be absolute")
 	}
 	if config.DataWorkerPath != "" && (!filepath.IsAbs(config.DataWorkerPath) || !filepath.IsAbs(config.DataWorkerSocket)) {
 		return fmt.Errorf("data worker path and socket must be absolute")
 	}
-	if config.DataWorkerPath != "" && (!filepath.IsAbs(config.ServiceTunnelSocket) || !filepath.IsAbs(config.MeshControlSocket)) {
+	if (config.DataWorkerPath != "" || config.UseExistingDataWorker) && (!filepath.IsAbs(config.ServiceTunnelSocket) || !filepath.IsAbs(config.MeshControlSocket)) {
 		return fmt.Errorf("service and mesh-control sockets must be absolute when the data worker is configured")
 	}
 	if config.PrivateControllerDialer != nil {
-		if config.Endpoint != "" || config.EndpointIdentity != "" || config.CredentialStore != nil || config.TrustSocket != "" || config.DataWorkerPath != "" {
+		if config.Endpoint != "" || config.EndpointIdentity != "" || config.CredentialStore != nil || config.TrustSocket != "" || config.DataWorkerPath != "" || config.UseExistingDataWorker {
 			return fmt.Errorf("private controller transport cannot include external connector configuration")
 		}
 		return nil

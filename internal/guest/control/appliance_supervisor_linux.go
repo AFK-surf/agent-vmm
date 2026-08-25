@@ -20,6 +20,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -415,16 +416,14 @@ func cloneSystemIdentity(value *vmmdv1.SystemApplianceIdentity) *vmmdv1.SystemAp
 	if value == nil {
 		return nil
 	}
-	result := *value
-	result.BootNonce = append([]byte(nil), value.GetBootNonce()...)
-	return &result
+	return proto.Clone(value).(*vmmdv1.SystemApplianceIdentity)
 }
 
 func cloneSystemAppliance(value *vmmdv1.SystemAppliance) *vmmdv1.SystemAppliance {
-	result := *value
-	result.Identity = cloneSystemIdentity(value.GetIdentity())
-	result.BoundedLog = append([]byte(nil), value.GetBoundedLog()...)
-	return &result
+	if value == nil {
+		return nil
+	}
+	return proto.Clone(value).(*vmmdv1.SystemAppliance)
 }
 
 func boundedStatus(err error) []byte {

@@ -92,6 +92,7 @@ service OperatorService {
   rpc PreviewSupportBundle(PreviewSupportBundleRequest) returns (SupportBundlePreview);
   rpc ExportSupportBundle(ExportSupportBundleRequest) returns (OperationResponse);
   rpc BeginRemoteEnrollment(BeginRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
+  rpc ApplyManagedRemoteEnrollment(ApplyManagedRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
   rpc CompleteRemoteEnrollment(CompleteRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
   rpc FailRemoteEnrollment(FailRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
   rpc RetryRemoteEnrollment(RetryRemoteEnrollmentRequest) returns (RemoteRegistrationResponse);
@@ -1318,6 +1319,15 @@ message BeginRemoteEnrollmentRequest {
   string display_name = 3;
   string protocol_version = 4;
   RemotePoolPolicy pool = 5;
+  string registration_id = 6;
+  bytes trust_bundle = 7;
+  string scope_digest = 8;
+  uint64 source_policy_revision = 9;
+}
+
+message ApplyManagedRemoteEnrollmentRequest {
+  BeginRemoteEnrollmentRequest registration = 1;
+  bytes enrollment_token = 2;
 }
 
 message CompleteRemoteEnrollmentRequest {

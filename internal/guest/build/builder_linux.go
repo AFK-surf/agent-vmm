@@ -236,13 +236,9 @@ func (w *Workspace) Run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 	if info, err := os.Stat(dockerfile); err != nil || !info.Mode().IsRegular() {
 		return "", false, errors.New("Dockerfile is not a regular context file")
 	}
-	finished := make(chan struct{})
-	defer close(finished)
-	go func() {
-		select {
-		case <-ctx.Done():
+	defer func() {
+		if ctx.Err() != nil {
 			w.releaseActive()
-		case <-finished:
 		}
 	}()
 	select {
@@ -276,13 +272,9 @@ func (w *Workspace) RunArchive(ctx context.Context, limits *vmmdv1.NamespaceLimi
 	if info, err := os.Stat(dockerfile); err != nil || !info.Mode().IsRegular() {
 		return ArchiveResult{}, errors.New("Dockerfile is not a regular context file")
 	}
-	finished := make(chan struct{})
-	defer close(finished)
-	go func() {
-		select {
-		case <-ctx.Done():
+	defer func() {
+		if ctx.Err() != nil {
 			w.releaseActive()
-		case <-finished:
 		}
 	}()
 	select {

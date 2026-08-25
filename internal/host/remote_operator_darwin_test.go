@@ -1,0 +1,40 @@
+//go:build darwin
+
+package host
+
+import (
+	"testing"
+	"time"
+
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"google.golang.org/protobuf/types/known/durationpb"
+)
+
+func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) {
+	cpu, memory, pids, disk := uint32(1000), uint64(1<<30), uint32(128), uint64(2<<30)
+	managed := &hostv1.BeginRemoteEnrollmentRequest{
+		RegistrationId: "registration-1", Endpoint: "gateway.example.test:7443", DisplayName: "Managed",
+		ProtocolVersion: "1", TrustBundle: []byte("trust"), ScopeDigest: "scope", SourcePolicyRevision: 7,
+		Pool: &hostv1.RemotePoolPolicy{MaxEnvironments: 1,
+			AggregateLimits:      &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk},
+			PerEnvironmentLimits: &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk},
+			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseDuration: durationpb.New(time.Minute),
+			DisconnectGrace: durationpb.New(time.Second), StopGrace: durationpb.New(time.Second)},
+	}
+	stored := store.RemoteRegistration{ID: managed.RegistrationId, Endpoint: managed.Endpoint, DisplayName: managed.DisplayName,
+		ProtocolVersion: managed.ProtocolVersion, TrustBundle: append([]byte(nil), managed.TrustBundle...), ScopeDigest: managed.ScopeDigest,
+		SourcePolicyRevision: managed.SourcePolicyRevision, MaxEnvironments: 1, AggregateCPUMillis: cpu, AggregateMemoryBytes: memory,
+		AggregatePIDs: pids, AggregateDiskBytes: disk, PerEnvCPUMillis: cpu, PerEnvMemoryBytes: memory, PerEnvPIDs: pids,
+		PerEnvDiskBytes: disk, MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL), MaxLeaseSeconds: 60,
+		DisconnectGraceSeconds: 1, StopGraceSeconds: 1}
+	capacity := store.Environment{CPUMillis: cpu, MemoryBytes: memory, PIDs: pids, DiskBytes: disk}
+
+	if matches, err := managedRegistrationMatches(managed, stored, capacity); err != nil || !matches {
+		t.Fatalf("exact managed registration did not match: matches=%v err=%v", matches, err)
+	}
+	stored.TrustBundle = []byte("other")
+	if matches, err := managedRegistrationMatches(managed, stored, capacity); err != nil || matches {
+		t.Fatalf("trust drift was accepted: matches=%v err=%v", matches, err)
+	}
+}

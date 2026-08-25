@@ -5320,6 +5320,19 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "ApplyManagedRemoteEnrollment" metadata.
+        public enum ApplyManagedRemoteEnrollment: Sendable {
+            /// Request type for "ApplyManagedRemoteEnrollment".
+            public typealias Input = Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest
+            /// Response type for "ApplyManagedRemoteEnrollment".
+            public typealias Output = Agentvmm_Host_V1_RemoteRegistrationResponse
+            /// Descriptor for "ApplyManagedRemoteEnrollment".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "ApplyManagedRemoteEnrollment",
+                type: .unary
+            )
+        }
         /// Namespace for "CompleteRemoteEnrollment" metadata.
         public enum CompleteRemoteEnrollment: Sendable {
             /// Request type for "CompleteRemoteEnrollment".
@@ -5684,6 +5697,7 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             PreviewSupportBundle.descriptor,
             ExportSupportBundle.descriptor,
             BeginRemoteEnrollment.descriptor,
+            ApplyManagedRemoteEnrollment.descriptor,
             CompleteRemoteEnrollment.descriptor,
             FailRemoteEnrollment.descriptor,
             RetryRemoteEnrollment.descriptor,
@@ -6426,6 +6440,25 @@ extension Agentvmm_Host_V1_OperatorService {
         func beginRemoteEnrollment<Result>(
             request: GRPCCore.ClientRequest<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>,
             serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RemoteRegistrationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoteRegistrationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ApplyManagedRemoteEnrollment" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_RemoteRegistrationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func applyManagedRemoteEnrollment<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RemoteRegistrationResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoteRegistrationResponse>) async throws -> Result
@@ -8020,6 +8053,36 @@ extension Agentvmm_Host_V1_OperatorService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_OperatorService.Method.BeginRemoteEnrollment.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ApplyManagedRemoteEnrollment" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_RemoteRegistrationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func applyManagedRemoteEnrollment<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RemoteRegistrationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoteRegistrationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ApplyManagedRemoteEnrollment.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -9695,6 +9758,31 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         try await self.beginRemoteEnrollment(
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_RemoteRegistrationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ApplyManagedRemoteEnrollment" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func applyManagedRemoteEnrollment<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoteRegistrationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.applyManagedRemoteEnrollment(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_RemoteRegistrationResponse>(),
             options: options,
             onResponse: handleResponse
@@ -11391,6 +11479,35 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             metadata: metadata
         )
         return try await self.beginRemoteEnrollment(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ApplyManagedRemoteEnrollment" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func applyManagedRemoteEnrollment<Result>(
+        _ message: Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoteRegistrationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.applyManagedRemoteEnrollment(
             request: request,
             options: options,
             onResponse: handleResponse

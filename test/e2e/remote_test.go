@@ -348,7 +348,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	pool := &hostv1.RemotePoolPolicy{MaxEnvironments: 2, AggregateLimits: remoteLimits(1000, 2<<30, 512, 4<<30), PerEnvironmentLimits: remoteLimits(500, 1<<30, 256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseDuration: durationpb.New(5 * time.Minute), DisconnectGrace: durationpb.New(30 * time.Second), StopGrace: durationpb.New(2 * time.Second)}
-	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", RegistrationId: "registration-remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
 		controller := &isolatedDomainController{session: make(chan net.Conn, 1), finish: make(chan struct{}), cleaned: make(chan struct{})}
 		endpoint, roots, stopServer := startRemoteController(t, controller)
 		requestID := "three-domain-" + strconv.Itoa(index)
-		registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, Endpoint: endpoint, DisplayName: requestID, ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+		registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, RegistrationId: "registration-" + requestID, Endpoint: endpoint, DisplayName: requestID, ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
 		if err != nil {
 			t.Fatal(err)
 		}

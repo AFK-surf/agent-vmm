@@ -42,15 +42,14 @@ type LifecycleRequest struct {
 }
 
 // LifecycleFacts are observations from the local operator/appliance boundary.
-// SalixReady is deliberately an independent fact. HostHealthy,
-// ApplianceHealthy, ControllerActive, and InventoryComplete must not be
-// combined by this helper to manufacture readiness.
+// RemoteAttached means the exact managed registration is enrolled and its
+// connector is connected. It is not Salix admission or product Node readiness.
 type LifecycleFacts struct {
 	HostHealthy       bool
 	ApplianceHealthy  bool
 	ControllerActive  bool
 	InventoryComplete bool
-	SalixReady        bool
+	RemoteAttached    bool
 }
 
 // LifecycleAdapter is the provider-neutral seam. Implementations must honor
@@ -117,7 +116,7 @@ func (coordinator *LifecycleCoordinator) Run(ctx context.Context, action Lifecyc
 	if err != nil {
 		return err
 	}
-	if !facts.SalixReady {
+	if !facts.RemoteAttached {
 		return fmt.Errorf("%w: hostHealthy=%t applianceHealthy=%t controllerActive=%t inventoryComplete=%t",
 			ErrCoordinatorNotReady, facts.HostHealthy, facts.ApplianceHealthy, facts.ControllerActive, facts.InventoryComplete)
 	}
@@ -292,7 +291,7 @@ func (adapter *helperLifecycleAdapter) Observe(ctx context.Context, request Life
 		ApplianceHealthy:  status.ApplianceHealthy,
 		ControllerActive:  status.ControllerActive,
 		InventoryComplete: status.InventoryComplete,
-		SalixReady:        status.SalixReady,
+		RemoteAttached:    false,
 	}, nil
 }
 

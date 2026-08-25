@@ -275,15 +275,20 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if firstRace.err != nil && firstRace.kind == "drain" || secondRace.err != nil && secondRace.kind == "drain" {
 		t.Fatalf("drain failed during race: first=%v second=%v", firstRace.err, secondRace.err)
 	}
-	if firstRace.kind == "drain" && secondRace.kind == "lease" && secondRace.err == nil {
-		t.Fatal("lease was admitted after drain returned")
-	}
+	// The two RPCs are concurrent. Channel delivery order is not the
+	// linearization order: a lease may commit first and its goroutine may be
+	// descheduled before publishing the result while drain commits second.
+	// Such a lease is valid. The durable assertion is that, after both calls
+	// return, admission is drained and no later lease can be acquired.
 	for _, result := range []admissionResult{firstRace, secondRace} {
 		if result.kind == "lease" && result.err == nil {
 			if _, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: result.lease.GetLeaseId(), Generation: result.lease.GetGeneration()}); err != nil {
 				t.Fatalf("raced lease release failed: %v", err)
 			}
 		}
+	}
+	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("lease was admitted after concurrent drain settled: %v", err)
 	}
 	if _, err := client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{
 		RegistrationId:     registration.ID,

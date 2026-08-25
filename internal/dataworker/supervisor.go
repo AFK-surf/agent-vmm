@@ -32,6 +32,15 @@ type Supervisor struct {
 	done    chan error
 }
 
+// Attach returns a control client for a data worker supervised by another
+// composition root. The returned value must not be closed by the caller.
+func Attach(socket string) (*Supervisor, error) {
+	if !filepath.IsAbs(socket) {
+		return nil, fmt.Errorf("data worker socket must be absolute")
+	}
+	return &Supervisor{socket: socket}, nil
+}
+
 func Start(ctx context.Context, binary, socket, serviceSocket, meshControlSocket, serviceCapabilityFile string) (*Supervisor, error) {
 	if !filepath.IsAbs(binary) || !filepath.IsAbs(socket) || !filepath.IsAbs(serviceSocket) || !filepath.IsAbs(meshControlSocket) || !filepath.IsAbs(serviceCapabilityFile) {
 		return nil, fmt.Errorf("data worker binary, control socket, service/mesh sockets, and capability file must be absolute")

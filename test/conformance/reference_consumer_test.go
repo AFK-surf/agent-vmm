@@ -101,7 +101,10 @@ func TestReferenceConsumerHasNoProductWorkerIdentity(t *testing.T) {
 		"cmd/agent-vmm-reference-appliance/main.go",
 		"cmd/agent-vmm-reference-appliance/controller.go",
 		"api/remote/v1/remote.proto",
-		"spec/tla/ControllerDomainControl.tla",
+		"spec/tla/ControllerAllocationLifecycle.tla",
+		"spec/tla/AggregateAdmission.tla",
+		"spec/tla/DomainAuthorityIsolation.tla",
+		"spec/tla/SystemInventorySeparation.tla",
 	}
 	forbidden := regexp.MustCompile(`(?i)(salix|agentd|worker[_ -]?(id|identity|lifecycle)|executor[_ -]?(id|identity|lifecycle))`)
 	for _, path := range paths {
@@ -115,14 +118,14 @@ func TestReferenceConsumerHasNoProductWorkerIdentity(t *testing.T) {
 	}
 }
 
-func TestControllerDomainModelWiring(t *testing.T) {
+func TestControllerModelsAreSeparatedAndWired(t *testing.T) {
 	repository := filepath.Join("..", "..")
-	modelBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", "ControllerDomainControl.tla"))
+	modelBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", "ControllerAllocationLifecycle.tla"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	model := string(modelBytes)
-	for _, anchor := range []string{"DomainSum(domains, values)", "Allocate(d, expectedEpoch, expectedSequence)", "InventoryMutation(d)", "InventoryEventuallyResettled ==", "CommandFenceExact =="} {
+	for _, anchor := range []string{"Allocate(expectedEpoch, expectedSequence)", "InventoryMutation ==", "DeleteAllocation ==", "OpenSession ==", "Disconnect ==", "InventoryEventuallyResettled ==", "CommandFenceExact ==", "CapabilityRequiresCurrentLease =="} {
 		if !strings.Contains(model, anchor) {
 			t.Errorf("controller model is missing %q", anchor)
 		}
@@ -131,16 +134,33 @@ func TestControllerDomainModelWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(runnerBytes), "ControllerDomainControlSequenceNegative CommandFenceExact Allocate") {
+	if !strings.Contains(string(runnerBytes), "ControllerAllocationLifecycleSequenceNegative CommandFenceExact Allocate") {
 		t.Error("TLC runner does not execute the stale command-fence counterexample")
 	}
-	for _, config := range []string{"ControllerDomainControl.cfg", "ControllerDomainControlSequenceNegative.cfg"} {
+	for _, counterexample := range []string{
+		"ControllerAllocationLifecycleAdmissionNegative NoAllocationWithoutAdmission Allocate",
+		"ControllerAllocationLifecycleDeleteLeaseNegative LeaseBlocksDelete DeleteAllocation",
+		"ControllerAllocationLifecycleSessionNegative SingleCurrentCapability OpenSession",
+		"ControllerAllocationLifecycleRevokeNegative RevokeIsTerminal Allocate",
+	} {
+		if !strings.Contains(string(runnerBytes), counterexample) {
+			t.Errorf("TLC runner does not execute coupled counterexample %q", counterexample)
+		}
+	}
+	for _, config := range []string{"ControllerAllocationLifecycle.cfg", "ControllerAllocationLifecycleSequenceNegative.cfg"} {
 		configBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", config))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(configBytes), "Domains = {a, b, c}") || !strings.Contains(string(configBytes), "EnforceCommandFence") {
-			t.Errorf("%s does not configure the bounded three-domain command fence", config)
+		if !strings.Contains(string(configBytes), "MaxRevision = 6") || !strings.Contains(string(configBytes), "EnforceCommandFence") || strings.Contains(string(configBytes), "Domains") {
+			t.Errorf("%s does not configure the bounded single-controller command fence", config)
 		}
+	}
+	admissionBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", "AggregateAdmission.cfg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(admissionBytes), "Domains = {a, b, c}") {
+		t.Error("aggregate admission model does not retain the bounded three-domain instance")
 	}
 }

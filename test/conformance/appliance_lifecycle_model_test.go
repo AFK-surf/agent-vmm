@@ -14,12 +14,14 @@ import (
 type applianceLifecycleModelFixture struct {
 	Actions []struct {
 		Name      string   `json:"name"`
+		Model     string   `json:"model"`
 		Owner     string   `json:"owner"`
 		Tokens    []string `json:"tokens"`
 		Functions []string `json:"functions"`
 	} `json:"actions"`
 	NegativeConfigs []struct {
 		Config    string `json:"config"`
+		Model     string `json:"model"`
 		Invariant string `json:"invariant"`
 	} `json:"negative_configs"`
 }
@@ -35,14 +37,22 @@ func TestApplianceLifecycleModelAnchors(t *testing.T) {
 	}
 
 	repositoryRoot := filepath.Join("..", "..")
-	specData, err := os.ReadFile(filepath.Join(repositoryRoot, "spec", "tla", "ApplianceLifecycle.tla"))
-	if err != nil {
-		t.Fatal(err)
+	models := make(map[string]string)
+	loadModel := func(name string) string {
+		t.Helper()
+		if model, ok := models[name]; ok {
+			return model
+		}
+		data, readErr := os.ReadFile(filepath.Join(repositoryRoot, "spec", "tla", name+".tla"))
+		if readErr != nil {
+			t.Fatalf("model %q: %v", name, readErr)
+		}
+		models[name] = string(data)
+		return models[name]
 	}
-	spec := string(specData)
 	for _, action := range fixture.Actions {
-		if !strings.Contains(spec, action.Name+"(i) ==") {
-			t.Errorf("model action %q is missing", action.Name)
+		if !strings.Contains(loadModel(action.Model), action.Name+" ==") {
+			t.Errorf("model %q action %q is missing", action.Model, action.Name)
 		}
 		ownerData, err := os.ReadFile(filepath.Join(repositoryRoot, action.Owner))
 		if err != nil {
@@ -92,10 +102,10 @@ func TestApplianceLifecycleModelAnchors(t *testing.T) {
 		if !strings.Contains(config, "INVARIANT "+negative.Invariant) {
 			t.Errorf("negative config %q does not name invariant %q", negative.Config, negative.Invariant)
 		}
-		if !strings.Contains(spec, negative.Invariant+" ==") {
-			t.Errorf("named invariant %q is missing", negative.Invariant)
+		if !strings.Contains(loadModel(negative.Model), negative.Invariant+" ==") {
+			t.Errorf("model %q invariant %q is missing", negative.Model, negative.Invariant)
 		}
-		if !strings.Contains(runner, "run_negative ApplianceLifecycle "+negative.Config+" "+negative.Invariant) {
+		if !strings.Contains(runner, "run_negative "+negative.Model+" "+negative.Config+" "+negative.Invariant) {
 			t.Errorf("runner does not verify %q against %q", negative.Config, negative.Invariant)
 		}
 	}

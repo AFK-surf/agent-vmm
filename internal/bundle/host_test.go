@@ -52,6 +52,25 @@ func TestValidateHostAppRejectsUIAndDebugPayload(t *testing.T) {
 			},
 		},
 		{
+			name: "missing release identity",
+			mutate: func(directory string) {
+				data, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var inventory ReleaseInventory
+				if err := json.Unmarshal(data, &inventory); err != nil {
+					t.Fatal(err)
+				}
+				inventory.ReleaseID = ""
+				data, err = json.Marshal(inventory)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeHostFile(t, filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)), string(data), 0o644)
+			},
+		},
+		{
 			name: "invalid test identity",
 			mutate: func(directory string) {
 				data, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)))
@@ -126,7 +145,7 @@ func hostFixture(t *testing.T, identity ReleaseIdentity) string {
 	}
 	inventory := ReleaseInventory{
 		SchemaVersion: 1, Component: "agent-vmm-host-runtime", Product: "Agent VMM Host",
-		BundleName: HostAppName, BundleIdentifier: HostBundleIdentifier, Identity: identity,
+		BundleName: HostAppName, BundleIdentifier: HostBundleIdentifier, ReleaseID: "agent-vmm-host-test", Identity: identity,
 		Layout: HostLayout{
 			MainExecutable: HostExecutableRelativePath,
 			Helpers:        []string{HostDataHelperRelativePath, HostLifecycleHelperRelativePath},

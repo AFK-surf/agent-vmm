@@ -66,6 +66,11 @@ func (server *operatorServer) StartVM(ctx context.Context, request *hostv1.Start
 		server.controller.failOperation(ctx, &operation, "POLICY_RECONCILE_FAILED", err)
 		return nil, retryable("POLICY_RECONCILE_FAILED", "VM started but policy projection failed", time.Second)
 	}
+	if err := server.controller.ReconcileExternalConnectors(ctx); err != nil {
+		server.controller.rollbackStartedVM()
+		server.controller.failOperation(ctx, &operation, "EXTERNAL_CONNECTOR_RECONCILE_FAILED", err)
+		return nil, retryable("EXTERNAL_CONNECTOR_RECONCILE_FAILED", "VM started but external connectors could not be reconciled", time.Second)
+	}
 	server.controller.completeOperation(ctx, &operation, "running")
 	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 }

@@ -48,6 +48,7 @@ type ReleaseInventory struct {
 	Product          string          `json:"product"`
 	BundleName       string          `json:"bundle_name"`
 	BundleIdentifier string          `json:"bundle_identifier"`
+	ReleaseID        string          `json:"release_id"`
 	Identity         ReleaseIdentity `json:"identity"`
 	Layout           HostLayout      `json:"layout"`
 	UI               HostUI          `json:"ui"`
@@ -157,7 +158,7 @@ func ValidateHostApp(directory string) (*ReleaseInventory, error) {
 
 func validateInventory(inventory ReleaseInventory) error {
 	if inventory.SchemaVersion != 1 || inventory.Component != "agent-vmm-host-runtime" || inventory.Product != "Agent VMM Host" ||
-		inventory.BundleName != HostAppName || inventory.BundleIdentifier != HostBundleIdentifier {
+		inventory.BundleName != HostAppName || inventory.BundleIdentifier != HostBundleIdentifier || inventory.ReleaseID == "" {
 		return errors.New("host release inventory identity is invalid")
 	}
 	if inventory.Identity.Profile == "test" {
