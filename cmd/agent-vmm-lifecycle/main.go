@@ -66,6 +66,8 @@ func managedInstallSecretDisposition(err error) string {
 var releaseID = version
 var targetRevision = "0"
 
+var errLaunchctlServiceNotFound = errors.New("launchctl service not found")
+
 type paths struct {
 	home            string
 	app             string
@@ -866,7 +868,7 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 			continue
 		}
 		if _, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID}); err != nil {
-			return errors.New("Agent VMM VM could not be started")
+			return fmt.Errorf("Agent VMM VM could not be started: %w", err)
 		}
 		for {
 			snapshot, snapshotErr := operator.GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})
@@ -934,12 +936,20 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 			return errors.New("service definition could not be installed")
 		}
 	}
-	_ = run(ctx, "bootout", domain()+"/"+hostLabel)
+	if err := stopHostService(ctx, run); err != nil {
+		return fmt.Errorf("host service could not be stopped before reload: %w", err)
+	}
 	if err := run(ctx, "bootstrap", domain(), value.hostPlist); err != nil {
-		return errors.New("host service could not be loaded")
+		if contextErr := ctx.Err(); contextErr != nil {
+			return fmt.Errorf("host service load was interrupted: %w", contextErr)
+		}
+		return fmt.Errorf("host service could not be loaded: %w", err)
 	}
 	if err := run(ctx, "enable", domain()+"/"+hostLabel); err != nil {
-		return errors.New("host service could not be enabled")
+		if contextErr := ctx.Err(); contextErr != nil {
+			return fmt.Errorf("host service enable was interrupted: %w", contextErr)
+		}
+		return fmt.Errorf("host service could not be enabled: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -971,8 +981,8 @@ func drainWithContext(ctx context.Context, value paths, run func(context.Context
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := run(ctx, "bootout", domain()+"/"+hostLabel); err != nil && regular(value.hostPlist) {
-		return errors.New("host service could not be drained")
+	if err := stopHostService(ctx, run); err != nil {
+		return fmt.Errorf("host service could not be drained: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -990,7 +1000,9 @@ func uninstallWithContext(ctx context.Context, value paths, purge bool, run func
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_ = run(ctx, "bootout", domain()+"/"+hostLabel)
+	if err := stopHostService(ctx, run); err != nil {
+		return fmt.Errorf("host service could not be stopped before uninstall: %w", err)
+	}
 	if err := os.Remove(value.hostPlist); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return errors.New("host service definition could not be removed")
 	}
@@ -1042,9 +1054,66 @@ func launchctl(arguments ...string) error {
 
 func launchctlContext(ctx context.Context, arguments ...string) error {
 	command := exec.CommandContext(ctx, "/bin/launchctl", arguments...)
-	command.Stdout = nil
-	command.Stderr = nil
-	return command.Run()
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	message := strings.TrimSpace(string(output))
+	if contextErr := ctx.Err(); contextErr != nil {
+		return fmt.Errorf("launchctl %s was interrupted: %w", arguments[0], contextErr)
+	}
+	if arguments[0] == "print" && strings.Contains(message, "Could not find service") {
+		return fmt.Errorf("%w: %s", errLaunchctlServiceNotFound, message)
+	}
+	if message == "" {
+		return fmt.Errorf("launchctl %s failed: %w", arguments[0], err)
+	}
+	return fmt.Errorf("launchctl %s failed: %w: %s", arguments[0], err, message)
+}
+
+func stopHostService(ctx context.Context, run func(context.Context, ...string) error) error {
+	target := domain() + "/" + hostLabel
+	bootoutErr := run(ctx, "bootout", target)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := run(ctx, "print", target); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+		if errors.Is(err, errLaunchctlServiceNotFound) {
+			return nil
+		}
+		return fmt.Errorf("host service status could not be read: %w", err)
+	}
+	if bootoutErr != nil {
+		return fmt.Errorf("launchctl bootout failed while the host service remains loaded: %w", bootoutErr)
+	}
+	return waitForHostServiceRemoval(ctx, run)
+}
+
+func waitForHostServiceRemoval(ctx context.Context, run func(context.Context, ...string) error) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		if err := waitCtx.Err(); err != nil {
+			return fmt.Errorf("host service did not finish stopping: %w", err)
+		}
+		if err := run(waitCtx, "print", domain()+"/"+hostLabel); err != nil {
+			if waitCtx.Err() != nil {
+				return fmt.Errorf("host service did not finish stopping: %w", waitCtx.Err())
+			}
+			if errors.Is(err, errLaunchctlServiceNotFound) {
+				return nil
+			}
+			return fmt.Errorf("host service status could not be read: %w", err)
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("host service did not finish stopping: %w", waitCtx.Err())
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 func domain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }

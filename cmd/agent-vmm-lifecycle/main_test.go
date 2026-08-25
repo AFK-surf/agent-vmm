@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,13 +56,19 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	var commands []string
-	if err := repairWith(value, func(arguments ...string) error { commands = append(commands, strings.Join(arguments, " ")); return nil }); err != nil {
+	if err := repairWith(value, func(arguments ...string) error {
+		commands = append(commands, strings.Join(arguments, " "))
+		if arguments[0] == "print" {
+			return errLaunchctlServiceNotFound
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if !regular(value.hostPlist) {
 		t.Fatal("service definitions were not installed")
 	}
-	want := []string{"bootout", "bootstrap", "enable"}
+	want := []string{"bootout", "print", "bootstrap", "enable"}
 	if len(commands) != len(want) {
 		t.Fatalf("commands=%v", commands)
 	}
@@ -69,6 +76,66 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 		if !strings.HasPrefix(commands[index], prefix) {
 			t.Fatalf("commands[%d]=%q", index, commands[index])
 		}
+	}
+}
+
+func TestRepairWaitsForBootoutToConvergeBeforeBootstrap(t *testing.T) {
+	root := t.TempDir()
+	value := testPaths(root)
+	if err := os.MkdirAll(value.resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte("<plist/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	prints := 0
+	err := repairWith(value, func(arguments ...string) error {
+		commands = append(commands, arguments[0])
+		if arguments[0] == "print" {
+			prints++
+			if prints >= 3 {
+				return errLaunchctlServiceNotFound
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(commands, ","); got != "bootout,print,print,print,bootstrap,enable" {
+		t.Fatalf("launchctl order=%s", got)
+	}
+}
+
+func TestRepairFailsWhenBootoutFailsAndTheOldServiceRemainsLoaded(t *testing.T) {
+	root := t.TempDir()
+	value := testPaths(root)
+	if err := os.MkdirAll(value.resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte("<plist/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	err := repairWith(value, func(arguments ...string) error {
+		commands = append(commands, arguments[0])
+		if arguments[0] == "bootout" {
+			return errors.New("operation already in progress")
+		}
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "remains loaded") {
+		t.Fatalf("repair error=%v", err)
+	}
+	if got := strings.Join(commands, ","); got != "bootout,print" {
+		t.Fatalf("launchctl order=%s", got)
 	}
 }
 
@@ -87,7 +154,13 @@ func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
 				}
 			}
 			var commands []string
-			if err := uninstallWith(value, purge, func(arguments ...string) error { commands = append(commands, strings.Join(arguments, " ")); return nil }); err != nil {
+			if err := uninstallWith(value, purge, func(arguments ...string) error {
+				commands = append(commands, strings.Join(arguments, " "))
+				if arguments[0] == "print" {
+					return errLaunchctlServiceNotFound
+				}
+				return nil
+			}); err != nil {
 				t.Fatal(err)
 			}
 			if directory(value.app) || regular(value.hostPlist) {
@@ -96,8 +169,99 @@ func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
 			if directory(value.applicationData) == purge || directory(value.logs) == purge {
 				t.Fatalf("purge=%v data existence is wrong", purge)
 			}
-			if len(commands) != 1 || !strings.HasPrefix(commands[0], "bootout") {
+			if len(commands) != 2 || !strings.HasPrefix(commands[0], "bootout") || !strings.HasPrefix(commands[1], "print") {
 				t.Fatalf("commands=%v", commands)
+			}
+		})
+	}
+}
+
+func TestUninstallKeepsFilesWhenTheRunningServiceCannotBeStopped(t *testing.T) {
+	value := testPaths(t.TempDir())
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(value.hostPlist, []byte("plist"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := uninstallWith(value, false, func(arguments ...string) error {
+		if arguments[0] == "bootout" {
+			return errors.New("operation already in progress")
+		}
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "remains loaded") {
+		t.Fatalf("uninstall error=%v", err)
+	}
+	if !directory(value.app) || !regular(value.hostPlist) {
+		t.Fatal("uninstall removed files while the host service was still loaded")
+	}
+}
+
+func TestUninstallKeepsFilesWhenServiceStatusCannotBeRead(t *testing.T) {
+	value := testPaths(t.TempDir())
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(value.hostPlist, []byte("plist"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := uninstallWith(value, false, func(arguments ...string) error {
+		return errors.New("launchd communication failed")
+	})
+	if err == nil || !strings.Contains(err.Error(), "status could not be read") {
+		t.Fatalf("uninstall error=%v", err)
+	}
+	if !directory(value.app) || !regular(value.hostPlist) {
+		t.Fatal("uninstall removed files without proving the host service stopped")
+	}
+}
+
+func TestStopHostServicePreservesDeadlineExceeded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	err := stopHostService(ctx, func(_ context.Context, _ ...string) error { return nil })
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stop error=%v", err)
+	}
+}
+
+func TestRepairPreservesContextCancellationDuringLaunchctlSteps(t *testing.T) {
+	for _, interrupted := range []string{"bootstrap", "enable"} {
+		t.Run(interrupted, func(t *testing.T) {
+			value := testPaths(t.TempDir())
+			if err := os.MkdirAll(value.resources, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte("<plist/>"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(value.app, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+			defer cancel()
+			err := repairWithOptionsContext(ctx, value, func(ctx context.Context, arguments ...string) error {
+				switch arguments[0] {
+				case "bootout":
+					return errLaunchctlServiceNotFound
+				case "print":
+					return errLaunchctlServiceNotFound
+				case interrupted:
+					<-ctx.Done()
+					return errors.New("launchctl was killed")
+				default:
+					return nil
+				}
+			}, false)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("repair error=%v", err)
 			}
 		})
 	}
@@ -116,11 +280,14 @@ func TestDrainStopsHost(t *testing.T) {
 	var commands []string
 	if err := drainWith(value, func(arguments ...string) error {
 		commands = append(commands, strings.Join(arguments, " "))
+		if arguments[0] == "print" {
+			return errLaunchctlServiceNotFound
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 1 || !strings.Contains(commands[0], hostLabel) {
+	if len(commands) != 2 || !strings.Contains(commands[0], hostLabel) || !strings.HasPrefix(commands[1], "print") {
 		t.Fatalf("drain order=%v", commands)
 	}
 }
