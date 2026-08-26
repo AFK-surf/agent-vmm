@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	managedInstallPlatform = func() (string, error) { return "darwin-arm64", nil }
+	os.Exit(m.Run())
+}
+
 func TestDecodeInstallDescriptorRequiresExactHTTPSExchangeRoute(t *testing.T) {
 	expiresAt := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
 	valid := `{"version":1,"operation_id":"operation-1","exchange_url":"https://teams.example.test/v1/compute/agent-vmm/install-tickets/exchange","one_time_secret":"secret","expires_at":"` + expiresAt + `"}`
@@ -28,6 +33,35 @@ func TestDecodeInstallDescriptorRequiresExactHTTPSExchangeRoute(t *testing.T) {
 	}
 	if _, err := decodeInstallDescriptor(strings.NewReader(valid + `{}`)); err == nil {
 		t.Fatal("descriptor with trailing JSON was accepted")
+	}
+}
+
+func TestManagedInstallExchangeRequestReportsLocallyDetectedPlatform(t *testing.T) {
+	previousPlatform := managedInstallPlatform
+	managedInstallPlatform = func() (string, error) { return "darwin-arm64", nil }
+	t.Cleanup(func() { managedInstallPlatform = previousPlatform })
+
+	body, err := managedInstallExchangeRequest("operation-1", "device-1", []byte("root-key"), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request map[string]any
+	if json.Unmarshal(body, &request) != nil || request["version"] != float64(2) || request["platform"] != "darwin-arm64" ||
+		request["operation_id"] != "operation-1" || request["device_id"] != "device-1" ||
+		request["root_public_key"] != base64.StdEncoding.EncodeToString([]byte("root-key")) ||
+		request["root_key_revision"] != float64(3) {
+		t.Fatalf("exchange request = %#v", request)
+	}
+}
+
+func TestManagedInstallPlatformSupportsOnlyPublishedHostArtifacts(t *testing.T) {
+	if platform, err := managedInstallPlatformFor("darwin", "arm64"); err != nil || platform != "darwin-arm64" {
+		t.Fatalf("darwin arm64 platform = %q, %v", platform, err)
+	}
+	for _, tuple := range [][2]string{{"darwin", "amd64"}, {"linux", "arm64"}} {
+		if platform, err := managedInstallPlatformFor(tuple[0], tuple[1]); err == nil || platform != "" {
+			t.Fatalf("unsupported platform %s-%s = %q, %v", tuple[0], tuple[1], platform, err)
+		}
 	}
 }
 
@@ -114,7 +148,11 @@ func validTestInstallMaterial() installMaterial {
 	digest := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	return installMaterial{
 		Version: 1, OperationID: "operation-1", RegistrationID: "registration-1", ScopeDigest: digest,
-		HostRelease: hostReleaseMaterial{ReleaseID: "release-1", TargetRevision: 7},
+		HostRelease: hostReleaseMaterial{
+			ComponentReleaseID: "release-1",
+			Platform:           "darwin-arm64",
+			TargetRevision:     7,
+		},
 		Appliance: applianceMaterial{InstallationID: "installation-1",
 			Manifest: base64.StdEncoding.EncodeToString([]byte("manifest")), PublisherSignature: base64.StdEncoding.EncodeToString([]byte("signature")),
 			ApprovedGrant: base64.StdEncoding.EncodeToString([]byte("grant")), BootstrapSeed: base64.StdEncoding.EncodeToString([]byte("seed"))},

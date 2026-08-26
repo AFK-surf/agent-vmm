@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ const installDescriptorMaxBytes = 4096
 var operationIDPattern = regexp.MustCompile(`\A[A-Za-z0-9_-]{1,128}\z`)
 var installHTTPClient = &http.Client{Timeout: 20 * time.Second}
 var errManagedInstallPlanUnavailable = errors.New("managed install plan is unavailable")
+var managedInstallPlatform = currentManagedInstallPlatform
 
 type installDescriptor struct {
 	Version       int    `json:"version"`
@@ -37,11 +39,11 @@ type installDescriptor struct {
 }
 
 type hostReleaseMaterial struct {
-	ArtifactURL    string `json:"artifact_url"`
-	Digest         string `json:"digest"`
-	ReleaseID      string `json:"release_id"`
-	Signature      string `json:"signature"`
-	TargetRevision uint64 `json:"target_revision"`
+	ArtifactURL        string `json:"artifact_url"`
+	Digest             string `json:"digest"`
+	ComponentReleaseID string `json:"component_release_id"`
+	Platform           string `json:"platform"`
+	TargetRevision     uint64 `json:"target_revision"`
 }
 
 type applianceMaterial struct {
@@ -105,6 +107,7 @@ type completedInstallReceipt struct {
 	InstallationID    string `json:"installation_id"`
 	MaterialDigest    string `json:"material_digest"`
 	HostReleaseID     string `json:"host_release_id"`
+	HostPlatform      string `json:"host_platform"`
 	HostReleaseDigest string `json:"host_release_digest"`
 }
 
@@ -241,8 +244,15 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 		return errors.New("Agent VMM device identity is not ready")
 	}
 	identity := identityResponse.GetIdentity()
-	requestBody, _ := json.Marshal(map[string]any{"version": 1, "operation_id": adapter.descriptor.OperationID, "device_id": identity.GetDeviceId(),
-		"root_public_key": base64.StdEncoding.EncodeToString(identity.GetRootPublicKey()), "root_key_revision": identity.GetRootKeyRevision()})
+	requestBody, err := managedInstallExchangeRequest(
+		adapter.descriptor.OperationID,
+		identity.GetDeviceId(),
+		identity.GetRootPublicKey(),
+		identity.GetRootKeyRevision(),
+	)
+	if err != nil {
+		return terminalManagedInstallError(err)
+	}
 	material, err := exchangeInstallMaterial(ctx, *adapter.descriptor, requestBody)
 	if err != nil {
 		return err
@@ -275,6 +285,17 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 	adapter.configPath = configPath
 	adapter.deadlineUnixMillis = deadlineUnixMillis
 	return nil
+}
+
+func managedInstallExchangeRequest(operationID, deviceID string, rootPublicKey []byte, rootKeyRevision uint64) ([]byte, error) {
+	platform, err := managedInstallPlatform()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{
+		"version": 2, "operation_id": operationID, "platform": platform, "device_id": deviceID,
+		"root_public_key": base64.StdEncoding.EncodeToString(rootPublicKey), "root_key_revision": rootKeyRevision,
+	})
 }
 
 func validPersistedAckDescriptor(descriptor *installDescriptor, operationID string) bool {
@@ -356,8 +377,10 @@ func retryableInstallTicketStatus(status int) bool {
 
 func validateInstallMaterial(material installMaterial, descriptor installDescriptor) error {
 	revision, err := strconv.ParseUint(targetRevision, 10, 64)
+	platform, platformErr := managedInstallPlatform()
 	if err != nil || material.Version != 1 || material.OperationID != descriptor.OperationID || !operationIDPattern.MatchString(material.RegistrationID) ||
-		material.HostRelease.ReleaseID != releaseID || material.HostRelease.TargetRevision != revision {
+		platformErr != nil || material.HostRelease.ComponentReleaseID != releaseID ||
+		material.HostRelease.Platform != platform || material.HostRelease.TargetRevision != revision {
 		return errors.New("install material identity or Host release does not match this helper")
 	}
 	for name, value := range map[string]string{"scope_digest": material.ScopeDigest, "material_digest": material.MaterialDigest, "host_identity_digest": material.HostIdentityDigest} {
@@ -370,6 +393,17 @@ func validateInstallMaterial(material installMaterial, descriptor installDescrip
 		return errors.New("install material remote enrollment policy is incomplete")
 	}
 	return nil
+}
+
+func currentManagedInstallPlatform() (string, error) {
+	return managedInstallPlatformFor(runtime.GOOS, runtime.GOARCH)
+}
+
+func managedInstallPlatformFor(goos, goarch string) (string, error) {
+	if goos == "darwin" && goarch == "arm64" {
+		return "darwin-arm64", nil
+	}
+	return "", fmt.Errorf("unsupported managed install platform %s-%s", goos, goarch)
 }
 
 func persistInstallMaterial(directory string, material installMaterial, deadlineUnixMillis int64, acknowledged bool, descriptors ...*installDescriptor) (string, error) {
@@ -550,7 +584,8 @@ func persistCompletedInstall(value paths, adapter *productionLifecycleAdapter) e
 		RegistrationID:    material.RegistrationID,
 		InstallationID:    material.Appliance.InstallationID,
 		MaterialDigest:    material.MaterialDigest,
-		HostReleaseID:     material.HostRelease.ReleaseID,
+		HostReleaseID:     material.HostRelease.ComponentReleaseID,
+		HostPlatform:      material.HostRelease.Platform,
 		HostReleaseDigest: material.HostRelease.Digest,
 	}
 	if !validCompletedInstallReceipt(receipt, material.OperationID) {
@@ -587,6 +622,7 @@ func validCompletedInstallReceipt(receipt completedInstallReceipt, operationID s
 	return receipt.Version == 1 && receipt.OperationID == operationID &&
 		operationIDPattern.MatchString(operationID) && operationIDPattern.MatchString(receipt.RegistrationID) &&
 		receipt.InstallationID != "" && len(receipt.InstallationID) <= 160 &&
-		receipt.HostReleaseID == releaseID && receipt.HostReleaseDigest != "" &&
+		receipt.HostReleaseID == releaseID && receipt.HostPlatform == "darwin-arm64" &&
+		receipt.HostReleaseDigest != "" &&
 		materialErr == nil && len(materialDigest) == 32
 }
