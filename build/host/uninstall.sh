@@ -1,21 +1,32 @@
 #!/bin/sh
 set -eu
 
-user_home=$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory | awk '{print $2}')
+repo=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+payload=${OUTPUT_DIRECTORY:-"$repo/dist"}
+service_type=auto
+service_user=$(id -un)
+purge=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--service-type) service_type=${2:-}; shift 2 ;;
+		--service-user) service_user=${2:-}; shift 2 ;;
+		--purge) purge=--purge; shift ;;
+		*) echo "usage: uninstall.sh [--service-type agent|daemon|auto] [--service-user USER] [--purge]" >&2; exit 1 ;;
+	esac
+done
+user_home=$(dscl . -read "/Users/$service_user" NFSHomeDirectory | awk '{print $2}')
 case "$user_home" in
   /*) ;;
   *) echo "cannot resolve the user home directory" >&2; exit 1 ;;
 esac
 test "$user_home" != "/"
 app="$user_home/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app"
-plist="$user_home/Library/LaunchAgents/com.afk-surf.agent-vmm-host.plist"
-domain="gui/$(id -u)"
-
-launchctl bootout "$domain/com.afk-surf.agent-vmm-host" 2>/dev/null || true
-launchctl bootout "$domain/com.afk-surf.agent-vmm-connect" 2>/dev/null || true
-rm -f "$plist" "$user_home/Library/LaunchAgents/com.afk-surf.agent-vmm-connect.plist"
-rm -rf "$app"
-
-if [ "${1:-}" = "--purge" ]; then
-	rm -rf "$user_home/Library/Application Support/AgentVMM" "$user_home/Library/Logs/AgentVMM"
+helper="$app/Contents/Helpers/agent-vmm-lifecycle"
+test -x "$helper"
+if [ "$(id -u)" -eq 0 ]; then
+	trusted_helper="$payload/Agent VMM Host.app/Contents/Helpers/agent-vmm-lifecycle"
+	test -x "$trusted_helper"
+	"$trusted_helper" uninstall --service-app "$app" --service-type "$service_type" --service-user "$service_user" $purge --request-id local-host-uninstall
+else
+	"$helper" uninstall --service-type "$service_type" --service-user "$service_user" $purge --request-id local-host-uninstall
 fi

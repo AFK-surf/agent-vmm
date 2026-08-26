@@ -25,6 +25,12 @@ maps the computed aggregate decision to that input.
 - `ApplianceInstallationIsolation.tla` uses two installation identities only
   for the remove-ownership non-interference proof; it does not multiply two
   complete lifecycles.
+- `HostServiceOwnership.tla` owns launchd agent/daemon selection and the
+  single-service-owner invariant. `HostServiceExistingOwner.tla` separately
+  checks that observation and removal follow the persisted owner rather than
+  rerunning first-install `auto` selection. `HostVMRestartRecovery.tla` owns
+  the one-shot post-install VM resume after a Host process start; it never
+  re-enters installation and does not start a fresh or invalid VM state.
 
 Run every normal configuration and single-mechanism negative configuration
 with `make tla`.
@@ -47,5 +53,6 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `PlanRemove`, `ExecuteRemove`, `RemoveRevisionExact` | `internal/host/appliance_admin_remove_darwin.go`, `internal/host/store/appliance_operation.go` | pending-destroy tombstone and revision-fence tests |
 | `CrossDomainRemove`, `InstallationNonInterference` | appliance admin authorization | cross-domain remove tests |
 | `Seal`, `RecoverSealed`, `SealedRecoveryIsBounded` | appliance supervisor and appliance admin operations | key loss, corruption, schema, publisher trust, and bounded repair tests |
+| `HostVMRestartRecovery.ResumeSuccess`, `NoFreshVMStart` | `cmd/agent-vmm-host`, `internal/host.Controller.StartVM` | exact state-disk guard and Host restart physical smoke |
 
 Consumer repositories may refine these actions, but they must not redefine host inventory, epoch, or lifecycle ownership.

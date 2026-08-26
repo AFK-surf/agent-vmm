@@ -22,6 +22,12 @@
     {"config": "ApplianceActivationLifecycleSealedNegative", "model": "ApplianceActivationLifecycle", "invariant": "SealedRecoveryIsBounded"},
     {"config": "ApplianceActivationLifecycleRemoveNegative", "model": "ApplianceActivationLifecycle", "invariant": "RemoveRevisionExact"},
     {"config": "ApplianceActivationLifecyclePublicationNegative", "model": "ApplianceActivationLifecycle", "invariant": "PublicationFence"},
-    {"config": "ApplianceActivationLifecycleBootstrapFenceNegative", "model": "ApplianceActivationLifecycle", "invariant": "InitialSeedDeletionFence"}
+    {"config": "ApplianceActivationLifecycleBootstrapFenceNegative", "model": "ApplianceActivationLifecycle", "invariant": "InitialSeedDeletionFence"},
+    {"config": "HostServiceOwnershipExclusiveNegative", "model": "HostServiceOwnership", "invariant": "SingleServiceOwner"},
+    {"config": "HostServiceOwnershipDefinitionNegative", "model": "HostServiceOwnership", "invariant": "SingleServiceDefinition"},
+    {"config": "HostServiceOwnershipAutoNegative", "model": "HostServiceOwnership", "invariant": "AgentRequiresGUI"},
+    {"config": "HostServiceExistingOwnerObserveNegative", "model": "HostServiceExistingOwner", "invariant": "ObservedConfiguredOwner"},
+    {"config": "HostServiceExistingOwnerRemoveNegative", "model": "HostServiceExistingOwner", "invariant": "RemovedConfiguredOwner"},
+    {"config": "HostVMRestartRecoveryGuardNegative", "model": "HostVMRestartRecovery", "invariant": "NoFreshVMStart"}
   ]
 }

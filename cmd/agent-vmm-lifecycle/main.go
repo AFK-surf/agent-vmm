@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -69,13 +70,17 @@ var targetRevision = "0"
 var errLaunchctlServiceNotFound = errors.New("launchctl service not found")
 
 type paths struct {
-	home            string
-	app             string
-	resources       string
-	hostPlist       string
-	applicationData string
-	logs            string
-	operationFile   string
+	home              string
+	app               string
+	resources         string
+	hostPlist         string
+	applicationData   string
+	logs              string
+	operationFile     string
+	serviceConfigFile string
+	agentPlist        string
+	daemonPlist       string
+	service           serviceConfig
 }
 
 type serviceStatus struct {
@@ -127,7 +132,7 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|status|install|repair [--request-id ID]|registration-state --registration-id ID --state enabled|draining [--request-id ID]|drain|uninstall [--purge]")
+		fatal("usage: agent-vmm-lifecycle version --json|status|install|repair|registration-state|drain|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
@@ -139,7 +144,12 @@ func main() {
 		}
 		return
 	}
-	resolved, err := lifecyclePaths()
+	serviceRequest, commandArgs, err := extractServiceRequest(os.Args[2:])
+	if err != nil {
+		fatal(err.Error())
+	}
+	serviceRequest.action = os.Args[1]
+	resolved, err := lifecyclePaths(serviceRequest)
 	if err != nil {
 		fatal(err.Error())
 	}
@@ -149,7 +159,7 @@ func main() {
 			fatal("status encoding failed")
 		}
 	case "install", "repair":
-		disablePairing, requestID, ticketStdin, resumeOperationID := parseInstallArgs(os.Args[1], os.Args[2:])
+		disablePairing, requestID, ticketStdin, resumeOperationID := parseInstallArgs(os.Args[1], commandArgs)
 		var descriptor *installDescriptor
 		if os.Args[1] == "install" && ticketStdin {
 			decoded, decodeErr := decodeInstallDescriptor(os.Stdin)
@@ -245,7 +255,7 @@ func main() {
 			fatal(operationErr.Error())
 		}
 	case "drain":
-		requestID := requestIDArg(os.Args[2:])
+		requestID := requestIDArg(commandArgs)
 		operation, operationErr := runLifecycleOperation(resolved, "drain", requestID, func() error { return drain(resolved) })
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
@@ -254,7 +264,7 @@ func main() {
 			fatal(operationErr.Error())
 		}
 	case "registration-state":
-		registrationID, state, requestID := parseRegistrationStateArgs(os.Args[2:])
+		registrationID, state, requestID := parseRegistrationStateArgs(commandArgs)
 		if requestID == "" {
 			requestID = newOperationID("req")
 		}
@@ -268,7 +278,7 @@ func main() {
 			fatal(operationErr.Error())
 		}
 	case "uninstall":
-		purge, requestID := parseUninstallArgs(os.Args[2:])
+		purge, requestID := parseUninstallArgs(commandArgs)
 		operation, operationErr := runLifecycleOperation(resolved, "remove", requestID, func() error { return uninstall(resolved, purge) })
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
@@ -281,11 +291,7 @@ func main() {
 	}
 }
 
-func lifecyclePaths() (paths, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || !filepath.IsAbs(home) || home == string(filepath.Separator) {
-		return paths{}, errors.New("user home directory is invalid")
-	}
+func lifecyclePaths(request serviceRequest) (paths, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return paths{}, errors.New("helper location is unavailable")
@@ -294,10 +300,33 @@ func lifecyclePaths() (paths, error) {
 	if err != nil {
 		return paths{}, errors.New("helper location is invalid")
 	}
-	return lifecyclePathsFor(home, executable)
+	return lifecyclePathsForRequest(request, executable)
 }
 
 func lifecyclePathsFor(home, executable string) (paths, error) {
+	return lifecyclePathsForConfig(home, executable, serviceConfig{Version: 1, Mode: serviceModeAgent, User: "test", Group: "staff", UID: os.Getuid(), GID: os.Getgid(), ReleaseID: releaseID})
+}
+
+func lifecyclePathsForRequest(request serviceRequest, executable string) (paths, error) {
+	config, err := resolveServiceConfig(request)
+	if err != nil {
+		return paths{}, err
+	}
+	account, err := user.Lookup(config.User)
+	if err != nil {
+		return paths{}, errors.New("service user is unavailable")
+	}
+	if request.app != "" && os.Geteuid() != 0 {
+		return paths{}, errors.New("--service-app is restricted to an administrator installer")
+	}
+	return lifecyclePathsForConfigWithApp(account.HomeDir, executable, config, request.app)
+}
+
+func lifecyclePathsForConfig(home, executable string, service serviceConfig) (paths, error) {
+	return lifecyclePathsForConfigWithApp(home, executable, service, "")
+}
+
+func lifecyclePathsForConfigWithApp(home, executable string, service serviceConfig, targetApp string) (paths, error) {
 	if !filepath.IsAbs(home) || home == string(filepath.Separator) {
 		return paths{}, errors.New("user home directory is invalid")
 	}
@@ -309,20 +338,40 @@ func lifecyclePathsFor(home, executable string) (paths, error) {
 	if filepath.Base(contents) != "Contents" {
 		return paths{}, errors.New("application bundle layout is invalid")
 	}
-	app := filepath.Dir(contents)
-	if filepath.Base(app) != bundle.HostAppName {
+	sourceApp := filepath.Dir(contents)
+	if filepath.Base(sourceApp) != bundle.HostAppName {
 		return paths{}, fmt.Errorf("application bundle must be %q", bundle.HostAppName)
 	}
-	if _, err := bundle.ValidateHostApp(app); err != nil {
+	if _, err := bundle.ValidateHostApp(sourceApp); err != nil {
 		return paths{}, fmt.Errorf("host application bundle is invalid: %w", err)
 	}
+	app := sourceApp
+	if targetApp != "" {
+		if !filepath.IsAbs(targetApp) || filepath.Base(targetApp) != bundle.HostAppName {
+			return paths{}, errors.New("service app must be an absolute Agent VMM Host.app path")
+		}
+		if _, err := bundle.ValidateHostApp(targetApp); err != nil {
+			return paths{}, fmt.Errorf("target host application bundle is invalid: %w", err)
+		}
+		app = targetApp
+	}
 	launchAgents := filepath.Join(home, "Library", "LaunchAgents")
+	agentPlist := filepath.Join(launchAgents, hostLabel+".plist")
+	daemonPlist := filepath.Join("/Library/LaunchDaemons", hostLabel+".plist")
+	hostPlist := agentPlist
+	if service.Mode == serviceModeDaemon {
+		hostPlist = daemonPlist
+	}
 	return paths{
-		home: home, app: app, resources: filepath.Join(contents, "Resources"),
-		hostPlist:       filepath.Join(launchAgents, hostLabel+".plist"),
-		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"),
-		logs:            filepath.Join(home, "Library", "Logs", "AgentVMM"),
-		operationFile:   filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		home: home, app: app, resources: filepath.Join(sourceApp, "Contents", "Resources"),
+		hostPlist:         hostPlist,
+		agentPlist:        agentPlist,
+		daemonPlist:       daemonPlist,
+		service:           service,
+		applicationData:   filepath.Join(home, "Library", "Application Support", "AgentVMM"),
+		logs:              filepath.Join(home, "Library", "Logs", "AgentVMM"),
+		operationFile:     filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		serviceConfigFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "service.json"),
 	}, nil
 }
 
@@ -334,7 +383,7 @@ func readStatusContext(ctx context.Context, value paths) serviceStatus {
 	result := serviceStatus{
 		AppInstalled:  directory(value.app),
 		HostInstalled: regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
-		HostLoaded:    launchctlContext(ctx, "print", domain()+"/"+hostLabel) == nil,
+		HostLoaded:    launchctlContext(ctx, "print", value.serviceDomain()+"/"+hostLabel) == nil,
 		Operation:     readOperation(value.operationFile),
 	}
 	// Local Host and appliance diagnostics never claim Salix admission or
@@ -913,8 +962,22 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	if !directory(value.app) {
 		return errors.New("Agent VMM application bundle is missing")
 	}
-	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
-		return errors.New("LaunchAgents directory could not be created")
+	if err := validateAlternateDefinitionPermission(value, os.Geteuid()); err != nil {
+		return err
+	}
+	if value.service.Mode == serviceModeDaemon && os.Geteuid() != 0 {
+		desired, renderErr := renderServiceDefinition(value, disablePairing)
+		if renderErr != nil || !serviceDefinitionCurrent(ctx, value, desired, disablePairing, run) {
+			return errors.New("installing or updating the Agent VMM daemon requires administrator access")
+		}
+		return nil
+	}
+	definitionMode := os.FileMode(0o700)
+	if value.service.Mode == serviceModeDaemon {
+		definitionMode = 0o755
+	}
+	if err := os.MkdirAll(filepath.Dir(value.hostPlist), definitionMode); err != nil {
+		return errors.New("launchd service directory could not be created")
 	}
 	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
 		return errors.New("application data directory could not be created")
@@ -922,30 +985,41 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	if err := os.MkdirAll(value.logs, 0o700); err != nil {
 		return errors.New("log directory could not be created")
 	}
-	for _, item := range []struct{ resource, destination string }{{hostTemplateResource, value.hostPlist}} {
-		template, err := os.ReadFile(filepath.Join(value.resources, item.resource))
-		if err != nil {
-			return errors.New("bundled service definition is missing")
-		}
-		rendered := strings.ReplaceAll(string(template), "__HOME__", xmlEscape(value.home))
-		rendered = strings.ReplaceAll(rendered, "__APP__", xmlEscape(value.app))
-		if item.destination == value.hostPlist && disablePairing {
-			rendered = addProgramArgument(rendered, "--disable-personal-mesh-pairing")
-		}
-		if err := atomicWrite(item.destination, []byte(rendered), 0o600); err != nil {
-			return errors.New("service definition could not be installed")
+	if os.Geteuid() == 0 {
+		for _, directory := range []string{value.applicationData, value.logs} {
+			if err := os.Chown(directory, value.service.UID, value.service.GID); err != nil {
+				return errors.New("service user directory ownership could not be applied")
+			}
 		}
 	}
-	if err := stopHostService(ctx, run); err != nil {
+	desired, err := renderServiceDefinition(value, disablePairing)
+	if err != nil {
+		return err
+	}
+	if serviceDefinitionCurrent(ctx, value, desired, disablePairing, run) {
+		return nil
+	}
+	if err := stopHostServiceAt(ctx, run, value.serviceDomain()); err != nil {
 		return fmt.Errorf("host service could not be stopped before reload: %w", err)
 	}
-	if err := run(ctx, "bootstrap", domain(), value.hostPlist); err != nil {
+	if err := stopHostServiceAt(ctx, run, value.alternateServiceDomain()); err != nil {
+		return fmt.Errorf("alternate host service could not be stopped before reload: %w", err)
+	}
+	if err := atomicWrite(value.hostPlist, desired, map[serviceMode]os.FileMode{serviceModeAgent: 0o600, serviceModeDaemon: 0o644}[value.service.Mode]); err != nil {
+		return errors.New("service definition could not be installed")
+	}
+	if value.service.Mode == serviceModeDaemon {
+		_ = os.Remove(value.agentPlist)
+	} else if os.Geteuid() == 0 {
+		_ = os.Remove(value.daemonPlist)
+	}
+	if err := run(ctx, "bootstrap", value.serviceDomain(), value.hostPlist); err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return fmt.Errorf("host service load was interrupted: %w", contextErr)
 		}
 		return fmt.Errorf("host service could not be loaded: %w", err)
 	}
-	if err := run(ctx, "enable", domain()+"/"+hostLabel); err != nil {
+	if err := run(ctx, "enable", value.serviceDomain()+"/"+hostLabel); err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return fmt.Errorf("host service enable was interrupted: %w", contextErr)
 		}
@@ -953,6 +1027,9 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if err := persistServiceConfig(value, disablePairing); err != nil {
+		return errors.New("service configuration could not be persisted")
 	}
 	return nil
 }
@@ -981,7 +1058,10 @@ func drainWithContext(ctx context.Context, value paths, run func(context.Context
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := stopHostService(ctx, run); err != nil {
+	if value.service.Mode == serviceModeDaemon && os.Geteuid() != 0 {
+		return errors.New("stopping the Agent VMM daemon requires administrator access")
+	}
+	if err := stopHostServiceAt(ctx, run, value.serviceDomain()); err != nil {
 		return fmt.Errorf("host service could not be drained: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -1000,12 +1080,16 @@ func uninstallWithContext(ctx context.Context, value paths, purge bool, run func
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := stopHostService(ctx, run); err != nil {
+	if value.service.Mode == serviceModeDaemon && os.Geteuid() != 0 {
+		return errors.New("uninstalling the Agent VMM daemon requires administrator access")
+	}
+	if err := stopHostServiceAt(ctx, run, value.serviceDomain()); err != nil {
 		return fmt.Errorf("host service could not be stopped before uninstall: %w", err)
 	}
 	if err := os.Remove(value.hostPlist); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return errors.New("host service definition could not be removed")
 	}
+	_ = os.Remove(value.serviceConfigFile)
 	if purge {
 		if err := os.RemoveAll(value.applicationData); err != nil {
 			return errors.New("application data could not be removed")
@@ -1062,7 +1146,7 @@ func launchctlContext(ctx context.Context, arguments ...string) error {
 	if contextErr := ctx.Err(); contextErr != nil {
 		return fmt.Errorf("launchctl %s was interrupted: %w", arguments[0], contextErr)
 	}
-	if arguments[0] == "print" && strings.Contains(message, "Could not find service") {
+	if launchctlServiceAbsent(arguments[0], message) {
 		return fmt.Errorf("%w: %s", errLaunchctlServiceNotFound, message)
 	}
 	if message == "" {
@@ -1071,8 +1155,21 @@ func launchctlContext(ctx context.Context, arguments ...string) error {
 	return fmt.Errorf("launchctl %s failed: %w: %s", arguments[0], err, message)
 }
 
+func launchctlServiceAbsent(action, message string) bool {
+	return action == "print" && (strings.Contains(message, "Could not find service") ||
+		strings.Contains(message, "Could not find domain") ||
+		strings.Contains(message, "Domain does not support specified action"))
+}
+
 func stopHostService(ctx context.Context, run func(context.Context, ...string) error) error {
-	target := domain() + "/" + hostLabel
+	return stopHostServiceAt(ctx, run, "")
+}
+
+func stopHostServiceAt(ctx context.Context, run func(context.Context, ...string) error, serviceDomain string) error {
+	if serviceDomain == "" {
+		serviceDomain = fmt.Sprintf("gui/%d", os.Getuid())
+	}
+	target := serviceDomain + "/" + hostLabel
 	bootoutErr := run(ctx, "bootout", target)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1089,17 +1186,21 @@ func stopHostService(ctx context.Context, run func(context.Context, ...string) e
 	if bootoutErr != nil {
 		return fmt.Errorf("launchctl bootout failed while the host service remains loaded: %w", bootoutErr)
 	}
-	return waitForHostServiceRemoval(ctx, run)
+	return waitForHostServiceRemovalAt(ctx, run, serviceDomain)
 }
 
 func waitForHostServiceRemoval(ctx context.Context, run func(context.Context, ...string) error) error {
+	return waitForHostServiceRemovalAt(ctx, run, fmt.Sprintf("gui/%d", os.Getuid()))
+}
+
+func waitForHostServiceRemovalAt(ctx context.Context, run func(context.Context, ...string) error, serviceDomain string) error {
 	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	for {
 		if err := waitCtx.Err(); err != nil {
 			return fmt.Errorf("host service did not finish stopping: %w", err)
 		}
-		if err := run(waitCtx, "print", domain()+"/"+hostLabel); err != nil {
+		if err := run(waitCtx, "print", serviceDomain+"/"+hostLabel); err != nil {
 			if waitCtx.Err() != nil {
 				return fmt.Errorf("host service did not finish stopping: %w", waitCtx.Err())
 			}
@@ -1116,7 +1217,6 @@ func waitForHostServiceRemoval(ctx context.Context, run func(context.Context, ..
 	}
 }
 
-func domain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }
 func regular(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()

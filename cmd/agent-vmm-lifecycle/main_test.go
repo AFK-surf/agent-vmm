@@ -68,7 +68,7 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 	if !regular(value.hostPlist) {
 		t.Fatal("service definitions were not installed")
 	}
-	want := []string{"bootout", "print", "bootstrap", "enable"}
+	want := []string{"bootout", "print", "bootout", "print", "bootstrap", "enable"}
 	if len(commands) != len(want) {
 		t.Fatalf("commands=%v", commands)
 	}
@@ -106,7 +106,7 @@ func TestRepairWaitsForBootoutToConvergeBeforeBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(commands, ","); got != "bootout,print,print,print,bootstrap,enable" {
+	if got := strings.Join(commands, ","); got != "bootout,print,print,print,bootout,print,bootstrap,enable" {
 		t.Fatalf("launchctl order=%s", got)
 	}
 }
@@ -229,6 +229,21 @@ func TestStopHostServicePreservesDeadlineExceeded(t *testing.T) {
 	err := stopHostService(ctx, func(_ context.Context, _ ...string) error { return nil })
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("stop error=%v", err)
+	}
+}
+
+func TestLaunchctlServiceAbsentClassifiesHeadlessGUIDomain(t *testing.T) {
+	for _, message := range []string{
+		`Could not find service "com.afk-surf.agent-vmm-host" in domain for system`,
+		"Could not find domain for user",
+		"Could not print domain: 125: Domain does not support specified action",
+	} {
+		if !launchctlServiceAbsent("print", message) {
+			t.Fatalf("expected absent service classification for %q", message)
+		}
+	}
+	if launchctlServiceAbsent("bootstrap", "Domain does not support specified action") {
+		t.Fatal("only print may prove that a service is absent")
 	}
 }
 
@@ -725,11 +740,16 @@ func TestLifecycleOperationSerializesDuplicateRequests(t *testing.T) {
 
 func testPaths(root string) paths {
 	home := filepath.Join(root, "home")
+	agentPlist := filepath.Join(home, "Library", "LaunchAgents", hostLabel+".plist")
 	return paths{
 		home: home, app: filepath.Join(root, "Agent VMM Host.app"), resources: filepath.Join(root, "resources"),
-		hostPlist:       filepath.Join(home, "Library", "LaunchAgents", hostLabel+".plist"),
+		hostPlist:       agentPlist,
+		agentPlist:      agentPlist,
+		daemonPlist:     filepath.Join(root, "LaunchDaemons", hostLabel+".plist"),
+		service:         serviceConfig{Version: 1, Mode: serviceModeAgent, User: "test", Group: "staff", UID: os.Getuid(), GID: os.Getgid(), ReleaseID: releaseID},
 		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"), logs: filepath.Join(home, "Library", "Logs", "AgentVMM"),
-		operationFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		operationFile:     filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		serviceConfigFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "service.json"),
 	}
 }
 

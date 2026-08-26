@@ -255,7 +255,7 @@ func validateInfoPlist(path string) error {
 func validateLaunchdTemplate(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read host LaunchAgent template: %w", err)
+		return fmt.Errorf("read host launchd template: %w", err)
 	}
 	template := string(data)
 	for _, required := range []string{
@@ -264,12 +264,12 @@ func validateLaunchdTemplate(path string) error {
 		"__APP__/Contents/Helpers/agent-vmm-data",
 	} {
 		if !strings.Contains(template, required) {
-			return fmt.Errorf("host LaunchAgent template is missing %q", required)
+			return fmt.Errorf("host launchd template is missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{"Agent VMM.app", "__APP__/Contents/Helpers/agent-vmm-host</string>", "__APP__/Contents/Helpers/agent-vmm</string>"} {
 		if strings.Contains(template, forbidden) {
-			return fmt.Errorf("host LaunchAgent template contains forbidden path %q", forbidden)
+			return fmt.Errorf("host launchd template contains forbidden path %q", forbidden)
 		}
 	}
 	return nil

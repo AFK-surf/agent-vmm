@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -25,6 +26,9 @@ import (
 )
 
 func main() {
+	if err := validateRuntimeUID(os.Geteuid()); err != nil {
+		log.Fatal(err)
+	}
 	if err := disableCoreDumps(); err != nil {
 		log.Fatal(err)
 	}
@@ -190,9 +194,49 @@ func main() {
 	if err := controller.StartExternalConnectors(ctx); err != nil {
 		log.Fatal(err)
 	}
+	resumeContext, resumeCancel := context.WithTimeout(ctx, 30*time.Second)
+	resumeRequestID := fmt.Sprintf("host-start-resume-%d", time.Now().UnixNano())
+	if err := resumeInstalledVM(resumeContext, filepath.Join(config.InstanceDirectory, "state.raw"), config.StateBytes, resumeRequestID, controller.StartVM); err != nil {
+		log.Printf("installed VM was not resumed: %v", err)
+	}
+	resumeCancel()
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
 	}
+}
+
+// HostVMRestartRecovery.tla owns this one-shot post-install transition. It is
+// deliberately separate from installation retries and ordinary connector
+// reconnect.
+func resumeInstalledVM(ctx context.Context, stateDisk string, expectedBytes int64, requestID string, start func(context.Context, string) (*hostv1.OperationResponse, error)) error {
+	initializingMarker := filepath.Join(filepath.Dir(stateDisk), "state.initializing")
+	if marker, markerErr := os.Lstat(initializingMarker); markerErr == nil {
+		if !marker.Mode().IsRegular() {
+			return errors.New("installed VM initialization marker is invalid; run Agent VMM diagnostics")
+		}
+		return errors.New("installed VM state initialization is incomplete; rerun the bounded install operation")
+	} else if !errors.Is(markerErr, os.ErrNotExist) {
+		return fmt.Errorf("read installed VM initialization marker: %w", markerErr)
+	}
+	info, err := os.Lstat(stateDisk)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read installed VM state: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() != expectedBytes {
+		return errors.New("installed VM state disk is invalid; run Agent VMM diagnostics")
+	}
+	_, err = start(ctx, requestID)
+	return err
+}
+
+func validateRuntimeUID(uid int) error {
+	if uid == 0 {
+		return errors.New("agent-vmm-host must run as a non-root user")
+	}
+	return nil
 }
 
 func disableCoreDumps() error {

@@ -3,11 +3,75 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
+
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 )
+
+func TestRuntimeRejectsRoot(t *testing.T) {
+	if err := validateRuntimeUID(0); err == nil {
+		t.Fatal("root runtime was accepted")
+	}
+	if err := validateRuntimeUID(502); err != nil {
+		t.Fatalf("ordinary user runtime was rejected: %v", err)
+	}
+}
+
+func TestResumeInstalledVMIsBoundedByExactStateDisk(t *testing.T) {
+	directory := t.TempDir()
+	stateDisk := filepath.Join(directory, "state.raw")
+	calls := 0
+	start := func(_ context.Context, requestID string) (*hostv1.OperationResponse, error) {
+		calls++
+		if requestID != "host-start-resume-test" {
+			t.Fatalf("unexpected request id %q", requestID)
+		}
+		return &hostv1.OperationResponse{}, nil
+	}
+	if err := resumeInstalledVM(context.Background(), stateDisk, 1<<30, "host-start-resume-test", start); err != nil || calls != 0 {
+		t.Fatalf("fresh install must not auto-start: calls=%d err=%v", calls, err)
+	}
+	if err := os.WriteFile(stateDisk, []byte("bad"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := resumeInstalledVM(context.Background(), stateDisk, 1<<30, "host-start-resume-test", start); err == nil || calls != 0 {
+		t.Fatalf("invalid state must fail closed: calls=%d err=%v", calls, err)
+	}
+	if err := os.Truncate(stateDisk, 1<<30); err != nil {
+		t.Fatal(err)
+	}
+	initializing := filepath.Join(directory, "state.initializing")
+	if err := os.WriteFile(initializing, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := resumeInstalledVM(context.Background(), stateDisk, 1<<30, "host-start-resume-incomplete", start); err == nil || calls != 0 {
+		t.Fatalf("incomplete initialization must fail closed: calls=%d err=%v", calls, err)
+	}
+	if err := os.Remove(initializing); err != nil {
+		t.Fatal(err)
+	}
+	if err := resumeInstalledVM(context.Background(), stateDisk, 1<<30, "host-start-resume-test", start); err != nil || calls != 1 {
+		t.Fatalf("installed VM was not resumed once: calls=%d err=%v", calls, err)
+	}
+	symlink := filepath.Join(directory, "linked-state.raw")
+	if err := os.Symlink(stateDisk, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if err := resumeInstalledVM(context.Background(), symlink, 1<<30, "host-start-resume-symlink", start); err == nil || calls != 1 {
+		t.Fatalf("symlink state must fail closed: calls=%d err=%v", calls, err)
+	}
+	want := errors.New("start failed")
+	if err := resumeInstalledVM(context.Background(), stateDisk, 1<<30, "host-start-resume-failure", func(context.Context, string) (*hostv1.OperationResponse, error) {
+		return nil, want
+	}); !errors.Is(err, want) {
+		t.Fatalf("start failure was not reported: %v", err)
+	}
+}
 
 func TestDisableCoreDumps(t *testing.T) {
 	if err := disableCoreDumps(); err != nil {

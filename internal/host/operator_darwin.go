@@ -28,50 +28,59 @@ func (server *operatorServer) StartVM(ctx context.Context, request *hostv1.Start
 	if request.GetRequestId() == "" {
 		return nil, invalidField("request_id", "request ID is required")
 	}
-	operation, existing, err := server.controller.beginOperation(ctx, "vm-start", "system", request.GetRequestId())
+	return server.controller.StartVM(ctx, request.GetRequestId())
+}
+
+// StartVM is the single VM start transition used by both the authenticated
+// Operator RPC and the bounded Host-start recovery attempt.
+func (controller *Controller) StartVM(ctx context.Context, requestID string) (*hostv1.OperationResponse, error) {
+	if requestID == "" {
+		return nil, invalidField("request_id", "request ID is required")
+	}
+	operation, existing, err := controller.beginOperation(ctx, "vm-start", "system", requestID)
 	if err != nil {
 		return nil, err
 	}
 	if existing {
 		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 	}
-	if err := server.controller.recoverInterruptedApplianceAdminOperations(ctx); err != nil {
-		server.controller.failOperation(ctx, &operation, "APPLIANCE_OPERATION_RECOVERY_FAILED", err)
+	if err := controller.recoverInterruptedApplianceAdminOperations(ctx); err != nil {
+		controller.failOperation(ctx, &operation, "APPLIANCE_OPERATION_RECOVERY_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_OPERATION_RECOVERY_FAILED", "vm", "local", err.Error())
 	}
-	if err := server.controller.recoverPendingApplianceRemovals(ctx); err != nil {
-		server.controller.failOperation(ctx, &operation, "APPLIANCE_REMOVE_RECOVERY_FAILED", err)
+	if err := controller.recoverPendingApplianceRemovals(ctx); err != nil {
+		controller.failOperation(ctx, &operation, "APPLIANCE_REMOVE_RECOVERY_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_REMOVE_RECOVERY_FAILED", "vm", "local", err.Error())
 	}
-	if server.controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
-		err = server.controller.configureApplianceBlocks(ctx)
+	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		err = controller.configureApplianceBlocks(ctx)
 	}
 	if err == nil {
-		_, err = server.controller.manager.Start(ctx)
+		_, err = controller.manager.Start(ctx)
 	}
 	if err != nil {
-		server.controller.failOperation(ctx, &operation, "VM_START_FAILED", err)
+		controller.failOperation(ctx, &operation, "VM_START_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "VM_START_FAILED", "vm", "local", err.Error())
 	}
-	if err := server.controller.startEgress(); err != nil {
-		server.controller.rollbackStartedVM()
-		server.controller.failOperation(ctx, &operation, "EGRESS_START_FAILED", err)
+	if err := controller.startEgress(); err != nil {
+		controller.rollbackStartedVM()
+		controller.failOperation(ctx, &operation, "EGRESS_START_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "EGRESS_START_FAILED", "vm", "local", err.Error())
 	}
-	if err := server.controller.reconcileAppliances(ctx); err != nil {
-		_ = server.controller.store.Audit(ctx, "system", "system", "appliance.reconcile", "", "", int32(codes.FailedPrecondition), "APPLIANCE_RECONCILE_PARTIAL")
+	if err := controller.reconcileAppliances(ctx); err != nil {
+		_ = controller.store.Audit(ctx, "system", "system", "appliance.reconcile", "", "", int32(codes.FailedPrecondition), "APPLIANCE_RECONCILE_PARTIAL")
 	}
-	if err := server.controller.reconcilePolicies(ctx); err != nil {
-		server.controller.rollbackStartedVM()
-		server.controller.failOperation(ctx, &operation, "POLICY_RECONCILE_FAILED", err)
+	if err := controller.reconcilePolicies(ctx); err != nil {
+		controller.rollbackStartedVM()
+		controller.failOperation(ctx, &operation, "POLICY_RECONCILE_FAILED", err)
 		return nil, retryable("POLICY_RECONCILE_FAILED", "VM started but policy projection failed", time.Second)
 	}
-	if err := server.controller.ReconcileExternalConnectors(ctx); err != nil {
-		server.controller.rollbackStartedVM()
-		server.controller.failOperation(ctx, &operation, "EXTERNAL_CONNECTOR_RECONCILE_FAILED", err)
+	if err := controller.ReconcileExternalConnectors(ctx); err != nil {
+		controller.rollbackStartedVM()
+		controller.failOperation(ctx, &operation, "EXTERNAL_CONNECTOR_RECONCILE_FAILED", err)
 		return nil, retryable("EXTERNAL_CONNECTOR_RECONCILE_FAILED", "VM started but external connectors could not be reconciled", time.Second)
 	}
-	server.controller.completeOperation(ctx, &operation, "running")
+	controller.completeOperation(ctx, &operation, "running")
 	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 }
 

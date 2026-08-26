@@ -5,6 +5,13 @@ Agent VMM lifecycle. It does not persist operations, retry in the background,
 or compete with `runLifecycleOperation`, which remains the durable operation
 owner.
 
+Every lifecycle command accepts `--service-type agent|daemon|auto` and
+`--service-user USER`. Agent mode uses the exact user's existing `gui/<uid>`
+domain. Daemon mode installs one system LaunchDaemon with `UserName` and
+`GroupName`; the Host process remains non-root. Auto mode never creates or
+assumes a GUI session: without administrator access or an existing GUI domain
+it fails with an actionable error.
+
 The composite contracts are:
 
 | Action | Delegation order | Completion rule |
