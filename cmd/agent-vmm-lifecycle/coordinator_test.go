@@ -172,6 +172,20 @@ func TestLifecycleCoordinatorRejectsMissingAdapter(t *testing.T) {
 	}
 }
 
+func TestManagedLifecycleAdapterDoesNotReinstallHealthyHost(t *testing.T) {
+	adapter := newHelperLifecycleAdapter(testPaths(t.TempDir()), lifecycleAdapterHooks{}).(*helperLifecycleAdapter)
+	adapter.status = func(context.Context, paths) serviceStatus {
+		return serviceStatus{HostInstalled: true, HostLoaded: true, HostReadable: true, HostHealthy: true}
+	}
+	adapter.launchctl = func(context.Context, ...string) error {
+		t.Fatal("healthy Host must not mutate launchd")
+		return nil
+	}
+	if err := adapter.Install(context.Background(), LifecycleRequest{DisablePersonalMeshPairing: true}); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+}
+
 func TestLifecycleCoordinatorRejectsUnknownAction(t *testing.T) {
 	coordinator := newTestCoordinator(t, &coordinatorMock{}, time.Second, time.Second)
 	if err := coordinator.Run(context.Background(), LifecycleAction("unknown"), LifecycleRequest{}); err == nil {

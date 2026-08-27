@@ -237,13 +237,18 @@ type helperLifecycleAdapter struct {
 	value     paths
 	hooks     lifecycleAdapterHooks
 	launchctl func(context.Context, ...string) error
+	status    func(context.Context, paths) serviceStatus
 }
 
 func newHelperLifecycleAdapter(value paths, hooks lifecycleAdapterHooks) LifecycleAdapter {
-	return &helperLifecycleAdapter{value: value, hooks: hooks, launchctl: launchctlContext}
+	return &helperLifecycleAdapter{value: value, hooks: hooks, launchctl: launchctlContext, status: readStatusContext}
 }
 
 func (adapter *helperLifecycleAdapter) Install(ctx context.Context, request LifecycleRequest) error {
+	status := adapter.status(ctx, adapter.value)
+	if status.HostInstalled && status.HostLoaded && status.HostReadable && status.HostHealthy {
+		return nil
+	}
 	return repairWithOptionsContext(ctx, adapter.value, adapter.launchctl, request.DisablePersonalMeshPairing)
 }
 
