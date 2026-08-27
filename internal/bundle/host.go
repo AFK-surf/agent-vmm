@@ -24,8 +24,6 @@ const (
 	HostInventoryRelativePath       = "Contents/Resources/release-inventory.json"
 	HostBuildInfoRelativePath       = "Contents/Resources/host-build-info.json"
 	HostLicenseRelativePath         = "Contents/Resources/LICENSE"
-	HostSBOMRelativePath            = "Contents/Resources/sbom.spdx.json"
-	HostProvenanceRelativePath      = "Contents/Resources/provenance.json"
 )
 
 var hostGuestArtifacts = []string{
@@ -33,33 +31,20 @@ var hostGuestArtifacts = []string{
 	"initramfs.xz",
 	"rootfs.squashfs",
 	ManifestName,
-	SignatureName,
-	"SHA256SUMS",
-	"sbom.spdx.json",
-	"provenance.json",
 }
 
 // ReleaseInventory is the non-secret, machine-readable inventory embedded in
 // a Host App. It describes the fixed payload contract; the archive digest is
 // intentionally owned by the outer signed release target.
 type ReleaseInventory struct {
-	SchemaVersion    int             `json:"schema_version"`
-	Component        string          `json:"component"`
-	Product          string          `json:"product"`
-	BundleName       string          `json:"bundle_name"`
-	BundleIdentifier string          `json:"bundle_identifier"`
-	ReleaseID        string          `json:"release_id"`
-	Identity         ReleaseIdentity `json:"identity"`
-	Layout           HostLayout      `json:"layout"`
-	UI               HostUI          `json:"ui"`
-	MetadataScope    string          `json:"metadata_scope"`
-	SourceRevision   string          `json:"source_revision,omitempty"`
-}
-
-type ReleaseIdentity struct {
-	Profile     string `json:"profile"`
-	CodeSigning string `json:"code_signing"`
-	GuestSigner string `json:"guest_signer"`
+	SchemaVersion    int        `json:"schema_version"`
+	Component        string     `json:"component"`
+	Product          string     `json:"product"`
+	BundleName       string     `json:"bundle_name"`
+	BundleIdentifier string     `json:"bundle_identifier"`
+	ReleaseID        string     `json:"release_id"`
+	Layout           HostLayout `json:"layout"`
+	SourceRevision   string     `json:"source_revision,omitempty"`
 }
 
 type HostLayout struct {
@@ -69,18 +54,7 @@ type HostLayout struct {
 	LaunchdTemplate string   `json:"launchd_template"`
 	BuildInfo       string   `json:"build_info"`
 	License         string   `json:"license"`
-	SBOM            string   `json:"sbom"`
-	Provenance      string   `json:"provenance"`
 	Inventory       string   `json:"inventory"`
-}
-
-type HostUI struct {
-	Headless        bool `json:"headless"`
-	SwiftUI         bool `json:"swiftui"`
-	DebugExecutable bool `json:"debug_executable"`
-	Window          bool `json:"window"`
-	Menu            bool `json:"menu"`
-	Dock            bool `json:"dock"`
 }
 
 // ValidateHostApp checks the on-disk shape that lifecycle code is allowed to
@@ -106,8 +80,6 @@ func ValidateHostApp(directory string) (*ReleaseInventory, error) {
 		HostInventoryRelativePath,
 		HostBuildInfoRelativePath,
 		HostLicenseRelativePath,
-		HostSBOMRelativePath,
-		HostProvenanceRelativePath,
 	} {
 		if err := requireRegular(filepath.Join(directory, filepath.FromSlash(relative)), relative, false); err != nil {
 			return nil, err
@@ -161,23 +133,6 @@ func validateInventory(inventory ReleaseInventory) error {
 		inventory.BundleName != HostAppName || inventory.BundleIdentifier != HostBundleIdentifier || inventory.ReleaseID == "" {
 		return errors.New("host release inventory identity is invalid")
 	}
-	if inventory.Identity.Profile == "test" {
-		if inventory.Identity.CodeSigning != "adhoc" || inventory.Identity.GuestSigner != "development" {
-			return errors.New("test host release identity is invalid")
-		}
-		if inventory.MetadataScope != "provided" && inventory.MetadataScope != "test-fixture-guest" {
-			return errors.New("test host metadata scope is invalid")
-		}
-	} else if inventory.Identity.Profile == "release" {
-		if inventory.Identity.CodeSigning != "developer-id" || inventory.Identity.GuestSigner != "release" {
-			return errors.New("release host identity is invalid")
-		}
-		if inventory.MetadataScope != "provided" {
-			return errors.New("release host metadata must be provided by the release workflow")
-		}
-	} else {
-		return errors.New("host release identity profile is invalid")
-	}
 	wantHelpers := []string{HostDataHelperRelativePath, HostLifecycleHelperRelativePath}
 	if inventory.Layout.MainExecutable != HostExecutableRelativePath ||
 		!slices.Equal(inventory.Layout.Helpers, wantHelpers) ||
@@ -185,13 +140,8 @@ func validateInventory(inventory ReleaseInventory) error {
 		inventory.Layout.LaunchdTemplate != HostLaunchdTemplateRelativePath ||
 		inventory.Layout.BuildInfo != HostBuildInfoRelativePath ||
 		inventory.Layout.License != HostLicenseRelativePath ||
-		inventory.Layout.SBOM != HostSBOMRelativePath ||
-		inventory.Layout.Provenance != HostProvenanceRelativePath ||
 		inventory.Layout.Inventory != HostInventoryRelativePath {
 		return errors.New("host release inventory layout is invalid")
-	}
-	if inventory.UI != (HostUI{Headless: true}) {
-		return errors.New("host release inventory claims a UI surface")
 	}
 	return nil
 }

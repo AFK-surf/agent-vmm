@@ -4,9 +4,9 @@ package vmm
 
 import (
 	"context"
-	"crypto/ed25519"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -98,7 +98,7 @@ func TestBundleFailurePrecedesInstanceCreation(t *testing.T) {
 	manager, err := NewManager(Config{
 		BundleDirectory: filepath.Join(root, "invalid-bundle"), InstanceDirectory: instance,
 		CPUCount: 2, MemoryBytes: 1 << 30, StateBytes: 1 << 30,
-		SerialLog: filepath.Join(root, "serial.log"), TrustRoot: make(ed25519.PublicKey, ed25519.PublicKeySize),
+		SerialLog: filepath.Join(root, "serial.log"), GuestManifestDigest: strings.Repeat("0", 64),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -1,10 +1,6 @@
 package host
 
 import (
-	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,53 +11,34 @@ import (
 )
 
 func TestApplianceArtifactVerifierRejectsIdentityAndCapabilityChanges(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := database.PutAppliancePublisher(context.Background(), store.AppliancePublisher{KeyID: "publisher", PublicKey: publicKey, Revision: 1}); err != nil {
-		t.Fatal(err)
-	}
 	manifest := verifierManifest()
-	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signature := ed25519.Sign(privateKey, canonical)
 	grant := verifierGrant()
-	verifier := applianceArtifactVerifier{store: database}
-	if _, _, err := verifier.verify(context.Background(), manifest, signature, grant); err != nil {
+	verifier := applianceArtifactVerifier{}
+	if _, _, err := verifier.verify(manifest, grant); err != nil {
 		t.Fatalf("valid artifact: %v", err)
 	}
 
 	tests := []struct {
-		name      string
-		manifest  *appliancev1.ControllerApplianceManifest
-		signature []byte
-		grant     *appliancev1.ApprovedGrant
+		name     string
+		manifest *appliancev1.ControllerApplianceManifest
+		grant    *appliancev1.ApprovedGrant
 	}{
-		{name: "signature", manifest: manifest, signature: append([]byte(nil), signature[:63]...), grant: grant},
 		{name: "platform", manifest: func() *appliancev1.ControllerApplianceManifest {
 			value := proto.Clone(manifest).(*appliancev1.ControllerApplianceManifest)
 			value.Platform = "linux/amd64"
 			return value
-		}(), signature: signature, grant: grant},
-		{name: "capacity expansion", manifest: manifest, signature: signature, grant: func() *appliancev1.ApprovedGrant {
+		}(), grant: grant},
+		{name: "capacity expansion", manifest: manifest, grant: func() *appliancev1.ApprovedGrant {
 			value := proto.Clone(grant).(*appliancev1.ApprovedGrant)
 			value.Capacity.MaxEnvironments++
 			return value
 		}()},
-		{name: "frontend expansion", manifest: manifest, signature: signature, grant: func() *appliancev1.ApprovedGrant {
+		{name: "frontend expansion", manifest: manifest, grant: func() *appliancev1.ApprovedGrant {
 			value := proto.Clone(grant).(*appliancev1.ApprovedGrant)
 			value.Frontends[0].Bounds.MaxFrameBytes++
 			return value
 		}()},
-		{name: "dynamic frontend expansion", manifest: manifest, signature: signature, grant: func() *appliancev1.ApprovedGrant {
+		{name: "dynamic frontend expansion", manifest: manifest, grant: func() *appliancev1.ApprovedGrant {
 			value := proto.Clone(grant).(*appliancev1.ApprovedGrant)
 			value.DynamicHostLoopback.MaxActiveLeases += 2
 			return value
@@ -69,28 +46,15 @@ func TestApplianceArtifactVerifierRejectsIdentityAndCapabilityChanges(t *testing
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, _, err := verifier.verify(context.Background(), test.manifest, test.signature, test.grant); err == nil {
+			if _, _, err := verifier.verify(test.manifest, test.grant); err == nil {
 				t.Fatal("invalid artifact was accepted")
 			}
 		})
 	}
 	oversize := proto.Clone(manifest).(*appliancev1.ControllerApplianceManifest)
 	oversize.Release = strings.Repeat("x", (1<<20)+1)
-	oversizeCanonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(oversize)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := verifier.verify(context.Background(), oversize, ed25519.Sign(privateKey, oversizeCanonical), grant); err == nil {
+	if _, _, err := verifier.verify(oversize, grant); err == nil {
 		t.Fatal("oversize canonical manifest was accepted")
-	}
-	unknownPublisher := proto.Clone(manifest).(*appliancev1.ControllerApplianceManifest)
-	unknownPublisher.PublisherKeyId = "unknown"
-	unknownCanonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(unknownPublisher)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := verifier.verify(context.Background(), unknownPublisher, ed25519.Sign(privateKey, unknownCanonical), grant); err == nil {
-		t.Fatal("unknown publisher was accepted")
 	}
 }
 
@@ -108,7 +72,7 @@ func TestValidateApplianceCapacityIncludesSystemReservation(t *testing.T) {
 
 func verifierManifest() *appliancev1.ControllerApplianceManifest {
 	return &appliancev1.ControllerApplianceManifest{
-		ContractVersion: "1", ProductId: "product", PublisherKeyId: "publisher", Release: "1",
+		ContractVersion: "1", ProductId: "product", Release: "1",
 		ImageReference: "registry.example/product", ImageManifestDigest: "sha256:" + strings.Repeat("0", 64), Platform: "linux/arm64",
 		BootstrapProtocolVersion: "1", ControllerProtocolVersion: "1", DataVolumeBytes: 1 << 30,
 		StartupDeadlineSeconds: 30, ProbationSeconds: 1, HealthTimeoutSeconds: 10,

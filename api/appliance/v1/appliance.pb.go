@@ -482,15 +482,14 @@ func (ApplianceOperationPhase) EnumDescriptor() ([]byte, []int) {
 type ApplianceTerminalReason int32
 
 const (
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_UNSPECIFIED       ApplianceTerminalReason = 0
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_SUCCEEDED         ApplianceTerminalReason = 1
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT    ApplianceTerminalReason = 2
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_CORRUPTION        ApplianceTerminalReason = 3
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_KEY_LOST          ApplianceTerminalReason = 4
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED ApplianceTerminalReason = 5
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED  ApplianceTerminalReason = 6
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_REMOVED           ApplianceTerminalReason = 7
-	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_OPERATION_FAILED  ApplianceTerminalReason = 8
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_UNSPECIFIED      ApplianceTerminalReason = 0
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_SUCCEEDED        ApplianceTerminalReason = 1
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT   ApplianceTerminalReason = 2
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_CORRUPTION       ApplianceTerminalReason = 3
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_KEY_LOST         ApplianceTerminalReason = 4
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED ApplianceTerminalReason = 6
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_REMOVED          ApplianceTerminalReason = 7
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_OPERATION_FAILED ApplianceTerminalReason = 8
 )
 
 // Enum value maps for ApplianceTerminalReason.
@@ -501,21 +500,19 @@ var (
 		2: "APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT",
 		3: "APPLIANCE_TERMINAL_REASON_CORRUPTION",
 		4: "APPLIANCE_TERMINAL_REASON_KEY_LOST",
-		5: "APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED",
 		6: "APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED",
 		7: "APPLIANCE_TERMINAL_REASON_REMOVED",
 		8: "APPLIANCE_TERMINAL_REASON_OPERATION_FAILED",
 	}
 	ApplianceTerminalReason_value = map[string]int32{
-		"APPLIANCE_TERMINAL_REASON_UNSPECIFIED":       0,
-		"APPLIANCE_TERMINAL_REASON_SUCCEEDED":         1,
-		"APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT":    2,
-		"APPLIANCE_TERMINAL_REASON_CORRUPTION":        3,
-		"APPLIANCE_TERMINAL_REASON_KEY_LOST":          4,
-		"APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED": 5,
-		"APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED":  6,
-		"APPLIANCE_TERMINAL_REASON_REMOVED":           7,
-		"APPLIANCE_TERMINAL_REASON_OPERATION_FAILED":  8,
+		"APPLIANCE_TERMINAL_REASON_UNSPECIFIED":      0,
+		"APPLIANCE_TERMINAL_REASON_SUCCEEDED":        1,
+		"APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT":   2,
+		"APPLIANCE_TERMINAL_REASON_CORRUPTION":       3,
+		"APPLIANCE_TERMINAL_REASON_KEY_LOST":         4,
+		"APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED": 6,
+		"APPLIANCE_TERMINAL_REASON_REMOVED":          7,
+		"APPLIANCE_TERMINAL_REASON_OPERATION_FAILED": 8,
 	}
 )
 
@@ -1270,7 +1267,6 @@ type ControllerApplianceManifest struct {
 	state                        protoimpl.MessageState    `protogen:"open.v1"`
 	ContractVersion              string                    `protobuf:"bytes,1,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
 	ProductId                    string                    `protobuf:"bytes,2,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
-	PublisherKeyId               string                    `protobuf:"bytes,3,opt,name=publisher_key_id,json=publisherKeyId,proto3" json:"publisher_key_id,omitempty"`
 	Release                      string                    `protobuf:"bytes,4,opt,name=release,proto3" json:"release,omitempty"`
 	ImageReference               string                    `protobuf:"bytes,5,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
 	ImageManifestDigest          string                    `protobuf:"bytes,6,opt,name=image_manifest_digest,json=imageManifestDigest,proto3" json:"image_manifest_digest,omitempty"`
@@ -1331,13 +1327,6 @@ func (x *ControllerApplianceManifest) GetContractVersion() string {
 func (x *ControllerApplianceManifest) GetProductId() string {
 	if x != nil {
 		return x.ProductId
-	}
-	return ""
-}
-
-func (x *ControllerApplianceManifest) GetPublisherKeyId() string {
-	if x != nil {
-		return x.PublisherKeyId
 	}
 	return ""
 }
@@ -2955,7 +2944,6 @@ type StageArtifactRequest struct {
 	RequestId          string                       `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	DeadlineUnixMillis int64                        `protobuf:"varint,2,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
 	Manifest           *ControllerApplianceManifest `protobuf:"bytes,3,opt,name=manifest,proto3" json:"manifest,omitempty"`
-	PublisherSignature []byte                       `protobuf:"bytes,4,opt,name=publisher_signature,json=publisherSignature,proto3" json:"publisher_signature,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -3007,13 +2995,6 @@ func (x *StageArtifactRequest) GetDeadlineUnixMillis() int64 {
 func (x *StageArtifactRequest) GetManifest() *ControllerApplianceManifest {
 	if x != nil {
 		return x.Manifest
-	}
-	return nil
-}
-
-func (x *StageArtifactRequest) GetPublisherSignature() []byte {
-	if x != nil {
-		return x.PublisherSignature
 	}
 	return nil
 }
@@ -4058,12 +4039,11 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x16per_environment_limits\x18\x03 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x14perEnvironmentLimits\x12D\n" +
 	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressMode\x12*\n" +
 	"\x11max_lease_seconds\x18\x05 \x01(\rR\x0fmaxLeaseSeconds\x128\n" +
-	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSeconds\"\xf3\b\n" +
+	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSeconds\"\xe1\b\n" +
 	"\x1bControllerApplianceManifest\x12)\n" +
 	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12\x1d\n" +
 	"\n" +
-	"product_id\x18\x02 \x01(\tR\tproductId\x12(\n" +
-	"\x10publisher_key_id\x18\x03 \x01(\tR\x0epublisherKeyId\x12\x18\n" +
+	"product_id\x18\x02 \x01(\tR\tproductId\x12\x18\n" +
 	"\arelease\x18\x04 \x01(\tR\arelease\x12'\n" +
 	"\x0fimage_reference\x18\x05 \x01(\tR\x0eimageReference\x122\n" +
 	"\x15image_manifest_digest\x18\x06 \x01(\tR\x13imageManifestDigest\x12\x1a\n" +
@@ -4080,7 +4060,7 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x11probation_seconds\x18\x10 \x01(\rR\x10probationSeconds\x124\n" +
 	"\x16health_timeout_seconds\x18\x11 \x01(\rR\x14healthTimeoutSeconds\x12:\n" +
 	"\x19minimum_appliance_runtime\x18\x12 \x01(\tR\x17minimumApplianceRuntime\x12v\n" +
-	"\x1frequested_dynamic_host_loopback\x18\x13 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x1crequestedDynamicHostLoopback\"\xab\x03\n" +
+	"\x1frequested_dynamic_host_loopback\x18\x13 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x1crequestedDynamicHostLoopbackJ\x04\b\x03\x10\x04R\x10publisher_key_id\"\xab\x03\n" +
 	"\rApprovedGrant\x12O\n" +
 	"\x10system_resources\x18\x01 \x01(\v2$.agentvmm.appliance.v1.ResourceRangeR\x0fsystemResources\x12@\n" +
 	"\bcapacity\x18\x02 \x01(\v2$.agentvmm.appliance.v1.CapacityGrantR\bcapacity\x12=\n" +
@@ -4218,13 +4198,12 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x15AppliancePlanResponse\x128\n" +
 	"\x04plan\x18\x01 \x01(\v2$.agentvmm.appliance.v1.AppliancePlanR\x04plan\"Y\n" +
 	"\x17ApplianceStatusResponse\x12>\n" +
-	"\x06status\x18\x01 \x01(\v2&.agentvmm.appliance.v1.ApplianceStatusR\x06status\"\xe8\x01\n" +
+	"\x06status\x18\x01 \x01(\v2&.agentvmm.appliance.v1.ApplianceStatusR\x06status\"\xd2\x01\n" +
 	"\x14StageArtifactRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x120\n" +
 	"\x14deadline_unix_millis\x18\x02 \x01(\x03R\x12deadlineUnixMillis\x12N\n" +
-	"\bmanifest\x18\x03 \x01(\v22.agentvmm.appliance.v1.ControllerApplianceManifestR\bmanifest\x12/\n" +
-	"\x13publisher_signature\x18\x04 \x01(\fR\x12publisherSignature\"\xa9\x02\n" +
+	"\bmanifest\x18\x03 \x01(\v22.agentvmm.appliance.v1.ControllerApplianceManifestR\bmanifestJ\x04\b\x04\x10\x05R\x13publisher_signature\"\xa9\x02\n" +
 	"\x12PlanInstallRequest\x12'\n" +
 	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1d\n" +
 	"\n" +
@@ -4362,17 +4341,16 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"#APPLIANCE_OPERATION_PHASE_PROBATION\x10\x02\x12.\n" +
 	"*APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED\x10\x03\x12-\n" +
 	")APPLIANCE_OPERATION_PHASE_PENDING_DESTROY\x10\x04\x12&\n" +
-	"\"APPLIANCE_OPERATION_PHASE_TERMINAL\x10\x05*\xa5\x03\n" +
+	"\"APPLIANCE_OPERATION_PHASE_TERMINAL\x10\x05*\xa7\x03\n" +
 	"\x17ApplianceTerminalReason\x12)\n" +
 	"%APPLIANCE_TERMINAL_REASON_UNSPECIFIED\x10\x00\x12'\n" +
 	"#APPLIANCE_TERMINAL_REASON_SUCCEEDED\x10\x01\x12,\n" +
 	"(APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT\x10\x02\x12(\n" +
 	"$APPLIANCE_TERMINAL_REASON_CORRUPTION\x10\x03\x12&\n" +
-	"\"APPLIANCE_TERMINAL_REASON_KEY_LOST\x10\x04\x12/\n" +
-	"+APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED\x10\x05\x12.\n" +
+	"\"APPLIANCE_TERMINAL_REASON_KEY_LOST\x10\x04\x12.\n" +
 	"*APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED\x10\x06\x12%\n" +
 	"!APPLIANCE_TERMINAL_REASON_REMOVED\x10\a\x12.\n" +
-	"*APPLIANCE_TERMINAL_REASON_OPERATION_FAILED\x10\b2\xf4\r\n" +
+	"*APPLIANCE_TERMINAL_REASON_OPERATION_FAILED\x10\b\"\x04\b\x05\x10\x05*+APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED2\xf4\r\n" +
 	"\x15ApplianceAdminService\x12n\n" +
 	"\rBuildArtifact\x12+.agentvmm.appliance.v1.BuildArtifactRequest\x1a,.agentvmm.appliance.v1.BuildArtifactResponse(\x010\x01\x12o\n" +
 	"\rStageArtifact\x12+.agentvmm.appliance.v1.StageArtifactRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12f\n" +

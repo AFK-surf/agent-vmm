@@ -81,7 +81,6 @@ type applianceFixture struct {
 		ProductID        string   `json:"product_id"`
 		Platform         string   `json:"platform"`
 		DigestPinned     bool     `json:"digest_pinned"`
-		PublisherSigned  bool     `json:"publisher_signed"`
 		DefaultEnabled   bool     `json:"default_enabled"`
 		AgentAllocations []string `json:"agent_allocations"`
 	} `json:"bundled_mcp"`
@@ -167,8 +166,8 @@ func TestApplianceAggregateAdmissionAndBounds(t *testing.T) {
 func TestBundledMCPContract(t *testing.T) {
 	fixture := loadApplianceFixture(t)
 	mcp := fixture.BundledMCP
-	if mcp.ProductID == "" || mcp.Platform != "linux/arm64" || !mcp.DigestPinned || !mcp.PublisherSigned || mcp.DefaultEnabled {
-		t.Fatal("bundled MCP artifact must be signed, pinned, arm64, and disabled by default")
+	if mcp.ProductID == "" || mcp.Platform != "linux/arm64" || !mcp.DigestPinned || mcp.DefaultEnabled {
+		t.Fatal("bundled MCP artifact must be digest-pinned, arm64, and disabled by default")
 	}
 	if len(mcp.AgentAllocations) < 2 || mcp.AgentAllocations[0] == mcp.AgentAllocations[1] {
 		t.Fatal("each local agent must have a distinct allocation")

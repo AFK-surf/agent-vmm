@@ -140,10 +140,6 @@ func New(config Config) (*Controller, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := installFirstPartyAppliancePublisher(context.Background(), database, config.BundleDirectory); err != nil {
-		database.Close()
-		return nil, err
-	}
 	if err := database.RevokeActiveSessions(context.Background()); err != nil {
 		database.Close()
 		return nil, err

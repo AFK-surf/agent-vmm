@@ -45,6 +45,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Build and verify the guest bundle
         run: |
           mkdir -p "$RUNNER_TEMP/guest-bundle"
@@ -56,15 +60,47 @@ jobs:
             alpine:3.24 \
             sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && build/guest/build.sh /bundle'
           cd "$RUNNER_TEMP/guest-bundle"
-          sha256sum -c SHA256SUMS
+          jq -r '.artifacts[] | "\(.sha256)  \(.path)"' manifest.json | sha256sum -c -
           test "$(jq -r .architecture manifest.json)" = arm64
+      - name: Unpack the built Guest root filesystem
+        run: |
+          sudo chown -R "$USER":"$(id -gn)" "$RUNNER_TEMP/guest-bundle"
+          sudo apt-get update
+          sudo apt-get install --yes squashfs-tools
+          unsquashfs -d "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/guest-bundle/rootfs.squashfs"
+      - name: Generate SPDX from the built Guest root filesystem
+        uses: anchore/sbom-action@v0
+        with:
+          path: ${{ runner.temp }}/guest-rootfs
+          format: spdx-json
+          output-file: ${{ runner.temp }}/guest-bundle/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Check Guest dependency advisories
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ runner.temp }}/guest-rootfs
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+      - name: Generate and verify Guest build evidence
+        run: |
+          revision=$(git rev-parse HEAD)
+          go run ./build/guest/evidence generate \
+            -bundle "$RUNNER_TEMP/guest-bundle" \
+            -lock build/guest/lock.json \
+            -source-revision "$revision"
+          go run ./build/guest/evidence verify \
+            -bundle "$RUNNER_TEMP/guest-bundle" \
+            -rootfs "$RUNNER_TEMP/guest-rootfs" \
+            -lock build/guest/lock.json \
+            -source-revision "$revision"
       - uses: actions/upload-artifact@v6
         with:
           name: guest-bundle-metadata
           path: |
             ${{ runner.temp }}/guest-bundle/manifest.json
-            ${{ runner.temp }}/guest-bundle/manifest.json.sig
-            ${{ runner.temp }}/guest-bundle/SHA256SUMS
             ${{ runner.temp }}/guest-bundle/sbom.spdx.json
             ${{ runner.temp }}/guest-bundle/provenance.json
           retention-days: 7

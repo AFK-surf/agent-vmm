@@ -21,30 +21,28 @@ import (
 )
 
 const (
-	lifecycleInstallationIDEnv      = "AGENT_VMM_APPLIANCE_INSTALLATION_ID"
-	lifecycleAppliancePollInterval  = 100 * time.Millisecond
-	lifecycleApplianceConfigVersion = 1
-	lifecycleInstallTicketMaxBytes  = 8 << 20
+	lifecycleInstallationIDEnv        = "AGENT_VMM_APPLIANCE_INSTALLATION_ID"
+	lifecycleAppliancePollInterval    = 100 * time.Millisecond
+	lifecycleApplianceConfigVersion   = 1
+	lifecycleOperationHandoffMaxBytes = 8 << 20
 )
 
 var errApplianceLifecycleConfigUnavailable = errors.New("Agent VMM appliance lifecycle configuration is unavailable")
 
-// applianceLifecycleConfig is deliberately file based. The signed manifest,
+// applianceLifecycleConfig is deliberately file based. The canonical manifest,
 // grant and bootstrap seed are release/operator inputs and must not be
 // embedded in the helper or passed through a renderer/CLI payload.
 type applianceLifecycleConfig struct {
-	Version                int    `json:"version"`
-	InstallationID         string `json:"installation_id"`
-	ManifestPath           string `json:"manifest_path"`
-	PublisherSignaturePath string `json:"publisher_signature_path"`
-	ApprovedGrantPath      string `json:"approved_grant_path"`
-	BootstrapSeedPath      string `json:"bootstrap_seed_path"`
+	Version           int    `json:"version"`
+	InstallationID    string `json:"installation_id"`
+	ManifestPath      string `json:"manifest_path"`
+	ApprovedGrantPath string `json:"approved_grant_path"`
+	BootstrapSeedPath string `json:"bootstrap_seed_path"`
 }
 
 type applianceInstallSpec struct {
 	installationID string
 	manifest       *appliancev1.ControllerApplianceManifest
-	signature      []byte
 	grant          *appliancev1.ApprovedGrant
 	bootstrapSeed  []byte
 }
@@ -52,8 +50,8 @@ type applianceInstallSpec struct {
 type productionLifecycleAdapter struct {
 	value              paths
 	configPath         string
-	descriptor         *installDescriptor
-	material           *installMaterial
+	descriptor         *operationHandoffDescriptor
+	material           *operationHandoffPlan
 	deadlineUnixMillis int64
 }
 
@@ -61,7 +59,7 @@ func newProductionLifecycleAdapter(value paths, configPath ...string) LifecycleA
 	return newProductionLifecycleAdapterWithDescriptor(value, nil, configPath...)
 }
 
-func newProductionLifecycleAdapterWithDescriptor(value paths, descriptor *installDescriptor, configPath ...string) LifecycleAdapter {
+func newProductionLifecycleAdapterWithDescriptor(value paths, descriptor *operationHandoffDescriptor, configPath ...string) LifecycleAdapter {
 	adapter := &productionLifecycleAdapter{value: value, descriptor: descriptor}
 	if len(configPath) != 0 {
 		adapter.configPath = configPath[0]
@@ -79,16 +77,16 @@ func lifecycleAdapterFor(adapter *productionLifecycleAdapter) LifecycleAdapter {
 	})
 }
 
-func decodeTicketField(name, encoded string, maxBytes int) ([]byte, error) {
+func decodeOperationField(name, encoded string, maxBytes int) ([]byte, error) {
 	if encoded == "" {
-		return nil, fmt.Errorf("install ticket %s is required", name)
+		return nil, fmt.Errorf("operation handoff %s is required", name)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("decode install ticket %s: %w", name, err)
+		return nil, fmt.Errorf("decode operation handoff %s: %w", name, err)
 	}
 	if len(decoded) == 0 || len(decoded) > maxBytes {
-		return nil, fmt.Errorf("install ticket %s has invalid size", name)
+		return nil, fmt.Errorf("operation handoff %s has invalid size", name)
 	}
 	return decoded, nil
 }
@@ -119,7 +117,6 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 		RequestId:          request.RequestID + ":stage",
 		DeadlineUnixMillis: deadline,
 		Manifest:           spec.manifest,
-		PublisherSignature: spec.signature,
 	})
 	if err != nil {
 		return fmt.Errorf("stage appliance artifact: %w", err)
@@ -331,10 +328,6 @@ func (adapter *productionLifecycleAdapter) installSpec() (applianceInstallSpec, 
 	if err := proto.Unmarshal(manifestBytes, manifest); err != nil {
 		return applianceInstallSpec{}, fmt.Errorf("decode appliance manifest: %w", err)
 	}
-	signature, err := os.ReadFile(config.PublisherSignaturePath)
-	if err != nil {
-		return applianceInstallSpec{}, fmt.Errorf("read appliance publisher signature: %w", err)
-	}
 	grantBytes, err := os.ReadFile(config.ApprovedGrantPath)
 	if err != nil {
 		return applianceInstallSpec{}, fmt.Errorf("read appliance approved grant: %w", err)
@@ -350,7 +343,7 @@ func (adapter *productionLifecycleAdapter) installSpec() (applianceInstallSpec, 
 	if len(seed) == 0 {
 		return applianceInstallSpec{}, errors.New("appliance bootstrap seed is empty")
 	}
-	return applianceInstallSpec{installationID: config.InstallationID, manifest: manifest, signature: signature, grant: grant, bootstrapSeed: seed}, nil
+	return applianceInstallSpec{installationID: config.InstallationID, manifest: manifest, grant: grant, bootstrapSeed: seed}, nil
 }
 
 func (adapter *productionLifecycleAdapter) readConfig() (applianceLifecycleConfig, error) {
@@ -370,10 +363,9 @@ func (adapter *productionLifecycleAdapter) readConfig() (applianceLifecycleConfi
 		return applianceLifecycleConfig{}, fmt.Errorf("unsupported appliance lifecycle config version %d", config.Version)
 	}
 	for field, value := range map[string]string{
-		"manifest_path":            config.ManifestPath,
-		"publisher_signature_path": config.PublisherSignaturePath,
-		"approved_grant_path":      config.ApprovedGrantPath,
-		"bootstrap_seed_path":      config.BootstrapSeedPath,
+		"manifest_path":       config.ManifestPath,
+		"approved_grant_path": config.ApprovedGrantPath,
+		"bootstrap_seed_path": config.BootstrapSeedPath,
 	} {
 		if value == "" || !filepath.IsAbs(value) {
 			return applianceLifecycleConfig{}, fmt.Errorf("appliance config %s must be an absolute path", field)

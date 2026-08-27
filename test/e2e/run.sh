@@ -26,7 +26,8 @@ else
 fi
 
 if [ "$prepare_status" -eq 0 ]; then
-  (cd "$repository" && go build -tags=e2e -o "$host_binary" ./cmd/agent-vmm-host) && \
+  guest_manifest_digest=$(shasum -a 256 "$bundle/manifest.json" | awk '{print $1}') && \
+  (cd "$repository" && go build -tags=e2e -ldflags "-X main.guestManifestDigest=$guest_manifest_digest" -o "$host_binary" ./cmd/agent-vmm-host) && \
     codesign --force --sign - --entitlements "$repository/build/host/vz.entitlements.plist" "$host_binary"
   prepare_status=$?
 fi

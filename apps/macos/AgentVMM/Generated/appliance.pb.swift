@@ -420,7 +420,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProt
   case fenceConflict // = 2
   case corruption // = 3
   case keyLost // = 4
-  case publisherRevoked // = 5
   case operatorRevoked // = 6
   case removed // = 7
   case operationFailed // = 8
@@ -437,7 +436,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProt
     case 2: self = .fenceConflict
     case 3: self = .corruption
     case 4: self = .keyLost
-    case 5: self = .publisherRevoked
     case 6: self = .operatorRevoked
     case 7: self = .removed
     case 8: self = .operationFailed
@@ -452,7 +450,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProt
     case .fenceConflict: return 2
     case .corruption: return 3
     case .keyLost: return 4
-    case .publisherRevoked: return 5
     case .operatorRevoked: return 6
     case .removed: return 7
     case .operationFailed: return 8
@@ -467,7 +464,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProt
     .fenceConflict,
     .corruption,
     .keyLost,
-    .publisherRevoked,
     .operatorRevoked,
     .removed,
     .operationFailed,
@@ -773,11 +769,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @un
   public var productID: String {
     get {_storage._productID}
     set {_uniqueStorage()._productID = newValue}
-  }
-
-  public var publisherKeyID: String {
-    get {_storage._publisherKeyID}
-    set {_uniqueStorage()._publisherKeyID = newValue}
   }
 
   public var release: String {
@@ -1553,8 +1544,6 @@ public nonisolated struct Agentvmm_Appliance_V1_StageArtifactRequest: Sendable {
   /// Clears the value of `manifest`. Subsequent reads from it will return its default value.
   public mutating func clearManifest() {self._manifest = nil}
 
-  public var publisherSignature: Data = Data()
-
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1879,7 +1868,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceOperationPhase: SwiftProtob
 }
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPLIANCE_TERMINAL_REASON_UNSPECIFIED\0\u{1}APPLIANCE_TERMINAL_REASON_SUCCEEDED\0\u{1}APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT\0\u{1}APPLIANCE_TERMINAL_REASON_CORRUPTION\0\u{1}APPLIANCE_TERMINAL_REASON_KEY_LOST\0\u{1}APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED\0\u{1}APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED\0\u{1}APPLIANCE_TERMINAL_REASON_REMOVED\0\u{1}APPLIANCE_TERMINAL_REASON_OPERATION_FAILED\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPLIANCE_TERMINAL_REASON_UNSPECIFIED\0\u{1}APPLIANCE_TERMINAL_REASON_SUCCEEDED\0\u{1}APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT\0\u{1}APPLIANCE_TERMINAL_REASON_CORRUPTION\0\u{1}APPLIANCE_TERMINAL_REASON_KEY_LOST\0\u{2}\u{2}APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED\0\u{1}APPLIANCE_TERMINAL_REASON_REMOVED\0\u{1}APPLIANCE_TERMINAL_REASON_OPERATION_FAILED\0")
 }
 
 nonisolated extension Agentvmm_Appliance_V1_BuildArtifactHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -2407,12 +2396,11 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
 
 nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ControllerApplianceManifest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}contract_version\0\u{3}product_id\0\u{3}publisher_key_id\0\u{1}release\0\u{3}image_reference\0\u{3}image_manifest_digest\0\u{1}platform\0\u{3}bootstrap_protocol_version\0\u{3}controller_protocol_version\0\u{3}system_resources\0\u{3}data_volume_bytes\0\u{3}requested_capacity\0\u{3}requested_egress_mode\0\u{3}requested_frontends\0\u{3}startup_deadline_seconds\0\u{3}probation_seconds\0\u{3}health_timeout_seconds\0\u{3}minimum_appliance_runtime\0\u{3}requested_dynamic_host_loopback\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}contract_version\0\u{3}product_id\0\u{2}\u{2}release\0\u{3}image_reference\0\u{3}image_manifest_digest\0\u{1}platform\0\u{3}bootstrap_protocol_version\0\u{3}controller_protocol_version\0\u{3}system_resources\0\u{3}data_volume_bytes\0\u{3}requested_capacity\0\u{3}requested_egress_mode\0\u{3}requested_frontends\0\u{3}startup_deadline_seconds\0\u{3}probation_seconds\0\u{3}health_timeout_seconds\0\u{3}minimum_appliance_runtime\0\u{3}requested_dynamic_host_loopback\0\u{b}publisher_key_id\0\u{c}\u{3}\u{1}")
 
   fileprivate class _StorageClass {
     var _contractVersion: String = String()
     var _productID: String = String()
-    var _publisherKeyID: String = String()
     var _release: String = String()
     var _imageReference: String = String()
     var _imageManifestDigest: String = String()
@@ -2441,7 +2429,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
     init(copying source: _StorageClass) {
       _contractVersion = source._contractVersion
       _productID = source._productID
-      _publisherKeyID = source._publisherKeyID
       _release = source._release
       _imageReference = source._imageReference
       _imageManifestDigest = source._imageManifestDigest
@@ -2478,7 +2465,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         switch fieldNumber {
         case 1: try { try decoder.decodeSingularStringField(value: &_storage._contractVersion) }()
         case 2: try { try decoder.decodeSingularStringField(value: &_storage._productID) }()
-        case 3: try { try decoder.decodeSingularStringField(value: &_storage._publisherKeyID) }()
         case 4: try { try decoder.decodeSingularStringField(value: &_storage._release) }()
         case 5: try { try decoder.decodeSingularStringField(value: &_storage._imageReference) }()
         case 6: try { try decoder.decodeSingularStringField(value: &_storage._imageManifestDigest) }()
@@ -2512,9 +2498,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       }
       if !_storage._productID.isEmpty {
         try visitor.visitSingularStringField(value: _storage._productID, fieldNumber: 2)
-      }
-      if !_storage._publisherKeyID.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._publisherKeyID, fieldNumber: 3)
       }
       if !_storage._release.isEmpty {
         try visitor.visitSingularStringField(value: _storage._release, fieldNumber: 4)
@@ -2575,7 +2558,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         let rhs_storage = _args.1
         if _storage._contractVersion != rhs_storage._contractVersion {return false}
         if _storage._productID != rhs_storage._productID {return false}
-        if _storage._publisherKeyID != rhs_storage._publisherKeyID {return false}
         if _storage._release != rhs_storage._release {return false}
         if _storage._imageReference != rhs_storage._imageReference {return false}
         if _storage._imageManifestDigest != rhs_storage._imageManifestDigest {return false}
@@ -3872,7 +3854,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceStatusResponse: SwiftProtob
 
 nonisolated extension Agentvmm_Appliance_V1_StageArtifactRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StageArtifactRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}deadline_unix_millis\0\u{1}manifest\0\u{3}publisher_signature\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}deadline_unix_millis\0\u{1}manifest\0\u{b}publisher_signature\0\u{c}\u{4}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3883,7 +3865,6 @@ nonisolated extension Agentvmm_Appliance_V1_StageArtifactRequest: SwiftProtobuf.
       case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.deadlineUnixMillis) }()
       case 3: try { try decoder.decodeSingularMessageField(value: &self._manifest) }()
-      case 4: try { try decoder.decodeSingularBytesField(value: &self.publisherSignature) }()
       default: break
       }
     }
@@ -3903,9 +3884,6 @@ nonisolated extension Agentvmm_Appliance_V1_StageArtifactRequest: SwiftProtobuf.
     try { if let v = self._manifest {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
-    if !self.publisherSignature.isEmpty {
-      try visitor.visitSingularBytesField(value: self.publisherSignature, fieldNumber: 4)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3913,7 +3891,6 @@ nonisolated extension Agentvmm_Appliance_V1_StageArtifactRequest: SwiftProtobuf.
     if lhs.requestID != rhs.requestID {return false}
     if lhs.deadlineUnixMillis != rhs.deadlineUnixMillis {return false}
     if lhs._manifest != rhs._manifest {return false}
-    if lhs.publisherSignature != rhs.publisherSignature {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

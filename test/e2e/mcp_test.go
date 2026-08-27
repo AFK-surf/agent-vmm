@@ -125,13 +125,9 @@ func installAndActivateBundledMCP(t *testing.T, harness *hostHarness) {
 	if err := proto.Unmarshal(manifestBytes, manifest); err != nil {
 		t.Fatal(err)
 	}
-	signature, err := os.ReadFile(filepath.Join(directory, "manifest.sig"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	admin := appliancev1.NewApplianceAdminServiceClient(harness.connection)
 	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
-	stage, err := admin.StageArtifact(context.Background(), &appliancev1.StageArtifactRequest{RequestId: "mcp-stage", DeadlineUnixMillis: deadline, Manifest: manifest, PublisherSignature: signature})
+	stage, err := admin.StageArtifact(context.Background(), &appliancev1.StageArtifactRequest{RequestId: "mcp-stage", DeadlineUnixMillis: deadline, Manifest: manifest})
 	if err != nil {
 		t.Fatal(err)
 	}

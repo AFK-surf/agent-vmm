@@ -6,8 +6,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
@@ -99,19 +97,6 @@ func TestE2E(t *testing.T) {
 }
 
 func testSystemAppliance(t *testing.T, harness *hostHarness) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	database, err := openE2EDatabase(harness.database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	if _, err := database.Exec(`INSERT INTO appliance_publishers(publisher_key_id, public_key, revision, revoked, updated_at)
-		VALUES ('e2e-reference', ?, 1, 0, ?)`, publicKey, time.Now().UnixNano()); err != nil {
-		t.Fatal(err)
-	}
 	bundle := os.Getenv("AGENT_VMM_E2E_BUNDLE")
 	if bundle == "" {
 		bundle = "/tmp/agent-vmm-e2e-bundle"
@@ -125,7 +110,7 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 		return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
 	}
 	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: "reference",
-		PublisherKeyId: "e2e-reference", Release: "e2e", ImageReference: "agent-vmm.local/reference@" + imageDigest,
+		Release: "e2e", ImageReference: "agent-vmm.local/reference@" + imageDigest,
 		ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1",
 		ControllerProtocolVersion: "controller-ready-v1", SystemResources: &appliancev1.ResourceRange{
 			Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(400, 256<<20, 128, 1<<30)},
@@ -134,23 +119,14 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 			MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
 		RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StartupDeadlineSeconds: 60,
 		ProbationSeconds: 1, HealthTimeoutSeconds: 10, MinimumApplianceRuntime: "1"}
-	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
 	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
 	client := appliancev1.NewApplianceAdminServiceClient(harness.connection)
-	signature := ed25519.Sign(privateKey, canonical)
 	secretA := []byte("phase2-e2e-bootstrap-secret-a-4d57af9b")
 	secretB := []byte("phase2-e2e-bootstrap-secret-b-9c34b572")
-	statusA := activateReferenceAppliance(t, client, "e2e-reference-a", manifest, signature, deadline, secretA)
+	statusA := activateReferenceAppliance(t, client, "e2e-reference-a", manifest, deadline, secretA)
 	manifestB := proto.Clone(manifest).(*appliancev1.ControllerApplianceManifest)
 	manifestB.Release = "e2e-b"
-	canonicalB, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifestB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	statusB := activateReferenceAppliance(t, client, "e2e-reference-b", manifestB, ed25519.Sign(privateKey, canonicalB), deadline, secretB)
+	statusB := activateReferenceAppliance(t, client, "e2e-reference-b", manifestB, deadline, secretB)
 	for _, status := range []*appliancev1.ApplianceStatus{statusA, statusB} {
 		if status.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !status.GetHealth().GetHealthy() || status.GetHealth().GetStatus() != "ready;bootstrap-secret-surfaces-clean" {
 			t.Fatalf("appliance status = %+v", status)
@@ -184,12 +160,11 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	}
 }
 
-func activateReferenceAppliance(t *testing.T, client appliancev1.ApplianceAdminServiceClient, installationID string, manifest *appliancev1.ControllerApplianceManifest, signature []byte, deadline int64, secret []byte) *appliancev1.ApplianceStatus {
+func activateReferenceAppliance(t *testing.T, client appliancev1.ApplianceAdminServiceClient, installationID string, manifest *appliancev1.ControllerApplianceManifest, deadline int64, secret []byte) *appliancev1.ApplianceStatus {
 	t.Helper()
 	prefix := strings.TrimPrefix(installationID, "e2e-")
 	stage, err := client.StageArtifact(context.Background(), &appliancev1.StageArtifactRequest{
-		RequestId: prefix + "-stage", DeadlineUnixMillis: deadline, Manifest: manifest,
-		PublisherSignature: append([]byte(nil), signature...)})
+		RequestId: prefix + "-stage", DeadlineUnixMillis: deadline, Manifest: manifest})
 	if err != nil {
 		t.Fatal(err)
 	}

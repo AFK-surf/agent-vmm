@@ -53,7 +53,7 @@ func main() {
 	flag.StringVar(&sessionDirectory, "session-directory", "", "agent session socket directory")
 	flag.BoolVar(&disablePersonalMeshPairing, "disable-personal-mesh-pairing", false, "deny personal mesh genesis and new member admission while preserving revoke/repair")
 	flag.Parse()
-	config.TrustRoot = trustRoot
+	config.GuestManifestDigest = guestManifestDigest
 	if operatorSocket == "" || remoteComputeSocket == "" || databasePath == "" || sessionDirectory == "" {
 		log.Fatal("operator-socket, remote-compute-socket, database, and session-directory are required")
 	}

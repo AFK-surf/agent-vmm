@@ -7,21 +7,14 @@ import (
 	"testing"
 )
 
-func TestValidateHostAppAcceptsFixedHeadlessTestIdentity(t *testing.T) {
-	directory := hostFixture(t, ReleaseIdentity{Profile: "test", CodeSigning: "adhoc", GuestSigner: "development"})
+func TestValidateHostAppAcceptsFixedRuntimeLayout(t *testing.T) {
+	directory := hostFixture(t)
 	inventory, err := ValidateHostApp(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inventory.Identity.Profile != "test" || inventory.Layout.MainExecutable != HostExecutableRelativePath {
+	if inventory.Layout.MainExecutable != HostExecutableRelativePath {
 		t.Fatalf("inventory=%+v", inventory)
-	}
-}
-
-func TestValidateHostAppAcceptsReleaseIdentity(t *testing.T) {
-	directory := hostFixture(t, ReleaseIdentity{Profile: "release", CodeSigning: "developer-id", GuestSigner: "release"})
-	if _, err := ValidateHostApp(directory); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -70,29 +63,10 @@ func TestValidateHostAppRejectsUIAndDebugPayload(t *testing.T) {
 				writeHostFile(t, filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)), string(data), 0o644)
 			},
 		},
-		{
-			name: "invalid test identity",
-			mutate: func(directory string) {
-				data, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)))
-				if err != nil {
-					t.Fatal(err)
-				}
-				var inventory ReleaseInventory
-				if err := json.Unmarshal(data, &inventory); err != nil {
-					t.Fatal(err)
-				}
-				inventory.Identity.GuestSigner = "release"
-				data, err = json.Marshal(inventory)
-				if err != nil {
-					t.Fatal(err)
-				}
-				writeHostFile(t, filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)), string(data), 0o644)
-			},
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			directory := hostFixture(t, ReleaseIdentity{Profile: "test", CodeSigning: "adhoc", GuestSigner: "development"})
+			directory := hostFixture(t)
 			test.mutate(directory)
 			if _, err := ValidateHostApp(directory); err == nil {
 				t.Fatal("invalid host app was accepted")
@@ -111,7 +85,7 @@ const stringsWithWindowMetadata = `<?xml version="1.0" encoding="UTF-8"?>
 <key>NSMainNibFile</key><string>MainMenu</string>
 </dict></plist>`
 
-func hostFixture(t *testing.T, identity ReleaseIdentity) string {
+func hostFixture(t *testing.T) string {
 	t.Helper()
 	directory := filepath.Join(t.TempDir(), HostAppName)
 	for _, relative := range []string{
@@ -131,8 +105,6 @@ func hostFixture(t *testing.T, identity ReleaseIdentity) string {
 		HostLaunchdTemplateRelativePath,
 		HostBuildInfoRelativePath,
 		HostLicenseRelativePath,
-		HostSBOMRelativePath,
-		HostProvenanceRelativePath,
 	} {
 		value := "metadata"
 		if relative == HostLaunchdTemplateRelativePath {
@@ -145,16 +117,13 @@ func hostFixture(t *testing.T, identity ReleaseIdentity) string {
 	}
 	inventory := ReleaseInventory{
 		SchemaVersion: 1, Component: "agent-vmm-host-runtime", Product: "Agent VMM Host",
-		BundleName: HostAppName, BundleIdentifier: HostBundleIdentifier, ReleaseID: "agent-vmm-host-test", Identity: identity,
+		BundleName: HostAppName, BundleIdentifier: HostBundleIdentifier, ReleaseID: "agent-vmm-host-test",
 		Layout: HostLayout{
 			MainExecutable: HostExecutableRelativePath,
 			Helpers:        []string{HostDataHelperRelativePath, HostLifecycleHelperRelativePath},
 			Guest:          HostGuestRelativePath, LaunchdTemplate: HostLaunchdTemplateRelativePath,
-			BuildInfo: HostBuildInfoRelativePath, License: HostLicenseRelativePath,
-			SBOM: HostSBOMRelativePath, Provenance: HostProvenanceRelativePath, Inventory: HostInventoryRelativePath,
+			BuildInfo: HostBuildInfoRelativePath, License: HostLicenseRelativePath, Inventory: HostInventoryRelativePath,
 		},
-		UI:            HostUI{Headless: true},
-		MetadataScope: "provided",
 	}
 	data, err := json.Marshal(inventory)
 	if err != nil {

@@ -4,7 +4,6 @@ package vmm
 
 import (
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net"
@@ -24,13 +23,13 @@ import (
 const VMMDPort = 4050
 
 type Config struct {
-	BundleDirectory   string
-	InstanceDirectory string
-	CPUCount          uint
-	MemoryBytes       uint64
-	StateBytes        int64
-	SerialLog         string
-	TrustRoot         ed25519.PublicKey
+	BundleDirectory     string
+	InstanceDirectory   string
+	CPUCount            uint
+	MemoryBytes         uint64
+	StateBytes          int64
+	SerialLog           string
+	GuestManifestDigest string
 }
 
 type ApplianceBlock struct {
@@ -140,7 +139,7 @@ func (manager *Manager) Start(ctx context.Context) (*hostv1.VM, error) {
 }
 
 func (manager *Manager) start(ctx context.Context) error {
-	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.TrustRoot)
+	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.GuestManifestDigest)
 	if err != nil {
 		return fmt.Errorf("verify bundle: %w", err)
 	}

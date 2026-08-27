@@ -133,12 +133,13 @@ enum ApplianceOperationPhase {
 }
 
 enum ApplianceTerminalReason {
+  reserved 5;
+  reserved "APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED";
   APPLIANCE_TERMINAL_REASON_UNSPECIFIED       = 0;
   APPLIANCE_TERMINAL_REASON_SUCCEEDED         = 1;
   APPLIANCE_TERMINAL_REASON_FENCE_CONFLICT    = 2;
   APPLIANCE_TERMINAL_REASON_CORRUPTION        = 3;
   APPLIANCE_TERMINAL_REASON_KEY_LOST          = 4;
-  APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED = 5;
   APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED  = 6;
   APPLIANCE_TERMINAL_REASON_REMOVED           = 7;
   APPLIANCE_TERMINAL_REASON_OPERATION_FAILED  = 8;
@@ -184,9 +185,10 @@ message CapacityGrant {
 }
 
 message ControllerApplianceManifest {
+  reserved 3;
+  reserved "publisher_key_id";
   string                      contract_version                = 1;
   string                      product_id                      = 2;
-  string                      publisher_key_id                = 3;
   string                      release                         = 4;
   string                      image_reference                 = 5;
   string                      image_manifest_digest           = 6;
@@ -357,10 +359,11 @@ message AppliancePlanResponse { AppliancePlan plan = 1; }
 message ApplianceStatusResponse { ApplianceStatus status = 1; }
 
 message StageArtifactRequest {
+  reserved 4;
+  reserved "publisher_signature";
   string                      request_id           = 1;
   int64                       deadline_unix_millis = 2;
   ControllerApplianceManifest manifest             = 3;
-  bytes                       publisher_signature  = 4;
 }
 
 message PlanInstallRequest {

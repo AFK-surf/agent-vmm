@@ -15,7 +15,6 @@ extension GRPCHostClient {
         stage.requestID = UUID().uuidString
         stage.deadlineUnixMillis = deadline
         stage.manifest = manifest
-        stage.publisherSignature = artifact.signature
         let artifactID = try await applianceService.stageArtifact(stage).artifactID
         guard !artifactID.isEmpty else { throw HostClientError.invalidResponse("staged MCP artifact is missing") }
         var planRequest = Agentvmm_Appliance_V1_PlanInstallRequest()

@@ -423,7 +423,6 @@ struct ApplianceRemovePlanModel: Sendable, Equatable {
 
 struct BundledApplianceArtifact: Sendable, Equatable {
     let manifest: Data
-    let signature: Data
     let requestedFrontends: [ApplianceFrontendGrantModel]
     let requestsDynamicHostLoopback: Bool
 }

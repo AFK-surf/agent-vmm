@@ -1,17 +1,13 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
@@ -19,72 +15,37 @@ import (
 func main() {
 	directory := flag.String("directory", "", "bundle directory")
 	lockPath := flag.String("lock", "", "guest lock")
-	keyPath := flag.String("key", "", "Ed25519 seed")
-	signer := flag.String("signer", "", "signer identity")
 	logicalBytes := flag.Int64("logical-bytes", 0, "root tree logical bytes")
 	rootFSCompressor := flag.String("rootfs-compressor", "", "SquashFS compressor")
 	rootFSDictionary := flag.Int64("rootfs-dictionary", 0, "SquashFS dictionary bytes")
 	rootFSFilter := flag.String("rootfs-filter", "", "SquashFS executable filter")
 	flag.Parse()
-	if *directory == "" || *lockPath == "" || *keyPath == "" || *signer == "" || *logicalBytes <= 0 || !validRootFS(*signer, *rootFSCompressor, *rootFSDictionary, *rootFSFilter) {
+	if *directory == "" || *lockPath == "" || *logicalBytes <= 0 || !validRootFS(*rootFSCompressor, *rootFSDictionary, *rootFSFilter) {
 		flag.Usage()
 		os.Exit(2)
 	}
 	lockBytes := mustRead(*lockPath)
 	var lock map[string]any
 	check(json.Unmarshal(lockBytes, &lock))
-	lockDigest := sha256.Sum256(lockBytes)
-
-	mcpImageDigest := strings.TrimSpace(string(mustRead(filepath.Join(*directory, "mcp-appliance.digest"))))
-	packages := lockPackages(lock)
-	packages = append(packages, map[string]any{"SPDXID": "SPDXRef-Package-agent-vmm-mcp-appliance", "name": "agent-vmm-mcp-appliance", "versionInfo": "1", "downloadLocation": "NOASSERTION", "checksums": []map[string]string{{"algorithm": "SHA256", "checksumValue": strings.TrimPrefix(mcpImageDigest, "sha256:")}}})
-	sbom := map[string]any{
-		"spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0", "SPDXID": "SPDXRef-DOCUMENT",
-		"name": "agent-vmm-guest", "documentNamespace": "https://github.com/AFK-surf/agent-vmm/guest/" + hex.EncodeToString(lockDigest[:]),
-		"creationInfo": map[string]any{"creators": []string{"Tool: agent-vmm-bundle"}, "created": "1970-01-01T00:00:00Z"},
-		"packages":     packages,
-	}
-	writeJSON(filepath.Join(*directory, "sbom.spdx.json"), sbom)
-	provenance := map[string]any{
-		"_type": "https://in-toto.io/Statement/v1", "predicateType": "https://slsa.dev/provenance/v1",
-		"subject": []any{map[string]any{"name": "agent-vmm-mcp-appliance", "digest": map[string]string{"sha256": strings.TrimPrefix(mcpImageDigest, "sha256:")}}}, "predicate": map[string]any{"buildDefinition": map[string]any{"buildType": "https://github.com/AFK-surf/agent-vmm/guest/v1", "externalParameters": map[string]any{"lock_sha256": hex.EncodeToString(lockDigest[:]), "signer": *signer, "rootfs_compressor": *rootFSCompressor, "rootfs_dictionary": *rootFSDictionary, "rootfs_filter": *rootFSFilter}}, "runDetails": map[string]any{"builder": map[string]any{"id": "https://github.com/AFK-surf/agent-vmm/build/guest"}}},
-	}
-	writeJSON(filepath.Join(*directory, "provenance.json"), provenance)
-
-	checksumNames := []string{"Image", "initramfs.xz", "rootfs.squashfs", "mcp-appliance.digest", "mcp-appliance/manifest.pb", "mcp-appliance/manifest.sig", "mcp-appliance/publisher.pub", "sbom.spdx.json", "provenance.json"}
-	lines := make([]string, 0, len(checksumNames))
-	for _, name := range checksumNames {
-		lines = append(lines, fileDigest(filepath.Join(*directory, name))+"  "+name)
-	}
-	check(os.WriteFile(filepath.Join(*directory, "SHA256SUMS"), []byte(strings.Join(lines, "\n")+"\n"), 0o644))
-
 	artifacts := map[string]bundle.Artifact{}
-	for name, path := range map[string]string{"kernel": "Image", "initramfs": "initramfs.xz", "rootfs": "rootfs.squashfs", "mcp_appliance_digest": "mcp-appliance.digest", "mcp_appliance_manifest": "mcp-appliance/manifest.pb", "mcp_appliance_signature": "mcp-appliance/manifest.sig", "mcp_appliance_publisher": "mcp-appliance/publisher.pub", "sbom": "sbom.spdx.json", "provenance": "provenance.json", "checksums": "SHA256SUMS"} {
+	for name, path := range map[string]string{"kernel": "Image", "initramfs": "initramfs.xz", "rootfs": "rootfs.squashfs", "mcp_appliance_digest": "mcp-appliance.digest", "mcp_appliance_manifest": "mcp-appliance/manifest.pb"} {
 		info, err := os.Stat(filepath.Join(*directory, path))
 		check(err)
 		artifacts[name] = bundle.Artifact{Path: path, Size: info.Size(), SHA256: fileDigest(filepath.Join(*directory, path))}
 	}
 	manifest := bundle.Manifest{
-		SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Signer: *signer,
+		SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0",
 		Artifacts: artifacts, Components: components(lock),
 		RootFS: bundle.RootFS{LogicalBytes: *logicalBytes, Filesystem: "squashfs", Compressor: *rootFSCompressor, BlockSize: 1 << 20, Dictionary: *rootFSDictionary, Filter: *rootFSFilter},
 	}
 	manifestBytes, err := json.Marshal(manifest)
 	check(err)
 	check(os.WriteFile(filepath.Join(*directory, bundle.ManifestName), manifestBytes, 0o644))
-	seedText := strings.TrimSpace(string(mustRead(*keyPath)))
-	seed, err := hex.DecodeString(seedText)
-	check(err)
-	if len(seed) != ed25519.SeedSize {
-		panic("invalid Ed25519 seed")
-	}
-	signature := ed25519.Sign(ed25519.NewKeyFromSeed(seed), manifestBytes)
-	check(os.WriteFile(filepath.Join(*directory, bundle.SignatureName), []byte(base64.StdEncoding.EncodeToString(signature)+"\n"), 0o644))
 }
 
-func validRootFS(signer, compressor string, dictionary int64, filter string) bool {
-	return signer == "release" && compressor == "xz" && dictionary == 1<<20 && filter == "arm64-bcj" ||
-		signer == "development" && compressor == "zstd" && dictionary == 0 && filter == "none"
+func validRootFS(compressor string, dictionary int64, filter string) bool {
+	return compressor == "xz" && dictionary == 1<<20 && filter == "arm64-bcj" ||
+		compressor == "zstd" && dictionary == 0 && filter == "none"
 }
 
 func components(lock map[string]any) map[string]bundle.Component {
@@ -92,33 +53,10 @@ func components(lock map[string]any) map[string]bundle.Component {
 	for _, name := range []string{"containerd", "runsc", "runsc_shim", "buildkit", "kernel", "alpine"} {
 		value, _ := lock[name].(map[string]any)
 		version := stringValue(value, "version")
-		if name == "runsc_shim" {
-			version = stringValue(value, "version")
-		}
 		digest := firstString(value, "archive_sha256", "archive_sha512", "binary_sha512", "apk_sha256", "minirootfs_sha256", "image")
 		result[name] = bundle.Component{Version: version, Digest: digest}
 	}
 	return result
-}
-
-func lockPackages(lock map[string]any) []map[string]any {
-	packages := []map[string]any{}
-	values, _ := lock["packages"].(map[string]any)
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		packages = append(packages, map[string]any{"SPDXID": "SPDXRef-Package-" + name, "name": name, "versionInfo": fmt.Sprint(values[name]), "downloadLocation": "NOASSERTION"})
-	}
-	return packages
-}
-
-func writeJSON(path string, value any) {
-	data, err := json.Marshal(value)
-	check(err)
-	check(os.WriteFile(path, append(data, '\n'), 0o644))
 }
 
 func fileDigest(path string) string {

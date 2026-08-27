@@ -20,14 +20,13 @@ func TestInstallApplianceDomainLinksRegistrationBeforeInstallation(t *testing.T)
 	artifact, _, err := database.StageApplianceArtifact(ctx, ApplianceArtifact{
 		ID: "artifact", CanonicalHash: []byte("canonical"), ImageDigest: "sha256:digest",
 		ImageReference: "registry.example/appliance@sha256:digest", Platform: "linux/arm64",
-		PublisherKeyID: "publisher", ProductID: "product", Release: "1", Verified: true,
-		Manifest: []byte("manifest"), PublisherSignature: []byte("signature"),
+		ProductID: "product", Release: "1", Verified: true, Manifest: []byte("manifest"),
 	}, ApplianceOperation{ID: "stage-operation", RequestID: "stage", State: 2, Phase: 5, ExpectedRevision: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
 	installation, registration, operation, err := database.InstallApplianceDomain(ctx,
-		ApplianceInstallation{ID: "installation", ProductID: artifact.ProductID, PublisherKeyID: artifact.PublisherKeyID,
+		ApplianceInstallation{ID: "installation", ProductID: artifact.ProductID,
 			ArtifactID: artifact.ID, State: 2, Revision: 1, EncryptedVolumeID: "volume", EncryptedVolumeIdentity: "volume-identity", DataVolumeBytes: 1 << 20, BootstrapID: "bootstrap"},
 		ApplianceGrant{Revision: 1, System: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
 			MaxEnvironments: 1, Aggregate: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
@@ -84,14 +83,13 @@ func TestCommitSealedRepairFencesInstallationAndReceiptAtomically(t *testing.T) 
 	artifact, _, err := database.StageApplianceArtifact(ctx, ApplianceArtifact{
 		ID: "sealed-artifact", CanonicalHash: []byte("canonical"), ImageDigest: "sha256:digest",
 		ImageReference: "registry.example/appliance@sha256:digest", Platform: "linux/arm64",
-		PublisherKeyID: "publisher", ProductID: "product", Release: "1", Verified: true,
-		Manifest: []byte("manifest"), PublisherSignature: []byte("signature"),
+		ProductID: "product", Release: "1", Verified: true, Manifest: []byte("manifest"),
 	}, ApplianceOperation{ID: "sealed-stage-operation", RequestID: "sealed-stage", State: 2, Phase: 5, ExpectedRevision: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
 	installation, _, _, err := database.InstallApplianceDomain(ctx,
-		ApplianceInstallation{ID: "sealed-installation", ProductID: artifact.ProductID, PublisherKeyID: artifact.PublisherKeyID,
+		ApplianceInstallation{ID: "sealed-installation", ProductID: artifact.ProductID,
 			ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), Revision: 1,
 			EncryptedVolumeID: "sealed-volume", EncryptedVolumeIdentity: "sealed-volume-identity", DataVolumeBytes: 1 << 20, BootstrapID: ""},
 		ApplianceGrant{Revision: 1, System: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
@@ -151,8 +149,7 @@ func TestNewInstallationReplacementAndRemovalLeaveOtherDomainIntact(t *testing.T
 	artifact, _, err := database.StageApplianceArtifact(ctx, ApplianceArtifact{
 		ID: "replacement-artifact", CanonicalHash: []byte("replacement-canonical"), ImageDigest: "sha256:replacement",
 		ImageReference: "registry.example/appliance@sha256:replacement", Platform: "linux/arm64",
-		PublisherKeyID: "publisher", ProductID: "product", Release: "1", Verified: true,
-		Manifest: []byte("manifest"), PublisherSignature: []byte("signature"),
+		ProductID: "product", Release: "1", Verified: true, Manifest: []byte("manifest"),
 	}, ApplianceOperation{ID: "replacement-stage-operation", RequestID: "replacement-stage", State: 2, Phase: 5})
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +160,7 @@ func TestNewInstallationReplacementAndRemovalLeaveOtherDomainIntact(t *testing.T
 			ResourceID: id + "-system", ResourceKind: ReservationResourceSystem,
 			Amount: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}}
 		installation, registration, _, installErr := database.InstallApplianceDomain(ctx,
-			ApplianceInstallation{ID: id, ProductID: artifact.ProductID, PublisherKeyID: artifact.PublisherKeyID,
+			ApplianceInstallation{ID: id, ProductID: artifact.ProductID,
 				ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), Revision: 1,
 				EncryptedVolumeID: id + "-volume", EncryptedVolumeIdentity: id + "-volume-identity", DataVolumeBytes: 1 << 20},
 			ApplianceGrant{Revision: 1, System: reservation.Amount, MaxEnvironments: 1, Aggregate: reservation.Amount,

@@ -76,7 +76,6 @@
     "product_id": "com.afk-surf.agent-vmm.mcp",
     "platform": "linux/arm64",
     "digest_pinned": true,
-    "publisher_signed": true,
     "default_enabled": false,
     "agent_allocations": ["codex-allocation", "pi-allocation"]
   }

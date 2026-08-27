@@ -48,6 +48,13 @@ func TestEndpointObservationRenewalUsesCurrentEpochAndAdvancesSharedState(t *tes
 	case <-time.After(time.Second):
 		t.Fatal("renewal frame was not sent")
 	}
+	deadline := time.Now().Add(time.Second)
+	for state.Load().GetExpiresAt().AsTime().Before(renewed.GetExpiresAt().AsTime()) {
+		if time.Now().After(deadline) {
+			t.Fatal("shared endpoint observation was not renewed")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	cancel(context.Canceled)
 	<-done
 	stream.mu.Lock()
@@ -55,9 +62,6 @@ func TestEndpointObservationRenewalUsesCurrentEpochAndAdvancesSharedState(t *tes
 	stream.mu.Unlock()
 	if message.GetConnectionEpoch() != 41 || len(message.GetEndpointObservation().GetDeviceSignature()) != 64 {
 		t.Fatalf("renewal = %+v", message)
-	}
-	if state.Load().GetExpiresAt().AsTime().Before(renewed.GetExpiresAt().AsTime()) {
-		t.Fatal("shared endpoint observation was not renewed")
 	}
 }
 

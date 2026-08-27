@@ -69,16 +69,12 @@ func migrateV16(tx *sql.Tx) error {
 		`CREATE TABLE appliance_artifacts (
 			artifact_id TEXT PRIMARY KEY, canonical_hash BLOB NOT NULL UNIQUE,
 			image_digest TEXT NOT NULL, image_reference TEXT NOT NULL, platform TEXT NOT NULL,
-			publisher_key_id TEXT NOT NULL, product_id TEXT NOT NULL, release TEXT NOT NULL,
+			product_id TEXT NOT NULL, release TEXT NOT NULL,
 			verified INTEGER NOT NULL CHECK(verified IN (0, 1)), manifest BLOB NOT NULL,
-			publisher_signature BLOB NOT NULL, created_at INTEGER NOT NULL
-		)`,
-		`CREATE TABLE appliance_publishers (
-			publisher_key_id TEXT PRIMARY KEY, public_key BLOB NOT NULL, revision INTEGER NOT NULL,
-			revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0, 1)), updated_at INTEGER NOT NULL
+			created_at INTEGER NOT NULL
 		)`,
 		`CREATE TABLE appliance_installations (
-			id TEXT PRIMARY KEY, product_id TEXT NOT NULL, publisher_key_id TEXT NOT NULL,
+			id TEXT PRIMARY KEY, product_id TEXT NOT NULL,
 			artifact_id TEXT NOT NULL REFERENCES appliance_artifacts(artifact_id),
 			desired_enabled INTEGER NOT NULL DEFAULT 0 CHECK(desired_enabled IN (0, 1)),
 			state INTEGER NOT NULL CHECK(state BETWEEN 1 AND 6), revision INTEGER NOT NULL DEFAULT 1,

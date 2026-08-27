@@ -53,12 +53,11 @@ func TestApplianceReadyRequiresRegistrationAndCurrentControllerFacts(t *testing.
 func TestReadConfigFailsClosedForRelativeArtifactPaths(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "appliance.json")
 	config := map[string]any{
-		"version":                  1,
-		"installation_id":          "installation-1",
-		"manifest_path":            "manifest.pb",
-		"publisher_signature_path": "/tmp/signature",
-		"approved_grant_path":      "/tmp/grant.pb",
-		"bootstrap_seed_path":      "/tmp/seed",
+		"version":             1,
+		"installation_id":     "installation-1",
+		"manifest_path":       "manifest.pb",
+		"approved_grant_path": "/tmp/grant.pb",
+		"bootstrap_seed_path": "/tmp/seed",
 	}
 	data, err := json.Marshal(config)
 	if err != nil {
@@ -98,10 +97,10 @@ func TestPersistInstallMaterialUsesPrivateDurableWorkspace(t *testing.T) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	material := installMaterial{Version: 1, OperationID: "operation-1", Appliance: applianceMaterial{InstallationID: "installation-1",
-		Manifest: base64.StdEncoding.EncodeToString([]byte("manifest")), PublisherSignature: base64.StdEncoding.EncodeToString([]byte("signature")),
+	material := operationHandoffPlan{Version: 1, OperationID: "operation-1", Appliance: applianceMaterial{InstallationID: "installation-1",
+		Manifest:      base64.StdEncoding.EncodeToString([]byte("manifest")),
 		ApprovedGrant: base64.StdEncoding.EncodeToString([]byte("grant")), BootstrapSeed: base64.StdEncoding.EncodeToString([]byte("seed"))}}
-	configPath, err := persistInstallMaterial(directory, material, time.Now().Add(time.Minute).UnixMilli(), true)
+	configPath, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +121,6 @@ func TestPersistInstallMaterialUsesPrivateDurableWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
-		t.Fatalf("ticket workspace was not removed: %v", err)
+		t.Fatalf("operation workspace was not removed: %v", err)
 	}
 }

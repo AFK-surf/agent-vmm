@@ -181,9 +181,6 @@ func (controller *Controller) startAppliance(ctx context.Context, client vmmdv1.
 	if err != nil || !artifact.Verified {
 		return controller.sealAppliance(ctx, installation, "VERIFIED_ARTIFACT_UNAVAILABLE")
 	}
-	if err := controller.validateAppliancePublisher(ctx, installation, artifact); err != nil {
-		return controller.sealAppliance(ctx, installation, "PUBLISHER_REVOKED")
-	}
 	grant, err := controller.store.GetApplianceGrant(ctx, installation.ID)
 	if err != nil {
 		return controller.sealAppliance(ctx, installation, "APPROVED_GRANT_UNAVAILABLE")

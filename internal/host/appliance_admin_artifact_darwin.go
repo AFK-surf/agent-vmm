@@ -32,8 +32,7 @@ func (server *applianceAdminServer) StageArtifact(ctx context.Context, request *
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	canonical, canonicalHash, err := (applianceArtifactVerifier{store: server.controller.store}).verify(ctx,
-		request.GetManifest(), request.GetPublisherSignature(), nil)
+	canonical, canonicalHash, err := (applianceArtifactVerifier{}).verify(request.GetManifest(), nil)
 	if err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "ARTIFACT_VERIFICATION_FAILED", "appliance_artifact", "", err.Error())
 	}
@@ -45,9 +44,9 @@ func (server *applianceAdminServer) StageArtifact(ctx context.Context, request *
 		}
 		artifact = store.ApplianceArtifact{ID: artifactID, CanonicalHash: append([]byte(nil), canonicalHash...),
 			ImageDigest: request.GetManifest().GetImageManifestDigest(), ImageReference: request.GetManifest().GetImageReference(),
-			Platform: request.GetManifest().GetPlatform(), PublisherKeyID: request.GetManifest().GetPublisherKeyId(),
+			Platform:  request.GetManifest().GetPlatform(),
 			ProductID: request.GetManifest().GetProductId(), Release: request.GetManifest().GetRelease(), Verified: true,
-			Manifest: canonical, PublisherSignature: append([]byte(nil), request.GetPublisherSignature()...)}
+			Manifest: canonical}
 	} else if err != nil {
 		return nil, err
 	}
@@ -97,7 +96,7 @@ func (server *applianceAdminServer) PlanInstall(ctx context.Context, request *ap
 	}
 	manifest := new(appliancev1.ControllerApplianceManifest)
 	if err := proto.Unmarshal(artifact.Manifest, manifest); err != nil {
-		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, "approved grant exceeds the signed manifest")
+		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, "approved grant exceeds the canonical manifest")
 	}
 	if err := validateApprovedGrant(manifest, request.GetApprovedGrant()); err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, err.Error())
@@ -145,7 +144,7 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 	}
 	manifest := new(appliancev1.ControllerApplianceManifest)
 	if err := proto.Unmarshal(artifact.Manifest, manifest); err != nil {
-		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, "approved grant exceeds the signed manifest")
+		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, "approved grant exceeds the canonical manifest")
 	}
 	if err := validateApprovedGrant(manifest, request.GetApprovedGrant()); err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, err.Error())
@@ -174,7 +173,7 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 		return nil, err
 	}
 	installation := store.ApplianceInstallation{ID: request.GetInstallationId(), ProductID: artifact.ProductID,
-		PublisherKeyID: artifact.PublisherKeyID, ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED),
+		ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED),
 		Revision: 1, EncryptedVolumeID: volumeID, EncryptedVolumeIdentity: volumeIdentity,
 		DataVolumeBytes: manifest.GetDataVolumeBytes(), BootstrapID: bootstrapID}
 	grant := grantFromProto(installation.ID, 1, request.GetApprovedGrant())

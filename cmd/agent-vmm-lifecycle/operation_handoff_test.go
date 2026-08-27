@@ -16,37 +16,32 @@ import (
 	"time"
 )
 
-func TestMain(m *testing.M) {
-	managedInstallPlatform = func() (string, error) { return "darwin-arm64", nil }
-	os.Exit(m.Run())
-}
-
 func TestDecodeInstallDescriptorRequiresExactHTTPSExchangeRoute(t *testing.T) {
 	expiresAt := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
-	valid := `{"version":1,"operation_id":"operation-1","exchange_url":"https://teams.example.test/v1/compute/agent-vmm/install-tickets/exchange","one_time_secret":"secret","expires_at":"` + expiresAt + `"}`
-	if _, err := decodeInstallDescriptor(strings.NewReader(valid)); err != nil {
+	valid := `{"version":1,"operation_id":"operation-1","exchange_url":"https://teams.example.test/v1/compute/agent-vmm/install-operations/exchange","one_time_secret":"secret","expires_at":"` + expiresAt + `"}`
+	if _, err := decodeOperationHandoffDescriptor(strings.NewReader(valid)); err != nil {
 		t.Fatalf("valid descriptor rejected: %v", err)
 	}
-	wrongRoute := strings.Replace(valid, "/install-tickets/exchange", "/other/exchange", 1)
-	if _, err := decodeInstallDescriptor(strings.NewReader(wrongRoute)); err == nil {
-		t.Fatal("descriptor outside the install-ticket exchange route was accepted")
+	wrongRoute := strings.Replace(valid, operationHandoffExchangePath, "/other/exchange", 1)
+	if _, err := decodeOperationHandoffDescriptor(strings.NewReader(wrongRoute)); err == nil {
+		t.Fatal("descriptor outside the operation handoff exchange route was accepted")
 	}
-	if _, err := decodeInstallDescriptor(strings.NewReader(valid + `{}`)); err == nil {
+	prefixedRoute := strings.Replace(valid, operationHandoffExchangePath, "/proxy"+operationHandoffExchangePath, 1)
+	if _, err := decodeOperationHandoffDescriptor(strings.NewReader(prefixedRoute)); err == nil {
+		t.Fatal("descriptor with a prefixed operation handoff route was accepted")
+	}
+	if _, err := decodeOperationHandoffDescriptor(strings.NewReader(valid + `{}`)); err == nil {
 		t.Fatal("descriptor with trailing JSON was accepted")
 	}
 }
 
-func TestManagedInstallExchangeRequestReportsLocallyDetectedPlatform(t *testing.T) {
-	previousPlatform := managedInstallPlatform
-	managedInstallPlatform = func() (string, error) { return "darwin-arm64", nil }
-	t.Cleanup(func() { managedInstallPlatform = previousPlatform })
-
+func TestManagedInstallExchangeRequestBindsHostIdentity(t *testing.T) {
 	body, err := managedInstallExchangeRequest("operation-1", "device-1", []byte("root-key"), 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var request map[string]any
-	if json.Unmarshal(body, &request) != nil || request["version"] != float64(2) || request["platform"] != "darwin-arm64" ||
+	if json.Unmarshal(body, &request) != nil || request["version"] != float64(2) || request["platform"] != nil ||
 		request["operation_id"] != "operation-1" || request["device_id"] != "device-1" ||
 		request["root_public_key"] != base64.StdEncoding.EncodeToString([]byte("root-key")) ||
 		request["root_key_revision"] != float64(3) {
@@ -54,45 +49,36 @@ func TestManagedInstallExchangeRequestReportsLocallyDetectedPlatform(t *testing.
 	}
 }
 
-func TestManagedInstallPlatformSupportsOnlyPublishedHostArtifacts(t *testing.T) {
-	if platform, err := managedInstallPlatformFor("darwin", "arm64"); err != nil || platform != "darwin-arm64" {
-		t.Fatalf("darwin arm64 platform = %q, %v", platform, err)
-	}
-	for _, tuple := range [][2]string{{"darwin", "amd64"}, {"linux", "arm64"}} {
-		if platform, err := managedInstallPlatformFor(tuple[0], tuple[1]); err == nil || platform != "" {
-			t.Fatalf("unsupported platform %s-%s = %q, %v", tuple[0], tuple[1], platform, err)
-		}
-	}
-}
-
-func TestInstallTicketExchangeAndAcknowledgementUseOneSecret(t *testing.T) {
-	previousClient, previousRelease, previousRevision := installHTTPClient, releaseID, targetRevision
-	releaseID, targetRevision = "release-1", "7"
-	t.Cleanup(func() {
-		installHTTPClient, releaseID, targetRevision = previousClient, previousRelease, previousRevision
-	})
+func TestOperationHandoffExchangeAndAcknowledgementUseOneSecret(t *testing.T) {
+	previousClient := installHTTPClient
+	t.Cleanup(func() { installHTTPClient = previousClient })
 
 	material := validTestInstallMaterial()
 	var exchangeCalls atomic.Int32
 	var ackCalls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "InstallTicket one-time-secret" {
+		if request.Header.Get("Authorization") != "InstallOperation one-time-secret" {
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		switch request.URL.Path {
-		case "/v1/compute/agent-vmm/install-tickets/exchange":
+		case "/v1/compute/agent-vmm/install-operations/exchange":
 			exchangeCalls.Add(1)
 			_ = json.NewEncoder(response).Encode(material)
-		case "/v1/compute/agent-vmm/install-tickets/ack":
+		case "/v1/compute/agent-vmm/install-operations/ack":
 			call := ackCalls.Add(1)
 			if call == 1 {
 				http.Error(response, "retry", http.StatusServiceUnavailable)
 				return
 			}
-			var body map[string]string
-			if json.NewDecoder(request.Body).Decode(&body) != nil || body["operation_id"] != material.OperationID ||
-				body["material_digest"] != material.MaterialDigest || body["host_identity_digest"] != material.HostIdentityDigest {
+			var body struct {
+				OperationID        string `json:"operation_id"`
+				HostIdentityDigest string `json:"host_identity_digest"`
+			}
+			decoder := json.NewDecoder(request.Body)
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&body) != nil || body.OperationID != material.OperationID ||
+				body.HostIdentityDigest != material.HostIdentityDigest {
 				http.Error(response, "bad acknowledgement", http.StatusBadRequest)
 				return
 			}
@@ -103,18 +89,18 @@ func TestInstallTicketExchangeAndAcknowledgementUseOneSecret(t *testing.T) {
 	}))
 	defer server.Close()
 	installHTTPClient = server.Client()
-	descriptor := installDescriptor{Version: 1, OperationID: material.OperationID,
-		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-tickets/exchange", OneTimeSecret: "one-time-secret",
+	descriptor := operationHandoffDescriptor{Version: 1, OperationID: material.OperationID,
+		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-operations/exchange", OneTimeSecret: "one-time-secret",
 		ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
 
-	exchanged, err := exchangeInstallMaterial(context.Background(), descriptor, []byte(`{"version":1}`))
+	exchanged, err := exchangeOperationHandoff(context.Background(), descriptor, []byte(`{"version":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateInstallMaterial(exchanged, descriptor); err != nil {
+	if err := validateOperationHandoff(exchanged, descriptor); err != nil {
 		t.Fatal(err)
 	}
-	if err := acknowledgeInstallMaterial(context.Background(), descriptor, exchanged); err != nil {
+	if err := acknowledgeOperationHandoff(context.Background(), descriptor, exchanged); err != nil {
 		t.Fatal(err)
 	}
 	if exchangeCalls.Load() != 1 || ackCalls.Load() != 2 {
@@ -122,7 +108,7 @@ func TestInstallTicketExchangeAndAcknowledgementUseOneSecret(t *testing.T) {
 	}
 }
 
-func TestInstallTicketAcknowledgementDoesNotRetryPermanentHTTPError(t *testing.T) {
+func TestOperationHandoffAcknowledgementDoesNotRetryPermanentHTTPError(t *testing.T) {
 	previousClient := installHTTPClient
 	t.Cleanup(func() { installHTTPClient = previousClient })
 	var calls atomic.Int32
@@ -132,36 +118,31 @@ func TestInstallTicketAcknowledgementDoesNotRetryPermanentHTTPError(t *testing.T
 	}))
 	defer server.Close()
 	installHTTPClient = server.Client()
-	descriptor := installDescriptor{
+	descriptor := operationHandoffDescriptor{
 		Version: 1, OperationID: "operation-1",
-		ExchangeURL:   server.URL + "/v1/compute/agent-vmm/install-tickets/exchange",
+		ExchangeURL:   server.URL + "/v1/compute/agent-vmm/install-operations/exchange",
 		OneTimeSecret: "one-time-secret",
 	}
-	err := acknowledgeInstallMaterial(context.Background(), descriptor, validTestInstallMaterial())
-	var responseError installTicketHTTPError
+	err := acknowledgeOperationHandoff(context.Background(), descriptor, validTestInstallMaterial())
+	var responseError operationHandoffHTTPError
 	if !errors.As(err, &responseError) || responseError.status != http.StatusBadRequest || calls.Load() != 1 {
 		t.Fatalf("permanent acknowledgement error was retried: err=%v calls=%d", err, calls.Load())
 	}
 }
 
-func validTestInstallMaterial() installMaterial {
+func validTestInstallMaterial() operationHandoffPlan {
 	digest := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
-	return installMaterial{
+	return operationHandoffPlan{
 		Version: 1, OperationID: "operation-1", RegistrationID: "registration-1", ScopeDigest: digest,
-		HostRelease: hostReleaseMaterial{
-			ComponentReleaseID: "release-1",
-			Platform:           "darwin-arm64",
-			TargetRevision:     7,
-		},
 		Appliance: applianceMaterial{InstallationID: "installation-1",
-			Manifest: base64.StdEncoding.EncodeToString([]byte("manifest")), PublisherSignature: base64.StdEncoding.EncodeToString([]byte("signature")),
+			Manifest:      base64.StdEncoding.EncodeToString([]byte("manifest")),
 			ApprovedGrant: base64.StdEncoding.EncodeToString([]byte("grant")), BootstrapSeed: base64.StdEncoding.EncodeToString([]byte("seed"))},
 		RemoteEnrollment: remoteEnrollmentMaterial{GatewayEndpoint: "vmm.example.test:7443", PolicyRevision: 1,
 			PoolPolicy: remotePoolMaterial{MaxEnvironments: 1, MaxEgressMode: "deny_all", MaxLeaseSeconds: 60,
 				DisconnectGraceSeconds: 1, StopGraceSeconds: 1,
 				AggregateLimits:      resourcePolicy{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
 				PerEnvironmentLimits: resourcePolicy{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}}},
-		MaterialDigest: digest, HostIdentityDigest: digest,
+		HostIdentityDigest: digest,
 	}
 }
 
@@ -171,7 +152,7 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 	material := validTestInstallMaterial()
 	var ackCalls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/compute/agent-vmm/install-tickets/ack" || request.Header.Get("Authorization") != "InstallTicket one-time-secret" {
+		if request.URL.Path != "/v1/compute/agent-vmm/install-operations/ack" || request.Header.Get("Authorization") != "InstallOperation one-time-secret" {
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -180,15 +161,15 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 	}))
 	defer server.Close()
 	installHTTPClient = server.Client()
-	descriptor := installDescriptor{Version: 1, OperationID: material.OperationID,
-		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-tickets/exchange", OneTimeSecret: "one-time-secret",
+	descriptor := operationHandoffDescriptor{Version: 1, OperationID: material.OperationID,
+		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-operations/exchange", OneTimeSecret: "one-time-secret",
 		ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
 	value := testPaths(t.TempDir())
 	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistInstallMaterial(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
+	if _, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
 	adapter := &productionLifecycleAdapter{value: value, material: &material, descriptor: &descriptor}
@@ -199,7 +180,7 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	var plan persistedInstallPlan
+	var plan persistedInstallOperation
 	if json.Unmarshal(data, &plan) != nil || !plan.Acknowledged || plan.AckDescriptor != nil {
 		t.Fatalf("acknowledged plan retained acknowledgement capability: %+v", plan)
 	}
@@ -212,12 +193,8 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 }
 
 func TestCompletedInstallReceiptSurvivesSecretPlanCleanup(t *testing.T) {
-	previousRelease := releaseID
-	releaseID = "release-1"
-	t.Cleanup(func() { releaseID = previousRelease })
 	value := testPaths(t.TempDir())
 	material := validTestInstallMaterial()
-	material.HostRelease.Digest = "sha256:host-release-1"
 	adapter := &productionLifecycleAdapter{value: value, material: &material}
 	planDirectory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
 	if err := os.MkdirAll(planDirectory, 0o700); err != nil {
@@ -247,7 +224,7 @@ func TestFailedManagedLifecycleOperationResumesDurableAcknowledgementWithSameIde
 	material := validTestInstallMaterial()
 	var ackCalls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/compute/agent-vmm/install-tickets/ack" || request.Header.Get("Authorization") != "InstallTicket one-time-secret" {
+		if request.URL.Path != "/v1/compute/agent-vmm/install-operations/ack" || request.Header.Get("Authorization") != "InstallOperation one-time-secret" {
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -259,15 +236,15 @@ func TestFailedManagedLifecycleOperationResumesDurableAcknowledgementWithSameIde
 	}))
 	defer server.Close()
 	installHTTPClient = server.Client()
-	descriptor := installDescriptor{Version: 1, OperationID: material.OperationID,
-		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-tickets/exchange", OneTimeSecret: "one-time-secret",
+	descriptor := operationHandoffDescriptor{Version: 1, OperationID: material.OperationID,
+		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-operations/exchange", OneTimeSecret: "one-time-secret",
 		ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
 	value := testPaths(t.TempDir())
 	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistInstallMaterial(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
+	if _, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +270,7 @@ func TestFailedManagedLifecycleOperationResumesDurableAcknowledgementWithSameIde
 	if err != nil {
 		t.Fatal(err)
 	}
-	var plan persistedInstallPlan
+	var plan persistedInstallOperation
 	if json.Unmarshal(data, &plan) != nil || !plan.Acknowledged || plan.AckDescriptor != nil || bytes.Contains(data, []byte("one-time-secret")) {
 		t.Fatalf("acknowledged plan retained capability: %s", data)
 	}
@@ -308,22 +285,22 @@ func TestClosedHandoffMarksTerminalButRetainsPlanUntilFinalized(t *testing.T) {
 	}))
 	defer server.Close()
 	installHTTPClient = server.Client()
-	descriptor := installDescriptor{Version: 1, OperationID: material.OperationID,
-		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-tickets/exchange", OneTimeSecret: "one-time-secret",
+	descriptor := operationHandoffDescriptor{Version: 1, OperationID: material.OperationID,
+		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-operations/exchange", OneTimeSecret: "one-time-secret",
 		ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
 	value := testPaths(t.TempDir())
 	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistInstallMaterial(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
+	if _, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
 	adapter, err := productionLifecycleAdapterForResume(value, material.OperationID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := adapter.ensureInstallPlan(context.Background()); err == nil || !terminalInstallTicketError(err) || managedInstallSecretDisposition(err) != secretDispositionDestroyTerminal {
+	if err := adapter.ensureInstallPlan(context.Background()); err == nil || !terminalOperationHandoffError(err) || managedInstallSecretDisposition(err) != secretDispositionDestroyTerminal {
 		t.Fatalf("closed handoff did not fail terminally: %v", err)
 	}
 	if _, err := os.Stat(directory); err != nil {

@@ -17,11 +17,9 @@ enum BundledMCPAppliance {
         let directory = bundle.resourceURL?.appending(path: "Guest/mcp-appliance")
         guard let directory else { throw ArtifactError.missing("Guest/mcp-appliance") }
         let manifest = try requiredData(directory.appending(path: "manifest.pb"))
-        let signature = try requiredData(directory.appending(path: "manifest.sig"))
         let decoded = try Agentvmm_Appliance_V1_ControllerApplianceManifest(serializedBytes: manifest)
         return BundledApplianceArtifact(
             manifest: manifest,
-            signature: signature,
             requestedFrontends: decoded.requestedFrontends.map {
                 ApplianceFrontendGrantModel(
                     name: $0.name,

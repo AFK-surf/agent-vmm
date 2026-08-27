@@ -14,17 +14,16 @@ command -v cpio >/dev/null 2>&1 || {
   echo 'guest artifact builds require cpio for the initramfs archive' >&2
   exit 1
 }
-if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
-  echo 'usage: build.sh OUTPUT_DIRECTORY [SIGNING_KEY] [SIGNER]' >&2
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  echo 'usage: build.sh OUTPUT_DIRECTORY [BUILD_PROFILE]' >&2
   exit 2
 fi
 
 output=$1
-key=${2:-build/guest/testdata/development.key}
-signer=${3:-development}
-case "$signer" in
+profile=${2:-development}
+case "$profile" in
   development|release) ;;
-  *) echo 'signer must be development or release' >&2; exit 2 ;;
+  *) echo 'build profile must be development or release' >&2; exit 2 ;;
 esac
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 lock=$repository/build/guest/lock.json
@@ -82,6 +81,8 @@ chroot "$root" /sbin/apk add --no-cache \
   "e2fsprogs-extra=$(value '.packages["e2fsprogs-extra"]')" \
   "cni-plugins=$(value '.packages["cni-plugins"]')" \
   "cryptsetup=$(value '.packages.cryptsetup')" \
+  "libcrypto3=$(value '.packages.libcrypto3')" \
+  "libssl3=$(value '.packages.libssl3')" \
   "xz=$(value '.packages.xz')"
 jq -r '.packages | to_entries[] | "\(.key)=\(.value)"' "$lock" | while read -r package; do
   chroot "$root" /sbin/apk info -e "$package"
@@ -152,7 +153,7 @@ tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/mcp-ro
 tar -xOf "$root/usr/lib/agent-vmm/mcp-appliance.oci.tar" index.json | jq -er '.manifests | select(length == 1) | .[0].digest' >"$root/usr/lib/agent-vmm/mcp-appliance.digest"
 cp "$root/usr/lib/agent-vmm/mcp-appliance.digest" "$bundle/mcp-appliance.digest"
 mkdir -p "$bundle/mcp-appliance"
-(cd "$repository" && go run ./build/appliance/manifest -output "$bundle/mcp-appliance" -image-digest "$(cat "$bundle/mcp-appliance.digest")" -key "$repository/$key" -release 1)
+(cd "$repository" && go run ./build/appliance/manifest -output "$bundle/mcp-appliance" -image-digest "$(cat "$bundle/mcp-appliance.digest")" -release 1)
 cp -a "$repository/build/guest/root/." "$root/"
 ln -snf /run/resolv.conf "$root/etc/resolv.conf"
 mkdir -p "$root/state" "$root/var/lib/cni" "$root/opt/containerd" "$root/etc/cni/net.d"
@@ -175,7 +176,7 @@ cp -a "$root/lib/modules" "$initramfs/lib/"
 cp "$repository/build/guest/initramfs/init" "$initramfs/init"
 chmod 0755 "$initramfs/init"
 for applet in mount modprobe switch_root sh basename dirname tr mkdir; do ln -s /bin/busybox "$initramfs/bin/$applet"; done
-if [ "$signer" = development ]; then
+if [ "$profile" = development ]; then
   initramfs_xz='-T0 -1'
 else
   initramfs_xz='--threads=1 -9e'
@@ -184,7 +185,7 @@ fi
 
 find "$root" -exec touch -h -d @0 {} +
 find "$root" -printf '%p 0\n' | LC_ALL=C sort >"$work/squashfs.sort"
-if [ "$signer" = development ]; then
+if [ "$profile" = development ]; then
   processors=$(nproc)
   [ "$processors" -le 8 ] || processors=8
   mksquashfs "$root" "$bundle/rootfs.squashfs" -noappend -all-root -all-time 0 -mkfs-time 0 -comp zstd -Xcompression-level 1 -b 1M -sort "$work/squashfs.sort" -processors "$processors"
@@ -198,7 +199,7 @@ else
   rootfs_filter=arm64-bcj
 fi
 logical_bytes=$(du -sb "$root" | cut -f1)
-(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -lock "$lock" -key "$repository/$key" -signer "$signer" -logical-bytes "$logical_bytes" -rootfs-compressor "$rootfs_compressor" -rootfs-dictionary "$rootfs_dictionary" -rootfs-filter "$rootfs_filter")
+(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -lock "$lock" -logical-bytes "$logical_bytes" -rootfs-compressor "$rootfs_compressor" -rootfs-dictionary "$rootfs_dictionary" -rootfs-filter "$rootfs_filter")
 
 mkdir -p "$output"
 cp -a "$bundle/." "$output/"

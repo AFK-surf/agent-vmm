@@ -11,7 +11,7 @@ import (
 
 func TestExtractServiceRequestLeavesLifecycleArguments(t *testing.T) {
 	request, remaining, err := extractServiceRequest([]string{
-		"--ticket-stdin", "--service-user", "bftvmm", "--request-id", "operation", "--service-type", "daemon",
+		"--operation-stdin", "--service-user", "bftvmm", "--request-id", "operation", "--service-type", "daemon",
 		"--service-app", "/Users/bftvmm/Agent VMM Host.app",
 	})
 	if err != nil {
@@ -20,7 +20,7 @@ func TestExtractServiceRequestLeavesLifecycleArguments(t *testing.T) {
 	if request.mode != serviceModeDaemon || request.user != "bftvmm" || request.app != "/Users/bftvmm/Agent VMM Host.app" {
 		t.Fatalf("request=%+v", request)
 	}
-	if want := []string{"--ticket-stdin", "--request-id", "operation"}; !reflect.DeepEqual(remaining, want) {
+	if want := []string{"--operation-stdin", "--request-id", "operation"}; !reflect.DeepEqual(remaining, want) {
 		t.Fatalf("remaining=%v want=%v", remaining, want)
 	}
 }

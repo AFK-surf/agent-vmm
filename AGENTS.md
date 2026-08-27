@@ -89,7 +89,7 @@ Do not record temporary failures or narrow implementation mistakes.
 - gVisor blocks sandbox-created host-visible Unix sockets by default. Keep runsc `host-uds=create` so system appliances can bind only their projected private sockets; do not grant `open` or `all`.
 - Reject new public relay connections after the VM enters `STOPPING`.
 - Permit the internal `PrepareShutdown` connection during `STOPPING` so the guest can finish cleanup.
-- Package development-signed guest bundles only with an ad-hoc-signed helper built with the development trust root. A release-signed helper requires a release-signed guest bundle.
+- Link the Host executable with the canonical Guest manifest digest and keep Guest SBOM/provenance as CI evidence, not runtime bundle authority.
 - Treat a new remote connection instance after the stored state became `DISCONNECTED` as grace-period recovery. Revoke remote leases for a replacement instance only when the previous instance is still `CONNECTED`.
 - A valid remote lease may open a new runtime session after connector recovery. Revoke the previous session capability before issuing its replacement; do not reject the lease as already open.
 - Keep remote admission state separate from connector transport state. Draining rejects new allocations and leases but preserves existing leases and runtime sessions; only revocation tears them down.

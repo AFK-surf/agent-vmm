@@ -1,14 +1,12 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -18,26 +16,17 @@ import (
 func main() {
 	output := flag.String("output", "", "output directory")
 	imageDigest := flag.String("image-digest", "", "OCI image manifest digest")
-	keyPath := flag.String("key", "", "Ed25519 publisher seed")
 	release := flag.String("release", "", "appliance release")
 	flag.Parse()
-	if *output == "" || *imageDigest == "" || *keyPath == "" || *release == "" {
+	if *output == "" || *imageDigest == "" || *release == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
-	seedText, err := os.ReadFile(*keyPath)
-	check(err)
-	seed, err := hex.DecodeString(strings.TrimSpace(string(seedText)))
-	check(err)
-	if len(seed) != ed25519.SeedSize {
-		panic("invalid Ed25519 seed")
-	}
-	privateKey := ed25519.NewKeyFromSeed(seed)
 	limits := func(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
 		return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
 	}
 	manifest := &appliancev1.ControllerApplianceManifest{
-		ContractVersion: "1", ProductId: "agent-vmm-mcp", PublisherKeyId: "agent-vmm-first-party", Release: *release,
+		ContractVersion: "1", ProductId: "agent-vmm-mcp", Release: *release,
 		ImageReference: "agent-vmm.local/mcp@" + *imageDigest, ImageManifestDigest: *imageDigest, Platform: "linux/arm64",
 		BootstrapProtocolVersion: "appliance-v1", ControllerProtocolVersion: "controller-ready-v1",
 		SystemResources: &appliancev1.ResourceRange{Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(1000, 512<<20, 256, 2<<30)},
@@ -58,8 +47,6 @@ func main() {
 	digest := sha256.Sum256(canonical)
 	check(os.MkdirAll(*output, 0o755))
 	check(os.WriteFile(filepath.Join(*output, "manifest.pb"), canonical, 0o644))
-	check(os.WriteFile(filepath.Join(*output, "manifest.sig"), ed25519.Sign(privateKey, canonical), 0o644))
-	check(os.WriteFile(filepath.Join(*output, "publisher.pub"), privateKey.Public().(ed25519.PublicKey), 0o644))
 	fmt.Println("sha256:" + hex.EncodeToString(digest[:]))
 }
 

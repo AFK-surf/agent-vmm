@@ -52,7 +52,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `Start`, `CurrentInstanceFence`, `Restart` | appliance supervisor and lifecycle owner | stale boot/container health, restart, and replacement tests |
 | `PlanRemove`, `ExecuteRemove`, `RemoveRevisionExact` | `internal/host/appliance_admin_remove_darwin.go`, `internal/host/store/appliance_operation.go` | pending-destroy tombstone and revision-fence tests |
 | `CrossDomainRemove`, `InstallationNonInterference` | appliance admin authorization | cross-domain remove tests |
-| `Seal`, `RecoverSealed`, `SealedRecoveryIsBounded` | appliance supervisor and appliance admin operations | key loss, corruption, schema, publisher trust, and bounded repair tests |
+| `Seal`, `RecoverSealed`, `SealedRecoveryIsBounded` | appliance supervisor and appliance admin operations | key loss, corruption, schema, and bounded repair tests |
 | `HostVMRestartRecovery.ResumeSuccess`, `NoFreshVMStart` | `cmd/agent-vmm-host`, `internal/host.Controller.StartVM` | exact state-disk guard and Host restart physical smoke |
 
 Consumer repositories may refine these actions, but they must not redefine host inventory, epoch, or lifecycle ownership.

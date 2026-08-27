@@ -1,9 +1,7 @@
 package bundle
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,16 +12,12 @@ import (
 	"strings"
 )
 
-const (
-	ManifestName  = "manifest.json"
-	SignatureName = "manifest.json.sig"
-)
+const ManifestName = "manifest.json"
 
 type Manifest struct {
 	SchemaVersion int                  `json:"schema_version"`
 	Architecture  string               `json:"architecture"`
 	MinimumMacOS  string               `json:"minimum_macos"`
-	Signer        string               `json:"signer"`
 	Artifacts     map[string]Artifact  `json:"artifacts"`
 	Components    map[string]Component `json:"components"`
 	RootFS        RootFS               `json:"rootfs"`
@@ -55,9 +49,9 @@ type Verified struct {
 	ManifestDigest string
 }
 
-func Verify(directory string, publicKey ed25519.PublicKey) (*Verified, error) {
-	if len(publicKey) != ed25519.PublicKeySize {
-		return nil, errors.New("invalid trust root")
+func Verify(directory, expectedManifestDigest string) (*Verified, error) {
+	if len(expectedManifestDigest) != sha256.Size*2 {
+		return nil, errors.New("invalid embedded manifest digest")
 	}
 	directory, err := filepath.Abs(directory)
 	if err != nil {
@@ -67,13 +61,10 @@ func Verify(directory string, publicKey ed25519.PublicKey) (*Verified, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read manifest: %w", err)
 	}
-	signatureText, err := os.ReadFile(filepath.Join(directory, SignatureName))
-	if err != nil {
-		return nil, fmt.Errorf("read signature: %w", err)
-	}
-	signature, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(signatureText)))
-	if err != nil || !ed25519.Verify(publicKey, manifestBytes, signature) {
-		return nil, errors.New("invalid manifest signature")
+	digest := sha256.Sum256(manifestBytes)
+	manifestDigest := hex.EncodeToString(digest[:])
+	if manifestDigest != strings.ToLower(expectedManifestDigest) {
+		return nil, errors.New("guest manifest digest does not match Host")
 	}
 
 	var manifest Manifest
@@ -85,10 +76,10 @@ func Verify(directory string, publicKey ed25519.PublicKey) (*Verified, error) {
 	if manifest.SchemaVersion != 1 || manifest.Architecture != "arm64" || manifest.MinimumMacOS != "14.0" {
 		return nil, errors.New("unsupported bundle manifest")
 	}
-	if manifest.RootFS.Filesystem != "squashfs" || manifest.RootFS.BlockSize != 1<<20 || !supportedRootFS(manifest.Signer, manifest.RootFS) {
+	if manifest.RootFS.Filesystem != "squashfs" || manifest.RootFS.BlockSize != 1<<20 || !supportedRootFS(manifest.RootFS) {
 		return nil, errors.New("unsupported rootfs format")
 	}
-	for _, name := range []string{"kernel", "initramfs", "rootfs", "sbom", "provenance", "checksums"} {
+	for _, name := range []string{"kernel", "initramfs", "rootfs", "mcp_appliance_digest", "mcp_appliance_manifest"} {
 		artifact, ok := manifest.Artifacts[name]
 		if !ok {
 			return nil, fmt.Errorf("missing artifact %q", name)
@@ -97,17 +88,16 @@ func Verify(directory string, publicKey ed25519.PublicKey) (*Verified, error) {
 			return nil, fmt.Errorf("verify %s: %w", name, err)
 		}
 	}
-	digest := sha256.Sum256(manifestBytes)
-	return &Verified{Directory: directory, Manifest: manifest, ManifestDigest: hex.EncodeToString(digest[:])}, nil
+	return &Verified{Directory: directory, Manifest: manifest, ManifestDigest: manifestDigest}, nil
 }
 
-func supportedRootFS(signer string, root RootFS) bool {
-	return signer == "release" && root.Compressor == "xz" && root.Dictionary == 1<<20 && root.Filter == "arm64-bcj" ||
-		signer == "development" && root.Compressor == "zstd" && root.Dictionary == 0 && root.Filter == "none"
+func supportedRootFS(root RootFS) bool {
+	return root.Compressor == "xz" && root.Dictionary == 1<<20 && root.Filter == "arm64-bcj" ||
+		root.Compressor == "zstd" && root.Dictionary == 0 && root.Filter == "none"
 }
 
 func verifyArtifact(directory string, artifact Artifact) error {
-	if artifact.Path == "" || filepath.Base(artifact.Path) != artifact.Path || artifact.Path == ManifestName || artifact.Path == SignatureName {
+	if artifact.Path == "" || !filepath.IsLocal(artifact.Path) || filepath.Clean(artifact.Path) != artifact.Path || artifact.Path == ManifestName {
 		return errors.New("invalid artifact path")
 	}
 	file, err := os.Open(filepath.Join(directory, artifact.Path))

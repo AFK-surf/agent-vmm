@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -61,11 +60,9 @@ func managedInstallSecretDisposition(err error) string {
 	return secretDispositionRetain
 }
 
-// releaseID is injected by the Host package build and is the identity that
-// BFT signs and independently verifies for this archive. Development builds
-// retain the stable local version until a release target is supplied.
+// releaseID is injected by the Host package build for diagnostics. The outer
+// Server descriptor digest, not this display value, authorizes archive bytes.
 var releaseID = version
-var targetRevision = "0"
 
 var errLaunchctlServiceNotFound = errors.New("launchctl service not found")
 
@@ -108,8 +105,6 @@ type lifecycleOperation struct {
 	OperationID    string `json:"operationId"`
 	RequestID      string `json:"requestId"`
 	Kind           string `json:"kind"`
-	TargetRef      string `json:"targetRef"`
-	TargetRevision uint64 `json:"targetRevision"`
 	Outcome        string `json:"outcome"`
 	Attempt        int    `json:"attempt,omitempty"`
 	FailureStage   string `json:"failureStage,omitempty"`
@@ -132,14 +127,13 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|status|install|repair|registration-state|drain|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
+		fatal("usage: agent-vmm-lifecycle version --json|status|install|install-operation-ack|repair|registration-state|drain|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
 			fatal("version requires --json")
 		}
-		revision, _ := strconv.ParseUint(targetRevision, 10, 64)
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID, "target_revision": revision}); err != nil {
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID}); err != nil {
 			fatal("version encoding failed")
 		}
 		return
@@ -158,11 +152,19 @@ func main() {
 		if err := json.NewEncoder(os.Stdout).Encode(readStatus(resolved)); err != nil {
 			fatal("status encoding failed")
 		}
+	case "install-operation-ack":
+		operationID, err := parseInstallOperationAckArgs(commandArgs)
+		if err != nil {
+			fatal(err.Error())
+		}
+		if err := cleanupInstallPlan(resolved, operationID); err != nil {
+			fatal("acknowledged install operation could not be cleaned up: " + err.Error())
+		}
 	case "install", "repair":
-		disablePairing, requestID, ticketStdin, resumeOperationID := parseInstallArgs(os.Args[1], commandArgs)
-		var descriptor *installDescriptor
-		if os.Args[1] == "install" && ticketStdin {
-			decoded, decodeErr := decodeInstallDescriptor(os.Stdin)
+		disablePairing, requestID, operationStdin, resumeOperationID := parseInstallArgs(os.Args[1], commandArgs)
+		var descriptor *operationHandoffDescriptor
+		if os.Args[1] == "install" && operationStdin {
+			decoded, decodeErr := decodeOperationHandoffDescriptor(os.Stdin)
 			err = decodeErr
 			if err != nil {
 				fatal(err.Error())
@@ -172,8 +174,8 @@ func main() {
 			}
 			descriptor = &decoded
 		}
-		if ticketStdin && resumeOperationID != "" {
-			fatal("--ticket-stdin and --resume-operation are mutually exclusive")
+		if operationStdin && resumeOperationID != "" {
+			fatal("--operation-stdin and --resume-operation are mutually exclusive")
 		}
 		var adapter LifecycleAdapter
 		var productionAdapter *productionLifecycleAdapter
@@ -407,17 +409,17 @@ func readStatusContext(ctx context.Context, value paths) serviceStatus {
 func parseInstallArgs(action string, args []string) (bool, string, bool, string) {
 	disablePairing := false
 	requestID := ""
-	ticketStdin := false
+	operationStdin := false
 	resumeOperationID := ""
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
 		case "--disable-personal-mesh-pairing":
 			disablePairing = true
-		case "--ticket-stdin":
+		case "--operation-stdin":
 			if action != "install" {
-				fatal("--ticket-stdin is only valid for install")
+				fatal("--operation-stdin is only valid for install")
 			}
-			ticketStdin = true
+			operationStdin = true
 		case "--resume-operation":
 			if action != "install" || index+1 >= len(args) {
 				fatal("--resume-operation requires an install operation id")
@@ -431,15 +433,22 @@ func parseInstallArgs(action string, args []string) (bool, string, bool, string)
 			index++
 			requestID = args[index]
 		default:
-			fatal("install and repair accept --disable-personal-mesh-pairing, --request-id, and install --ticket-stdin or --resume-operation")
+			fatal("install and repair accept --disable-personal-mesh-pairing, --request-id, and install --operation-stdin or --resume-operation")
 		}
 	}
-	return disablePairing, requestID, ticketStdin, resumeOperationID
+	return disablePairing, requestID, operationStdin, resumeOperationID
 }
 
 func parseRepairArgs(args []string) (bool, string) {
 	disablePairing, requestID, _, _ := parseInstallArgs("repair", args)
 	return disablePairing, requestID
+}
+
+func parseInstallOperationAckArgs(args []string) (string, error) {
+	if len(args) != 2 || args[0] != "--operation-id" || !operationIDPattern.MatchString(args[1]) {
+		return "", errors.New("install-operation-ack requires a valid --operation-id")
+	}
+	return args[1], nil
 }
 
 func requestIDArg(args []string) string {
@@ -589,6 +598,10 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 	}
 	var operation lifecycleOperation
 	if previous := readOperation(value.operationFile); previous != nil && previous.RequestID == requestID {
+		if kind == "install-managed" && (previous.Kind != kind || previous.OperationID != requestID) {
+			previous.SecretDisposition = secretDispositionRetain
+			return *previous, errors.New("managed install operation identity does not match its durable request")
+		}
 		if previous.Outcome == "succeeded" {
 			return *previous, nil
 		}
@@ -667,9 +680,13 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		}
 	} else {
 		now := time.Now().UnixMilli()
+		operationID := newOperationID("op")
+		if kind == "install-managed" {
+			operationID = requestID
+		}
 		operation = lifecycleOperation{
-			OperationID: newOperationID("op"), RequestID: requestID, Kind: kind,
-			TargetRef: "compute-node/local", TargetRevision: uint64(now), Outcome: "pending",
+			OperationID: operationID, RequestID: requestID, Kind: kind,
+			Outcome: "pending",
 			Attempt: 1, StartedAt: now, UpdatedAt: now,
 		}
 		if kind == "install-managed" {
@@ -732,8 +749,8 @@ func lifecycleFailure(kind string, err error) (string, string, string, bool) {
 			return stage, "upstream_unavailable", message, true
 		}
 	}
-	if strings.Contains(message, "ticket exchange failed") ||
-		strings.Contains(message, "ticket acknowledgement failed") {
+	if strings.Contains(message, "operation handoff exchange failed") ||
+		strings.Contains(message, "operation handoff acknowledgement failed") {
 		return stage, "upstream_unavailable", message, true
 	}
 	return stage, "install_failed", message, false
@@ -1235,8 +1252,9 @@ func fatal(message string) {
 }
 
 // finalizeManagedInstallOperation never infers secret ownership from an error
-// or Retryable. Only the operation owner's explicit persisted disposition may
-// destroy the plan.
+// or Retryable. Successful completion may clean up locally. A terminal failure
+// retains the plan until the provisioner has persisted its report and received
+// the Server acknowledgement for this operation.
 func finalizeManagedInstallOperation(value paths, operationID string, operation lifecycleOperation, operationErr error) (lifecycleOperation, error) {
 	retain := func(err error) (lifecycleOperation, error) {
 		operation.SecretDisposition = secretDispositionRetain
@@ -1252,10 +1270,11 @@ func finalizeManagedInstallOperation(value paths, operationID string, operation 
 		}
 	} else if operation.SecretDisposition == secretDispositionDestroyTerminal {
 		recorded := readOperation(value.operationFile)
-		if recorded == nil || recorded.RequestID != operationID || recorded.Kind != "install-managed" ||
+		if recorded == nil || recorded.OperationID != operationID || recorded.RequestID != operationID || recorded.Kind != "install-managed" ||
 			recorded.Outcome != "failed" || recorded.SecretDisposition != secretDispositionDestroyTerminal {
 			return retain(errors.New("managed install terminal result is not durable; retaining install plan"))
 		}
+		return operation, operationErr
 	} else if operation.SecretDisposition == secretDispositionRetain || operationID == "" {
 		return operation, operationErr
 	} else {

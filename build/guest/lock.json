@@ -22,6 +22,8 @@
     "e2fsprogs": "1.47.4-r0",
     "e2fsprogs-extra": "1.47.4-r0",
     "iproute2": "7.0.0-r0",
+    "libcrypto3": "3.5.8-r0",
+    "libssl3": "3.5.8-r0",
     "musl": "1.2.6-r2",
     "nftables": "1.1.6-r1",
     "openrc": "0.63.2-r0",

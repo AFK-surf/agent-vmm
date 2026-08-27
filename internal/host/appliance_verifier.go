@@ -1,8 +1,6 @@
 package host
 
 import (
-	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -16,10 +14,10 @@ import (
 
 var canonicalOCIDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-type applianceArtifactVerifier struct{ store *store.Store }
+type applianceArtifactVerifier struct{}
 
-func (verifier applianceArtifactVerifier) verify(ctx context.Context, manifest *appliancev1.ControllerApplianceManifest, signature []byte, grant *appliancev1.ApprovedGrant) ([]byte, []byte, error) {
-	if manifest == nil || manifest.GetContractVersion() != "1" || manifest.GetProductId() == "" || manifest.GetPublisherKeyId() == "" {
+func (applianceArtifactVerifier) verify(manifest *appliancev1.ControllerApplianceManifest, grant *appliancev1.ApprovedGrant) ([]byte, []byte, error) {
+	if manifest == nil || manifest.GetContractVersion() != "1" || manifest.GetProductId() == "" {
 		return nil, nil, errors.New("manifest identity is incomplete")
 	}
 	if manifest.GetPlatform() != "linux/arm64" || !canonicalOCIDigest.MatchString(manifest.GetImageManifestDigest()) {
@@ -45,13 +43,6 @@ func (verifier applianceArtifactVerifier) verify(ctx context.Context, manifest *
 		return nil, nil, errors.New("canonical manifest exceeds size limit")
 	}
 	digest := sha256.Sum256(canonical)
-	publisher, err := verifier.store.GetAppliancePublisher(ctx, manifest.GetPublisherKeyId())
-	if err != nil || publisher.Revoked || len(publisher.PublicKey) != ed25519.PublicKeySize {
-		return nil, nil, errors.New("publisher is not trusted")
-	}
-	if len(signature) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(publisher.PublicKey), canonical, signature) {
-		return nil, nil, errors.New("publisher signature is invalid")
-	}
 	if grant != nil {
 		if err := validateApprovedGrant(manifest, grant); err != nil {
 			return nil, nil, err

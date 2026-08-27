@@ -62,7 +62,7 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 	fmt.Fprintf(&output, "- Revision: `%s`\n", command(repository, "git", "rev-parse", "HEAD"))
 	fmt.Fprintf(&output, "- Host: `%s %s`\n", command(repository, "sw_vers", "-productVersion"), runtime.GOARCH)
 	fmt.Fprintln(&output, "- VM: 2 vCPU, 4,294,967,296 bytes memory")
-	fmt.Fprintf(&output, "- Bundle signer: `%s`; manifest SHA-256: `%s`\n", manifest.Signer, hex.EncodeToString(manifestHash[:]))
+	fmt.Fprintf(&output, "- Guest manifest SHA-256: `%s`\n", hex.EncodeToString(manifestHash[:]))
 	fmt.Fprintf(&output, "- Rootfs: %d packed / %d logical bytes (%.2f%%), SHA-256 `%s`\n", rootfs.Size, manifest.RootFS.LogicalBytes, ratio*100, rootfs.SHA256)
 	for _, name := range []string{"kernel", "containerd", "runsc", "buildkit"} {
 		component := manifest.Components[name]

@@ -23,6 +23,74 @@ func TestXMLEscape(t *testing.T) {
 	}
 }
 
+func TestPersistedLifecycleOperationHasNoReleaseSelector(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "operation.json")
+	operation := lifecycleOperation{
+		OperationID: "operation-1", RequestID: "operation-1", Kind: "install-managed",
+		Outcome: "pending", Attempt: 1, StartedAt: 1, UpdatedAt: 1,
+	}
+	if err := persistOperation(path, operation); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"targetRef", "targetRevision"} {
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("persisted operation contains retired release selector %q: %s", forbidden, data)
+		}
+	}
+}
+
+func TestInstallOperationAcknowledgementCleansOnlyTheBoundOperation(t *testing.T) {
+	value := testPaths(t.TempDir())
+	operationID := "operation-terminal"
+	operationDirectory := filepath.Join(value.applicationData, "install-operations", operationID)
+	otherDirectory := filepath.Join(value.applicationData, "install-operations", "operation-other")
+	for _, directory := range []string{operationDirectory, otherDirectory} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "plan.json"), []byte("secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parsed, err := parseInstallOperationAckArgs([]string{"--operation-id", operationID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupInstallPlan(value, parsed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(operationDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("acknowledged operation plan was retained: %v", err)
+	}
+	if _, err := os.Stat(otherDirectory); err != nil {
+		t.Fatalf("another operation was removed: %v", err)
+	}
+	if err := cleanupInstallPlan(value, parsed); err != nil {
+		t.Fatalf("repeated acknowledgement was not idempotent: %v", err)
+	}
+}
+
+func TestInstallOperationAcknowledgementRejectsUnboundPath(t *testing.T) {
+	value := testPaths(t.TempDir())
+	otherDirectory := filepath.Join(value.applicationData, "install-operations", "operation-other")
+	if err := os.MkdirAll(otherDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseInstallOperationAckArgs([]string{"--operation-id", "../operation-other"}); err == nil {
+		t.Fatal("path-like operation id was accepted")
+	}
+	if err := cleanupInstallPlan(value, "../operation-other"); err == nil {
+		t.Fatal("path-like operation id reached cleanup")
+	}
+	if _, err := os.Stat(otherDirectory); err != nil {
+		t.Fatalf("rejected operation id changed another operation: %v", err)
+	}
+}
+
 func TestLifecyclePathsRejectsTheDebugAppBundle(t *testing.T) {
 	root := t.TempDir()
 	_, err := lifecyclePathsFor(filepath.Join(root, "home"), filepath.Join(root, "Agent VMM.app", "Contents", "Helpers", "agent-vmm-lifecycle"))
@@ -396,7 +464,8 @@ func TestManagedLifecycleOperationRetriesFailedStableRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || second.Outcome != "succeeded" || second.OperationID != first.OperationID || second.RequestID != first.RequestID {
+	if calls != 2 || second.Outcome != "succeeded" || second.OperationID != "operation-1" ||
+		second.OperationID != first.OperationID || second.RequestID != first.RequestID {
 		t.Fatalf("retried managed operation first=%+v second=%+v calls=%d", first, second, calls)
 	}
 }
@@ -423,7 +492,7 @@ func TestManagedLifecycleOperationDoesNotRetryPermanentFailure(t *testing.T) {
 	}
 }
 
-func TestTerminalManagedLifecycleFailureClearsSecretPlan(t *testing.T) {
+func TestTerminalManagedLifecycleFailureRetainsPlanForServerAcknowledgement(t *testing.T) {
 	value := testPaths(t.TempDir())
 	operationID := "operation-terminal-cleanup"
 	planDirectory := filepath.Join(value.applicationData, "install-operations", operationID)
@@ -442,8 +511,8 @@ func TestTerminalManagedLifecycleFailureClearsSecretPlan(t *testing.T) {
 	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
 		t.Fatal("terminal operation error was lost")
 	}
-	if _, err := os.Stat(planDirectory); !os.IsNotExist(err) {
-		t.Fatalf("terminal failure retained secret plan: %v", err)
+	if _, err := os.Stat(planDirectory); err != nil {
+		t.Fatalf("terminal failure removed plan before Server acknowledgement: %v", err)
 	}
 	recorded, err := os.ReadFile(value.operationFile)
 	if err != nil || strings.Contains(string(recorded), "secret-token") || !strings.Contains(string(recorded), `"outcome":"failed"`) {
@@ -540,7 +609,7 @@ func TestSucceededManagedOperationWithoutCompletionDispositionRetainsPlan(t *tes
 		t.Fatal(err)
 	}
 	previous := lifecycleOperation{
-		OperationID: "local-operation", RequestID: operationID, Kind: "install-managed",
+		OperationID: operationID, RequestID: operationID, Kind: "install-managed",
 		Outcome: "succeeded", Attempt: 1, StartedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
 	}
 	if err := persistOperation(value.operationFile, previous); err != nil {
@@ -599,33 +668,6 @@ func TestDestroyTerminalRequiresDurableTerminalResult(t *testing.T) {
 	}
 }
 
-func TestCleanupFailurePublishesRetainDisposition(t *testing.T) {
-	value := testPaths(t.TempDir())
-	operationID := "operation-cleanup-failure"
-	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.applicationData, "install-operations"), []byte("blocks cleanup path"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	operation := lifecycleOperation{
-		OperationID: "local-operation", RequestID: operationID, Kind: "install-managed",
-		Outcome: "failed", SecretDisposition: secretDispositionDestroyTerminal,
-		Attempt: 1, StartedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
-	}
-	if err := persistOperation(value.operationFile, operation); err != nil {
-		t.Fatal(err)
-	}
-	published, err := finalizeManagedInstallOperation(value, operationID, operation, os.ErrPermission)
-	if err == nil || published.SecretDisposition != secretDispositionRetain {
-		t.Fatalf("cleanup failure published terminal disposition: operation=%+v err=%v", published, err)
-	}
-	recorded := readOperation(value.operationFile)
-	if recorded == nil || recorded.SecretDisposition != secretDispositionDestroyTerminal {
-		t.Fatalf("cleanup retry evidence was not retained: %+v", recorded)
-	}
-}
-
 func TestManagedLifecycleOperationStopsAtRetryLimit(t *testing.T) {
 	value := testPaths(t.TempDir())
 	calls := 0
@@ -650,7 +692,7 @@ func TestManagedLifecycleOperationStopsAtRetryLimit(t *testing.T) {
 func TestManagedLifecycleOperationRetriesUnknownSameRequest(t *testing.T) {
 	value := testPaths(t.TempDir())
 	previous := lifecycleOperation{
-		OperationID: "local-operation", RequestID: "operation-unknown", Kind: "install-managed",
+		OperationID: "operation-unknown", RequestID: "operation-unknown", Kind: "install-managed",
 		Outcome: "pending", Attempt: 1, StartedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
 	}
 	if err := persistOperation(value.operationFile, previous); err != nil {

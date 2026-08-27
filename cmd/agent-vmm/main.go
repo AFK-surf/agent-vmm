@@ -5,7 +5,6 @@ package main
 import (
 	"archive/tar"
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -95,19 +94,16 @@ func build(arguments []string) {
 	contextDirectory := flags.String("context", "", "Dockerfile build context")
 	dockerfile := flags.String("dockerfile", "Dockerfile", "Dockerfile path relative to context")
 	output := flags.String("output", "", "artifact directory")
-	publisherKey := flags.String("publisher-key", "", "development first-party Ed25519 seed")
 	product := flags.String("product", "", "appliance product id")
 	release := flags.String("release", "", "appliance release")
 	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
 	artifactStore := flags.String("artifact-store", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/instance/support/appliance-artifacts"), "Agent VMM appliance archive store")
 	flags.Parse(arguments)
-	if *contextDirectory == "" || *output == "" || *publisherKey == "" || *product == "" || *release == "" {
+	if *contextDirectory == "" || *output == "" || *product == "" || *release == "" {
 		flags.Usage()
 		os.Exit(2)
 	}
 	archive, err := archiveContext(*contextDirectory)
-	check(err)
-	seed, err := readSeed(*publisherKey)
 	check(err)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
@@ -160,7 +156,7 @@ func build(arguments []string) {
 		check(errors.New("build archive does not match guest commitment"))
 	}
 	check(os.Rename(temporaryPath, filepath.Join(*output, "image.oci.tar")))
-	canonicalHash := writeManifest(*output, *product, *release, seed, result.GetManifestDigest())
+	canonicalHash := writeManifest(*output, *product, *release, result.GetManifestDigest())
 	check(os.MkdirAll(*artifactStore, 0o700))
 	storePath := filepath.Join(*artifactStore, hex.EncodeToString(canonicalHash)+".oci.tar")
 	check(copyFile(filepath.Join(*output, "image.oci.tar"), storePath))
@@ -241,17 +237,6 @@ func (buffer *limitedBuffer) Write(data []byte) (int, error) {
 
 func (buffer *limitedBuffer) Bytes() []byte { return []byte(buffer.String()) }
 
-func readSeed(path string) (ed25519.PrivateKey, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	seed, err := hex.DecodeString(strings.TrimSpace(string(data)))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return nil, errors.New("publisher key must contain an Ed25519 seed")
-	}
-	return ed25519.NewKeyFromSeed(seed), nil
-}
 func randomID() string {
 	value := make([]byte, 12)
 	if _, err := rand.Read(value); err != nil {
@@ -291,16 +276,14 @@ func copyFile(source, destination string) error {
 	return os.Rename(temporaryPath, destination)
 }
 
-func writeManifest(output, product, release string, key ed25519.PrivateKey, imageDigest string) []byte {
+func writeManifest(output, product, release, imageDigest string) []byte {
 	limits := func(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
 		return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
 	}
-	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: product, PublisherKeyId: "agent-vmm-first-party", Release: release, ImageReference: "agent-vmm.local/appliance@" + imageDigest, ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1", ControllerProtocolVersion: "controller-ready-v1", SystemResources: &appliancev1.ResourceRange{Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(1000, 512<<20, 256, 2<<30)}, DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{MaxEnvironments: 16, AggregateLimits: limits(8000, 16<<30, 4096, 64<<30), PerEnvironmentLimits: limits(2000, 4<<30, 1024, 16<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseSeconds: 3600, DisconnectGraceSeconds: 30}, RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, RequestedFrontends: []*appliancev1.ControllerFrontend{{Name: "mcp-http", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP, Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16, MaxUseCount: 1024}}}, StartupDeadlineSeconds: 60, ProbationSeconds: 5, HealthTimeoutSeconds: 10, MinimumApplianceRuntime: "1"}
+	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: product, Release: release, ImageReference: "agent-vmm.local/appliance@" + imageDigest, ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1", ControllerProtocolVersion: "controller-ready-v1", SystemResources: &appliancev1.ResourceRange{Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(1000, 512<<20, 256, 2<<30)}, DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{MaxEnvironments: 16, AggregateLimits: limits(8000, 16<<30, 4096, 64<<30), PerEnvironmentLimits: limits(2000, 4<<30, 1024, 16<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseSeconds: 3600, DisconnectGraceSeconds: 30}, RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, RequestedFrontends: []*appliancev1.ControllerFrontend{{Name: "mcp-http", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP, Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16, MaxUseCount: 1024}}}, StartupDeadlineSeconds: 60, ProbationSeconds: 5, HealthTimeoutSeconds: 10, MinimumApplianceRuntime: "1"}
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
 	check(err)
 	check(os.WriteFile(filepath.Join(output, "manifest.pb"), canonical, 0o644))
-	check(os.WriteFile(filepath.Join(output, "manifest.sig"), ed25519.Sign(key, canonical), 0o644))
-	check(os.WriteFile(filepath.Join(output, "publisher.pub"), key.Public().(ed25519.PublicKey), 0o644))
 	hash := sha256.Sum256(canonical)
 	return hash[:]
 }

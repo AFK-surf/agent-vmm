@@ -40,7 +40,7 @@ func (amount ResourceAmount) fits(limit ResourceAmount) bool {
 }
 
 type ApplianceInstallation struct {
-	ID, ProductID, PublisherKeyID, ArtifactID, RegistrationID, EncryptedVolumeID  string
+	ID, ProductID, ArtifactID, RegistrationID, EncryptedVolumeID                  string
 	EncryptedVolumeIdentity, BootstrapID, CurrentBootID, CurrentContainerInstance string
 	DataVolumeBytes                                                               uint64
 	DesiredEnabled                                                                bool
@@ -50,10 +50,10 @@ type ApplianceInstallation struct {
 }
 
 type ApplianceArtifact struct {
-	ID, ImageDigest, ImageReference, Platform, PublisherKeyID, ProductID, Release string
-	CanonicalHash, Manifest, PublisherSignature                                   []byte
-	Verified                                                                      bool
-	CreatedAt                                                                     time.Time
+	ID, ImageDigest, ImageReference, Platform, ProductID, Release string
+	CanonicalHash, Manifest                                       []byte
+	Verified                                                      bool
+	CreatedAt                                                     time.Time
 }
 
 type ApplianceVolume struct {
@@ -94,13 +94,6 @@ type ResourceReservation struct {
 	Retained                bool
 }
 
-type AppliancePublisher struct {
-	KeyID     string
-	PublicKey []byte
-	Revision  uint64
-	Revoked   bool
-}
-
 type ApplianceOperation struct {
 	ID, InstallationID, RequestID, Stage, ErrorReason, ErrorMessage string
 	Receipt                                                         []byte
@@ -124,21 +117,6 @@ type ApplianceRemove struct {
 	Receipt                                                    []byte
 }
 
-func (store *Store) PutAppliancePublisher(ctx context.Context, publisher AppliancePublisher) error {
-	_, err := store.db.ExecContext(ctx, `INSERT INTO appliance_publishers(publisher_key_id, public_key, revision, revoked, updated_at)
-		VALUES (?, ?, ?, ?, ?) ON CONFLICT(publisher_key_id) DO UPDATE SET public_key=excluded.public_key,
-		revision=excluded.revision, revoked=excluded.revoked, updated_at=excluded.updated_at`, publisher.KeyID,
-		publisher.PublicKey, publisher.Revision, publisher.Revoked, time.Now().UnixNano())
-	return err
-}
-
-func (store *Store) GetAppliancePublisher(ctx context.Context, keyID string) (AppliancePublisher, error) {
-	var publisher AppliancePublisher
-	err := store.db.QueryRowContext(ctx, `SELECT publisher_key_id, public_key, revision, revoked
-		FROM appliance_publishers WHERE publisher_key_id=?`, keyID).Scan(&publisher.KeyID, &publisher.PublicKey, &publisher.Revision, &publisher.Revoked)
-	return publisher, err
-}
-
 func (store *Store) StageApplianceArtifact(ctx context.Context, artifact ApplianceArtifact, operation ApplianceOperation) (ApplianceArtifact, ApplianceOperation, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -147,11 +125,10 @@ func (store *Store) StageApplianceArtifact(ctx context.Context, artifact Applian
 	defer tx.Rollback()
 	now := time.Now().UnixNano()
 	_, err = tx.ExecContext(ctx, `INSERT INTO appliance_artifacts(artifact_id, canonical_hash, image_digest,
-		image_reference, platform, publisher_key_id, product_id, release, verified, manifest,
-		publisher_signature, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID,
+		image_reference, platform, product_id, release, verified, manifest,
+		created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID,
 		applianceBlob(artifact.CanonicalHash), artifact.ImageDigest, artifact.ImageReference, artifact.Platform,
-		artifact.PublisherKeyID, artifact.ProductID, artifact.Release, artifact.Verified,
-		applianceBlob(artifact.Manifest), applianceBlob(artifact.PublisherSignature), now)
+		artifact.ProductID, artifact.Release, artifact.Verified, applianceBlob(artifact.Manifest), now)
 	if err != nil {
 		return ApplianceArtifact{}, ApplianceOperation{}, err
 	}
@@ -178,19 +155,18 @@ func (store *Store) GetApplianceArtifactByCanonicalHash(ctx context.Context, has
 }
 
 const applianceArtifactSelect = `SELECT artifact_id, canonical_hash, image_digest, image_reference, platform,
-	publisher_key_id, product_id, release, verified, manifest, publisher_signature, created_at FROM appliance_artifacts`
+	product_id, release, verified, manifest, created_at FROM appliance_artifacts`
 
 func scanApplianceArtifact(row rowScanner) (ApplianceArtifact, error) {
 	var artifact ApplianceArtifact
 	var created int64
 	err := row.Scan(&artifact.ID, &artifact.CanonicalHash, &artifact.ImageDigest, &artifact.ImageReference,
-		&artifact.Platform, &artifact.PublisherKeyID, &artifact.ProductID, &artifact.Release,
-		&artifact.Verified, &artifact.Manifest, &artifact.PublisherSignature, &created)
+		&artifact.Platform, &artifact.ProductID, &artifact.Release, &artifact.Verified, &artifact.Manifest, &created)
 	artifact.CreatedAt = time.Unix(0, created)
 	return artifact, err
 }
 
-const applianceInstallationSelect = `SELECT id, product_id, publisher_key_id, artifact_id, desired_enabled,
+const applianceInstallationSelect = `SELECT id, product_id, artifact_id, desired_enabled,
 	state, revision, COALESCE(registration_id, ''), encrypted_volume_id, encrypted_volume_identity,
 	data_volume_bytes, bootstrap_id, current_boot_id, current_container_instance, created_at, updated_at FROM appliance_installations`
 
@@ -218,7 +194,7 @@ func (store *Store) ListApplianceInstallations(ctx context.Context) ([]Appliance
 func scanApplianceInstallation(row rowScanner) (ApplianceInstallation, error) {
 	var value ApplianceInstallation
 	var created, updated int64
-	err := row.Scan(&value.ID, &value.ProductID, &value.PublisherKeyID, &value.ArtifactID,
+	err := row.Scan(&value.ID, &value.ProductID, &value.ArtifactID,
 		&value.DesiredEnabled, &value.State, &value.Revision, &value.RegistrationID,
 		&value.EncryptedVolumeID, &value.EncryptedVolumeIdentity, &value.DataVolumeBytes, &value.BootstrapID,
 		&value.CurrentBootID, &value.CurrentContainerInstance, &created, &updated)
@@ -327,12 +303,12 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 	if installation.Revision != 1 || operation.ExpectedRevision != 0 || registration.InstallationID != installation.ID {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, ErrInstallationRevisionConflict
 	}
-	var artifactProduct, artifactPublisher string
-	if err := tx.QueryRowContext(ctx, `SELECT product_id, publisher_key_id FROM appliance_artifacts
-		WHERE artifact_id=? AND verified=1`, installation.ArtifactID).Scan(&artifactProduct, &artifactPublisher); err != nil {
+	var artifactProduct string
+	if err := tx.QueryRowContext(ctx, `SELECT product_id FROM appliance_artifacts
+		WHERE artifact_id=? AND verified=1`, installation.ArtifactID).Scan(&artifactProduct); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
-	if artifactProduct != installation.ProductID || artifactPublisher != installation.PublisherKeyID {
+	if artifactProduct != installation.ProductID {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, ErrInstallationRevisionConflict
 	}
 	total, err := sumReservations(ctx, tx, "", 0)
@@ -365,11 +341,11 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 		registration.InventoryRevision, now, now); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO appliance_installations(id, product_id, publisher_key_id,
+	_, err = tx.ExecContext(ctx, `INSERT INTO appliance_installations(id, product_id,
 		artifact_id, desired_enabled, state, revision, registration_id, encrypted_volume_id,
 		encrypted_volume_identity, data_volume_bytes, bootstrap_id, current_boot_id, current_container_instance,
-		created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, 1, ?, ?, ?, ?, ?, '', '', ?, ?)`, installation.ID,
-		installation.ProductID, installation.PublisherKeyID, installation.ArtifactID, installation.State,
+		created_at, updated_at) VALUES (?, ?, ?, 0, ?, 1, ?, ?, ?, ?, ?, '', '', ?, ?)`, installation.ID,
+		installation.ProductID, installation.ArtifactID, installation.State,
 		registration.ID, installation.EncryptedVolumeID, installation.EncryptedVolumeIdentity,
 		installation.DataVolumeBytes, installation.BootstrapID, now, now)
 	if err != nil {
