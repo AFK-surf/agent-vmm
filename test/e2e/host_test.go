@@ -80,6 +80,7 @@ func TestE2E(t *testing.T) {
 	})
 	t.Logf("E2E_PARALLEL_PEAK=%d", peak.Load())
 	t.Run("egress", func(t *testing.T) { testEgress(t, client) })
+	t.Run("imported_image_forced_restart", func(t *testing.T) { testImportedImageForcedRestart(t, harness) })
 	t.Run("VM_restart", func(t *testing.T) { testVMRestart(t, harness) })
 	t.Run("forced_VM_stop", func(t *testing.T) { testForcedVMStop(t, harness) })
 	t.Run("cleanup_contract", func(t *testing.T) { testCleanupContract(t, harness, client) })

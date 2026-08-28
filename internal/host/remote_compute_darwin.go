@@ -120,7 +120,7 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 	}
 	if request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
 		delete(server.controller.remoteConnectionEpochs, frontendConnectionKey(registration.ID, request.GetConnectionInstance()))
-		server.controller.disconnectRemoteLeases(updated.ID, request.GetConnectionInstance(), time.Duration(updated.DisconnectGraceSeconds)*time.Second)
+		server.controller.disconnectRemoteLeases(updated.ID, request.GetConnectionInstance(), updated.DisconnectedAt, time.Duration(updated.DisconnectGraceSeconds)*time.Second)
 		server.controller.hostFrontends.discardEpoch(registration.ID, request.GetConnectionInstance(), request.GetConnectionEpoch())
 	}
 	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, updated).GetRegistration()}, nil

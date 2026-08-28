@@ -16,6 +16,7 @@ import (
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/diff"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
@@ -177,23 +178,25 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 		if storedFingerprint != fingerprint || record.Name != imageReference || record.Target.Digest != manifest.Digest {
 			return nil, imageError(codes.Aborted, "IMPORT_IDEMPOTENCY_CONFLICT", "import request ID was reused with different input", imageReference)
 		}
-		return r.getImageForRole(nsctx, header.GetActorNamespaceId(), imageReference, system)
+		break
 	}
-	if existing, err := r.client.GetImage(nsctx, imageReference); err == nil {
+	existing, existingErr := r.client.GetImage(nsctx, imageReference)
+	if existingErr == nil {
 		if existing.Target().Digest != manifest.Digest {
 			return nil, imageError(codes.Aborted, "IMAGE_DIGEST_CONFLICT", "image reference already names different content", imageReference)
 		}
-		metadata := existing.Metadata()
-		if metadata.Labels == nil {
-			metadata.Labels = make(map[string]string)
+		unpacked, err := existing.IsUnpacked(nsctx, containerSnapshotter)
+		if err != nil {
+			return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", imageReference)
 		}
-		metadata.Labels[requestLabel] = fingerprint
-		if _, err := r.client.ImageService().Update(nsctx, metadata, "labels"); err != nil {
-			return nil, err
+		if unpacked {
+			if err := r.commitImportRecord(nsctx, existing, requestLabel, fingerprint); err != nil {
+				return nil, err
+			}
+			return r.getImageForRole(nsctx, header.GetActorNamespaceId(), imageReference, system)
 		}
-		return r.getImageForRole(nsctx, header.GetActorNamespaceId(), imageReference, system)
-	} else if !errdefs.IsNotFound(err) {
-		return nil, err
+	} else if !errdefs.IsNotFound(existingErr) {
+		return nil, existingErr
 	}
 	currentBytes, err := r.namespaceImageBytes(nsctx)
 	if err != nil {
@@ -203,7 +206,7 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	if err != nil {
 		return nil, err
 	}
-	if currentBytes+header.GetArchiveSize() > namespace.GetLimits().GetDiskBytes() {
+	if existingErr != nil && currentBytes+header.GetArchiveSize() > namespace.GetLimits().GetDiskBytes() {
 		return nil, resourceExhausted("OCI archive exceeds namespace disk quota")
 	}
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
@@ -219,23 +222,54 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 		return nil, imageError(codes.InvalidArgument, "OCI_MANIFEST_MISMATCH", "OCI archive imported an unexpected manifest", imageReference)
 	}
 	staged := containerd.NewImageWithPlatform(r.client, coreimages.Image{Name: imageReference, Target: manifest}, platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: "arm64"}))
-	if err := staged.Unpack(stagingContext, containerSnapshotter); err != nil {
-		log.Printf("OCI import unpack failed for %q: %v", imageReference, err)
-		return nil, imageError(codes.FailedPrecondition, "IMAGE_UNPACK_FAILED", "image content could not be unpacked", imageReference)
-	}
 	size, err := staged.Size(stagingContext)
 	if err != nil {
 		return nil, err
 	}
-	if currentBytes+uint64(size) > namespace.GetLimits().GetDiskBytes() {
+	if existingErr != nil && currentBytes+uint64(size) > namespace.GetLimits().GetDiskBytes() {
 		return nil, resourceExhausted("image logical size exceeds namespace disk quota")
 	}
-	if _, err := r.client.ImageService().Create(stagingContext, coreimages.Image{Name: imageReference, Target: manifest,
-		Labels: map[string]string{requestLabel: fingerprint}}); err != nil {
-		return nil, err
+	createdRecord := false
+	materialized := existing
+	if existingErr != nil {
+		if _, err := r.client.ImageService().Create(stagingContext, coreimages.Image{Name: imageReference, Target: manifest,
+			Labels: map[string]string{requestLabel: fingerprint}}); err != nil {
+			return nil, err
+		}
+		createdRecord = true
+		materialized, err = r.client.GetImage(stagingContext, imageReference)
+		if err != nil {
+			_ = r.client.ImageService().Delete(stagingContext, imageReference, coreimages.SynchronousDelete())
+			return nil, err
+		}
+	}
+	if err := materialized.Unpack(stagingContext, containerSnapshotter, containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); err != nil {
+		if createdRecord {
+			_ = r.client.ImageService().Delete(stagingContext, imageReference, coreimages.SynchronousDelete())
+		}
+		log.Printf("OCI import unpack failed for %q: %v", imageReference, err)
+		return nil, imageError(codes.FailedPrecondition, "IMAGE_UNPACK_FAILED", "image content could not be unpacked", imageReference)
+	}
+	if !createdRecord {
+		if err := r.commitImportRecord(stagingContext, materialized, requestLabel, fingerprint); err != nil {
+			return nil, err
+		}
 	}
 	if err := syncStateFilesystem(); err != nil {
 		return nil, fmt.Errorf("persist imported image: %w", err)
 	}
 	return r.getImageForRole(nsctx, header.GetActorNamespaceId(), imageReference, system)
+}
+
+func (r *Runtime) commitImportRecord(ctx context.Context, image containerd.Image, requestLabel, fingerprint string) error {
+	metadata := image.Metadata()
+	if metadata.Labels == nil {
+		metadata.Labels = make(map[string]string)
+	}
+	if metadata.Labels[requestLabel] == fingerprint {
+		return nil
+	}
+	metadata.Labels[requestLabel] = fingerprint
+	_, err := r.client.ImageService().Update(ctx, metadata, "labels")
+	return err
 }

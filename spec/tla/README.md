@@ -6,6 +6,10 @@ form an artificial Cartesian product:
 - `ControllerAllocationLifecycle.tla` owns one controller's ready
   acknowledgement, inventory watermark, epoch, command fence, allocation,
   lease, reconnect capability, revoke, and the atomic admission decision.
+- `RemoteLeaseDisconnectGrace.tla` owns the persisted disconnect fence used by
+  delayed lease revocation across reconnect and a later disconnect.
+- `OCIImageMaterialization.tla` owns exact-digest archive re-import after an
+  image record survives without its content or native rootfs snapshot.
 - `AggregateAdmission.tla` owns only cross-domain capacity accounting.
 - `DomainAuthorityIsolation.tla` owns multi-domain command identity and failure
   isolation.
@@ -46,6 +50,8 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | Model action or invariant | Production owner after its implementation phase | Fault or conformance test |
 | --- | --- | --- |
 | `ControllerReady`, `Allocate`, `InventoryMutation`, `DeleteAllocation`, `OpenSession` | `internal/remoteconnector`, `internal/host/remote_compute_darwin.go`, host lease/session manager | ready/fence, admission, reconnect, capability replacement, inventory mutation, and leased-delete tests |
+| `Disconnect`, `Reconnect`, `GraceExpires`, `NoStaleTimerRevocation` | `internal/host/remote_compute_darwin.go`, `internal/host/remote_lease_darwin.go`, persisted remote registration | disconnect grace timer behavior across reconnect and a newer disconnect |
+| `RetryExactArchive`, `CommitExactArchive`, `CreateRequiresExactMaterial` | guest OCI import, image projection, and container creation | real archive import, forced VM restart, and rootfs creation E2E |
 | `AggregateAdmission.Allocate`, `NoAllocationWithoutAdmission`, `AggregateNoOvercommit` | `internal/host/store`, host aggregate admission and allocation transaction | multi-domain admission race tests and disabled-admission counterexample |
 | `AuthorizedCommand`, `ExactRegistrationIdentity`, `DomainNonInterference` | host controller transport and command authorization | wrong-identity and cross-domain failure tests |
 | `SystemExcludedFromInventory` | host inventory projection | system inventory conformance |

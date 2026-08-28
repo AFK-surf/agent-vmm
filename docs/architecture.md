@@ -431,6 +431,13 @@ Runtime v2 supports the runsc shim for each container.
 The content store can deduplicate blobs while image references remain namespace-specific.
 `agent-vmmd` uses the Go client and does not parse CLI output.
 
+An image is available only when its exact record, content graph, and native
+rootfs snapshot are materialized. Image listing does not project a record whose
+rootfs snapshot is missing, and container creation rejects it before creating a
+container record. Re-importing the same digest-bound OCI archive repairs that
+materialization in place; a different digest or import fingerprint remains a
+conflict and cannot replace the record.
+
 Containerd does not provide product volumes, service DNS, or cross-namespace grants.
 `agent-vmmd` implements this policy layer.
 

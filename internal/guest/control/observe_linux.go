@@ -254,6 +254,13 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 	}
 	result := make([]*vmmdv1.Image, 0, len(images))
 	for _, image := range images {
+		unpacked, err := image.IsUnpacked(namespaceContext(ctx, namespaceID), containerSnapshotter)
+		if err != nil {
+			return nil, err
+		}
+		if !unpacked {
+			continue
+		}
 		size, err := image.Size(namespaceContext(ctx, namespaceID))
 		if err != nil {
 			return nil, err
@@ -284,6 +291,13 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 	image, err := r.client.GetImage(nsctx, canonical)
 	if err != nil {
 		return nil, err
+	}
+	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
+	if err != nil {
+		return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonical)
+	}
+	if !unpacked {
+		return nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "image root filesystem is not materialized; import the exact image again", canonical)
 	}
 	size, err := image.Size(nsctx)
 	if err != nil {

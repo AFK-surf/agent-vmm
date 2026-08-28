@@ -187,7 +187,7 @@ func (controller *Controller) retryRemoteWorkloadStop(environmentID string, atte
 	})
 }
 
-func (controller *Controller) disconnectRemoteLeases(registrationID, instance string, grace time.Duration) {
+func (controller *Controller) disconnectRemoteLeases(registrationID, instance string, disconnectedAt time.Time, grace time.Duration) {
 	controller.hostFrontends.closeRegistration(registrationID, instance, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
 	controller.mu.Lock()
 	var sessions []string
@@ -203,7 +203,7 @@ func (controller *Controller) disconnectRemoteLeases(registrationID, instance st
 	}
 	time.AfterFunc(grace, func() {
 		registration, err := controller.store.GetRemoteRegistration(context.Background(), registrationID)
-		if err == nil && registration.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) && registration.ConnectionInstance == instance {
+		if err == nil && registration.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) && registration.DisconnectedAt.Equal(disconnectedAt) {
 			controller.revokeRemoteLeases(registrationID)
 		}
 	})

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -212,6 +213,36 @@ func (client *productClient) PullImage(ctx context.Context, environmentID string
 		return nil, err
 	}
 	return session.client.PullImage(ctx, request)
+}
+
+func (client *productClient) ImportImage(ctx context.Context, environmentID string, header *hostv1.ImportImageHeader, archive io.Reader) (*hostv1.Image, error) {
+	session, err := client.session(environmentID)
+	if err != nil {
+		return nil, err
+	}
+	stream, err := session.client.ImportImage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_Header{Header: header}}); err != nil {
+		return nil, err
+	}
+	buffer := make([]byte, 1<<20)
+	for {
+		count, readErr := archive.Read(buffer)
+		if count != 0 {
+			if err := stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: append([]byte(nil), buffer[:count]...)}}); err != nil {
+				return nil, err
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	return stream.CloseAndRecv()
 }
 
 func (client *productClient) ListImages(ctx context.Context, environmentID string) (*hostv1.ListImagesResponse, error) {

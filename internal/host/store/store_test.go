@@ -786,8 +786,19 @@ func TestDiscardEnvironmentRequiresRetainedRemoteAllocation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.ReserveResources(ctx, ResourceReservation{
+		ID: "remote-retained-reservation", OwnerKind: ReservationOwnerRegistration, OwnerID: "registration",
+		ResourceKind: ReservationResourceAllocation, ResourceID: "remote-retained",
+		Amount: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
+	}, ResourceAmount{CPUMillis: 2, MemoryBytes: 2, PIDs: 2, DiskBytes: 2}, ResourceAmount{CPUMillis: 2, MemoryBytes: 2, PIDs: 2, DiskBytes: 2}); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.DiscardEnvironment(ctx, "remote-retained"); err != nil {
 		t.Fatal(err)
+	}
+	var reservations int
+	if err := database.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM resource_reservations WHERE id='remote-retained-reservation'").Scan(&reservations); err != nil || reservations != 0 {
+		t.Fatalf("retained allocation reservation count=%d err=%v", reservations, err)
 	}
 }
 

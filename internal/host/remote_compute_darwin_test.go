@@ -326,4 +326,73 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	t.Fatalf("expired allocation=%+v err=%v", current, err)
 }
 
+func TestDisconnectGraceUsesPersistedDisconnectFence(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	registration := store.RemoteRegistration{
+		ID: "registration", Endpoint: "controller.example:443", DisplayName: "controller", ProtocolVersion: "1",
+		MaxEnvironments: 1, AggregateCPUMillis: 1, AggregateMemoryBytes: 1, AggregatePIDs: 1, AggregateDiskBytes: 1,
+		PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
+		MaxLeaseSeconds: 60, DisconnectGraceSeconds: 1, StopGraceSeconds: 1, State: 1,
+		ConnectionState: int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED), EnrollmentState: 2, ConnectorPhase: 1,
+	}
+	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SetRemoteConnection(ctx, registration.ID, "first", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED)); err != nil {
+		t.Fatal(err)
+	}
+	environment, err := database.CreateEnvironment(ctx, store.Environment{
+		ID: "environment", NamespaceID: "namespace", DisplayName: "remote", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1,
+		OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := store.RemoteLeaseProjection{LeaseID: "lease", RegistrationID: registration.ID, AllocationID: "allocation", EnvironmentID: environment.ID, WorkloadRef: "work", Generation: 1, ExpiresAt: time.Now().Add(time.Minute), State: int32(hostv1.LeaseState_LEASE_STATE_ACTIVE)}
+	environment, err = database.AcquireRemoteLeaseProjection(ctx, projection, environment.PolicyRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &Controller{manager: &vmm.Manager{}, store: database, sessions: make(map[string]*sessionServer), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string)}
+	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
+	controller.remoteLeases[projection.LeaseID] = &remoteLease{id: projection.LeaseID, registrationID: registration.ID, allocationID: projection.AllocationID, environmentID: environment.ID, workloadRef: projection.WorkloadRef, generation: projection.Generation, expiresAt: projection.ExpiresAt, state: hostv1.LeaseState_LEASE_STATE_ACTIVE}
+	controller.allocationLeases[environment.ID] = projection.LeaseID
+
+	firstDisconnect, err := database.SetRemoteConnection(ctx, registration.ID, "first", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.disconnectRemoteLeases(registration.ID, "first", firstDisconnect.DisconnectedAt, 100*time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	if _, err := database.SetRemoteConnection(ctx, registration.ID, "second", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	secondDisconnect, err := database.SetRemoteConnection(ctx, registration.ID, "second", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.disconnectRemoteLeases(registration.ID, "second", secondDisconnect.DisconnectedAt, 300*time.Millisecond)
+	time.Sleep(130 * time.Millisecond)
+	current, err := database.GetEnvironment(ctx, environment.ID)
+	if err != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED) {
+		t.Fatalf("old disconnect timer revoked replacement grace: environment=%+v err=%v", current, err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		current, err = database.GetEnvironment(ctx, environment.ID)
+		if err == nil && current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("current disconnect grace did not retain allocation: environment=%+v err=%v", current, err)
+}
+
 func testOptional[T any](value T) *T { return &value }

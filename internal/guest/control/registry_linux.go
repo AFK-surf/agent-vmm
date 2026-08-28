@@ -20,6 +20,7 @@ import (
 
 	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/diff"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/containerd/v2/core/remotes/docker"
@@ -60,7 +61,7 @@ func (r *Runtime) pullImage(ctx context.Context, namespaceID, imageReference str
 			return "", "", 0, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonical)
 		}
 		if !unpacked {
-			if unpackErr := existing.Unpack(nsctx, containerSnapshotter); unpackErr != nil {
+			if unpackErr := existing.Unpack(nsctx, containerSnapshotter, containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); unpackErr != nil {
 				return "", "", 0, imageError(codes.FailedPrecondition, "IMAGE_UNPACK_FAILED", "image content could not be unpacked", canonical)
 			}
 		}
@@ -110,7 +111,7 @@ func (r *Runtime) pullImage(ctx context.Context, namespaceID, imageReference str
 		}
 		return "", "", 0, registryDownloadError(err, canonical)
 	}
-	if err := image.Unpack(nsctx, containerSnapshotter); err != nil {
+	if err := image.Unpack(nsctx, containerSnapshotter, containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); err != nil {
 		log.Printf("image unpack failed for %q: %v", canonical, err)
 		_ = r.client.ImageService().Delete(nsctx, image.Name(), coreimages.SynchronousDelete())
 		if unpackRegistryFailure(err) {

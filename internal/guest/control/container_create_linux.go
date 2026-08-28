@@ -91,6 +91,13 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		}
 		return nil, err
 	}
+	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
+	if err != nil {
+		return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonicalImage)
+	}
+	if !unpacked {
+		return nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "image root filesystem is not materialized; import the exact image again", canonicalImage)
+	}
 	volumeJSON, err := json.Marshal(request.GetVolumes())
 	if err != nil {
 		return nil, err
