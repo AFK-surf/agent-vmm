@@ -30,7 +30,7 @@ func TestInstallApplianceDomainLinksRegistrationBeforeInstallation(t *testing.T)
 			ArtifactID: artifact.ID, State: 2, Revision: 1, EncryptedVolumeID: "volume", EncryptedVolumeIdentity: "volume-identity", DataVolumeBytes: 1 << 20, BootstrapID: "bootstrap"},
 		ApplianceGrant{Revision: 1, System: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
 			MaxEnvironments: 1, Aggregate: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
-			PerEnvironment: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}, MaxEgressMode: 1,
+			PerEnvironment: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1,
 			MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1},
 		ResourceReservation{ID: "reservation", OwnerID: "installation", OwnerKind: ReservationOwnerAppliance,
 			ResourceID: "system", ResourceKind: ReservationResourceSystem, Amount: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}},
@@ -94,7 +94,7 @@ func TestCommitSealedRepairFencesInstallationAndReceiptAtomically(t *testing.T) 
 			EncryptedVolumeID: "sealed-volume", EncryptedVolumeIdentity: "sealed-volume-identity", DataVolumeBytes: 1 << 20, BootstrapID: ""},
 		ApplianceGrant{Revision: 1, System: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
 			MaxEnvironments: 1, Aggregate: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
-			PerEnvironment: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}, MaxEgressMode: 1,
+			PerEnvironment: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1,
 			MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1},
 		ResourceReservation{ID: "sealed-reservation", OwnerID: "sealed-installation", OwnerKind: ReservationOwnerAppliance,
 			ResourceID: "sealed-system", ResourceKind: ReservationResourceSystem, Amount: ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}},
@@ -164,7 +164,7 @@ func TestNewInstallationReplacementAndRemovalLeaveOtherDomainIntact(t *testing.T
 				ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), Revision: 1,
 				EncryptedVolumeID: id + "-volume", EncryptedVolumeIdentity: id + "-volume-identity", DataVolumeBytes: 1 << 20},
 			ApplianceGrant{Revision: 1, System: reservation.Amount, MaxEnvironments: 1, Aggregate: reservation.Amount,
-				PerEnvironment: reservation.Amount, MaxEgressMode: 1, MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1},
+				PerEnvironment: reservation.Amount, EgressMode: 1, MaxEgressMode: 1, MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1},
 			reservation, ResourceAmount{CPUMillis: 10, MemoryBytes: 10, PIDs: 10, DiskBytes: 10},
 			RemoteRegistration{ID: id + "-registration", DisplayName: id, ProtocolVersion: "1", MaxEnvironments: 1,
 				AggregateCPUMillis: 1, AggregateMemoryBytes: 1, AggregatePIDs: 1, AggregateDiskBytes: 1,
@@ -235,7 +235,7 @@ func TestSwitchBundledApplianceArtifactPreservesExactDomainAndIsIdempotent(t *te
 	}
 	grant := ApplianceGrant{Revision: 7, System: ResourceAmount{CPUMillis: 1, MemoryBytes: 2, PIDs: 3, DiskBytes: 4},
 		MaxEnvironments: 1, Aggregate: ResourceAmount{CPUMillis: 5, MemoryBytes: 6, PIDs: 7, DiskBytes: 8},
-		PerEnvironment: ResourceAmount{CPUMillis: 5, MemoryBytes: 6, PIDs: 7, DiskBytes: 8}, MaxEgressMode: 1,
+		PerEnvironment: ResourceAmount{CPUMillis: 5, MemoryBytes: 6, PIDs: 7, DiskBytes: 8}, EgressMode: 1, MaxEgressMode: 2,
 		MaxLeaseSeconds: 9, DisconnectGraceSeconds: 10}
 	installation, _, _, err := database.InstallApplianceDomain(ctx,
 		ApplianceInstallation{ID: "installation", ProductID: oldArtifact.ProductID, ArtifactID: oldArtifact.ID,
@@ -278,7 +278,8 @@ func TestSwitchBundledApplianceArtifactPreservesExactDomainAndIsIdempotent(t *te
 		t.Fatalf("installation not atomically switched: before=%+v after=%+v", installation, current)
 	}
 	keptGrant, err := database.GetApplianceGrant(ctx, installation.ID)
-	if err != nil || keptGrant.Revision != grant.Revision || keptGrant.System != grant.System {
+	if err != nil || keptGrant.Revision != grant.Revision || keptGrant.System != grant.System ||
+		keptGrant.EgressMode != grant.EgressMode || keptGrant.MaxEgressMode != grant.MaxEgressMode {
 		t.Fatalf("grant changed: %+v err=%v", keptGrant, err)
 	}
 	volume, err := database.GetApplianceVolume(ctx, installation.ID)

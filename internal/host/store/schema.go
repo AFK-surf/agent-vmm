@@ -91,6 +91,7 @@ func migrateV16(tx *sql.Tx) error {
 			aggregate_pids INTEGER NOT NULL, aggregate_disk_bytes INTEGER NOT NULL,
 			per_env_cpu_millis INTEGER NOT NULL, per_env_memory_bytes INTEGER NOT NULL,
 			per_env_pids INTEGER NOT NULL, per_env_disk_bytes INTEGER NOT NULL,
+			egress_mode INTEGER NOT NULL CHECK(egress_mode IN (1, 2)),
 			max_egress_mode INTEGER NOT NULL CHECK(max_egress_mode IN (1, 2)),
 			max_lease_seconds INTEGER NOT NULL, disconnect_grace_seconds INTEGER NOT NULL,
 			dynamic_max_active_leases INTEGER NOT NULL, dynamic_max_active_leases_per_allocation INTEGER NOT NULL,

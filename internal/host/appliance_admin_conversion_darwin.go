@@ -30,7 +30,7 @@ func grantFromProto(installationID string, revision uint64, value *appliancev1.A
 	return store.ApplianceGrant{InstallationID: installationID, Revision: revision, System: system,
 		Aggregate: amountFromLimits(value.GetCapacity().GetAggregateLimits()), PerEnvironment: amountFromLimits(value.GetCapacity().GetPerEnvironmentLimits()),
 		MaxEnvironments: value.GetCapacity().GetMaxEnvironments(), MaxLeaseSeconds: value.GetCapacity().GetMaxLeaseSeconds(),
-		DisconnectGraceSeconds: value.GetCapacity().GetDisconnectGraceSeconds(), MaxEgressMode: int32(value.GetCapacity().GetMaxEgressMode()),
+		DisconnectGraceSeconds: value.GetCapacity().GetDisconnectGraceSeconds(), EgressMode: int32(value.GetEgressMode()), MaxEgressMode: int32(value.GetCapacity().GetMaxEgressMode()),
 		DynamicHostLoopback: dynamicGrantFromProto(value.GetDynamicHostLoopback())}
 }
 
@@ -73,7 +73,7 @@ func amountFromLimits(value *hostv1.ResourceLimits) store.ResourceAmount {
 func grantToProto(value store.ApplianceGrant) *appliancev1.ApprovedGrant {
 	return &appliancev1.ApprovedGrant{SystemResources: &appliancev1.ResourceRange{Floor: limitsFromAmount(value.System), Ceiling: limitsFromAmount(value.System)},
 		Capacity:   &appliancev1.CapacityGrant{MaxEnvironments: value.MaxEnvironments, AggregateLimits: limitsFromAmount(value.Aggregate), PerEnvironmentLimits: limitsFromAmount(value.PerEnvironment), MaxEgressMode: hostv1.EgressMode(value.MaxEgressMode), MaxLeaseSeconds: value.MaxLeaseSeconds, DisconnectGraceSeconds: value.DisconnectGraceSeconds},
-		EgressMode: hostv1.EgressMode(value.MaxEgressMode), Revision: value.Revision,
+		EgressMode: hostv1.EgressMode(value.EgressMode), Revision: value.Revision,
 		DynamicHostLoopback: dynamicGrantToProto(value.DynamicHostLoopback)}
 }
 

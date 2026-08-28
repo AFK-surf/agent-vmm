@@ -47,7 +47,7 @@ func (controller *Controller) importApplianceArchive(ctx context.Context, client
 	if err != nil {
 		return err
 	}
-	header := &vmmdv1.ImportImageHeader{ActorNamespaceId: systemNamespaceID(installation.ID), ImageReference: artifact.ImageReference, ArchiveSha256: hash.Sum(nil), ManifestDigest: artifact.ImageDigest, Platform: artifact.Platform, ArchiveSize: uint64(info.Size()), SystemImport: true, SystemLimits: &vmmdv1.NamespaceLimits{CpuMillis: uint32(grant.System.CPUMillis), MemoryBytes: grant.System.MemoryBytes, Pids: uint32(grant.System.PIDs), DiskBytes: grant.System.DiskBytes}, SystemEgressMode: vmmdv1.EgressMode(grant.MaxEgressMode)}
+	header := &vmmdv1.ImportImageHeader{ActorNamespaceId: systemNamespaceID(installation.ID), ImageReference: artifact.ImageReference, ArchiveSha256: hash.Sum(nil), ManifestDigest: artifact.ImageDigest, Platform: artifact.Platform, ArchiveSize: uint64(info.Size()), SystemImport: true, SystemLimits: &vmmdv1.NamespaceLimits{CpuMillis: uint32(grant.System.CPUMillis), MemoryBytes: grant.System.MemoryBytes, Pids: uint32(grant.System.PIDs), DiskBytes: grant.System.DiskBytes}, SystemEgressMode: vmmdv1.EgressMode(grant.EgressMode)}
 	header.RequestId, err = applianceImportRequestID(header)
 	if err != nil {
 		return err

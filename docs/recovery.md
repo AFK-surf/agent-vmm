@@ -30,6 +30,34 @@ stopped and started once through the normal artifact, grant, bootstrap, and
 instance fences; a failed attempt enters `FAILED` instead of retrying without
 a bound.
 
+### Egress-grant schema preflight
+
+An existing schema-17 Host database created before the independent
+`egress_mode` column requires one explicit operator update before installing a
+Host that reads the column. Stop the Host, take a restorable SQLite backup, and
+audit every `appliance_grants` row against the durable installation evidence
+that authorized its exact approved grant. The
+actual egress mode must come from `ApprovedGrant.egress_mode`; never copy
+`max_egress_mode`, which is only the allocation ceiling. Abort if the row count,
+installation identity, authorized manifest, or actual mode is not known exactly.
+
+For the bounded staging state where the audit proves every installed appliance
+has actual `DENY_ALL` (`1`), the operator may run:
+
+```sql
+BEGIN IMMEDIATE;
+ALTER TABLE appliance_grants
+  ADD COLUMN egress_mode INTEGER NOT NULL DEFAULT 1
+  CHECK(egress_mode IN (1, 2));
+UPDATE appliance_grants SET egress_mode = 1;
+SELECT installation_id, egress_mode, max_egress_mode FROM appliance_grants;
+COMMIT;
+```
+
+The final `SELECT` must match the audited row set before the new Host starts.
+New databases create the non-defaulted, non-null column directly. Agent VMM has
+no legacy schema reader, inferred value, or runtime backfill.
+
 Removal is revision-fenced. A plan first creates a pending-destroy tombstone;
 execute checks the expected revision and domain emptiness, revokes trust and
 leases, deletes the encrypted volume only after explicit confirmation, and

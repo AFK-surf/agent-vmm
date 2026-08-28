@@ -264,7 +264,7 @@ func (controller *Controller) startApplianceInstance(ctx context.Context, client
 		ImageReference: artifact.ImageReference, DataDeviceIdentifier: block.DeviceIdentifier, DataVolumeId: volume.VolumeID,
 		DataVolumeIdentity: volume.Identity, DataVolumeKey: append([]byte(nil), key...), InitializeDataVolume: block.Initializing,
 		Limits:     &vmmdv1.NamespaceLimits{CpuMillis: uint32(grant.System.CPUMillis), MemoryBytes: grant.System.MemoryBytes, Pids: uint32(grant.System.PIDs), DiskBytes: grant.System.DiskBytes},
-		EgressMode: vmmdv1.EgressMode(grant.MaxEgressMode), ConfigRevision: configRevision})
+		EgressMode: vmmdv1.EgressMode(grant.EgressMode), ConfigRevision: configRevision})
 	if err != nil {
 		return nil, err
 	}

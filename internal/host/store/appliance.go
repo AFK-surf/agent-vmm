@@ -82,7 +82,7 @@ type ApplianceGrant struct {
 	Revision                                                 uint64
 	System, Aggregate, PerEnvironment                        ResourceAmount
 	MaxEnvironments, MaxLeaseSeconds, DisconnectGraceSeconds uint32
-	MaxEgressMode                                            int32
+	EgressMode, MaxEgressMode                                int32
 	DynamicHostLoopback                                      HostLoopbackFrontendCapacity
 }
 
@@ -340,7 +340,7 @@ func (store *Store) GetApplianceGrant(ctx context.Context, installationID string
 const applianceGrantSelect = `SELECT installation_id, revision, system_cpu_millis, system_memory_bytes,
 	system_pids, system_disk_bytes, max_environments, aggregate_cpu_millis, aggregate_memory_bytes,
 	aggregate_pids, aggregate_disk_bytes, per_env_cpu_millis, per_env_memory_bytes, per_env_pids,
-	per_env_disk_bytes, max_egress_mode, max_lease_seconds, disconnect_grace_seconds,
+	per_env_disk_bytes, egress_mode, max_egress_mode, max_lease_seconds, disconnect_grace_seconds,
 	dynamic_max_active_leases, dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
 	dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease, dynamic_max_frame_bytes,
 	dynamic_max_connection_bytes, dynamic_connection_deadline_seconds, dynamic_connection_idle_seconds,
@@ -351,7 +351,7 @@ func applianceGrantScan(grant *ApplianceGrant) []any {
 		&grant.System.PIDs, &grant.System.DiskBytes, &grant.MaxEnvironments, &grant.Aggregate.CPUMillis,
 		&grant.Aggregate.MemoryBytes, &grant.Aggregate.PIDs, &grant.Aggregate.DiskBytes,
 		&grant.PerEnvironment.CPUMillis, &grant.PerEnvironment.MemoryBytes, &grant.PerEnvironment.PIDs,
-		&grant.PerEnvironment.DiskBytes, &grant.MaxEgressMode, &grant.MaxLeaseSeconds,
+		&grant.PerEnvironment.DiskBytes, &grant.EgressMode, &grant.MaxEgressMode, &grant.MaxLeaseSeconds,
 		&grant.DisconnectGraceSeconds, &grant.DynamicHostLoopback.MaxActiveLeases,
 		&grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation, &grant.DynamicHostLoopback.MaxLeaseSeconds,
 		&grant.DynamicHostLoopback.MaxConcurrentConnections,
@@ -365,7 +365,7 @@ func applianceGrantArgs(grant ApplianceGrant, now int64) []any {
 		grant.System.PIDs, grant.System.DiskBytes, grant.MaxEnvironments, grant.Aggregate.CPUMillis,
 		grant.Aggregate.MemoryBytes, grant.Aggregate.PIDs, grant.Aggregate.DiskBytes,
 		grant.PerEnvironment.CPUMillis, grant.PerEnvironment.MemoryBytes, grant.PerEnvironment.PIDs,
-		grant.PerEnvironment.DiskBytes, grant.MaxEgressMode, grant.MaxLeaseSeconds, grant.DisconnectGraceSeconds,
+		grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode, grant.MaxLeaseSeconds, grant.DisconnectGraceSeconds,
 		grant.DynamicHostLoopback.MaxActiveLeases, grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation,
 		grant.DynamicHostLoopback.MaxLeaseSeconds, grant.DynamicHostLoopback.MaxConcurrentConnections,
 		grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, grant.DynamicHostLoopback.MaxFrameBytes,
@@ -442,12 +442,12 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 		system_cpu_millis, system_memory_bytes, system_pids, system_disk_bytes, max_environments,
 		aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
 		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
-		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, dynamic_max_active_leases,
+		egress_mode, max_egress_mode, max_lease_seconds, disconnect_grace_seconds, dynamic_max_active_leases,
 		dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
 		dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease,
 		dynamic_max_frame_bytes, dynamic_max_connection_bytes, dynamic_connection_deadline_seconds,
 		dynamic_connection_idle_seconds, dynamic_max_use_count, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO resource_reservations(id, owner_kind, owner_id,

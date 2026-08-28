@@ -17,7 +17,7 @@ Init ==
   /\ state = [phase |-> "STAGED", artifact |-> 0, verified |-> 0,
        bundleArtifact |-> 1, recoveryPending |-> FALSE,
        bundleValidationFailed |-> FALSE, registration |-> 1, grant |-> 1,
-       volume |-> 1, peerArtifact |-> 1,
+       volume |-> 1, actualEgress |-> 1, maxEgress |-> 2, peerArtifact |-> 1,
        boot |-> 0, container |-> 0, bootstrap |-> 0, receipt |-> 0,
        health |-> 0, session |-> 0, frontend |-> 0,
        bootstrapReceipt |-> FALSE, replacementPending |-> FALSE,
@@ -129,6 +129,7 @@ BundledArtifactUpgrade ==
                !.registration = IF EnforceDomainPreservation THEN state.registration ELSE 2,
                !.grant = IF EnforceDomainPreservation THEN state.grant ELSE 2,
                !.volume = IF EnforceDomainPreservation THEN state.volume ELSE 2,
+               !.actualEgress = IF EnforceDomainPreservation THEN state.actualEgress ELSE state.maxEgress,
                !.peerArtifact = IF EnforceInstallationIsolation THEN state.peerArtifact ELSE 2]
         ELSE state' = [state EXCEPT !.bundleArtifact = 2]
   /\ violations' = IF EnforceBundledArtifact THEN violations
@@ -275,7 +276,8 @@ TypeOK ==
   /\ state.bundleArtifact \in 1..2 /\ state.recoveryPending \in BOOLEAN
   /\ state.bundleValidationFailed \in BOOLEAN
   /\ state.registration \in 1..2 /\ state.grant \in 1..2
-  /\ state.volume \in 1..2 /\ state.peerArtifact \in 1..2
+  /\ state.volume \in 1..2 /\ state.actualEgress \in 1..2
+  /\ state.maxEgress \in 1..2 /\ state.peerArtifact \in 1..2
   /\ state.boot \in 0..2 /\ state.container \in 0..2
   /\ state.bootstrap \in 0..2 /\ state.receipt \in 0..2 /\ state.health \in 0..2
   /\ state.session \in 0..2 /\ state.frontend \in 0..2
@@ -289,7 +291,8 @@ TypeOK ==
 
 ActiveVerifiedExact == state.phase = "ACTIVE" => state.verified = state.artifact
 ActiveUsesBundledArtifact == state.phase = "ACTIVE" => state.artifact = state.bundleArtifact
-BundledUpgradePreservesDomain == state.registration = 1 /\ state.grant = 1 /\ state.volume = 1
+BundledUpgradePreservesDomain == state.registration = 1 /\ state.grant = 1 /\ state.volume = 1 /\
+  state.actualEgress = 1 /\ state.maxEgress = 2
 BundledUpgradeIsIsolated == state.peerArtifact = 1
 RejectedBundleDoesNotReplace == state.bundleValidationFailed => state.artifact = 1 /\ state.bundleArtifact = 1
 BootstrapSingleUse == state.bootstrap <= 1
