@@ -101,6 +101,63 @@ func TestCommandTrackerReplaysOnlyCompletedDuplicate(t *testing.T) {
 	}
 }
 
+func TestCommandTrackerTerminalRejectionsConsumeExpectedSequence(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_800_000_000, 0)
+	tracker := newCommandTracker(9, 4)
+
+	stale := testCommand(1, 8, now.Add(time.Minute))
+	ack, cached := tracker.admit(stale, now)
+	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_STALE_CONNECTION_EPOCH {
+		t.Fatalf("stale epoch = %+v/%+v", ack, cached)
+	}
+
+	gap := testCommand(2, 9, now.Add(time.Minute))
+	gap.CommandId = "command-2"
+	ack, cached = tracker.admit(gap, now)
+	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_SEQUENCE_CONFLICT {
+		t.Fatalf("initial gap = %+v/%+v", ack, cached)
+	}
+
+	rejected := testCommand(1, 9, now)
+	ack, cached = tracker.admit(rejected, now)
+	if cached != nil || ack.GetDisposition() != remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_DEADLINE_EXCEEDED {
+		t.Fatalf("rejection = %+v/%+v", ack, cached)
+	}
+
+	generation := testCommand(2, 9, now.Add(time.Minute))
+	generation.CommandId = "command-2"
+	generation.LeaseGeneration = 3
+	generation.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2}}
+	ack, cached = tracker.admit(generation, now)
+	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_STALE_REVISION {
+		t.Fatalf("generation rejection = %+v/%+v", ack, cached)
+	}
+
+	revision := testCommand(3, 9, now.Add(time.Minute))
+	revision.CommandId = "command-3"
+	revision.TargetRevision = 8
+	revision.Command = &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "a", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: 9, ExpectedLeaseId: "lease", ExpectedLeaseGeneration: 2}}
+	ack, cached = tracker.admit(revision, now)
+	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_STALE_REVISION {
+		t.Fatalf("revision rejection = %+v/%+v", ack, cached)
+	}
+
+	gap = testCommand(5, 9, now.Add(time.Minute))
+	gap.CommandId = "command-5"
+	ack, cached = tracker.admit(gap, now)
+	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_SEQUENCE_CONFLICT {
+		t.Fatalf("subsequent gap = %+v/%+v", ack, cached)
+	}
+
+	next := testCommand(4, 9, now.Add(time.Minute))
+	next.CommandId = "command-4"
+	ack, cached = tracker.admit(next, now)
+	if cached != nil || ack.GetDisposition() != remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_ADMITTED {
+		t.Fatalf("next admission = %+v/%+v", ack, cached)
+	}
+}
+
 func TestCommandTrackerRejectsInventoryWatermarkRegression(t *testing.T) {
 	t.Parallel()
 	tracker := newCommandTracker(9, 5)

@@ -34,15 +34,24 @@ func referenceLimits(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv
 	return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
 }
 
-func reconcileReferenceAllocations(ctx context.Context, session *controllerremote.ControlSession) (map[string]*remotev1.Lease, error) {
-	hello := session.Hello()
+type referenceCommandCursor struct {
+	session      *controllerremote.ControlSession
+	nextSequence uint64
+}
+
+func newReferenceCommandCursor(session *controllerremote.ControlSession) *referenceCommandCursor {
+	return &referenceCommandCursor{session: session}
+}
+
+func reconcileReferenceAllocations(ctx context.Context, cursor *referenceCommandCursor) (map[string]*remotev1.Lease, error) {
+	hello := cursor.session.Hello()
 	inventory := make(map[string]*remotev1.Allocation, len(hello.GetInventory()))
 	leases := make(map[string]*remotev1.Lease, len(referenceAllocations()))
 	for _, allocation := range hello.GetInventory() {
 		inventory[allocation.GetAllocationId()] = allocation
 	}
 	for _, desired := range referenceAllocations() {
-		result, err := dispatchReferenceCommand(ctx, session, "ensure-"+desired.id, &remotev1.ControllerCommand{TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{
+		result, err := dispatchReferenceCommand(ctx, cursor, "ensure-"+desired.id, &remotev1.ControllerCommand{TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{
 			AllocationId: desired.id, DisplayLabel: desired.label, Limits: desired.limits,
 			EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision(),
 		}}})
@@ -58,7 +67,7 @@ func reconcileReferenceAllocations(ctx context.Context, session *controllerremot
 		}
 		lease := allocation.GetLease()
 		if lease == nil || lease.GetState() != hostv1.LeaseState_LEASE_STATE_ACTIVE {
-			result, err := dispatchReferenceCommand(ctx, session, "acquire-"+desired.id, &remotev1.ControllerCommand{TargetRevision: allocation.GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{
+			result, err := dispatchReferenceCommand(ctx, cursor, "acquire-"+desired.id, &remotev1.ControllerCommand{TargetRevision: allocation.GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{
 				AllocationId: desired.id, DurationSeconds: referenceLeaseSeconds, WorkloadRef: desired.workloadRef,
 			}}})
 			if err != nil {
@@ -69,7 +78,7 @@ func reconcileReferenceAllocations(ctx context.Context, session *controllerremot
 		if lease == nil || lease.GetAllocationId() != desired.id || lease.GetGeneration() == 0 {
 			return nil, fmt.Errorf("reference lease for %q is unavailable", desired.id)
 		}
-		if _, err := dispatchReferenceCommand(ctx, session, "open-"+desired.id, &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{
+		if _, err := dispatchReferenceCommand(ctx, cursor, "open-"+desired.id, &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{
 			AllocationId: desired.id, LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(),
 		}}}); err != nil {
 			return nil, err
@@ -79,7 +88,7 @@ func reconcileReferenceAllocations(ctx context.Context, session *controllerremot
 	return leases, nil
 }
 
-func maintainReferenceLeases(ctx context.Context, session *controllerremote.ControlSession, leases map[string]*remotev1.Lease) error {
+func maintainReferenceLeases(ctx context.Context, cursor *referenceCommandCursor, leases map[string]*remotev1.Lease) error {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
 	for cycle := uint64(1); ; cycle++ {
@@ -89,7 +98,7 @@ func maintainReferenceLeases(ctx context.Context, session *controllerremote.Cont
 		case <-ticker.C:
 		}
 		for allocationID, lease := range leases {
-			result, err := dispatchReferenceCommand(ctx, session, fmt.Sprintf("renew-%d-%s", cycle, allocationID), &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_RenewLease{RenewLease: &remotev1.RenewLease{
+			result, err := dispatchReferenceCommand(ctx, cursor, fmt.Sprintf("renew-%d-%s", cycle, allocationID), &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_RenewLease{RenewLease: &remotev1.RenewLease{
 				LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(), DurationSeconds: referenceLeaseSeconds,
 			}}})
 			if err != nil {
@@ -100,14 +109,17 @@ func maintainReferenceLeases(ctx context.Context, session *controllerremote.Cont
 	}
 }
 
-func dispatchReferenceCommand(ctx context.Context, session *controllerremote.ControlSession, name string, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
+func dispatchReferenceCommand(ctx context.Context, cursor *referenceCommandCursor, name string, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
 	if command == nil || command.GetCommand() == nil {
 		return nil, errors.New("unsupported reference command")
 	}
-	command.CommandId = fmt.Sprintf("reference-%d-%s", session.Hello().GetConnectionEpoch(), name)
+	cursor.nextSequence++
+	command.CommandId = fmt.Sprintf("reference-%d-%s", cursor.session.Hello().GetConnectionEpoch(), name)
+	command.Sequence = cursor.nextSequence
+	command.ConnectionEpoch = cursor.session.Hello().GetConnectionEpoch()
 	commandContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	transcript, err := session.Dispatch(commandContext, command)
+	transcript, err := cursor.session.Dispatch(commandContext, command)
 	if err != nil {
 		return nil, err
 	}

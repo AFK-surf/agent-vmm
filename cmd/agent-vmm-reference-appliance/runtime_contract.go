@@ -15,7 +15,6 @@ import (
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
-	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
@@ -24,7 +23,7 @@ import (
 
 const referenceImage = "agent-vmm.local/reference-workload:v1"
 
-func (controller referenceController) runReferenceContract(ctx context.Context, session *controllerremote.ControlSession, leases map[string]*remotev1.Lease) error {
+func (controller referenceController) runReferenceContract(ctx context.Context, cursor *referenceCommandCursor, leases map[string]*remotev1.Lease) error {
 	durable, durableOwner, err := controller.runtimeClient(ctx, "durable-service")
 	if err != nil {
 		return err
@@ -68,7 +67,7 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 	if _, err := durable.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: "start-sidecar", ContainerId: sidecar.GetId(), ExpectedGenerationId: sidecar.GetGenerationId()}); err != nil {
 		return err
 	}
-	cycle := fmt.Sprint(session.Hello().GetConnectionEpoch())
+	cycle := fmt.Sprint(cursor.session.Hello().GetConnectionEpoch())
 	exported, err := durable.CreateServiceExport(ctx, &hostv1.CreateServiceExportRequest{RequestId: "reference-export-" + cycle, ContainerId: service.GetId(), ContainerInstanceId: service.GetInstanceId(), Port: 8080, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_TCP})
 	if err != nil {
 		return err
@@ -107,31 +106,31 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 		return err
 	}
 	taskClosed = true
-	if err := cleanupReferenceTaskAllocation(ctx, session, leases["ephemeral-task"]); err != nil {
+	if err := cleanupReferenceTaskAllocation(ctx, cursor, leases["ephemeral-task"]); err != nil {
 		return err
 	}
 	delete(leases, "ephemeral-task")
 	return nil
 }
 
-func cleanupReferenceTaskAllocation(ctx context.Context, session *controllerremote.ControlSession, lease *remotev1.Lease) error {
+func cleanupReferenceTaskAllocation(ctx context.Context, cursor *referenceCommandCursor, lease *remotev1.Lease) error {
 	if lease == nil {
 		return errors.New("ephemeral task lease is unavailable")
 	}
-	released, err := dispatchReferenceCommand(ctx, session, "release-task-lease", &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+	released, err := dispatchReferenceCommand(ctx, cursor, "release-task-lease", &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
 	if err != nil {
 		return err
 	}
 	revision := released.GetLease().GetAllocationRevision()
-	if _, err := dispatchReferenceCommand(ctx, session, "release-task-allocation", &remotev1.ControllerCommand{TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision}}}); err != nil {
+	if _, err := dispatchReferenceCommand(ctx, cursor, "release-task-allocation", &remotev1.ControllerCommand{TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision}}}); err != nil {
 		return err
 	}
-	planned, err := dispatchReferenceCommand(ctx, session, "plan-task-cleanup", &remotev1.ControllerCommand{Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+	planned, err := dispatchReferenceCommand(ctx, cursor, "plan-task-cleanup", &remotev1.ControllerCommand{Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
 	if err != nil {
 		return err
 	}
 	plan := planned.GetCleanupPlan()
-	_, err = dispatchReferenceCommand(ctx, session, "execute-task-cleanup", &remotev1.ControllerCommand{TargetRevision: plan.GetRevision(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetRevision(), ConfirmedVolumeIds: plan.GetVolumeIds()}}})
+	_, err = dispatchReferenceCommand(ctx, cursor, "execute-task-cleanup", &remotev1.ControllerCommand{TargetRevision: plan.GetRevision(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetRevision(), ConfirmedVolumeIds: plan.GetVolumeIds()}}})
 	return err
 }
 

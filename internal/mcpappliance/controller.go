@@ -41,6 +41,7 @@ type controlConnection struct {
 	done     chan struct{}
 	hello    *remotev1.HostHello
 	close    context.CancelFunc
+	sequence uint64
 }
 
 type commandRequest struct {
@@ -95,6 +96,9 @@ func (controller *Controller) runControl(ctx context.Context, live *controlConne
 		case <-ctx.Done():
 			return ctx.Err()
 		case request := <-live.requests:
+			live.sequence++
+			request.command.Sequence = live.sequence
+			request.command.ConnectionEpoch = live.hello.GetConnectionEpoch()
 			transcript, err := live.session.Dispatch(request.ctx, request.command)
 			result := transcript.Result
 			if err == nil && (result == nil || result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED) {

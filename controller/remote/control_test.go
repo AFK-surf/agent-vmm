@@ -59,7 +59,7 @@ func TestControlSessionDispatchTranscript(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	transcript, err := session.Dispatch(ctx, &remotev1.ControllerCommand{CommandId: "command-1", Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}})
+	transcript, err := session.Dispatch(ctx, &remotev1.ControllerCommand{CommandId: "command-1", Sequence: 1, ConnectionEpoch: 19, Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestControlSessionClassifiesLostResultUnknown(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	transcript, err := session.Dispatch(ctx, &remotev1.ControllerCommand{CommandId: "command-1", Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}})
+	transcript, err := session.Dispatch(ctx, &remotev1.ControllerCommand{CommandId: "command-1", Sequence: 1, ConnectionEpoch: 19, Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}})
 	if !errors.Is(err, controllerremote.ErrUnknownOutcome) {
 		t.Fatalf("Dispatch error = %v", err)
 	}
@@ -122,6 +122,70 @@ func TestControlSessionRejectsCommandBeforeReady(t *testing.T) {
 	}
 	if len(stream.sent) != 0 {
 		t.Fatalf("pre-ready command reached host: %+v", stream.sent)
+	}
+}
+
+func TestControlSessionRejectsUnclaimedCommandIdentity(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		sequence uint64
+		epoch    uint64
+	}{
+		{name: "missing sequence", epoch: 19},
+		{name: "sequence gap", sequence: 2, epoch: 19},
+		{name: "wrong epoch", sequence: 1, epoch: 18},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stream := &scriptedControlStream{ctx: context.Background(), received: []*remotev1.HostControlMessage{
+				{Payload: &remotev1.HostControlMessage_Hello{Hello: validHello()}},
+			}}
+			session, err := controllerremote.AcceptControl(stream, "registration-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Ready(); err != nil {
+				t.Fatal(err)
+			}
+			command := &remotev1.ControllerCommand{CommandId: "command-1", Sequence: test.sequence, ConnectionEpoch: test.epoch, DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli(), Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}}
+			if _, err := session.Dispatch(context.Background(), command); err == nil {
+				t.Fatal("unclaimed command identity was dispatched")
+			}
+			if len(stream.sent) != 1 || stream.sent[0].GetControllerReady() == nil {
+				t.Fatalf("command reached host: %+v", stream.sent)
+			}
+		})
+	}
+}
+
+func TestControlSessionExpiredClaimDoesNotConsumeSequence(t *testing.T) {
+	t.Parallel()
+	stream := &scriptedControlStream{ctx: context.Background(), received: []*remotev1.HostControlMessage{
+		{Payload: &remotev1.HostControlMessage_Hello{Hello: validHello()}},
+		{Payload: &remotev1.HostControlMessage_Ack{Ack: &remotev1.CommandAck{CommandId: "command-1", Sequence: 1, ConnectionEpoch: 19, Disposition: remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED, Reason: remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT}}},
+	}}
+	session, err := controllerremote.AcceptControl(stream, "registration-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	expired := &remotev1.ControllerCommand{CommandId: "expired", Sequence: 1, ConnectionEpoch: 19, DeadlineUnixMillis: time.Now().Add(-time.Minute).UnixMilli(), Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}}
+	if _, err := session.Dispatch(context.Background(), expired); err == nil {
+		t.Fatal("expired claimed command was dispatched")
+	}
+	if len(stream.sent) != 1 {
+		t.Fatalf("expired command reached host: %+v", stream.sent)
+	}
+
+	valid := &remotev1.ControllerCommand{CommandId: "command-1", Sequence: 1, ConnectionEpoch: 19, DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli(), Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}}
+	transcript, err := session.Dispatch(context.Background(), valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transcript.Ack.GetDisposition() != remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED || len(stream.sent) != 2 {
+		t.Fatalf("valid retry = %+v sent=%+v", transcript, stream.sent)
 	}
 }
 

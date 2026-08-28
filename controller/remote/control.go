@@ -34,7 +34,7 @@ type ControlStream interface {
 type ControlSession struct {
 	stream         ControlStream
 	hello          *remotev1.HostHello
-	sequence       uint64
+	lastSequence   uint64
 	ready          bool
 	dispatchMu     sync.Mutex
 	messages       chan *remotev1.HostControlMessage
@@ -139,9 +139,12 @@ func (session *ControlSession) Dispatch(ctx context.Context, command *remotev1.C
 	if command == nil || command.GetCommandId() == "" {
 		return CommandTranscript{}, errors.New("command ID is required")
 	}
-	session.sequence++
-	command.Sequence = session.sequence
-	command.ConnectionEpoch = session.hello.GetConnectionEpoch()
+	if command.GetConnectionEpoch() != session.hello.GetConnectionEpoch() {
+		return CommandTranscript{}, errors.New("command connection epoch does not match the current session")
+	}
+	if command.GetSequence() != session.lastSequence+1 {
+		return CommandTranscript{}, errors.New("command sequence is not the next claimed sequence")
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		command.DeadlineUnixMillis = deadline.UnixMilli()
 	}
@@ -151,6 +154,7 @@ func (session *ControlSession) Dispatch(ctx context.Context, command *remotev1.C
 	if err := session.stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_Command{Command: command}}); err != nil {
 		return CommandTranscript{}, err
 	}
+	session.lastSequence = command.GetSequence()
 
 	transcript := CommandTranscript{}
 	for {

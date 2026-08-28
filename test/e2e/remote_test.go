@@ -97,6 +97,7 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 	if err := session.Ready(); err != nil {
 		return err
 	}
+	cursor := &remoteCommandCursor{session: session}
 	expectedAllocations := map[string]struct{}{"remote-a": {}, "remote-b": {}}
 	for _, allocation := range hello.GetInventory() {
 		if _, ok := expectedAllocations[allocation.GetAllocationId()]; !ok {
@@ -114,7 +115,7 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 			continue
 		}
 		limits := &hostv1.ResourceLimits{CpuMillis: optional(uint32(500)), MemoryBytes: optional(uint64(1 << 30)), Pids: optional(uint32(256)), DiskBytes: optional(uint64(2 << 30))}
-		result, err := server.command(session, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, DisplayLabel: allocationID, Limits: limits, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
+		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, DisplayLabel: allocationID, Limits: limits, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
 		if err != nil {
 			return err
 		}
@@ -126,7 +127,7 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 			leases = appendLeaseOnce(leases, lease)
 			continue
 		}
-		result, err = server.command(session, &remotev1.ControllerCommand{CommandId: "acquire-" + allocationID, TargetRevision: result.GetAllocation().GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: allocationID, DurationSeconds: 300, WorkloadRef: "e2e-" + allocationID}}})
+		result, err = server.command(cursor, &remotev1.ControllerCommand{CommandId: "acquire-" + allocationID, TargetRevision: result.GetAllocation().GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: allocationID, DurationSeconds: 300, WorkloadRef: "e2e-" + allocationID}}})
 		if err != nil {
 			return err
 		}
@@ -138,7 +139,7 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 	}
 	server.connections <- len(leases)
 	for _, lease := range leases {
-		result, err := server.command(session, &remotev1.ControllerCommand{CommandId: "open-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: lease.GetAllocationId(), LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "open-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: lease.GetAllocationId(), LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
 		if err != nil {
 			return err
 		}
@@ -153,20 +154,20 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 		return stream.Context().Err()
 	}
 	for _, lease := range leases {
-		releasedLease, err := server.command(session, &remotev1.ControllerCommand{CommandId: "release-lease-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+		releasedLease, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "release-lease-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
 		if err != nil || releasedLease.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "release lease %s failed: %v %s", lease.GetAllocationId(), err, releasedLease.GetMessage())
 		}
 		revision := releasedLease.GetLease().GetAllocationRevision()
-		releasedAllocation, err := server.command(session, &remotev1.ControllerCommand{CommandId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision}}})
+		releasedAllocation, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision}}})
 		if err != nil || releasedAllocation.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "release allocation %s failed: %v %s", lease.GetAllocationId(), err, releasedAllocation.GetMessage())
 		}
-		plan, err := server.command(session, &remotev1.ControllerCommand{CommandId: "plan-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+		plan, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "plan-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
 		if err != nil || plan.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "plan discard %s failed: %v %s", lease.GetAllocationId(), err, plan.GetMessage())
 		}
-		discarded, err := server.command(session, &remotev1.ControllerCommand{CommandId: "discard-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
+		discarded, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "discard-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
 		if err != nil || discarded.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "discard %s failed: %v %s", lease.GetAllocationId(), err, discarded.GetMessage())
 		}
@@ -193,11 +194,16 @@ func appendLeaseOnce(leases []*remotev1.Lease, lease *remotev1.Lease) []*remotev
 	return append(leases, lease)
 }
 
-func (server *remoteE2EController) command(session *controllerremote.ControlSession, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
-	return dispatchRemoteCommand(session, command)
+type remoteCommandCursor struct {
+	session  *controllerremote.ControlSession
+	sequence uint64
 }
 
-func dispatchRemoteCommand(session *controllerremote.ControlSession, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
+func (server *remoteE2EController) command(cursor *remoteCommandCursor, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
+	return dispatchRemoteCommand(cursor, command)
+}
+
+func dispatchRemoteCommand(cursor *remoteCommandCursor, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
 	if ensure := command.GetEnsureAllocation(); ensure != nil {
 		command.TargetRevision = ensure.GetPolicyRevision()
 	}
@@ -213,9 +219,12 @@ func dispatchRemoteCommand(session *controllerremote.ControlSession, command *re
 	case *remotev1.ControllerCommand_OpenSession:
 		command.LeaseGeneration = value.OpenSession.GetGeneration()
 	}
+	cursor.sequence++
+	command.Sequence = cursor.sequence
+	command.ConnectionEpoch = cursor.session.Hello().GetConnectionEpoch()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	transcript, err := session.Dispatch(ctx, command)
+	transcript, err := cursor.session.Dispatch(ctx, command)
 	return transcript.Result, err
 }
 
@@ -253,17 +262,18 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 	if len(hello.GetInventory()) != 0 {
 		return status.Error(codes.FailedPrecondition, "isolated domain started with unexpected inventory")
 	}
+	cursor := &remoteCommandCursor{session: session}
 	limits := remoteLimits(100, 128<<20, 64, 256<<20)
-	ensured, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "ensure-shared", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "shared", DisplayLabel: "shared", Limits: limits, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision()}}})
+	ensured, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "ensure-shared", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "shared", DisplayLabel: "shared", Limits: limits, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision()}}})
 	if err != nil || ensured.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "ensure failed: %v %s", err, ensured.GetMessage())
 	}
-	acquired, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "acquire-shared", TargetRevision: ensured.GetAllocation().GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: "shared", DurationSeconds: 300, WorkloadRef: "three-domain-e2e"}}})
+	acquired, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "acquire-shared", TargetRevision: ensured.GetAllocation().GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: "shared", DurationSeconds: 300, WorkloadRef: "three-domain-e2e"}}})
 	if err != nil || acquired.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "acquire failed: %v %s", err, acquired.GetMessage())
 	}
 	lease := acquired.GetLease()
-	opened, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "open-shared", Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "shared", LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+	opened, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "open-shared", Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "shared", LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
 	if err != nil || opened.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "open failed: %v %s", err, opened.GetMessage())
 	}
@@ -272,20 +282,20 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 	case <-stream.Context().Done():
 		return stream.Context().Err()
 	}
-	releasedLease, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "release-lease-shared", Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+	releasedLease, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "release-lease-shared", Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
 	if err != nil || releasedLease.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "release lease failed: %v %s", err, releasedLease.GetMessage())
 	}
 	revision := releasedLease.GetLease().GetAllocationRevision()
-	released, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "release-allocation-shared", Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: "shared", ExpectedRevision: revision}}})
+	released, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "release-allocation-shared", Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: "shared", ExpectedRevision: revision}}})
 	if err != nil || released.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "release allocation failed: %v %s", err, released.GetMessage())
 	}
-	plan, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "plan-shared", Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+	plan, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "plan-shared", Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
 	if err != nil || plan.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "plan discard failed: %v %s", err, plan.GetMessage())
 	}
-	discarded, err := dispatchRemoteCommand(session, &remotev1.ControllerCommand{CommandId: "discard-shared", Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
+	discarded, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "discard-shared", Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
 	if err != nil || discarded.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "discard failed: %v %s", err, discarded.GetMessage())
 	}

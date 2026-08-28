@@ -225,14 +225,15 @@ func (controller referenceController) Connect(stream grpc.BidiStreamingServer[re
 	if err := session.Ready(); err != nil {
 		return err
 	}
-	leases, err := reconcileReferenceAllocations(stream.Context(), session)
+	cursor := newReferenceCommandCursor(session)
+	leases, err := reconcileReferenceAllocations(stream.Context(), cursor)
 	if err != nil {
 		return err
 	}
-	if err := controller.runReferenceContract(stream.Context(), session, leases); err != nil {
+	if err := controller.runReferenceContract(stream.Context(), cursor, leases); err != nil {
 		return err
 	}
-	return maintainReferenceLeases(stream.Context(), session, leases)
+	return maintainReferenceLeases(stream.Context(), cursor, leases)
 }
 
 func (controller referenceController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {

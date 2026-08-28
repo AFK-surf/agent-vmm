@@ -612,6 +612,14 @@ command sequence. The initial full inventory carries an inventory watermark and
 the complete required feature set. A command binds its ID, sequence, connection
 epoch, deadline, target revision, and lease generation. The connector emits an
 admission ACK, execution-started/finished evidence, and then a terminal result.
+Receiving the exact next sequence consumes that issued slot even when deadline
+or operation-fence validation returns a terminal rejection; stale epochs and
+sequence gaps do not consume a slot. This maps to `AgentVMMCommandSequence.tla`,
+where `ClaimForDelivery` advances the controller-owned cursor independently of the
+Host admission outcome.
+`controller/remote.ControlSession` validates the durable command's exact epoch
+and next sequence and sends them unchanged; it does not allocate a second wire
+identity after the controller has claimed the command.
 Loss after admission is an `unknown_outcome`; a controller reads authoritative
 inventory and must not automatically replay the side effect. Only a completed
 duplicate in the same epoch may reuse the connector's bounded result cache.

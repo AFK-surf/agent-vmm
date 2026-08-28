@@ -64,6 +64,11 @@ func (tracker *commandTracker) admit(command *remotev1.ControllerCommand, now ti
 	if command.GetSequence() != tracker.nextSequence {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_SEQUENCE_CONFLICT, "command sequence has a gap"), nil
 	}
+	// Sequence orders commands received on this epoch, including commands whose
+	// deadline or operation fence makes them inadmissible. A rejection is a
+	// terminal controller transcript and must not block the next issued command.
+	tracker.commandIDs[command.GetSequence()] = command.GetCommandId()
+	tracker.nextSequence++
 	if command.GetDeadlineUnixMillis() <= now.UnixMilli() {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_DEADLINE_EXCEEDED, "command deadline elapsed"), nil
 	}
@@ -82,8 +87,6 @@ func (tracker *commandTracker) admit(command *remotev1.ControllerCommand, now ti
 	if cleanup := command.GetExecuteCleanupAllocation(); cleanup != nil && command.GetTargetRevision() != cleanup.GetPlanRevision() {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "cleanup plan revision fence mismatch"), nil
 	}
-	tracker.commandIDs[command.GetSequence()] = command.GetCommandId()
-	tracker.nextSequence++
 	ack.Disposition = remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_ADMITTED
 	return ack, nil
 }

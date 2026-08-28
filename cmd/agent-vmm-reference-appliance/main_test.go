@@ -104,7 +104,7 @@ func TestReferenceControllerReconcilesEmptyAndRestartedInventory(t *testing.T) {
 			if err := session.Ready(); err != nil {
 				t.Fatal(err)
 			}
-			leases, err := reconcileReferenceAllocations(ctx, session)
+			leases, err := reconcileReferenceAllocations(ctx, newReferenceCommandCursor(session))
 			if err != nil {
 				t.Fatal(err)
 			}
