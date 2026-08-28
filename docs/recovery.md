@@ -13,9 +13,22 @@ closed; platform-key and encrypted-volume trust failures enter `SEALED`.
 
 Sealed repair is an explicit plan/execute operation. It never formats an
 unknown volume and never restores a previous product state. Product updates
-use a new installation replacement: install and verify the new artifact,
-migrate product data inside the appliance, switch the consumer, then revoke
-and remove the old installation.
+that replace an installation use a new installation: install and verify the
+new artifact, migrate product data inside the appliance, switch the consumer,
+then revoke and remove the old installation.
+
+The first-party appliance bundled in a signed Host release is different: the
+embedded Guest-manifest digest verifies both `mcp-appliance/manifest.pb` and
+`mcp-appliance.digest`; the manifest digest and exact
+`agent-vmm.local/mcp@<digest>` reference must match the Guest lock. At Host
+startup, one unique desired installation for that product may atomically move
+to the bundled artifact and a stopped revision. The installation ID,
+registration, approved grant, and encrypted volume do not change. Multiple
+matching installations fail closed, while sealed, disabled, and pending-stop
+installations remain unchanged. A desired missing or old-digest runtime is
+stopped and started once through the normal artifact, grant, bootstrap, and
+instance fences; a failed attempt enters `FAILED` instead of retrying without
+a bound.
 
 Removal is revision-fenced. A plan first creates a pending-destroy tombstone;
 execute checks the expected revision and domain emptiness, revokes trust and

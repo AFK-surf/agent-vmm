@@ -4,6 +4,9 @@ package vmm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +15,51 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
+
+func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T) {
+	directory := t.TempDir()
+	manifestBytes := []byte("canonical-appliance-manifest")
+	lockedDigest := "sha256:" + strings.Repeat("a", 64)
+	files := map[string][]byte{
+		"Image":                     []byte("kernel"),
+		"initramfs.xz":              []byte("initramfs"),
+		"rootfs.squashfs":           []byte("rootfs"),
+		"mcp-appliance.digest":      []byte(lockedDigest + "\n"),
+		"mcp-appliance/manifest.pb": manifestBytes,
+	}
+	artifacts := make(map[string]bundle.Artifact)
+	for name, path := range map[string]string{
+		"kernel": "Image", "initramfs": "initramfs.xz", "rootfs": "rootfs.squashfs",
+		"mcp_appliance_digest": "mcp-appliance.digest", "mcp_appliance_manifest": "mcp-appliance/manifest.pb",
+	} {
+		data := files[path]
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(directory, path)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, path), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		hash := sha256.Sum256(data)
+		artifacts[name] = bundle.Artifact{Path: path, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
+	}
+	outer, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Artifacts: artifacts,
+		Components: map[string]bundle.Component{}, RootFS: bundle.RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, bundle.ManifestName), outer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outerHash := sha256.Sum256(outer)
+	manager := &Manager{config: Config{BundleDirectory: directory, GuestManifestDigest: hex.EncodeToString(outerHash[:])}}
+	material, err := manager.ReadVerifiedBundledApplianceMaterial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(material.Manifest) != string(manifestBytes) || material.ImageDigest != lockedDigest {
+		t.Fatalf("material=%+v", material)
+	}
+}
 
 func TestStateInitializationMarker(t *testing.T) {
 	directory := t.TempDir()

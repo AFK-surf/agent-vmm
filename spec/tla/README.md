@@ -19,9 +19,10 @@ that Boolean as an environment input and proves that `Allocate` cannot commit
 when it is false. The production allocation transaction is the code anchor that
 maps the computed aggregate decision to that input.
 
-- `ApplianceActivationLifecycle.tla` owns one installation's coupled artifact,
-  bootstrap, instance publication, sealed recovery, revoke, interrupted
-  operation, and revision-fenced removal lifecycle.
+- `ApplianceActivationLifecycle.tla` owns one installation's coupled bundled
+  artifact upgrade, bounded missing-instance recovery, bootstrap, instance
+  publication, sealed recovery, revoke, interrupted operation, and
+  revision-fenced removal lifecycle.
 - `ApplianceInstallationIsolation.tla` uses two installation identities only
   for the remove-ownership non-interference proof; it does not multiply two
   complete lifecycles.
@@ -50,6 +51,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `SystemExcludedFromInventory` | host inventory projection | system inventory conformance |
 | `Bootstrap`, `BootstrapSingleUse` | guest appliance bridge and host bootstrap store | replay, wrong nonce/instance, and secret scan tests |
 | `Start`, `CurrentInstanceFence`, `Restart` | appliance supervisor and lifecycle owner | stale boot/container health, restart, and replacement tests |
+| `BundledArtifactUpgrade`, `ActiveUsesBundledArtifact`, `RecoveryEventuallyStarts` | verified Host bundle reader, appliance supervisor, and appliance store | bundled artifact atomic switch and missing-runtime recovery tests |
 | `PlanRemove`, `ExecuteRemove`, `RemoveRevisionExact` | `internal/host/appliance_admin_remove_darwin.go`, `internal/host/store/appliance_operation.go` | pending-destroy tombstone and revision-fence tests |
 | `CrossDomainRemove`, `InstallationNonInterference` | appliance admin authorization | cross-domain remove tests |
 | `Seal`, `RecoverSealed`, `SealedRecoveryIsBounded` | appliance supervisor and appliance admin operations | key loss, corruption, schema, and bounded repair tests |

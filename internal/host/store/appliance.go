@@ -1,9 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"time"
+
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 )
 
 var (
@@ -13,6 +17,9 @@ var (
 	ErrArtifactReplay               = errors.New("appliance artifact was already staged")
 	ErrApplianceDomainNotEmpty      = errors.New("appliance domain still owns environments")
 	ErrOperationReceiptConflict     = errors.New("appliance operation receipt conflict")
+	ErrBundledArtifactConflict      = errors.New("bundled appliance artifact conflicts with durable state")
+	ErrApplianceOperationInProgress = errors.New("appliance operation is in progress")
+	ErrBundledInstallationConflict  = errors.New("bundled appliance installation changed")
 )
 
 const (
@@ -152,6 +159,80 @@ func (store *Store) GetApplianceArtifact(ctx context.Context, artifactID string)
 
 func (store *Store) GetApplianceArtifactByCanonicalHash(ctx context.Context, hash []byte) (ApplianceArtifact, error) {
 	return scanApplianceArtifact(store.db.QueryRowContext(ctx, applianceArtifactSelect+" WHERE canonical_hash=?", applianceBlob(hash)))
+}
+
+// SwitchBundledApplianceArtifact atomically records a verified bundled
+// artifact and moves one exact desired installation to its stopped revision.
+// Domain identity, grant, registration, and volume remain unchanged.
+func (store *Store) SwitchBundledApplianceArtifact(ctx context.Context, installationID string, expectedRevision uint64, expectedArtifactID string, expectedState, stoppedState int32, artifact ApplianceArtifact) (ApplianceInstallation, error) {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ApplianceInstallation{}, err
+	}
+	defer tx.Rollback()
+	installation, err := scanApplianceInstallation(tx.QueryRowContext(ctx, applianceInstallationSelect+" WHERE id=?", installationID))
+	if err != nil {
+		return ApplianceInstallation{}, err
+	}
+	if installation.Revision != expectedRevision || installation.ArtifactID != expectedArtifactID || installation.State != expectedState ||
+		!installation.DesiredEnabled || installation.ProductID != artifact.ProductID || !bundledApplianceUpgradeState(installation.State) {
+		return ApplianceInstallation{}, ErrBundledInstallationConflict
+	}
+	current, err := scanApplianceArtifact(tx.QueryRowContext(ctx, applianceArtifactSelect+" WHERE canonical_hash=?", applianceBlob(artifact.CanonicalHash)))
+	if errors.Is(err, sql.ErrNoRows) {
+		now := time.Now().UnixNano()
+		_, err = tx.ExecContext(ctx, `INSERT INTO appliance_artifacts(artifact_id, canonical_hash, image_digest,
+			image_reference, platform, product_id, release, verified, manifest, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID, applianceBlob(artifact.CanonicalHash),
+			artifact.ImageDigest, artifact.ImageReference, artifact.Platform, artifact.ProductID, artifact.Release,
+			artifact.Verified, applianceBlob(artifact.Manifest), now)
+		current = artifact
+	} else if err == nil && !sameApplianceArtifact(current, artifact) {
+		return ApplianceInstallation{}, ErrBundledArtifactConflict
+	}
+	if err != nil {
+		return ApplianceInstallation{}, err
+	}
+	if installation.ArtifactID == current.ID {
+		return installation, nil
+	}
+	var running int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM appliance_operations WHERE installation_id=? AND state=1`, installationID).Scan(&running); err != nil {
+		return ApplianceInstallation{}, err
+	}
+	if running != 0 {
+		return ApplianceInstallation{}, ErrApplianceOperationInProgress
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE appliance_installations SET artifact_id=?, state=?,
+		current_boot_id='', current_container_instance='', revision=revision+1, updated_at=?
+		WHERE id=? AND revision=? AND artifact_id=? AND desired_enabled=1 AND state=?`, current.ID, stoppedState,
+		time.Now().UnixNano(), installationID, expectedRevision, expectedArtifactID, expectedState)
+	if err != nil {
+		return ApplianceInstallation{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return ApplianceInstallation{}, err
+		}
+		return ApplianceInstallation{}, ErrBundledInstallationConflict
+	}
+	if err := tx.Commit(); err != nil {
+		return ApplianceInstallation{}, err
+	}
+	return store.GetApplianceInstallation(ctx, installationID)
+}
+
+func bundledApplianceUpgradeState(state int32) bool {
+	return state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED) ||
+		state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STARTING) ||
+		state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING) ||
+		state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_FAILED)
+}
+
+func sameApplianceArtifact(left, right ApplianceArtifact) bool {
+	return left.ImageDigest == right.ImageDigest && left.ImageReference == right.ImageReference &&
+		left.Platform == right.Platform && left.ProductID == right.ProductID && left.Release == right.Release &&
+		left.Verified == right.Verified && bytes.Equal(left.CanonicalHash, right.CanonicalHash) && bytes.Equal(left.Manifest, right.Manifest)
 }
 
 const applianceArtifactSelect = `SELECT artifact_id, canonical_hash, image_digest, image_reference, platform,

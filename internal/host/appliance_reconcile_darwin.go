@@ -98,6 +98,19 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 		if installation.RegistrationID == "" {
 			continue
 		}
+		artifact, err := controller.store.GetApplianceArtifact(ctx, installation.ArtifactID)
+		if err != nil {
+			result = errors.Join(result, fmt.Errorf("load appliance artifact %s: %w", installation.ArtifactID, err))
+			continue
+		}
+		if identity.GetImageManifestDigest() != artifact.ImageDigest {
+			if !active[installation.ID] {
+				if err := controller.recoverApplianceRuntime(ctx, client, installation, runtime); err != nil {
+					result = errors.Join(result, fmt.Errorf("replace appliance artifact %s: %w", installation.ID, err))
+				}
+			}
+			continue
+		}
 		identityMatches := installation.CurrentBootID == identity.GetBootId() && installation.CurrentContainerInstance == identity.GetContainerInstanceId()
 		if identityMatches && installation.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING) {
 			health := &appliancev1.ApplianceHealth{InstallationId: installation.ID, BootId: identity.GetBootId(), ContainerInstance: identity.GetContainerInstanceId(), ConfigRevision: runtime.GetConfigRevision(), Healthy: true, Status: runtime.GetStatus()}
@@ -129,13 +142,58 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 			}
 			continue
 		}
-		if installation.DesiredEnabled && installation.CurrentContainerInstance != "" && !observed[installation.ID] {
-			if err := controller.invalidateApplianceRuntime(ctx, installation, nil, "INSTANCE_UNOBSERVED"); err != nil {
-				result = errors.Join(result, fmt.Errorf("invalidate unobserved appliance %s: %w", installation.ID, err))
+		if installation.DesiredEnabled && installation.RegistrationID != "" && !active[installation.ID] && !observed[installation.ID] && applianceRecoveryState(installation.State) {
+			if err := controller.recoverApplianceRuntime(ctx, client, installation, nil); err != nil {
+				result = errors.Join(result, fmt.Errorf("recover unobserved appliance %s: %w", installation.ID, err))
 			}
 		}
 	}
 	return result
+}
+
+func applianceRecoveryState(state int32) bool {
+	return state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED) ||
+		state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STARTING) ||
+		state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING)
+}
+
+func (controller *Controller) recoverApplianceRuntime(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance) error {
+	if runtime != nil {
+		if err := controller.stopStartedAppliance(ctx, client, runtime.GetIdentity()); err != nil {
+			return controller.failAppliance(ctx, installation, "STALE_ARTIFACT_STOP_FAILED", err)
+		}
+	}
+	prepared, recover, err := controller.prepareApplianceRecovery(ctx, installation)
+	if err != nil || !recover {
+		return err
+	}
+	return controller.startAppliance(ctx, client, prepared)
+}
+
+func (controller *Controller) prepareApplianceRecovery(ctx context.Context, installation store.ApplianceInstallation) (store.ApplianceInstallation, bool, error) {
+	unlock := controller.lockIntegration("appliance-lifecycle:" + installation.ID)
+	defer unlock()
+	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
+	if err != nil {
+		return store.ApplianceInstallation{}, false, err
+	}
+	if current.Revision != installation.Revision || current.State != installation.State || !current.DesiredEnabled || current.RegistrationID == "" || !applianceRecoveryState(current.State) {
+		return current, false, nil
+	}
+	controller.stopApplianceFrontends(current.ID)
+	controller.clearApplianceHealth(current.ID)
+	controller.stopPrivateControllerRoute(current.ID)
+	if err := controller.revokeRemoteLeases(current.RegistrationID); err != nil {
+		return store.ApplianceInstallation{}, false, err
+	}
+	if current.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED) && current.CurrentBootID == "" && current.CurrentContainerInstance == "" {
+		return current, true, nil
+	}
+	current.State = int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED)
+	current.CurrentBootID = ""
+	current.CurrentContainerInstance = ""
+	updated, err := controller.store.UpdateApplianceInstallation(ctx, current, current.Revision)
+	return updated, err == nil, err
 }
 
 func (controller *Controller) reconcileDisabledAppliance(ctx context.Context, installation store.ApplianceInstallation) error {

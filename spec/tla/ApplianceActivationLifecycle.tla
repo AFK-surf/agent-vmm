@@ -3,7 +3,9 @@ EXTENDS Naturals
 
 CONSTANTS EnforceVerification, EnforceSingleUse, EnforceInstanceFence,
           EnforceSeedDeletionFence, EnforcePublicationFence,
-          EnforceSealedRecovery, EnforceRemoveRevision
+          EnforceSealedRecovery, EnforceRemoveRevision, EnforceBundledArtifact,
+          EnforceBundleValidation, EnforceDomainPreservation,
+          EnforceInstallationIsolation
 
 VARIABLES state, violations
 vars == <<state, violations>>
@@ -13,6 +15,9 @@ Phases == {"STAGED", "INSTALLED", "STOPPED", "STARTING", "BOOTSTRAPPING",
 
 Init ==
   /\ state = [phase |-> "STAGED", artifact |-> 0, verified |-> 0,
+       bundleArtifact |-> 1, recoveryPending |-> FALSE,
+       bundleValidationFailed |-> FALSE, registration |-> 1, grant |-> 1,
+       volume |-> 1, peerArtifact |-> 1,
        boot |-> 0, container |-> 0, bootstrap |-> 0, receipt |-> 0,
        health |-> 0, session |-> 0, frontend |-> 0,
        bootstrapReceipt |-> FALSE, replacementPending |-> FALSE,
@@ -42,6 +47,7 @@ Start ==
        !.frontend = 0, !.bootstrap = 0, !.receipt = 0, !.health = 0,
        !.bootstrapReceipt = FALSE, !.boot = NextCounter(state.boot),
        !.container = NextCounter(state.container), !.replacementPending = FALSE,
+       !.recoveryPending = FALSE,
        !.fenceCommitted = FALSE, !.published = FALSE, !.operationPhase = "RUNNING"]
   /\ violations' = IF EnforceVerification /\ state.verified = state.artifact
                     THEN violations ELSE violations \cup {"UNVERIFIED_START"}
@@ -89,7 +95,8 @@ Settle ==
 Stop ==
   /\ state.phase = "ACTIVE"
   /\ state' = [state EXCEPT !.phase = "STOPPED", !.session = 0,
-       !.frontend = 0, !.published = FALSE, !.operationPhase = "IDLE"]
+       !.frontend = 0, !.published = FALSE, !.operationPhase = "IDLE",
+       !.recoveryPending = FALSE]
   /\ UNCHANGED violations
 
 Restart ==
@@ -105,8 +112,38 @@ Restart ==
 Crash ==
   /\ state.phase \in {"ACTIVE", "BOOTSTRAPPING", "STARTING"}
   /\ state' = [state EXCEPT !.phase = "STOPPED", !.session = 0,
-       !.frontend = 0, !.replacementPending = FALSE, !.published = FALSE]
+       !.frontend = 0, !.replacementPending = FALSE, !.published = FALSE,
+       !.recoveryPending = TRUE]
   /\ UNCHANGED violations
+
+BundledArtifactUpgrade ==
+  /\ state.phase \in {"ACTIVE", "STOPPED"}
+  /\ state.artifact = 1 /\ state.bundleArtifact = 1
+  /\ ~state.bundleValidationFailed
+  /\ state.operationPhase # "RUNNING"
+  /\ IF EnforceBundledArtifact
+        THEN state' = [state EXCEPT !.bundleArtifact = 2, !.artifact = 2,
+               !.verified = 2, !.phase = "STOPPED", !.boot = 0, !.container = 0,
+               !.health = 0, !.session = 0, !.frontend = 0, !.published = FALSE,
+               !.recoveryPending = TRUE, !.revision = NextCounter(state.revision),
+               !.registration = IF EnforceDomainPreservation THEN state.registration ELSE 2,
+               !.grant = IF EnforceDomainPreservation THEN state.grant ELSE 2,
+               !.volume = IF EnforceDomainPreservation THEN state.volume ELSE 2,
+               !.peerArtifact = IF EnforceInstallationIsolation THEN state.peerArtifact ELSE 2]
+        ELSE state' = [state EXCEPT !.bundleArtifact = 2]
+  /\ violations' = IF EnforceBundledArtifact THEN violations
+                    ELSE violations \cup {"BUNDLED_ARTIFACT_DRIFT"}
+
+RejectInvalidBundledArtifact ==
+  /\ state.phase \in {"ACTIVE", "STOPPED"}
+  /\ state.bundleArtifact = 1 /\ state.artifact = 1
+  /\ ~state.bundleValidationFailed
+  /\ IF EnforceBundleValidation
+        THEN state' = [state EXCEPT !.bundleValidationFailed = TRUE]
+        ELSE state' = [state EXCEPT !.bundleValidationFailed = TRUE,
+               !.artifact = 2, !.verified = 0, !.phase = "STOPPED"]
+  /\ violations' = IF EnforceBundleValidation THEN violations
+                    ELSE violations \cup {"INVALID_BUNDLE_WRITE"}
 
 PayloadCrash ==
   /\ state.phase = "ACTIVE"
@@ -154,13 +191,15 @@ UnsafeConsumeSeed ==
 
 Seal ==
   /\ state.phase \in {"STARTING", "BOOTSTRAPPING", "ACTIVE"}
+  /\ ~state.recoveryPending
   /\ state' = [state EXCEPT !.phase = "SEALED", !.replacementPending = FALSE,
        !.session = 0, !.frontend = 0, !.published = FALSE,
-       !.sealedUsed = TRUE, !.repairPending = FALSE]
+       !.sealedUsed = TRUE, !.repairPending = FALSE, !.recoveryPending = FALSE]
   /\ UNCHANGED violations
 
 Revoke ==
   /\ state.phase \in {"ACTIVE", "STOPPED", "SEALED"}
+  /\ ~state.recoveryPending
   /\ state.operationPhase # "RUNNING"
   /\ state' = [state EXCEPT
        !.phase = IF state.phase = "SEALED" THEN "SEALED" ELSE "REVOKING",
@@ -199,6 +238,7 @@ UnsafeReopenSealed ==
 
 PlanRemove ==
   /\ state.phase \in {"ACTIVE", "STOPPED", "REVOKED", "SEALED"}
+  /\ ~state.recoveryPending
   /\ state.operationPhase # "RUNNING"
   /\ state' = [state EXCEPT !.phase = "PENDING_DESTROY",
        !.plannedRevision = NextCounter(state.revision),
@@ -223,7 +263,7 @@ RecoverOperation ==
 
 Next == StageArtifact \/ Install \/ Start \/ CommitInstanceFence \/
   BootstrapInitial \/ Bootstrap \/ ReplayBootstrap \/ DeleteSeed \/ Settle \/
-  Stop \/ Restart \/ Crash \/ PayloadCrash \/ AdoptReplacement \/
+  Stop \/ Restart \/ Crash \/ BundledArtifactUpgrade \/ RejectInvalidBundledArtifact \/ PayloadCrash \/ AdoptReplacement \/
   StaleInstance \/ StaleSession \/ StaleFrontend \/ UnsafePublishBeforeFence \/
   UnsafeConsumeSeed \/ Seal \/ Revoke \/ CompleteRevoke \/ PlanSealedRepair \/
   RecoverSealed \/ RepairCrash \/ UnsafeReopenSealed \/ PlanRemove \/
@@ -231,7 +271,11 @@ Next == StageArtifact \/ Install \/ Start \/ CommitInstanceFence \/
 
 TypeOK ==
   /\ state.phase \in Phases
-  /\ state.artifact \in 0..1 /\ state.verified \in 0..1
+  /\ state.artifact \in 0..2 /\ state.verified \in 0..2
+  /\ state.bundleArtifact \in 1..2 /\ state.recoveryPending \in BOOLEAN
+  /\ state.bundleValidationFailed \in BOOLEAN
+  /\ state.registration \in 1..2 /\ state.grant \in 1..2
+  /\ state.volume \in 1..2 /\ state.peerArtifact \in 1..2
   /\ state.boot \in 0..2 /\ state.container \in 0..2
   /\ state.bootstrap \in 0..2 /\ state.receipt \in 0..2 /\ state.health \in 0..2
   /\ state.session \in 0..2 /\ state.frontend \in 0..2
@@ -244,6 +288,10 @@ TypeOK ==
   /\ state.repairPending \in BOOLEAN /\ state.sealedUsed \in BOOLEAN
 
 ActiveVerifiedExact == state.phase = "ACTIVE" => state.verified = state.artifact
+ActiveUsesBundledArtifact == state.phase = "ACTIVE" => state.artifact = state.bundleArtifact
+BundledUpgradePreservesDomain == state.registration = 1 /\ state.grant = 1 /\ state.volume = 1
+BundledUpgradeIsIsolated == state.peerArtifact = 1
+RejectedBundleDoesNotReplace == state.bundleValidationFailed => state.artifact = 1 /\ state.bundleArtifact = 1
 BootstrapSingleUse == state.bootstrap <= 1
 BootstrapSeedSingleUse == state.bootstrap > 0 => state.seedConsumed
 ReplacementFence == state.replacementPending => state.session = 0 /\ state.frontend = 0
@@ -267,8 +315,9 @@ RemoveEventuallyTerminates == [] (state.phase = "PENDING_DESTROY" => <> (state.p
 OperationEventuallySettles == [] (state.operationPhase = "RUNNING" =>
   <> (state.operationPhase \in {"IDLE", "INTERRUPTED"}))
 RevokeEventuallySettles == [] (state.phase = "REVOKING" => <> (state.phase = "REVOKED"))
+RecoveryEventuallyStarts == [] (state.recoveryPending => <> ~state.recoveryPending)
 
-Spec == Init /\ [][Next]_vars /\ WF_vars(Install) /\ WF_vars(BootstrapInitial) /\
+Spec == Init /\ [][Next]_vars /\ WF_vars(Install) /\ WF_vars(Start) /\ WF_vars(BootstrapInitial) /\
   WF_vars(Bootstrap) /\ WF_vars(CommitInstanceFence) /\ WF_vars(DeleteSeed) /\
   WF_vars(Settle) /\ WF_vars(AdoptReplacement) /\ WF_vars(CompleteRevoke) /\
   WF_vars(ExecuteRemove) /\ WF_vars(RecoverOperation) /\ WF_vars(RecoverSealed) /\

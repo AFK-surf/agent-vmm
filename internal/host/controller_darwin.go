@@ -217,6 +217,10 @@ func New(config Config) (*Controller, error) {
 		database.Close()
 		return nil, fmt.Errorf("recover pending appliance removals: %w", err)
 	}
+	if err := controller.reconcileBundledApplianceArtifact(context.Background()); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("reconcile bundled appliance artifact: %w", err)
+	}
 	reconcileContext, reconcileCancel := context.WithCancel(context.Background())
 	controller.applianceReconcileCancel = reconcileCancel
 	controller.applianceReconcileWG.Add(1)
