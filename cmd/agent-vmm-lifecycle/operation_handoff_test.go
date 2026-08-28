@@ -195,11 +195,44 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 	if json.Unmarshal(data, &plan) != nil || !plan.Acknowledged || plan.AckDescriptor != nil {
 		t.Fatalf("acknowledged plan retained acknowledgement capability: %+v", plan)
 	}
-	if plan.DeadlineUnixMillis <= time.Now().UnixMilli() || adapter.deadlineUnixMillis != plan.DeadlineUnixMillis {
-		t.Fatalf("durable install deadline was not preserved: plan=%d adapter=%d", plan.DeadlineUnixMillis, adapter.deadlineUnixMillis)
+	if plan.DeadlineUnixMillis <= time.Now().UnixMilli() {
+		t.Fatalf("handoff deadline was not preserved for acknowledgement: plan=%d", plan.DeadlineUnixMillis)
+	}
+	applyContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(2*time.Minute))
+	defer cancel()
+	if got := adapter.lifecycleDeadline(applyContext); got == plan.DeadlineUnixMillis || got != deadlineFromContext(applyContext) {
+		t.Fatalf("local apply deadline = %d, handoff=%d context=%d", got, plan.DeadlineUnixMillis, deadlineFromContext(applyContext))
 	}
 	if strings.Contains(string(data), "one-time-secret") || ackCalls.Load() != 1 {
 		t.Fatalf("ack capability cleanup/calls = %q/%d", data, ackCalls.Load())
+	}
+}
+
+func deadlineFromContext(ctx context.Context) int64 {
+	deadline, _ := ctx.Deadline()
+	return deadline.UnixMilli()
+}
+
+func TestAcknowledgedExpiredHandoffResumesWithFreshApplyDeadline(t *testing.T) {
+	value := testPaths(t.TempDir())
+	material := validTestInstallMaterial()
+	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeBundledApplianceManifest(t, value)
+	handoffDeadline := time.Now().Add(-time.Minute).UnixMilli()
+	if _, err := persistOperationHandoff(value, directory, material, handoffDeadline, true); err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := productionLifecycleAdapterForResume(value, material.OperationID)
+	if err != nil {
+		t.Fatalf("expired acknowledged handoff was not resumable: %v", err)
+	}
+	applyContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(2*time.Minute))
+	defer cancel()
+	if got := adapter.lifecycleDeadline(applyContext); got <= time.Now().UnixMilli() || got == handoffDeadline || got != deadlineFromContext(applyContext) {
+		t.Fatalf("resumed apply deadline = %d, expired handoff=%d context=%d", got, handoffDeadline, deadlineFromContext(applyContext))
 	}
 }
 

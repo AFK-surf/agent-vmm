@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
@@ -48,11 +49,10 @@ type applianceInstallSpec struct {
 }
 
 type productionLifecycleAdapter struct {
-	value              paths
-	configPath         string
-	descriptor         *operationHandoffDescriptor
-	material           *operationHandoffPlan
-	deadlineUnixMillis int64
+	value      paths
+	configPath string
+	descriptor *operationHandoffDescriptor
+	material   *operationHandoffPlan
 }
 
 func newProductionLifecycleAdapter(value paths, configPath ...string) LifecycleAdapter {
@@ -114,7 +114,7 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	}
 	deadline := adapter.lifecycleDeadline(ctx)
 	stage, err := client.StageArtifact(ctx, &appliancev1.StageArtifactRequest{
-		RequestId:          request.RequestID + ":stage",
+		RequestId:          lifecycleApplyRequestID(request.RequestID, "stage", deadline),
 		DeadlineUnixMillis: deadline,
 		Manifest:           spec.manifest,
 	})
@@ -128,12 +128,12 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	if status, found, err := findAppliance(ctx, client, installationID); err != nil {
 		return err
 	} else if found {
-		return validateExistingAppliance(status, artifactID)
+		return validateExistingAppliance(status, artifactID, spec.grant)
 	}
 	grant := proto.Clone(spec.grant).(*appliancev1.ApprovedGrant)
 	plan, err := client.PlanInstall(ctx, &appliancev1.PlanInstallRequest{
 		InstallationId:     installationID,
-		RequestId:          request.RequestID + ":plan-install",
+		RequestId:          lifecycleApplyRequestID(request.RequestID, "plan-install", deadline),
 		ExpectedRevision:   0,
 		ArtifactId:         artifactID,
 		DeadlineUnixMillis: deadline,
@@ -147,7 +147,7 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	}
 	_, err = client.Install(ctx, &appliancev1.InstallRequest{
 		InstallationId:      installationID,
-		RequestId:           request.RequestID + ":install",
+		RequestId:           lifecycleApplyRequestID(request.RequestID, "install", deadline),
 		ExpectedRevision:    0,
 		ArtifactId:          artifactID,
 		DeadlineUnixMillis:  deadline,
@@ -163,14 +163,35 @@ func (adapter *productionLifecycleAdapter) applianceInstall(ctx context.Context,
 	return nil
 }
 
-func validateExistingAppliance(status *appliancev1.ApplianceStatus, artifactID string) error {
+func validateExistingAppliance(status *appliancev1.ApplianceStatus, artifactID string, grant *appliancev1.ApprovedGrant) error {
 	if status.GetRegistrationId() == "" {
 		return errors.New("existing appliance has no registration identity")
 	}
 	if status.GetArtifactId() != artifactID {
 		return errors.New("existing appliance artifact does not match the requested install material")
 	}
+	if grant == nil || status.GetApprovedGrant() == nil {
+		return errors.New("existing appliance install material is incomplete")
+	}
+	expectedGrant := proto.Clone(grant).(*appliancev1.ApprovedGrant)
+	if expectedGrant.GetSystemResources() != nil && expectedGrant.GetSystemResources().GetCeiling() != nil {
+		expectedGrant.SystemResources.Floor = proto.Clone(expectedGrant.GetSystemResources().GetCeiling()).(*hostv1.ResourceLimits)
+	}
+	expectedGrant.Revision = status.GetApprovedGrant().GetRevision()
+	if expectedGrant.GetCapacity() != nil {
+		expectedGrant.EgressMode = expectedGrant.GetCapacity().GetMaxEgressMode()
+	}
+	sort.Slice(expectedGrant.Frontends, func(left, right int) bool {
+		return expectedGrant.Frontends[left].GetName() < expectedGrant.Frontends[right].GetName()
+	})
+	if !proto.Equal(status.GetApprovedGrant(), expectedGrant) {
+		return errors.New("existing appliance grant does not match the requested install material")
+	}
 	return nil
+}
+
+func lifecycleApplyRequestID(operationID, step string, deadline int64) string {
+	return fmt.Sprintf("%s:%s:%d", operationID, step, deadline)
 }
 
 func (adapter *productionLifecycleAdapter) bootstrap(ctx context.Context, request LifecycleRequest) error {
@@ -193,11 +214,12 @@ func (adapter *productionLifecycleAdapter) bootstrap(ctx context.Context, reques
 	if status.GetEnabled() && status.GetApplianceState() == appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING {
 		return nil
 	}
+	deadline := adapter.lifecycleDeadline(ctx)
 	_, err = client.Activate(ctx, &appliancev1.ActivateRequest{
 		InstallationId:     installationID,
-		RequestId:          request.RequestID + ":activate",
+		RequestId:          lifecycleApplyRequestID(request.RequestID, "activate", deadline),
 		ExpectedRevision:   status.GetRevision(),
-		DeadlineUnixMillis: adapter.lifecycleDeadline(ctx),
+		DeadlineUnixMillis: deadline,
 	})
 	if err != nil {
 		return fmt.Errorf("activate appliance: %w", err)
@@ -402,8 +424,7 @@ func lifecycleDeadline(ctx context.Context) int64 {
 }
 
 func (adapter *productionLifecycleAdapter) lifecycleDeadline(ctx context.Context) int64 {
-	if adapter.deadlineUnixMillis > 0 {
-		return adapter.deadlineUnixMillis
-	}
+	// VMMInstallHandoff.Apply is local and remains retryable after ACK; the
+	// exchange deadline never becomes a durable Host mutation deadline.
 	return lifecycleDeadline(ctx)
 }

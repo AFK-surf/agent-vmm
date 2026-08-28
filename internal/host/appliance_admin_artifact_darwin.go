@@ -19,8 +19,8 @@ func (server *applianceAdminServer) StageArtifact(ctx context.Context, request *
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
-	if request.GetRequestId() == "" || request.GetDeadlineUnixMillis() <= time.Now().UnixMilli() {
-		return nil, invalidField("request_id/deadline_unix_millis", "artifact staging identity is invalid")
+	if request.GetRequestId() == "" {
+		return nil, invalidField("request_id", "artifact staging identity is invalid")
 	}
 	if existing, err := server.controller.store.ApplianceOperationByRequest(ctx, request.GetRequestId()); err == nil {
 		if existing.InstallationID != "" || existing.DeadlineUnixMillis != request.GetDeadlineUnixMillis() {
@@ -31,6 +31,9 @@ func (server *applianceAdminServer) StageArtifact(ctx context.Context, request *
 		return response, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
+	}
+	if request.GetDeadlineUnixMillis() <= time.Now().UnixMilli() {
+		return nil, invalidField("deadline_unix_millis", "artifact staging deadline expired")
 	}
 	canonical, canonicalHash, err := (applianceArtifactVerifier{}).verify(request.GetManifest(), nil)
 	if err != nil {
@@ -125,9 +128,6 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
-	if err := validateApplianceMutation(mutation); err != nil {
-		return nil, err
-	}
 	if request.GetExpectedRevision() != 0 || request.GetArtifactId() == "" {
 		return nil, resourceError(codes.Aborted, "PLAN_REVISION_CONFLICT", "appliance_installation", request.GetInstallationId(), "install plan is stale")
 	}
@@ -137,6 +137,9 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 		return nil, err
 	} else if found {
 		return applianceOperationResponse(existing), nil
+	}
+	if err := validateApplianceMutation(mutation); err != nil {
+		return nil, err
 	}
 	artifact, err := server.controller.store.GetApplianceArtifact(ctx, request.GetArtifactId())
 	if err != nil || !artifact.Verified {

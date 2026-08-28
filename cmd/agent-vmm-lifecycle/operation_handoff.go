@@ -135,11 +135,10 @@ func productionLifecycleAdapterForResume(value paths, operationID string) (*prod
 		return nil, errors.New("managed install plan is invalid")
 	}
 	adapter := &productionLifecycleAdapter{
-		value:              value,
-		configPath:         filepath.Join(directory, "appliance.json"),
-		descriptor:         plan.AckDescriptor,
-		material:           &plan.Material,
-		deadlineUnixMillis: plan.DeadlineUnixMillis,
+		value:      value,
+		configPath: filepath.Join(directory, "appliance.json"),
+		descriptor: plan.AckDescriptor,
+		material:   &plan.Material,
 	}
 	return adapter, nil
 }
@@ -207,7 +206,6 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 		adapter.material = &plan.Material
 		adapter.descriptor = nil
 		adapter.configPath = filepath.Join(directory, "appliance.json")
-		adapter.deadlineUnixMillis = plan.DeadlineUnixMillis
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("read durable install plan: %w", err)
@@ -265,7 +263,6 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 	adapter.material = &material
 	adapter.descriptor = nil
 	adapter.configPath = configPath
-	adapter.deadlineUnixMillis = deadlineUnixMillis
 	return nil
 }
 

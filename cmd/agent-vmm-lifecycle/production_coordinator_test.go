@@ -10,6 +10,7 @@ import (
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -81,13 +82,32 @@ func TestProductionAdapterRequiresPackagedInstallInputs(t *testing.T) {
 }
 
 func TestExistingApplianceMustMatchRequestedArtifact(t *testing.T) {
-	status := &appliancev1.ApplianceStatus{RegistrationId: "registration-1", ArtifactId: "artifact-old"}
-	if err := validateExistingAppliance(status, "artifact-new"); err == nil || !strings.Contains(err.Error(), "artifact") {
+	cpu, pids := uint32(1), uint32(1)
+	memory, disk := uint64(1), uint64(1)
+	limits := &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
+	grant := &appliancev1.ApprovedGrant{SystemResources: &appliancev1.ResourceRange{Floor: proto.Clone(limits).(*hostv1.ResourceLimits), Ceiling: proto.Clone(limits).(*hostv1.ResourceLimits)},
+		Capacity: &appliancev1.CapacityGrant{MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL}
+	status := &appliancev1.ApplianceStatus{RegistrationId: "registration-1", ArtifactId: "artifact-1", ApprovedGrant: proto.Clone(grant).(*appliancev1.ApprovedGrant)}
+	if err := validateExistingAppliance(status, "artifact-1", grant); err != nil {
+		t.Fatalf("exact existing artifact was rejected: %v", err)
+	}
+	if err := validateExistingAppliance(status, "artifact-2", grant); err == nil || !strings.Contains(err.Error(), "artifact") {
 		t.Fatalf("mismatched existing artifact was accepted: %v", err)
 	}
-	status.ArtifactId = "artifact-new"
-	if err := validateExistingAppliance(status, "artifact-new"); err != nil {
-		t.Fatalf("exact existing artifact was rejected: %v", err)
+	changedGrant := proto.Clone(grant).(*appliancev1.ApprovedGrant)
+	changedGrant.Capacity.MaxEnvironments = 1
+	if err := validateExistingAppliance(status, "artifact-1", changedGrant); err == nil || !strings.Contains(err.Error(), "grant") {
+		t.Fatalf("mismatched existing grant was accepted: %v", err)
+	}
+}
+
+func TestLocalApplyRequestIdentityIncludesFreshDeadline(t *testing.T) {
+	first := lifecycleApplyRequestID("operation-1", "stage", 100)
+	if first != lifecycleApplyRequestID("operation-1", "stage", 100) {
+		t.Fatal("same local apply fence changed request identity")
+	}
+	if first == lifecycleApplyRequestID("operation-1", "stage", 101) {
+		t.Fatal("fresh local apply deadline reused the old request identity")
 	}
 }
 
