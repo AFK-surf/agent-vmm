@@ -98,9 +98,9 @@ func TestPersistInstallMaterialUsesPrivateDurableWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	material := operationHandoffPlan{Version: 1, OperationID: "operation-1", Appliance: applianceMaterial{InstallationID: "installation-1",
-		Manifest:      base64.StdEncoding.EncodeToString([]byte("manifest")),
 		ApprovedGrant: base64.StdEncoding.EncodeToString([]byte("grant")), BootstrapSeed: base64.StdEncoding.EncodeToString([]byte("seed"))}}
-	configPath, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), true)
+	writeBundledApplianceManifest(t, value)
+	configPath, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +113,14 @@ func TestPersistInstallMaterialUsesPrivateDurableWorkspace(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("config mode = %o, want 600", info.Mode().Perm())
+	}
+	manifest, err := os.ReadFile(filepath.Join(directory, "manifest.pb"))
+	if err != nil || string(manifest) != "bundled-manifest" {
+		t.Fatalf("persisted manifest=%q err=%v", manifest, err)
+	}
+	plan, err := os.ReadFile(filepath.Join(directory, "plan.json"))
+	if err != nil || strings.Contains(string(plan), `"manifest"`) {
+		t.Fatalf("operation plan retained a Server manifest: %s err=%v", plan, err)
 	}
 	if _, err := newProductionLifecycleAdapterForResume(value, "operation-1"); err != nil {
 		t.Fatalf("acknowledged plan was not resumable: %v", err)

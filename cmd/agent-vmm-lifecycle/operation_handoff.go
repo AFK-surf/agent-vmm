@@ -38,7 +38,6 @@ type operationHandoffDescriptor struct {
 
 type applianceMaterial struct {
 	InstallationID string `json:"installation_id"`
-	Manifest       string `json:"manifest"`
 	ApprovedGrant  string `json:"approved_grant"`
 	BootstrapSeed  string `json:"bootstrap_seed"`
 }
@@ -201,7 +200,7 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 				}
 				return err
 			}
-			if _, err := persistOperationHandoff(directory, plan.Material, plan.DeadlineUnixMillis, true); err != nil {
+			if _, err := persistOperationHandoff(adapter.value, directory, plan.Material, plan.DeadlineUnixMillis, true); err != nil {
 				return err
 			}
 		}
@@ -250,7 +249,7 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 		return fmt.Errorf("persist install operation directory: %w", err)
 	}
 	deadlineUnixMillis := time.Now().Add(defaultCoordinatorOperationTimeout).UnixMilli()
-	configPath, err := persistOperationHandoff(directory, material, deadlineUnixMillis, false, adapter.descriptor)
+	configPath, err := persistOperationHandoff(adapter.value, directory, material, deadlineUnixMillis, false, adapter.descriptor)
 	if err != nil {
 		return err
 	}
@@ -260,7 +259,7 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 		}
 		return err
 	}
-	if _, err := persistOperationHandoff(directory, material, deadlineUnixMillis, true); err != nil {
+	if _, err := persistOperationHandoff(adapter.value, directory, material, deadlineUnixMillis, true); err != nil {
 		return err
 	}
 	adapter.material = &material
@@ -377,7 +376,7 @@ func validateOperationHandoff(material operationHandoffPlan, descriptor operatio
 	return nil
 }
 
-func persistOperationHandoff(directory string, material operationHandoffPlan, deadlineUnixMillis int64, acknowledged bool, descriptors ...*operationHandoffDescriptor) (string, error) {
+func persistOperationHandoff(value paths, directory string, material operationHandoffPlan, deadlineUnixMillis int64, acknowledged bool, descriptors ...*operationHandoffDescriptor) (string, error) {
 	if deadlineUnixMillis <= 0 {
 		return "", errors.New("managed install deadline is invalid")
 	}
@@ -388,10 +387,6 @@ func persistOperationHandoff(directory string, material operationHandoffPlan, de
 	if !acknowledged && !validPersistedAckDescriptor(ackDescriptor, material.OperationID) {
 		return "", errors.New("managed install acknowledgement capability is invalid")
 	}
-	manifest, err := decodeOperationField("manifest", material.Appliance.Manifest, 4<<20)
-	if err != nil {
-		return "", err
-	}
 	grant, err := decodeOperationField("approved_grant", material.Appliance.ApprovedGrant, 1<<20)
 	if err != nil {
 		return "", err
@@ -400,16 +395,28 @@ func persistOperationHandoff(directory string, material operationHandoffPlan, de
 	if err != nil {
 		return "", err
 	}
+	manifestPath := filepath.Join(directory, "manifest.pb")
+	if _, err := os.Stat(manifestPath); errors.Is(err, os.ErrNotExist) {
+		manifest, readErr := os.ReadFile(filepath.Join(value.resources, "Guest", "mcp-appliance", "manifest.pb"))
+		if readErr != nil || len(manifest) == 0 || len(manifest) > 4<<20 {
+			return "", errors.New("bundled appliance manifest is unavailable")
+		}
+		if err := atomicWritePlan(manifestPath, manifest); err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", err
+	}
 	artifacts := []struct {
 		name string
 		data []byte
-	}{{"manifest.pb", manifest}, {"approved-grant.pb", grant}, {"bootstrap-seed.bin", seed}}
+	}{{"approved-grant.pb", grant}, {"bootstrap-seed.bin", seed}}
 	for _, artifact := range artifacts {
 		if err := atomicWritePlan(filepath.Join(directory, artifact.name), artifact.data); err != nil {
 			return "", err
 		}
 	}
-	config := applianceLifecycleConfig{Version: 1, InstallationID: material.Appliance.InstallationID, ManifestPath: filepath.Join(directory, "manifest.pb"), ApprovedGrantPath: filepath.Join(directory, "approved-grant.pb"), BootstrapSeedPath: filepath.Join(directory, "bootstrap-seed.bin")}
+	config := applianceLifecycleConfig{Version: 1, InstallationID: material.Appliance.InstallationID, ManifestPath: manifestPath, ApprovedGrantPath: filepath.Join(directory, "approved-grant.pb"), BootstrapSeedPath: filepath.Join(directory, "bootstrap-seed.bin")}
 	configBytes, _ := json.Marshal(config)
 	configPath := filepath.Join(directory, "appliance.json")
 	if err := atomicWritePlan(configPath, configBytes); err != nil {

@@ -135,7 +135,6 @@ func validTestInstallMaterial() operationHandoffPlan {
 	return operationHandoffPlan{
 		Version: 1, OperationID: "operation-1", RegistrationID: "registration-1", ScopeDigest: digest,
 		Appliance: applianceMaterial{InstallationID: "installation-1",
-			Manifest:      base64.StdEncoding.EncodeToString([]byte("manifest")),
 			ApprovedGrant: base64.StdEncoding.EncodeToString([]byte("grant")), BootstrapSeed: base64.StdEncoding.EncodeToString([]byte("seed"))},
 		RemoteEnrollment: remoteEnrollmentMaterial{GatewayEndpoint: "vmm.example.test:7443", PolicyRevision: 1,
 			PoolPolicy: remotePoolMaterial{MaxEnvironments: 1, MaxEgressMode: "deny_all", MaxLeaseSeconds: 60,
@@ -143,6 +142,17 @@ func validTestInstallMaterial() operationHandoffPlan {
 				AggregateLimits:      resourcePolicy{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1},
 				PerEnvironmentLimits: resourcePolicy{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}}},
 		HostIdentityDigest: digest,
+	}
+}
+
+func writeBundledApplianceManifest(t *testing.T, value paths) {
+	t.Helper()
+	manifestPath := filepath.Join(value.resources, "Guest", "mcp-appliance", "manifest.pb")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte("bundled-manifest"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -169,7 +179,8 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
+	writeBundledApplianceManifest(t, value)
+	if _, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
 	adapter := &productionLifecycleAdapter{value: value, material: &material, descriptor: &descriptor}
@@ -244,7 +255,8 @@ func TestFailedManagedLifecycleOperationResumesDurableAcknowledgementWithSameIde
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
+	writeBundledApplianceManifest(t, value)
+	if _, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +305,8 @@ func TestClosedHandoffMarksTerminalButRetainsPlanUntilFinalized(t *testing.T) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistOperationHandoff(directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
+	writeBundledApplianceManifest(t, value)
+	if _, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
 	adapter, err := productionLifecycleAdapterForResume(value, material.OperationID)

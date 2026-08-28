@@ -39,11 +39,12 @@ reconnect, and final observation through that one coordinator. The narrower
 
 Fresh appliance installation consumes a bounded, one-use JSON enrollment
 operation on stdin with `install --operation-stdin --request-id <opaque-id>`. The
-helper materializes the first-party manifest, approved grant, and opaque
-bootstrap seed into a mode-0600 temporary workspace and removes it after the
-operation. The bundled manifest is validated for OCI digest, resource,
-capability, egress, and frontend limits. Operation material never appears in
-argv, logs, or the operation record. Existing installations may
+helper copies the first-party manifest from the installed Host bundle and
+materializes the approved grant and opaque bootstrap seed into a mode-0600
+temporary workspace, then removes it after the operation. The bundled manifest
+is validated for OCI digest, resource, capability, egress, and frontend limits.
+Operation material never appears in argv, logs, or the operation record.
+Existing installations may
 omit it when their single local appliance can be identified unambiguously.
 Missing operation/configuration fails closed; the helper never reports
 readiness or fabricates an install result. A terminal failure retains the plan
