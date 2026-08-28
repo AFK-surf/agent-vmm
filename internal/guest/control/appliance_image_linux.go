@@ -67,7 +67,7 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	if _, err := io.Copy(hash, archive); err != nil {
 		return "", "", 0, err
 	}
-	manifest, err := validateOCIArchive(archive, manifestDigest, canonical)
+	manifest, err := validateOCIArchive(archive, manifestDigest)
 	if err != nil {
 		return "", "", 0, err
 	}

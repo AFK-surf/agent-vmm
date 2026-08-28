@@ -56,7 +56,7 @@ func validateImportHeader(header *vmmdv1.ImportImageHeader, maxArchiveBytes uint
 	return reference, manifestDigest, nil
 }
 
-func validateOCIArchive(archive io.ReadSeeker, manifestDigest digest.Digest, imageReference string) (*ocispec.Descriptor, error) {
+func validateOCIArchive(archive io.ReadSeeker, manifestDigest digest.Digest) (*ocispec.Descriptor, error) {
 	manifestPath := path.Join("blobs", manifestDigest.Algorithm().String(), manifestDigest.Encoded())
 	entries, err := readOCIEntries(archive, map[string]uint64{"oci-layout": 4096, "index.json": maxImportMetadataBytes, manifestPath: maxImportMetadataBytes})
 	if err != nil {
@@ -73,9 +73,6 @@ func validateOCIArchive(archive io.ReadSeeker, manifestDigest digest.Digest, ima
 	var selected *ocispec.Descriptor
 	for position := range index.Manifests {
 		descriptor := &index.Manifests[position]
-		if descriptor.Annotations["io.containerd.image.name"] != "" {
-			return nil, errors.New("OCI index contains a host-controlled image name")
-		}
 		if descriptor.Digest == manifestDigest {
 			if selected != nil {
 				return nil, errors.New("OCI index repeats the committed manifest")
@@ -87,12 +84,6 @@ func validateOCIArchive(archive io.ReadSeeker, manifestDigest digest.Digest, ima
 		selected.Platform.OS != "linux" || selected.Platform.Architecture != "arm64" || selected.Platform.Variant != "" ||
 		selected.Size != int64(len(entries[manifestPath])) || manifestDigest.Algorithm().FromBytes(entries[manifestPath]) != manifestDigest {
 		return nil, errors.New("OCI index does not bind the committed linux/arm64 manifest")
-	}
-	if refName := selected.Annotations[ocispec.AnnotationRefName]; refName != "" {
-		canonical, err := guestimage.NormalizeReference(refName)
-		if err != nil || canonical != imageReference {
-			return nil, errors.New("OCI index reference conflicts with image_reference")
-		}
 	}
 	var manifest ocispec.Manifest
 	if err := json.Unmarshal(entries[manifestPath], &manifest); err != nil || manifest.SchemaVersion != 2 || manifest.MediaType != ocispec.MediaTypeImageManifest ||

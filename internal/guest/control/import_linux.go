@@ -91,7 +91,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	if written != header.GetArchiveSize() || subtle.ConstantTimeCompare(hash.Sum(nil), header.GetArchiveSha256()) != 1 {
 		return invalid(errors.New("OCI archive size or sha256 does not match the header"))
 	}
-	manifest, err := validateOCIArchive(archive, manifestDigest, imageReference)
+	manifest, err := validateOCIArchive(archive, manifestDigest)
 	if err != nil {
 		return invalid(err)
 	}

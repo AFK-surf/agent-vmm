@@ -490,6 +490,9 @@ func imageByReferenceOrNil(t *testing.T, client *productClient, environmentID, r
 	}
 	for _, image := range images.GetImages() {
 		if image.GetReference() == canonical {
+			if !slices.Equal(image.GetPlatforms(), []string{"linux/arm64"}) {
+				t.Fatalf("image %q platforms = %v, want linux/arm64", canonical, image.GetPlatforms())
+			}
 			return image
 		}
 	}

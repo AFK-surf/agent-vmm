@@ -14,10 +14,13 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestValidateOCIArchiveBindsManifestPlatformAndReference(t *testing.T) {
+func TestValidateOCIArchiveUsesHeaderReferenceInsteadOfBuildxAnnotations(t *testing.T) {
 	reference := "example.com/agent/pi:latest"
-	archive, manifestDigest := testOCIArchive(t, reference, ocispec.Platform{OS: "linux", Architecture: "arm64"})
-	if _, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest, reference); err != nil {
+	archive, manifestDigest := testOCIArchive(t, map[string]string{
+		ocispec.AnnotationRefName:  "docker.io/buildx/generated:latest",
+		"io.containerd.image.name": "docker.io/buildx/generated:latest",
+	}, ocispec.Platform{OS: "linux", Architecture: "arm64"})
+	if _, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := validateImportHeader(&vmmdv1.ImportImageHeader{RequestId: "request", ActorNamespaceId: "namespace", ImageReference: reference,
@@ -26,25 +29,22 @@ func TestValidateOCIArchiveBindsManifestPlatformAndReference(t *testing.T) {
 	}
 }
 
-func TestValidateOCIArchiveRejectsPlatformReferenceAndUnsafeEntry(t *testing.T) {
-	reference := "example.com/agent/pi:latest"
+func TestValidateOCIArchiveRejectsPlatformAndUnsafeEntry(t *testing.T) {
 	tests := []struct {
 		name     string
 		platform ocispec.Platform
-		ref      string
 		unsafe   bool
 	}{
-		{name: "platform", platform: ocispec.Platform{OS: "linux", Architecture: "amd64"}, ref: reference},
-		{name: "reference", platform: ocispec.Platform{OS: "linux", Architecture: "arm64"}, ref: "example.com/other:latest"},
-		{name: "unsafe", platform: ocispec.Platform{OS: "linux", Architecture: "arm64"}, ref: reference, unsafe: true},
+		{name: "platform", platform: ocispec.Platform{OS: "linux", Architecture: "amd64"}},
+		{name: "unsafe", platform: ocispec.Platform{OS: "linux", Architecture: "arm64"}, unsafe: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			archive, manifestDigest := testOCIArchive(t, test.ref, test.platform)
+			archive, manifestDigest := testOCIArchive(t, nil, test.platform)
 			if test.unsafe {
 				archive = appendTarEntry(t, archive, "../escape", []byte("bad"))
 			}
-			if _, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest, reference); err == nil {
+			if _, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest); err == nil {
 				t.Fatal("invalid OCI archive accepted")
 			}
 		})
@@ -52,13 +52,13 @@ func TestValidateOCIArchiveRejectsPlatformReferenceAndUnsafeEntry(t *testing.T) 
 }
 
 func TestValidateOCIArchiveRejectsMissingCommittedManifest(t *testing.T) {
-	archive, _ := testOCIArchive(t, "example.com/agent/pi:latest", ocispec.Platform{OS: "linux", Architecture: "arm64"})
-	if _, err := validateOCIArchive(bytes.NewReader(archive), digest.FromString("missing"), "example.com/agent/pi:latest"); err == nil {
+	archive, _ := testOCIArchive(t, nil, ocispec.Platform{OS: "linux", Architecture: "arm64"})
+	if _, err := validateOCIArchive(bytes.NewReader(archive), digest.FromString("missing")); err == nil {
 		t.Fatal("missing committed manifest accepted")
 	}
 }
 
-func testOCIArchive(t *testing.T, reference string, platform ocispec.Platform) ([]byte, digest.Digest) {
+func testOCIArchive(t *testing.T, annotations map[string]string, platform ocispec.Platform) ([]byte, digest.Digest) {
 	t.Helper()
 	config := ocispec.Image{Platform: platform}
 	configBytes, err := json.Marshal(config)
@@ -76,7 +76,7 @@ func testOCIArchive(t *testing.T, reference string, platform ocispec.Platform) (
 	manifestDigest := digest.FromBytes(manifestBytes)
 	index := ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageIndex,
 		Manifests: []ocispec.Descriptor{{MediaType: ocispec.MediaTypeImageManifest, Digest: manifestDigest, Size: int64(len(manifestBytes)), Platform: &platform,
-			Annotations: map[string]string{ocispec.AnnotationRefName: reference}}}}
+			Annotations: annotations}}}
 	indexBytes, err := json.Marshal(index)
 	if err != nil {
 		t.Fatal(err)

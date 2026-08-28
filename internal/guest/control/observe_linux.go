@@ -262,7 +262,7 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), GenerationId: imageGenerationID(metadata)})
+		result = append(result, &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata)})
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].GetReference() < result[right].GetReference() })
 	return result, nil
@@ -293,7 +293,7 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 	if err != nil {
 		return nil, err
 	}
-	return &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), GenerationId: imageGenerationID(metadata)}, nil
+	return &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata)}, nil
 }
 
 func (r *Runtime) NamespaceUsage(ctx context.Context, namespaceID string) (*vmmdv1.Usage, error) {
