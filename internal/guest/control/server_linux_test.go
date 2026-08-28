@@ -4,6 +4,7 @@ package control
 
 import (
 	"os"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -16,6 +17,19 @@ func TestRPCErrorMapsMissingFilesystemEntry(t *testing.T) {
 	if code := status.Code(rpcError(os.ErrNotExist)); code != codes.NotFound {
 		t.Fatalf("rpcError(os.ErrNotExist) code = %v, want %v", code, codes.NotFound)
 	}
+}
+
+func TestRPCErrorReportsSafeRuntimeStageForMissingResource(t *testing.T) {
+	err := rpcError(atRuntimeStage("rootfs_snapshot", status.Error(codes.NotFound, "/state/private/snapshot")))
+	if status.Code(err) != codes.NotFound || strings.Contains(err.Error(), "/state/") {
+		t.Fatalf("staged missing resource error = %v", err)
+	}
+	for _, detail := range status.Convert(err).Details() {
+		if value, ok := detail.(*errdetails.ErrorInfo); ok && value.GetReason() == "RUNTIME_RESOURCE_NOT_FOUND" && value.GetMetadata()["stage"] == "rootfs_snapshot" {
+			return
+		}
+	}
+	t.Fatalf("staged missing resource error omitted safe stage: %v", err)
 }
 
 func TestRPCErrorMapsPIDLimit(t *testing.T) {

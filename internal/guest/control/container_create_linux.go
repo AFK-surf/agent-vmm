@@ -100,28 +100,35 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		specOptions = append(specOptions, systemOption)
 	}
 	container, err := r.client.NewContainer(nsctx, request.GetContainerId(),
-		containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter), containerd.WithNewSnapshot(request.GetContainerId()+"-rootfs", image),
+		containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter),
+		atContainerStage("rootfs_snapshot", containerd.WithNewSnapshot(request.GetContainerId()+"-rootfs", image)),
 		containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
 		containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10)}),
-		containerd.WithNewSpec(specOptions...), withSupervisedProcess(),
+		atContainerStage("oci_spec", containerd.WithNewSpec(specOptions...)), atContainerStage("supervisor_spec", withSupervisedProcess()),
 	)
 	if err != nil {
-		return nil, err
+		return nil, atRuntimeStage("container_record", err)
 	}
 	if err := r.assignSnapshotProject(nsctx, namespaceID, container); err != nil {
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
-		return nil, err
+		return nil, atRuntimeStage("snapshot_quota", err)
 	}
 	current, err := r.inspectContainer(nsctx, namespaceID, container)
 	if err != nil {
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
-		return nil, err
+		return nil, atRuntimeStage("container_projection", err)
 	}
 	if err := ensureDirectory(filepath.Dir(logPath(namespaceID, request.GetContainerId(), current.GetGenerationId())), 0o700); err != nil {
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
-		return nil, err
+		return nil, atRuntimeStage("container_log_state", err)
 	}
 	return current, nil
+}
+
+func atContainerStage(stage string, option containerd.NewContainerOpts) containerd.NewContainerOpts {
+	return func(ctx context.Context, client *containerd.Client, container *containers.Container) error {
+		return atRuntimeStage(stage, option(ctx, client, container))
+	}
 }
 
 func withSupervisedProcess() containerd.NewContainerOpts {

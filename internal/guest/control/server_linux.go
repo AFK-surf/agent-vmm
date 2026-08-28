@@ -399,6 +399,11 @@ func rpcError(err error) error {
 	if err == nil {
 		return nil
 	}
+	var stageError runtimeStageError
+	if errors.As(err, &stageError) && (status.Code(err) == codes.NotFound || errdefs.IsNotFound(err) || errors.Is(err, os.ErrNotExist)) {
+		return detailedErrorMetadata(codes.NotFound, "RUNTIME_RESOURCE_NOT_FOUND",
+			"runtime resource was not found during "+stageError.stage, "runtime", "", map[string]string{"stage": stageError.stage})
+	}
 	if status.Code(err) != codes.Unknown {
 		return err
 	}

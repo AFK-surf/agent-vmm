@@ -14,6 +14,25 @@ var (
 	errPrecondition      = errors.New("failed precondition")
 )
 
+type runtimeStageError struct {
+	stage string
+	err   error
+}
+
+func (err runtimeStageError) Error() string { return err.err.Error() }
+func (err runtimeStageError) Unwrap() error { return err.err }
+
+func atRuntimeStage(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var existing runtimeStageError
+	if errors.As(err, &existing) {
+		return err
+	}
+	return runtimeStageError{stage: stage, err: err}
+}
+
 func resourceExhausted(message string) error {
 	return fmt.Errorf("%w: %s", errResourceExhausted, message)
 }
