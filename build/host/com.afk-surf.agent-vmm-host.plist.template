@@ -7,6 +7,10 @@
   <key>ProgramArguments</key>
   <array>
     <string>__APP__/Contents/MacOS/agent-vmm-host</string>
+    <string>--cpus</string>
+    <string>6</string>
+    <string>--memory</string>
+    <string>8589934592</string>
     <string>--bundle</string>
     <string>__APP__/Contents/Resources/Guest</string>
     <string>--instance</string>
