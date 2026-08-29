@@ -86,7 +86,7 @@ func TestExistingApplianceMustMatchRequestedArtifact(t *testing.T) {
 	memory, disk := uint64(1), uint64(1)
 	limits := &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
 	grant := &appliancev1.ApprovedGrant{SystemResources: &appliancev1.ResourceRange{Floor: proto.Clone(limits).(*hostv1.ResourceLimits), Ceiling: proto.Clone(limits).(*hostv1.ResourceLimits)},
-		Capacity: &appliancev1.CapacityGrant{MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL}
+		Capacity: &appliancev1.CapacityGrant{MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL}
 	status := &appliancev1.ApplianceStatus{RegistrationId: "registration-1", ArtifactId: "artifact-1", ApprovedGrant: proto.Clone(grant).(*appliancev1.ApprovedGrant)}
 	if err := validateExistingAppliance(status, "artifact-1", grant); err != nil {
 		t.Fatalf("exact existing artifact was rejected: %v", err)

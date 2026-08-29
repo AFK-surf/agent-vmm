@@ -178,9 +178,6 @@ func validateExistingAppliance(status *appliancev1.ApplianceStatus, artifactID s
 		expectedGrant.SystemResources.Floor = proto.Clone(expectedGrant.GetSystemResources().GetCeiling()).(*hostv1.ResourceLimits)
 	}
 	expectedGrant.Revision = status.GetApprovedGrant().GetRevision()
-	if expectedGrant.GetCapacity() != nil {
-		expectedGrant.EgressMode = expectedGrant.GetCapacity().GetMaxEgressMode()
-	}
 	sort.Slice(expectedGrant.Frontends, func(left, right int) bool {
 		return expectedGrant.Frontends[left].GetName() < expectedGrant.Frontends[right].GetName()
 	})
