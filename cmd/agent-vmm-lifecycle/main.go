@@ -344,7 +344,7 @@ func lifecyclePathsForConfigWithApp(home, executable string, service serviceConf
 	if filepath.Base(sourceApp) != bundle.HostAppName {
 		return paths{}, fmt.Errorf("application bundle must be %q", bundle.HostAppName)
 	}
-	if _, err := bundle.ValidateHostApp(sourceApp); err != nil {
+	if err := bundle.ValidateHostApp(sourceApp); err != nil {
 		return paths{}, fmt.Errorf("host application bundle is invalid: %w", err)
 	}
 	app := sourceApp
@@ -352,7 +352,7 @@ func lifecyclePathsForConfigWithApp(home, executable string, service serviceConf
 		if !filepath.IsAbs(targetApp) || filepath.Base(targetApp) != bundle.HostAppName {
 			return paths{}, errors.New("service app must be an absolute Agent VMM Host.app path")
 		}
-		if _, err := bundle.ValidateHostApp(targetApp); err != nil {
+		if err := bundle.ValidateHostApp(targetApp); err != nil {
 			return paths{}, fmt.Errorf("target host application bundle is invalid: %w", err)
 		}
 		app = targetApp

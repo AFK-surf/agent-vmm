@@ -198,8 +198,7 @@ else
   rootfs_dictionary=1048576
   rootfs_filter=arm64-bcj
 fi
-logical_bytes=$(du -sb "$root" | cut -f1)
-(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -lock "$lock" -logical-bytes "$logical_bytes" -rootfs-compressor "$rootfs_compressor" -rootfs-dictionary "$rootfs_dictionary" -rootfs-filter "$rootfs_filter")
+(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -rootfs-compressor "$rootfs_compressor" -rootfs-dictionary "$rootfs_dictionary" -rootfs-filter "$rootfs_filter")
 
 mkdir -p "$output"
 cp -a "$bundle/." "$output/"

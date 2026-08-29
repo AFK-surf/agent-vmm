@@ -1421,7 +1421,6 @@ type HealthResponse struct {
 	StateInitialized bool                   `protobuf:"varint,2,opt,name=state_initialized,json=stateInitialized,proto3" json:"state_initialized,omitempty"`
 	RootReadOnly     bool                   `protobuf:"varint,3,opt,name=root_read_only,json=rootReadOnly,proto3" json:"root_read_only,omitempty"`
 	BootId           string                 `protobuf:"bytes,4,opt,name=boot_id,json=bootId,proto3" json:"boot_id,omitempty"`
-	ManifestDigest   string                 `protobuf:"bytes,5,opt,name=manifest_digest,json=manifestDigest,proto3" json:"manifest_digest,omitempty"`
 	RuntimeVersions  map[string]string      `protobuf:"bytes,6,rep,name=runtime_versions,json=runtimeVersions,proto3" json:"runtime_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -1481,13 +1480,6 @@ func (x *HealthResponse) GetRootReadOnly() bool {
 func (x *HealthResponse) GetBootId() string {
 	if x != nil {
 		return x.BootId
-	}
-	return ""
-}
-
-func (x *HealthResponse) GetManifestDigest() string {
-	if x != nil {
-		return x.ManifestDigest
 	}
 	return ""
 }
@@ -8383,13 +8375,12 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x12\x18\n" +
 	"\x06finish\x18\x03 \x01(\bH\x00R\x06finishB\t\n" +
 	"\apayload\"\x0f\n" +
-	"\rHealthRequest\"\xe1\x02\n" +
+	"\rHealthRequest\"\xb8\x02\n" +
 	"\x0eHealthResponse\x12\x14\n" +
 	"\x05ready\x18\x01 \x01(\bR\x05ready\x12+\n" +
 	"\x11state_initialized\x18\x02 \x01(\bR\x10stateInitialized\x12$\n" +
 	"\x0eroot_read_only\x18\x03 \x01(\bR\frootReadOnly\x12\x17\n" +
-	"\aboot_id\x18\x04 \x01(\tR\x06bootId\x12'\n" +
-	"\x0fmanifest_digest\x18\x05 \x01(\tR\x0emanifestDigest\x12`\n" +
+	"\aboot_id\x18\x04 \x01(\tR\x06bootId\x12`\n" +
 	"\x10runtime_versions\x18\x06 \x03(\v25.agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntryR\x0fruntimeVersions\x1aB\n" +
 	"\x14RuntimeVersionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +

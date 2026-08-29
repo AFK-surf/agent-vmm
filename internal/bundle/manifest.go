@@ -15,12 +15,11 @@ import (
 const ManifestName = "manifest.json"
 
 type Manifest struct {
-	SchemaVersion int                  `json:"schema_version"`
-	Architecture  string               `json:"architecture"`
-	MinimumMacOS  string               `json:"minimum_macos"`
-	Artifacts     map[string]Artifact  `json:"artifacts"`
-	Components    map[string]Component `json:"components"`
-	RootFS        RootFS               `json:"rootfs"`
+	SchemaVersion int                 `json:"schema_version"`
+	Architecture  string              `json:"architecture"`
+	MinimumMacOS  string              `json:"minimum_macos"`
+	Artifacts     map[string]Artifact `json:"artifacts"`
+	RootFS        RootFS              `json:"rootfs"`
 }
 
 type Artifact struct {
@@ -29,18 +28,12 @@ type Artifact struct {
 	SHA256 string `json:"sha256"`
 }
 
-type Component struct {
-	Version string `json:"version"`
-	Digest  string `json:"digest"`
-}
-
 type RootFS struct {
-	LogicalBytes int64  `json:"logical_bytes"`
-	Filesystem   string `json:"filesystem"`
-	Compressor   string `json:"compressor"`
-	BlockSize    int64  `json:"block_size"`
-	Dictionary   int64  `json:"dictionary_size"`
-	Filter       string `json:"filter"`
+	Filesystem string `json:"filesystem"`
+	Compressor string `json:"compressor"`
+	BlockSize  int64  `json:"block_size"`
+	Dictionary int64  `json:"dictionary_size"`
+	Filter     string `json:"filter"`
 }
 
 type Verified struct {
@@ -49,7 +42,7 @@ type Verified struct {
 	ManifestDigest string
 }
 
-func Verify(directory, expectedManifestDigest string) (*Verified, error) {
+func Verify(directory, expectedManifestDigest string, artifacts ...string) (*Verified, error) {
 	if len(expectedManifestDigest) != sha256.Size*2 {
 		return nil, errors.New("invalid embedded manifest digest")
 	}
@@ -79,7 +72,7 @@ func Verify(directory, expectedManifestDigest string) (*Verified, error) {
 	if manifest.RootFS.Filesystem != "squashfs" || manifest.RootFS.BlockSize != 1<<20 || !supportedRootFS(manifest.RootFS) {
 		return nil, errors.New("unsupported rootfs format")
 	}
-	for _, name := range []string{"kernel", "initramfs", "rootfs", "mcp_appliance_digest", "mcp_appliance_manifest"} {
+	for _, name := range artifacts {
 		artifact, ok := manifest.Artifacts[name]
 		if !ok {
 			return nil, fmt.Errorf("missing artifact %q", name)

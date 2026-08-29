@@ -17,9 +17,11 @@ that replace an installation use a new installation: install and verify the
 new artifact, migrate product data inside the appliance, switch the consumer,
 then revoke and remove the old installation.
 
-The first-party appliance bundled in a signed Host release is different: the
-embedded Guest-manifest digest verifies both `mcp-appliance/manifest.pb` and
-`mcp-appliance.digest`; the manifest digest and exact
+The first-party appliance bundled in a signed Host release is different. VM
+start verifies the full Guest bundle against the manifest digest embedded in
+the Host executable. Appliance reconciliation verifies and reads only
+`mcp-appliance/manifest.pb` and `mcp-appliance.digest` against that same
+manifest; the image digest and exact
 `agent-vmm.local/mcp@<digest>` reference must match the Guest lock. At Host
 startup, one unique desired installation for that product may atomically move
 to the bundled artifact and a stopped revision. The installation ID,

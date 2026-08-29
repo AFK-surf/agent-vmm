@@ -1,10 +1,7 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -44,10 +41,8 @@ func main() {
 	}
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
 	check(err)
-	digest := sha256.Sum256(canonical)
 	check(os.MkdirAll(*output, 0o755))
 	check(os.WriteFile(filepath.Join(*output, "manifest.pb"), canonical, 0o644))
-	fmt.Println("sha256:" + hex.EncodeToString(digest[:]))
 }
 
 func check(err error) {

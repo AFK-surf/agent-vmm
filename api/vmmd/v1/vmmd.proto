@@ -128,7 +128,6 @@ message HealthResponse {
   bool                state_initialized = 2;
   bool                root_read_only    = 3;
   string              boot_id           = 4;
-  string              manifest_digest   = 5;
   map<string, string> runtime_versions  = 6;
 }
 

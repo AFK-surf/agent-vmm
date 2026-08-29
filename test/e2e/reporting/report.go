@@ -51,7 +51,6 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 		return err
 	}
 	rootfs := manifest.Artifacts["rootfs"]
-	ratio := float64(rootfs.Size) / float64(manifest.RootFS.LogicalBytes)
 	result := "PASS"
 	if status != 0 {
 		result = "FAIL"
@@ -63,11 +62,7 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 	fmt.Fprintf(&output, "- Host: `%s %s`\n", command(repository, "sw_vers", "-productVersion"), runtime.GOARCH)
 	fmt.Fprintln(&output, "- VM: 2 vCPU, 4,294,967,296 bytes memory")
 	fmt.Fprintf(&output, "- Guest manifest SHA-256: `%s`\n", hex.EncodeToString(manifestHash[:]))
-	fmt.Fprintf(&output, "- Rootfs: %d packed / %d logical bytes (%.2f%%), SHA-256 `%s`\n", rootfs.Size, manifest.RootFS.LogicalBytes, ratio*100, rootfs.SHA256)
-	for _, name := range []string{"kernel", "containerd", "runsc", "buildkit"} {
-		component := manifest.Components[name]
-		fmt.Fprintf(&output, "- %s: `%s`, digest `%s`\n", name, component.Version, component.Digest)
-	}
+	fmt.Fprintf(&output, "- Rootfs: %d packed bytes, SHA-256 `%s`\n", rootfs.Size, rootfs.SHA256)
 	if peak != 0 {
 		fmt.Fprintf(&output, "- Parallel E2E peak: %d cases\n", peak)
 	}

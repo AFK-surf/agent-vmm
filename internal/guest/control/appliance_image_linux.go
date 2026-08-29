@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -63,17 +62,12 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	if err != nil {
 		return "", "", 0, err
 	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, archive); err != nil {
-		return "", "", 0, err
-	}
 	manifest, err := validateOCIArchive(archive, manifestDigest)
 	if err != nil {
 		return "", "", 0, err
 	}
-	archiveHash := hash.Sum(nil)
-	header := &vmmdv1.ImportImageHeader{RequestId: bundledImportRequestID(canonical, archiveHash), ActorNamespaceId: namespaceID,
-		ImageReference: canonical, ArchiveSha256: archiveHash, ManifestDigest: manifestDigest.String(),
+	header := &vmmdv1.ImportImageHeader{RequestId: bundledImportRequestID(canonical), ActorNamespaceId: namespaceID,
+		ImageReference: canonical, ManifestDigest: manifestDigest.String(),
 		Platform: "linux/arm64", ArchiveSize: uint64(info.Size())}
 	image, err := r.importImage(ctx, archive, header, canonical, *manifest, true)
 	if err != nil {
@@ -82,10 +76,7 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	return image.GetReference(), image.GetDigest(), image.GetLogicalBytes(), nil
 }
 
-func bundledImportRequestID(imageReference string, archiveHash []byte) string {
-	input := make([]byte, 0, len(imageReference)+len(archiveHash))
-	input = append(input, imageReference...)
-	input = append(input, archiveHash...)
-	digest := sha256.Sum256(input)
+func bundledImportRequestID(imageReference string) string {
+	digest := sha256.Sum256([]byte(imageReference))
 	return fmt.Sprintf("bundled-mcp-%x", digest[:24])
 }

@@ -17,12 +17,11 @@ func TestBundledSystemImageClassification(t *testing.T) {
 	}
 }
 
-func TestBundledImportRequestIDChangesWithArtifactInput(t *testing.T) {
-	first := bundledImportRequestID(bundledMCPImage+"sha256:"+strings.Repeat("0", 64), []byte("archive-a"))
-	second := bundledImportRequestID(bundledMCPImage+"sha256:"+strings.Repeat("1", 64), []byte("archive-a"))
-	third := bundledImportRequestID(bundledMCPImage+"sha256:"+strings.Repeat("0", 64), []byte("archive-b"))
-	if first == second || first == third {
-		t.Fatalf("bundled import request IDs must be unique per artifact input: %q %q %q", first, second, third)
+func TestBundledImportRequestIDChangesWithCanonicalDigest(t *testing.T) {
+	first := bundledImportRequestID(bundledMCPImage + "sha256:" + strings.Repeat("0", 64))
+	second := bundledImportRequestID(bundledMCPImage + "sha256:" + strings.Repeat("1", 64))
+	if first == second {
+		t.Fatalf("bundled import request IDs must be unique per canonical digest: %q %q", first, second)
 	}
 	if len(first) > 63 {
 		t.Fatalf("bundled import request ID exceeds request limit: %d", len(first))

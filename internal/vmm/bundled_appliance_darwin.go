@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,13 +29,22 @@ func (manager *Manager) ReadVerifiedBundledApplianceMaterial() (BundledAppliance
 		if !ok {
 			return nil, fmt.Errorf("verified bundle artifact %q is unavailable", name)
 		}
-		encoded, err := os.ReadFile(filepath.Join(verified.Directory, artifact.Path))
+		file, err := os.Open(filepath.Join(verified.Directory, artifact.Path))
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() || info.Size() != artifact.Size {
+			return nil, fmt.Errorf("verified bundle artifact %q size changed", name)
+		}
+		encoded, err := io.ReadAll(file)
 		if err != nil {
 			return nil, err
 		}
 		digest := sha256.Sum256(encoded)
 		if hex.EncodeToString(digest[:]) != artifact.SHA256 {
-			return nil, fmt.Errorf("verified bundle artifact %q changed after verification", name)
+			return nil, fmt.Errorf("verified bundle artifact %q digest changed", name)
 		}
 		return encoded, nil
 	}

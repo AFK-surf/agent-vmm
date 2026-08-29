@@ -84,25 +84,17 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: 1
-      - name: Generate and verify Guest build evidence
+      - name: Verify Guest package and license inventory
         run: |
-          revision=$(git rev-parse HEAD)
-          go run ./build/guest/evidence generate \
-            -bundle "$RUNNER_TEMP/guest-bundle" \
-            -lock build/guest/lock.json \
-            -source-revision "$revision"
           go run ./build/guest/evidence verify \
             -bundle "$RUNNER_TEMP/guest-bundle" \
-            -rootfs "$RUNNER_TEMP/guest-rootfs" \
-            -lock build/guest/lock.json \
-            -source-revision "$revision"
+            -rootfs "$RUNNER_TEMP/guest-rootfs"
       - uses: actions/upload-artifact@v6
         with:
           name: guest-bundle-metadata
           path: |
             ${{ runner.temp }}/guest-bundle/manifest.json
             ${{ runner.temp }}/guest-bundle/sbom.spdx.json
-            ${{ runner.temp }}/guest-bundle/provenance.json
           retention-days: 7
 
   macos-15:

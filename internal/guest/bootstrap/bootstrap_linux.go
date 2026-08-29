@@ -17,7 +17,6 @@ import (
 const StateMount = "/state"
 
 type Result struct {
-	ManifestDigest   string
 	StateDevice      string
 	StateInitialized bool
 	RootReadOnly     bool
@@ -29,10 +28,6 @@ func Prepare() (*Result, error) {
 		return nil, err
 	}
 	parameters := parseCommandLine(string(commandLine))
-	manifestDigest := parameters["agent.manifest_sha256"]
-	if len(manifestDigest) != 64 {
-		return nil, errors.New("missing manifest digest")
-	}
 	stateDevice, err := deviceByIdentifier("AGENT_STATE")
 	if err != nil {
 		return nil, err
@@ -67,7 +62,7 @@ func Prepare() (*Result, error) {
 	if err := unix.Mount(filepath.Join(StateMount, "cni"), "/var/lib/cni", "", unix.MS_BIND, ""); err != nil {
 		return nil, fmt.Errorf("mount CNI state: %w", err)
 	}
-	return &Result{ManifestDigest: manifestDigest, StateDevice: stateDevice, StateInitialized: true, RootReadOnly: rootReadOnly()}, nil
+	return &Result{StateDevice: stateDevice, StateInitialized: true, RootReadOnly: rootReadOnly()}, nil
 }
 
 func UnmountState() error {

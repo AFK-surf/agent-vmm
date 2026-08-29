@@ -64,8 +64,9 @@ the same coordinator and durable operation record rather than maintaining a
 second lifecycle state machine.
 
 The helper only accepts `Agent VMM Host.app` with the fixed `Contents/MacOS`
-host executable, the two approved `Contents/Helpers` binaries, the Guest
-payload, and the embedded release inventory. The bundle validator also rejects
+host executable, the two approved `Contents/Helpers` binaries, and the Guest
+payload. The packaged release inventory is diagnostic and does not authorize
+that layout. The bundle validator also rejects
 SwiftUI/window/menu/Dock metadata and debug executables before lifecycle paths
 are resolved.
 

@@ -139,7 +139,8 @@ func (manager *Manager) Start(ctx context.Context) (*hostv1.VM, error) {
 }
 
 func (manager *Manager) start(ctx context.Context) error {
-	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.GuestManifestDigest)
+	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.GuestManifestDigest,
+		"kernel", "initramfs", "rootfs", "mcp_appliance_digest", "mcp_appliance_manifest")
 	if err != nil {
 		return fmt.Errorf("verify bundle: %w", err)
 	}
@@ -209,7 +210,7 @@ func (manager *Manager) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !health.GetReady() || !health.GetRootReadOnly() || health.GetBootId() == "" || health.GetManifestDigest() != verified.ManifestDigest {
+	if !health.GetReady() || !health.GetRootReadOnly() || health.GetBootId() == "" {
 		return errors.New("guest health does not match verified bundle")
 	}
 	manager.mu.Lock()

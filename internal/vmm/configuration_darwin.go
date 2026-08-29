@@ -14,7 +14,7 @@ import (
 
 func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File, initializing bool) (*vz.VirtualMachineConfiguration, error) {
 	artifact := verified.Manifest.Artifacts
-	commandLine := "console=hvc0 panic=-1 agent.manifest_sha256=" + verified.ManifestDigest
+	commandLine := "console=hvc0 panic=-1"
 	if initializing {
 		commandLine += " agent.state_init=1"
 	}

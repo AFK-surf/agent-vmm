@@ -1,7 +1,6 @@
 package bundle
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,12 +8,8 @@ import (
 
 func TestValidateHostAppAcceptsFixedRuntimeLayout(t *testing.T) {
 	directory := hostFixture(t)
-	inventory, err := ValidateHostApp(directory)
-	if err != nil {
+	if err := ValidateHostApp(directory); err != nil {
 		t.Fatal(err)
-	}
-	if inventory.Layout.MainExecutable != HostExecutableRelativePath {
-		t.Fatalf("inventory=%+v", inventory)
 	}
 }
 
@@ -44,31 +39,12 @@ func TestValidateHostAppRejectsUIAndDebugPayload(t *testing.T) {
 				writeHostFile(t, filepath.Join(directory, "Contents", "Info.plist"), stringsWithWindowMetadata, 0o644)
 			},
 		},
-		{
-			name: "missing release identity",
-			mutate: func(directory string) {
-				data, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)))
-				if err != nil {
-					t.Fatal(err)
-				}
-				var inventory ReleaseInventory
-				if err := json.Unmarshal(data, &inventory); err != nil {
-					t.Fatal(err)
-				}
-				inventory.ReleaseID = ""
-				data, err = json.Marshal(inventory)
-				if err != nil {
-					t.Fatal(err)
-				}
-				writeHostFile(t, filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)), string(data), 0o644)
-			},
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			directory := hostFixture(t)
 			test.mutate(directory)
-			if _, err := ValidateHostApp(directory); err == nil {
+			if err := ValidateHostApp(directory); err == nil {
 				t.Fatal("invalid host app was accepted")
 			}
 		})
@@ -115,21 +91,6 @@ func hostFixture(t *testing.T) string {
 	for _, name := range hostGuestArtifacts {
 		writeHostFile(t, filepath.Join(directory, filepath.FromSlash(HostGuestRelativePath), name), name, 0o644)
 	}
-	inventory := ReleaseInventory{
-		SchemaVersion: 1, Component: "agent-vmm-host-runtime", Product: "Agent VMM Host",
-		BundleName: HostAppName, BundleIdentifier: HostBundleIdentifier, ReleaseID: "agent-vmm-host-test",
-		Layout: HostLayout{
-			MainExecutable: HostExecutableRelativePath,
-			Helpers:        []string{HostDataHelperRelativePath, HostLifecycleHelperRelativePath},
-			Guest:          HostGuestRelativePath, LaunchdTemplate: HostLaunchdTemplateRelativePath,
-			BuildInfo: HostBuildInfoRelativePath, License: HostLicenseRelativePath, Inventory: HostInventoryRelativePath,
-		},
-	}
-	data, err := json.Marshal(inventory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeHostFile(t, filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)), string(data), 0o644)
 	return directory
 }
 

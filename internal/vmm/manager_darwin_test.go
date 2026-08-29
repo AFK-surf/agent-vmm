@@ -43,7 +43,7 @@ func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T
 		artifacts[name] = bundle.Artifact{Path: path, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
 	}
 	outer, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Artifacts: artifacts,
-		Components: map[string]bundle.Component{}, RootFS: bundle.RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}})
+		RootFS: bundle.RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +58,12 @@ func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T
 	}
 	if string(material.Manifest) != string(manifestBytes) || material.ImageDigest != lockedDigest {
 		t.Fatalf("material=%+v", material)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "rootfs.squashfs"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReadVerifiedBundledApplianceMaterial(); err != nil {
+		t.Fatalf("bundled appliance read reverified unrelated rootfs: %v", err)
 	}
 }
 

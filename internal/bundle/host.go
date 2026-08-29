@@ -2,7 +2,6 @@ package bundle
 
 import (
 	"bytes"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -21,7 +20,6 @@ const (
 	HostLifecycleHelperRelativePath = "Contents/Helpers/agent-vmm-lifecycle"
 	HostGuestRelativePath           = "Contents/Resources/Guest"
 	HostLaunchdTemplateRelativePath = "Contents/Resources/com.afk-surf.agent-vmm-host.plist.template"
-	HostInventoryRelativePath       = "Contents/Resources/release-inventory.json"
 	HostBuildInfoRelativePath       = "Contents/Resources/host-build-info.json"
 	HostLicenseRelativePath         = "Contents/Resources/LICENSE"
 )
@@ -33,43 +31,19 @@ var hostGuestArtifacts = []string{
 	ManifestName,
 }
 
-// ReleaseInventory is the non-secret, machine-readable inventory embedded in
-// a Host App. It describes the fixed payload contract; the archive digest is
-// intentionally owned by the outer signed release target.
-type ReleaseInventory struct {
-	SchemaVersion    int        `json:"schema_version"`
-	Component        string     `json:"component"`
-	Product          string     `json:"product"`
-	BundleName       string     `json:"bundle_name"`
-	BundleIdentifier string     `json:"bundle_identifier"`
-	ReleaseID        string     `json:"release_id"`
-	Layout           HostLayout `json:"layout"`
-	SourceRevision   string     `json:"source_revision,omitempty"`
-}
-
-type HostLayout struct {
-	MainExecutable  string   `json:"main_executable"`
-	Helpers         []string `json:"helpers"`
-	Guest           string   `json:"guest"`
-	LaunchdTemplate string   `json:"launchd_template"`
-	BuildInfo       string   `json:"build_info"`
-	License         string   `json:"license"`
-	Inventory       string   `json:"inventory"`
-}
-
 // ValidateHostApp checks the on-disk shape that lifecycle code is allowed to
 // execute. It deliberately does not verify macOS code signatures; codesign is
 // a platform release gate, while this check remains runnable on every CI host.
-func ValidateHostApp(directory string) (*ReleaseInventory, error) {
+func ValidateHostApp(directory string) error {
 	directory, err := filepath.Abs(directory)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if filepath.Base(directory) != HostAppName {
-		return nil, fmt.Errorf("host app must be named %q", HostAppName)
+		return fmt.Errorf("host app must be named %q", HostAppName)
 	}
 	if err := requireDirectory(filepath.Join(directory, "Contents")); err != nil {
-		return nil, err
+		return err
 	}
 	for _, relative := range []string{
 		"Contents/Info.plist",
@@ -77,71 +51,38 @@ func ValidateHostApp(directory string) (*ReleaseInventory, error) {
 		HostDataHelperRelativePath,
 		HostLifecycleHelperRelativePath,
 		HostLaunchdTemplateRelativePath,
-		HostInventoryRelativePath,
 		HostBuildInfoRelativePath,
 		HostLicenseRelativePath,
 	} {
 		if err := requireRegular(filepath.Join(directory, filepath.FromSlash(relative)), relative, false); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, relative := range []string{HostExecutableRelativePath, HostDataHelperRelativePath, HostLifecycleHelperRelativePath} {
 		if err := requireRegular(filepath.Join(directory, filepath.FromSlash(relative)), relative, true); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	guest := filepath.Join(directory, filepath.FromSlash(HostGuestRelativePath))
 	if err := requireDirectory(guest); err != nil {
-		return nil, err
+		return err
 	}
 	for _, name := range hostGuestArtifacts {
 		if err := requireRegular(filepath.Join(guest, name), filepath.ToSlash(filepath.Join(HostGuestRelativePath, name)), false); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if err := validateExecutableDirectory(filepath.Join(directory, "Contents", "MacOS"), []string{"agent-vmm-host"}); err != nil {
-		return nil, err
+		return err
 	}
 	if err := validateExecutableDirectory(filepath.Join(directory, "Contents", "Helpers"), []string{"agent-vmm-data", "agent-vmm-lifecycle"}); err != nil {
-		return nil, err
+		return err
 	}
 	if err := validateInfoPlist(filepath.Join(directory, "Contents", "Info.plist")); err != nil {
-		return nil, err
+		return err
 	}
 	if err := validateLaunchdTemplate(filepath.Join(directory, filepath.FromSlash(HostLaunchdTemplateRelativePath))); err != nil {
-		return nil, err
-	}
-
-	inventoryData, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)))
-	if err != nil {
-		return nil, fmt.Errorf("read host release inventory: %w", err)
-	}
-	var inventory ReleaseInventory
-	decoder := json.NewDecoder(bytes.NewReader(inventoryData))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&inventory); err != nil {
-		return nil, fmt.Errorf("decode host release inventory: %w", err)
-	}
-	if err := validateInventory(inventory); err != nil {
-		return nil, err
-	}
-	return &inventory, nil
-}
-
-func validateInventory(inventory ReleaseInventory) error {
-	if inventory.SchemaVersion != 1 || inventory.Component != "agent-vmm-host-runtime" || inventory.Product != "Agent VMM Host" ||
-		inventory.BundleName != HostAppName || inventory.BundleIdentifier != HostBundleIdentifier || inventory.ReleaseID == "" {
-		return errors.New("host release inventory identity is invalid")
-	}
-	wantHelpers := []string{HostDataHelperRelativePath, HostLifecycleHelperRelativePath}
-	if inventory.Layout.MainExecutable != HostExecutableRelativePath ||
-		!slices.Equal(inventory.Layout.Helpers, wantHelpers) ||
-		inventory.Layout.Guest != HostGuestRelativePath ||
-		inventory.Layout.LaunchdTemplate != HostLaunchdTemplateRelativePath ||
-		inventory.Layout.BuildInfo != HostBuildInfoRelativePath ||
-		inventory.Layout.License != HostLicenseRelativePath ||
-		inventory.Layout.Inventory != HostInventoryRelativePath {
-		return errors.New("host release inventory layout is invalid")
+		return err
 	}
 	return nil
 }

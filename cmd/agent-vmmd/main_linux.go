@@ -70,7 +70,7 @@ func main() {
 	defer listener.Close()
 	grpcServer := control.NewGRPCServer()
 	service := control.NewServer(runtime, control.HealthState{
-		BootID: strings.TrimSpace(string(bootID)), ManifestDigest: prepared.ManifestDigest, RootReadOnly: prepared.RootReadOnly,
+		BootID: strings.TrimSpace(string(bootID)), RootReadOnly: prepared.RootReadOnly,
 		Versions: map[string]string{
 			"containerd": version("/usr/bin/containerd", "--version"),
 			"runsc":      version("/usr/bin/runsc", "--version"),
