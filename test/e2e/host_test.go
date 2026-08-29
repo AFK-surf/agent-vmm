@@ -81,6 +81,7 @@ func TestE2E(t *testing.T) {
 	t.Logf("E2E_PARALLEL_PEAK=%d", peak.Load())
 	t.Run("egress", func(t *testing.T) { testEgress(t, client) })
 	t.Run("imported_image_forced_restart", func(t *testing.T) { testImportedImageForcedRestart(t, harness) })
+	t.Run("provider_state_VM_restart", func(t *testing.T) { testProviderStateVMRestart(t, harness) })
 	t.Run("VM_restart", func(t *testing.T) { testVMRestart(t, harness) })
 	t.Run("forced_VM_stop", func(t *testing.T) { testForcedVMStop(t, harness) })
 	t.Run("cleanup_contract", func(t *testing.T) { testCleanupContract(t, harness, client) })
@@ -945,36 +946,57 @@ func testContainerLifecycle(t *testing.T, client *productClient) {
 }
 
 func testNamedVolume(t *testing.T, client *productClient) {
+	const image = "agent-vmm.local/provider-state:latest"
 	ensureNamespace(t, client, "volume-owner", 128<<20)
 	ensureNamespace(t, client, "volume-other", 128<<20)
-	pullImage(t, client, "volume-owner")
-	pullImage(t, client, "volume-other")
+	archive, digest := buildImportArchive(t)
+	importTestImage(t, client, "volume-owner", "provider-state-owner", image, archive, digest)
+	importTestImage(t, client, "volume-other", "provider-state-other", image, archive, digest)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	createVolume(t, client, "volume-owner", "data")
-	mount := []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}}
-	writer := createContainer(t, client, "volume-owner", "writer", []string{"/bin/sh", "-c", "echo durable > /data/value"}, mount)
+	owner, mode := uint32(1000), uint32(0o700)
+	if _, err := client.CreateVolume(ctx, "volume-owner", &hostv1.CreateVolumeRequest{
+		RequestId: "create-volume-owner-provider-state", VolumeId: "salix-vol-provider-state",
+		OwnerUid: &owner, OwnerGid: &owner, Mode: &mode,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mount := []*hostv1.VolumeMount{{VolumeId: "salix-vol-provider-state", Destination: "/workspace"}}
+	env := []string{"HOME=/workspace"}
+	writer := createContainerAsUser(t, client, "volume-owner", "writer", image, "1000:1000", []string{"/bin/provider-state", "write-codex"}, env, mount)
 	startContainer(t, client, "volume-owner", writer.GetId())
 	waitContainer(t, client, "volume-owner", writer.GetId(), 0)
 	deleteContainer(t, client, "volume-owner", writer.GetId())
-	reader := createContainer(t, client, "volume-owner", "reader", []string{"cat", "/data/value"}, mount)
+	reader := createContainerAsUser(t, client, "volume-owner", "reader", image, "1000:1000", []string{"/bin/provider-state", "read-codex"}, env, mount)
 	startContainer(t, client, "volume-owner", reader.GetId())
 	waitContainer(t, client, "volume-owner", reader.GetId(), 0)
-	if logs := readLogs(t, client, "volume-owner", reader.GetId()); !bytes.Contains(logs, []byte("durable")) {
-		t.Fatalf("volume contents = %q", logs)
+	if logs := readLogs(t, client, "volume-owner", reader.GetId()); string(logs) != "authenticated\n" {
+		t.Fatalf("provider readiness = %q", logs)
 	}
-	if err := client.DeleteVolume(ctx, "volume-owner", &hostv1.DeleteVolumeRequest{RequestId: "delete-mounted-data", VolumeId: "data"}); status.Code(err) != codes.FailedPrecondition {
+	if keys := reader.GetEnvironmentKeys(); len(keys) != 2 || !slices.Contains(keys, "HOME") || !slices.Contains(keys, "PATH") {
+		t.Fatalf("provider state container projected unexpected environment keys: %v", reader.GetEnvironmentKeys())
+	}
+	if !slices.Equal(reader.GetArgv(), []string{"/bin/provider-state", "read-codex"}) {
+		t.Fatalf("provider state container projected unexpected argv: %v", reader.GetArgv())
+	}
+	if err := client.DeleteVolume(ctx, "volume-owner", &hostv1.DeleteVolumeRequest{RequestId: "delete-mounted-provider-state", VolumeId: "salix-vol-provider-state"}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("mounted volume delete error = %v", err)
 	}
 	deleteContainer(t, client, "volume-owner", reader.GetId())
-	if _, err := client.CreateContainer(ctx, "volume-other", &hostv1.CreateContainerRequest{RequestId: "cross-mount", ContainerId: "cross", Image: workloadImage, EntrypointOverride: &hostv1.StringList{Values: []string{"true"}}, CommandOverride: &hostv1.StringList{}, Volumes: mount, LogLimitBytes: 1 << 20}); err == nil {
+	denied := createContainerAsUser(t, client, "volume-owner", "other-user", image, "1001:1001", []string{"/bin/provider-state", "read-codex"}, env, mount)
+	startContainer(t, client, "volume-owner", denied.GetId())
+	if code := waitContainer(t, client, "volume-owner", denied.GetId(), 1); code == 0 {
+		t.Fatal("another workload uid read the provider-owned 0700 volume")
+	}
+	deleteContainer(t, client, "volume-owner", denied.GetId())
+	if _, err := client.CreateContainer(ctx, "volume-other", &hostv1.CreateContainerRequest{RequestId: "cross-mount", ContainerId: "cross", Image: image, EntrypointOverride: &hostv1.StringList{Values: []string{"/bin/provider-state", "read-codex"}}, CommandOverride: &hostv1.StringList{}, Volumes: mount, LogLimitBytes: 1 << 20}); err == nil {
 		t.Fatal("cross-namespace volume mount succeeded")
 	}
 	listed, err := client.ListContainers(ctx, "volume-other")
 	if err != nil || len(listed.GetContainers()) != 0 {
 		t.Fatalf("other namespace containers = %+v, %v", listed, err)
 	}
-	deleteVolume(t, client, "volume-owner", "data")
+	deleteVolume(t, client, "volume-owner", "salix-vol-provider-state")
 	deleteNamespace(t, client, "volume-owner")
 	deleteNamespace(t, client, "volume-other")
 }
@@ -1452,6 +1474,50 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 	deleteVolume(t, client, "restart-source", "data")
 	deleteNamespace(t, client, "restart-source")
 	deleteNamespace(t, client, "restart-destination")
+}
+
+func testProviderStateVMRestart(t *testing.T, harness *hostHarness) {
+	const (
+		namespaceID = "provider-state-restart"
+		image       = "agent-vmm.local/provider-state-restart:latest"
+		volumeID    = "salix-vol-provider-state-restart"
+	)
+	client := harness.runtime(t)
+	ensureNamespace(t, client, namespaceID, 128<<20)
+	archive, digest := buildImportArchive(t)
+	importTestImage(t, client, namespaceID, "import-provider-state-restart", image, archive, digest)
+	owner, mode := uint32(1000), uint32(0o700)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if _, err := client.CreateVolume(ctx, namespaceID, &hostv1.CreateVolumeRequest{
+		RequestId: "create-provider-state-restart", VolumeId: volumeID,
+		OwnerUid: &owner, OwnerGid: &owner, Mode: &mode,
+	}); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	cancel()
+	mount := []*hostv1.VolumeMount{{VolumeId: volumeID, Destination: "/workspace"}}
+	provider := createContainerAsUser(t, client, namespaceID, "provider", image, "1000:1000", []string{"/bin/provider-state", "idle"}, []string{"HOME=/workspace"}, mount)
+	startContainer(t, client, namespaceID, provider.GetId())
+	if output, code := execContainer(t, client, namespaceID, provider.GetId(), []string{"/bin/provider-state", "write-pi"}); code != 0 || string(output) != "authenticated\n" {
+		t.Fatalf("provider state write = %q, exit %d", output, code)
+	}
+	harness.stop(t, false)
+	harness.start(t)
+	client = harness.runtime(t)
+	currentCtx, currentCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	current, err := client.GetContainer(currentCtx, namespaceID, &hostv1.ContainerRequest{ContainerId: provider.GetId()})
+	currentCancel()
+	if err != nil || current.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_STOPPED {
+		t.Fatalf("provider container after VM restart = %+v, %v", current.GetContainer(), err)
+	}
+	startContainer(t, client, namespaceID, provider.GetId())
+	if output, code := execContainer(t, client, namespaceID, provider.GetId(), []string{"/bin/provider-state", "read-pi"}); code != 0 || string(output) != "authenticated\n" {
+		t.Fatalf("provider state after VM restart = %q, exit %d", output, code)
+	}
+	stopDeleteContainer(t, client, namespaceID, provider.GetId())
+	deleteVolume(t, client, namespaceID, volumeID)
+	deleteNamespace(t, client, namespaceID)
 }
 
 func testForcedVMStop(t *testing.T, harness *hostHarness) {
@@ -1956,6 +2022,28 @@ func createContainerWithImageAndVolumes(t *testing.T, client *productClient, nam
 	response, err := client.CreateContainer(ctx, namespaceID, &hostv1.CreateContainerRequest{
 		RequestId:   "create-" + namespaceID + "-" + containerID,
 		ContainerId: containerID, Image: image, EntrypointOverride: &hostv1.StringList{Values: argv}, CommandOverride: &hostv1.StringList{}, Volumes: volumes, LogLimitBytes: 1 << 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		seconds := uint32(1)
+		_, _ = client.StopContainer(ctx, namespaceID, &hostv1.StopContainerRequest{RequestId: "cleanup-stop-" + namespaceID + "-" + containerID, ContainerId: containerID, TimeoutSeconds: &seconds})
+		_ = client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "cleanup-delete-" + namespaceID + "-" + containerID, ContainerId: containerID})
+	})
+	return response.GetContainer()
+}
+
+func createContainerAsUser(t *testing.T, client *productClient, namespaceID, containerID, image, user string, argv, env []string, volumes []*hostv1.VolumeMount) *hostv1.Container {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	response, err := client.CreateContainer(ctx, namespaceID, &hostv1.CreateContainerRequest{
+		RequestId: "create-" + namespaceID + "-" + containerID, ContainerId: containerID,
+		Image: image, EntrypointOverride: &hostv1.StringList{Values: argv}, CommandOverride: &hostv1.StringList{},
+		Env: env, User: &user, Volumes: volumes, LogLimitBytes: 1 << 20,
 	})
 	if err != nil {
 		t.Fatal(err)

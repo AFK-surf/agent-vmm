@@ -51,9 +51,33 @@ func testImportedImageForcedRestart(t *testing.T, harness *hostHarness) {
 	deleteNamespace(t, client, namespaceID)
 }
 
+func importTestImage(t *testing.T, client *productClient, namespaceID, requestID, reference string, archive []byte, manifestDigest string) *hostv1.Image {
+	t.Helper()
+	archiveHash := sha256.Sum256(archive)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	image, err := client.ImportImage(ctx, namespaceID, &hostv1.ImportImageHeader{
+		RequestId: requestID, ImageReference: reference, ArchiveSha256: archiveHash[:],
+		ManifestDigest: manifestDigest, Platform: "linux/arm64", ArchiveSize: uint64(len(archive)),
+	}, bytes.NewReader(archive))
+	if err != nil || image.GetDigest() != manifestDigest {
+		t.Fatalf("archive import = %+v, %v", image, err)
+	}
+	return image
+}
+
 func buildImportArchive(t *testing.T) ([]byte, string) {
 	t.Helper()
 	directory := t.TempDir()
+	providerState := filepath.Join(directory, "provider-state")
+	_, source, _, _ := runtime.Caller(0)
+	repository := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -buildid=", "-o", providerState, "./test/e2e/testdata/providerstate")
+	build.Dir = repository
+	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build provider-state E2E helper: %v: %s", err, output)
+	}
 	layerPath := filepath.Join(directory, "layer.tar")
 	layer, err := os.Create(layerPath)
 	if err != nil {
@@ -67,14 +91,22 @@ func buildImportArchive(t *testing.T) ([]byte, string) {
 	if _, err := writer.Write(marker); err != nil {
 		t.Fatal(err)
 	}
+	helper, err := os.ReadFile(providerState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteHeader(&tar.Header{Name: "bin/provider-state", Mode: 0o755, Size: int64(len(helper))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write(helper); err != nil {
+		t.Fatal(err)
+	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := layer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_, source, _, _ := runtime.Caller(0)
-	repository := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
 	archivePath := filepath.Join(directory, "image.oci.tar")
 	command := exec.Command("go", "run", "./build/guest/oci", layerPath, archivePath)
 	command.Dir = repository

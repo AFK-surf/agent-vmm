@@ -248,6 +248,19 @@ Data that must survive container replacement belongs in a named volume.
 
 Stateful services use Linux volumes on the encrypted state disk.
 
+Provider-native credential stores use the same provider-neutral volume
+primitive. The product controller allocates and retains one opaque volume ID,
+creates it with the workload image's numeric UID/GID and mode `0700`, and mounts
+it read-write at the image's declared workspace. Agent VMM does not receive an
+OAuth token, API key, device code, provider name, workload generation, or
+runtime connection epoch for this operation. The provider process writes its
+native credential store inside the container, so the host observes only the
+volume ID, ownership, mode, and mount policy. Container replacement and VM
+restart preserve the volume; another namespace cannot name it and another UID
+cannot read it. Workload-generation and connection-epoch fencing remain the
+controller/runtime-carrier authority and do not create a second Agent VMM
+volume lifecycle.
+
 ## Cross-Namespace Collaboration
 
 ### `NetworkLink`
