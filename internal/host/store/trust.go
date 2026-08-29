@@ -301,9 +301,11 @@ func (store *Store) GetMembershipCredential(ctx context.Context, authorityID, su
 }
 
 // InstallManagedTrust atomically advances the controller anchor and the local
-// device credential. Equal revisions are idempotent only for byte-identical
-// artifacts; rollback and same-revision substitution fail closed.
-func (store *Store) InstallManagedTrust(ctx context.Context, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
+// device credential. Equal revisions are idempotent for byte-identical
+// artifacts. A different, already-validated credential at the same revision
+// may replace only an expired credential; rollback and unexpired
+// same-revision substitution fail closed.
+func (store *Store) InstallManagedTrust(ctx context.Context, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential, validatedAt time.Time) error {
 	anchorPayload, err := marshalTrust(anchor)
 	if err != nil {
 		return err
@@ -317,7 +319,7 @@ func (store *Store) InstallManagedTrust(ctx context.Context, anchor *trustv1.Tru
 		return err
 	}
 	defer tx.Rollback()
-	now := time.Now().UnixNano()
+	now := validatedAt.UnixNano()
 	if err := installManagedTrustTx(ctx, tx, anchor, credential, anchorPayload, credentialPayload, now); err != nil {
 		return err
 	}
@@ -354,9 +356,10 @@ func installManagedTrustTx(ctx context.Context, tx *sql.Tx, anchor *trustv1.Trus
 		return err
 	}
 	var currentPolicyRevision uint64
+	var currentCredentialExpiry int64
 	var currentCredentialPayload []byte
-	err = tx.QueryRowContext(ctx, `SELECT policy_revision, credential FROM membership_credentials
-		WHERE authority_id=? AND subject_device_id=?`, credential.GetAuthority().GetAuthorityId(), credential.GetSubjectDeviceId()).Scan(&currentPolicyRevision, &currentCredentialPayload)
+	err = tx.QueryRowContext(ctx, `SELECT policy_revision, expires_at, credential FROM membership_credentials
+		WHERE authority_id=? AND subject_device_id=?`, credential.GetAuthority().GetAuthorityId(), credential.GetSubjectDeviceId()).Scan(&currentPolicyRevision, &currentCredentialExpiry, &currentCredentialPayload)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		_, err = tx.ExecContext(ctx, `INSERT INTO membership_credentials(authority_id, subject_device_id, policy_revision,
@@ -365,6 +368,16 @@ func installManagedTrustTx(ctx context.Context, tx *sql.Tx, anchor *trustv1.Trus
 	case err != nil:
 		return err
 	case credential.GetPolicyRevision() == currentPolicyRevision && bytes.Equal(credentialPayload, currentCredentialPayload):
+	case credential.GetPolicyRevision() == currentPolicyRevision && currentCredentialExpiry <= now:
+		var result sql.Result
+		result, err = tx.ExecContext(ctx, `UPDATE membership_credentials SET expires_at=?, credential=?, updated_at=?
+			WHERE authority_id=? AND subject_device_id=? AND policy_revision=? AND expires_at<=?`, credential.GetExpiresAt().AsTime().UnixNano(),
+			credentialPayload, now, credential.GetAuthority().GetAuthorityId(), credential.GetSubjectDeviceId(), currentPolicyRevision, now)
+		if err == nil {
+			if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != 1 {
+				return errors.Join(ErrTrustRevisionConflict, changeErr)
+			}
+		}
 	case credential.GetPolicyRevision() > currentPolicyRevision:
 		_, err = tx.ExecContext(ctx, `UPDATE membership_credentials SET policy_revision=?, expires_at=?, credential=?, updated_at=?
 			WHERE authority_id=? AND subject_device_id=? AND policy_revision=?`, credential.GetPolicyRevision(),

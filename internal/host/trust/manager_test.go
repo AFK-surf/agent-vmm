@@ -441,6 +441,7 @@ func TestManagedEnrollmentTrustInstallIsAtomicAndRevisionFenced(t *testing.T) {
 	}
 	key := testKey(t)
 	managedAnchor := anchor("managed-enrollment", trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER, "managed-key", key, now)
+	managedAnchor.NotAfter = timestamppb.New(now.Add(3 * time.Hour))
 	claims := sha256.Sum256([]byte("registration"))
 	credential := &trustv1.MembershipCredential{Authority: proto.Clone(managedAnchor.GetAuthority()).(*trustv1.AuthorityDescriptor),
 		SubjectDeviceId: identity.Identity.GetDeviceId(), SubjectRootKeyRevision: identity.Identity.GetRootKeyRevision(),
@@ -453,6 +454,14 @@ func TestManagedEnrollmentTrustInstallIsAtomicAndRevisionFenced(t *testing.T) {
 	if err := manager.InstallManagedTrust(ctx, managedAnchor, credential); err != nil {
 		t.Fatalf("idempotent managed trust install failed: %v", err)
 	}
+	replacementClaims := sha256.Sum256([]byte("replacement-registration"))
+	replacement := proto.Clone(credential).(*trustv1.MembershipCredential)
+	replacement.OpaqueClaimsDigest = replacementClaims[:]
+	replacement.ExpiresAt = timestamppb.New(now.Add(2 * time.Hour))
+	signMessage(t, key, replacement)
+	if err := manager.InstallManagedTrust(ctx, managedAnchor, replacement); err == nil {
+		t.Fatal("unexpired same-revision managed credential was replaced")
+	}
 	forged := proto.Clone(credential).(*trustv1.MembershipCredential)
 	forged.Signature[0] ^= 0xff
 	if err := manager.InstallManagedTrust(ctx, managedAnchor, forged); err == nil {
@@ -461,6 +470,17 @@ func TestManagedEnrollmentTrustInstallIsAtomicAndRevisionFenced(t *testing.T) {
 	stored, err := database.GetMembershipCredential(ctx, managedAnchor.GetAuthority().GetAuthorityId(), identity.Identity.GetDeviceId())
 	if err != nil || !proto.Equal(stored, credential) {
 		t.Fatalf("stored credential changed after rejected install: %+v err=%v", stored, err)
+	}
+	manager.now = func() time.Time { return credential.GetExpiresAt().AsTime() }
+	if err := manager.InstallManagedTrust(ctx, managedAnchor, replacement); err != nil {
+		t.Fatalf("expired same-revision managed credential was not replaced: %v", err)
+	}
+	if err := manager.InstallManagedTrust(ctx, managedAnchor, replacement); err != nil {
+		t.Fatalf("replacement was not byte-identically idempotent: %v", err)
+	}
+	stored, err = database.GetMembershipCredential(ctx, managedAnchor.GetAuthority().GetAuthorityId(), identity.Identity.GetDeviceId())
+	if err != nil || !proto.Equal(stored, replacement) {
+		t.Fatalf("expired credential replacement was not stored: %+v err=%v", stored, err)
 	}
 }
 

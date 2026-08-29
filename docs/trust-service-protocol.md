@@ -77,6 +77,13 @@ persists a controller-signed membership credential, then returns the current
 managed anchor and credential. The connector writes its bearer credential and
 asks the restricted host trust service to verify and atomically install the
 bundle; it deletes the bearer credential if host verification fails. Managed
+credential policy revision identifies policy, not one hourly signature. A
+byte-identical credential remains idempotent. A different fully verified
+credential at the same policy revision may replace the stored payload only
+after the stored credential expires; an unexpired substitution or invalid
+signature fails closed. This lets a later registration renew the same device
+without weakening the current credential fence or inventing a second revision.
+Managed
 route capabilities carry the signed source membership credential so a
 destination can verify a remote source against its installed anchor without a
 per-route control-plane lookup. Personal capabilities reject that embedded

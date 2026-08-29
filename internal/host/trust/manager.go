@@ -305,10 +305,11 @@ func (manager *Manager) ListPersonalMeshes(ctx context.Context) ([]*trustv1.Pers
 // TLS-authenticated, one-time controller enrollment flow. It verifies the
 // controller-signed device credential before atomically advancing local facts.
 func (manager *Manager) InstallManagedTrust(ctx context.Context, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
-	if err := manager.validateManagedTrust(ctx, anchor, credential); err != nil {
+	validatedAt := manager.now()
+	if err := manager.validateManagedTrustAt(ctx, anchor, credential, validatedAt); err != nil {
 		return err
 	}
-	return manager.store.InstallManagedTrust(ctx, anchor, credential)
+	return manager.store.InstallManagedTrust(ctx, anchor, credential, validatedAt)
 }
 
 func (manager *Manager) InstallApplianceManagedTrust(ctx context.Context, binding store.ApplianceTrustAuthority, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
@@ -319,7 +320,10 @@ func (manager *Manager) InstallApplianceManagedTrust(ctx context.Context, bindin
 }
 
 func (manager *Manager) validateManagedTrust(ctx context.Context, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
-	now := manager.now()
+	return manager.validateManagedTrustAt(ctx, anchor, credential, manager.now())
+}
+
+func (manager *Manager) validateManagedTrustAt(ctx context.Context, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential, now time.Time) error {
 	identity, err := manager.store.GetDeviceIdentity(ctx)
 	if err != nil || identity.State != store.DeviceIdentityReady || anchor == nil || credential == nil ||
 		anchor.GetAuthority().GetAuthorityClass() != trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER ||
