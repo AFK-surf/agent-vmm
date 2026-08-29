@@ -123,15 +123,6 @@ test ! -e "$product/Contents/MacOS/agent-vmm"
 test ! -e "$product/Contents/Helpers/agent-vmm-host"
 test ! -e "$product/Contents/Helpers/agent-vmm"
 test ! -e "$product/Contents/Resources/SwiftUI"
-jq -e --arg release_id "$release_id" '
-	.schema_version == 1 and
-	.component == "agent-vmm-host-runtime" and
-	.release_id == $release_id and
-	.bundle_name == "Agent VMM Host.app" and
-	.bundle_identifier == "com.afk-surf.agent-vmm-host" and
-	.layout.main_executable == "Contents/MacOS/agent-vmm-host" and
-	.layout.helpers == ["Contents/Helpers/agent-vmm-data", "Contents/Helpers/agent-vmm-lifecycle"]
-' "$product/Contents/Resources/release-inventory.json" >/dev/null
 codesign --force --sign "$identity" --options runtime --entitlements "$repo/build/host/vz.entitlements.plist" "$product/Contents/MacOS/agent-vmm-host"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-lifecycle"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-data"

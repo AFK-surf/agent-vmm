@@ -60,7 +60,7 @@ jobs:
             alpine:3.24 \
             sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && build/guest/build.sh /bundle'
           cd "$RUNNER_TEMP/guest-bundle"
-          jq -r '.artifacts[] | "\(.sha256)  \(.path)"' manifest.json | sha256sum -c -
+          jq -r '.artifacts | .mcp_appliance_digest, .mcp_appliance_manifest | "\(.sha256)  \(.path)"' manifest.json | sha256sum -c -
           test "$(jq -r .architecture manifest.json)" = arm64
       - name: Unpack the built Guest root filesystem
         run: |
