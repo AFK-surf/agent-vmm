@@ -47,8 +47,10 @@ Operation material never appears in argv, logs, or the operation record.
 Existing installations may
 omit it when their single local appliance can be identified unambiguously.
 Missing operation/configuration fails closed; the helper never reports
-readiness or fabricates an install result. A terminal failure retains the plan
-until the provisioner has persisted its failure report and received the Server
+readiness or fabricates an install result. A durably recorded non-retryable
+failure returns `destroy_terminal`; retryable, unknown, lock, and record-write
+failures return `retain`. The terminal result keeps the plan until the
+provisioner has persisted its failure report and received the Server
 acknowledgement for the same operation. After that acknowledgement, the
 provisioner invokes the internal `install-operation-ack --operation-id <id>`
 command. The helper validates the operation identity and idempotently removes

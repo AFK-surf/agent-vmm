@@ -470,7 +470,7 @@ func TestManagedLifecycleOperationRetriesFailedStableRequest(t *testing.T) {
 	}
 }
 
-func TestManagedLifecycleOperationDoesNotRetryPermanentFailure(t *testing.T) {
+func TestManagedLifecycleOperationReportsPermanentFailureWithoutRetry(t *testing.T) {
 	value := testPaths(t.TempDir())
 	calls := 0
 	first, err := runManagedLifecycleOperation(value, "install-managed", "operation-terminal", func() error {
@@ -480,14 +480,14 @@ func TestManagedLifecycleOperationDoesNotRetryPermanentFailure(t *testing.T) {
 	if err == nil || first.Retryable || first.FailureCode != "install_failed" {
 		t.Fatalf("terminal managed operation=%+v err=%v", first, err)
 	}
-	if first.SecretDisposition != secretDispositionRetain {
-		t.Fatalf("generic non-retryable error gained secret authority: %+v", first)
+	if first.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("durable non-retryable error did not enter terminal reporting: %+v", first)
 	}
 	second, err := runManagedLifecycleOperation(value, "install-managed", "operation-terminal", func() error {
 		calls++
 		return nil
 	})
-	if err == nil || calls != 1 || second.OperationID != first.OperationID {
+	if err == nil || calls != 1 || second.OperationID != first.OperationID || second.SecretDisposition != secretDispositionDestroyTerminal {
 		t.Fatalf("terminal operation was retried: first=%+v second=%+v calls=%d err=%v", first, second, calls, err)
 	}
 }
@@ -507,6 +507,9 @@ func TestTerminalManagedLifecycleFailureRetainsPlanForServerAcknowledgement(t *t
 	})
 	if operationErr == nil || operation.Retryable {
 		t.Fatalf("permanent failure was not terminal: operation=%+v err=%v", operation, operationErr)
+	}
+	if operation.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("permanent failure did not request terminal reporting: %+v", operation)
 	}
 	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
 		t.Fatal("terminal operation error was lost")
@@ -544,7 +547,7 @@ func TestRetryableManagedLifecycleFailureRetainsPlan(t *testing.T) {
 	}
 }
 
-func TestNonRetryableStorageFailureRetainsPlan(t *testing.T) {
+func TestNonRetryableManagedFailureRetainsPlanUntilTerminalReportAck(t *testing.T) {
 	value := testPaths(t.TempDir())
 	operationID := "operation-storage-failure"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -557,14 +560,48 @@ func TestNonRetryableStorageFailureRetainsPlan(t *testing.T) {
 	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
 		return &os.PathError{Op: "sync", Path: planPath, Err: os.ErrPermission}
 	})
-	if operationErr == nil || operation.Retryable || operation.SecretDisposition != secretDispositionRetain {
-		t.Fatalf("storage failure gained terminal authority: operation=%+v err=%v", operation, operationErr)
+	if operationErr == nil || operation.Retryable || operation.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("non-retryable failure did not enter terminal reporting: operation=%+v err=%v", operation, operationErr)
 	}
 	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
 		t.Fatal("storage failure error was lost")
 	}
 	if _, err := os.Stat(planPath); err != nil {
 		t.Fatalf("storage failure removed durable plan: %v", err)
+	}
+	if err := cleanupInstallPlan(value, operationID); err != nil {
+		t.Fatalf("acknowledged terminal report did not clean the retained plan: %v", err)
+	}
+	if _, err := os.Stat(planPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("acknowledged terminal plan remains: %v", err)
+	}
+}
+
+func TestNonRetryableResultRecordFailureRetainsPlan(t *testing.T) {
+	value := testPaths(t.TempDir())
+	operationID := "operation-record-failure"
+	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(value.applicationData, 0o700) })
+	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
+		if err := os.Chmod(value.applicationData, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		return os.ErrPermission
+	})
+	if err := os.Chmod(value.applicationData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if operationErr == nil || operation.SecretDisposition != secretDispositionRetain {
+		t.Fatalf("undurable terminal result did not retain its plan: operation=%+v err=%v", operation, operationErr)
+	}
+	if _, err := os.Stat(planPath); err != nil {
+		t.Fatalf("record failure removed retained plan: %v", err)
 	}
 }
 

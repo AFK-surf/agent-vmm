@@ -701,6 +701,13 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		operation.FailureStage, operation.FailureCode, operation.FailureMessage, operation.Retryable = lifecycleFailure(kind, err)
 		if kind == "install-managed" {
 			operation.SecretDisposition = managedInstallSecretDisposition(err)
+			// A durable non-retryable result is the local half of the
+			// action-required transition. It must be reported once and then
+			// acknowledged by the Server before the retained plan is removed.
+			// Persist failure below revokes this disposition and keeps the plan.
+			if !operation.Retryable {
+				operation.SecretDisposition = secretDispositionDestroyTerminal
+			}
 		}
 		operation.UpdatedAt = time.Now().UnixMilli()
 		if persistErr := persistOperation(value.operationFile, operation); persistErr != nil {

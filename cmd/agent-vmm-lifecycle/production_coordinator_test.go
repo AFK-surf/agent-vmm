@@ -91,8 +91,25 @@ func TestExistingApplianceMustMatchRequestedArtifact(t *testing.T) {
 	if err := validateExistingAppliance(status, "artifact-1", grant); err != nil {
 		t.Fatalf("exact existing artifact was rejected: %v", err)
 	}
-	if err := validateExistingAppliance(status, "artifact-2", grant); err == nil || !strings.Contains(err.Error(), "artifact") {
-		t.Fatalf("mismatched existing artifact was accepted: %v", err)
+	mismatch := validateExistingAppliance(status, "artifact-2", grant)
+	if mismatch == nil || !strings.Contains(mismatch.Error(), "artifact") {
+		t.Fatalf("mismatched existing artifact was accepted: %v", mismatch)
+	}
+	value := testPaths(t.TempDir())
+	calls := 0
+	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", "operation-artifact-mismatch", func() error {
+		calls++
+		return mismatch
+	})
+	if operationErr == nil || calls != 1 || operation.Retryable || operation.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("artifact mismatch did not produce a terminal report: operation=%+v calls=%d err=%v", operation, calls, operationErr)
+	}
+	resumed, resumeErr := runManagedLifecycleOperation(value, "install-managed", "operation-artifact-mismatch", func() error {
+		calls++
+		return nil
+	})
+	if resumeErr == nil || calls != 1 || resumed.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("terminal artifact mismatch was replayed or lost: operation=%+v calls=%d err=%v", resumed, calls, resumeErr)
 	}
 	changedGrant := proto.Clone(grant).(*appliancev1.ApprovedGrant)
 	changedGrant.Capacity.MaxEnvironments = 1
