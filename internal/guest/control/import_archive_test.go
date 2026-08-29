@@ -5,10 +5,13 @@ package control
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	coreimages "github.com/containerd/containerd/v2/core/images"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -16,16 +19,43 @@ import (
 
 func TestValidateOCIArchiveUsesHeaderReferenceInsteadOfBuildxAnnotations(t *testing.T) {
 	reference := "example.com/agent/pi:latest"
+	incidentalReference := "docker.io/buildx/generated:latest"
 	archive, manifestDigest := testOCIArchive(t, map[string]string{
-		ocispec.AnnotationRefName:  "docker.io/buildx/generated:latest",
-		"io.containerd.image.name": "docker.io/buildx/generated:latest",
+		ocispec.AnnotationRefName:  incidentalReference,
+		"io.containerd.image.name": incidentalReference,
 	}, ocispec.Platform{OS: "linux", Architecture: "arm64"})
-	if _, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest); err != nil {
+	manifest, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := validateImportHeader(&vmmdv1.ImportImageHeader{RequestId: "request", ActorNamespaceId: "namespace", ImageReference: reference,
 		ArchiveSha256: make([]byte, 32), ManifestDigest: manifestDigest.String(), Platform: "linux/arm64", ArchiveSize: uint64(len(archive))}, uint64(len(archive))); err != nil {
 		t.Fatal(err)
+	}
+	var deleted []string
+	if err := cleanupImportedRecords(context.Background(), []coreimages.Image{{Name: incidentalReference, Target: *manifest}}, *manifest, "", func(_ context.Context, name string) error {
+		deleted = append(deleted, name)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 1 || deleted[0] != incidentalReference {
+		t.Fatalf("deleted records = %v, want only %q", deleted, incidentalReference)
+	}
+}
+
+func TestCleanupImportedRecordsRejectsTargetOtherThanCommittedManifest(t *testing.T) {
+	committed := ocispec.Descriptor{Digest: digest.FromString("committed")}
+	deleted := false
+	err := cleanupImportedRecords(context.Background(), []coreimages.Image{{Name: "docker.io/buildx/generated:latest", Target: ocispec.Descriptor{Digest: digest.FromString("other")}}}, committed, "", func(context.Context, string) error {
+		deleted = true
+		return nil
+	})
+	if !errors.Is(err, errImportedManifestMismatch) {
+		t.Fatalf("error = %v, want imported manifest mismatch", err)
+	}
+	if deleted {
+		t.Fatal("mismatched imported record was deleted before all targets were validated")
 	}
 }
 

@@ -218,8 +218,17 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	if err != nil {
 		return nil, imageError(codes.InvalidArgument, "OCI_ARCHIVE_INVALID", "OCI archive could not be imported", imageReference)
 	}
-	if len(importedRecords) != 0 {
-		return nil, imageError(codes.InvalidArgument, "OCI_MANIFEST_MISMATCH", "OCI archive imported an unexpected manifest", imageReference)
+	preservedRecord := ""
+	if existingErr == nil {
+		preservedRecord = imageReference
+	}
+	if err := cleanupImportedRecords(stagingContext, importedRecords, manifest, preservedRecord, func(ctx context.Context, name string) error {
+		return r.client.ImageService().Delete(ctx, name, coreimages.SynchronousDelete())
+	}); err != nil {
+		if errors.Is(err, errImportedManifestMismatch) {
+			return nil, imageError(codes.InvalidArgument, "OCI_MANIFEST_MISMATCH", "OCI archive imported an unexpected manifest", imageReference)
+		}
+		return nil, err
 	}
 	staged := containerd.NewImageWithPlatform(r.client, coreimages.Image{Name: imageReference, Target: manifest}, platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: "arm64"}))
 	size, err := staged.Size(stagingContext)
@@ -259,6 +268,25 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 		return nil, fmt.Errorf("persist imported image: %w", err)
 	}
 	return r.getImageForRole(nsctx, header.GetActorNamespaceId(), imageReference, system)
+}
+
+var errImportedManifestMismatch = errors.New("imported image record target does not match committed manifest")
+
+func cleanupImportedRecords(ctx context.Context, records []coreimages.Image, manifest ocispec.Descriptor, preservedName string, deleteRecord func(context.Context, string) error) error {
+	for _, record := range records {
+		if record.Target.Digest != manifest.Digest {
+			return errImportedManifestMismatch
+		}
+	}
+	for _, record := range records {
+		if record.Name == preservedName {
+			continue
+		}
+		if err := deleteRecord(ctx, record.Name); err != nil && !errdefs.IsNotFound(err) {
+			return fmt.Errorf("remove incidental imported image record %q: %w", record.Name, err)
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) commitImportRecord(ctx context.Context, image containerd.Image, requestLabel, fingerprint string) error {
