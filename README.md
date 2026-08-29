@@ -28,7 +28,8 @@ Read [the architecture design](docs/architecture.md) for the security model, com
 
 ## Verification
 
-Run the Go checks on macOS:
+For final convergence, run the Go checks on macOS. During development, run the
+smallest package or test set that covers the changed boundary first:
 
 ```sh
 go test ./... -count=1
@@ -52,4 +53,4 @@ The agent-vmm source code uses the [MIT License](LICENSE).
 
 Guest artifacts also contain third-party components. Their own licenses continue to apply.
 
-The canonical Guest manifest records only the artifacts and filesystem format needed to start the VM. CI unpacks the built SquashFS and generates the Guest SPDX inventory from that output. The evidence check requires every installed APK to appear with a declared license; it does not apply a legal license allow/deny policy. Trivy separately blocks fixable high or critical dependency advisories. The SBOM is release evidence, not runtime authority.
+The canonical Guest manifest records only the artifacts and filesystem format needed to start the VM. CI unpacks the built SquashFS and generates the Guest SPDX inventory from that output. The inventory check requires every installed APK to appear with a declared license; it does not apply a legal license allow/deny policy. Trivy separately blocks fixable high or critical dependency advisories. The SBOM is CI inventory, not runtime authority.

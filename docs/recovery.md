@@ -37,8 +37,8 @@ a bound.
 An existing schema-17 Host database created before the independent
 `egress_mode` column requires one explicit operator update before installing a
 Host that reads the column. Stop the Host, take a restorable SQLite backup, and
-audit every `appliance_grants` row against the durable installation evidence
-that authorized its exact approved grant. The
+audit every `appliance_grants` row against the durable approved operation or
+grant record that authorized it. The
 actual egress mode must come from `ApprovedGrant.egress_mode`; never copy
 `max_egress_mode`, which is only the allocation ceiling. Abort if the row count,
 installation identity, authorized manifest, or actual mode is not known exactly.

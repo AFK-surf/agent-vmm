@@ -6,12 +6,12 @@
 - Avoid excessive design, defensive code, and patch-based fixes.
 - Do not run `git stage`, `git reset`, `git add`, or `git commit` unless the user requests it.
 - Do not inspect the Git stage unless the user requests it.
-- Spawn review agents with an empty inherited context. Put the read-only role, review scope, and required evidence in the review task instead of forking the implementation conversation.
+- Spawn review agents with an empty inherited context. Put the read-only role, review scope, and decisions to evaluate in the review task instead of forking the implementation conversation.
 - During implementation, run the smallest focused test set that covers the current change or failure. Run broader phase gates only after focused tests are stable, and run the full test suite only for final convergence or when a broad regression check is specifically justified.
 - Apply the following cleanup continuously as responsibilities settle, and repeat the audit after all automated TODO items pass:
   - Compare the branch with `main` and remove low-quality generated code.
   - Remove comments that a maintainer would not add or that conflict with the local style.
-  - Remove excessive checks from trusted or previously validated call paths.
+  - Remove excessive checks from trusted or previously validated call paths. A build, publication, deployment, or runtime check must protect an independent boundary and change a real user, operator, or runner-deployer decision; CI output, a test, a TLA+ model, or metadata presence is not sufficient justification.
   - Reuse or extend an existing type when a new type does not improve maintenance.
   - Extend or parameterize an existing test when a separate test does not improve its scope.
   - Rename tests when the file name does not match the test scope.
@@ -89,7 +89,7 @@ Do not record temporary failures or narrow implementation mistakes.
 - gVisor blocks sandbox-created host-visible Unix sockets by default. Keep runsc `host-uds=create` so system appliances can bind only their projected private sockets; do not grant `open` or `all`.
 - Reject new public relay connections after the VM enters `STOPPING`.
 - Permit the internal `PrepareShutdown` connection during `STOPPING` so the guest can finish cleanup.
-- Link the Host executable with the canonical Guest manifest digest and keep the Guest SBOM as CI evidence, not runtime bundle authority.
+- Link the Host executable with the canonical Guest manifest digest. Keep a Guest SBOM only as CI inventory for a concrete dependency or license consumer, never as runtime bundle authority.
 - Treat a new remote connection instance after the stored state became `DISCONNECTED` as grace-period recovery. Revoke remote leases for a replacement instance only when the previous instance is still `CONNECTED`.
 - A valid remote lease may open a new runtime session after connector recovery. Revoke the previous session capability before issuing its replacement; do not reject the lease as already open.
 - Keep remote admission state separate from connector transport state. Draining rejects new allocations and leases but preserves existing leases and runtime sessions; only revocation tears them down.
