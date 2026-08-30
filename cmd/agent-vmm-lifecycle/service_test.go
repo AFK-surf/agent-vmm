@@ -122,6 +122,36 @@ func TestServiceDefinitionRetainsExistingResourceGeometry(t *testing.T) {
 	}
 }
 
+func TestRepairRetainsConfiguredPairingRestriction(t *testing.T) {
+	value := testPaths(t.TempDir())
+	value.service.DisablePairing = true
+	if err := os.MkdirAll(value.resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProgramArguments</key><array><string>host</string></array></dict></plist>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := repairWithOptionsContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		if arguments[0] == "print" || arguments[0] == "bootout" {
+			return errLaunchctlServiceNotFound
+		}
+		return nil
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := os.ReadFile(value.hostPlist)
+	if err != nil || !strings.Contains(string(definition), "<string>--disable-personal-mesh-pairing</string>") {
+		t.Fatalf("repair loosened configured pairing policy: definition=%s err=%v", definition, err)
+	}
+	configured, err := readServiceConfig(value.serviceConfigFile)
+	if err != nil || !configured.DisablePairing {
+		t.Fatalf("repair did not retain configured pairing policy: config=%+v err=%v", configured, err)
+	}
+}
+
 func TestCurrentDaemonCanBeObservedWithoutReload(t *testing.T) {
 	value := testPaths(t.TempDir())
 	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}

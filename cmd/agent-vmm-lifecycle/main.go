@@ -983,6 +983,9 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Omission preserves the administrator-owned restrictive policy across a
+	// bundle replacement. An explicit disable request can only tighten it.
+	disablePairing = disablePairing || value.service.DisablePairing
 	if !directory(value.app) {
 		return errors.New("Agent VMM application bundle is missing")
 	}

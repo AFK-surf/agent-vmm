@@ -130,7 +130,11 @@ func resolveServiceConfig(request serviceRequest) (serviceConfig, error) {
 	if mode == serviceModeDaemon && os.Geteuid() != 0 && configured.Mode != serviceModeDaemon {
 		return serviceConfig{}, errors.New("initial daemon installation requires administrator access")
 	}
-	return serviceConfig{Version: 1, Mode: mode, User: account.Username, Group: group.Name, UID: uid, GID: gid, ReleaseID: releaseID}, nil
+	return serviceConfig{
+		Version: 1, Mode: mode, User: account.Username, Group: group.Name,
+		UID: uid, GID: gid, ReleaseID: releaseID,
+		DisablePairing: configured.DisablePairing,
+	}, nil
 }
 
 func selectServiceModeForAction(requested, configured serviceMode, action string, euid, uid int, guiAvailable func(int) bool) (serviceMode, error) {

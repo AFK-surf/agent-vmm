@@ -36,9 +36,11 @@ maps the computed aggregate decision to that input.
   single-service-owner invariant. `HostServiceExistingOwner.tla` separately
   checks that observation and removal follow the persisted owner rather than
   rerunning first-install `auto` selection, and that a bundle update preserves
-  the existing service's CPU, memory, and state-disk geometry. Production
+  the existing service's CPU, memory, state-disk geometry, and restrictive
+  personal-mesh pairing policy. Production
   anchors are `selectServiceModeForAction` and `renderServiceDefinition`, with
-  the geometry regression in `TestServiceDefinitionRetainsExistingResourceGeometry`.
+  regressions in `TestServiceDefinitionRetainsExistingResourceGeometry` and
+  `TestRepairRetainsConfiguredPairingRestriction`.
   `HostVMRestartRecovery.tla` owns
   the one-shot post-install VM resume after a Host process start; it never
   re-enters installation and does not start a fresh or invalid VM state.
