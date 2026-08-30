@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -52,10 +53,10 @@ func (provider *developmentFileProvider) Sign(_ context.Context, revision uint64
 	return result, nil
 }
 
-func (provider *developmentFileProvider) Delete(_ context.Context, _ uint64) error {
+func (provider *developmentFileProvider) Delete(_ context.Context, revision uint64) error {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
-	err := os.Remove(provider.path)
+	err := os.Remove(provider.revisionPath(revision))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -63,17 +64,18 @@ func (provider *developmentFileProvider) Delete(_ context.Context, _ uint64) err
 }
 
 func (provider *developmentFileProvider) key(revision uint64, create bool) (*ecdsa.PrivateKey, error) {
-	if revision != 1 {
+	if revision == 0 {
 		return nil, ErrKeyUnavailable
 	}
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
-	if value, err := os.ReadFile(provider.path); err == nil {
+	path := provider.revisionPath(revision)
+	if value, err := os.ReadFile(path); err == nil {
 		return x509.ParseECPrivateKey(value)
 	} else if !create || !errors.Is(err, os.ErrNotExist) {
 		return nil, ErrKeyUnavailable
 	}
-	if err := os.MkdirAll(filepath.Dir(provider.path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -84,10 +86,17 @@ func (provider *developmentFileProvider) key(revision uint64, create bool) (*ecd
 	if err != nil {
 		return nil, err
 	}
-	if err := writeDevelopmentPrivateKey(provider.path, value); err != nil {
+	if err := writeDevelopmentPrivateKey(path, value); err != nil {
 		return nil, err
 	}
 	return key, nil
+}
+
+func (provider *developmentFileProvider) revisionPath(revision uint64) string {
+	if revision == 1 {
+		return provider.path
+	}
+	return provider.path + "." + strconv.FormatUint(revision, 10)
 }
 
 func writeDevelopmentPrivateKey(path string, value []byte) error {

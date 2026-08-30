@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
+	"errors"
 	"math/big"
 	"path/filepath"
 	"testing"
@@ -32,5 +33,27 @@ func TestDevelopmentFileProviderPersistsSigningIdentity(t *testing.T) {
 	reloaded, _, err := second.Ensure(context.Background(), 1)
 	if err != nil || string(reloaded) != string(public) {
 		t.Fatalf("device root did not persist: %x, %v", reloaded, err)
+	}
+}
+
+func TestDevelopmentFileProviderSupportsRepairRevisions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "device-root.key")
+	provider := NewDevelopmentFileProvider(path)
+	first, _, err := provider.Ensure(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := provider.Ensure(context.Background(), 2)
+	if err != nil || string(first) == string(second) {
+		t.Fatalf("repair key = %x, err = %v", second, err)
+	}
+	if err := provider.Delete(context.Background(), 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Sign(context.Background(), 2, make([]byte, 32)); !errors.Is(err, ErrKeyUnavailable) {
+		t.Fatalf("deleted repair key error = %v", err)
+	}
+	if reloaded, _, err := provider.Ensure(context.Background(), 1); err != nil || string(reloaded) != string(first) {
+		t.Fatalf("revision one changed after deleting repair key: %x, %v", reloaded, err)
 	}
 }
