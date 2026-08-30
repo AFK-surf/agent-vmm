@@ -35,7 +35,11 @@ maps the computed aggregate decision to that input.
 - `HostServiceOwnership.tla` owns launchd agent/daemon selection and the
   single-service-owner invariant. `HostServiceExistingOwner.tla` separately
   checks that observation and removal follow the persisted owner rather than
-  rerunning first-install `auto` selection. `HostVMRestartRecovery.tla` owns
+  rerunning first-install `auto` selection, and that a bundle update preserves
+  the existing service's CPU, memory, and state-disk geometry. Production
+  anchors are `selectServiceModeForAction` and `renderServiceDefinition`, with
+  the geometry regression in `TestServiceDefinitionRetainsExistingResourceGeometry`.
+  `HostVMRestartRecovery.tla` owns
   the one-shot post-install VM resume after a Host process start; it never
   re-enters installation and does not start a fresh or invalid VM state.
 

@@ -90,6 +90,38 @@ func TestDaemonDefinitionDropsPrivilegesAndIsBackground(t *testing.T) {
 	}
 }
 
+func TestServiceDefinitionRetainsExistingResourceGeometry(t *testing.T) {
+	value := testPaths(t.TempDir())
+	if err := os.MkdirAll(value.resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	template := `<plist><dict><key>ProgramArguments</key><array><string>host</string><string>--cpus</string><string>6</string><string>--memory</string><string>8589934592</string></array></dict></plist>`
+	current := `<plist><dict><key>ProgramArguments</key><array><string>host</string><string>--cpus</string><string>8</string><string>--memory</string><string>12884901888</string><string>--state-size</string><string>17179869184</string></array></dict></plist>`
+	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(template), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(value.hostPlist, []byte(current), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := renderServiceDefinition(value, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := string(rendered)
+	for _, expected := range []string{
+		"<string>--cpus</string><string>8</string>",
+		"<string>--memory</string><string>12884901888</string>",
+		"<string>--state-size</string>\n\t\t<string>17179869184</string>",
+	} {
+		if !strings.Contains(definition, expected) {
+			t.Errorf("updated definition did not retain %q: %s", expected, definition)
+		}
+	}
+}
+
 func TestCurrentDaemonCanBeObservedWithoutReload(t *testing.T) {
 	value := testPaths(t.TempDir())
 	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}

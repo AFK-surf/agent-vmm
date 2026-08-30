@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -199,6 +200,9 @@ func renderServiceDefinition(value paths, disablePairing bool) ([]byte, error) {
 	}
 	rendered := strings.ReplaceAll(string(template), "__HOME__", xmlEscape(value.home))
 	rendered = strings.ReplaceAll(rendered, "__APP__", xmlEscape(value.app))
+	for _, argument := range preservedResourceArguments(value.hostPlist) {
+		rendered = setProgramArgument(rendered, argument.flag, argument.value)
+	}
 	if disablePairing {
 		rendered = addProgramArgument(rendered, "--disable-personal-mesh-pairing")
 	}
@@ -213,6 +217,82 @@ func renderServiceDefinition(value paths, disablePairing bool) ([]byte, error) {
 		rendered = rendered[:index] + identity + rendered[index:]
 	}
 	return []byte(rendered), nil
+}
+
+type programArgument struct {
+	flag  string
+	value string
+}
+
+var plistString = regexp.MustCompile(`<string>\s*([^<]*)\s*</string>`)
+
+// A bundle replacement must retain the resource geometry that owns the
+// existing state disk. The selected launchd definition is administrator-owned;
+// malformed or incomplete values fall back to the signed bundle defaults.
+func preservedResourceArguments(path string) []programArgument {
+	definition, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	text := string(definition)
+	key := strings.Index(text, "<key>ProgramArguments</key>")
+	if key < 0 {
+		return nil
+	}
+	arrayStart := strings.Index(text[key:], "<array>")
+	if arrayStart < 0 {
+		return nil
+	}
+	arrayStart += key + len("<array>")
+	arrayEnd := strings.Index(text[arrayStart:], "</array>")
+	if arrayEnd < 0 {
+		return nil
+	}
+	matches := plistString.FindAllStringSubmatch(text[arrayStart:arrayStart+arrayEnd], -1)
+	values := make([]string, 0, len(matches))
+	for _, match := range matches {
+		values = append(values, strings.TrimSpace(match[1]))
+	}
+	limits := map[string]uint64{"--cpus": 1, "--memory": 512 << 20, "--state-size": 1 << 30}
+	result := make([]programArgument, 0, len(limits))
+	for _, flag := range []string{"--cpus", "--memory", "--state-size"} {
+		for index := 0; index+1 < len(values); index++ {
+			if values[index] != flag {
+				continue
+			}
+			parsed, parseErr := strconv.ParseUint(values[index+1], 10, 64)
+			if parseErr == nil && parsed >= limits[flag] {
+				result = append(result, programArgument{flag: flag, value: values[index+1]})
+			}
+			break
+		}
+	}
+	return result
+}
+
+func setProgramArgument(plist, flag, value string) string {
+	key := strings.Index(plist, "<key>ProgramArguments</key>")
+	if key < 0 {
+		return plist
+	}
+	arrayEndRelative := strings.Index(plist[key:], "</array>")
+	if arrayEndRelative < 0 {
+		return plist
+	}
+	arrayEnd := key + arrayEndRelative
+	needle := "<string>" + flag + "</string>"
+	flagRelative := strings.Index(plist[key:arrayEnd], needle)
+	if flagRelative < 0 {
+		insertion := "\t\t<string>" + flag + "</string>\n\t\t<string>" + xmlEscape(value) + "</string>\n\t"
+		return plist[:arrayEnd] + insertion + plist[arrayEnd:]
+	}
+	valueStart := key + flagRelative + len(needle)
+	match := plistString.FindStringIndex(plist[valueStart:arrayEnd])
+	if match == nil {
+		return plist
+	}
+	replacement := "<string>" + xmlEscape(value) + "</string>"
+	return plist[:valueStart+match[0]] + replacement + plist[valueStart+match[1]:]
 }
 
 func serviceDefinitionCurrent(ctx context.Context, value paths, desired []byte, disablePairing bool, run func(context.Context, ...string) error) bool {
