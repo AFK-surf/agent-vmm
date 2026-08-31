@@ -6,10 +6,11 @@ epoch, and installation revision. A restart creates a fresh boot/container
 instance and revokes the previous runtime capabilities before publishing the
 replacement.
 
-Bootstrap envelopes are opaque, encrypted at rest, bound to the installation
-and random single-use bootstrap ID, and deleted after consumption. A replay,
+Bootstrap envelopes are opaque, stored in the service user's mode-`0600` state
+directory, bound to the installation and random single-use bootstrap ID, and
+deleted after consumption. A replay,
 stale instance, wrong artifact ID, lost key, or volume-integrity failure fails
-closed; platform-key and encrypted-volume trust failures enter `SEALED`.
+closed; secret-store and encrypted-volume trust failures enter `SEALED`.
 
 Sealed repair is an explicit plan/execute operation. It never formats an
 unknown volume and never restores a previous product state. Product updates

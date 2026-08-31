@@ -13,8 +13,6 @@ type CredentialStore interface {
 	Delete(context.Context, string) error
 }
 
-const credentialService = "surf.afk.agent-vmm.remote-controller"
-
 func wipe(value []byte) {
 	for index := range value {
 		value[index] = 0

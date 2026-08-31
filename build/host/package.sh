@@ -76,7 +76,7 @@ case "$build_profile" in
 			(($settings["-tags"] // "") | test("(^|[, ])e2e([, ]|$)") | not)' "$host_info" >/dev/null
 		grep -q 'fileApplianceSecrets' "$host_symbols"
 		if grep -Eq '_Sec(Item|Key)' "$host_undefined_symbols"; then
-			echo "development host links a Keychain or Secure Enclave API" >&2
+			echo "development host links a login-context Security API" >&2
 			exit 1
 		fi
 		;;
@@ -84,11 +84,9 @@ case "$build_profile" in
 		jq -e '(.Settings | map({key:.Key, value:.Value}) | from_entries) as $settings |
 			(($settings["-tags"] // "") | test("(^|[, ])(development|e2e)([, ]|$)") | not) and
 			$settings["vcs.modified"] == "false" and ($settings["vcs.revision"] // "") != ""' "$host_info" >/dev/null
-		grep -q 'keychainApplianceSecrets' "$host_symbols"
-		grep -q '_SecItemCopyMatching' "$host_undefined_symbols"
-		grep -q '_SecKeyCreateRandomKey' "$host_undefined_symbols"
-		if grep -Eq 'fileApplianceSecrets|NewDevelopmentFileProvider|developmentFileProvider' "$host_symbols"; then
-			echo "release host contains a development secret provider" >&2
+		grep -q 'fileApplianceSecrets' "$host_symbols"
+		if grep -Eq '_Sec(Item|Key)|NewDevelopmentFileProvider|developmentFileProvider' "$host_undefined_symbols" "$host_symbols"; then
+			echo "release host contains a login-context Security provider or development identity provider" >&2
 			exit 1
 		fi
 		;;

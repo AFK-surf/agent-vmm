@@ -255,7 +255,7 @@ func migrateV5(tx *sql.Tx) error {
 		`CREATE TABLE device_identity (
 			id INTEGER PRIMARY KEY CHECK(id = 1), device_id TEXT NOT NULL UNIQUE,
 			root_public_key BLOB NOT NULL, root_key_revision INTEGER NOT NULL CHECK(root_key_revision > 0),
-			custody TEXT NOT NULL CHECK(custody IN ('secure_enclave', 'keychain', 'test')),
+			custody TEXT NOT NULL CHECK(custody IN ('secure_enclave', 'keychain', 'file', 'test')),
 			state INTEGER NOT NULL CHECK(state IN (1, 2)), endpoint_generation INTEGER NOT NULL DEFAULT 0,
 			created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 		)`,

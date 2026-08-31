@@ -11,5 +11,5 @@ import (
 // This provider choice is compile-time only. Release hosts have no runtime
 // switch to the development device identity.
 func newTrustKeyProvider(instanceDirectory string) trustkeys.Provider {
-	return trustkeys.NewDevelopmentFileProvider(filepath.Join(instanceDirectory, "development-device-root.key"))
+	return trustkeys.NewFileProvider(filepath.Join(instanceDirectory, "device-root.key"))
 }

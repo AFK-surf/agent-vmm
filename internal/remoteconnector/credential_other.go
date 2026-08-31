@@ -15,8 +15,8 @@ func (unavailableCredentialStore) Load(context.Context, string) ([]byte, error) 
 	return nil, ErrCredentialUnavailable
 }
 func (unavailableCredentialStore) Replace(context.Context, string, []byte) error {
-	return errors.New("macOS Keychain is required")
+	return errors.New("macOS controller credential storage is required")
 }
 func (unavailableCredentialStore) Delete(context.Context, string) error {
-	return errors.New("macOS Keychain is required")
+	return errors.New("macOS controller credential storage is required")
 }

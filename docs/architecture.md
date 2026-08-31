@@ -172,10 +172,10 @@ The host controller has these responsibilities:
 The host controller uses one local SQLite database for control-plane facts.
 It does not copy container runtime state or volume contents into this database.
 
-The same host will own the stable random device ID, platform-protected P-256
+The same host will own the stable random device ID, service-user-protected P-256
 root, trust anchors, personal-mesh membership/tombstones, endpoint generations,
 service exports/imports, and local route deny state. Root private keys never
-enter SQLite or leave the platform key provider. Managed-controller and
+enter SQLite or leave the Host key provider. Managed-controller and
 personal-mesh authorities use the same `trust.v1`/`service.v1` verifier but have
 separate credentials and membership state.
 
@@ -328,7 +328,7 @@ An agreement between agents is only an input to host authorization.
 | Build cache contents | One cache volume for each agent namespace |
 | Network, address, DNS, and firewall state | Rebuildable `agent-vmmd` projections |
 | Processes, TTY sessions, and active connections | Temporary runtime state |
-| Device identity public metadata, trust anchors, mesh snapshots/tombstones, and route deny state | Host SQLite plus platform-protected root private key |
+| Device identity public metadata, trust anchors, mesh snapshots/tombstones, and route deny state | Host SQLite plus service-user-protected root private key |
 | Endpoint transport key and live Iroh streams | Connector-supervised data worker temporary state |
 | Managed registration/grant/route intent | Remote controller; never reconstructed from connector state |
 | Personal-mesh registry revision/freshness receipt | Registry projection verified against device-signed operations; never a local signing authority |

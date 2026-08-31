@@ -3,7 +3,11 @@
 package main
 
 import (
+	"path/filepath"
+
 	"github.com/AFK-surf/agent-vmm/internal/host/trustkeys"
 )
 
-func newTrustKeyProvider(string) trustkeys.Provider { return trustkeys.NewPlatformProvider() }
+func newTrustKeyProvider(instanceDirectory string) trustkeys.Provider {
+	return trustkeys.NewFileProvider(filepath.Join(instanceDirectory, "device-root.key"))
+}

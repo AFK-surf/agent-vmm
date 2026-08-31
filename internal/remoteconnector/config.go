@@ -74,7 +74,8 @@ type Logger interface {
 }
 
 // LoadConfig reads non-secret controller identity from the restricted local API.
-// The credential remains in Keychain and is loaded only when an RPC is sent.
+// The credential remains in the Host service user's protected store and is
+// loaded only when an RPC is sent.
 func LoadConfig(ctx context.Context, socket, registrationID string, store CredentialStore) (Config, error) {
 	if registrationID == "" {
 		return Config{}, fmt.Errorf("registration ID is required")

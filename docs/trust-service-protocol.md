@@ -43,9 +43,12 @@ keys use the compressed 33-byte form. ECDSA signatures use fixed-width 64-byte
 ## Local custody and process boundary
 
 `agent-vmm-host` generates a random stable device ID and owns the only root-key
-provider. On macOS it attempts a non-exportable Secure Enclave P-256 key first
-and falls back to a device-only Keychain key. SQLite stores only compressed
+provider. A headless system LaunchDaemon has no user-login Keychain context, so
+macOS keeps the private key in the service user's mode-`0600` Agent VMM state
+directory; FileVault owns offline disk protection. SQLite stores only compressed
 public keys, revisions, custody metadata, signed rotations, and trust facts.
+The service user is one failure domain: this design does not isolate the key
+from arbitrary code already running as that user or as root.
 An unavailable or mismatched stored root enters `NEEDS_REPAIR`; repair requires
 explicit membership reset and creates a new device identity.
 
