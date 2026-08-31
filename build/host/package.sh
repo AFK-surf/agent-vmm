@@ -8,10 +8,25 @@ guest=${AGENT_VMM_GUEST_BUNDLE:-/tmp/agent-vmm-e2e-bundle}
 derived="$output/DerivedData"
 product="$output/Agent VMM Host.app"
 release_id=${AGENT_VMM_RELEASE_ID:-agent-vmm-host}
+phase=${AGENT_VMM_PACKAGE_PHASE:-all}
+case "$phase" in
+	all|assemble|sign) ;;
+	*) echo "AGENT_VMM_PACKAGE_PHASE must be all, assemble, or sign" >&2; exit 1 ;;
+esac
 case "$release_id" in
 	''|latest|*[!A-Za-z0-9._+-]*) echo "AGENT_VMM_RELEASE_ID must be a stable non-latest release id" >&2; exit 1 ;;
 esac
 
+go_tags=
+build_profile=release
+if [ "$phase" = sign ]; then
+	test "$identity" != "-"
+	test -n "${NOTARYTOOL_PROFILE:-}"
+	test -x "$product/Contents/MacOS/agent-vmm-host"
+	test -x "$product/Contents/Helpers/agent-vmm-lifecycle"
+	test -x "$product/Contents/Helpers/agent-vmm-data"
+	host="$product/Contents/MacOS/agent-vmm-host"
+else
 test -d "$guest"
 for artifact in Image initramfs.xz rootfs.squashfs manifest.json; do
 	test -s "$guest/$artifact"
@@ -20,12 +35,10 @@ for artifact in mcp-appliance.digest mcp-appliance/manifest.pb; do
 	test -s "$guest/$artifact"
 done
 guest_manifest_digest=$(shasum -a 256 "$guest/manifest.json" | awk '{print $1}')
-go_tags=
-build_profile=release
-if [ "$identity" = "-" ]; then
+if [ "$phase" = all ] && [ "$identity" = "-" ]; then
 	build_profile=test
 	go_tags=development
-else
+elif [ "$phase" != assemble ]; then
 	test "$identity" != "-"
 	test -n "${NOTARYTOOL_PROFILE:-}"
 fi
@@ -114,6 +127,8 @@ jq -n \
 		source_revision: $source_revision
 	}' > "$product/Contents/Resources/release-inventory.json"
 
+fi
+
 /usr/bin/plutil -lint "$product/Contents/Info.plist"
 test "$(/usr/bin/plutil -extract CFBundleExecutable raw -o - "$product/Contents/Info.plist")" = agent-vmm-host
 test "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$product/Contents/Info.plist")" = com.afk-surf.agent-vmm-host
@@ -123,6 +138,10 @@ test ! -e "$product/Contents/MacOS/agent-vmm"
 test ! -e "$product/Contents/Helpers/agent-vmm-host"
 test ! -e "$product/Contents/Helpers/agent-vmm"
 test ! -e "$product/Contents/Resources/SwiftUI"
+
+if [ "$phase" = assemble ]; then
+	exit 0
+fi
 codesign --force --sign "$identity" --options runtime --entitlements "$repo/build/host/vz.entitlements.plist" "$product/Contents/MacOS/agent-vmm-host"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-lifecycle"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-data"
