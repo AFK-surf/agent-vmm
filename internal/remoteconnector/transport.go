@@ -25,7 +25,7 @@ var controllerConnectParams = grpc.ConnectParams{
 	MinConnectTimeout: 10 * time.Second,
 }
 
-var controllerKeepalive = keepalive.ClientParameters{Time: 5 * time.Minute, Timeout: 10 * time.Second}
+var controllerKeepalive = keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}
 
 func dialController(config Config, credential []byte) (*grpc.ClientConn, error) {
 	options := []grpc.DialOption{

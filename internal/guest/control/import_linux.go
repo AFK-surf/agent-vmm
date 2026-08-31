@@ -13,11 +13,13 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/diff"
 	coreimages "github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -152,12 +154,13 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 		return nil, err
 	}
 	nsctx := namespaceContext(ctx, header.GetActorNamespaceId())
-	stagingContext, releaseStaging, err := r.client.WithLease(nsctx)
+	stagingLease, err := r.client.LeasesService().Create(nsctx, leases.WithRandomID(), leases.WithExpiration(24*time.Hour))
 	if err != nil {
 		return nil, err
 	}
+	stagingContext := leases.WithLease(nsctx, stagingLease.ID)
 	defer func() {
-		if releaseErr := releaseStaging(nsctx); releaseErr != nil {
+		if releaseErr := r.client.LeasesService().Delete(nsctx, stagingLease, leases.SynchronousDelete); releaseErr != nil {
 			log.Printf("OCI import staging lease cleanup failed for %q: %v", imageReference, releaseErr)
 		}
 	}()

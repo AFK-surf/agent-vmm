@@ -307,6 +307,15 @@ func (s *Server) WriteWorkspace(stream vmmdv1.VMMDService_WriteWorkspaceServer) 
 	if err := staging.Chmod(mode); err != nil {
 		return rpcError(err)
 	}
+	if header.GetVolumeId() != "" {
+		var owner unix.Stat_t
+		if err := unix.Fstat(int(parent.Fd()), &owner); err != nil {
+			return rpcError(err)
+		}
+		if err := unix.Fchown(int(staging.Fd()), int(owner.Uid), int(owner.Gid)); err != nil {
+			return rpcError(err)
+		}
+	}
 	if err := unix.Renameat(int(parent.Fd()), stagingName, int(parent.Fd()), name); err != nil {
 		return rpcError(err)
 	}
