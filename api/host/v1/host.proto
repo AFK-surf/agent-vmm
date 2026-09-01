@@ -259,6 +259,7 @@ message RepairDeviceIdentityRequest {
 
 service RemoteComputeService {
   rpc GetRemoteState(GetRemoteStateRequest) returns (GetRemoteStateResponse);
+  rpc GetRemoteObservation(GetRemoteObservationRequest) returns (GetRemoteObservationResponse);
   rpc SetConnectionState(SetConnectionStateRequest) returns (GetRemoteStateResponse);
   rpc SetRemoteAdmissionState(SetRemoteAdmissionStateRequest) returns (GetRemoteStateResponse);
   rpc ReportConnectorStatus(ReportConnectorStatusRequest) returns (GetRemoteStateResponse);
@@ -1428,6 +1429,13 @@ message GetRemoteStateRequest { string registration_id = 1; }
 
 message GetRemoteStateResponse {
   RemoteRegistration registration = 1;
+}
+
+message GetRemoteObservationRequest { string registration_id = 1; }
+message GetRemoteObservationResponse {
+  HealthStatus health = 1;
+  Usage usage = 2;
+  google.protobuf.Timestamp observed_at = 3;
 }
 
 message SetConnectionStateRequest {

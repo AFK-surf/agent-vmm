@@ -3,6 +3,7 @@ package remote_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 	"time"
@@ -77,9 +78,30 @@ func TestControlSessionDispatchTranscript(t *testing.T) {
 	if ready := stream.sent[0].GetControllerReady(); ready.GetRegistrationId() != "registration-1" || ready.GetConnectionEpoch() != 19 || ready.GetAcknowledgedInventoryWatermark() != 7 {
 		t.Fatalf("controller ready = %+v", ready)
 	}
+	if len(stream.sent[0].GetControllerReady().GetEnabledFeatures()) != 0 {
+		t.Fatalf("legacy host was granted optional features: %+v", stream.sent[0].GetControllerReady().GetEnabledFeatures())
+	}
 	command := stream.sent[1].GetCommand()
 	if command.GetSequence() != 1 || command.GetConnectionEpoch() != 19 || command.GetDeadlineUnixMillis() == 0 {
 		t.Fatalf("dispatched command = %+v", command)
+	}
+}
+
+func TestControllerReadyNegotiatesRemoteObservationOnlyWithSupportingHost(t *testing.T) {
+	t.Parallel()
+	hello := validHello()
+	hello.SupportedFeatures = append(hello.SupportedFeatures, controllerremote.RemoteObservationFeature)
+	stream := &scriptedControlStream{ctx: context.Background(), received: []*remotev1.HostControlMessage{{Payload: &remotev1.HostControlMessage_Hello{Hello: hello}}}}
+	session, err := controllerremote.AcceptControl(stream, "registration-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	features := stream.sent[0].GetControllerReady().GetEnabledFeatures()
+	if len(features) != 1 || features[0] != controllerremote.RemoteObservationFeature {
+		t.Fatalf("enabled features = %v", features)
 	}
 }
 
@@ -105,6 +127,57 @@ func TestControlSessionClassifiesLostResultUnknown(t *testing.T) {
 	}
 	if transcript.Result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_UNKNOWN {
 		t.Fatalf("result = %+v", transcript.Result)
+	}
+}
+
+func TestControlSessionRoutesFencedRemoteObservationsOutsideCommandTranscript(t *testing.T) {
+	t.Parallel()
+	hello := validHello()
+	hello.SupportedFeatures = append(hello.SupportedFeatures, controllerremote.RemoteObservationFeature)
+	stream := &scriptedControlStream{ctx: context.Background(), received: []*remotev1.HostControlMessage{
+		{Payload: &remotev1.HostControlMessage_Hello{Hello: hello}},
+		{Payload: &remotev1.HostControlMessage_ObservationRenewal{ObservationRenewal: &remotev1.RemoteObservationRenewal{ConnectionEpoch: 19, Observation: &remotev1.RemoteObservationSnapshot{Sequence: 2, ObservedUnixMillis: time.Now().UnixMilli(), InventoryObservedUnixMillis: time.Now().UnixMilli()}}}},
+	}}
+	session, err := controllerremote.AcceptControl(stream, "registration-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case renewal := <-session.Observations():
+		if renewal.GetConnectionEpoch() != 19 || renewal.GetObservation().GetSequence() != 2 {
+			t.Fatalf("renewal = %+v", renewal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("remote observation was not delivered")
+	}
+}
+
+func TestControlSessionRejectsRemoteObservationWithoutNegotiation(t *testing.T) {
+	t.Parallel()
+	stream := &scriptedControlStream{ctx: context.Background(), received: []*remotev1.HostControlMessage{
+		{Payload: &remotev1.HostControlMessage_Hello{Hello: validHello()}},
+		{Payload: &remotev1.HostControlMessage_ObservationRenewal{ObservationRenewal: &remotev1.RemoteObservationRenewal{ConnectionEpoch: 19, Observation: &remotev1.RemoteObservationSnapshot{Sequence: 2, ObservedUnixMillis: time.Now().UnixMilli(), InventoryObservedUnixMillis: time.Now().UnixMilli()}}}},
+	}}
+	session, err := controllerremote.AcceptControl(stream, "registration-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-session.Done():
+		if err := session.Err(); err == nil || err.Error() != "remote observation feature was not negotiated" {
+			t.Fatalf("session error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("unnegotiated remote observation did not fail the session")
+	}
+	if renewal, ok := <-session.Observations(); ok || renewal != nil {
+		t.Fatalf("unnegotiated renewal was delivered: %+v", renewal)
 	}
 }
 
@@ -196,6 +269,7 @@ func TestValidateHelloRejectsFeatureAndInventoryDrift(t *testing.T) {
 		mutate func(*remotev1.HostHello)
 	}{
 		{name: "feature", mutate: func(hello *remotev1.HostHello) { hello.RequiredFeatures = []string{"unknown"} }},
+		{name: "unnegotiated observation", mutate: func(hello *remotev1.HostHello) { hello.Observation = &remotev1.RemoteObservationSnapshot{} }},
 		{name: "epoch", mutate: func(hello *remotev1.HostHello) { hello.ConnectionEpoch = 0 }},
 		{name: "watermark", mutate: func(hello *remotev1.HostHello) { hello.InventoryWatermark = 0 }},
 		{name: "duplicate", mutate: func(hello *remotev1.HostHello) { hello.Inventory = append(hello.Inventory, hello.Inventory[0]) }},
@@ -208,6 +282,25 @@ func TestValidateHelloRejectsFeatureAndInventoryDrift(t *testing.T) {
 				t.Fatal("ValidateHello accepted invalid hello")
 			}
 		})
+	}
+	hello := validHello()
+	hello.SupportedFeatures = append(hello.SupportedFeatures, controllerremote.RemoteObservationFeature)
+	hello.Observation = &remotev1.RemoteObservationSnapshot{}
+	if err := controllerremote.ValidateHello(hello, "registration-1"); err != nil {
+		t.Fatalf("ValidateHello rejected negotiated observation: %v", err)
+	}
+	hello = validHello()
+	hello.EndpointObservation = &trustv1.EndpointObservation{}
+	if err := controllerremote.ValidateHello(hello, "registration-1"); err != nil {
+		t.Fatalf("ValidateHello coupled legacy endpoint observation to remote observation negotiation: %v", err)
+	}
+	hello = validHello()
+	hello.Inventory = nil
+	for index := 0; index < 65; index++ {
+		hello.Inventory = append(hello.Inventory, &remotev1.Allocation{AllocationId: fmt.Sprintf("allocation-%d", index)})
+	}
+	if err := controllerremote.ValidateHello(hello, "registration-1"); err == nil {
+		t.Fatal("ValidateHello accepted inventory above the end-to-end bound")
 	}
 }
 

@@ -227,6 +227,53 @@ func TestMultipleRemoteRegistrations(t *testing.T) {
 	}
 }
 
+func TestListRemoteEnvironmentsBoundedScopesAndExposesOverflow(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	registration := RemoteRegistration{
+		ID: "one", Endpoint: "controller.example:443", ProtocolVersion: "1", MaxEnvironments: 64,
+		AggregateCPUMillis: 1, AggregateMemoryBytes: 1, AggregatePIDs: 1, AggregateDiskBytes: 1,
+		PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 1, StopGraceSeconds: 1,
+		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
+	}
+	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	registration.ID = "two"
+	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "local", NamespaceID: "local", OwnerKind: OwnerLocal, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "other", NamespaceID: "other", OwnerKind: OwnerRemoteRegistration, RegistrationID: "two", AllocationID: "other", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 65; index++ {
+		id := fmt.Sprintf("one-%02d", index)
+		if _, err := database.CreateEnvironment(ctx, Environment{ID: id, NamespaceID: id, OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: id, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	environments, err := database.ListRemoteEnvironmentsBounded(ctx, "one", 65)
+	if err != nil || len(environments) != 65 {
+		t.Fatalf("bounded environments=%d err=%v, want overflow sentinel of 65", len(environments), err)
+	}
+	for _, environment := range environments {
+		if environment.RegistrationID != "one" || environment.OwnerKind != OwnerRemoteRegistration {
+			t.Fatalf("bounded query crossed registration scope: %+v", environment)
+		}
+	}
+	if _, err := database.ListRemoteEnvironmentsBounded(ctx, "one", 0); err == nil {
+		t.Fatal("non-positive query bound was accepted")
+	}
+}
+
 func TestEnvironmentPolicyAndSessionPersistence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.db")
 	store, err := Open(path)

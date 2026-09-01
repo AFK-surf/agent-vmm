@@ -35,7 +35,7 @@ const (
 	HostAPIVersion          = "host.v1"
 	ConnectorRelease        = "0.1.0"
 	MaxControlBytes         = 1 << 20
-	MaxInventoryItems       = 128
+	MaxInventoryItems       = 64
 	MaxLabelBytes           = 256
 	MaxCredentialBytes      = 4096
 	FrameBytes              = 32 << 10

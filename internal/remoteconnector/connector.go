@@ -182,7 +182,8 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 			return false, fmt.Errorf("%w: initial endpoint observation: %w", errConnectorConfiguration, err)
 		}
 	}
-	helloMessage := hello(registration, instance, epoch, initialObservation)
+	remoteObservation := collectObservation(ctx, local.client, registration, 1)
+	helloMessage := hello(registration, instance, epoch, initialObservation, remoteObservation)
 	connectionContext, stopConnection := context.WithCancelCause(ctx)
 	var heartbeatDone <-chan struct{}
 	defer func() {
@@ -208,7 +209,8 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 	if err != nil {
 		return false, fmt.Errorf("controller ready handshake failed: %w", err)
 	}
-	if err := validateControllerReady(readyMessage.GetControllerReady(), registration.GetId(), epoch, helloMessage.GetInventoryWatermark()); err != nil {
+	controllerReady := readyMessage.GetControllerReady()
+	if err := validateControllerReady(controllerReady, registration.GetId(), epoch, helloMessage.GetInventoryWatermark()); err != nil {
 		return false, err
 	}
 	if config.TrustSocket != "" && observations.Load() != nil {
@@ -225,6 +227,13 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 			}, endpointRefreshWindow)
 			if err != nil && connectionContext.Err() == nil {
 				stopConnection(fmt.Errorf("endpoint observation renewal failed: %w", err))
+			}
+		}()
+	}
+	if remoteObservationEnabled(controllerReady) {
+		go func() {
+			if err := renewRemoteObservations(connectionContext, local.client, registration, epoch, remoteObservation.GetSequence(), writer); err != nil && connectionContext.Err() == nil {
+				stopConnection(fmt.Errorf("remote observation renewal failed: %w", err))
 			}
 		}()
 	}

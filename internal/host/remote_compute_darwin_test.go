@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
@@ -19,7 +20,44 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+type scopedObservationClientStub struct {
+	vmmdv1.VMMDServiceClient
+	healthCalls     int
+	usageNamespaces []string
+}
+
+func (client *scopedObservationClientStub) ComponentHealth(context.Context, *vmmdv1.ComponentHealthRequest, ...grpc.CallOption) (*vmmdv1.ComponentHealthResponse, error) {
+	client.healthCalls++
+	return &vmmdv1.ComponentHealthResponse{Components: []*vmmdv1.ComponentStatus{{Component: "vmmd", State: vmmdv1.ComponentState_COMPONENT_STATE_HEALTHY, Reason: "/private/reason", ObservedAtUnixNano: time.Now().UnixNano()}}}, nil
+}
+
+func (client *scopedObservationClientStub) GetNamespaceUsage(_ context.Context, request *vmmdv1.GetNamespaceUsageRequest, _ ...grpc.CallOption) (*vmmdv1.GetUsageResponse, error) {
+	client.usageNamespaces = append(client.usageNamespaces, request.GetNamespaceId())
+	return &vmmdv1.GetUsageResponse{Usage: &vmmdv1.Usage{MemoryBytes: 10}}, nil
+}
+
+func TestCollectScopedRemoteObservationUsesOneHealthCallAndExactNamespaces(t *testing.T) {
+	client := new(scopedObservationClientStub)
+	observedAt := timestamppb.Now()
+	response, err := collectScopedRemoteObservation(context.Background(), client, []store.Environment{{NamespaceID: "one"}, {NamespaceID: "two"}}, &hostv1.ComponentHealth{Component: "host-egress", State: hostv1.HealthState_HEALTH_STATE_HEALTHY, Reason: "/private/egress", ObservedAt: observedAt}, observedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.healthCalls != 1 || len(client.usageNamespaces) != 2 || client.usageNamespaces[0] != "one" || client.usageNamespaces[1] != "two" {
+		t.Fatalf("calls: health=%d namespaces=%v", client.healthCalls, client.usageNamespaces)
+	}
+	if response.GetUsage().GetMemoryBytes() != 20 || response.GetUsage().GetStale() {
+		t.Fatalf("usage=%+v", response.GetUsage())
+	}
+	for _, component := range response.GetHealth().GetComponents() {
+		if component.GetReason() != "" {
+			t.Fatalf("remote health leaked component reason: %+v", component)
+		}
+	}
+}
 
 func TestAllocationAdmission(t *testing.T) {
 	registration := store.RemoteRegistration{

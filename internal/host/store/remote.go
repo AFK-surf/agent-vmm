@@ -237,6 +237,29 @@ func (store *Store) ListRemoteEnvironments(ctx context.Context, registrationID s
 	return result, rows.Err()
 }
 
+func (store *Store) ListRemoteEnvironmentsBounded(ctx context.Context, registrationID string, limit int) ([]Environment, error) {
+	if limit <= 0 {
+		return nil, errors.New("remote environment limit must be positive")
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
+		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments
+		WHERE owner_kind = 2 AND registration_id = ? ORDER BY allocation_id LIMIT ?`, registrationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Environment
+	for rows.Next() {
+		environment, err := scanEnvironment(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, environment)
+	}
+	return result, rows.Err()
+}
+
 func (store *Store) CreateRemoteRegistration(ctx context.Context, registration RemoteRegistration) (RemoteRegistration, error) {
 	if registration.OwnerKind == 0 {
 		registration.OwnerKind = RemoteRegistrationExternal

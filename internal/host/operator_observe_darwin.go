@@ -19,18 +19,22 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
-	response := &hostv1.GetSystemSnapshotResponse{Vm: server.controller.manager.Snapshot(), CollectedAt: timestamppb.Now()}
-	if registrations, registrationErr := server.controller.store.ListRemoteRegistrations(ctx); registrationErr == nil {
+	return server.controller.systemSnapshot(ctx)
+}
+
+func (controller *Controller) systemSnapshot(ctx context.Context) (*hostv1.GetSystemSnapshotResponse, error) {
+	response := &hostv1.GetSystemSnapshotResponse{Vm: controller.manager.Snapshot(), CollectedAt: timestamppb.Now()}
+	if registrations, registrationErr := controller.store.ListRemoteRegistrations(ctx); registrationErr == nil {
 		for _, registration := range registrations {
-			response.RemoteRegistrations = append(response.RemoteRegistrations, server.controller.remoteRegistrationResponse(ctx, registration).GetRegistration())
+			response.RemoteRegistrations = append(response.RemoteRegistrations, controller.remoteRegistrationResponse(ctx, registration).GetRegistration())
 		}
 	}
-	environments, err := server.controller.store.ListEnvironments(ctx)
+	environments, err := controller.store.ListEnvironments(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, environment := range environments {
-		snapshot := server.controller.environmentSnapshot(ctx, environment)
+		snapshot := controller.environmentSnapshot(ctx, environment)
 		response.Environments = append(response.Environments, snapshot)
 		addUsage(response, snapshot.GetUsage())
 	}
@@ -38,7 +42,7 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 	if response.Vm.GetState() != hostv1.VMState_VM_STATE_RUNNING {
 		return response, nil
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, connection, err := controller.guestClient(ctx)
 	if err != nil {
 		return response, nil
 	}
@@ -55,7 +59,7 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 			response.Health.State = state
 		}
 	}
-	hostEgress := server.controller.hostEgressHealth(response.Vm, response.CollectedAt)
+	hostEgress := controller.hostEgressHealth(response.Vm, response.CollectedAt)
 	response.Health.Components = append(response.Health.Components, hostEgress)
 	if hostEgress.GetState() > response.Health.State {
 		response.Health.State = hostEgress.GetState()

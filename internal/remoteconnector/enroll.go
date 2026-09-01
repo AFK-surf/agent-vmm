@@ -29,7 +29,7 @@ func Enroll(ctx context.Context, config Config, token []byte) (string, error) {
 	defer client.connection.Close()
 	requestToken := append([]byte(nil), token...)
 	wipe(token)
-	request := &remotev1.EnrollRequest{ProtocolVersion: ProtocolVersion, RegistrationId: config.RegistrationID, EnrollmentToken: requestToken, EndpointIdentity: config.EndpointIdentity, ConnectorRelease: ConnectorRelease, SupportedFeatures: append([]string(nil), protocolFeatures...), RequiredFeatures: append([]string(nil), protocolFeatures...), DeviceIdentity: identity}
+	request := &remotev1.EnrollRequest{ProtocolVersion: ProtocolVersion, RegistrationId: config.RegistrationID, EnrollmentToken: requestToken, EndpointIdentity: config.EndpointIdentity, ConnectorRelease: ConnectorRelease, SupportedFeatures: append([]string(nil), protocolFeatures...), RequiredFeatures: append([]string(nil), requiredProtocolFeatures...), DeviceIdentity: identity}
 	response, err := client.client.Enroll(ctx, request)
 	wipe(requestToken)
 	request.EnrollmentToken = nil
@@ -40,7 +40,7 @@ func Enroll(ctx context.Context, config Config, token []byte) (string, error) {
 		wipe(response.Credential)
 		return "", fmt.Errorf("controller enrollment identity mismatch")
 	}
-	if !containsAllFeatures(response.GetEnabledFeatures(), protocolFeatures) {
+	if !containsAllFeatures(response.GetEnabledFeatures(), requiredProtocolFeatures) {
 		wipe(response.Credential)
 		return "", fmt.Errorf("controller feature negotiation failed")
 	}

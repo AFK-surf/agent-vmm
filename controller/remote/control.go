@@ -15,6 +15,8 @@ import (
 
 var ErrUnknownOutcome = errors.New("remote command outcome is unknown")
 
+const RemoteObservationFeature = "remote-observation-v1"
+
 var RequiredFeatures = []string{
 	"command-evidence-v1",
 	"connection-epoch-v1",
@@ -39,6 +41,7 @@ type ControlSession struct {
 	dispatchMu     sync.Mutex
 	messages       chan *remotev1.HostControlMessage
 	frontendEvents chan *hostv1.HostLoopbackFrontendEvent
+	observations   chan *remotev1.RemoteObservationRenewal
 	done           chan struct{}
 	errMu          sync.Mutex
 	err            error
@@ -63,12 +66,15 @@ func AcceptControl(stream ControlStream, registrationID string) (*ControlSession
 	if err := ValidateHello(hello, registrationID); err != nil {
 		return nil, err
 	}
-	return &ControlSession{stream: stream, hello: hello, messages: make(chan *remotev1.HostControlMessage, 128), frontendEvents: make(chan *hostv1.HostLoopbackFrontendEvent, 64), done: make(chan struct{})}, nil
+	return &ControlSession{stream: stream, hello: hello, messages: make(chan *remotev1.HostControlMessage, 128), frontendEvents: make(chan *hostv1.HostLoopbackFrontendEvent, 64), observations: make(chan *remotev1.RemoteObservationRenewal, 8), done: make(chan struct{})}, nil
 }
 
 func (session *ControlSession) Hello() *remotev1.HostHello { return session.hello }
 func (session *ControlSession) FrontendEvents() <-chan *hostv1.HostLoopbackFrontendEvent {
 	return session.frontendEvents
+}
+func (session *ControlSession) Observations() <-chan *remotev1.RemoteObservationRenewal {
+	return session.observations
 }
 func (session *ControlSession) Done() <-chan struct{} { return session.done }
 func (session *ControlSession) Err() error {
@@ -84,7 +90,11 @@ func (session *ControlSession) Ready() error {
 	if session.ready {
 		return errors.New("controller session is already ready")
 	}
-	ready := &remotev1.ControllerReady{RegistrationId: session.hello.GetRegistrationId(), ConnectionEpoch: session.hello.GetConnectionEpoch(), AcknowledgedInventoryWatermark: session.hello.GetInventoryWatermark()}
+	enabledFeatures := []string{}
+	if containsAll(session.hello.GetSupportedFeatures(), []string{RemoteObservationFeature}) {
+		enabledFeatures = append(enabledFeatures, RemoteObservationFeature)
+	}
+	ready := &remotev1.ControllerReady{RegistrationId: session.hello.GetRegistrationId(), ConnectionEpoch: session.hello.GetConnectionEpoch(), AcknowledgedInventoryWatermark: session.hello.GetInventoryWatermark(), EnabledFeatures: enabledFeatures}
 	if err := session.stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_ControllerReady{ControllerReady: ready}}); err != nil {
 		return err
 	}
@@ -96,6 +106,7 @@ func (session *ControlSession) Ready() error {
 func (session *ControlSession) receive() {
 	defer close(session.done)
 	defer close(session.frontendEvents)
+	defer close(session.observations)
 	for {
 		message, err := session.stream.Recv()
 		if err != nil {
@@ -115,6 +126,23 @@ func (session *ControlSession) receive() {
 			}
 			continue
 		}
+		if renewal := message.GetObservationRenewal(); renewal != nil {
+			if !containsAll(session.hello.GetSupportedFeatures(), []string{RemoteObservationFeature}) {
+				session.setError(errors.New("remote observation feature was not negotiated"))
+				return
+			}
+			if err := validateObservationRenewal(renewal, session.hello.GetConnectionEpoch()); err != nil {
+				session.setError(err)
+				return
+			}
+			select {
+			case session.observations <- proto.Clone(renewal).(*remotev1.RemoteObservationRenewal):
+			default:
+				session.setError(errors.New("host observation queue exhausted"))
+				return
+			}
+			continue
+		}
 		select {
 		case session.messages <- message:
 		default:
@@ -122,6 +150,16 @@ func (session *ControlSession) receive() {
 			return
 		}
 	}
+}
+
+func validateObservationRenewal(value *remotev1.RemoteObservationRenewal, epoch uint64) error {
+	// Cue/tla/salix/AgentVMMObservation.tla models this exact-epoch fence and
+	// monotonic observation sequence across loss, duplication, and reconnect.
+	observation := value.GetObservation()
+	if value.GetConnectionEpoch() != epoch || observation == nil || observation.GetSequence() < 2 || observation.GetObservedUnixMillis() <= 0 || observation.GetInventoryObservedUnixMillis() <= 0 {
+		return errors.New("invalid remote observation renewal")
+	}
+	return nil
 }
 
 func (session *ControlSession) setError(err error) {
@@ -228,7 +266,10 @@ func ValidateHello(hello *remotev1.HostHello, registrationID string) error {
 	if !containsAll(hello.GetSupportedFeatures(), RequiredFeatures) || !containsAll(hello.GetRequiredFeatures(), RequiredFeatures) {
 		return errors.New("remote feature negotiation failed")
 	}
-	if len(hello.GetInventory()) > 128 {
+	if hello.GetObservation() != nil && !containsAll(hello.GetSupportedFeatures(), []string{RemoteObservationFeature}) {
+		return errors.New("remote observation feature was not negotiated")
+	}
+	if len(hello.GetInventory()) > 64 {
 		return errors.New("remote inventory exceeds limit")
 	}
 	seen := make(map[string]struct{}, len(hello.GetInventory()))

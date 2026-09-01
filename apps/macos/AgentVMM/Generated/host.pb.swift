@@ -6165,6 +6165,59 @@ public nonisolated struct Agentvmm_Host_V1_GetRemoteStateResponse: Sendable {
   fileprivate var _registration: Agentvmm_Host_V1_RemoteRegistration? = nil
 }
 
+public nonisolated struct Agentvmm_Host_V1_GetRemoteObservationRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var registrationID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_GetRemoteObservationResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var health: Agentvmm_Host_V1_HealthStatus {
+    get {_health ?? Agentvmm_Host_V1_HealthStatus()}
+    set {_health = newValue}
+  }
+  /// Returns true if `health` has been explicitly set.
+  public var hasHealth: Bool {self._health != nil}
+  /// Clears the value of `health`. Subsequent reads from it will return its default value.
+  public mutating func clearHealth() {self._health = nil}
+
+  public var usage: Agentvmm_Host_V1_Usage {
+    get {_usage ?? Agentvmm_Host_V1_Usage()}
+    set {_usage = newValue}
+  }
+  /// Returns true if `usage` has been explicitly set.
+  public var hasUsage: Bool {self._usage != nil}
+  /// Clears the value of `usage`. Subsequent reads from it will return its default value.
+  public mutating func clearUsage() {self._usage = nil}
+
+  public var observedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_observedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_observedAt = newValue}
+  }
+  /// Returns true if `observedAt` has been explicitly set.
+  public var hasObservedAt: Bool {self._observedAt != nil}
+  /// Clears the value of `observedAt`. Subsequent reads from it will return its default value.
+  public mutating func clearObservedAt() {self._observedAt = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _health: Agentvmm_Host_V1_HealthStatus? = nil
+  fileprivate var _usage: Agentvmm_Host_V1_Usage? = nil
+  fileprivate var _observedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+}
+
 public nonisolated struct Agentvmm_Host_V1_SetConnectionStateRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -16162,6 +16215,80 @@ nonisolated extension Agentvmm_Host_V1_GetRemoteStateResponse: SwiftProtobuf.Mes
 
   public static func ==(lhs: Agentvmm_Host_V1_GetRemoteStateResponse, rhs: Agentvmm_Host_V1_GetRemoteStateResponse) -> Bool {
     if lhs._registration != rhs._registration {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_GetRemoteObservationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetRemoteObservationRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.registrationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_GetRemoteObservationRequest, rhs: Agentvmm_Host_V1_GetRemoteObservationRequest) -> Bool {
+    if lhs.registrationID != rhs.registrationID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_GetRemoteObservationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetRemoteObservationResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}health\0\u{1}usage\0\u{3}observed_at\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._health) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._usage) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._observedAt) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._health {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._usage {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._observedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_GetRemoteObservationResponse, rhs: Agentvmm_Host_V1_GetRemoteObservationResponse) -> Bool {
+    if lhs._health != rhs._health {return false}
+    if lhs._usage != rhs._usage {return false}
+    if lhs._observedAt != rhs._observedAt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

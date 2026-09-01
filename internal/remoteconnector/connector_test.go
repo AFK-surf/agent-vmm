@@ -140,7 +140,7 @@ type fakeController struct {
 }
 
 func (server *fakeController) Enroll(_ context.Context, request *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || !containsAllFeatures(request.GetSupportedFeatures(), protocolFeatures) || !containsAllFeatures(request.GetRequiredFeatures(), protocolFeatures) || request.GetDeviceIdentity().GetDeviceId() == "" {
+	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || !containsAllFeatures(request.GetSupportedFeatures(), protocolFeatures) || !containsAllFeatures(request.GetRequiredFeatures(), requiredProtocolFeatures) || containsAllFeatures(request.GetRequiredFeatures(), []string{remoteObservationFeature}) || request.GetDeviceIdentity().GetDeviceId() == "" {
 		return nil, status.Error(codes.Unauthenticated, "rejected")
 	}
 	if server.key == nil {
@@ -156,7 +156,7 @@ func (server *fakeController) Enroll(_ context.Context, request *remotev1.Enroll
 	input, _ := signing.CanonicalInput(credential)
 	digest := sha256.Sum256(input)
 	credential.Signature, _ = ecdsa.SignASN1(rand.Reader, server.key, digest[:])
-	return &remotev1.EnrollResponse{ProtocolVersion: ProtocolVersion, RegistrationId: request.GetRegistrationId(), ControllerDisplayName: "test", Credential: []byte("credential-one"), EnabledFeatures: append([]string(nil), protocolFeatures...), TrustAnchor: anchor, MembershipCredential: credential}, nil
+	return &remotev1.EnrollResponse{ProtocolVersion: ProtocolVersion, RegistrationId: request.GetRegistrationId(), ControllerDisplayName: "test", Credential: []byte("credential-one"), EnabledFeatures: append([]string(nil), requiredProtocolFeatures...), TrustAnchor: anchor, MembershipCredential: credential}, nil
 }
 
 type fakeEnrollmentTrust struct {

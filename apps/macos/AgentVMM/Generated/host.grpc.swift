@@ -12262,6 +12262,19 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "GetRemoteObservation" metadata.
+        public enum GetRemoteObservation: Sendable {
+            /// Request type for "GetRemoteObservation".
+            public typealias Input = Agentvmm_Host_V1_GetRemoteObservationRequest
+            /// Response type for "GetRemoteObservation".
+            public typealias Output = Agentvmm_Host_V1_GetRemoteObservationResponse
+            /// Descriptor for "GetRemoteObservation".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
+                method: "GetRemoteObservation",
+                type: .unary
+            )
+        }
         /// Namespace for "SetConnectionState" metadata.
         public enum SetConnectionState: Sendable {
             /// Request type for "SetConnectionState".
@@ -12473,6 +12486,7 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
         /// Descriptors for all methods in the "agentvmm.host.v1.RemoteComputeService" service.
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
             GetRemoteState.descriptor,
+            GetRemoteObservation.descriptor,
             SetConnectionState.descriptor,
             SetRemoteAdmissionState.descriptor,
             ReportConnectorStatus.descriptor,
@@ -12525,6 +12539,25 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetRemoteStateResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetRemoteStateResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "GetRemoteObservation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetRemoteObservationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetRemoteObservationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_GetRemoteObservationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func getRemoteObservation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetRemoteObservationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetRemoteObservationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetRemoteObservationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetRemoteObservationResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "SetConnectionState" method.
@@ -12871,6 +12904,36 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.GetRemoteState.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "GetRemoteObservation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetRemoteObservationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetRemoteObservationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_GetRemoteObservationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func getRemoteObservation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetRemoteObservationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetRemoteObservationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetRemoteObservationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetRemoteObservationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.GetRemoteObservation.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -13386,6 +13449,31 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
         )
     }
 
+    /// Call the "GetRemoteObservation" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_GetRemoteObservationRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getRemoteObservation<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetRemoteObservationRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetRemoteObservationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.getRemoteObservation(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_GetRemoteObservationRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_GetRemoteObservationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "SetConnectionState" method.
     ///
     /// - Parameters:
@@ -13811,6 +13899,35 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
             metadata: metadata
         )
         return try await self.getRemoteState(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetRemoteObservation" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getRemoteObservation<Result>(
+        _ message: Agentvmm_Host_V1_GetRemoteObservationRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetRemoteObservationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_GetRemoteObservationRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.getRemoteObservation(
             request: request,
             options: options,
             onResponse: handleResponse

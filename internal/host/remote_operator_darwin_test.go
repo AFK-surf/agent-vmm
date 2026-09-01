@@ -37,4 +37,8 @@ func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) 
 	if matches, err := managedRegistrationMatches(managed, stored, capacity); err != nil || matches {
 		t.Fatalf("trust drift was accepted: matches=%v err=%v", matches, err)
 	}
+	managed.Pool.MaxEnvironments = maxRemoteEnvironments + 1
+	if _, err := registrationFromPool(managed.Pool, capacity); err == nil {
+		t.Fatal("remote pool above the end-to-end environment bound was accepted")
+	}
 }

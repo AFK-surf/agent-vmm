@@ -10,7 +10,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var protocolFeatures = []string{
+const remoteObservationFeature = "remote-observation-v1"
+
+var requiredProtocolFeatures = []string{
 	"command-evidence-v1",
 	"connection-epoch-v1",
 	"controller-ready-v1",
@@ -19,6 +21,8 @@ var protocolFeatures = []string{
 	"host-loopback-frontend-v1",
 	"unknown-outcome-v1",
 }
+
+var protocolFeatures = append(append([]string(nil), requiredProtocolFeatures...), remoteObservationFeature)
 
 type commandTracker struct {
 	epoch              uint64
@@ -146,4 +150,8 @@ func validateControllerReady(ready *remotev1.ControllerReady, registrationID str
 		return errors.New("controller ready fence does not match the authoritative inventory snapshot")
 	}
 	return nil
+}
+
+func remoteObservationEnabled(ready *remotev1.ControllerReady) bool {
+	return ready != nil && containsAllFeatures(ready.GetEnabledFeatures(), []string{remoteObservationFeature})
 }

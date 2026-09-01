@@ -334,7 +334,7 @@ func registrationFromPool(pool *hostv1.RemotePoolPolicy, capacity store.Environm
 	}
 	aggregate := pool.GetAggregateLimits()
 	perEnvironment := pool.GetPerEnvironmentLimits()
-	if pool.GetMaxEnvironments() == 0 || validatePolicy(aggregate, pool.GetMaxEgressMode()) != nil || validatePolicy(perEnvironment, pool.GetMaxEgressMode()) != nil {
+	if pool.GetMaxEnvironments() == 0 || pool.GetMaxEnvironments() > maxRemoteEnvironments || validatePolicy(aggregate, pool.GetMaxEgressMode()) != nil || validatePolicy(perEnvironment, pool.GetMaxEgressMode()) != nil {
 		return store.RemoteRegistration{}, invalidField("pool", "remote pool limits are invalid")
 	}
 	if aggregate.GetCpuMillis() > capacity.CPUMillis || aggregate.GetMemoryBytes() > capacity.MemoryBytes ||

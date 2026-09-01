@@ -470,6 +470,7 @@ type HostControlMessage struct {
 	//	*HostControlMessage_Evidence
 	//	*HostControlMessage_EndpointObservationRenewal
 	//	*HostControlMessage_FrontendEvent
+	//	*HostControlMessage_ObservationRenewal
 	Payload       isHostControlMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -575,6 +576,15 @@ func (x *HostControlMessage) GetFrontendEvent() *v11.HostLoopbackFrontendEvent {
 	return nil
 }
 
+func (x *HostControlMessage) GetObservationRenewal() *RemoteObservationRenewal {
+	if x != nil {
+		if x, ok := x.Payload.(*HostControlMessage_ObservationRenewal); ok {
+			return x.ObservationRenewal
+		}
+	}
+	return nil
+}
+
 type isHostControlMessage_Payload interface {
 	isHostControlMessage_Payload()
 }
@@ -607,6 +617,10 @@ type HostControlMessage_FrontendEvent struct {
 	FrontendEvent *v11.HostLoopbackFrontendEvent `protobuf:"bytes,7,opt,name=frontend_event,json=frontendEvent,proto3,oneof"`
 }
 
+type HostControlMessage_ObservationRenewal struct {
+	ObservationRenewal *RemoteObservationRenewal `protobuf:"bytes,8,opt,name=observation_renewal,json=observationRenewal,proto3,oneof"`
+}
+
 func (*HostControlMessage_Hello) isHostControlMessage_Payload() {}
 
 func (*HostControlMessage_Result) isHostControlMessage_Payload() {}
@@ -620,6 +634,8 @@ func (*HostControlMessage_Evidence) isHostControlMessage_Payload() {}
 func (*HostControlMessage_EndpointObservationRenewal) isHostControlMessage_Payload() {}
 
 func (*HostControlMessage_FrontendEvent) isHostControlMessage_Payload() {}
+
+func (*HostControlMessage_ObservationRenewal) isHostControlMessage_Payload() {}
 
 type EndpointObservationRenewal struct {
 	state               protoimpl.MessageState  `protogen:"open.v1"`
@@ -673,6 +689,58 @@ func (x *EndpointObservationRenewal) GetEndpointObservation() *v1.EndpointObserv
 	return nil
 }
 
+type RemoteObservationRenewal struct {
+	state           protoimpl.MessageState     `protogen:"open.v1"`
+	ConnectionEpoch uint64                     `protobuf:"varint,1,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
+	Observation     *RemoteObservationSnapshot `protobuf:"bytes,2,opt,name=observation,proto3" json:"observation,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RemoteObservationRenewal) Reset() {
+	*x = RemoteObservationRenewal{}
+	mi := &file_remote_v1_remote_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteObservationRenewal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteObservationRenewal) ProtoMessage() {}
+
+func (x *RemoteObservationRenewal) ProtoReflect() protoreflect.Message {
+	mi := &file_remote_v1_remote_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteObservationRenewal.ProtoReflect.Descriptor instead.
+func (*RemoteObservationRenewal) Descriptor() ([]byte, []int) {
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RemoteObservationRenewal) GetConnectionEpoch() uint64 {
+	if x != nil {
+		return x.ConnectionEpoch
+	}
+	return 0
+}
+
+func (x *RemoteObservationRenewal) GetObservation() *RemoteObservationSnapshot {
+	if x != nil {
+		return x.Observation
+	}
+	return nil
+}
+
 type HostHello struct {
 	state                          protoimpl.MessageState            `protogen:"open.v1"`
 	ProtocolVersion                string                            `protobuf:"bytes,1,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
@@ -691,13 +759,14 @@ type HostHello struct {
 	RequiredFeatures               []string                          `protobuf:"bytes,14,rep,name=required_features,json=requiredFeatures,proto3" json:"required_features,omitempty"`
 	EndpointObservation            *v1.EndpointObservation           `protobuf:"bytes,15,opt,name=endpoint_observation,json=endpointObservation,proto3" json:"endpoint_observation,omitempty"`
 	HostLoopbackFrontend           *v11.HostLoopbackFrontendCapacity `protobuf:"bytes,16,opt,name=host_loopback_frontend,json=hostLoopbackFrontend,proto3" json:"host_loopback_frontend,omitempty"`
+	Observation                    *RemoteObservationSnapshot        `protobuf:"bytes,17,opt,name=observation,proto3" json:"observation,omitempty"`
 	unknownFields                  protoimpl.UnknownFields
 	sizeCache                      protoimpl.SizeCache
 }
 
 func (x *HostHello) Reset() {
 	*x = HostHello{}
-	mi := &file_remote_v1_remote_proto_msgTypes[4]
+	mi := &file_remote_v1_remote_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +778,7 @@ func (x *HostHello) String() string {
 func (*HostHello) ProtoMessage() {}
 
 func (x *HostHello) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[4]
+	mi := &file_remote_v1_remote_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +791,7 @@ func (x *HostHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostHello.ProtoReflect.Descriptor instead.
 func (*HostHello) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{4}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *HostHello) GetProtocolVersion() string {
@@ -837,6 +906,389 @@ func (x *HostHello) GetHostLoopbackFrontend() *v11.HostLoopbackFrontendCapacity 
 	return nil
 }
 
+func (x *HostHello) GetObservation() *RemoteObservationSnapshot {
+	if x != nil {
+		return x.Observation
+	}
+	return nil
+}
+
+type RemoteObservationSnapshot struct {
+	state                       protoimpl.MessageState   `protogen:"open.v1"`
+	Sequence                    uint64                   `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	ObservedUnixMillis          int64                    `protobuf:"varint,2,opt,name=observed_unix_millis,json=observedUnixMillis,proto3" json:"observed_unix_millis,omitempty"`
+	ProtocolVersion             string                   `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	HostApiVersion              string                   `protobuf:"bytes,4,opt,name=host_api_version,json=hostApiVersion,proto3" json:"host_api_version,omitempty"`
+	ConnectorRelease            string                   `protobuf:"bytes,5,opt,name=connector_release,json=connectorRelease,proto3" json:"connector_release,omitempty"`
+	SupportedFeatures           []string                 `protobuf:"bytes,6,rep,name=supported_features,json=supportedFeatures,proto3" json:"supported_features,omitempty"`
+	Capacity                    *Capacity                `protobuf:"bytes,7,opt,name=capacity,proto3" json:"capacity,omitempty"`
+	Health                      *RemoteObservationHealth `protobuf:"bytes,8,opt,name=health,proto3" json:"health,omitempty"`
+	Usage                       *RemoteObservationUsage  `protobuf:"bytes,9,opt,name=usage,proto3" json:"usage,omitempty"`
+	InventoryWatermark          uint64                   `protobuf:"varint,10,opt,name=inventory_watermark,json=inventoryWatermark,proto3" json:"inventory_watermark,omitempty"`
+	InventoryCount              uint32                   `protobuf:"varint,11,opt,name=inventory_count,json=inventoryCount,proto3" json:"inventory_count,omitempty"`
+	InventoryObservedUnixMillis int64                    `protobuf:"varint,12,opt,name=inventory_observed_unix_millis,json=inventoryObservedUnixMillis,proto3" json:"inventory_observed_unix_millis,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
+}
+
+func (x *RemoteObservationSnapshot) Reset() {
+	*x = RemoteObservationSnapshot{}
+	mi := &file_remote_v1_remote_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteObservationSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteObservationSnapshot) ProtoMessage() {}
+
+func (x *RemoteObservationSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_remote_v1_remote_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteObservationSnapshot.ProtoReflect.Descriptor instead.
+func (*RemoteObservationSnapshot) Descriptor() ([]byte, []int) {
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RemoteObservationSnapshot) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *RemoteObservationSnapshot) GetObservedUnixMillis() int64 {
+	if x != nil {
+		return x.ObservedUnixMillis
+	}
+	return 0
+}
+
+func (x *RemoteObservationSnapshot) GetProtocolVersion() string {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return ""
+}
+
+func (x *RemoteObservationSnapshot) GetHostApiVersion() string {
+	if x != nil {
+		return x.HostApiVersion
+	}
+	return ""
+}
+
+func (x *RemoteObservationSnapshot) GetConnectorRelease() string {
+	if x != nil {
+		return x.ConnectorRelease
+	}
+	return ""
+}
+
+func (x *RemoteObservationSnapshot) GetSupportedFeatures() []string {
+	if x != nil {
+		return x.SupportedFeatures
+	}
+	return nil
+}
+
+func (x *RemoteObservationSnapshot) GetCapacity() *Capacity {
+	if x != nil {
+		return x.Capacity
+	}
+	return nil
+}
+
+func (x *RemoteObservationSnapshot) GetHealth() *RemoteObservationHealth {
+	if x != nil {
+		return x.Health
+	}
+	return nil
+}
+
+func (x *RemoteObservationSnapshot) GetUsage() *RemoteObservationUsage {
+	if x != nil {
+		return x.Usage
+	}
+	return nil
+}
+
+func (x *RemoteObservationSnapshot) GetInventoryWatermark() uint64 {
+	if x != nil {
+		return x.InventoryWatermark
+	}
+	return 0
+}
+
+func (x *RemoteObservationSnapshot) GetInventoryCount() uint32 {
+	if x != nil {
+		return x.InventoryCount
+	}
+	return 0
+}
+
+func (x *RemoteObservationSnapshot) GetInventoryObservedUnixMillis() int64 {
+	if x != nil {
+		return x.InventoryObservedUnixMillis
+	}
+	return 0
+}
+
+type RemoteObservationHealth struct {
+	state         protoimpl.MessageState        `protogen:"open.v1"`
+	Status        string                        `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Issue         string                        `protobuf:"bytes,2,opt,name=issue,proto3" json:"issue,omitempty"`
+	Message       string                        `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	Components    []*RemoteObservationComponent `protobuf:"bytes,4,rep,name=components,proto3" json:"components,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteObservationHealth) Reset() {
+	*x = RemoteObservationHealth{}
+	mi := &file_remote_v1_remote_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteObservationHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteObservationHealth) ProtoMessage() {}
+
+func (x *RemoteObservationHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_remote_v1_remote_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteObservationHealth.ProtoReflect.Descriptor instead.
+func (*RemoteObservationHealth) Descriptor() ([]byte, []int) {
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RemoteObservationHealth) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *RemoteObservationHealth) GetIssue() string {
+	if x != nil {
+		return x.Issue
+	}
+	return ""
+}
+
+func (x *RemoteObservationHealth) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *RemoteObservationHealth) GetComponents() []*RemoteObservationComponent {
+	if x != nil {
+		return x.Components
+	}
+	return nil
+}
+
+type RemoteObservationComponent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Component     string                 `protobuf:"bytes,1,opt,name=component,proto3" json:"component,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteObservationComponent) Reset() {
+	*x = RemoteObservationComponent{}
+	mi := &file_remote_v1_remote_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteObservationComponent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteObservationComponent) ProtoMessage() {}
+
+func (x *RemoteObservationComponent) ProtoReflect() protoreflect.Message {
+	mi := &file_remote_v1_remote_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteObservationComponent.ProtoReflect.Descriptor instead.
+func (*RemoteObservationComponent) Descriptor() ([]byte, []int) {
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RemoteObservationComponent) GetComponent() string {
+	if x != nil {
+		return x.Component
+	}
+	return ""
+}
+
+func (x *RemoteObservationComponent) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type RemoteObservationUsage struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	CpuNanos          uint64                 `protobuf:"varint,1,opt,name=cpu_nanos,json=cpuNanos,proto3" json:"cpu_nanos,omitempty"`
+	MemoryBytes       uint64                 `protobuf:"varint,2,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	Pids              uint32                 `protobuf:"varint,3,opt,name=pids,proto3" json:"pids,omitempty"`
+	ReadBytes         uint64                 `protobuf:"varint,4,opt,name=read_bytes,json=readBytes,proto3" json:"read_bytes,omitempty"`
+	WriteBytes        uint64                 `protobuf:"varint,5,opt,name=write_bytes,json=writeBytes,proto3" json:"write_bytes,omitempty"`
+	DiskBytes         uint64                 `protobuf:"varint,6,opt,name=disk_bytes,json=diskBytes,proto3" json:"disk_bytes,omitempty"`
+	NetworkRxBytes    uint64                 `protobuf:"varint,7,opt,name=network_rx_bytes,json=networkRxBytes,proto3" json:"network_rx_bytes,omitempty"`
+	NetworkTxBytes    uint64                 `protobuf:"varint,8,opt,name=network_tx_bytes,json=networkTxBytes,proto3" json:"network_tx_bytes,omitempty"`
+	SampledUnixMillis int64                  `protobuf:"varint,9,opt,name=sampled_unix_millis,json=sampledUnixMillis,proto3" json:"sampled_unix_millis,omitempty"`
+	Stale             bool                   `protobuf:"varint,10,opt,name=stale,proto3" json:"stale,omitempty"`
+	Issue             string                 `protobuf:"bytes,11,opt,name=issue,proto3" json:"issue,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RemoteObservationUsage) Reset() {
+	*x = RemoteObservationUsage{}
+	mi := &file_remote_v1_remote_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteObservationUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteObservationUsage) ProtoMessage() {}
+
+func (x *RemoteObservationUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_remote_v1_remote_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteObservationUsage.ProtoReflect.Descriptor instead.
+func (*RemoteObservationUsage) Descriptor() ([]byte, []int) {
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RemoteObservationUsage) GetCpuNanos() uint64 {
+	if x != nil {
+		return x.CpuNanos
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetMemoryBytes() uint64 {
+	if x != nil {
+		return x.MemoryBytes
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetPids() uint32 {
+	if x != nil {
+		return x.Pids
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetReadBytes() uint64 {
+	if x != nil {
+		return x.ReadBytes
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetWriteBytes() uint64 {
+	if x != nil {
+		return x.WriteBytes
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetDiskBytes() uint64 {
+	if x != nil {
+		return x.DiskBytes
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetNetworkRxBytes() uint64 {
+	if x != nil {
+		return x.NetworkRxBytes
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetNetworkTxBytes() uint64 {
+	if x != nil {
+		return x.NetworkTxBytes
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetSampledUnixMillis() int64 {
+	if x != nil {
+		return x.SampledUnixMillis
+	}
+	return 0
+}
+
+func (x *RemoteObservationUsage) GetStale() bool {
+	if x != nil {
+		return x.Stale
+	}
+	return false
+}
+
+func (x *RemoteObservationUsage) GetIssue() string {
+	if x != nil {
+		return x.Issue
+	}
+	return ""
+}
+
 type Capacity struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	MaxEnvironments        uint32                 `protobuf:"varint,1,opt,name=max_environments,json=maxEnvironments,proto3" json:"max_environments,omitempty"`
@@ -851,7 +1303,7 @@ type Capacity struct {
 
 func (x *Capacity) Reset() {
 	*x = Capacity{}
-	mi := &file_remote_v1_remote_proto_msgTypes[5]
+	mi := &file_remote_v1_remote_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -863,7 +1315,7 @@ func (x *Capacity) String() string {
 func (*Capacity) ProtoMessage() {}
 
 func (x *Capacity) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[5]
+	mi := &file_remote_v1_remote_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -876,7 +1328,7 @@ func (x *Capacity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Capacity.ProtoReflect.Descriptor instead.
 func (*Capacity) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{5}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Capacity) GetMaxEnvironments() uint32 {
@@ -936,7 +1388,7 @@ type Allocation struct {
 
 func (x *Allocation) Reset() {
 	*x = Allocation{}
-	mi := &file_remote_v1_remote_proto_msgTypes[6]
+	mi := &file_remote_v1_remote_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -948,7 +1400,7 @@ func (x *Allocation) String() string {
 func (*Allocation) ProtoMessage() {}
 
 func (x *Allocation) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[6]
+	mi := &file_remote_v1_remote_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -961,7 +1413,7 @@ func (x *Allocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Allocation.ProtoReflect.Descriptor instead.
 func (*Allocation) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{6}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Allocation) GetAllocationId() string {
@@ -1028,7 +1480,7 @@ type Lease struct {
 
 func (x *Lease) Reset() {
 	*x = Lease{}
-	mi := &file_remote_v1_remote_proto_msgTypes[7]
+	mi := &file_remote_v1_remote_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1040,7 +1492,7 @@ func (x *Lease) String() string {
 func (*Lease) ProtoMessage() {}
 
 func (x *Lease) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[7]
+	mi := &file_remote_v1_remote_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1053,7 +1505,7 @@ func (x *Lease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Lease.ProtoReflect.Descriptor instead.
 func (*Lease) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{7}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Lease) GetLeaseId() string {
@@ -1116,7 +1568,7 @@ type HostHealth struct {
 
 func (x *HostHealth) Reset() {
 	*x = HostHealth{}
-	mi := &file_remote_v1_remote_proto_msgTypes[8]
+	mi := &file_remote_v1_remote_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1128,7 +1580,7 @@ func (x *HostHealth) String() string {
 func (*HostHealth) ProtoMessage() {}
 
 func (x *HostHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[8]
+	mi := &file_remote_v1_remote_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1141,7 +1593,7 @@ func (x *HostHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostHealth.ProtoReflect.Descriptor instead.
 func (*HostHealth) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{8}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *HostHealth) GetRuntimeReady() bool {
@@ -1180,7 +1632,7 @@ type ControllerControlMessage struct {
 
 func (x *ControllerControlMessage) Reset() {
 	*x = ControllerControlMessage{}
-	mi := &file_remote_v1_remote_proto_msgTypes[9]
+	mi := &file_remote_v1_remote_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1192,7 +1644,7 @@ func (x *ControllerControlMessage) String() string {
 func (*ControllerControlMessage) ProtoMessage() {}
 
 func (x *ControllerControlMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[9]
+	mi := &file_remote_v1_remote_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1205,7 +1657,7 @@ func (x *ControllerControlMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControllerControlMessage.ProtoReflect.Descriptor instead.
 func (*ControllerControlMessage) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{9}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ControllerControlMessage) GetPayload() isControllerControlMessage_Payload {
@@ -1284,13 +1736,14 @@ type ControllerReady struct {
 	RegistrationId                 string                 `protobuf:"bytes,1,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
 	ConnectionEpoch                uint64                 `protobuf:"varint,2,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
 	AcknowledgedInventoryWatermark uint64                 `protobuf:"varint,3,opt,name=acknowledged_inventory_watermark,json=acknowledgedInventoryWatermark,proto3" json:"acknowledged_inventory_watermark,omitempty"`
+	EnabledFeatures                []string               `protobuf:"bytes,4,rep,name=enabled_features,json=enabledFeatures,proto3" json:"enabled_features,omitempty"`
 	unknownFields                  protoimpl.UnknownFields
 	sizeCache                      protoimpl.SizeCache
 }
 
 func (x *ControllerReady) Reset() {
 	*x = ControllerReady{}
-	mi := &file_remote_v1_remote_proto_msgTypes[10]
+	mi := &file_remote_v1_remote_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1302,7 +1755,7 @@ func (x *ControllerReady) String() string {
 func (*ControllerReady) ProtoMessage() {}
 
 func (x *ControllerReady) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[10]
+	mi := &file_remote_v1_remote_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1315,7 +1768,7 @@ func (x *ControllerReady) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControllerReady.ProtoReflect.Descriptor instead.
 func (*ControllerReady) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{10}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ControllerReady) GetRegistrationId() string {
@@ -1337,6 +1790,13 @@ func (x *ControllerReady) GetAcknowledgedInventoryWatermark() uint64 {
 		return x.AcknowledgedInventoryWatermark
 	}
 	return 0
+}
+
+func (x *ControllerReady) GetEnabledFeatures() []string {
+	if x != nil {
+		return x.EnabledFeatures
+	}
+	return nil
 }
 
 type ControllerCommand struct {
@@ -1369,7 +1829,7 @@ type ControllerCommand struct {
 
 func (x *ControllerCommand) Reset() {
 	*x = ControllerCommand{}
-	mi := &file_remote_v1_remote_proto_msgTypes[11]
+	mi := &file_remote_v1_remote_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1381,7 +1841,7 @@ func (x *ControllerCommand) String() string {
 func (*ControllerCommand) ProtoMessage() {}
 
 func (x *ControllerCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[11]
+	mi := &file_remote_v1_remote_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1394,7 +1854,7 @@ func (x *ControllerCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControllerCommand.ProtoReflect.Descriptor instead.
 func (*ControllerCommand) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{11}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ControllerCommand) GetCommandId() string {
@@ -1650,7 +2110,7 @@ type AcquireHostLoopbackFrontend struct {
 
 func (x *AcquireHostLoopbackFrontend) Reset() {
 	*x = AcquireHostLoopbackFrontend{}
-	mi := &file_remote_v1_remote_proto_msgTypes[12]
+	mi := &file_remote_v1_remote_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1662,7 +2122,7 @@ func (x *AcquireHostLoopbackFrontend) String() string {
 func (*AcquireHostLoopbackFrontend) ProtoMessage() {}
 
 func (x *AcquireHostLoopbackFrontend) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[12]
+	mi := &file_remote_v1_remote_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1675,7 +2135,7 @@ func (x *AcquireHostLoopbackFrontend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcquireHostLoopbackFrontend.ProtoReflect.Descriptor instead.
 func (*AcquireHostLoopbackFrontend) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{12}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AcquireHostLoopbackFrontend) GetAllocationId() string {
@@ -1726,7 +2186,7 @@ type RenewHostLoopbackFrontend struct {
 
 func (x *RenewHostLoopbackFrontend) Reset() {
 	*x = RenewHostLoopbackFrontend{}
-	mi := &file_remote_v1_remote_proto_msgTypes[13]
+	mi := &file_remote_v1_remote_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1738,7 +2198,7 @@ func (x *RenewHostLoopbackFrontend) String() string {
 func (*RenewHostLoopbackFrontend) ProtoMessage() {}
 
 func (x *RenewHostLoopbackFrontend) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[13]
+	mi := &file_remote_v1_remote_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1751,7 +2211,7 @@ func (x *RenewHostLoopbackFrontend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewHostLoopbackFrontend.ProtoReflect.Descriptor instead.
 func (*RenewHostLoopbackFrontend) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{13}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RenewHostLoopbackFrontend) GetFrontendLeaseId() string {
@@ -1799,7 +2259,7 @@ type ReleaseHostLoopbackFrontend struct {
 
 func (x *ReleaseHostLoopbackFrontend) Reset() {
 	*x = ReleaseHostLoopbackFrontend{}
-	mi := &file_remote_v1_remote_proto_msgTypes[14]
+	mi := &file_remote_v1_remote_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1811,7 +2271,7 @@ func (x *ReleaseHostLoopbackFrontend) String() string {
 func (*ReleaseHostLoopbackFrontend) ProtoMessage() {}
 
 func (x *ReleaseHostLoopbackFrontend) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[14]
+	mi := &file_remote_v1_remote_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1824,7 +2284,7 @@ func (x *ReleaseHostLoopbackFrontend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseHostLoopbackFrontend.ProtoReflect.Descriptor instead.
 func (*ReleaseHostLoopbackFrontend) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{14}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ReleaseHostLoopbackFrontend) GetFrontendLeaseId() string {
@@ -1854,7 +2314,7 @@ type EnsureAllocation struct {
 
 func (x *EnsureAllocation) Reset() {
 	*x = EnsureAllocation{}
-	mi := &file_remote_v1_remote_proto_msgTypes[15]
+	mi := &file_remote_v1_remote_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1866,7 +2326,7 @@ func (x *EnsureAllocation) String() string {
 func (*EnsureAllocation) ProtoMessage() {}
 
 func (x *EnsureAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[15]
+	mi := &file_remote_v1_remote_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1879,7 +2339,7 @@ func (x *EnsureAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureAllocation.ProtoReflect.Descriptor instead.
 func (*EnsureAllocation) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{15}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EnsureAllocation) GetAllocationId() string {
@@ -1927,7 +2387,7 @@ type ReleaseAllocation struct {
 
 func (x *ReleaseAllocation) Reset() {
 	*x = ReleaseAllocation{}
-	mi := &file_remote_v1_remote_proto_msgTypes[16]
+	mi := &file_remote_v1_remote_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1939,7 +2399,7 @@ func (x *ReleaseAllocation) String() string {
 func (*ReleaseAllocation) ProtoMessage() {}
 
 func (x *ReleaseAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[16]
+	mi := &file_remote_v1_remote_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1952,7 +2412,7 @@ func (x *ReleaseAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseAllocation.ProtoReflect.Descriptor instead.
 func (*ReleaseAllocation) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{16}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ReleaseAllocation) GetAllocationId() string {
@@ -1979,7 +2439,7 @@ type PlanCleanupAllocation struct {
 
 func (x *PlanCleanupAllocation) Reset() {
 	*x = PlanCleanupAllocation{}
-	mi := &file_remote_v1_remote_proto_msgTypes[17]
+	mi := &file_remote_v1_remote_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1991,7 +2451,7 @@ func (x *PlanCleanupAllocation) String() string {
 func (*PlanCleanupAllocation) ProtoMessage() {}
 
 func (x *PlanCleanupAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[17]
+	mi := &file_remote_v1_remote_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2004,7 +2464,7 @@ func (x *PlanCleanupAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanCleanupAllocation.ProtoReflect.Descriptor instead.
 func (*PlanCleanupAllocation) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{17}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *PlanCleanupAllocation) GetAllocationId() string {
@@ -2035,7 +2495,7 @@ type ExecuteCleanupAllocation struct {
 
 func (x *ExecuteCleanupAllocation) Reset() {
 	*x = ExecuteCleanupAllocation{}
-	mi := &file_remote_v1_remote_proto_msgTypes[18]
+	mi := &file_remote_v1_remote_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2047,7 +2507,7 @@ func (x *ExecuteCleanupAllocation) String() string {
 func (*ExecuteCleanupAllocation) ProtoMessage() {}
 
 func (x *ExecuteCleanupAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[18]
+	mi := &file_remote_v1_remote_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2060,7 +2520,7 @@ func (x *ExecuteCleanupAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteCleanupAllocation.ProtoReflect.Descriptor instead.
 func (*ExecuteCleanupAllocation) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{18}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ExecuteCleanupAllocation) GetAllocationId() string {
@@ -2116,7 +2576,7 @@ type AcquireLease struct {
 
 func (x *AcquireLease) Reset() {
 	*x = AcquireLease{}
-	mi := &file_remote_v1_remote_proto_msgTypes[19]
+	mi := &file_remote_v1_remote_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2128,7 +2588,7 @@ func (x *AcquireLease) String() string {
 func (*AcquireLease) ProtoMessage() {}
 
 func (x *AcquireLease) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[19]
+	mi := &file_remote_v1_remote_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2141,7 +2601,7 @@ func (x *AcquireLease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcquireLease.ProtoReflect.Descriptor instead.
 func (*AcquireLease) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{19}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *AcquireLease) GetAllocationId() string {
@@ -2176,7 +2636,7 @@ type RenewLease struct {
 
 func (x *RenewLease) Reset() {
 	*x = RenewLease{}
-	mi := &file_remote_v1_remote_proto_msgTypes[20]
+	mi := &file_remote_v1_remote_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2188,7 +2648,7 @@ func (x *RenewLease) String() string {
 func (*RenewLease) ProtoMessage() {}
 
 func (x *RenewLease) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[20]
+	mi := &file_remote_v1_remote_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2201,7 +2661,7 @@ func (x *RenewLease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewLease.ProtoReflect.Descriptor instead.
 func (*RenewLease) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{20}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RenewLease) GetLeaseId() string {
@@ -2235,7 +2695,7 @@ type ReleaseLease struct {
 
 func (x *ReleaseLease) Reset() {
 	*x = ReleaseLease{}
-	mi := &file_remote_v1_remote_proto_msgTypes[21]
+	mi := &file_remote_v1_remote_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2247,7 +2707,7 @@ func (x *ReleaseLease) String() string {
 func (*ReleaseLease) ProtoMessage() {}
 
 func (x *ReleaseLease) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[21]
+	mi := &file_remote_v1_remote_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2260,7 +2720,7 @@ func (x *ReleaseLease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseLease.ProtoReflect.Descriptor instead.
 func (*ReleaseLease) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{21}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ReleaseLease) GetLeaseId() string {
@@ -2285,7 +2745,7 @@ type DrainRegistration struct {
 
 func (x *DrainRegistration) Reset() {
 	*x = DrainRegistration{}
-	mi := &file_remote_v1_remote_proto_msgTypes[22]
+	mi := &file_remote_v1_remote_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2297,7 +2757,7 @@ func (x *DrainRegistration) String() string {
 func (*DrainRegistration) ProtoMessage() {}
 
 func (x *DrainRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[22]
+	mi := &file_remote_v1_remote_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2310,7 +2770,7 @@ func (x *DrainRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DrainRegistration.ProtoReflect.Descriptor instead.
 func (*DrainRegistration) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{22}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{27}
 }
 
 type OpenSession struct {
@@ -2324,7 +2784,7 @@ type OpenSession struct {
 
 func (x *OpenSession) Reset() {
 	*x = OpenSession{}
-	mi := &file_remote_v1_remote_proto_msgTypes[23]
+	mi := &file_remote_v1_remote_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2336,7 +2796,7 @@ func (x *OpenSession) String() string {
 func (*OpenSession) ProtoMessage() {}
 
 func (x *OpenSession) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[23]
+	mi := &file_remote_v1_remote_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2349,7 +2809,7 @@ func (x *OpenSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenSession.ProtoReflect.Descriptor instead.
 func (*OpenSession) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{23}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *OpenSession) GetAllocationId() string {
@@ -2396,7 +2856,7 @@ type CommandResult struct {
 
 func (x *CommandResult) Reset() {
 	*x = CommandResult{}
-	mi := &file_remote_v1_remote_proto_msgTypes[24]
+	mi := &file_remote_v1_remote_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2408,7 +2868,7 @@ func (x *CommandResult) String() string {
 func (*CommandResult) ProtoMessage() {}
 
 func (x *CommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[24]
+	mi := &file_remote_v1_remote_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2421,7 +2881,7 @@ func (x *CommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
 func (*CommandResult) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{24}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CommandResult) GetCommandId() string {
@@ -2573,7 +3033,7 @@ type CommandAck struct {
 
 func (x *CommandAck) Reset() {
 	*x = CommandAck{}
-	mi := &file_remote_v1_remote_proto_msgTypes[25]
+	mi := &file_remote_v1_remote_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2585,7 +3045,7 @@ func (x *CommandAck) String() string {
 func (*CommandAck) ProtoMessage() {}
 
 func (x *CommandAck) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[25]
+	mi := &file_remote_v1_remote_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2598,7 +3058,7 @@ func (x *CommandAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandAck.ProtoReflect.Descriptor instead.
 func (*CommandAck) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{25}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CommandAck) GetCommandId() string {
@@ -2656,7 +3116,7 @@ type CommandEvidence struct {
 
 func (x *CommandEvidence) Reset() {
 	*x = CommandEvidence{}
-	mi := &file_remote_v1_remote_proto_msgTypes[26]
+	mi := &file_remote_v1_remote_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2668,7 +3128,7 @@ func (x *CommandEvidence) String() string {
 func (*CommandEvidence) ProtoMessage() {}
 
 func (x *CommandEvidence) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[26]
+	mi := &file_remote_v1_remote_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2681,7 +3141,7 @@ func (x *CommandEvidence) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandEvidence.ProtoReflect.Descriptor instead.
 func (*CommandEvidence) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{26}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *CommandEvidence) GetCommandId() string {
@@ -2732,7 +3192,7 @@ type CleanupPlan struct {
 
 func (x *CleanupPlan) Reset() {
 	*x = CleanupPlan{}
-	mi := &file_remote_v1_remote_proto_msgTypes[27]
+	mi := &file_remote_v1_remote_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2744,7 +3204,7 @@ func (x *CleanupPlan) String() string {
 func (*CleanupPlan) ProtoMessage() {}
 
 func (x *CleanupPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[27]
+	mi := &file_remote_v1_remote_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2757,7 +3217,7 @@ func (x *CleanupPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupPlan.ProtoReflect.Descriptor instead.
 func (*CleanupPlan) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{27}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CleanupPlan) GetAllocationId() string {
@@ -2807,7 +3267,7 @@ type SessionReady struct {
 
 func (x *SessionReady) Reset() {
 	*x = SessionReady{}
-	mi := &file_remote_v1_remote_proto_msgTypes[28]
+	mi := &file_remote_v1_remote_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2819,7 +3279,7 @@ func (x *SessionReady) String() string {
 func (*SessionReady) ProtoMessage() {}
 
 func (x *SessionReady) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[28]
+	mi := &file_remote_v1_remote_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2832,7 +3292,7 @@ func (x *SessionReady) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionReady.ProtoReflect.Descriptor instead.
 func (*SessionReady) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{28}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SessionReady) GetAllocationId() string {
@@ -2878,7 +3338,7 @@ type HostEvent struct {
 
 func (x *HostEvent) Reset() {
 	*x = HostEvent{}
-	mi := &file_remote_v1_remote_proto_msgTypes[29]
+	mi := &file_remote_v1_remote_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2890,7 +3350,7 @@ func (x *HostEvent) String() string {
 func (*HostEvent) ProtoMessage() {}
 
 func (x *HostEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[29]
+	mi := &file_remote_v1_remote_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2903,7 +3363,7 @@ func (x *HostEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostEvent.ProtoReflect.Descriptor instead.
 func (*HostEvent) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{29}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *HostEvent) GetKind() string {
@@ -2964,7 +3424,7 @@ type RotateCredential struct {
 
 func (x *RotateCredential) Reset() {
 	*x = RotateCredential{}
-	mi := &file_remote_v1_remote_proto_msgTypes[30]
+	mi := &file_remote_v1_remote_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2976,7 +3436,7 @@ func (x *RotateCredential) String() string {
 func (*RotateCredential) ProtoMessage() {}
 
 func (x *RotateCredential) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[30]
+	mi := &file_remote_v1_remote_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2989,7 +3449,7 @@ func (x *RotateCredential) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateCredential.ProtoReflect.Descriptor instead.
 func (*RotateCredential) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{30}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *RotateCredential) GetCredential() []byte {
@@ -3008,7 +3468,7 @@ type RevokeCredential struct {
 
 func (x *RevokeCredential) Reset() {
 	*x = RevokeCredential{}
-	mi := &file_remote_v1_remote_proto_msgTypes[31]
+	mi := &file_remote_v1_remote_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3020,7 +3480,7 @@ func (x *RevokeCredential) String() string {
 func (*RevokeCredential) ProtoMessage() {}
 
 func (x *RevokeCredential) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[31]
+	mi := &file_remote_v1_remote_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3033,7 +3493,7 @@ func (x *RevokeCredential) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeCredential.ProtoReflect.Descriptor instead.
 func (*RevokeCredential) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{31}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *RevokeCredential) GetReason() string {
@@ -3060,7 +3520,7 @@ type SessionHeader struct {
 
 func (x *SessionHeader) Reset() {
 	*x = SessionHeader{}
-	mi := &file_remote_v1_remote_proto_msgTypes[32]
+	mi := &file_remote_v1_remote_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3072,7 +3532,7 @@ func (x *SessionHeader) String() string {
 func (*SessionHeader) ProtoMessage() {}
 
 func (x *SessionHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[32]
+	mi := &file_remote_v1_remote_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3085,7 +3545,7 @@ func (x *SessionHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionHeader.ProtoReflect.Descriptor instead.
 func (*SessionHeader) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{32}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SessionHeader) GetProtocolVersion() string {
@@ -3165,7 +3625,7 @@ type HostSessionFrame struct {
 
 func (x *HostSessionFrame) Reset() {
 	*x = HostSessionFrame{}
-	mi := &file_remote_v1_remote_proto_msgTypes[33]
+	mi := &file_remote_v1_remote_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3177,7 +3637,7 @@ func (x *HostSessionFrame) String() string {
 func (*HostSessionFrame) ProtoMessage() {}
 
 func (x *HostSessionFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[33]
+	mi := &file_remote_v1_remote_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3190,7 +3650,7 @@ func (x *HostSessionFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostSessionFrame.ProtoReflect.Descriptor instead.
 func (*HostSessionFrame) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{33}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *HostSessionFrame) GetPayload() isHostSessionFrame_Payload {
@@ -3262,7 +3722,7 @@ type ControllerSessionFrame struct {
 
 func (x *ControllerSessionFrame) Reset() {
 	*x = ControllerSessionFrame{}
-	mi := &file_remote_v1_remote_proto_msgTypes[34]
+	mi := &file_remote_v1_remote_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3274,7 +3734,7 @@ func (x *ControllerSessionFrame) String() string {
 func (*ControllerSessionFrame) ProtoMessage() {}
 
 func (x *ControllerSessionFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_remote_v1_remote_proto_msgTypes[34]
+	mi := &file_remote_v1_remote_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3287,7 +3747,7 @@ func (x *ControllerSessionFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControllerSessionFrame.ProtoReflect.Descriptor instead.
 func (*ControllerSessionFrame) Descriptor() ([]byte, []int) {
-	return file_remote_v1_remote_proto_rawDescGZIP(), []int{34}
+	return file_remote_v1_remote_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ControllerSessionFrame) GetPayload() isControllerSessionFrame_Payload {
@@ -3354,7 +3814,7 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"credential\x12)\n" +
 	"\x10enabled_features\x18\x05 \x03(\tR\x0fenabledFeatures\x12A\n" +
 	"\ftrust_anchor\x18\x06 \x01(\v2\x1e.agentvmm.trust.v1.TrustAnchorR\vtrustAnchor\x12\\\n" +
-	"\x15membership_credential\x18\a \x01(\v2'.agentvmm.trust.v1.MembershipCredentialR\x14membershipCredential\"\x8b\x04\n" +
+	"\x15membership_credential\x18\a \x01(\v2'.agentvmm.trust.v1.MembershipCredentialR\x14membershipCredential\"\xec\x04\n" +
 	"\x12HostControlMessage\x125\n" +
 	"\x05hello\x18\x01 \x01(\v2\x1d.agentvmm.remote.v1.HostHelloH\x00R\x05hello\x12;\n" +
 	"\x06result\x18\x02 \x01(\v2!.agentvmm.remote.v1.CommandResultH\x00R\x06result\x125\n" +
@@ -3362,11 +3822,15 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x03ack\x18\x04 \x01(\v2\x1e.agentvmm.remote.v1.CommandAckH\x00R\x03ack\x12A\n" +
 	"\bevidence\x18\x05 \x01(\v2#.agentvmm.remote.v1.CommandEvidenceH\x00R\bevidence\x12r\n" +
 	"\x1cendpoint_observation_renewal\x18\x06 \x01(\v2..agentvmm.remote.v1.EndpointObservationRenewalH\x00R\x1aendpointObservationRenewal\x12T\n" +
-	"\x0efrontend_event\x18\a \x01(\v2+.agentvmm.host.v1.HostLoopbackFrontendEventH\x00R\rfrontendEventB\t\n" +
+	"\x0efrontend_event\x18\a \x01(\v2+.agentvmm.host.v1.HostLoopbackFrontendEventH\x00R\rfrontendEvent\x12_\n" +
+	"\x13observation_renewal\x18\b \x01(\v2,.agentvmm.remote.v1.RemoteObservationRenewalH\x00R\x12observationRenewalB\t\n" +
 	"\apayload\"\xa2\x01\n" +
 	"\x1aEndpointObservationRenewal\x12)\n" +
 	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x12Y\n" +
-	"\x14endpoint_observation\x18\x02 \x01(\v2&.agentvmm.trust.v1.EndpointObservationR\x13endpointObservation\"\xff\x06\n" +
+	"\x14endpoint_observation\x18\x02 \x01(\v2&.agentvmm.trust.v1.EndpointObservationR\x13endpointObservation\"\x96\x01\n" +
+	"\x18RemoteObservationRenewal\x12)\n" +
+	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x12O\n" +
+	"\vobservation\x18\x02 \x01(\v2-.agentvmm.remote.v1.RemoteObservationSnapshotR\vobservation\"\xd0\a\n" +
 	"\tHostHello\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12(\n" +
 	"\x10host_api_version\x18\x02 \x01(\tR\x0ehostApiVersion\x12+\n" +
@@ -3384,7 +3848,48 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x12supported_features\x18\r \x03(\tR\x11supportedFeatures\x12+\n" +
 	"\x11required_features\x18\x0e \x03(\tR\x10requiredFeatures\x12Y\n" +
 	"\x14endpoint_observation\x18\x0f \x01(\v2&.agentvmm.trust.v1.EndpointObservationR\x13endpointObservation\x12d\n" +
-	"\x16host_loopback_frontend\x18\x10 \x01(\v2..agentvmm.host.v1.HostLoopbackFrontendCapacityR\x14hostLoopbackFrontend\"\x86\x03\n" +
+	"\x16host_loopback_frontend\x18\x10 \x01(\v2..agentvmm.host.v1.HostLoopbackFrontendCapacityR\x14hostLoopbackFrontend\x12O\n" +
+	"\vobservation\x18\x11 \x01(\v2-.agentvmm.remote.v1.RemoteObservationSnapshotR\vobservation\"\xfa\x04\n" +
+	"\x19RemoteObservationSnapshot\x12\x1a\n" +
+	"\bsequence\x18\x01 \x01(\x04R\bsequence\x120\n" +
+	"\x14observed_unix_millis\x18\x02 \x01(\x03R\x12observedUnixMillis\x12)\n" +
+	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12(\n" +
+	"\x10host_api_version\x18\x04 \x01(\tR\x0ehostApiVersion\x12+\n" +
+	"\x11connector_release\x18\x05 \x01(\tR\x10connectorRelease\x12-\n" +
+	"\x12supported_features\x18\x06 \x03(\tR\x11supportedFeatures\x128\n" +
+	"\bcapacity\x18\a \x01(\v2\x1c.agentvmm.remote.v1.CapacityR\bcapacity\x12C\n" +
+	"\x06health\x18\b \x01(\v2+.agentvmm.remote.v1.RemoteObservationHealthR\x06health\x12@\n" +
+	"\x05usage\x18\t \x01(\v2*.agentvmm.remote.v1.RemoteObservationUsageR\x05usage\x12/\n" +
+	"\x13inventory_watermark\x18\n" +
+	" \x01(\x04R\x12inventoryWatermark\x12'\n" +
+	"\x0finventory_count\x18\v \x01(\rR\x0einventoryCount\x12C\n" +
+	"\x1einventory_observed_unix_millis\x18\f \x01(\x03R\x1binventoryObservedUnixMillis\"\xb1\x01\n" +
+	"\x17RemoteObservationHealth\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x14\n" +
+	"\x05issue\x18\x02 \x01(\tR\x05issue\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12N\n" +
+	"\n" +
+	"components\x18\x04 \x03(\v2..agentvmm.remote.v1.RemoteObservationComponentR\n" +
+	"components\"R\n" +
+	"\x1aRemoteObservationComponent\x12\x1c\n" +
+	"\tcomponent\x18\x01 \x01(\tR\tcomponent\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\xfb\x02\n" +
+	"\x16RemoteObservationUsage\x12\x1b\n" +
+	"\tcpu_nanos\x18\x01 \x01(\x04R\bcpuNanos\x12!\n" +
+	"\fmemory_bytes\x18\x02 \x01(\x04R\vmemoryBytes\x12\x12\n" +
+	"\x04pids\x18\x03 \x01(\rR\x04pids\x12\x1d\n" +
+	"\n" +
+	"read_bytes\x18\x04 \x01(\x04R\treadBytes\x12\x1f\n" +
+	"\vwrite_bytes\x18\x05 \x01(\x04R\n" +
+	"writeBytes\x12\x1d\n" +
+	"\n" +
+	"disk_bytes\x18\x06 \x01(\x04R\tdiskBytes\x12(\n" +
+	"\x10network_rx_bytes\x18\a \x01(\x04R\x0enetworkRxBytes\x12(\n" +
+	"\x10network_tx_bytes\x18\b \x01(\x04R\x0enetworkTxBytes\x12.\n" +
+	"\x13sampled_unix_millis\x18\t \x01(\x03R\x11sampledUnixMillis\x12\x14\n" +
+	"\x05stale\x18\n" +
+	" \x01(\bR\x05stale\x12\x14\n" +
+	"\x05issue\x18\v \x01(\tR\x05issue\"\x86\x03\n" +
 	"\bCapacity\x12)\n" +
 	"\x10max_environments\x18\x01 \x01(\rR\x0fmaxEnvironments\x12K\n" +
 	"\x10aggregate_limits\x18\x02 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x0faggregateLimits\x12V\n" +
@@ -3422,11 +3927,12 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x11rotate_credential\x18\x02 \x01(\v2$.agentvmm.remote.v1.RotateCredentialH\x00R\x10rotateCredential\x12S\n" +
 	"\x11revoke_credential\x18\x03 \x01(\v2$.agentvmm.remote.v1.RevokeCredentialH\x00R\x10revokeCredential\x12P\n" +
 	"\x10controller_ready\x18\x04 \x01(\v2#.agentvmm.remote.v1.ControllerReadyH\x00R\x0fcontrollerReadyB\t\n" +
-	"\apayload\"\xaf\x01\n" +
+	"\apayload\"\xda\x01\n" +
 	"\x0fControllerReady\x12'\n" +
 	"\x0fregistration_id\x18\x01 \x01(\tR\x0eregistrationId\x12)\n" +
 	"\x10connection_epoch\x18\x02 \x01(\x04R\x0fconnectionEpoch\x12H\n" +
-	" acknowledged_inventory_watermark\x18\x03 \x01(\x04R\x1eacknowledgedInventoryWatermark\"\x9d\v\n" +
+	" acknowledged_inventory_watermark\x18\x03 \x01(\x04R\x1eacknowledgedInventoryWatermark\x12)\n" +
+	"\x10enabled_features\x18\x04 \x03(\tR\x0fenabledFeatures\"\x9d\v\n" +
 	"\x11ControllerCommand\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x1a\n" +
@@ -3651,7 +4157,7 @@ func file_remote_v1_remote_proto_rawDescGZIP() []byte {
 }
 
 var file_remote_v1_remote_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_remote_v1_remote_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_remote_v1_remote_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_remote_v1_remote_proto_goTypes = []any{
 	(CommandAckDisposition)(0),               // 0: agentvmm.remote.v1.CommandAckDisposition
 	(ExecutionStage)(0),                      // 1: agentvmm.remote.v1.ExecutionStage
@@ -3661,124 +4167,136 @@ var file_remote_v1_remote_proto_goTypes = []any{
 	(*EnrollResponse)(nil),                   // 5: agentvmm.remote.v1.EnrollResponse
 	(*HostControlMessage)(nil),               // 6: agentvmm.remote.v1.HostControlMessage
 	(*EndpointObservationRenewal)(nil),       // 7: agentvmm.remote.v1.EndpointObservationRenewal
-	(*HostHello)(nil),                        // 8: agentvmm.remote.v1.HostHello
-	(*Capacity)(nil),                         // 9: agentvmm.remote.v1.Capacity
-	(*Allocation)(nil),                       // 10: agentvmm.remote.v1.Allocation
-	(*Lease)(nil),                            // 11: agentvmm.remote.v1.Lease
-	(*HostHealth)(nil),                       // 12: agentvmm.remote.v1.HostHealth
-	(*ControllerControlMessage)(nil),         // 13: agentvmm.remote.v1.ControllerControlMessage
-	(*ControllerReady)(nil),                  // 14: agentvmm.remote.v1.ControllerReady
-	(*ControllerCommand)(nil),                // 15: agentvmm.remote.v1.ControllerCommand
-	(*AcquireHostLoopbackFrontend)(nil),      // 16: agentvmm.remote.v1.AcquireHostLoopbackFrontend
-	(*RenewHostLoopbackFrontend)(nil),        // 17: agentvmm.remote.v1.RenewHostLoopbackFrontend
-	(*ReleaseHostLoopbackFrontend)(nil),      // 18: agentvmm.remote.v1.ReleaseHostLoopbackFrontend
-	(*EnsureAllocation)(nil),                 // 19: agentvmm.remote.v1.EnsureAllocation
-	(*ReleaseAllocation)(nil),                // 20: agentvmm.remote.v1.ReleaseAllocation
-	(*PlanCleanupAllocation)(nil),            // 21: agentvmm.remote.v1.PlanCleanupAllocation
-	(*ExecuteCleanupAllocation)(nil),         // 22: agentvmm.remote.v1.ExecuteCleanupAllocation
-	(*AcquireLease)(nil),                     // 23: agentvmm.remote.v1.AcquireLease
-	(*RenewLease)(nil),                       // 24: agentvmm.remote.v1.RenewLease
-	(*ReleaseLease)(nil),                     // 25: agentvmm.remote.v1.ReleaseLease
-	(*DrainRegistration)(nil),                // 26: agentvmm.remote.v1.DrainRegistration
-	(*OpenSession)(nil),                      // 27: agentvmm.remote.v1.OpenSession
-	(*CommandResult)(nil),                    // 28: agentvmm.remote.v1.CommandResult
-	(*CommandAck)(nil),                       // 29: agentvmm.remote.v1.CommandAck
-	(*CommandEvidence)(nil),                  // 30: agentvmm.remote.v1.CommandEvidence
-	(*CleanupPlan)(nil),                      // 31: agentvmm.remote.v1.CleanupPlan
-	(*SessionReady)(nil),                     // 32: agentvmm.remote.v1.SessionReady
-	(*HostEvent)(nil),                        // 33: agentvmm.remote.v1.HostEvent
-	(*RotateCredential)(nil),                 // 34: agentvmm.remote.v1.RotateCredential
-	(*RevokeCredential)(nil),                 // 35: agentvmm.remote.v1.RevokeCredential
-	(*SessionHeader)(nil),                    // 36: agentvmm.remote.v1.SessionHeader
-	(*HostSessionFrame)(nil),                 // 37: agentvmm.remote.v1.HostSessionFrame
-	(*ControllerSessionFrame)(nil),           // 38: agentvmm.remote.v1.ControllerSessionFrame
-	(*v1.DeviceIdentity)(nil),                // 39: agentvmm.trust.v1.DeviceIdentity
-	(*v1.TrustAnchor)(nil),                   // 40: agentvmm.trust.v1.TrustAnchor
-	(*v1.MembershipCredential)(nil),          // 41: agentvmm.trust.v1.MembershipCredential
-	(*v11.HostLoopbackFrontendEvent)(nil),    // 42: agentvmm.host.v1.HostLoopbackFrontendEvent
-	(*v1.EndpointObservation)(nil),           // 43: agentvmm.trust.v1.EndpointObservation
-	(*v11.HostLoopbackFrontendCapacity)(nil), // 44: agentvmm.host.v1.HostLoopbackFrontendCapacity
-	(*v11.ResourceLimits)(nil),               // 45: agentvmm.host.v1.ResourceLimits
-	(v11.EgressMode)(0),                      // 46: agentvmm.host.v1.EgressMode
-	(v11.AllocationState)(0),                 // 47: agentvmm.host.v1.AllocationState
-	(v11.LeaseState)(0),                      // 48: agentvmm.host.v1.LeaseState
-	(v11.CleanupKind)(0),                     // 49: agentvmm.host.v1.CleanupKind
-	(*v11.HostLoopbackFrontendLease)(nil),    // 50: agentvmm.host.v1.HostLoopbackFrontendLease
-	(*v11.CleanupImpact)(nil),                // 51: agentvmm.host.v1.CleanupImpact
-	(*v11.HostFrontendFrame)(nil),            // 52: agentvmm.host.v1.HostFrontendFrame
-	(*v11.ControllerFrontendFrame)(nil),      // 53: agentvmm.host.v1.ControllerFrontendFrame
+	(*RemoteObservationRenewal)(nil),         // 8: agentvmm.remote.v1.RemoteObservationRenewal
+	(*HostHello)(nil),                        // 9: agentvmm.remote.v1.HostHello
+	(*RemoteObservationSnapshot)(nil),        // 10: agentvmm.remote.v1.RemoteObservationSnapshot
+	(*RemoteObservationHealth)(nil),          // 11: agentvmm.remote.v1.RemoteObservationHealth
+	(*RemoteObservationComponent)(nil),       // 12: agentvmm.remote.v1.RemoteObservationComponent
+	(*RemoteObservationUsage)(nil),           // 13: agentvmm.remote.v1.RemoteObservationUsage
+	(*Capacity)(nil),                         // 14: agentvmm.remote.v1.Capacity
+	(*Allocation)(nil),                       // 15: agentvmm.remote.v1.Allocation
+	(*Lease)(nil),                            // 16: agentvmm.remote.v1.Lease
+	(*HostHealth)(nil),                       // 17: agentvmm.remote.v1.HostHealth
+	(*ControllerControlMessage)(nil),         // 18: agentvmm.remote.v1.ControllerControlMessage
+	(*ControllerReady)(nil),                  // 19: agentvmm.remote.v1.ControllerReady
+	(*ControllerCommand)(nil),                // 20: agentvmm.remote.v1.ControllerCommand
+	(*AcquireHostLoopbackFrontend)(nil),      // 21: agentvmm.remote.v1.AcquireHostLoopbackFrontend
+	(*RenewHostLoopbackFrontend)(nil),        // 22: agentvmm.remote.v1.RenewHostLoopbackFrontend
+	(*ReleaseHostLoopbackFrontend)(nil),      // 23: agentvmm.remote.v1.ReleaseHostLoopbackFrontend
+	(*EnsureAllocation)(nil),                 // 24: agentvmm.remote.v1.EnsureAllocation
+	(*ReleaseAllocation)(nil),                // 25: agentvmm.remote.v1.ReleaseAllocation
+	(*PlanCleanupAllocation)(nil),            // 26: agentvmm.remote.v1.PlanCleanupAllocation
+	(*ExecuteCleanupAllocation)(nil),         // 27: agentvmm.remote.v1.ExecuteCleanupAllocation
+	(*AcquireLease)(nil),                     // 28: agentvmm.remote.v1.AcquireLease
+	(*RenewLease)(nil),                       // 29: agentvmm.remote.v1.RenewLease
+	(*ReleaseLease)(nil),                     // 30: agentvmm.remote.v1.ReleaseLease
+	(*DrainRegistration)(nil),                // 31: agentvmm.remote.v1.DrainRegistration
+	(*OpenSession)(nil),                      // 32: agentvmm.remote.v1.OpenSession
+	(*CommandResult)(nil),                    // 33: agentvmm.remote.v1.CommandResult
+	(*CommandAck)(nil),                       // 34: agentvmm.remote.v1.CommandAck
+	(*CommandEvidence)(nil),                  // 35: agentvmm.remote.v1.CommandEvidence
+	(*CleanupPlan)(nil),                      // 36: agentvmm.remote.v1.CleanupPlan
+	(*SessionReady)(nil),                     // 37: agentvmm.remote.v1.SessionReady
+	(*HostEvent)(nil),                        // 38: agentvmm.remote.v1.HostEvent
+	(*RotateCredential)(nil),                 // 39: agentvmm.remote.v1.RotateCredential
+	(*RevokeCredential)(nil),                 // 40: agentvmm.remote.v1.RevokeCredential
+	(*SessionHeader)(nil),                    // 41: agentvmm.remote.v1.SessionHeader
+	(*HostSessionFrame)(nil),                 // 42: agentvmm.remote.v1.HostSessionFrame
+	(*ControllerSessionFrame)(nil),           // 43: agentvmm.remote.v1.ControllerSessionFrame
+	(*v1.DeviceIdentity)(nil),                // 44: agentvmm.trust.v1.DeviceIdentity
+	(*v1.TrustAnchor)(nil),                   // 45: agentvmm.trust.v1.TrustAnchor
+	(*v1.MembershipCredential)(nil),          // 46: agentvmm.trust.v1.MembershipCredential
+	(*v11.HostLoopbackFrontendEvent)(nil),    // 47: agentvmm.host.v1.HostLoopbackFrontendEvent
+	(*v1.EndpointObservation)(nil),           // 48: agentvmm.trust.v1.EndpointObservation
+	(*v11.HostLoopbackFrontendCapacity)(nil), // 49: agentvmm.host.v1.HostLoopbackFrontendCapacity
+	(*v11.ResourceLimits)(nil),               // 50: agentvmm.host.v1.ResourceLimits
+	(v11.EgressMode)(0),                      // 51: agentvmm.host.v1.EgressMode
+	(v11.AllocationState)(0),                 // 52: agentvmm.host.v1.AllocationState
+	(v11.LeaseState)(0),                      // 53: agentvmm.host.v1.LeaseState
+	(v11.CleanupKind)(0),                     // 54: agentvmm.host.v1.CleanupKind
+	(*v11.HostLoopbackFrontendLease)(nil),    // 55: agentvmm.host.v1.HostLoopbackFrontendLease
+	(*v11.CleanupImpact)(nil),                // 56: agentvmm.host.v1.CleanupImpact
+	(*v11.HostFrontendFrame)(nil),            // 57: agentvmm.host.v1.HostFrontendFrame
+	(*v11.ControllerFrontendFrame)(nil),      // 58: agentvmm.host.v1.ControllerFrontendFrame
 }
 var file_remote_v1_remote_proto_depIdxs = []int32{
-	39, // 0: agentvmm.remote.v1.EnrollRequest.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	40, // 1: agentvmm.remote.v1.EnrollResponse.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
-	41, // 2: agentvmm.remote.v1.EnrollResponse.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
-	8,  // 3: agentvmm.remote.v1.HostControlMessage.hello:type_name -> agentvmm.remote.v1.HostHello
-	28, // 4: agentvmm.remote.v1.HostControlMessage.result:type_name -> agentvmm.remote.v1.CommandResult
-	33, // 5: agentvmm.remote.v1.HostControlMessage.event:type_name -> agentvmm.remote.v1.HostEvent
-	29, // 6: agentvmm.remote.v1.HostControlMessage.ack:type_name -> agentvmm.remote.v1.CommandAck
-	30, // 7: agentvmm.remote.v1.HostControlMessage.evidence:type_name -> agentvmm.remote.v1.CommandEvidence
+	44, // 0: agentvmm.remote.v1.EnrollRequest.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	45, // 1: agentvmm.remote.v1.EnrollResponse.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
+	46, // 2: agentvmm.remote.v1.EnrollResponse.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
+	9,  // 3: agentvmm.remote.v1.HostControlMessage.hello:type_name -> agentvmm.remote.v1.HostHello
+	33, // 4: agentvmm.remote.v1.HostControlMessage.result:type_name -> agentvmm.remote.v1.CommandResult
+	38, // 5: agentvmm.remote.v1.HostControlMessage.event:type_name -> agentvmm.remote.v1.HostEvent
+	34, // 6: agentvmm.remote.v1.HostControlMessage.ack:type_name -> agentvmm.remote.v1.CommandAck
+	35, // 7: agentvmm.remote.v1.HostControlMessage.evidence:type_name -> agentvmm.remote.v1.CommandEvidence
 	7,  // 8: agentvmm.remote.v1.HostControlMessage.endpoint_observation_renewal:type_name -> agentvmm.remote.v1.EndpointObservationRenewal
-	42, // 9: agentvmm.remote.v1.HostControlMessage.frontend_event:type_name -> agentvmm.host.v1.HostLoopbackFrontendEvent
-	43, // 10: agentvmm.remote.v1.EndpointObservationRenewal.endpoint_observation:type_name -> agentvmm.trust.v1.EndpointObservation
-	9,  // 11: agentvmm.remote.v1.HostHello.capacity:type_name -> agentvmm.remote.v1.Capacity
-	10, // 12: agentvmm.remote.v1.HostHello.inventory:type_name -> agentvmm.remote.v1.Allocation
-	12, // 13: agentvmm.remote.v1.HostHello.health:type_name -> agentvmm.remote.v1.HostHealth
-	43, // 14: agentvmm.remote.v1.HostHello.endpoint_observation:type_name -> agentvmm.trust.v1.EndpointObservation
-	44, // 15: agentvmm.remote.v1.HostHello.host_loopback_frontend:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
-	45, // 16: agentvmm.remote.v1.Capacity.aggregate_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	45, // 17: agentvmm.remote.v1.Capacity.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	46, // 18: agentvmm.remote.v1.Capacity.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	45, // 19: agentvmm.remote.v1.Allocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	46, // 20: agentvmm.remote.v1.Allocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	47, // 21: agentvmm.remote.v1.Allocation.state:type_name -> agentvmm.host.v1.AllocationState
-	11, // 22: agentvmm.remote.v1.Allocation.lease:type_name -> agentvmm.remote.v1.Lease
-	48, // 23: agentvmm.remote.v1.Lease.state:type_name -> agentvmm.host.v1.LeaseState
-	15, // 24: agentvmm.remote.v1.ControllerControlMessage.command:type_name -> agentvmm.remote.v1.ControllerCommand
-	34, // 25: agentvmm.remote.v1.ControllerControlMessage.rotate_credential:type_name -> agentvmm.remote.v1.RotateCredential
-	35, // 26: agentvmm.remote.v1.ControllerControlMessage.revoke_credential:type_name -> agentvmm.remote.v1.RevokeCredential
-	14, // 27: agentvmm.remote.v1.ControllerControlMessage.controller_ready:type_name -> agentvmm.remote.v1.ControllerReady
-	19, // 28: agentvmm.remote.v1.ControllerCommand.ensure_allocation:type_name -> agentvmm.remote.v1.EnsureAllocation
-	20, // 29: agentvmm.remote.v1.ControllerCommand.release_allocation:type_name -> agentvmm.remote.v1.ReleaseAllocation
-	21, // 30: agentvmm.remote.v1.ControllerCommand.plan_cleanup_allocation:type_name -> agentvmm.remote.v1.PlanCleanupAllocation
-	22, // 31: agentvmm.remote.v1.ControllerCommand.execute_cleanup_allocation:type_name -> agentvmm.remote.v1.ExecuteCleanupAllocation
-	23, // 32: agentvmm.remote.v1.ControllerCommand.acquire_lease:type_name -> agentvmm.remote.v1.AcquireLease
-	24, // 33: agentvmm.remote.v1.ControllerCommand.renew_lease:type_name -> agentvmm.remote.v1.RenewLease
-	25, // 34: agentvmm.remote.v1.ControllerCommand.release_lease:type_name -> agentvmm.remote.v1.ReleaseLease
-	26, // 35: agentvmm.remote.v1.ControllerCommand.drain_registration:type_name -> agentvmm.remote.v1.DrainRegistration
-	27, // 36: agentvmm.remote.v1.ControllerCommand.open_session:type_name -> agentvmm.remote.v1.OpenSession
-	16, // 37: agentvmm.remote.v1.ControllerCommand.acquire_host_loopback_frontend:type_name -> agentvmm.remote.v1.AcquireHostLoopbackFrontend
-	17, // 38: agentvmm.remote.v1.ControllerCommand.renew_host_loopback_frontend:type_name -> agentvmm.remote.v1.RenewHostLoopbackFrontend
-	18, // 39: agentvmm.remote.v1.ControllerCommand.release_host_loopback_frontend:type_name -> agentvmm.remote.v1.ReleaseHostLoopbackFrontend
-	45, // 40: agentvmm.remote.v1.EnsureAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	46, // 41: agentvmm.remote.v1.EnsureAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	49, // 42: agentvmm.remote.v1.PlanCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
-	49, // 43: agentvmm.remote.v1.ExecuteCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
-	2,  // 44: agentvmm.remote.v1.CommandResult.outcome:type_name -> agentvmm.remote.v1.CommandOutcome
-	3,  // 45: agentvmm.remote.v1.CommandResult.reason:type_name -> agentvmm.remote.v1.ErrorReason
-	10, // 46: agentvmm.remote.v1.CommandResult.allocation:type_name -> agentvmm.remote.v1.Allocation
-	11, // 47: agentvmm.remote.v1.CommandResult.lease:type_name -> agentvmm.remote.v1.Lease
-	31, // 48: agentvmm.remote.v1.CommandResult.cleanup_plan:type_name -> agentvmm.remote.v1.CleanupPlan
-	32, // 49: agentvmm.remote.v1.CommandResult.session_ready:type_name -> agentvmm.remote.v1.SessionReady
-	50, // 50: agentvmm.remote.v1.CommandResult.host_loopback_frontend_lease:type_name -> agentvmm.host.v1.HostLoopbackFrontendLease
-	0,  // 51: agentvmm.remote.v1.CommandAck.disposition:type_name -> agentvmm.remote.v1.CommandAckDisposition
-	3,  // 52: agentvmm.remote.v1.CommandAck.reason:type_name -> agentvmm.remote.v1.ErrorReason
-	1,  // 53: agentvmm.remote.v1.CommandEvidence.stage:type_name -> agentvmm.remote.v1.ExecutionStage
-	49, // 54: agentvmm.remote.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
-	51, // 55: agentvmm.remote.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
-	36, // 56: agentvmm.remote.v1.HostSessionFrame.header:type_name -> agentvmm.remote.v1.SessionHeader
-	4,  // 57: agentvmm.remote.v1.RemoteControllerService.Enroll:input_type -> agentvmm.remote.v1.EnrollRequest
-	6,  // 58: agentvmm.remote.v1.RemoteControllerService.Connect:input_type -> agentvmm.remote.v1.HostControlMessage
-	37, // 59: agentvmm.remote.v1.RemoteControllerService.ServeSession:input_type -> agentvmm.remote.v1.HostSessionFrame
-	52, // 60: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:input_type -> agentvmm.host.v1.HostFrontendFrame
-	5,  // 61: agentvmm.remote.v1.RemoteControllerService.Enroll:output_type -> agentvmm.remote.v1.EnrollResponse
-	13, // 62: agentvmm.remote.v1.RemoteControllerService.Connect:output_type -> agentvmm.remote.v1.ControllerControlMessage
-	38, // 63: agentvmm.remote.v1.RemoteControllerService.ServeSession:output_type -> agentvmm.remote.v1.ControllerSessionFrame
-	53, // 64: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:output_type -> agentvmm.host.v1.ControllerFrontendFrame
-	61, // [61:65] is the sub-list for method output_type
-	57, // [57:61] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	47, // 9: agentvmm.remote.v1.HostControlMessage.frontend_event:type_name -> agentvmm.host.v1.HostLoopbackFrontendEvent
+	8,  // 10: agentvmm.remote.v1.HostControlMessage.observation_renewal:type_name -> agentvmm.remote.v1.RemoteObservationRenewal
+	48, // 11: agentvmm.remote.v1.EndpointObservationRenewal.endpoint_observation:type_name -> agentvmm.trust.v1.EndpointObservation
+	10, // 12: agentvmm.remote.v1.RemoteObservationRenewal.observation:type_name -> agentvmm.remote.v1.RemoteObservationSnapshot
+	14, // 13: agentvmm.remote.v1.HostHello.capacity:type_name -> agentvmm.remote.v1.Capacity
+	15, // 14: agentvmm.remote.v1.HostHello.inventory:type_name -> agentvmm.remote.v1.Allocation
+	17, // 15: agentvmm.remote.v1.HostHello.health:type_name -> agentvmm.remote.v1.HostHealth
+	48, // 16: agentvmm.remote.v1.HostHello.endpoint_observation:type_name -> agentvmm.trust.v1.EndpointObservation
+	49, // 17: agentvmm.remote.v1.HostHello.host_loopback_frontend:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
+	10, // 18: agentvmm.remote.v1.HostHello.observation:type_name -> agentvmm.remote.v1.RemoteObservationSnapshot
+	14, // 19: agentvmm.remote.v1.RemoteObservationSnapshot.capacity:type_name -> agentvmm.remote.v1.Capacity
+	11, // 20: agentvmm.remote.v1.RemoteObservationSnapshot.health:type_name -> agentvmm.remote.v1.RemoteObservationHealth
+	13, // 21: agentvmm.remote.v1.RemoteObservationSnapshot.usage:type_name -> agentvmm.remote.v1.RemoteObservationUsage
+	12, // 22: agentvmm.remote.v1.RemoteObservationHealth.components:type_name -> agentvmm.remote.v1.RemoteObservationComponent
+	50, // 23: agentvmm.remote.v1.Capacity.aggregate_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	50, // 24: agentvmm.remote.v1.Capacity.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	51, // 25: agentvmm.remote.v1.Capacity.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	50, // 26: agentvmm.remote.v1.Allocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	51, // 27: agentvmm.remote.v1.Allocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	52, // 28: agentvmm.remote.v1.Allocation.state:type_name -> agentvmm.host.v1.AllocationState
+	16, // 29: agentvmm.remote.v1.Allocation.lease:type_name -> agentvmm.remote.v1.Lease
+	53, // 30: agentvmm.remote.v1.Lease.state:type_name -> agentvmm.host.v1.LeaseState
+	20, // 31: agentvmm.remote.v1.ControllerControlMessage.command:type_name -> agentvmm.remote.v1.ControllerCommand
+	39, // 32: agentvmm.remote.v1.ControllerControlMessage.rotate_credential:type_name -> agentvmm.remote.v1.RotateCredential
+	40, // 33: agentvmm.remote.v1.ControllerControlMessage.revoke_credential:type_name -> agentvmm.remote.v1.RevokeCredential
+	19, // 34: agentvmm.remote.v1.ControllerControlMessage.controller_ready:type_name -> agentvmm.remote.v1.ControllerReady
+	24, // 35: agentvmm.remote.v1.ControllerCommand.ensure_allocation:type_name -> agentvmm.remote.v1.EnsureAllocation
+	25, // 36: agentvmm.remote.v1.ControllerCommand.release_allocation:type_name -> agentvmm.remote.v1.ReleaseAllocation
+	26, // 37: agentvmm.remote.v1.ControllerCommand.plan_cleanup_allocation:type_name -> agentvmm.remote.v1.PlanCleanupAllocation
+	27, // 38: agentvmm.remote.v1.ControllerCommand.execute_cleanup_allocation:type_name -> agentvmm.remote.v1.ExecuteCleanupAllocation
+	28, // 39: agentvmm.remote.v1.ControllerCommand.acquire_lease:type_name -> agentvmm.remote.v1.AcquireLease
+	29, // 40: agentvmm.remote.v1.ControllerCommand.renew_lease:type_name -> agentvmm.remote.v1.RenewLease
+	30, // 41: agentvmm.remote.v1.ControllerCommand.release_lease:type_name -> agentvmm.remote.v1.ReleaseLease
+	31, // 42: agentvmm.remote.v1.ControllerCommand.drain_registration:type_name -> agentvmm.remote.v1.DrainRegistration
+	32, // 43: agentvmm.remote.v1.ControllerCommand.open_session:type_name -> agentvmm.remote.v1.OpenSession
+	21, // 44: agentvmm.remote.v1.ControllerCommand.acquire_host_loopback_frontend:type_name -> agentvmm.remote.v1.AcquireHostLoopbackFrontend
+	22, // 45: agentvmm.remote.v1.ControllerCommand.renew_host_loopback_frontend:type_name -> agentvmm.remote.v1.RenewHostLoopbackFrontend
+	23, // 46: agentvmm.remote.v1.ControllerCommand.release_host_loopback_frontend:type_name -> agentvmm.remote.v1.ReleaseHostLoopbackFrontend
+	50, // 47: agentvmm.remote.v1.EnsureAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	51, // 48: agentvmm.remote.v1.EnsureAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	54, // 49: agentvmm.remote.v1.PlanCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
+	54, // 50: agentvmm.remote.v1.ExecuteCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
+	2,  // 51: agentvmm.remote.v1.CommandResult.outcome:type_name -> agentvmm.remote.v1.CommandOutcome
+	3,  // 52: agentvmm.remote.v1.CommandResult.reason:type_name -> agentvmm.remote.v1.ErrorReason
+	15, // 53: agentvmm.remote.v1.CommandResult.allocation:type_name -> agentvmm.remote.v1.Allocation
+	16, // 54: agentvmm.remote.v1.CommandResult.lease:type_name -> agentvmm.remote.v1.Lease
+	36, // 55: agentvmm.remote.v1.CommandResult.cleanup_plan:type_name -> agentvmm.remote.v1.CleanupPlan
+	37, // 56: agentvmm.remote.v1.CommandResult.session_ready:type_name -> agentvmm.remote.v1.SessionReady
+	55, // 57: agentvmm.remote.v1.CommandResult.host_loopback_frontend_lease:type_name -> agentvmm.host.v1.HostLoopbackFrontendLease
+	0,  // 58: agentvmm.remote.v1.CommandAck.disposition:type_name -> agentvmm.remote.v1.CommandAckDisposition
+	3,  // 59: agentvmm.remote.v1.CommandAck.reason:type_name -> agentvmm.remote.v1.ErrorReason
+	1,  // 60: agentvmm.remote.v1.CommandEvidence.stage:type_name -> agentvmm.remote.v1.ExecutionStage
+	54, // 61: agentvmm.remote.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
+	56, // 62: agentvmm.remote.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
+	41, // 63: agentvmm.remote.v1.HostSessionFrame.header:type_name -> agentvmm.remote.v1.SessionHeader
+	4,  // 64: agentvmm.remote.v1.RemoteControllerService.Enroll:input_type -> agentvmm.remote.v1.EnrollRequest
+	6,  // 65: agentvmm.remote.v1.RemoteControllerService.Connect:input_type -> agentvmm.remote.v1.HostControlMessage
+	42, // 66: agentvmm.remote.v1.RemoteControllerService.ServeSession:input_type -> agentvmm.remote.v1.HostSessionFrame
+	57, // 67: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:input_type -> agentvmm.host.v1.HostFrontendFrame
+	5,  // 68: agentvmm.remote.v1.RemoteControllerService.Enroll:output_type -> agentvmm.remote.v1.EnrollResponse
+	18, // 69: agentvmm.remote.v1.RemoteControllerService.Connect:output_type -> agentvmm.remote.v1.ControllerControlMessage
+	43, // 70: agentvmm.remote.v1.RemoteControllerService.ServeSession:output_type -> agentvmm.remote.v1.ControllerSessionFrame
+	58, // 71: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:output_type -> agentvmm.host.v1.ControllerFrontendFrame
+	68, // [68:72] is the sub-list for method output_type
+	64, // [64:68] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_remote_v1_remote_proto_init() }
@@ -3794,14 +4312,15 @@ func file_remote_v1_remote_proto_init() {
 		(*HostControlMessage_Evidence)(nil),
 		(*HostControlMessage_EndpointObservationRenewal)(nil),
 		(*HostControlMessage_FrontendEvent)(nil),
+		(*HostControlMessage_ObservationRenewal)(nil),
 	}
-	file_remote_v1_remote_proto_msgTypes[9].OneofWrappers = []any{
+	file_remote_v1_remote_proto_msgTypes[14].OneofWrappers = []any{
 		(*ControllerControlMessage_Command)(nil),
 		(*ControllerControlMessage_RotateCredential)(nil),
 		(*ControllerControlMessage_RevokeCredential)(nil),
 		(*ControllerControlMessage_ControllerReady)(nil),
 	}
-	file_remote_v1_remote_proto_msgTypes[11].OneofWrappers = []any{
+	file_remote_v1_remote_proto_msgTypes[16].OneofWrappers = []any{
 		(*ControllerCommand_EnsureAllocation)(nil),
 		(*ControllerCommand_ReleaseAllocation)(nil),
 		(*ControllerCommand_PlanCleanupAllocation)(nil),
@@ -3815,19 +4334,19 @@ func file_remote_v1_remote_proto_init() {
 		(*ControllerCommand_RenewHostLoopbackFrontend)(nil),
 		(*ControllerCommand_ReleaseHostLoopbackFrontend)(nil),
 	}
-	file_remote_v1_remote_proto_msgTypes[24].OneofWrappers = []any{
+	file_remote_v1_remote_proto_msgTypes[29].OneofWrappers = []any{
 		(*CommandResult_Allocation)(nil),
 		(*CommandResult_Lease)(nil),
 		(*CommandResult_CleanupPlan)(nil),
 		(*CommandResult_SessionReady)(nil),
 		(*CommandResult_HostLoopbackFrontendLease)(nil),
 	}
-	file_remote_v1_remote_proto_msgTypes[33].OneofWrappers = []any{
+	file_remote_v1_remote_proto_msgTypes[38].OneofWrappers = []any{
 		(*HostSessionFrame_Header)(nil),
 		(*HostSessionFrame_Data)(nil),
 		(*HostSessionFrame_CloseWrite)(nil),
 	}
-	file_remote_v1_remote_proto_msgTypes[34].OneofWrappers = []any{
+	file_remote_v1_remote_proto_msgTypes[39].OneofWrappers = []any{
 		(*ControllerSessionFrame_Data)(nil),
 		(*ControllerSessionFrame_CloseWrite)(nil),
 	}
@@ -3837,7 +4356,7 @@ func file_remote_v1_remote_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_remote_v1_remote_proto_rawDesc), len(file_remote_v1_remote_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   35,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

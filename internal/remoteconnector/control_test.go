@@ -189,6 +189,16 @@ func TestControllerReadyRequiresExactSnapshotFence(t *testing.T) {
 	}
 }
 
+func TestRemoteObservationRequiresControllerReadyCapability(t *testing.T) {
+	t.Parallel()
+	if remoteObservationEnabled(&remotev1.ControllerReady{}) {
+		t.Fatal("legacy ControllerReady enabled remote observations")
+	}
+	if !remoteObservationEnabled(&remotev1.ControllerReady{EnabledFeatures: []string{remoteObservationFeature}}) {
+		t.Fatal("negotiated ControllerReady did not enable remote observations")
+	}
+}
+
 func testCommand(sequence, epoch uint64, deadline time.Time) *remotev1.ControllerCommand {
 	return &remotev1.ControllerCommand{CommandId: "command-1", Sequence: sequence, ConnectionEpoch: epoch, DeadlineUnixMillis: deadline.UnixMilli(), Command: &remotev1.ControllerCommand_DrainRegistration{DrainRegistration: &remotev1.DrainRegistration{}}}
 }

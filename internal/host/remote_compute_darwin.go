@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc"
@@ -22,6 +23,13 @@ import (
 type remoteComputeServer struct {
 	hostv1.UnimplementedRemoteComputeServiceServer
 	controller *Controller
+}
+
+const maxRemoteEnvironments = 64
+
+type scopedRemoteObservationClient interface {
+	ComponentHealth(context.Context, *vmmdv1.ComponentHealthRequest, ...grpc.CallOption) (*vmmdv1.ComponentHealthResponse, error)
+	GetNamespaceUsage(context.Context, *vmmdv1.GetNamespaceUsageRequest, ...grpc.CallOption) (*vmmdv1.GetUsageResponse, error)
 }
 
 func (controller *Controller) NewRemoteComputeServer() *grpc.Server {
@@ -73,6 +81,91 @@ func (server *remoteComputeServer) GetRemoteState(ctx context.Context, request *
 		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
 	}
 	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, registration).GetRegistration()}, nil
+}
+
+func (server *remoteComputeServer) GetRemoteObservation(ctx context.Context, request *hostv1.GetRemoteObservationRequest) (*hostv1.GetRemoteObservationResponse, error) {
+	if err := authorizeRemoteRegistration(ctx, request.GetRegistrationId()); err != nil {
+		return nil, err
+	}
+	registration, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
+	if err != nil {
+		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
+	}
+	if registration.MaxEnvironments > maxRemoteEnvironments {
+		return nil, status.Error(codes.Unavailable, "host observation exceeds the supported remote environment bound")
+	}
+	environments, err := server.controller.store.ListRemoteEnvironmentsBounded(ctx, registration.ID, maxRemoteEnvironments+1)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
+	}
+	if len(environments) > maxRemoteEnvironments {
+		return nil, status.Error(codes.Unavailable, "host observation exceeds the supported remote environment bound")
+	}
+	observedAt := timestamppb.Now()
+	vm := server.controller.manager.Snapshot()
+	if vm.GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		return &hostv1.GetRemoteObservationResponse{
+			Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_UNAVAILABLE},
+			Usage:  &hostv1.Usage{SampledAt: observedAt, Stale: true, UnavailableReason: "guest runtime is unavailable"}, ObservedAt: observedAt,
+		}, nil
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
+	}
+	defer connection.Close()
+	response, err := collectScopedRemoteObservation(ctx, client, environments, server.controller.hostEgressHealth(vm, observedAt), observedAt)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
+	}
+	return response, nil
+}
+
+func collectScopedRemoteObservation(ctx context.Context, client scopedRemoteObservationClient, environments []store.Environment, hostEgress *hostv1.ComponentHealth, observedAt *timestamppb.Timestamp) (*hostv1.GetRemoteObservationResponse, error) {
+	healthResponse, err := client.ComponentHealth(ctx, &vmmdv1.ComponentHealthRequest{})
+	if err != nil {
+		return nil, err
+	}
+	health := &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY}
+	for _, component := range healthResponse.GetComponents() {
+		if len(health.Components) >= 15 {
+			break
+		}
+		state := hostv1.HealthState(component.GetState())
+		health.Components = append(health.Components, &hostv1.ComponentHealth{Component: component.GetComponent(), State: state, ObservedAt: timestamppb.New(time.Unix(0, component.GetObservedAtUnixNano()))})
+		if state > health.State {
+			health.State = state
+		}
+	}
+	if hostEgress != nil {
+		hostEgress = &hostv1.ComponentHealth{Component: hostEgress.GetComponent(), State: hostEgress.GetState(), ObservedAt: hostEgress.GetObservedAt()}
+		health.Components = append(health.Components, hostEgress)
+		if hostEgress.GetState() > health.State {
+			health.State = hostEgress.GetState()
+		}
+	}
+	usage := &hostv1.Usage{SampledAt: observedAt}
+	usageAvailable := true
+	for _, environment := range environments {
+		response, usageErr := client.GetNamespaceUsage(ctx, &vmmdv1.GetNamespaceUsageRequest{NamespaceId: environment.NamespaceID})
+		if usageErr != nil || response.GetUsage() == nil || response.GetUsage().GetUnavailable() {
+			usageAvailable = false
+			continue
+		}
+		value := response.GetUsage()
+		usage.CpuNanos += value.GetCpuNanos()
+		usage.MemoryBytes += value.GetMemoryBytes()
+		usage.Pids += value.GetPids()
+		usage.ReadBytes += value.GetReadBytes()
+		usage.WriteBytes += value.GetWriteBytes()
+		usage.DiskBytes += value.GetDiskBytes()
+		usage.NetworkRxBytes += value.GetNetworkRxBytes()
+		usage.NetworkTxBytes += value.GetNetworkTxBytes()
+	}
+	if !usageAvailable {
+		usage = &hostv1.Usage{SampledAt: observedAt, Stale: true, UnavailableReason: "registration metrics are unavailable"}
+	}
+	return &hostv1.GetRemoteObservationResponse{Health: health, Usage: usage, ObservedAt: observedAt}, nil
 }
 
 func (server *remoteComputeServer) SetConnectionState(ctx context.Context, request *hostv1.SetConnectionStateRequest) (*hostv1.GetRemoteStateResponse, error) {

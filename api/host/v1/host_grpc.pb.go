@@ -4086,6 +4086,7 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	RemoteComputeService_GetRemoteState_FullMethodName              = "/agentvmm.host.v1.RemoteComputeService/GetRemoteState"
+	RemoteComputeService_GetRemoteObservation_FullMethodName        = "/agentvmm.host.v1.RemoteComputeService/GetRemoteObservation"
 	RemoteComputeService_SetConnectionState_FullMethodName          = "/agentvmm.host.v1.RemoteComputeService/SetConnectionState"
 	RemoteComputeService_SetRemoteAdmissionState_FullMethodName     = "/agentvmm.host.v1.RemoteComputeService/SetRemoteAdmissionState"
 	RemoteComputeService_ReportConnectorStatus_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/ReportConnectorStatus"
@@ -4109,6 +4110,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RemoteComputeServiceClient interface {
 	GetRemoteState(ctx context.Context, in *GetRemoteStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
+	GetRemoteObservation(ctx context.Context, in *GetRemoteObservationRequest, opts ...grpc.CallOption) (*GetRemoteObservationResponse, error)
 	SetConnectionState(ctx context.Context, in *SetConnectionStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
 	SetRemoteAdmissionState(ctx context.Context, in *SetRemoteAdmissionStateRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
 	ReportConnectorStatus(ctx context.Context, in *ReportConnectorStatusRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
@@ -4139,6 +4141,16 @@ func (c *remoteComputeServiceClient) GetRemoteState(ctx context.Context, in *Get
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetRemoteStateResponse)
 	err := c.cc.Invoke(ctx, RemoteComputeService_GetRemoteState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) GetRemoteObservation(ctx context.Context, in *GetRemoteObservationRequest, opts ...grpc.CallOption) (*GetRemoteObservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRemoteObservationResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_GetRemoteObservation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -4313,6 +4325,7 @@ type RemoteComputeService_AcceptHostLoopbackFrontendClient = grpc.BidiStreamingC
 // for forward compatibility.
 type RemoteComputeServiceServer interface {
 	GetRemoteState(context.Context, *GetRemoteStateRequest) (*GetRemoteStateResponse, error)
+	GetRemoteObservation(context.Context, *GetRemoteObservationRequest) (*GetRemoteObservationResponse, error)
 	SetConnectionState(context.Context, *SetConnectionStateRequest) (*GetRemoteStateResponse, error)
 	SetRemoteAdmissionState(context.Context, *SetRemoteAdmissionStateRequest) (*GetRemoteStateResponse, error)
 	ReportConnectorStatus(context.Context, *ReportConnectorStatusRequest) (*GetRemoteStateResponse, error)
@@ -4341,6 +4354,9 @@ type UnimplementedRemoteComputeServiceServer struct{}
 
 func (UnimplementedRemoteComputeServiceServer) GetRemoteState(context.Context, *GetRemoteStateRequest) (*GetRemoteStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRemoteState not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) GetRemoteObservation(context.Context, *GetRemoteObservationRequest) (*GetRemoteObservationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRemoteObservation not implemented")
 }
 func (UnimplementedRemoteComputeServiceServer) SetConnectionState(context.Context, *SetConnectionStateRequest) (*GetRemoteStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetConnectionState not implemented")
@@ -4425,6 +4441,24 @@ func _RemoteComputeService_GetRemoteState_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RemoteComputeServiceServer).GetRemoteState(ctx, req.(*GetRemoteStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RemoteComputeService_GetRemoteObservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRemoteObservationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).GetRemoteObservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_GetRemoteObservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).GetRemoteObservation(ctx, req.(*GetRemoteObservationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -4716,6 +4750,10 @@ var RemoteComputeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRemoteState",
 			Handler:    _RemoteComputeService_GetRemoteState_Handler,
+		},
+		{
+			MethodName: "GetRemoteObservation",
+			Handler:    _RemoteComputeService_GetRemoteObservation_Handler,
 		},
 		{
 			MethodName: "SetConnectionState",
