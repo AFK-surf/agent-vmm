@@ -7,6 +7,32 @@ import (
 	"strconv"
 )
 
+type CapacityDimension string
+
+const (
+	CapacityCPUGuarantee    CapacityDimension = "cpu_guarantee"
+	CapacityCPUMax          CapacityDimension = "cpu_max"
+	CapacityMemory          CapacityDimension = "memory"
+	CapacityPIDs            CapacityDimension = "pids"
+	CapacityWritable        CapacityDimension = "writable"
+	CapacityStorageHeadroom CapacityDimension = "storage_headroom"
+	CapacityImportSlot      CapacityDimension = "import_slot"
+)
+
+type CapacityError struct {
+	Dimension CapacityDimension
+}
+
+func (err *CapacityError) Error() string { return string(err.Dimension) + " capacity exhausted" }
+
+func ExhaustedDimension(err error) CapacityDimension {
+	var capacity *CapacityError
+	if errors.As(err, &capacity) {
+		return capacity.Dimension
+	}
+	return ""
+}
+
 const MaxCPUOversubscriptionNumerator uint64 = 3
 const MaxCPUOversubscriptionDenominator uint64 = 2
 
@@ -54,15 +80,15 @@ func (capacity Capacity) Add(contract Contract) Capacity {
 func (used Capacity) Admits(contract Contract, limit Capacity) error {
 	switch {
 	case contract.CPUGuaranteeMillis > limit.CPUGuaranteeMillis || used.CPUGuaranteeMillis > limit.CPUGuaranteeMillis-contract.CPUGuaranteeMillis:
-		return errors.New("cpu guarantee capacity exhausted")
+		return &CapacityError{Dimension: CapacityCPUGuarantee}
 	case contract.CPUMaxMillis > limit.CPUMaxMillis || used.CPUMaxMillis > limit.CPUMaxMillis-contract.CPUMaxMillis:
-		return errors.New("cpu max capacity exhausted")
+		return &CapacityError{Dimension: CapacityCPUMax}
 	case contract.MemoryMaxBytes > limit.MemoryMaxBytes || used.MemoryMaxBytes > limit.MemoryMaxBytes-contract.MemoryMaxBytes:
-		return errors.New("memory capacity exhausted")
+		return &CapacityError{Dimension: CapacityMemory}
 	case contract.PIDMax > limit.PIDMax || used.PIDMax > limit.PIDMax-contract.PIDMax:
-		return errors.New("pid capacity exhausted")
+		return &CapacityError{Dimension: CapacityPIDs}
 	case contract.WritableQuotaBytes > limit.WritableQuotaBytes || used.WritableQuotaBytes > limit.WritableQuotaBytes-contract.WritableQuotaBytes:
-		return errors.New("writable quota capacity exhausted")
+		return &CapacityError{Dimension: CapacityWritable}
 	default:
 		return nil
 	}

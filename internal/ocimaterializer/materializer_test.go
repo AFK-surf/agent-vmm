@@ -54,3 +54,37 @@ func TestDifferentDigestsShareSingleGlobalImportSlot(t *testing.T) {
 		t.Fatal("global slot did not advance")
 	}
 }
+
+func TestImportSlotRejectsUnrelatedDigestButPreservesDigestSingleflight(t *testing.T) {
+	manager := new(Manager)
+	first, ok := manager.LockImport("one")
+	if !ok {
+		t.Fatal("first import did not acquire the global slot")
+	}
+	if unlock, acquired := manager.LockImport("two"); acquired || unlock != nil {
+		t.Fatal("unrelated digest waited for or bypassed the occupied import slot")
+	}
+
+	done := make(chan bool, 1)
+	go func() {
+		unlock, acquired := manager.LockImport("one")
+		if acquired {
+			unlock()
+		}
+		done <- acquired
+	}()
+	select {
+	case <-done:
+		t.Fatal("same digest bypassed its singleflight owner")
+	case <-time.After(10 * time.Millisecond):
+	}
+	first()
+	select {
+	case acquired := <-done:
+		if !acquired {
+			t.Fatal("same digest did not advance after its owner completed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("same digest singleflight did not advance")
+	}
+}

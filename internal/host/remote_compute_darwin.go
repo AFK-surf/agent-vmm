@@ -335,7 +335,7 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 		unlockEnvironment := server.controller.lockEnvironment(existing.ID)
 		defer unlockEnvironment()
 		if err := server.controller.reconcileEnvironment(ctx, existing); err != nil {
-			return nil, retryable("ALLOCATION_PROJECTION_FAILED", "exact Guest reservation is not committed", time.Second)
+			return nil, allocationProjectionError(err, "exact Guest reservation is not committed")
 		}
 		existing, err = server.controller.store.GetEnvironment(ctx, existing.ID)
 		if err != nil {
@@ -372,16 +372,23 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 	}, server.controller.remoteCapacityV2)
 	if err != nil {
 		if errors.Is(err, store.ErrResourceCapacityExceeded) || errors.Is(err, store.ErrDomainCapacityExceeded) {
-			return nil, resourceError(codes.ResourceExhausted, "RESOURCE_LEDGER_EXHAUSTED", "remote_registration", registration.ID, "resource capacity is exhausted")
+			return nil, capacityError("RESOURCE_LEDGER_EXHAUSTED", registration.ID, err)
 		}
 		return nil, err
 	}
 	unlockEnvironment := server.controller.lockEnvironment(environment.ID)
 	defer unlockEnvironment()
 	if err := server.controller.reconcileEnvironment(ctx, environment); err != nil {
-		return nil, retryable("ALLOCATION_PROJECTION_FAILED", "allocation was saved but guest projection failed", time.Second)
+		return nil, allocationProjectionError(err, "allocation was saved but guest projection failed")
 	}
 	return &hostv1.AllocationResponse{Allocation: server.controller.remoteAllocation(environment)}, nil
+}
+
+func allocationProjectionError(err error, message string) error {
+	if status.Code(err) == codes.ResourceExhausted {
+		return err
+	}
+	return retryable("ALLOCATION_PROJECTION_FAILED", message, time.Second)
 }
 
 func contractFromHost(value *hostv1.WorkloadResourcesV2) resourcev2.Contract {
@@ -396,8 +403,15 @@ func admitAllocationV2(ctx context.Context, database *store.Store, registration 
 	if int32(egress) > registration.MaxEgressMode {
 		return resourceError(codes.PermissionDenied, "POOL_EGRESS_LIMIT", "remote_registration", registration.ID, "allocation egress exceeds pool policy")
 	}
-	if resources.CPUMaxMillis > uint64(registration.PerEnvCPUMillis) || resources.MemoryMaxBytes > registration.PerEnvMemoryBytes || resources.PIDMax > uint64(registration.PerEnvPIDs) || resources.WritableQuotaBytes > registration.PerEnvDiskBytes {
-		return resourceError(codes.ResourceExhausted, "POOL_PER_ENVIRONMENT_LIMIT", "remote_registration", registration.ID, "allocation exceeds per-environment pool limit")
+	perEnvironment := resourcev2.Capacity{
+		CPUGuaranteeMillis: uint64(registration.PerEnvCPUMillis),
+		CPUMaxMillis:       uint64(registration.PerEnvCPUMillis),
+		MemoryMaxBytes:     registration.PerEnvMemoryBytes,
+		PIDMax:             uint64(registration.PerEnvPIDs),
+		WritableQuotaBytes: registration.PerEnvDiskBytes,
+	}
+	if err := (resourcev2.Capacity{}).Admits(resources, perEnvironment); err != nil {
+		return capacityError("POOL_PER_ENVIRONMENT_LIMIT", registration.ID, err)
 	}
 	used, err := database.WorkloadUsage(ctx, registration.ID)
 	if err != nil {
@@ -405,12 +419,20 @@ func admitAllocationV2(ctx context.Context, database *store.Store, registration 
 	}
 	domain := resourcev2.Capacity{CPUGuaranteeMillis: uint64(registration.AggregateCPUMillis), CPUMaxMillis: uint64(registration.AggregateCPUMillis) * 3 / 2, MemoryMaxBytes: registration.AggregateMemoryBytes, PIDMax: uint64(registration.AggregatePIDs), WritableQuotaBytes: registration.AggregateDiskBytes}
 	if err := used.Admits(resources, domain); err != nil {
-		return resourceError(codes.ResourceExhausted, "POOL_AGGREGATE_LIMIT", "remote_registration", registration.ID, err.Error())
+		return capacityError("POOL_AGGREGATE_LIMIT", registration.ID, err)
 	}
 	if err := used.Admits(resources, hostCapacity); err != nil {
-		return resourceError(codes.ResourceExhausted, "RESOURCE_LEDGER_EXHAUSTED", "remote_registration", registration.ID, err.Error())
+		return capacityError("RESOURCE_LEDGER_EXHAUSTED", registration.ID, err)
 	}
 	return nil
+}
+
+func capacityError(reason, registrationID string, err error) error {
+	metadata := map[string]string{}
+	if dimension := resourcev2.ExhaustedDimension(err); dimension != "" {
+		metadata["resource_dimension"] = string(dimension)
+	}
+	return resourceErrorWithMetadata(codes.ResourceExhausted, reason, "remote_registration", registrationID, err.Error(), metadata)
 }
 
 func sameAllocationRequest(environment store.Environment, reservation store.WorkloadReservation, request *hostv1.EnsureAllocationRequest) bool {

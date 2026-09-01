@@ -138,10 +138,39 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		return fail(result, remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, "unknown command")
 	}
 	if err != nil {
+		result.CapacityDimension = capacityDimensionFor(err)
 		return fail(result, reasonFor(err), safeErrorMessage(err))
 	}
 	result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED
 	return result
+}
+
+func capacityDimensionFor(err error) remotev1.CapacityDimension {
+	current, ok := status.FromError(err)
+	if !ok {
+		return remotev1.CapacityDimension_CAPACITY_DIMENSION_UNSPECIFIED
+	}
+	for _, detail := range current.Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok {
+			switch info.GetMetadata()["resource_dimension"] {
+			case "cpu_guarantee":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_CPU_GUARANTEE
+			case "cpu_max":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_CPU_MAX
+			case "memory":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_MEMORY
+			case "pids":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_PIDS
+			case "writable":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_WRITABLE
+			case "storage_headroom":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_STORAGE_HEADROOM
+			case "import_slot":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_IMPORT_SLOT
+			}
+		}
+	}
+	return remotev1.CapacityDimension_CAPACITY_DIMENSION_UNSPECIFIED
 }
 
 func cloneCleanupImpacts(values []*hostv1.CleanupImpact) []*hostv1.CleanupImpact {

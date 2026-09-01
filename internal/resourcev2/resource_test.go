@@ -35,6 +35,27 @@ func TestAdmissionArithmeticOverflowFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAdmissionReportsExactExhaustedDimension(t *testing.T) {
+	limit := Capacity{CPUGuaranteeMillis: 1, CPUMaxMillis: 2, MemoryMaxBytes: 3, PIDMax: 4, WritableQuotaBytes: 5}
+	for _, test := range []struct {
+		name      string
+		contract  Contract
+		dimension CapacityDimension
+	}{
+		{name: "cpu guarantee", contract: Contract{CPUGuaranteeMillis: 2}, dimension: CapacityCPUGuarantee},
+		{name: "cpu max", contract: Contract{CPUMaxMillis: 3}, dimension: CapacityCPUMax},
+		{name: "memory", contract: Contract{MemoryMaxBytes: 4}, dimension: CapacityMemory},
+		{name: "pids", contract: Contract{PIDMax: 5}, dimension: CapacityPIDs},
+		{name: "writable", contract: Contract{WritableQuotaBytes: 6}, dimension: CapacityWritable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ExhaustedDimension((Capacity{}).Admits(test.contract, limit)); got != test.dimension {
+				t.Fatalf("dimension = %q, want %q", got, test.dimension)
+			}
+		})
+	}
+}
+
 func TestCgroupValuesKeepPressureAndHardLimitsSeparate(t *testing.T) {
 	contract := Contract{CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 1536 << 20, MemoryMaxBytes: 2 << 30, PIDMax: 512}
 	values := contract.CgroupValues()

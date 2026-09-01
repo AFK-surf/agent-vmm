@@ -277,6 +277,18 @@ message CommandResult {
   uint64 sequence = 9;
   uint64 connection_epoch = 10;
   uint64 inventory_watermark = 11;
+  CapacityDimension capacity_dimension = 13;
+}
+
+enum CapacityDimension {
+  CAPACITY_DIMENSION_UNSPECIFIED = 0;
+  CAPACITY_DIMENSION_CPU_GUARANTEE = 1;
+  CAPACITY_DIMENSION_CPU_MAX = 2;
+  CAPACITY_DIMENSION_MEMORY = 3;
+  CAPACITY_DIMENSION_PIDS = 4;
+  CAPACITY_DIMENSION_WRITABLE = 5;
+  CAPACITY_DIMENSION_STORAGE_HEADROOM = 6;
+  CAPACITY_DIMENSION_IMPORT_SLOT = 7;
 }
 
 enum CommandAckDisposition {

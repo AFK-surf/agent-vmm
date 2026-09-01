@@ -57,7 +57,10 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	if err != nil {
 		return invalid(err)
 	}
-	unlockMaterializer := s.runtime.materializer.Lock(manifestDigest.String())
+	unlockMaterializer, err := s.runtime.lockImportSlot(manifestDigest.String())
+	if err != nil {
+		return rpcError(err)
+	}
 	defer unlockMaterializer()
 	reusable, physicalGrowth, reusableTarget, err := s.runtime.imageMaterialized(stream.Context(), header.GetActorNamespaceId(), imageReference, manifestDigest, header.GetSystemImport())
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -76,23 +77,58 @@ func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.
 		t.Fatalf("valid independent contract rejected: %v", err)
 	}
 	for _, test := range []struct {
-		name   string
-		mutate func(*resourcev2.Contract)
+		name      string
+		dimension string
+		mutate    func(*resourcev2.Contract)
 	}{
-		{name: "cpu guarantee", mutate: func(value *resourcev2.Contract) { value.CPUGuaranteeMillis = 2001 }},
-		{name: "cpu max", mutate: func(value *resourcev2.Contract) { value.CPUMaxMillis = 3001 }},
-		{name: "memory", mutate: func(value *resourcev2.Contract) { value.MemoryMaxBytes++ }},
-		{name: "pids", mutate: func(value *resourcev2.Contract) { value.PIDMax++ }},
-		{name: "writable", mutate: func(value *resourcev2.Contract) { value.WritableQuotaBytes++ }},
+		{name: "cpu guarantee", dimension: "cpu_guarantee", mutate: func(value *resourcev2.Contract) { value.CPUGuaranteeMillis = 2001 }},
+		{name: "cpu max", dimension: "cpu_max", mutate: func(value *resourcev2.Contract) { value.CPUMaxMillis = 2001 }},
+		{name: "memory", dimension: "memory", mutate: func(value *resourcev2.Contract) { value.MemoryMaxBytes++ }},
+		{name: "pids", dimension: "pids", mutate: func(value *resourcev2.Contract) { value.PIDMax++ }},
+		{name: "writable", dimension: "writable", mutate: func(value *resourcev2.Contract) { value.WritableQuotaBytes++ }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			contract := base
 			test.mutate(&contract)
-			if status.Code(admitAllocationV2(context.Background(), database, registration, nil, contract, hostCapacity, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)) != codes.ResourceExhausted {
+			err := admitAllocationV2(context.Background(), database, registration, nil, contract, hostCapacity, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)
+			if status.Code(err) != codes.ResourceExhausted {
 				t.Fatal("over-capacity contract admitted")
+			}
+			if got := capacityDimensionMetadata(err); got != test.dimension {
+				t.Fatalf("capacity dimension = %q, want %q", got, test.dimension)
 			}
 		})
 	}
+}
+
+func TestAllocationProjectionPreservesGuestPhysicalCapacityDimension(t *testing.T) {
+	for _, dimension := range []string{"storage_headroom", "import_slot"} {
+		guestErr := resourceErrorWithMetadata(codes.ResourceExhausted, "RESOURCE_CAPACITY_EXHAUSTED", "guest_capacity", dimension,
+			"Guest capacity is unavailable", map[string]string{"resource_dimension": dimension})
+		got := allocationProjectionError(guestErr, "projection failed")
+		if status.Code(got) != codes.ResourceExhausted {
+			t.Fatalf("dimension %q code=%v", dimension, status.Code(got))
+		}
+		found := false
+		for _, detail := range status.Convert(got).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.GetMetadata()["resource_dimension"] == dimension {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("dimension %q was lost across Host projection: %v", dimension, got)
+		}
+	}
+}
+
+func capacityDimensionMetadata(err error) string {
+	value, _ := status.FromError(err)
+	for _, detail := range value.Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok {
+			return info.GetMetadata()["resource_dimension"]
+		}
+	}
+	return ""
 }
 
 func TestRemoteRuntimeMethodFilter(t *testing.T) {

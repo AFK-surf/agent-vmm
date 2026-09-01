@@ -13,6 +13,7 @@ import (
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/leases"
 )
@@ -137,7 +138,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	if increase != 0 {
 		if err := r.diskBudget.AdmitQuota(func() (guestdisk.Snapshot, error) { return r.diskAdmissionSnapshot(ctx, true) }, increase, commit); err != nil {
 			if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-				return nil, resourceExhausted("storage_capacity_unavailable")
+				return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")
 			}
 			return nil, err
 		}

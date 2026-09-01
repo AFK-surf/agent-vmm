@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
@@ -56,7 +57,7 @@ func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Envi
 		return Environment{}, WorkloadReservation{}, err
 	}
 	if err := used.Admits(reservation.Resources, capacity); err != nil {
-		return Environment{}, WorkloadReservation{}, ErrResourceCapacityExceeded
+		return Environment{}, WorkloadReservation{}, fmt.Errorf("%w: %w", ErrResourceCapacityExceeded, err)
 	}
 	now := time.Now().UnixNano()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO environments(id, namespace_id, display_name,

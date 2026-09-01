@@ -17,6 +17,7 @@ import (
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"golang.org/x/sys/unix"
 )
 
@@ -165,13 +166,24 @@ func (r *Runtime) guardBuilderOCIGrowth(ctx context.Context, identity string, ru
 	return r.guardOCIPhysicalGrowth(ctx, "builder\x00"+identity, run)
 }
 
+func (r *Runtime) lockImportSlot(digest string) (func(), error) {
+	unlock, ok := r.materializer.LockImport(digest)
+	if !ok {
+		return nil, resourceCapacityExhausted(resourcev2.CapacityImportSlot, "Guest OCI import slot is occupied")
+	}
+	return unlock, nil
+}
+
 // guardOCIPhysicalGrowth serializes any operation that can materialize bulk
 // content or native-snapshot blocks through the same physical I reservation
 // and project-9000 hard ceiling as image import.
 func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, run func() error) error {
 	digest := sha256.Sum256([]byte(identity))
 	digestText := "sha256:" + hex.EncodeToString(digest[:])
-	unlock := r.materializer.Lock(digestText)
+	unlock, err := r.lockImportSlot(digestText)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	header := &vmmdv1.ImportImageHeader{RequestId: "oci-growth-" + hex.EncodeToString(digest[:24]), ManifestDigest: digestText}
 	reservation, err := r.reserveImport(ctx, header, true)
@@ -326,7 +338,7 @@ func (r *Runtime) reserveImport(ctx context.Context, header *vmmdv1.ImportImageH
 		err = r.diskBudget.ReserveImportHeadroom(loadSnapshot, commit)
 	}
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		return nil, resourceExhausted("queued_storage_headroom")
+		return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")
 	}
 	if err != nil {
 		return nil, err

@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -43,4 +44,22 @@ func TestRPCErrorMapsPIDLimit(t *testing.T) {
 		}
 	}
 	t.Fatalf("rpcError(EAGAIN) did not include PID_LIMIT_EXCEEDED: %v", err)
+}
+
+func TestPhysicalCapacityErrorCarriesFiniteOwnerDimension(t *testing.T) {
+	for _, dimension := range []resourcev2.CapacityDimension{resourcev2.CapacityStorageHeadroom, resourcev2.CapacityImportSlot} {
+		err := rpcError(resourceCapacityExhausted(dimension, "capacity unavailable"))
+		if status.Code(err) != codes.ResourceExhausted {
+			t.Fatalf("dimension %q code=%v", dimension, status.Code(err))
+		}
+		found := false
+		for _, detail := range status.Convert(err).Details() {
+			if value, ok := detail.(*errdetails.ErrorInfo); ok && value.GetMetadata()["resource_dimension"] == string(dimension) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("dimension %q omitted structured capacity owner: %v", dimension, err)
+		}
+	}
 }

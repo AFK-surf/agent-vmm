@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -35,6 +36,14 @@ func atRuntimeStage(stage string, err error) error {
 
 func resourceExhausted(message string) error {
 	return fmt.Errorf("%w: %s", errResourceExhausted, message)
+}
+
+// resourceCapacityExhausted is emitted only by the Guest owner that observes
+// the physical capacity boundary. The Host connector forwards this finite
+// dimension; callers must not infer it from error prose.
+func resourceCapacityExhausted(dimension resourcev2.CapacityDimension, message string) error {
+	return detailedErrorMetadata(codes.ResourceExhausted, "RESOURCE_CAPACITY_EXHAUSTED", message,
+		"guest_capacity", string(dimension), map[string]string{"resource_dimension": string(dimension)})
 }
 
 func detailedError(code codes.Code, reason, message, resourceType, resourceName string) error {

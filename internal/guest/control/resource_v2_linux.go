@@ -92,7 +92,7 @@ func (r *Runtime) ReserveWorkloadResources(ctx context.Context, request *vmmdv1.
 		err = r.diskBudget.AdmitQuota(loadSnapshot, contract.WritableQuotaBytes, commit)
 	}
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		return nil, resourceExhausted("storage_capacity_unavailable")
+		return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")
 	}
 	if err != nil {
 		return nil, err

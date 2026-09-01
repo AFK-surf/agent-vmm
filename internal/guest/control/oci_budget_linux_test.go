@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/status"
 )
 
 func TestOCIProjectAssignmentOwnsGlobalTreeAndPreservesWritableSnapshotProject(t *testing.T) {
@@ -37,6 +40,24 @@ func TestOCIProjectAssignmentOwnsGlobalTreeAndPreservesWritableSnapshotProject(t
 	if projects[writable] != 10001 {
 		t.Fatalf("workload writable snapshot project=%d", projects[writable])
 	}
+}
+
+func TestRuntimeImportSlotOwnerReportsExactCapacityDimension(t *testing.T) {
+	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
+	unlock, err := runtime.lockImportSlot("sha256:first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if _, err = runtime.lockImportSlot("sha256:second"); err == nil {
+		t.Fatal("unrelated import acquired an occupied global slot")
+	}
+	for _, detail := range status.Convert(err).Details() {
+		if value, ok := detail.(*errdetails.ErrorInfo); ok && value.GetMetadata()["resource_dimension"] == "import_slot" {
+			return
+		}
+	}
+	t.Fatalf("import slot error omitted exact owner dimension: %v", err)
 }
 
 func TestOCIProjectAssignmentFailsClosedBeforeImport(t *testing.T) {

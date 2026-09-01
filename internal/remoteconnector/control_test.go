@@ -7,7 +7,34 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func TestCapacityDimensionIsForwardedFromHostAdmissionAuthority(t *testing.T) {
+	for dimension, want := range map[string]remotev1.CapacityDimension{
+		"cpu_guarantee":    remotev1.CapacityDimension_CAPACITY_DIMENSION_CPU_GUARANTEE,
+		"cpu_max":          remotev1.CapacityDimension_CAPACITY_DIMENSION_CPU_MAX,
+		"memory":           remotev1.CapacityDimension_CAPACITY_DIMENSION_MEMORY,
+		"pids":             remotev1.CapacityDimension_CAPACITY_DIMENSION_PIDS,
+		"writable":         remotev1.CapacityDimension_CAPACITY_DIMENSION_WRITABLE,
+		"storage_headroom": remotev1.CapacityDimension_CAPACITY_DIMENSION_STORAGE_HEADROOM,
+		"import_slot":      remotev1.CapacityDimension_CAPACITY_DIMENSION_IMPORT_SLOT,
+	} {
+		value := status.New(codes.ResourceExhausted, "capacity exhausted")
+		value, err := value.WithDetails(&errdetails.ErrorInfo{Reason: "RESOURCE_LEDGER_EXHAUSTED", Metadata: map[string]string{"resource_dimension": dimension}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := capacityDimensionFor(value.Err()); got != want {
+			t.Fatalf("%s dimension = %s, want %s", dimension, got, want)
+		}
+	}
+	if got := capacityDimensionFor(status.Error(codes.ResourceExhausted, "capacity exhausted")); got != remotev1.CapacityDimension_CAPACITY_DIMENSION_UNSPECIFIED {
+		t.Fatalf("unknown dimension = %s", got)
+	}
+}
 
 func TestReleaseAllocationRequiresExactRevisionAndGenerationFence(t *testing.T) {
 	t.Parallel()

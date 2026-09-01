@@ -19,9 +19,13 @@ func invalidField(field, description string) error {
 }
 
 func resourceError(code codes.Code, reason, kind, name, message string) error {
+	return resourceErrorWithMetadata(code, reason, kind, name, message, nil)
+}
+
+func resourceErrorWithMetadata(code codes.Code, reason, kind, name, message string, metadata map[string]string) error {
 	value := status.New(code, message)
 	withDetails, err := value.WithDetails(
-		&errdetails.ErrorInfo{Reason: reason, Domain: "agentvmm.afk.surf"},
+		&errdetails.ErrorInfo{Reason: reason, Domain: "agentvmm.afk.surf", Metadata: metadata},
 		&errdetails.ResourceInfo{ResourceType: kind, ResourceName: name},
 	)
 	if err != nil {
