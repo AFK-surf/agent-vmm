@@ -8258,6 +8258,7 @@ type ImportImageHeader struct {
 	ManifestDigest string                 `protobuf:"bytes,4,opt,name=manifest_digest,json=manifestDigest,proto3" json:"manifest_digest,omitempty"`
 	Platform       string                 `protobuf:"bytes,5,opt,name=platform,proto3" json:"platform,omitempty"`
 	ArchiveSize    uint64                 `protobuf:"varint,6,opt,name=archive_size,json=archiveSize,proto3" json:"archive_size,omitempty"`
+	ArchiveUrl     string                 `protobuf:"bytes,7,opt,name=archive_url,json=archiveUrl,proto3" json:"archive_url,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -8332,6 +8333,13 @@ func (x *ImportImageHeader) GetArchiveSize() uint64 {
 		return x.ArchiveSize
 	}
 	return 0
+}
+
+func (x *ImportImageHeader) GetArchiveUrl() string {
+	if x != nil {
+		return x.ArchiveUrl
+	}
+	return ""
 }
 
 type ImportImageRequest struct {
@@ -16110,7 +16118,7 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x06digest\x18\x02 \x01(\tH\x00R\x06digest\x88\x01\x01\x12#\n" +
 	"\rlogical_bytes\x18\x03 \x01(\x04R\flogicalBytes\x12/\n" +
 	"\x13canonical_reference\x18\x04 \x01(\tR\x12canonicalReferenceB\t\n" +
-	"\a_digest\"\xea\x01\n" +
+	"\a_digest\"\x8b\x02\n" +
 	"\x11ImportImageHeader\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
@@ -16118,7 +16126,9 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x0earchive_sha256\x18\x03 \x01(\fR\rarchiveSha256\x12'\n" +
 	"\x0fmanifest_digest\x18\x04 \x01(\tR\x0emanifestDigest\x12\x1a\n" +
 	"\bplatform\x18\x05 \x01(\tR\bplatform\x12!\n" +
-	"\farchive_size\x18\x06 \x01(\x04R\varchiveSize\"\x85\x01\n" +
+	"\farchive_size\x18\x06 \x01(\x04R\varchiveSize\x12\x1f\n" +
+	"\varchive_url\x18\a \x01(\tR\n" +
+	"archiveUrl\"\x85\x01\n" +
 	"\x12ImportImageRequest\x12=\n" +
 	"\x06header\x18\x01 \x01(\v2#.agentvmm.host.v1.ImportImageHeaderH\x00R\x06header\x12%\n" +
 	"\rarchive_chunk\x18\x02 \x01(\fH\x00R\farchiveChunkB\t\n" +

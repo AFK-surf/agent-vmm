@@ -68,7 +68,7 @@ host-owned registry operations, snapshots, and the bounded endpoint projection.
 
 - The code-signed Host executable embeds the expected Guest manifest digest. VM start verifies that manifest and every boot artifact before Virtualization.framework receives their paths. Guest health reports runtime observations; it does not echo Host-provided artifact identity as evidence.
 - The Guest dependency lock authorizes downloaded build inputs. The generated SBOM is CI inventory for dependency/license consumers, not a second runtime trust root.
-- OCI manifest and blob digests bind image content. A streamed archive hash binds the exact Host-to-Guest transfer and its idempotency record; the bundled read-only OCI archive uses its locked canonical manifest digest directly.
+- OCI manifest and blob digests bind image content. The control plane supplies an immutable HTTPS archive URL plus its expected size and SHA-256. The target Host downloads those bytes directly, and the Guest validates the exact Host-to-Guest transfer and idempotency record before activating the image. The URL transport is not a second content authority.
 - The packaged release inventory is diagnostic metadata. Lifecycle admission uses the fixed executable, helper, Guest, plist, and launchd-template layout rather than trusting fields declared by that inventory.
 - Virtualization.framework isolates macOS from the Linux guest. It does not isolate agents inside one guest.
 - A containerd namespace is an object scope. Access to the containerd socket bypasses this scope.

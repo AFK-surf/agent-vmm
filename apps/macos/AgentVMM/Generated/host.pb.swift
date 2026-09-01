@@ -3776,6 +3776,8 @@ public nonisolated struct Agentvmm_Host_V1_ImportImageHeader: Sendable {
 
   public var archiveSize: UInt64 = 0
 
+  public var archiveURL: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -11553,7 +11555,7 @@ nonisolated extension Agentvmm_Host_V1_PullImageResponse: SwiftProtobuf.Message,
 
 nonisolated extension Agentvmm_Host_V1_ImportImageHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ImportImageHeader"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}image_reference\0\u{3}archive_sha256\0\u{3}manifest_digest\0\u{1}platform\0\u{3}archive_size\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}image_reference\0\u{3}archive_sha256\0\u{3}manifest_digest\0\u{1}platform\0\u{3}archive_size\0\u{3}archive_url\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -11567,6 +11569,7 @@ nonisolated extension Agentvmm_Host_V1_ImportImageHeader: SwiftProtobuf.Message,
       case 4: try { try decoder.decodeSingularStringField(value: &self.manifestDigest) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.platform) }()
       case 6: try { try decoder.decodeSingularUInt64Field(value: &self.archiveSize) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.archiveURL) }()
       default: break
       }
     }
@@ -11591,6 +11594,9 @@ nonisolated extension Agentvmm_Host_V1_ImportImageHeader: SwiftProtobuf.Message,
     if self.archiveSize != 0 {
       try visitor.visitSingularUInt64Field(value: self.archiveSize, fieldNumber: 6)
     }
+    if !self.archiveURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.archiveURL, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -11601,6 +11607,7 @@ nonisolated extension Agentvmm_Host_V1_ImportImageHeader: SwiftProtobuf.Message,
     if lhs.manifestDigest != rhs.manifestDigest {return false}
     if lhs.platform != rhs.platform {return false}
     if lhs.archiveSize != rhs.archiveSize {return false}
+    if lhs.archiveURL != rhs.archiveURL {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
