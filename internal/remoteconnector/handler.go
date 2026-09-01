@@ -37,17 +37,17 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 	case *remotev1.ControllerCommand_EnsureAllocation:
 		var response *hostv1.AllocationResponse
 		request := value.EnsureAllocation
-		response, err = handler.client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{RegistrationId: handler.registrationID, AllocationId: request.GetAllocationId(), DisplayLabel: boundedLabel(request.GetDisplayLabel()), Limits: request.GetLimits(), EgressMode: request.GetEgressMode(), PolicyRevision: request.GetPolicyRevision(), ConnectionInstance: handler.connectionInstance})
+		response, err = handler.client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{RegistrationId: handler.registrationID, AllocationId: request.GetAllocationId(), DisplayLabel: boundedLabel(request.GetDisplayLabel()), EgressMode: request.GetEgressMode(), PolicyRevision: request.GetPolicyRevision(), ConnectionInstance: handler.connectionInstance, Generation: request.GetGeneration(), ResourcesV2: request.GetResourcesV2()})
 		if err == nil {
 			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
 		}
 	case *remotev1.ControllerCommand_ReleaseAllocation:
 		var response *hostv1.AllocationResponse
-		if value.ReleaseAllocation.GetExpectedRevision() == 0 || value.ReleaseAllocation.GetExpectedRevision() != command.GetTargetRevision() {
+		if value.ReleaseAllocation.GetExpectedRevision() == 0 || value.ReleaseAllocation.GetExpectedRevision() != command.GetTargetRevision() || value.ReleaseAllocation.GetExpectedGeneration() == 0 {
 			err = status.Error(codes.Aborted, "allocation release revision is stale")
 			break
 		}
-		response, err = handler.client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: value.ReleaseAllocation.GetAllocationId(), ExpectedPolicyRevision: value.ReleaseAllocation.GetExpectedRevision()})
+		response, err = handler.client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: value.ReleaseAllocation.GetAllocationId(), ExpectedPolicyRevision: value.ReleaseAllocation.GetExpectedRevision(), ExpectedGeneration: value.ReleaseAllocation.GetExpectedGeneration()})
 		if err == nil {
 			if handler.tunnels != nil {
 				handler.tunnels.CloseAllocation(value.ReleaseAllocation.GetAllocationId())

@@ -20,18 +20,19 @@ type referenceAllocation struct {
 	id          string
 	label       string
 	workloadRef string
-	limits      *hostv1.ResourceLimits
+	resources   *hostv1.WorkloadResourcesV2
 }
 
 func referenceAllocations() []referenceAllocation {
 	return []referenceAllocation{
-		{id: "durable-service", label: "Reference durable service", workloadRef: "durable-service-environment", limits: referenceLimits(100, 128<<20, 64, 256<<20)},
-		{id: "ephemeral-task", label: "Reference ephemeral task", workloadRef: "ephemeral-task-allocation", limits: referenceLimits(100, 128<<20, 64, 256<<20)},
+		{id: "durable-service", label: "Reference durable service", workloadRef: "durable-service-environment", resources: referenceResources(100, 128<<20, 64, 256<<20)},
+		{id: "ephemeral-task", label: "Reference ephemeral task", workloadRef: "ephemeral-task-allocation", resources: referenceResources(100, 128<<20, 64, 256<<20)},
 	}
 }
 
-func referenceLimits(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
-	return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
+func referenceResources(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.WorkloadResourcesV2 {
+	return &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: cpu, CpuMaxMillis: cpu, CpuWeight: 100,
+		MemoryHighBytes: memory, MemoryMaxBytes: memory, PidMax: pids, WritableQuotaBytes: disk}
 }
 
 type referenceCommandCursor struct {
@@ -52,7 +53,7 @@ func reconcileReferenceAllocations(ctx context.Context, cursor *referenceCommand
 	}
 	for _, desired := range referenceAllocations() {
 		result, err := dispatchReferenceCommand(ctx, cursor, "ensure-"+desired.id, &remotev1.ControllerCommand{TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{
-			AllocationId: desired.id, DisplayLabel: desired.label, Limits: desired.limits,
+			AllocationId: desired.id, Generation: 1, DisplayLabel: desired.label, ResourcesV2: desired.resources,
 			EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision(),
 		}}})
 		if err != nil {

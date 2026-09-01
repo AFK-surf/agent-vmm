@@ -1,7 +1,7 @@
 ---------------------- MODULE HostServiceExistingOwner ----------------------
 EXTENDS Naturals
 
-CONSTANTS RespectConfiguredOwner, PreserveConfiguredResources,
+CONSTANTS RespectConfiguredOwner, UseFreshBundleResources,
           PreserveConfiguredPolicy
 
 \* Existing-owner observation/removal is deliberately separate from the
@@ -55,9 +55,9 @@ Remove ==
 Update ==
   /\ outcome = "pending"
   /\ action = "update"
-  /\ renderedGeometry' = IF PreserveConfiguredResources
-                            THEN configuredGeometry
-                            ELSE "default"
+  /\ renderedGeometry' = IF UseFreshBundleResources
+                            THEN "default"
+                            ELSE configuredGeometry
   /\ renderedPolicy' = IF PreserveConfiguredPolicy
                           THEN configuredPolicy
                           ELSE "default"
@@ -84,7 +84,7 @@ RemovedConfiguredOwner ==
   outcome = "removed" =>
     IF configuredOwner = "agent" THEN ~agentLoaded ELSE ~daemonLoaded
 UpdatedResourceGeometry ==
-  outcome = "updated" => renderedGeometry = configuredGeometry
+  outcome = "updated" => renderedGeometry = "default"
 UpdatedPairingPolicy ==
   outcome = "updated" => renderedPolicy = configuredPolicy
 

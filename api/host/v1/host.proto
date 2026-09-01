@@ -513,6 +513,20 @@ message ResourceLimits {
   optional uint64 disk_bytes = 4;
 }
 
+// WorkloadResourcesV2 is the only resource contract accepted by remote
+// allocation admission. CPU entitlement, burst ceiling, memory pressure,
+// memory isolation, process isolation, and durable writable storage retain
+// distinct semantics throughout Host and Guest enforcement.
+message WorkloadResourcesV2 {
+  uint32 cpu_guarantee_millis = 1;
+  uint32 cpu_max_millis = 2;
+  uint32 cpu_weight = 3;
+  uint64 memory_high_bytes = 4;
+  uint64 memory_max_bytes = 5;
+  uint32 pid_max = 6;
+  uint64 writable_quota_bytes = 7;
+}
+
 enum EnvironmentOwnerKind {
   ENVIRONMENT_OWNER_KIND_UNSPECIFIED = 0;
   ENVIRONMENT_OWNER_KIND_LOCAL = 1;
@@ -1406,6 +1420,8 @@ message RemoteAllocation {
   AllocationState state = 6;
   RemoteLease lease = 7;
   string environment_id = 8;
+  uint64 generation = 9;
+  WorkloadResourcesV2 resources_v2 = 10;
 }
 
 enum LeaseState {
@@ -1465,6 +1481,8 @@ message EnsureAllocationRequest {
   uint64 policy_revision = 5;
   string connection_instance = 6;
   string registration_id = 7;
+  uint64 generation = 8;
+  WorkloadResourcesV2 resources_v2 = 9;
 }
 
 message AllocationResponse {
@@ -1476,6 +1494,7 @@ message ReleaseAllocationRequest {
   uint64 expected_policy_revision = 2;
   string registration_id = 3;
   string connection_instance = 4;
+  uint64 expected_generation = 5;
 }
 
 message PlanCleanupAllocationRequest {

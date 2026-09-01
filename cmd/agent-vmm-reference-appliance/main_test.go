@@ -25,7 +25,7 @@ type referenceControlStream struct {
 
 func newReferenceControlStream(ctx context.Context, inventory []*remotev1.Allocation) *referenceControlStream {
 	return &referenceControlStream{ctx: ctx, responses: make(chan *remotev1.HostControlMessage, 32), hello: &remotev1.HostHello{
-		ProtocolVersion: "1", HostApiVersion: "host.v1", RegistrationId: "registration", ConnectionEpoch: 7,
+		ProtocolVersion: controllerremote.ProtocolVersion, HostApiVersion: "host.v1", RegistrationId: "registration", ConnectionEpoch: 7,
 		InventoryWatermark: 3, PoolRevision: 2, Inventory: inventory,
 		SupportedFeatures: append([]string(nil), controllerremote.RequiredFeatures...), RequiredFeatures: append([]string(nil), controllerremote.RequiredFeatures...),
 	}}
@@ -64,7 +64,7 @@ func (stream *referenceControlStream) Send(message *remotev1.ControllerControlMe
 	result := &remotev1.CommandResult{CommandId: command.GetCommandId(), Sequence: command.GetSequence(), ConnectionEpoch: command.GetConnectionEpoch(), Outcome: remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED, InventoryWatermark: 4}
 	switch value := command.GetCommand().(type) {
 	case *remotev1.ControllerCommand_EnsureAllocation:
-		allocation := &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Limits: value.EnsureAllocation.GetLimits(), EgressMode: value.EnsureAllocation.GetEgressMode(), Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}
+		allocation := &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Generation: value.EnsureAllocation.GetGeneration(), ResourcesV2: value.EnsureAllocation.GetResourcesV2(), EgressMode: value.EnsureAllocation.GetEgressMode(), Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}
 		for _, existing := range stream.hello.GetInventory() {
 			if existing.GetAllocationId() == allocation.GetAllocationId() {
 				allocation.Lease = existing.GetLease()

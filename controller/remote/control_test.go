@@ -306,5 +306,5 @@ func TestValidateHelloRejectsFeatureAndInventoryDrift(t *testing.T) {
 
 func validHello() *remotev1.HostHello {
 	features := append([]string(nil), controllerremote.RequiredFeatures...)
-	return &remotev1.HostHello{ProtocolVersion: "1", HostApiVersion: "host.v1", RegistrationId: "registration-1", ConnectionEpoch: 19, InventoryWatermark: 7, SupportedFeatures: features, RequiredFeatures: append([]string(nil), features...), Inventory: []*remotev1.Allocation{{AllocationId: "allocation-1", Revision: 7}}}
+	return &remotev1.HostHello{ProtocolVersion: controllerremote.ProtocolVersion, HostApiVersion: "host.v1", RegistrationId: "registration-1", ConnectionEpoch: 19, InventoryWatermark: 7, SupportedFeatures: features, RequiredFeatures: append([]string(nil), features...), Inventory: []*remotev1.Allocation{{AllocationId: "allocation-1", Revision: 7}}}
 }

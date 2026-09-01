@@ -74,12 +74,29 @@ func Assign(path string, projectID uint32) error {
 	return nil
 }
 
+func ProjectID(path string) (uint32, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	attributes := fsXAttr{}
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, file.Fd(), fsIOCFSGetXAttr, uintptr(unsafe.Pointer(&attributes))); errno != 0 {
+		return 0, fmt.Errorf("get project for %s: %w", path, errno)
+	}
+	return attributes.ProjectID, nil
+}
+
 func SetLimit(device string, projectID uint32, bytes uint64) error {
 	devicePointer, err := unix.BytePtrFromString(device)
 	if err != nil {
 		return err
 	}
-	quota := quotaBlock{BlockHardLimit: (bytes + 1023) / 1024, BlockSoftLimit: (bytes + 1023) / 1024, Valid: quotaValidLimits}
+	blocks := bytes / 1024
+	if bytes%1024 != 0 {
+		blocks++
+	}
+	quota := quotaBlock{BlockHardLimit: blocks, BlockSoftLimit: blocks, Valid: quotaValidLimits}
 	command := uintptr(quotaSetQuota<<8 | projectQuota)
 	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, command, uintptr(unsafe.Pointer(devicePointer)), uintptr(projectID), uintptr(unsafe.Pointer(&quota)), 0, 0)
 	if errno != 0 {

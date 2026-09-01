@@ -11,7 +11,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 17
+const schemaVersion = 18
+
+const (
+	auditRetention  = 30 * 24 * time.Hour
+	auditMaxRows    = 10_000
+	auditPruneBatch = 256
+)
 
 const (
 	OwnerLocal              = 1
@@ -93,6 +99,8 @@ func Open(path string) (*Store, error) {
 		"PRAGMA foreign_keys=ON",
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA synchronous=FULL",
+		"PRAGMA wal_autocheckpoint=1000",
+		"PRAGMA journal_size_limit=67108864",
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			db.Close()
@@ -131,10 +139,17 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("recover service listeners: %w", err)
 	}
+	if err := result.maintainStorage(context.Background(), time.Now()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prune mutation receipts: %w", err)
+	}
 	return result, nil
 }
 
-func (store *Store) Close() error { return store.db.Close() }
+func (store *Store) Close() error {
+	_, _ = store.db.Exec("PRAGMA wal_checkpoint(PASSIVE)")
+	return store.db.Close()
+}
 
 func (store *Store) PutVMConfig(ctx context.Context, instanceID, bundleDirectory, instanceDirectory, stateDiskIdentity string, cpuCount uint, memoryBytes uint64, stateBytes int64) error {
 	_, err := store.db.ExecContext(ctx, `INSERT INTO vm_config
@@ -534,5 +549,45 @@ func (store *Store) UpdateOperation(ctx context.Context, operation Operation) er
 func (store *Store) Audit(ctx context.Context, actor, target, method, grantID, requestID string, resultCode int32, reason string) error {
 	_, err := store.db.ExecContext(ctx, `INSERT INTO audit(actor, target, method, grant_id, request_id, result_code, reason, occurred_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, actor, target, method, grantID, requestID, resultCode, reason, time.Now().UnixNano())
+	if err != nil {
+		return err
+	}
+	return store.maintainStorage(ctx, time.Now())
+}
+
+func (store *Store) pruneAudit(ctx context.Context, now time.Time) error {
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM audit WHERE sequence IN (
+		SELECT sequence FROM audit WHERE occurred_at < ? ORDER BY occurred_at,sequence LIMIT ?
+	)`, now.Add(-auditRetention).UnixNano(), auditPruneBatch); err != nil {
+		return err
+	}
+	var excess int
+	if err := store.db.QueryRowContext(ctx, `SELECT MAX(COUNT(*)-?,0) FROM audit`, auditMaxRows).Scan(&excess); err != nil {
+		return err
+	}
+	if excess == 0 {
+		return nil
+	}
+	_, err := store.db.ExecContext(ctx, `DELETE FROM audit WHERE sequence IN (
+		SELECT sequence FROM audit ORDER BY sequence LIMIT ?
+	)`, min(excess, auditPruneBatch))
 	return err
+}
+
+func (store *Store) maintainStorage(ctx context.Context, now time.Time) error {
+	if err := store.pruneAudit(ctx, now); err != nil {
+		return err
+	}
+	var busy, logFrames, checkpointed int
+	if err := store.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`).Scan(&busy, &logFrames, &checkpointed); err != nil {
+		return err
+	}
+	if busy != 0 || logFrames != checkpointed || logFrames == 0 {
+		return nil
+	}
+	if _, err := store.db.ExecContext(ctx, `PRAGMA busy_timeout=0`); err != nil {
+		return err
+	}
+	defer store.db.ExecContext(context.Background(), `PRAGMA busy_timeout=5000`)
+	return store.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logFrames, &checkpointed)
 }

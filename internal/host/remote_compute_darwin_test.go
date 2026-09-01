@@ -12,6 +12,7 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -59,38 +60,36 @@ func TestCollectScopedRemoteObservationUsesOneHealthCallAndExactNamespaces(t *te
 	}
 }
 
-func TestAllocationAdmission(t *testing.T) {
-	registration := store.RemoteRegistration{
-		ID: "registration", MaxEnvironments: 2,
+func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	registration := store.RemoteRegistration{ID: "registration", MaxEnvironments: 2,
 		AggregateCPUMillis: 2000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 8 << 30,
-		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
-		MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL),
+		PerEnvCPUMillis: 2000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 8 << 30,
+		MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL)}
+	hostCapacity := resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 6000, MemoryMaxBytes: 8 << 30, PIDMax: 1024, WritableQuotaBytes: 24 << 30}
+	base := resourcev2.Contract{CPUGuaranteeMillis: 1000, CPUMaxMillis: 2000, CPUWeight: 100, MemoryHighBytes: 1 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
+	if err := admitAllocationV2(context.Background(), database, registration, nil, base, hostCapacity, hostv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
+		t.Fatalf("valid independent contract rejected: %v", err)
 	}
-	limits := func(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
-		return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
-	}
-	existing := []store.Environment{{CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30}}
-	tests := []struct {
-		name         string
-		environments []store.Environment
-		limits       *hostv1.ResourceLimits
-		egress       hostv1.EgressMode
-		code         codes.Code
+	for _, test := range []struct {
+		name   string
+		mutate func(*resourcev2.Contract)
 	}{
-		{name: "accepted", environments: nil, limits: limits(1000, 1<<30, 128, 4<<30), egress: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, code: codes.OK},
-		{name: "count", environments: append(existing, existing...), limits: limits(1, 16<<20, 1, 1), egress: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, code: codes.ResourceExhausted},
-		{name: "per cpu", limits: limits(1001, 1<<30, 128, 4<<30), egress: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, code: codes.ResourceExhausted},
-		{name: "per memory", limits: limits(1000, (1<<30)+1, 128, 4<<30), egress: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, code: codes.ResourceExhausted},
-		{name: "per pids", limits: limits(1000, 1<<30, 129, 4<<30), egress: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, code: codes.ResourceExhausted},
-		{name: "per disk", limits: limits(1000, 1<<30, 128, (4<<30)+1), egress: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, code: codes.ResourceExhausted},
-		{name: "aggregate", environments: []store.Environment{{CPUMillis: 1500, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30}}, limits: limits(1000, 1<<30, 128, 4<<30), egress: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, code: codes.ResourceExhausted},
-		{name: "egress", limits: limits(1000, 1<<30, 128, 4<<30), egress: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, code: codes.PermissionDenied},
-	}
-	for _, test := range tests {
+		{name: "cpu guarantee", mutate: func(value *resourcev2.Contract) { value.CPUGuaranteeMillis = 2001 }},
+		{name: "cpu max", mutate: func(value *resourcev2.Contract) { value.CPUMaxMillis = 3001 }},
+		{name: "memory", mutate: func(value *resourcev2.Contract) { value.MemoryMaxBytes++ }},
+		{name: "pids", mutate: func(value *resourcev2.Contract) { value.PIDMax++ }},
+		{name: "writable", mutate: func(value *resourcev2.Contract) { value.WritableQuotaBytes++ }},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := admitAllocation(registration, test.environments, test.limits, test.egress)
-			if status.Code(err) != test.code {
-				t.Fatalf("code=%v want=%v err=%v", status.Code(err), test.code, err)
+			contract := base
+			test.mutate(&contract)
+			if status.Code(admitAllocationV2(context.Background(), database, registration, nil, contract, hostCapacity, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)) != codes.ResourceExhausted {
+				t.Fatal("over-capacity contract admitted")
 			}
 		})
 	}
@@ -165,7 +164,11 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if _, err := database.CreateEnvironment(ctx, store.Environment{ID: "local", NamespaceID: "local-namespace", DisplayName: "local", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: store.OwnerLocal}); err != nil {
 		t.Fatal(err)
 	}
-	remote, err := database.CreateEnvironment(ctx, store.Environment{ID: "remote", NamespaceID: "remote-namespace", DisplayName: "remote", CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: 1})
+	contract := resourcev2.Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, CPUWeight: 100, MemoryHighBytes: 768 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
+	remote, _, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "remote", NamespaceID: "remote-namespace", DisplayName: "remote", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: 1},
+		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "remote", Resources: contract},
+		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,6 +288,19 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if err != nil || renewed.GetLease().GetGeneration() != first.GetLease().GetGeneration() || !renewed.GetLease().GetExpiresAt().AsTime().After(first.GetLease().GetExpiresAt().AsTime()) {
 		t.Fatalf("renewed=%+v err=%v", renewed, err)
 	}
+	// Model the old timer resuming after it observed the original deadline but
+	// after RenewLease won remoteAdmissionMu. Deadline revalidation at that same
+	// linearization point must make the stale timer a no-op.
+	staleTimerNow := first.GetLease().GetExpiresAt().AsTime().Add(time.Nanosecond)
+	if expired, err := controller.expireLease(renewed.GetLease().GetLeaseId(), renewed.GetLease().GetGeneration(), staleTimerNow); err != nil || expired != nil {
+		t.Fatalf("stale pre-renew timer expired current lease=%+v err=%v", expired, err)
+	}
+	controller.mu.Lock()
+	activeAfterRenew := controller.remoteLeases[renewed.GetLease().GetLeaseId()]
+	controller.mu.Unlock()
+	if activeAfterRenew == nil || !activeAfterRenew.expiresAt.Equal(renewed.GetLease().GetExpiresAt().AsTime()) {
+		t.Fatalf("stale timer changed renewed lease=%+v", activeAfterRenew)
+	}
 	released, err := client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", LeaseId: renewed.GetLease().GetLeaseId(), Generation: renewed.GetLease().GetGeneration()})
 	if err != nil || released.GetLease().GetState() != hostv1.LeaseState_LEASE_STATE_RELEASED {
 		t.Fatalf("released=%+v err=%v", released, err)
@@ -338,25 +354,56 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if err != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
 		t.Fatalf("released allocation=%+v err=%v", current, err)
 	}
-	current, err = database.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	if _, err := client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{
+		RegistrationId: registration.ID, ConnectionInstance: "connection-a", AllocationId: "allocation",
+		ExpectedPolicyRevision: current.PolicyRevision, ExpectedGeneration: 6,
+	}); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale generation release error=%v", err)
+	}
+	unchanged, err := database.GetEnvironment(ctx, remote.ID)
+	if err != nil || unchanged.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || unchanged.PolicyRevision != current.PolicyRevision {
+		t.Fatalf("stale generation release mutated allocation: %+v err=%v", unchanged, err)
+	}
+	releasedAllocation, err := client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{
+		RegistrationId: registration.ID, ConnectionInstance: "connection-a", AllocationId: "allocation",
+		ExpectedPolicyRevision: current.PolicyRevision, ExpectedGeneration: 7,
+	})
+	if err != nil || releasedAllocation.GetAllocation().GetState() != hostv1.AllocationState_ALLOCATION_STATE_RETAINED || releasedAllocation.GetAllocation().GetGeneration() != 7 {
+		t.Fatalf("exact generation release=%+v err=%v", releasedAllocation, err)
+	}
+	releaseObligation, err := database.GetWorkloadReservationByEnvironment(ctx, remote.ID)
+	if err != nil || releaseObligation.Phase != store.WorkloadReservationReleaseRequired {
+		t.Fatalf("exact release did not atomically create Guest obligation=%+v err=%v", releaseObligation, err)
+	}
+	current, err = database.GetEnvironment(ctx, remote.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("retained allocation admitted a lease: %v", err)
 	}
-	current, err = database.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_READY))
+	expiringEnvironment, _, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "remote-expiring", NamespaceID: "remote-expiring-namespace", DisplayName: "expiring", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation-expiring", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
+		store.WorkloadReservation{AllocationID: "allocation-expiring", Generation: 8, RegistrationID: registration.ID, EnvironmentID: "remote-expiring", Resources: contract},
+		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
-	expiring, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(20 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()})
+	if _, err := database.CommitGuestReservation(ctx, "allocation-expiring", 8, []byte("expiring-receipt")); err != nil {
+		t.Fatal(err)
+	}
+	expiring, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation-expiring", Duration: durationpb.New(20 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: expiringEnvironment.PolicyRevision})
 	if err != nil || expiring.GetLease().GetState() != hostv1.LeaseState_LEASE_STATE_ACTIVE {
 		t.Fatalf("expiring=%+v err=%v", expiring, err)
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		current, err = database.GetEnvironment(ctx, remote.ID)
+		current, err = database.GetEnvironment(ctx, expiringEnvironment.ID)
 		if err == nil && current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+			reservation, reservationErr := database.GetWorkloadReservation(ctx, "allocation-expiring", 8)
+			if reservationErr != nil || reservation.Phase != store.WorkloadReservationReleasing {
+				t.Fatalf("expired allocation has no exact release obligation: reservation=%+v err=%v", reservation, reservationErr)
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -384,14 +431,16 @@ func TestDisconnectGraceUsesPersistedDisconnectFence(t *testing.T) {
 	if _, err := database.SetRemoteConnection(ctx, registration.ID, "first", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED)); err != nil {
 		t.Fatal(err)
 	}
-	environment, err := database.CreateEnvironment(ctx, store.Environment{
+	environment, _, err := database.BeginWorkloadAdmission(ctx, store.Environment{
 		ID: "environment", NamespaceID: "namespace", DisplayName: "remote", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1,
 		OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY),
-	})
+	}, store.WorkloadReservation{AllocationID: "allocation", Generation: 1, RegistrationID: registration.ID, EnvironmentID: "environment",
+		Resources: resourcev2.Contract{CPUGuaranteeMillis: 1, CPUMaxMillis: 1, CPUWeight: 1, MemoryHighBytes: 1, MemoryMaxBytes: 1, PIDMax: 1, WritableQuotaBytes: 1}},
+		resourcev2.Capacity{CPUGuaranteeMillis: 2, CPUMaxMillis: 2, MemoryMaxBytes: 2, PIDMax: 2, WritableQuotaBytes: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection := store.RemoteLeaseProjection{LeaseID: "lease", RegistrationID: registration.ID, AllocationID: "allocation", EnvironmentID: environment.ID, WorkloadRef: "work", Generation: 1, ExpiresAt: time.Now().Add(time.Minute), State: int32(hostv1.LeaseState_LEASE_STATE_ACTIVE)}
+	projection := store.RemoteLeaseProjection{LeaseID: "lease", RegistrationID: registration.ID, AllocationID: "allocation", AllocationGeneration: 1, EnvironmentID: environment.ID, WorkloadRef: "work", Generation: 1, ExpiresAt: time.Now().Add(time.Minute), State: int32(hostv1.LeaseState_LEASE_STATE_ACTIVE)}
 	environment, err = database.AcquireRemoteLeaseProjection(ctx, projection, environment.PolicyRevision)
 	if err != nil {
 		t.Fatal(err)
@@ -431,6 +480,173 @@ func TestDisconnectGraceUsesPersistedDisconnectFence(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("current disconnect grace did not retain allocation: environment=%+v err=%v", current, err)
+}
+
+func TestConcurrentLeaseExpiryAndExplicitReleaseHaveSingleTerminalOwner(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	registration := store.RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 1,
+		AggregateCPUMillis: 1000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 4 << 30,
+		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}
+	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	contract := resourcev2.Contract{CPUGuaranteeMillis: 250, CPUMaxMillis: 500, CPUWeight: 100, MemoryHighBytes: 512 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
+	environment, _, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
+		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "environment", Resources: contract},
+		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CommitGuestReservation(ctx, "allocation", 7, []byte("receipt")); err != nil {
+		t.Fatal(err)
+	}
+	projection := store.RemoteLeaseProjection{LeaseID: "lease", RegistrationID: registration.ID, AllocationID: "allocation", AllocationGeneration: 7,
+		EnvironmentID: environment.ID, WorkloadRef: "task", Generation: 1, ExpiresAt: time.Now(), State: int32(hostv1.LeaseState_LEASE_STATE_ACTIVE)}
+	environment, err = database.AcquireRemoteLeaseProjection(ctx, projection, environment.PolicyRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &Controller{manager: &vmm.Manager{}, store: database, sessions: make(map[string]*sessionServer), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string)}
+	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
+	controller.remoteLeases[projection.LeaseID] = &remoteLease{id: projection.LeaseID, registrationID: registration.ID, allocationID: projection.AllocationID,
+		environmentID: environment.ID, workloadRef: projection.WorkloadRef, generation: projection.Generation, allocationGeneration: projection.AllocationGeneration,
+		expiresAt: projection.ExpiresAt, state: hostv1.LeaseState_LEASE_STATE_ACTIVE}
+	controller.allocationLeases[environment.ID] = projection.LeaseID
+	type result struct {
+		lease *remoteLease
+		err   error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	go func() {
+		<-start
+		lease, finishErr := controller.finishLease("lease", 1, hostv1.LeaseState_LEASE_STATE_EXPIRED, true, false)
+		results <- result{lease: lease, err: finishErr}
+	}()
+	go func() {
+		<-start
+		lease, finishErr := controller.finishLease("lease", 1, hostv1.LeaseState_LEASE_STATE_RELEASED, false, false)
+		results <- result{lease: lease, err: finishErr}
+	}()
+	close(start)
+	first, second := <-results, <-results
+	winners := 0
+	var terminal hostv1.LeaseState
+	for _, candidate := range []result{first, second} {
+		if candidate.lease != nil {
+			winners++
+			terminal = candidate.lease.state
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("terminal lease claim winners=%d first=%+v second=%+v", winners, first, second)
+	}
+	current, err := database.GetEnvironment(ctx, environment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := database.GetWorkloadReservation(ctx, "allocation", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminal == hostv1.LeaseState_LEASE_STATE_EXPIRED {
+		if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) || reservation.Phase != store.WorkloadReservationReleasing {
+			t.Fatalf("expiry winner revived allocation: environment=%+v reservation=%+v", current, reservation)
+		}
+	} else if terminal == hostv1.LeaseState_LEASE_STATE_RELEASED {
+		if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || reservation.Phase != store.WorkloadReservationAdmitted {
+			t.Fatalf("explicit release winner was overwritten: environment=%+v reservation=%+v", current, reservation)
+		}
+	} else {
+		t.Fatalf("unexpected terminal winner %s", terminal)
+	}
+}
+
+func TestConnectionReplacementRevokesActiveLeaseWithoutAdmissionDeadlock(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	registration := store.RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 1,
+		AggregateCPUMillis: 1000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 4 << 30,
+		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 1, State: 1,
+		ConnectionState: int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED), EnrollmentState: 2, ConnectorPhase: 1}
+	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	contract := resourcev2.Contract{CPUGuaranteeMillis: 250, CPUMaxMillis: 500, CPUWeight: 100, MemoryHighBytes: 512 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
+	environment, _, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
+		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "environment", Resources: contract},
+		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CommitGuestReservation(ctx, "allocation", 7, []byte("receipt")); err != nil {
+		t.Fatal(err)
+	}
+	environment, err = database.GetEnvironment(ctx, environment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &Controller{manager: &vmm.Manager{}, store: database, sessions: make(map[string]*sessionServer), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string)}
+	listener := bufconn.Listen(1 << 20)
+	grpcServer := controller.NewRemoteComputeServer()
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(func() { grpcServer.Stop(); listener.Close() })
+	connection, err := grpc.NewClient("passthrough:///remote", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+		return invoke(metadata.AppendToOutgoingContext(ctx, "x-agent-vmm-registration", registration.ID), method, request, reply, connection, options...)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := hostv1.NewRemoteComputeServiceClient(connection)
+	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", ConnectionEpoch: 1, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED}); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", WorkloadRef: "task", Duration: durationpb.New(time.Minute), ConnectionInstance: "connection-a", ExpectedPolicyRevision: environment.PolicyRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, replaceErr := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-b", ConnectionEpoch: 2, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED})
+		result <- replaceErr
+	}()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("connection replacement failed after exact revoke: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection replacement deadlocked while revoking an active lease")
+	}
+	current, err := database.GetEnvironment(ctx, environment.ID)
+	reservation, reservationErr := database.GetWorkloadReservation(ctx, "allocation", 7)
+	if err != nil || reservationErr != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) || reservation.Phase != store.WorkloadReservationReleasing {
+		t.Fatalf("replacement did not persist exact retirement: environment=%+v reservation=%+v err=%v reservationErr=%v", current, reservation, err, reservationErr)
+	}
+	controller.mu.Lock()
+	active := controller.remoteLeases[lease.GetLease().GetLeaseId()]
+	controller.mu.Unlock()
+	if active != nil {
+		t.Fatalf("replaced connection retained active lease=%+v", active)
+	}
+	updated, err := database.GetRemoteRegistration(ctx, registration.ID)
+	if err != nil || updated.ConnectionInstance != "connection-b" || updated.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
+		t.Fatalf("replacement connection=%+v err=%v", updated, err)
+	}
 }
 
 func testOptional[T any](value T) *T { return &value }

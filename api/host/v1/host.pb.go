@@ -5794,6 +5794,102 @@ func (x *ResourceLimits) GetDiskBytes() uint64 {
 	return 0
 }
 
+// WorkloadResourcesV2 is the only resource contract accepted by remote
+// allocation admission. CPU entitlement, burst ceiling, memory pressure,
+// memory isolation, process isolation, and durable writable storage retain
+// distinct semantics throughout Host and Guest enforcement.
+type WorkloadResourcesV2 struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	CpuGuaranteeMillis uint32                 `protobuf:"varint,1,opt,name=cpu_guarantee_millis,json=cpuGuaranteeMillis,proto3" json:"cpu_guarantee_millis,omitempty"`
+	CpuMaxMillis       uint32                 `protobuf:"varint,2,opt,name=cpu_max_millis,json=cpuMaxMillis,proto3" json:"cpu_max_millis,omitempty"`
+	CpuWeight          uint32                 `protobuf:"varint,3,opt,name=cpu_weight,json=cpuWeight,proto3" json:"cpu_weight,omitempty"`
+	MemoryHighBytes    uint64                 `protobuf:"varint,4,opt,name=memory_high_bytes,json=memoryHighBytes,proto3" json:"memory_high_bytes,omitempty"`
+	MemoryMaxBytes     uint64                 `protobuf:"varint,5,opt,name=memory_max_bytes,json=memoryMaxBytes,proto3" json:"memory_max_bytes,omitempty"`
+	PidMax             uint32                 `protobuf:"varint,6,opt,name=pid_max,json=pidMax,proto3" json:"pid_max,omitempty"`
+	WritableQuotaBytes uint64                 `protobuf:"varint,7,opt,name=writable_quota_bytes,json=writableQuotaBytes,proto3" json:"writable_quota_bytes,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *WorkloadResourcesV2) Reset() {
+	*x = WorkloadResourcesV2{}
+	mi := &file_host_v1_host_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkloadResourcesV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkloadResourcesV2) ProtoMessage() {}
+
+func (x *WorkloadResourcesV2) ProtoReflect() protoreflect.Message {
+	mi := &file_host_v1_host_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkloadResourcesV2.ProtoReflect.Descriptor instead.
+func (*WorkloadResourcesV2) Descriptor() ([]byte, []int) {
+	return file_host_v1_host_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *WorkloadResourcesV2) GetCpuGuaranteeMillis() uint32 {
+	if x != nil {
+		return x.CpuGuaranteeMillis
+	}
+	return 0
+}
+
+func (x *WorkloadResourcesV2) GetCpuMaxMillis() uint32 {
+	if x != nil {
+		return x.CpuMaxMillis
+	}
+	return 0
+}
+
+func (x *WorkloadResourcesV2) GetCpuWeight() uint32 {
+	if x != nil {
+		return x.CpuWeight
+	}
+	return 0
+}
+
+func (x *WorkloadResourcesV2) GetMemoryHighBytes() uint64 {
+	if x != nil {
+		return x.MemoryHighBytes
+	}
+	return 0
+}
+
+func (x *WorkloadResourcesV2) GetMemoryMaxBytes() uint64 {
+	if x != nil {
+		return x.MemoryMaxBytes
+	}
+	return 0
+}
+
+func (x *WorkloadResourcesV2) GetPidMax() uint32 {
+	if x != nil {
+		return x.PidMax
+	}
+	return 0
+}
+
+func (x *WorkloadResourcesV2) GetWritableQuotaBytes() uint64 {
+	if x != nil {
+		return x.WritableQuotaBytes
+	}
+	return 0
+}
+
 type EnvironmentOwner struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Kind           EnvironmentOwnerKind   `protobuf:"varint,1,opt,name=kind,proto3,enum=agentvmm.host.v1.EnvironmentOwnerKind" json:"kind,omitempty"`
@@ -5805,7 +5901,7 @@ type EnvironmentOwner struct {
 
 func (x *EnvironmentOwner) Reset() {
 	*x = EnvironmentOwner{}
-	mi := &file_host_v1_host_proto_msgTypes[64]
+	mi := &file_host_v1_host_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5817,7 +5913,7 @@ func (x *EnvironmentOwner) String() string {
 func (*EnvironmentOwner) ProtoMessage() {}
 
 func (x *EnvironmentOwner) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[64]
+	mi := &file_host_v1_host_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5830,7 +5926,7 @@ func (x *EnvironmentOwner) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnvironmentOwner.ProtoReflect.Descriptor instead.
 func (*EnvironmentOwner) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{64}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *EnvironmentOwner) GetKind() EnvironmentOwnerKind {
@@ -5877,7 +5973,7 @@ type AgentEnvironment struct {
 
 func (x *AgentEnvironment) Reset() {
 	*x = AgentEnvironment{}
-	mi := &file_host_v1_host_proto_msgTypes[65]
+	mi := &file_host_v1_host_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5889,7 +5985,7 @@ func (x *AgentEnvironment) String() string {
 func (*AgentEnvironment) ProtoMessage() {}
 
 func (x *AgentEnvironment) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[65]
+	mi := &file_host_v1_host_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5902,7 +5998,7 @@ func (x *AgentEnvironment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentEnvironment.ProtoReflect.Descriptor instead.
 func (*AgentEnvironment) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{65}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *AgentEnvironment) GetId() string {
@@ -6020,7 +6116,7 @@ type CreateAgentSessionRequest struct {
 
 func (x *CreateAgentSessionRequest) Reset() {
 	*x = CreateAgentSessionRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[66]
+	mi := &file_host_v1_host_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6032,7 +6128,7 @@ func (x *CreateAgentSessionRequest) String() string {
 func (*CreateAgentSessionRequest) ProtoMessage() {}
 
 func (x *CreateAgentSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[66]
+	mi := &file_host_v1_host_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6045,7 +6141,7 @@ func (x *CreateAgentSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentSessionRequest.ProtoReflect.Descriptor instead.
 func (*CreateAgentSessionRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{66}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *CreateAgentSessionRequest) GetRequestId() string {
@@ -6074,7 +6170,7 @@ type CreateAgentSessionResponse struct {
 
 func (x *CreateAgentSessionResponse) Reset() {
 	*x = CreateAgentSessionResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[67]
+	mi := &file_host_v1_host_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6086,7 +6182,7 @@ func (x *CreateAgentSessionResponse) String() string {
 func (*CreateAgentSessionResponse) ProtoMessage() {}
 
 func (x *CreateAgentSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[67]
+	mi := &file_host_v1_host_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6099,7 +6195,7 @@ func (x *CreateAgentSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentSessionResponse.ProtoReflect.Descriptor instead.
 func (*CreateAgentSessionResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{67}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *CreateAgentSessionResponse) GetSessionId() string {
@@ -6140,7 +6236,7 @@ type RevokeAgentSessionRequest struct {
 
 func (x *RevokeAgentSessionRequest) Reset() {
 	*x = RevokeAgentSessionRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[68]
+	mi := &file_host_v1_host_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6152,7 +6248,7 @@ func (x *RevokeAgentSessionRequest) String() string {
 func (*RevokeAgentSessionRequest) ProtoMessage() {}
 
 func (x *RevokeAgentSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[68]
+	mi := &file_host_v1_host_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6165,7 +6261,7 @@ func (x *RevokeAgentSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeAgentSessionRequest.ProtoReflect.Descriptor instead.
 func (*RevokeAgentSessionRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{68}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *RevokeAgentSessionRequest) GetRequestId() string {
@@ -6205,7 +6301,7 @@ type AgentIntegration struct {
 
 func (x *AgentIntegration) Reset() {
 	*x = AgentIntegration{}
-	mi := &file_host_v1_host_proto_msgTypes[69]
+	mi := &file_host_v1_host_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6217,7 +6313,7 @@ func (x *AgentIntegration) String() string {
 func (*AgentIntegration) ProtoMessage() {}
 
 func (x *AgentIntegration) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[69]
+	mi := &file_host_v1_host_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6230,7 +6326,7 @@ func (x *AgentIntegration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentIntegration.ProtoReflect.Descriptor instead.
 func (*AgentIntegration) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{69}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *AgentIntegration) GetId() string {
@@ -6347,7 +6443,7 @@ type ListAgentIntegrationsRequest struct {
 
 func (x *ListAgentIntegrationsRequest) Reset() {
 	*x = ListAgentIntegrationsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[70]
+	mi := &file_host_v1_host_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6359,7 +6455,7 @@ func (x *ListAgentIntegrationsRequest) String() string {
 func (*ListAgentIntegrationsRequest) ProtoMessage() {}
 
 func (x *ListAgentIntegrationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[70]
+	mi := &file_host_v1_host_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6372,7 +6468,7 @@ func (x *ListAgentIntegrationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentIntegrationsRequest.ProtoReflect.Descriptor instead.
 func (*ListAgentIntegrationsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{70}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ListAgentIntegrationsRequest) GetIncludeRemoved() bool {
@@ -6391,7 +6487,7 @@ type ListAgentIntegrationsResponse struct {
 
 func (x *ListAgentIntegrationsResponse) Reset() {
 	*x = ListAgentIntegrationsResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[71]
+	mi := &file_host_v1_host_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6403,7 +6499,7 @@ func (x *ListAgentIntegrationsResponse) String() string {
 func (*ListAgentIntegrationsResponse) ProtoMessage() {}
 
 func (x *ListAgentIntegrationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[71]
+	mi := &file_host_v1_host_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6416,7 +6512,7 @@ func (x *ListAgentIntegrationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentIntegrationsResponse.ProtoReflect.Descriptor instead.
 func (*ListAgentIntegrationsResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{71}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ListAgentIntegrationsResponse) GetIntegrations() []*AgentIntegration {
@@ -6440,7 +6536,7 @@ type PrepareAgentIntegrationRequest struct {
 
 func (x *PrepareAgentIntegrationRequest) Reset() {
 	*x = PrepareAgentIntegrationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[72]
+	mi := &file_host_v1_host_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6452,7 +6548,7 @@ func (x *PrepareAgentIntegrationRequest) String() string {
 func (*PrepareAgentIntegrationRequest) ProtoMessage() {}
 
 func (x *PrepareAgentIntegrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[72]
+	mi := &file_host_v1_host_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6465,7 +6561,7 @@ func (x *PrepareAgentIntegrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareAgentIntegrationRequest.ProtoReflect.Descriptor instead.
 func (*PrepareAgentIntegrationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{72}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *PrepareAgentIntegrationRequest) GetRequestId() string {
@@ -6521,7 +6617,7 @@ type BeginAgentIntegrationConfigurationRequest struct {
 
 func (x *BeginAgentIntegrationConfigurationRequest) Reset() {
 	*x = BeginAgentIntegrationConfigurationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[73]
+	mi := &file_host_v1_host_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6533,7 +6629,7 @@ func (x *BeginAgentIntegrationConfigurationRequest) String() string {
 func (*BeginAgentIntegrationConfigurationRequest) ProtoMessage() {}
 
 func (x *BeginAgentIntegrationConfigurationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[73]
+	mi := &file_host_v1_host_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6546,7 +6642,7 @@ func (x *BeginAgentIntegrationConfigurationRequest) ProtoReflect() protoreflect.
 
 // Deprecated: Use BeginAgentIntegrationConfigurationRequest.ProtoReflect.Descriptor instead.
 func (*BeginAgentIntegrationConfigurationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{73}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *BeginAgentIntegrationConfigurationRequest) GetRequestId() string {
@@ -6583,7 +6679,7 @@ type CommitAgentIntegrationRequest struct {
 
 func (x *CommitAgentIntegrationRequest) Reset() {
 	*x = CommitAgentIntegrationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[74]
+	mi := &file_host_v1_host_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6595,7 +6691,7 @@ func (x *CommitAgentIntegrationRequest) String() string {
 func (*CommitAgentIntegrationRequest) ProtoMessage() {}
 
 func (x *CommitAgentIntegrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[74]
+	mi := &file_host_v1_host_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6608,7 +6704,7 @@ func (x *CommitAgentIntegrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitAgentIntegrationRequest.ProtoReflect.Descriptor instead.
 func (*CommitAgentIntegrationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{74}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *CommitAgentIntegrationRequest) GetRequestId() string {
@@ -6659,7 +6755,7 @@ type FailAgentIntegrationRequest struct {
 
 func (x *FailAgentIntegrationRequest) Reset() {
 	*x = FailAgentIntegrationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[75]
+	mi := &file_host_v1_host_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6671,7 +6767,7 @@ func (x *FailAgentIntegrationRequest) String() string {
 func (*FailAgentIntegrationRequest) ProtoMessage() {}
 
 func (x *FailAgentIntegrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[75]
+	mi := &file_host_v1_host_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6684,7 +6780,7 @@ func (x *FailAgentIntegrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailAgentIntegrationRequest.ProtoReflect.Descriptor instead.
 func (*FailAgentIntegrationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{75}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *FailAgentIntegrationRequest) GetRequestId() string {
@@ -6733,7 +6829,7 @@ type BeginAgentIntegrationRemovalRequest struct {
 
 func (x *BeginAgentIntegrationRemovalRequest) Reset() {
 	*x = BeginAgentIntegrationRemovalRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[76]
+	mi := &file_host_v1_host_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6745,7 +6841,7 @@ func (x *BeginAgentIntegrationRemovalRequest) String() string {
 func (*BeginAgentIntegrationRemovalRequest) ProtoMessage() {}
 
 func (x *BeginAgentIntegrationRemovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[76]
+	mi := &file_host_v1_host_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6758,7 +6854,7 @@ func (x *BeginAgentIntegrationRemovalRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use BeginAgentIntegrationRemovalRequest.ProtoReflect.Descriptor instead.
 func (*BeginAgentIntegrationRemovalRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{76}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *BeginAgentIntegrationRemovalRequest) GetRequestId() string {
@@ -6793,7 +6889,7 @@ type CompleteAgentIntegrationRemovalRequest struct {
 
 func (x *CompleteAgentIntegrationRemovalRequest) Reset() {
 	*x = CompleteAgentIntegrationRemovalRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[77]
+	mi := &file_host_v1_host_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6805,7 +6901,7 @@ func (x *CompleteAgentIntegrationRemovalRequest) String() string {
 func (*CompleteAgentIntegrationRemovalRequest) ProtoMessage() {}
 
 func (x *CompleteAgentIntegrationRemovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[77]
+	mi := &file_host_v1_host_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6818,7 +6914,7 @@ func (x *CompleteAgentIntegrationRemovalRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use CompleteAgentIntegrationRemovalRequest.ProtoReflect.Descriptor instead.
 func (*CompleteAgentIntegrationRemovalRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{77}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *CompleteAgentIntegrationRemovalRequest) GetRequestId() string {
@@ -6851,7 +6947,7 @@ type AgentIntegrationResponse struct {
 
 func (x *AgentIntegrationResponse) Reset() {
 	*x = AgentIntegrationResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[78]
+	mi := &file_host_v1_host_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6863,7 +6959,7 @@ func (x *AgentIntegrationResponse) String() string {
 func (*AgentIntegrationResponse) ProtoMessage() {}
 
 func (x *AgentIntegrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[78]
+	mi := &file_host_v1_host_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6876,7 +6972,7 @@ func (x *AgentIntegrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentIntegrationResponse.ProtoReflect.Descriptor instead.
 func (*AgentIntegrationResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{78}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *AgentIntegrationResponse) GetIntegration() *AgentIntegration {
@@ -6905,7 +7001,7 @@ type AgentSession struct {
 
 func (x *AgentSession) Reset() {
 	*x = AgentSession{}
-	mi := &file_host_v1_host_proto_msgTypes[79]
+	mi := &file_host_v1_host_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6917,7 +7013,7 @@ func (x *AgentSession) String() string {
 func (*AgentSession) ProtoMessage() {}
 
 func (x *AgentSession) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[79]
+	mi := &file_host_v1_host_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6930,7 +7026,7 @@ func (x *AgentSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentSession.ProtoReflect.Descriptor instead.
 func (*AgentSession) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{79}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *AgentSession) GetId() string {
@@ -7020,7 +7116,7 @@ type ListAgentSessionsRequest struct {
 
 func (x *ListAgentSessionsRequest) Reset() {
 	*x = ListAgentSessionsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[80]
+	mi := &file_host_v1_host_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7032,7 +7128,7 @@ func (x *ListAgentSessionsRequest) String() string {
 func (*ListAgentSessionsRequest) ProtoMessage() {}
 
 func (x *ListAgentSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[80]
+	mi := &file_host_v1_host_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7045,7 +7141,7 @@ func (x *ListAgentSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListAgentSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{80}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *ListAgentSessionsRequest) GetIntegrationId() string {
@@ -7071,7 +7167,7 @@ type ListAgentSessionsResponse struct {
 
 func (x *ListAgentSessionsResponse) Reset() {
 	*x = ListAgentSessionsResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[81]
+	mi := &file_host_v1_host_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7083,7 +7179,7 @@ func (x *ListAgentSessionsResponse) String() string {
 func (*ListAgentSessionsResponse) ProtoMessage() {}
 
 func (x *ListAgentSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[81]
+	mi := &file_host_v1_host_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7096,7 +7192,7 @@ func (x *ListAgentSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListAgentSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{81}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ListAgentSessionsResponse) GetSessions() []*AgentSession {
@@ -7116,7 +7212,7 @@ type RevokeAgentSessionsRequest struct {
 
 func (x *RevokeAgentSessionsRequest) Reset() {
 	*x = RevokeAgentSessionsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[82]
+	mi := &file_host_v1_host_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7128,7 +7224,7 @@ func (x *RevokeAgentSessionsRequest) String() string {
 func (*RevokeAgentSessionsRequest) ProtoMessage() {}
 
 func (x *RevokeAgentSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[82]
+	mi := &file_host_v1_host_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7141,7 +7237,7 @@ func (x *RevokeAgentSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeAgentSessionsRequest.ProtoReflect.Descriptor instead.
 func (*RevokeAgentSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{82}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *RevokeAgentSessionsRequest) GetRequestId() string {
@@ -7167,7 +7263,7 @@ type ReleaseSessionRequest struct {
 
 func (x *ReleaseSessionRequest) Reset() {
 	*x = ReleaseSessionRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[83]
+	mi := &file_host_v1_host_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7179,7 +7275,7 @@ func (x *ReleaseSessionRequest) String() string {
 func (*ReleaseSessionRequest) ProtoMessage() {}
 
 func (x *ReleaseSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[83]
+	mi := &file_host_v1_host_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7192,7 +7288,7 @@ func (x *ReleaseSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseSessionRequest.ProtoReflect.Descriptor instead.
 func (*ReleaseSessionRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{83}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *ReleaseSessionRequest) GetRequestId() string {
@@ -7210,7 +7306,7 @@ type GetOwnEnvironmentRequest struct {
 
 func (x *GetOwnEnvironmentRequest) Reset() {
 	*x = GetOwnEnvironmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[84]
+	mi := &file_host_v1_host_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7222,7 +7318,7 @@ func (x *GetOwnEnvironmentRequest) String() string {
 func (*GetOwnEnvironmentRequest) ProtoMessage() {}
 
 func (x *GetOwnEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[84]
+	mi := &file_host_v1_host_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7235,7 +7331,7 @@ func (x *GetOwnEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOwnEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*GetOwnEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{84}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{85}
 }
 
 type GetEnvironmentRequest struct {
@@ -7247,7 +7343,7 @@ type GetEnvironmentRequest struct {
 
 func (x *GetEnvironmentRequest) Reset() {
 	*x = GetEnvironmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[85]
+	mi := &file_host_v1_host_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7259,7 +7355,7 @@ func (x *GetEnvironmentRequest) String() string {
 func (*GetEnvironmentRequest) ProtoMessage() {}
 
 func (x *GetEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[85]
+	mi := &file_host_v1_host_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7272,7 +7368,7 @@ func (x *GetEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*GetEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{85}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *GetEnvironmentRequest) GetEnvironmentId() string {
@@ -7291,7 +7387,7 @@ type GetEnvironmentResponse struct {
 
 func (x *GetEnvironmentResponse) Reset() {
 	*x = GetEnvironmentResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[86]
+	mi := &file_host_v1_host_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7303,7 +7399,7 @@ func (x *GetEnvironmentResponse) String() string {
 func (*GetEnvironmentResponse) ProtoMessage() {}
 
 func (x *GetEnvironmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[86]
+	mi := &file_host_v1_host_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7316,7 +7412,7 @@ func (x *GetEnvironmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEnvironmentResponse.ProtoReflect.Descriptor instead.
 func (*GetEnvironmentResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{86}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *GetEnvironmentResponse) GetEnvironment() *AgentEnvironment {
@@ -7334,7 +7430,7 @@ type ListEnvironmentsRequest struct {
 
 func (x *ListEnvironmentsRequest) Reset() {
 	*x = ListEnvironmentsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[87]
+	mi := &file_host_v1_host_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7346,7 +7442,7 @@ func (x *ListEnvironmentsRequest) String() string {
 func (*ListEnvironmentsRequest) ProtoMessage() {}
 
 func (x *ListEnvironmentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[87]
+	mi := &file_host_v1_host_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7359,7 +7455,7 @@ func (x *ListEnvironmentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEnvironmentsRequest.ProtoReflect.Descriptor instead.
 func (*ListEnvironmentsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{87}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{88}
 }
 
 type ListEnvironmentsResponse struct {
@@ -7371,7 +7467,7 @@ type ListEnvironmentsResponse struct {
 
 func (x *ListEnvironmentsResponse) Reset() {
 	*x = ListEnvironmentsResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[88]
+	mi := &file_host_v1_host_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7383,7 +7479,7 @@ func (x *ListEnvironmentsResponse) String() string {
 func (*ListEnvironmentsResponse) ProtoMessage() {}
 
 func (x *ListEnvironmentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[88]
+	mi := &file_host_v1_host_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7396,7 +7492,7 @@ func (x *ListEnvironmentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEnvironmentsResponse.ProtoReflect.Descriptor instead.
 func (*ListEnvironmentsResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{88}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *ListEnvironmentsResponse) GetEnvironments() []*AgentEnvironment {
@@ -7417,7 +7513,7 @@ type VolumeMount struct {
 
 func (x *VolumeMount) Reset() {
 	*x = VolumeMount{}
-	mi := &file_host_v1_host_proto_msgTypes[89]
+	mi := &file_host_v1_host_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7429,7 +7525,7 @@ func (x *VolumeMount) String() string {
 func (*VolumeMount) ProtoMessage() {}
 
 func (x *VolumeMount) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[89]
+	mi := &file_host_v1_host_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7442,7 +7538,7 @@ func (x *VolumeMount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeMount.ProtoReflect.Descriptor instead.
 func (*VolumeMount) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{89}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *VolumeMount) GetVolumeId() string {
@@ -7489,7 +7585,7 @@ type Container struct {
 
 func (x *Container) Reset() {
 	*x = Container{}
-	mi := &file_host_v1_host_proto_msgTypes[90]
+	mi := &file_host_v1_host_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7501,7 +7597,7 @@ func (x *Container) String() string {
 func (*Container) ProtoMessage() {}
 
 func (x *Container) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[90]
+	mi := &file_host_v1_host_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7514,7 +7610,7 @@ func (x *Container) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Container.ProtoReflect.Descriptor instead.
 func (*Container) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{90}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *Container) GetId() string {
@@ -7631,7 +7727,7 @@ type StringList struct {
 
 func (x *StringList) Reset() {
 	*x = StringList{}
-	mi := &file_host_v1_host_proto_msgTypes[91]
+	mi := &file_host_v1_host_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7643,7 +7739,7 @@ func (x *StringList) String() string {
 func (*StringList) ProtoMessage() {}
 
 func (x *StringList) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[91]
+	mi := &file_host_v1_host_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7656,7 +7752,7 @@ func (x *StringList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StringList.ProtoReflect.Descriptor instead.
 func (*StringList) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{91}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *StringList) GetValues() []string {
@@ -7686,7 +7782,7 @@ type CreateContainerRequest struct {
 
 func (x *CreateContainerRequest) Reset() {
 	*x = CreateContainerRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[92]
+	mi := &file_host_v1_host_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7698,7 +7794,7 @@ func (x *CreateContainerRequest) String() string {
 func (*CreateContainerRequest) ProtoMessage() {}
 
 func (x *CreateContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[92]
+	mi := &file_host_v1_host_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7711,7 +7807,7 @@ func (x *CreateContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateContainerRequest.ProtoReflect.Descriptor instead.
 func (*CreateContainerRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{92}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *CreateContainerRequest) GetRequestId() string {
@@ -7807,7 +7903,7 @@ type ContainerRequest struct {
 
 func (x *ContainerRequest) Reset() {
 	*x = ContainerRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[93]
+	mi := &file_host_v1_host_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7819,7 +7915,7 @@ func (x *ContainerRequest) String() string {
 func (*ContainerRequest) ProtoMessage() {}
 
 func (x *ContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[93]
+	mi := &file_host_v1_host_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7832,7 +7928,7 @@ func (x *ContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerRequest.ProtoReflect.Descriptor instead.
 func (*ContainerRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{93}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *ContainerRequest) GetContainerId() string {
@@ -7853,7 +7949,7 @@ type ContainerMutationRequest struct {
 
 func (x *ContainerMutationRequest) Reset() {
 	*x = ContainerMutationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[94]
+	mi := &file_host_v1_host_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7865,7 +7961,7 @@ func (x *ContainerMutationRequest) String() string {
 func (*ContainerMutationRequest) ProtoMessage() {}
 
 func (x *ContainerMutationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[94]
+	mi := &file_host_v1_host_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7878,7 +7974,7 @@ func (x *ContainerMutationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerMutationRequest.ProtoReflect.Descriptor instead.
 func (*ContainerMutationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{94}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *ContainerMutationRequest) GetRequestId() string {
@@ -7913,7 +8009,7 @@ type StopContainerRequest struct {
 
 func (x *StopContainerRequest) Reset() {
 	*x = StopContainerRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[95]
+	mi := &file_host_v1_host_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7925,7 +8021,7 @@ func (x *StopContainerRequest) String() string {
 func (*StopContainerRequest) ProtoMessage() {}
 
 func (x *StopContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[95]
+	mi := &file_host_v1_host_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7938,7 +8034,7 @@ func (x *StopContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopContainerRequest.ProtoReflect.Descriptor instead.
 func (*StopContainerRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{95}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *StopContainerRequest) GetRequestId() string {
@@ -7971,7 +8067,7 @@ type ContainerResponse struct {
 
 func (x *ContainerResponse) Reset() {
 	*x = ContainerResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[96]
+	mi := &file_host_v1_host_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7983,7 +8079,7 @@ func (x *ContainerResponse) String() string {
 func (*ContainerResponse) ProtoMessage() {}
 
 func (x *ContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[96]
+	mi := &file_host_v1_host_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7996,7 +8092,7 @@ func (x *ContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerResponse.ProtoReflect.Descriptor instead.
 func (*ContainerResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{96}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *ContainerResponse) GetContainer() *Container {
@@ -8015,7 +8111,7 @@ type WaitContainerResponse struct {
 
 func (x *WaitContainerResponse) Reset() {
 	*x = WaitContainerResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[97]
+	mi := &file_host_v1_host_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8027,7 +8123,7 @@ func (x *WaitContainerResponse) String() string {
 func (*WaitContainerResponse) ProtoMessage() {}
 
 func (x *WaitContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[97]
+	mi := &file_host_v1_host_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8040,7 +8136,7 @@ func (x *WaitContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitContainerResponse.ProtoReflect.Descriptor instead.
 func (*WaitContainerResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{97}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *WaitContainerResponse) GetExitCode() uint32 {
@@ -8058,7 +8154,7 @@ type ListContainersRequest struct {
 
 func (x *ListContainersRequest) Reset() {
 	*x = ListContainersRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[98]
+	mi := &file_host_v1_host_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8070,7 +8166,7 @@ func (x *ListContainersRequest) String() string {
 func (*ListContainersRequest) ProtoMessage() {}
 
 func (x *ListContainersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[98]
+	mi := &file_host_v1_host_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8083,7 +8179,7 @@ func (x *ListContainersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContainersRequest.ProtoReflect.Descriptor instead.
 func (*ListContainersRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{98}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{99}
 }
 
 type ListContainersResponse struct {
@@ -8095,7 +8191,7 @@ type ListContainersResponse struct {
 
 func (x *ListContainersResponse) Reset() {
 	*x = ListContainersResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[99]
+	mi := &file_host_v1_host_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8107,7 +8203,7 @@ func (x *ListContainersResponse) String() string {
 func (*ListContainersResponse) ProtoMessage() {}
 
 func (x *ListContainersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[99]
+	mi := &file_host_v1_host_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8120,7 +8216,7 @@ func (x *ListContainersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContainersResponse.ProtoReflect.Descriptor instead.
 func (*ListContainersResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{99}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *ListContainersResponse) GetContainers() []*Container {
@@ -8140,7 +8236,7 @@ type PullImageRequest struct {
 
 func (x *PullImageRequest) Reset() {
 	*x = PullImageRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[100]
+	mi := &file_host_v1_host_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8152,7 +8248,7 @@ func (x *PullImageRequest) String() string {
 func (*PullImageRequest) ProtoMessage() {}
 
 func (x *PullImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[100]
+	mi := &file_host_v1_host_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8165,7 +8261,7 @@ func (x *PullImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullImageRequest.ProtoReflect.Descriptor instead.
 func (*PullImageRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{100}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *PullImageRequest) GetRequestId() string {
@@ -8194,7 +8290,7 @@ type PullImageResponse struct {
 
 func (x *PullImageResponse) Reset() {
 	*x = PullImageResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[101]
+	mi := &file_host_v1_host_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8206,7 +8302,7 @@ func (x *PullImageResponse) String() string {
 func (*PullImageResponse) ProtoMessage() {}
 
 func (x *PullImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[101]
+	mi := &file_host_v1_host_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8219,7 +8315,7 @@ func (x *PullImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullImageResponse.ProtoReflect.Descriptor instead.
 func (*PullImageResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{101}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *PullImageResponse) GetStatus() string {
@@ -8265,7 +8361,7 @@ type ImportImageHeader struct {
 
 func (x *ImportImageHeader) Reset() {
 	*x = ImportImageHeader{}
-	mi := &file_host_v1_host_proto_msgTypes[102]
+	mi := &file_host_v1_host_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8277,7 +8373,7 @@ func (x *ImportImageHeader) String() string {
 func (*ImportImageHeader) ProtoMessage() {}
 
 func (x *ImportImageHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[102]
+	mi := &file_host_v1_host_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8290,7 +8386,7 @@ func (x *ImportImageHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportImageHeader.ProtoReflect.Descriptor instead.
 func (*ImportImageHeader) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{102}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *ImportImageHeader) GetRequestId() string {
@@ -8355,7 +8451,7 @@ type ImportImageRequest struct {
 
 func (x *ImportImageRequest) Reset() {
 	*x = ImportImageRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[103]
+	mi := &file_host_v1_host_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8367,7 +8463,7 @@ func (x *ImportImageRequest) String() string {
 func (*ImportImageRequest) ProtoMessage() {}
 
 func (x *ImportImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[103]
+	mi := &file_host_v1_host_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8380,7 +8476,7 @@ func (x *ImportImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportImageRequest.ProtoReflect.Descriptor instead.
 func (*ImportImageRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{103}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *ImportImageRequest) GetPayload() isImportImageRequest_Payload {
@@ -8438,7 +8534,7 @@ type Image struct {
 
 func (x *Image) Reset() {
 	*x = Image{}
-	mi := &file_host_v1_host_proto_msgTypes[104]
+	mi := &file_host_v1_host_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8450,7 +8546,7 @@ func (x *Image) String() string {
 func (*Image) ProtoMessage() {}
 
 func (x *Image) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[104]
+	mi := &file_host_v1_host_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8463,7 +8559,7 @@ func (x *Image) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Image.ProtoReflect.Descriptor instead.
 func (*Image) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{104}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *Image) GetReference() string {
@@ -8516,7 +8612,7 @@ type ListImagesRequest struct {
 
 func (x *ListImagesRequest) Reset() {
 	*x = ListImagesRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[105]
+	mi := &file_host_v1_host_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8528,7 +8624,7 @@ func (x *ListImagesRequest) String() string {
 func (*ListImagesRequest) ProtoMessage() {}
 
 func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[105]
+	mi := &file_host_v1_host_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8541,7 +8637,7 @@ func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesRequest.ProtoReflect.Descriptor instead.
 func (*ListImagesRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{105}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{106}
 }
 
 type ListEnvironmentImagesRequest struct {
@@ -8553,7 +8649,7 @@ type ListEnvironmentImagesRequest struct {
 
 func (x *ListEnvironmentImagesRequest) Reset() {
 	*x = ListEnvironmentImagesRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[106]
+	mi := &file_host_v1_host_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8565,7 +8661,7 @@ func (x *ListEnvironmentImagesRequest) String() string {
 func (*ListEnvironmentImagesRequest) ProtoMessage() {}
 
 func (x *ListEnvironmentImagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[106]
+	mi := &file_host_v1_host_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8578,7 +8674,7 @@ func (x *ListEnvironmentImagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEnvironmentImagesRequest.ProtoReflect.Descriptor instead.
 func (*ListEnvironmentImagesRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{106}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ListEnvironmentImagesRequest) GetEnvironmentId() string {
@@ -8597,7 +8693,7 @@ type ListImagesResponse struct {
 
 func (x *ListImagesResponse) Reset() {
 	*x = ListImagesResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[107]
+	mi := &file_host_v1_host_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8609,7 +8705,7 @@ func (x *ListImagesResponse) String() string {
 func (*ListImagesResponse) ProtoMessage() {}
 
 func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[107]
+	mi := &file_host_v1_host_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8622,7 +8718,7 @@ func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesResponse.ProtoReflect.Descriptor instead.
 func (*ListImagesResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{107}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *ListImagesResponse) GetImages() []*Image {
@@ -8644,7 +8740,7 @@ type DeleteImageRequest struct {
 
 func (x *DeleteImageRequest) Reset() {
 	*x = DeleteImageRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[108]
+	mi := &file_host_v1_host_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8656,7 +8752,7 @@ func (x *DeleteImageRequest) String() string {
 func (*DeleteImageRequest) ProtoMessage() {}
 
 func (x *DeleteImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[108]
+	mi := &file_host_v1_host_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8669,7 +8765,7 @@ func (x *DeleteImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteImageRequest.ProtoReflect.Descriptor instead.
 func (*DeleteImageRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{108}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *DeleteImageRequest) GetRequestId() string {
@@ -8713,7 +8809,7 @@ type DeleteEnvironmentImageRequest struct {
 
 func (x *DeleteEnvironmentImageRequest) Reset() {
 	*x = DeleteEnvironmentImageRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[109]
+	mi := &file_host_v1_host_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8725,7 +8821,7 @@ func (x *DeleteEnvironmentImageRequest) String() string {
 func (*DeleteEnvironmentImageRequest) ProtoMessage() {}
 
 func (x *DeleteEnvironmentImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[109]
+	mi := &file_host_v1_host_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8738,7 +8834,7 @@ func (x *DeleteEnvironmentImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteEnvironmentImageRequest.ProtoReflect.Descriptor instead.
 func (*DeleteEnvironmentImageRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{109}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *DeleteEnvironmentImageRequest) GetRequestId() string {
@@ -8789,7 +8885,7 @@ type LogsRequest struct {
 
 func (x *LogsRequest) Reset() {
 	*x = LogsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[110]
+	mi := &file_host_v1_host_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8801,7 +8897,7 @@ func (x *LogsRequest) String() string {
 func (*LogsRequest) ProtoMessage() {}
 
 func (x *LogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[110]
+	mi := &file_host_v1_host_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8814,7 +8910,7 @@ func (x *LogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsRequest.ProtoReflect.Descriptor instead.
 func (*LogsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{110}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *LogsRequest) GetContainerId() string {
@@ -8862,7 +8958,7 @@ type OperatorLogsRequest struct {
 
 func (x *OperatorLogsRequest) Reset() {
 	*x = OperatorLogsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[111]
+	mi := &file_host_v1_host_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8874,7 +8970,7 @@ func (x *OperatorLogsRequest) String() string {
 func (*OperatorLogsRequest) ProtoMessage() {}
 
 func (x *OperatorLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[111]
+	mi := &file_host_v1_host_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8887,7 +8983,7 @@ func (x *OperatorLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatorLogsRequest.ProtoReflect.Descriptor instead.
 func (*OperatorLogsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{111}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *OperatorLogsRequest) GetEnvironmentId() string {
@@ -8918,7 +9014,7 @@ type LogRecord struct {
 
 func (x *LogRecord) Reset() {
 	*x = LogRecord{}
-	mi := &file_host_v1_host_proto_msgTypes[112]
+	mi := &file_host_v1_host_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8930,7 +9026,7 @@ func (x *LogRecord) String() string {
 func (*LogRecord) ProtoMessage() {}
 
 func (x *LogRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[112]
+	mi := &file_host_v1_host_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8943,7 +9039,7 @@ func (x *LogRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogRecord.ProtoReflect.Descriptor instead.
 func (*LogRecord) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{112}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *LogRecord) GetCursor() string {
@@ -8999,7 +9095,7 @@ type SignalContainerRequest struct {
 
 func (x *SignalContainerRequest) Reset() {
 	*x = SignalContainerRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[113]
+	mi := &file_host_v1_host_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9011,7 +9107,7 @@ func (x *SignalContainerRequest) String() string {
 func (*SignalContainerRequest) ProtoMessage() {}
 
 func (x *SignalContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[113]
+	mi := &file_host_v1_host_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9024,7 +9120,7 @@ func (x *SignalContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalContainerRequest.ProtoReflect.Descriptor instead.
 func (*SignalContainerRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{113}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *SignalContainerRequest) GetRequestId() string {
@@ -9065,7 +9161,7 @@ type ExecStart struct {
 
 func (x *ExecStart) Reset() {
 	*x = ExecStart{}
-	mi := &file_host_v1_host_proto_msgTypes[114]
+	mi := &file_host_v1_host_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9077,7 +9173,7 @@ func (x *ExecStart) String() string {
 func (*ExecStart) ProtoMessage() {}
 
 func (x *ExecStart) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[114]
+	mi := &file_host_v1_host_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9090,7 +9186,7 @@ func (x *ExecStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecStart.ProtoReflect.Descriptor instead.
 func (*ExecStart) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{114}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *ExecStart) GetRequestId() string {
@@ -9166,7 +9262,7 @@ type ExecResize struct {
 
 func (x *ExecResize) Reset() {
 	*x = ExecResize{}
-	mi := &file_host_v1_host_proto_msgTypes[115]
+	mi := &file_host_v1_host_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9178,7 +9274,7 @@ func (x *ExecResize) String() string {
 func (*ExecResize) ProtoMessage() {}
 
 func (x *ExecResize) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[115]
+	mi := &file_host_v1_host_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9191,7 +9287,7 @@ func (x *ExecResize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResize.ProtoReflect.Descriptor instead.
 func (*ExecResize) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{115}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *ExecResize) GetRows() uint32 {
@@ -9224,7 +9320,7 @@ type ExecRequest struct {
 
 func (x *ExecRequest) Reset() {
 	*x = ExecRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[116]
+	mi := &file_host_v1_host_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9236,7 +9332,7 @@ func (x *ExecRequest) String() string {
 func (*ExecRequest) ProtoMessage() {}
 
 func (x *ExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[116]
+	mi := &file_host_v1_host_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9249,7 +9345,7 @@ func (x *ExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecRequest.ProtoReflect.Descriptor instead.
 func (*ExecRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{116}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *ExecRequest) GetEvent() isExecRequest_Event {
@@ -9352,7 +9448,7 @@ type ExecResponse struct {
 
 func (x *ExecResponse) Reset() {
 	*x = ExecResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[117]
+	mi := &file_host_v1_host_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9364,7 +9460,7 @@ func (x *ExecResponse) String() string {
 func (*ExecResponse) ProtoMessage() {}
 
 func (x *ExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[117]
+	mi := &file_host_v1_host_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9377,7 +9473,7 @@ func (x *ExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResponse.ProtoReflect.Descriptor instead.
 func (*ExecResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{117}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *ExecResponse) GetEvent() isExecResponse_Event {
@@ -9448,7 +9544,7 @@ type Volume struct {
 
 func (x *Volume) Reset() {
 	*x = Volume{}
-	mi := &file_host_v1_host_proto_msgTypes[118]
+	mi := &file_host_v1_host_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9460,7 +9556,7 @@ func (x *Volume) String() string {
 func (*Volume) ProtoMessage() {}
 
 func (x *Volume) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[118]
+	mi := &file_host_v1_host_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9473,7 +9569,7 @@ func (x *Volume) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Volume.ProtoReflect.Descriptor instead.
 func (*Volume) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{118}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *Volume) GetId() string {
@@ -9517,7 +9613,7 @@ type CreateVolumeRequest struct {
 
 func (x *CreateVolumeRequest) Reset() {
 	*x = CreateVolumeRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[119]
+	mi := &file_host_v1_host_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9529,7 +9625,7 @@ func (x *CreateVolumeRequest) String() string {
 func (*CreateVolumeRequest) ProtoMessage() {}
 
 func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[119]
+	mi := &file_host_v1_host_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9542,7 +9638,7 @@ func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVolumeRequest.ProtoReflect.Descriptor instead.
 func (*CreateVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{119}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *CreateVolumeRequest) GetRequestId() string {
@@ -9590,7 +9686,7 @@ type DeleteVolumeRequest struct {
 
 func (x *DeleteVolumeRequest) Reset() {
 	*x = DeleteVolumeRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[120]
+	mi := &file_host_v1_host_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9602,7 +9698,7 @@ func (x *DeleteVolumeRequest) String() string {
 func (*DeleteVolumeRequest) ProtoMessage() {}
 
 func (x *DeleteVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[120]
+	mi := &file_host_v1_host_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9615,7 +9711,7 @@ func (x *DeleteVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteVolumeRequest.ProtoReflect.Descriptor instead.
 func (*DeleteVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{120}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *DeleteVolumeRequest) GetRequestId() string {
@@ -9641,7 +9737,7 @@ type VolumeRequest struct {
 
 func (x *VolumeRequest) Reset() {
 	*x = VolumeRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[121]
+	mi := &file_host_v1_host_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9653,7 +9749,7 @@ func (x *VolumeRequest) String() string {
 func (*VolumeRequest) ProtoMessage() {}
 
 func (x *VolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[121]
+	mi := &file_host_v1_host_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9666,7 +9762,7 @@ func (x *VolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeRequest.ProtoReflect.Descriptor instead.
 func (*VolumeRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{121}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *VolumeRequest) GetVolumeId() string {
@@ -9685,7 +9781,7 @@ type VolumeResponse struct {
 
 func (x *VolumeResponse) Reset() {
 	*x = VolumeResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[122]
+	mi := &file_host_v1_host_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9697,7 +9793,7 @@ func (x *VolumeResponse) String() string {
 func (*VolumeResponse) ProtoMessage() {}
 
 func (x *VolumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[122]
+	mi := &file_host_v1_host_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9710,7 +9806,7 @@ func (x *VolumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeResponse.ProtoReflect.Descriptor instead.
 func (*VolumeResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{122}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{123}
 }
 
 func (x *VolumeResponse) GetVolume() *Volume {
@@ -9728,7 +9824,7 @@ type ListVolumesRequest struct {
 
 func (x *ListVolumesRequest) Reset() {
 	*x = ListVolumesRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[123]
+	mi := &file_host_v1_host_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9740,7 +9836,7 @@ func (x *ListVolumesRequest) String() string {
 func (*ListVolumesRequest) ProtoMessage() {}
 
 func (x *ListVolumesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[123]
+	mi := &file_host_v1_host_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9753,7 +9849,7 @@ func (x *ListVolumesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListVolumesRequest.ProtoReflect.Descriptor instead.
 func (*ListVolumesRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{123}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{124}
 }
 
 type ListVolumesResponse struct {
@@ -9765,7 +9861,7 @@ type ListVolumesResponse struct {
 
 func (x *ListVolumesResponse) Reset() {
 	*x = ListVolumesResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[124]
+	mi := &file_host_v1_host_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9777,7 +9873,7 @@ func (x *ListVolumesResponse) String() string {
 func (*ListVolumesResponse) ProtoMessage() {}
 
 func (x *ListVolumesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[124]
+	mi := &file_host_v1_host_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9790,7 +9886,7 @@ func (x *ListVolumesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListVolumesResponse.ProtoReflect.Descriptor instead.
 func (*ListVolumesResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{124}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *ListVolumesResponse) GetVolumes() []*Volume {
@@ -9811,7 +9907,7 @@ type ForwardTCPHeader struct {
 
 func (x *ForwardTCPHeader) Reset() {
 	*x = ForwardTCPHeader{}
-	mi := &file_host_v1_host_proto_msgTypes[125]
+	mi := &file_host_v1_host_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9823,7 +9919,7 @@ func (x *ForwardTCPHeader) String() string {
 func (*ForwardTCPHeader) ProtoMessage() {}
 
 func (x *ForwardTCPHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[125]
+	mi := &file_host_v1_host_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9836,7 +9932,7 @@ func (x *ForwardTCPHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardTCPHeader.ProtoReflect.Descriptor instead.
 func (*ForwardTCPHeader) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{125}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{126}
 }
 
 func (x *ForwardTCPHeader) GetContainerId() string {
@@ -9874,7 +9970,7 @@ type ForwardTCPRequest struct {
 
 func (x *ForwardTCPRequest) Reset() {
 	*x = ForwardTCPRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[126]
+	mi := &file_host_v1_host_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9886,7 +9982,7 @@ func (x *ForwardTCPRequest) String() string {
 func (*ForwardTCPRequest) ProtoMessage() {}
 
 func (x *ForwardTCPRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[126]
+	mi := &file_host_v1_host_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9899,7 +9995,7 @@ func (x *ForwardTCPRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardTCPRequest.ProtoReflect.Descriptor instead.
 func (*ForwardTCPRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{126}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *ForwardTCPRequest) GetEvent() isForwardTCPRequest_Event {
@@ -9971,7 +10067,7 @@ type ForwardTCPResponse struct {
 
 func (x *ForwardTCPResponse) Reset() {
 	*x = ForwardTCPResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[127]
+	mi := &file_host_v1_host_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9983,7 +10079,7 @@ func (x *ForwardTCPResponse) String() string {
 func (*ForwardTCPResponse) ProtoMessage() {}
 
 func (x *ForwardTCPResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[127]
+	mi := &file_host_v1_host_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9996,7 +10092,7 @@ func (x *ForwardTCPResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardTCPResponse.ProtoReflect.Descriptor instead.
 func (*ForwardTCPResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{127}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *ForwardTCPResponse) GetEvent() isForwardTCPResponse_Event {
@@ -10050,7 +10146,7 @@ type BuildArgument struct {
 
 func (x *BuildArgument) Reset() {
 	*x = BuildArgument{}
-	mi := &file_host_v1_host_proto_msgTypes[128]
+	mi := &file_host_v1_host_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10062,7 +10158,7 @@ func (x *BuildArgument) String() string {
 func (*BuildArgument) ProtoMessage() {}
 
 func (x *BuildArgument) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[128]
+	mi := &file_host_v1_host_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10075,7 +10171,7 @@ func (x *BuildArgument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildArgument.ProtoReflect.Descriptor instead.
 func (*BuildArgument) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{128}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *BuildArgument) GetName() string {
@@ -10101,7 +10197,7 @@ type BuildSecret struct {
 
 func (x *BuildSecret) Reset() {
 	*x = BuildSecret{}
-	mi := &file_host_v1_host_proto_msgTypes[129]
+	mi := &file_host_v1_host_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10113,7 +10209,7 @@ func (x *BuildSecret) String() string {
 func (*BuildSecret) ProtoMessage() {}
 
 func (x *BuildSecret) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[129]
+	mi := &file_host_v1_host_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10126,7 +10222,7 @@ func (x *BuildSecret) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildSecret.ProtoReflect.Descriptor instead.
 func (*BuildSecret) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{129}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *BuildSecret) GetId() string {
@@ -10151,7 +10247,7 @@ type BuildImageHeader struct {
 
 func (x *BuildImageHeader) Reset() {
 	*x = BuildImageHeader{}
-	mi := &file_host_v1_host_proto_msgTypes[130]
+	mi := &file_host_v1_host_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10163,7 +10259,7 @@ func (x *BuildImageHeader) String() string {
 func (*BuildImageHeader) ProtoMessage() {}
 
 func (x *BuildImageHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[130]
+	mi := &file_host_v1_host_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10176,7 +10272,7 @@ func (x *BuildImageHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageHeader.ProtoReflect.Descriptor instead.
 func (*BuildImageHeader) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{130}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *BuildImageHeader) GetRequestId() string {
@@ -10238,7 +10334,7 @@ type BuildContextChunk struct {
 
 func (x *BuildContextChunk) Reset() {
 	*x = BuildContextChunk{}
-	mi := &file_host_v1_host_proto_msgTypes[131]
+	mi := &file_host_v1_host_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10250,7 +10346,7 @@ func (x *BuildContextChunk) String() string {
 func (*BuildContextChunk) ProtoMessage() {}
 
 func (x *BuildContextChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[131]
+	mi := &file_host_v1_host_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10263,7 +10359,7 @@ func (x *BuildContextChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildContextChunk.ProtoReflect.Descriptor instead.
 func (*BuildContextChunk) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{131}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{132}
 }
 
 func (x *BuildContextChunk) GetData() []byte {
@@ -10291,7 +10387,7 @@ type BuildSecretChunk struct {
 
 func (x *BuildSecretChunk) Reset() {
 	*x = BuildSecretChunk{}
-	mi := &file_host_v1_host_proto_msgTypes[132]
+	mi := &file_host_v1_host_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10303,7 +10399,7 @@ func (x *BuildSecretChunk) String() string {
 func (*BuildSecretChunk) ProtoMessage() {}
 
 func (x *BuildSecretChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[132]
+	mi := &file_host_v1_host_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10316,7 +10412,7 @@ func (x *BuildSecretChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildSecretChunk.ProtoReflect.Descriptor instead.
 func (*BuildSecretChunk) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{132}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *BuildSecretChunk) GetId() string {
@@ -10354,7 +10450,7 @@ type BuildImageRequest struct {
 
 func (x *BuildImageRequest) Reset() {
 	*x = BuildImageRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[133]
+	mi := &file_host_v1_host_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10366,7 +10462,7 @@ func (x *BuildImageRequest) String() string {
 func (*BuildImageRequest) ProtoMessage() {}
 
 func (x *BuildImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[133]
+	mi := &file_host_v1_host_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10379,7 +10475,7 @@ func (x *BuildImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageRequest.ProtoReflect.Descriptor instead.
 func (*BuildImageRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{133}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *BuildImageRequest) GetEvent() isBuildImageRequest_Event {
@@ -10448,7 +10544,7 @@ type BuildImageResult struct {
 
 func (x *BuildImageResult) Reset() {
 	*x = BuildImageResult{}
-	mi := &file_host_v1_host_proto_msgTypes[134]
+	mi := &file_host_v1_host_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10460,7 +10556,7 @@ func (x *BuildImageResult) String() string {
 func (*BuildImageResult) ProtoMessage() {}
 
 func (x *BuildImageResult) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[134]
+	mi := &file_host_v1_host_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10473,7 +10569,7 @@ func (x *BuildImageResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageResult.ProtoReflect.Descriptor instead.
 func (*BuildImageResult) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{134}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *BuildImageResult) GetImage() string {
@@ -10503,7 +10599,7 @@ type BuildImageResponse struct {
 
 func (x *BuildImageResponse) Reset() {
 	*x = BuildImageResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[135]
+	mi := &file_host_v1_host_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10515,7 +10611,7 @@ func (x *BuildImageResponse) String() string {
 func (*BuildImageResponse) ProtoMessage() {}
 
 func (x *BuildImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[135]
+	mi := &file_host_v1_host_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10528,7 +10624,7 @@ func (x *BuildImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageResponse.ProtoReflect.Descriptor instead.
 func (*BuildImageResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{135}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *BuildImageResponse) GetEvent() isBuildImageResponse_Event {
@@ -10584,7 +10680,7 @@ type ComponentHealth struct {
 
 func (x *ComponentHealth) Reset() {
 	*x = ComponentHealth{}
-	mi := &file_host_v1_host_proto_msgTypes[136]
+	mi := &file_host_v1_host_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10596,7 +10692,7 @@ func (x *ComponentHealth) String() string {
 func (*ComponentHealth) ProtoMessage() {}
 
 func (x *ComponentHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[136]
+	mi := &file_host_v1_host_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10609,7 +10705,7 @@ func (x *ComponentHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComponentHealth.ProtoReflect.Descriptor instead.
 func (*ComponentHealth) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{136}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *ComponentHealth) GetComponent() string {
@@ -10650,7 +10746,7 @@ type HealthStatus struct {
 
 func (x *HealthStatus) Reset() {
 	*x = HealthStatus{}
-	mi := &file_host_v1_host_proto_msgTypes[137]
+	mi := &file_host_v1_host_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10662,7 +10758,7 @@ func (x *HealthStatus) String() string {
 func (*HealthStatus) ProtoMessage() {}
 
 func (x *HealthStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[137]
+	mi := &file_host_v1_host_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10675,7 +10771,7 @@ func (x *HealthStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthStatus.ProtoReflect.Descriptor instead.
 func (*HealthStatus) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{137}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{138}
 }
 
 func (x *HealthStatus) GetState() HealthState {
@@ -10711,7 +10807,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_host_v1_host_proto_msgTypes[138]
+	mi := &file_host_v1_host_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10723,7 +10819,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[138]
+	mi := &file_host_v1_host_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10736,7 +10832,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{138}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *Usage) GetCpuNanos() uint64 {
@@ -10824,7 +10920,7 @@ type GetSystemSnapshotRequest struct {
 
 func (x *GetSystemSnapshotRequest) Reset() {
 	*x = GetSystemSnapshotRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[139]
+	mi := &file_host_v1_host_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10836,7 +10932,7 @@ func (x *GetSystemSnapshotRequest) String() string {
 func (*GetSystemSnapshotRequest) ProtoMessage() {}
 
 func (x *GetSystemSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[139]
+	mi := &file_host_v1_host_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10849,7 +10945,7 @@ func (x *GetSystemSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSystemSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*GetSystemSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{139}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{140}
 }
 
 type GetSystemSnapshotResponse struct {
@@ -10866,7 +10962,7 @@ type GetSystemSnapshotResponse struct {
 
 func (x *GetSystemSnapshotResponse) Reset() {
 	*x = GetSystemSnapshotResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[140]
+	mi := &file_host_v1_host_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10878,7 +10974,7 @@ func (x *GetSystemSnapshotResponse) String() string {
 func (*GetSystemSnapshotResponse) ProtoMessage() {}
 
 func (x *GetSystemSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[140]
+	mi := &file_host_v1_host_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10891,7 +10987,7 @@ func (x *GetSystemSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSystemSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*GetSystemSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{140}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *GetSystemSnapshotResponse) GetVm() *VM {
@@ -10945,7 +11041,7 @@ type WatchEventsRequest struct {
 
 func (x *WatchEventsRequest) Reset() {
 	*x = WatchEventsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[141]
+	mi := &file_host_v1_host_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10957,7 +11053,7 @@ func (x *WatchEventsRequest) String() string {
 func (*WatchEventsRequest) ProtoMessage() {}
 
 func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[141]
+	mi := &file_host_v1_host_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10970,7 +11066,7 @@ func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{141}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{142}
 }
 
 func (x *WatchEventsRequest) GetAfterSequence() uint64 {
@@ -10991,7 +11087,7 @@ type ResourceReference struct {
 
 func (x *ResourceReference) Reset() {
 	*x = ResourceReference{}
-	mi := &file_host_v1_host_proto_msgTypes[142]
+	mi := &file_host_v1_host_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11003,7 +11099,7 @@ func (x *ResourceReference) String() string {
 func (*ResourceReference) ProtoMessage() {}
 
 func (x *ResourceReference) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[142]
+	mi := &file_host_v1_host_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11016,7 +11112,7 @@ func (x *ResourceReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceReference.ProtoReflect.Descriptor instead.
 func (*ResourceReference) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{142}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *ResourceReference) GetKind() string {
@@ -11055,7 +11151,7 @@ type RuntimeEvent struct {
 
 func (x *RuntimeEvent) Reset() {
 	*x = RuntimeEvent{}
-	mi := &file_host_v1_host_proto_msgTypes[143]
+	mi := &file_host_v1_host_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11067,7 +11163,7 @@ func (x *RuntimeEvent) String() string {
 func (*RuntimeEvent) ProtoMessage() {}
 
 func (x *RuntimeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[143]
+	mi := &file_host_v1_host_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11080,7 +11176,7 @@ func (x *RuntimeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeEvent.ProtoReflect.Descriptor instead.
 func (*RuntimeEvent) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{143}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *RuntimeEvent) GetSequence() uint64 {
@@ -11142,7 +11238,7 @@ type WatchMetricsRequest struct {
 
 func (x *WatchMetricsRequest) Reset() {
 	*x = WatchMetricsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[144]
+	mi := &file_host_v1_host_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11154,7 +11250,7 @@ func (x *WatchMetricsRequest) String() string {
 func (*WatchMetricsRequest) ProtoMessage() {}
 
 func (x *WatchMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[144]
+	mi := &file_host_v1_host_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11167,7 +11263,7 @@ func (x *WatchMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchMetricsRequest.ProtoReflect.Descriptor instead.
 func (*WatchMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{144}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *WatchMetricsRequest) GetScope() *ResourceReference {
@@ -11194,7 +11290,7 @@ type MetricsSample struct {
 
 func (x *MetricsSample) Reset() {
 	*x = MetricsSample{}
-	mi := &file_host_v1_host_proto_msgTypes[145]
+	mi := &file_host_v1_host_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11206,7 +11302,7 @@ func (x *MetricsSample) String() string {
 func (*MetricsSample) ProtoMessage() {}
 
 func (x *MetricsSample) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[145]
+	mi := &file_host_v1_host_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11219,7 +11315,7 @@ func (x *MetricsSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsSample.ProtoReflect.Descriptor instead.
 func (*MetricsSample) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{145}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *MetricsSample) GetScope() *ResourceReference {
@@ -11249,7 +11345,7 @@ type UpdateEnvironmentPolicyRequest struct {
 
 func (x *UpdateEnvironmentPolicyRequest) Reset() {
 	*x = UpdateEnvironmentPolicyRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[146]
+	mi := &file_host_v1_host_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11261,7 +11357,7 @@ func (x *UpdateEnvironmentPolicyRequest) String() string {
 func (*UpdateEnvironmentPolicyRequest) ProtoMessage() {}
 
 func (x *UpdateEnvironmentPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[146]
+	mi := &file_host_v1_host_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11274,7 +11370,7 @@ func (x *UpdateEnvironmentPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateEnvironmentPolicyRequest.ProtoReflect.Descriptor instead.
 func (*UpdateEnvironmentPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{146}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *UpdateEnvironmentPolicyRequest) GetRequestId() string {
@@ -11323,7 +11419,7 @@ type OperatorContainerMutationRequest struct {
 
 func (x *OperatorContainerMutationRequest) Reset() {
 	*x = OperatorContainerMutationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[147]
+	mi := &file_host_v1_host_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11335,7 +11431,7 @@ func (x *OperatorContainerMutationRequest) String() string {
 func (*OperatorContainerMutationRequest) ProtoMessage() {}
 
 func (x *OperatorContainerMutationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[147]
+	mi := &file_host_v1_host_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11348,7 +11444,7 @@ func (x *OperatorContainerMutationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatorContainerMutationRequest.ProtoReflect.Descriptor instead.
 func (*OperatorContainerMutationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{147}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *OperatorContainerMutationRequest) GetRequestId() string {
@@ -11384,7 +11480,7 @@ type OperatorStopContainerRequest struct {
 
 func (x *OperatorStopContainerRequest) Reset() {
 	*x = OperatorStopContainerRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[148]
+	mi := &file_host_v1_host_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11396,7 +11492,7 @@ func (x *OperatorStopContainerRequest) String() string {
 func (*OperatorStopContainerRequest) ProtoMessage() {}
 
 func (x *OperatorStopContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[148]
+	mi := &file_host_v1_host_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11409,7 +11505,7 @@ func (x *OperatorStopContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatorStopContainerRequest.ProtoReflect.Descriptor instead.
 func (*OperatorStopContainerRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{148}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{149}
 }
 
 func (x *OperatorStopContainerRequest) GetRequestId() string {
@@ -11452,7 +11548,7 @@ type OperatorSignalContainerRequest struct {
 
 func (x *OperatorSignalContainerRequest) Reset() {
 	*x = OperatorSignalContainerRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[149]
+	mi := &file_host_v1_host_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11464,7 +11560,7 @@ func (x *OperatorSignalContainerRequest) String() string {
 func (*OperatorSignalContainerRequest) ProtoMessage() {}
 
 func (x *OperatorSignalContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[149]
+	mi := &file_host_v1_host_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11477,7 +11573,7 @@ func (x *OperatorSignalContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatorSignalContainerRequest.ProtoReflect.Descriptor instead.
 func (*OperatorSignalContainerRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{149}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{150}
 }
 
 func (x *OperatorSignalContainerRequest) GetRequestId() string {
@@ -11520,7 +11616,7 @@ type OperatorDeleteContainerRequest struct {
 
 func (x *OperatorDeleteContainerRequest) Reset() {
 	*x = OperatorDeleteContainerRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[150]
+	mi := &file_host_v1_host_proto_msgTypes[151]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11532,7 +11628,7 @@ func (x *OperatorDeleteContainerRequest) String() string {
 func (*OperatorDeleteContainerRequest) ProtoMessage() {}
 
 func (x *OperatorDeleteContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[150]
+	mi := &file_host_v1_host_proto_msgTypes[151]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11545,7 +11641,7 @@ func (x *OperatorDeleteContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatorDeleteContainerRequest.ProtoReflect.Descriptor instead.
 func (*OperatorDeleteContainerRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{150}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *OperatorDeleteContainerRequest) GetRequestId() string {
@@ -11585,7 +11681,7 @@ type ContainerIDList struct {
 
 func (x *ContainerIDList) Reset() {
 	*x = ContainerIDList{}
-	mi := &file_host_v1_host_proto_msgTypes[151]
+	mi := &file_host_v1_host_proto_msgTypes[152]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11597,7 +11693,7 @@ func (x *ContainerIDList) String() string {
 func (*ContainerIDList) ProtoMessage() {}
 
 func (x *ContainerIDList) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[151]
+	mi := &file_host_v1_host_proto_msgTypes[152]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11610,7 +11706,7 @@ func (x *ContainerIDList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerIDList.ProtoReflect.Descriptor instead.
 func (*ContainerIDList) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{151}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{152}
 }
 
 func (x *ContainerIDList) GetIds() []string {
@@ -11633,7 +11729,7 @@ type ContainerSelector struct {
 
 func (x *ContainerSelector) Reset() {
 	*x = ContainerSelector{}
-	mi := &file_host_v1_host_proto_msgTypes[152]
+	mi := &file_host_v1_host_proto_msgTypes[153]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11645,7 +11741,7 @@ func (x *ContainerSelector) String() string {
 func (*ContainerSelector) ProtoMessage() {}
 
 func (x *ContainerSelector) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[152]
+	mi := &file_host_v1_host_proto_msgTypes[153]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11658,7 +11754,7 @@ func (x *ContainerSelector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerSelector.ProtoReflect.Descriptor instead.
 func (*ContainerSelector) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{152}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{153}
 }
 
 func (x *ContainerSelector) GetSelection() isContainerSelector_Selection {
@@ -11717,7 +11813,7 @@ type NetworkLink struct {
 
 func (x *NetworkLink) Reset() {
 	*x = NetworkLink{}
-	mi := &file_host_v1_host_proto_msgTypes[153]
+	mi := &file_host_v1_host_proto_msgTypes[154]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11729,7 +11825,7 @@ func (x *NetworkLink) String() string {
 func (*NetworkLink) ProtoMessage() {}
 
 func (x *NetworkLink) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[153]
+	mi := &file_host_v1_host_proto_msgTypes[154]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11742,7 +11838,7 @@ func (x *NetworkLink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkLink.ProtoReflect.Descriptor instead.
 func (*NetworkLink) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{153}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{154}
 }
 
 func (x *NetworkLink) GetId() string {
@@ -11804,7 +11900,7 @@ type ApplyNetworkLinkRequest struct {
 
 func (x *ApplyNetworkLinkRequest) Reset() {
 	*x = ApplyNetworkLinkRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[154]
+	mi := &file_host_v1_host_proto_msgTypes[155]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11816,7 +11912,7 @@ func (x *ApplyNetworkLinkRequest) String() string {
 func (*ApplyNetworkLinkRequest) ProtoMessage() {}
 
 func (x *ApplyNetworkLinkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[154]
+	mi := &file_host_v1_host_proto_msgTypes[155]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11829,7 +11925,7 @@ func (x *ApplyNetworkLinkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyNetworkLinkRequest.ProtoReflect.Descriptor instead.
 func (*ApplyNetworkLinkRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{154}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{155}
 }
 
 func (x *ApplyNetworkLinkRequest) GetRequestId() string {
@@ -11856,7 +11952,7 @@ type DeleteNetworkLinkRequest struct {
 
 func (x *DeleteNetworkLinkRequest) Reset() {
 	*x = DeleteNetworkLinkRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[155]
+	mi := &file_host_v1_host_proto_msgTypes[156]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11868,7 +11964,7 @@ func (x *DeleteNetworkLinkRequest) String() string {
 func (*DeleteNetworkLinkRequest) ProtoMessage() {}
 
 func (x *DeleteNetworkLinkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[155]
+	mi := &file_host_v1_host_proto_msgTypes[156]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11881,7 +11977,7 @@ func (x *DeleteNetworkLinkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNetworkLinkRequest.ProtoReflect.Descriptor instead.
 func (*DeleteNetworkLinkRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{155}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{156}
 }
 
 func (x *DeleteNetworkLinkRequest) GetRequestId() string {
@@ -11907,7 +12003,7 @@ type PlanEnvironmentRequest struct {
 
 func (x *PlanEnvironmentRequest) Reset() {
 	*x = PlanEnvironmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[156]
+	mi := &file_host_v1_host_proto_msgTypes[157]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11919,7 +12015,7 @@ func (x *PlanEnvironmentRequest) String() string {
 func (*PlanEnvironmentRequest) ProtoMessage() {}
 
 func (x *PlanEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[156]
+	mi := &file_host_v1_host_proto_msgTypes[157]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11932,7 +12028,7 @@ func (x *PlanEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*PlanEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{156}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *PlanEnvironmentRequest) GetEnvironmentId() string {
@@ -11954,7 +12050,7 @@ type CleanupImpact struct {
 
 func (x *CleanupImpact) Reset() {
 	*x = CleanupImpact{}
-	mi := &file_host_v1_host_proto_msgTypes[157]
+	mi := &file_host_v1_host_proto_msgTypes[158]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11966,7 +12062,7 @@ func (x *CleanupImpact) String() string {
 func (*CleanupImpact) ProtoMessage() {}
 
 func (x *CleanupImpact) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[157]
+	mi := &file_host_v1_host_proto_msgTypes[158]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11979,7 +12075,7 @@ func (x *CleanupImpact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupImpact.ProtoReflect.Descriptor instead.
 func (*CleanupImpact) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{157}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *CleanupImpact) GetResource() *ResourceReference {
@@ -12022,7 +12118,7 @@ type CleanupPlan struct {
 
 func (x *CleanupPlan) Reset() {
 	*x = CleanupPlan{}
-	mi := &file_host_v1_host_proto_msgTypes[158]
+	mi := &file_host_v1_host_proto_msgTypes[159]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12034,7 +12130,7 @@ func (x *CleanupPlan) String() string {
 func (*CleanupPlan) ProtoMessage() {}
 
 func (x *CleanupPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[158]
+	mi := &file_host_v1_host_proto_msgTypes[159]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12047,7 +12143,7 @@ func (x *CleanupPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupPlan.ProtoReflect.Descriptor instead.
 func (*CleanupPlan) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{158}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{159}
 }
 
 func (x *CleanupPlan) GetEnvironmentId() string {
@@ -12087,7 +12183,7 @@ type CleanupPlanResponse struct {
 
 func (x *CleanupPlanResponse) Reset() {
 	*x = CleanupPlanResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[159]
+	mi := &file_host_v1_host_proto_msgTypes[160]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12099,7 +12195,7 @@ func (x *CleanupPlanResponse) String() string {
 func (*CleanupPlanResponse) ProtoMessage() {}
 
 func (x *CleanupPlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[159]
+	mi := &file_host_v1_host_proto_msgTypes[160]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12112,7 +12208,7 @@ func (x *CleanupPlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupPlanResponse.ProtoReflect.Descriptor instead.
 func (*CleanupPlanResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{159}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *CleanupPlanResponse) GetPlan() *CleanupPlan {
@@ -12133,7 +12229,7 @@ type ExecuteCleanupRequest struct {
 
 func (x *ExecuteCleanupRequest) Reset() {
 	*x = ExecuteCleanupRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[160]
+	mi := &file_host_v1_host_proto_msgTypes[161]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12145,7 +12241,7 @@ func (x *ExecuteCleanupRequest) String() string {
 func (*ExecuteCleanupRequest) ProtoMessage() {}
 
 func (x *ExecuteCleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[160]
+	mi := &file_host_v1_host_proto_msgTypes[161]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12158,7 +12254,7 @@ func (x *ExecuteCleanupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteCleanupRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteCleanupRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{160}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *ExecuteCleanupRequest) GetRequestId() string {
@@ -12192,7 +12288,7 @@ type EnvironmentOperationRequest struct {
 
 func (x *EnvironmentOperationRequest) Reset() {
 	*x = EnvironmentOperationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[161]
+	mi := &file_host_v1_host_proto_msgTypes[162]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12204,7 +12300,7 @@ func (x *EnvironmentOperationRequest) String() string {
 func (*EnvironmentOperationRequest) ProtoMessage() {}
 
 func (x *EnvironmentOperationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[161]
+	mi := &file_host_v1_host_proto_msgTypes[162]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12217,7 +12313,7 @@ func (x *EnvironmentOperationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnvironmentOperationRequest.ProtoReflect.Descriptor instead.
 func (*EnvironmentOperationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{161}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{162}
 }
 
 func (x *EnvironmentOperationRequest) GetRequestId() string {
@@ -12245,7 +12341,7 @@ type OperationError struct {
 
 func (x *OperationError) Reset() {
 	*x = OperationError{}
-	mi := &file_host_v1_host_proto_msgTypes[162]
+	mi := &file_host_v1_host_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12257,7 +12353,7 @@ func (x *OperationError) String() string {
 func (*OperationError) ProtoMessage() {}
 
 func (x *OperationError) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[162]
+	mi := &file_host_v1_host_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12270,7 +12366,7 @@ func (x *OperationError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperationError.ProtoReflect.Descriptor instead.
 func (*OperationError) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{162}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *OperationError) GetReason() string {
@@ -12312,7 +12408,7 @@ type Operation struct {
 
 func (x *Operation) Reset() {
 	*x = Operation{}
-	mi := &file_host_v1_host_proto_msgTypes[163]
+	mi := &file_host_v1_host_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12324,7 +12420,7 @@ func (x *Operation) String() string {
 func (*Operation) ProtoMessage() {}
 
 func (x *Operation) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[163]
+	mi := &file_host_v1_host_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12337,7 +12433,7 @@ func (x *Operation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Operation.ProtoReflect.Descriptor instead.
 func (*Operation) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{163}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{164}
 }
 
 func (x *Operation) GetId() string {
@@ -12419,7 +12515,7 @@ type OperationResponse struct {
 
 func (x *OperationResponse) Reset() {
 	*x = OperationResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[164]
+	mi := &file_host_v1_host_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12431,7 +12527,7 @@ func (x *OperationResponse) String() string {
 func (*OperationResponse) ProtoMessage() {}
 
 func (x *OperationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[164]
+	mi := &file_host_v1_host_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12444,7 +12540,7 @@ func (x *OperationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperationResponse.ProtoReflect.Descriptor instead.
 func (*OperationResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{164}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *OperationResponse) GetOperation() *Operation {
@@ -12463,7 +12559,7 @@ type GetOperationRequest struct {
 
 func (x *GetOperationRequest) Reset() {
 	*x = GetOperationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[165]
+	mi := &file_host_v1_host_proto_msgTypes[166]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12475,7 +12571,7 @@ func (x *GetOperationRequest) String() string {
 func (*GetOperationRequest) ProtoMessage() {}
 
 func (x *GetOperationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[165]
+	mi := &file_host_v1_host_proto_msgTypes[166]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12488,7 +12584,7 @@ func (x *GetOperationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOperationRequest.ProtoReflect.Descriptor instead.
 func (*GetOperationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{165}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{166}
 }
 
 func (x *GetOperationRequest) GetOperationId() string {
@@ -12508,7 +12604,7 @@ type RunDiagnosticsRequest struct {
 
 func (x *RunDiagnosticsRequest) Reset() {
 	*x = RunDiagnosticsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[166]
+	mi := &file_host_v1_host_proto_msgTypes[167]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12520,7 +12616,7 @@ func (x *RunDiagnosticsRequest) String() string {
 func (*RunDiagnosticsRequest) ProtoMessage() {}
 
 func (x *RunDiagnosticsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[166]
+	mi := &file_host_v1_host_proto_msgTypes[167]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12533,7 +12629,7 @@ func (x *RunDiagnosticsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunDiagnosticsRequest.ProtoReflect.Descriptor instead.
 func (*RunDiagnosticsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{166}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{167}
 }
 
 func (x *RunDiagnosticsRequest) GetRequestId() string {
@@ -12559,7 +12655,7 @@ type PreviewSupportBundleRequest struct {
 
 func (x *PreviewSupportBundleRequest) Reset() {
 	*x = PreviewSupportBundleRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[167]
+	mi := &file_host_v1_host_proto_msgTypes[168]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12571,7 +12667,7 @@ func (x *PreviewSupportBundleRequest) String() string {
 func (*PreviewSupportBundleRequest) ProtoMessage() {}
 
 func (x *PreviewSupportBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[167]
+	mi := &file_host_v1_host_proto_msgTypes[168]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12584,7 +12680,7 @@ func (x *PreviewSupportBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreviewSupportBundleRequest.ProtoReflect.Descriptor instead.
 func (*PreviewSupportBundleRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{167}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{168}
 }
 
 func (x *PreviewSupportBundleRequest) GetEnvironmentId() string {
@@ -12606,7 +12702,7 @@ type SupportBundleItem struct {
 
 func (x *SupportBundleItem) Reset() {
 	*x = SupportBundleItem{}
-	mi := &file_host_v1_host_proto_msgTypes[168]
+	mi := &file_host_v1_host_proto_msgTypes[169]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12618,7 +12714,7 @@ func (x *SupportBundleItem) String() string {
 func (*SupportBundleItem) ProtoMessage() {}
 
 func (x *SupportBundleItem) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[168]
+	mi := &file_host_v1_host_proto_msgTypes[169]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12631,7 +12727,7 @@ func (x *SupportBundleItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupportBundleItem.ProtoReflect.Descriptor instead.
 func (*SupportBundleItem) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{168}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{169}
 }
 
 func (x *SupportBundleItem) GetName() string {
@@ -12671,7 +12767,7 @@ type SupportBundlePreview struct {
 
 func (x *SupportBundlePreview) Reset() {
 	*x = SupportBundlePreview{}
-	mi := &file_host_v1_host_proto_msgTypes[169]
+	mi := &file_host_v1_host_proto_msgTypes[170]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12683,7 +12779,7 @@ func (x *SupportBundlePreview) String() string {
 func (*SupportBundlePreview) ProtoMessage() {}
 
 func (x *SupportBundlePreview) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[169]
+	mi := &file_host_v1_host_proto_msgTypes[170]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12696,7 +12792,7 @@ func (x *SupportBundlePreview) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupportBundlePreview.ProtoReflect.Descriptor instead.
 func (*SupportBundlePreview) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{169}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{170}
 }
 
 func (x *SupportBundlePreview) GetItems() []*SupportBundleItem {
@@ -12717,7 +12813,7 @@ type ExportSupportBundleRequest struct {
 
 func (x *ExportSupportBundleRequest) Reset() {
 	*x = ExportSupportBundleRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[170]
+	mi := &file_host_v1_host_proto_msgTypes[171]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12729,7 +12825,7 @@ func (x *ExportSupportBundleRequest) String() string {
 func (*ExportSupportBundleRequest) ProtoMessage() {}
 
 func (x *ExportSupportBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[170]
+	mi := &file_host_v1_host_proto_msgTypes[171]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12742,7 +12838,7 @@ func (x *ExportSupportBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSupportBundleRequest.ProtoReflect.Descriptor instead.
 func (*ExportSupportBundleRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{170}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{171}
 }
 
 func (x *ExportSupportBundleRequest) GetRequestId() string {
@@ -12784,7 +12880,7 @@ type ConnectorStatus struct {
 
 func (x *ConnectorStatus) Reset() {
 	*x = ConnectorStatus{}
-	mi := &file_host_v1_host_proto_msgTypes[171]
+	mi := &file_host_v1_host_proto_msgTypes[172]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12796,7 +12892,7 @@ func (x *ConnectorStatus) String() string {
 func (*ConnectorStatus) ProtoMessage() {}
 
 func (x *ConnectorStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[171]
+	mi := &file_host_v1_host_proto_msgTypes[172]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12809,7 +12905,7 @@ func (x *ConnectorStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectorStatus.ProtoReflect.Descriptor instead.
 func (*ConnectorStatus) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{171}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{172}
 }
 
 func (x *ConnectorStatus) GetPhase() ConnectorPhase {
@@ -12900,7 +12996,7 @@ type ControllerDomainMetrics struct {
 
 func (x *ControllerDomainMetrics) Reset() {
 	*x = ControllerDomainMetrics{}
-	mi := &file_host_v1_host_proto_msgTypes[172]
+	mi := &file_host_v1_host_proto_msgTypes[173]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12912,7 +13008,7 @@ func (x *ControllerDomainMetrics) String() string {
 func (*ControllerDomainMetrics) ProtoMessage() {}
 
 func (x *ControllerDomainMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[172]
+	mi := &file_host_v1_host_proto_msgTypes[173]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12925,7 +13021,7 @@ func (x *ControllerDomainMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControllerDomainMetrics.ProtoReflect.Descriptor instead.
 func (*ControllerDomainMetrics) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{172}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{173}
 }
 
 func (x *ControllerDomainMetrics) GetBytesToController() uint64 {
@@ -13014,7 +13110,7 @@ type RemotePoolPolicy struct {
 
 func (x *RemotePoolPolicy) Reset() {
 	*x = RemotePoolPolicy{}
-	mi := &file_host_v1_host_proto_msgTypes[173]
+	mi := &file_host_v1_host_proto_msgTypes[174]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13026,7 +13122,7 @@ func (x *RemotePoolPolicy) String() string {
 func (*RemotePoolPolicy) ProtoMessage() {}
 
 func (x *RemotePoolPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[173]
+	mi := &file_host_v1_host_proto_msgTypes[174]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13039,7 +13135,7 @@ func (x *RemotePoolPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemotePoolPolicy.ProtoReflect.Descriptor instead.
 func (*RemotePoolPolicy) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{173}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{174}
 }
 
 func (x *RemotePoolPolicy) GetMaxEnvironments() uint32 {
@@ -13126,7 +13222,7 @@ type RemoteRegistration struct {
 
 func (x *RemoteRegistration) Reset() {
 	*x = RemoteRegistration{}
-	mi := &file_host_v1_host_proto_msgTypes[174]
+	mi := &file_host_v1_host_proto_msgTypes[175]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13138,7 +13234,7 @@ func (x *RemoteRegistration) String() string {
 func (*RemoteRegistration) ProtoMessage() {}
 
 func (x *RemoteRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[174]
+	mi := &file_host_v1_host_proto_msgTypes[175]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13151,7 +13247,7 @@ func (x *RemoteRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteRegistration.ProtoReflect.Descriptor instead.
 func (*RemoteRegistration) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{174}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{175}
 }
 
 func (x *RemoteRegistration) GetId() string {
@@ -13311,7 +13407,7 @@ type BeginRemoteEnrollmentRequest struct {
 
 func (x *BeginRemoteEnrollmentRequest) Reset() {
 	*x = BeginRemoteEnrollmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[175]
+	mi := &file_host_v1_host_proto_msgTypes[176]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13323,7 +13419,7 @@ func (x *BeginRemoteEnrollmentRequest) String() string {
 func (*BeginRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *BeginRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[175]
+	mi := &file_host_v1_host_proto_msgTypes[176]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13336,7 +13432,7 @@ func (x *BeginRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*BeginRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{175}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{176}
 }
 
 func (x *BeginRemoteEnrollmentRequest) GetRequestId() string {
@@ -13412,7 +13508,7 @@ type ApplyManagedRemoteEnrollmentRequest struct {
 
 func (x *ApplyManagedRemoteEnrollmentRequest) Reset() {
 	*x = ApplyManagedRemoteEnrollmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[176]
+	mi := &file_host_v1_host_proto_msgTypes[177]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13424,7 +13520,7 @@ func (x *ApplyManagedRemoteEnrollmentRequest) String() string {
 func (*ApplyManagedRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *ApplyManagedRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[176]
+	mi := &file_host_v1_host_proto_msgTypes[177]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13437,7 +13533,7 @@ func (x *ApplyManagedRemoteEnrollmentRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use ApplyManagedRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*ApplyManagedRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{176}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{177}
 }
 
 func (x *ApplyManagedRemoteEnrollmentRequest) GetRegistration() *BeginRemoteEnrollmentRequest {
@@ -13465,7 +13561,7 @@ type CompleteRemoteEnrollmentRequest struct {
 
 func (x *CompleteRemoteEnrollmentRequest) Reset() {
 	*x = CompleteRemoteEnrollmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[177]
+	mi := &file_host_v1_host_proto_msgTypes[178]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13477,7 +13573,7 @@ func (x *CompleteRemoteEnrollmentRequest) String() string {
 func (*CompleteRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *CompleteRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[177]
+	mi := &file_host_v1_host_proto_msgTypes[178]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13490,7 +13586,7 @@ func (x *CompleteRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{177}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{178}
 }
 
 func (x *CompleteRemoteEnrollmentRequest) GetRequestId() string {
@@ -13527,7 +13623,7 @@ type FailRemoteEnrollmentRequest struct {
 
 func (x *FailRemoteEnrollmentRequest) Reset() {
 	*x = FailRemoteEnrollmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[178]
+	mi := &file_host_v1_host_proto_msgTypes[179]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13539,7 +13635,7 @@ func (x *FailRemoteEnrollmentRequest) String() string {
 func (*FailRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *FailRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[178]
+	mi := &file_host_v1_host_proto_msgTypes[179]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13552,7 +13648,7 @@ func (x *FailRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*FailRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{178}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{179}
 }
 
 func (x *FailRemoteEnrollmentRequest) GetRequestId() string {
@@ -13601,7 +13697,7 @@ type RetryRemoteEnrollmentRequest struct {
 
 func (x *RetryRemoteEnrollmentRequest) Reset() {
 	*x = RetryRemoteEnrollmentRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[179]
+	mi := &file_host_v1_host_proto_msgTypes[180]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13613,7 +13709,7 @@ func (x *RetryRemoteEnrollmentRequest) String() string {
 func (*RetryRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *RetryRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[179]
+	mi := &file_host_v1_host_proto_msgTypes[180]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13626,7 +13722,7 @@ func (x *RetryRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*RetryRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{179}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{180}
 }
 
 func (x *RetryRemoteEnrollmentRequest) GetRequestId() string {
@@ -13661,7 +13757,7 @@ type RemoveIncompleteRemoteRegistrationRequest struct {
 
 func (x *RemoveIncompleteRemoteRegistrationRequest) Reset() {
 	*x = RemoveIncompleteRemoteRegistrationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[180]
+	mi := &file_host_v1_host_proto_msgTypes[181]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13673,7 +13769,7 @@ func (x *RemoveIncompleteRemoteRegistrationRequest) String() string {
 func (*RemoveIncompleteRemoteRegistrationRequest) ProtoMessage() {}
 
 func (x *RemoveIncompleteRemoteRegistrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[180]
+	mi := &file_host_v1_host_proto_msgTypes[181]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13686,7 +13782,7 @@ func (x *RemoveIncompleteRemoteRegistrationRequest) ProtoReflect() protoreflect.
 
 // Deprecated: Use RemoveIncompleteRemoteRegistrationRequest.ProtoReflect.Descriptor instead.
 func (*RemoveIncompleteRemoteRegistrationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{180}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{181}
 }
 
 func (x *RemoveIncompleteRemoteRegistrationRequest) GetRequestId() string {
@@ -13721,7 +13817,7 @@ type BeginRemoteRevocationRequest struct {
 
 func (x *BeginRemoteRevocationRequest) Reset() {
 	*x = BeginRemoteRevocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[181]
+	mi := &file_host_v1_host_proto_msgTypes[182]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13733,7 +13829,7 @@ func (x *BeginRemoteRevocationRequest) String() string {
 func (*BeginRemoteRevocationRequest) ProtoMessage() {}
 
 func (x *BeginRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[181]
+	mi := &file_host_v1_host_proto_msgTypes[182]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13746,7 +13842,7 @@ func (x *BeginRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginRemoteRevocationRequest.ProtoReflect.Descriptor instead.
 func (*BeginRemoteRevocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{181}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{182}
 }
 
 func (x *BeginRemoteRevocationRequest) GetRequestId() string {
@@ -13781,7 +13877,7 @@ type CompleteRemoteRevocationRequest struct {
 
 func (x *CompleteRemoteRevocationRequest) Reset() {
 	*x = CompleteRemoteRevocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[182]
+	mi := &file_host_v1_host_proto_msgTypes[183]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13793,7 +13889,7 @@ func (x *CompleteRemoteRevocationRequest) String() string {
 func (*CompleteRemoteRevocationRequest) ProtoMessage() {}
 
 func (x *CompleteRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[182]
+	mi := &file_host_v1_host_proto_msgTypes[183]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13806,7 +13902,7 @@ func (x *CompleteRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRemoteRevocationRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRemoteRevocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{182}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{183}
 }
 
 func (x *CompleteRemoteRevocationRequest) GetRequestId() string {
@@ -13842,7 +13938,7 @@ type UpdateRemotePoolRequest struct {
 
 func (x *UpdateRemotePoolRequest) Reset() {
 	*x = UpdateRemotePoolRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[183]
+	mi := &file_host_v1_host_proto_msgTypes[184]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13854,7 +13950,7 @@ func (x *UpdateRemotePoolRequest) String() string {
 func (*UpdateRemotePoolRequest) ProtoMessage() {}
 
 func (x *UpdateRemotePoolRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[183]
+	mi := &file_host_v1_host_proto_msgTypes[184]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13867,7 +13963,7 @@ func (x *UpdateRemotePoolRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRemotePoolRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRemotePoolRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{183}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{184}
 }
 
 func (x *UpdateRemotePoolRequest) GetRequestId() string {
@@ -13910,7 +14006,7 @@ type SetRemoteRegistrationStateRequest struct {
 
 func (x *SetRemoteRegistrationStateRequest) Reset() {
 	*x = SetRemoteRegistrationStateRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[184]
+	mi := &file_host_v1_host_proto_msgTypes[185]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13922,7 +14018,7 @@ func (x *SetRemoteRegistrationStateRequest) String() string {
 func (*SetRemoteRegistrationStateRequest) ProtoMessage() {}
 
 func (x *SetRemoteRegistrationStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[184]
+	mi := &file_host_v1_host_proto_msgTypes[185]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13935,7 +14031,7 @@ func (x *SetRemoteRegistrationStateRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use SetRemoteRegistrationStateRequest.ProtoReflect.Descriptor instead.
 func (*SetRemoteRegistrationStateRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{184}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{185}
 }
 
 func (x *SetRemoteRegistrationStateRequest) GetRequestId() string {
@@ -13975,7 +14071,7 @@ type GetRemoteRegistrationRequest struct {
 
 func (x *GetRemoteRegistrationRequest) Reset() {
 	*x = GetRemoteRegistrationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[185]
+	mi := &file_host_v1_host_proto_msgTypes[186]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13987,7 +14083,7 @@ func (x *GetRemoteRegistrationRequest) String() string {
 func (*GetRemoteRegistrationRequest) ProtoMessage() {}
 
 func (x *GetRemoteRegistrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[185]
+	mi := &file_host_v1_host_proto_msgTypes[186]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14000,7 +14096,7 @@ func (x *GetRemoteRegistrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRemoteRegistrationRequest.ProtoReflect.Descriptor instead.
 func (*GetRemoteRegistrationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{185}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{186}
 }
 
 func (x *GetRemoteRegistrationRequest) GetRegistrationId() string {
@@ -14018,7 +14114,7 @@ type ListRemoteRegistrationsRequest struct {
 
 func (x *ListRemoteRegistrationsRequest) Reset() {
 	*x = ListRemoteRegistrationsRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[186]
+	mi := &file_host_v1_host_proto_msgTypes[187]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14030,7 +14126,7 @@ func (x *ListRemoteRegistrationsRequest) String() string {
 func (*ListRemoteRegistrationsRequest) ProtoMessage() {}
 
 func (x *ListRemoteRegistrationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[186]
+	mi := &file_host_v1_host_proto_msgTypes[187]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14043,7 +14139,7 @@ func (x *ListRemoteRegistrationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRemoteRegistrationsRequest.ProtoReflect.Descriptor instead.
 func (*ListRemoteRegistrationsRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{186}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{187}
 }
 
 type ListRemoteRegistrationsResponse struct {
@@ -14055,7 +14151,7 @@ type ListRemoteRegistrationsResponse struct {
 
 func (x *ListRemoteRegistrationsResponse) Reset() {
 	*x = ListRemoteRegistrationsResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[187]
+	mi := &file_host_v1_host_proto_msgTypes[188]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14067,7 +14163,7 @@ func (x *ListRemoteRegistrationsResponse) String() string {
 func (*ListRemoteRegistrationsResponse) ProtoMessage() {}
 
 func (x *ListRemoteRegistrationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[187]
+	mi := &file_host_v1_host_proto_msgTypes[188]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14080,7 +14176,7 @@ func (x *ListRemoteRegistrationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRemoteRegistrationsResponse.ProtoReflect.Descriptor instead.
 func (*ListRemoteRegistrationsResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{187}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{188}
 }
 
 func (x *ListRemoteRegistrationsResponse) GetRegistrations() []*RemoteRegistration {
@@ -14099,7 +14195,7 @@ type RemoteRegistrationResponse struct {
 
 func (x *RemoteRegistrationResponse) Reset() {
 	*x = RemoteRegistrationResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[188]
+	mi := &file_host_v1_host_proto_msgTypes[189]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14111,7 +14207,7 @@ func (x *RemoteRegistrationResponse) String() string {
 func (*RemoteRegistrationResponse) ProtoMessage() {}
 
 func (x *RemoteRegistrationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[188]
+	mi := &file_host_v1_host_proto_msgTypes[189]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14124,7 +14220,7 @@ func (x *RemoteRegistrationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteRegistrationResponse.ProtoReflect.Descriptor instead.
 func (*RemoteRegistrationResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{188}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{189}
 }
 
 func (x *RemoteRegistrationResponse) GetRegistration() *RemoteRegistration {
@@ -14144,13 +14240,15 @@ type RemoteAllocation struct {
 	State         AllocationState        `protobuf:"varint,6,opt,name=state,proto3,enum=agentvmm.host.v1.AllocationState" json:"state,omitempty"`
 	Lease         *RemoteLease           `protobuf:"bytes,7,opt,name=lease,proto3" json:"lease,omitempty"`
 	EnvironmentId string                 `protobuf:"bytes,8,opt,name=environment_id,json=environmentId,proto3" json:"environment_id,omitempty"`
+	Generation    uint64                 `protobuf:"varint,9,opt,name=generation,proto3" json:"generation,omitempty"`
+	ResourcesV2   *WorkloadResourcesV2   `protobuf:"bytes,10,opt,name=resources_v2,json=resourcesV2,proto3" json:"resources_v2,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RemoteAllocation) Reset() {
 	*x = RemoteAllocation{}
-	mi := &file_host_v1_host_proto_msgTypes[189]
+	mi := &file_host_v1_host_proto_msgTypes[190]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14162,7 +14260,7 @@ func (x *RemoteAllocation) String() string {
 func (*RemoteAllocation) ProtoMessage() {}
 
 func (x *RemoteAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[189]
+	mi := &file_host_v1_host_proto_msgTypes[190]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14175,7 +14273,7 @@ func (x *RemoteAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteAllocation.ProtoReflect.Descriptor instead.
 func (*RemoteAllocation) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{189}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{190}
 }
 
 func (x *RemoteAllocation) GetAllocationId() string {
@@ -14234,6 +14332,20 @@ func (x *RemoteAllocation) GetEnvironmentId() string {
 	return ""
 }
 
+func (x *RemoteAllocation) GetGeneration() uint64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *RemoteAllocation) GetResourcesV2() *WorkloadResourcesV2 {
+	if x != nil {
+		return x.ResourcesV2
+	}
+	return nil
+}
+
 type RemoteLease struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LeaseId       string                 `protobuf:"bytes,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
@@ -14248,7 +14360,7 @@ type RemoteLease struct {
 
 func (x *RemoteLease) Reset() {
 	*x = RemoteLease{}
-	mi := &file_host_v1_host_proto_msgTypes[190]
+	mi := &file_host_v1_host_proto_msgTypes[191]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14260,7 +14372,7 @@ func (x *RemoteLease) String() string {
 func (*RemoteLease) ProtoMessage() {}
 
 func (x *RemoteLease) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[190]
+	mi := &file_host_v1_host_proto_msgTypes[191]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14273,7 +14385,7 @@ func (x *RemoteLease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteLease.ProtoReflect.Descriptor instead.
 func (*RemoteLease) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{190}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{191}
 }
 
 func (x *RemoteLease) GetLeaseId() string {
@@ -14327,7 +14439,7 @@ type GetRemoteStateRequest struct {
 
 func (x *GetRemoteStateRequest) Reset() {
 	*x = GetRemoteStateRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[191]
+	mi := &file_host_v1_host_proto_msgTypes[192]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14339,7 +14451,7 @@ func (x *GetRemoteStateRequest) String() string {
 func (*GetRemoteStateRequest) ProtoMessage() {}
 
 func (x *GetRemoteStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[191]
+	mi := &file_host_v1_host_proto_msgTypes[192]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14352,7 +14464,7 @@ func (x *GetRemoteStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRemoteStateRequest.ProtoReflect.Descriptor instead.
 func (*GetRemoteStateRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{191}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{192}
 }
 
 func (x *GetRemoteStateRequest) GetRegistrationId() string {
@@ -14371,7 +14483,7 @@ type GetRemoteStateResponse struct {
 
 func (x *GetRemoteStateResponse) Reset() {
 	*x = GetRemoteStateResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[192]
+	mi := &file_host_v1_host_proto_msgTypes[193]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14383,7 +14495,7 @@ func (x *GetRemoteStateResponse) String() string {
 func (*GetRemoteStateResponse) ProtoMessage() {}
 
 func (x *GetRemoteStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[192]
+	mi := &file_host_v1_host_proto_msgTypes[193]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14396,7 +14508,7 @@ func (x *GetRemoteStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRemoteStateResponse.ProtoReflect.Descriptor instead.
 func (*GetRemoteStateResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{192}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{193}
 }
 
 func (x *GetRemoteStateResponse) GetRegistration() *RemoteRegistration {
@@ -14415,7 +14527,7 @@ type GetRemoteObservationRequest struct {
 
 func (x *GetRemoteObservationRequest) Reset() {
 	*x = GetRemoteObservationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[193]
+	mi := &file_host_v1_host_proto_msgTypes[194]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14427,7 +14539,7 @@ func (x *GetRemoteObservationRequest) String() string {
 func (*GetRemoteObservationRequest) ProtoMessage() {}
 
 func (x *GetRemoteObservationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[193]
+	mi := &file_host_v1_host_proto_msgTypes[194]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14440,7 +14552,7 @@ func (x *GetRemoteObservationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRemoteObservationRequest.ProtoReflect.Descriptor instead.
 func (*GetRemoteObservationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{193}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{194}
 }
 
 func (x *GetRemoteObservationRequest) GetRegistrationId() string {
@@ -14461,7 +14573,7 @@ type GetRemoteObservationResponse struct {
 
 func (x *GetRemoteObservationResponse) Reset() {
 	*x = GetRemoteObservationResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[194]
+	mi := &file_host_v1_host_proto_msgTypes[195]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14473,7 +14585,7 @@ func (x *GetRemoteObservationResponse) String() string {
 func (*GetRemoteObservationResponse) ProtoMessage() {}
 
 func (x *GetRemoteObservationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[194]
+	mi := &file_host_v1_host_proto_msgTypes[195]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14486,7 +14598,7 @@ func (x *GetRemoteObservationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRemoteObservationResponse.ProtoReflect.Descriptor instead.
 func (*GetRemoteObservationResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{194}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{195}
 }
 
 func (x *GetRemoteObservationResponse) GetHealth() *HealthStatus {
@@ -14522,7 +14634,7 @@ type SetConnectionStateRequest struct {
 
 func (x *SetConnectionStateRequest) Reset() {
 	*x = SetConnectionStateRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[195]
+	mi := &file_host_v1_host_proto_msgTypes[196]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14534,7 +14646,7 @@ func (x *SetConnectionStateRequest) String() string {
 func (*SetConnectionStateRequest) ProtoMessage() {}
 
 func (x *SetConnectionStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[195]
+	mi := &file_host_v1_host_proto_msgTypes[196]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14547,7 +14659,7 @@ func (x *SetConnectionStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetConnectionStateRequest.ProtoReflect.Descriptor instead.
 func (*SetConnectionStateRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{195}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{196}
 }
 
 func (x *SetConnectionStateRequest) GetConnectionInstance() string {
@@ -14591,7 +14703,7 @@ type SetRemoteAdmissionStateRequest struct {
 
 func (x *SetRemoteAdmissionStateRequest) Reset() {
 	*x = SetRemoteAdmissionStateRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[196]
+	mi := &file_host_v1_host_proto_msgTypes[197]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14603,7 +14715,7 @@ func (x *SetRemoteAdmissionStateRequest) String() string {
 func (*SetRemoteAdmissionStateRequest) ProtoMessage() {}
 
 func (x *SetRemoteAdmissionStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[196]
+	mi := &file_host_v1_host_proto_msgTypes[197]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14616,7 +14728,7 @@ func (x *SetRemoteAdmissionStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetRemoteAdmissionStateRequest.ProtoReflect.Descriptor instead.
 func (*SetRemoteAdmissionStateRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{196}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{197}
 }
 
 func (x *SetRemoteAdmissionStateRequest) GetConnectionInstance() string {
@@ -14665,7 +14777,7 @@ type ReportConnectorStatusRequest struct {
 
 func (x *ReportConnectorStatusRequest) Reset() {
 	*x = ReportConnectorStatusRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[197]
+	mi := &file_host_v1_host_proto_msgTypes[198]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14677,7 +14789,7 @@ func (x *ReportConnectorStatusRequest) String() string {
 func (*ReportConnectorStatusRequest) ProtoMessage() {}
 
 func (x *ReportConnectorStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[197]
+	mi := &file_host_v1_host_proto_msgTypes[198]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14690,7 +14802,7 @@ func (x *ReportConnectorStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportConnectorStatusRequest.ProtoReflect.Descriptor instead.
 func (*ReportConnectorStatusRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{197}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{198}
 }
 
 func (x *ReportConnectorStatusRequest) GetConnectionInstance() string {
@@ -14723,13 +14835,15 @@ type EnsureAllocationRequest struct {
 	PolicyRevision     uint64                 `protobuf:"varint,5,opt,name=policy_revision,json=policyRevision,proto3" json:"policy_revision,omitempty"`
 	ConnectionInstance string                 `protobuf:"bytes,6,opt,name=connection_instance,json=connectionInstance,proto3" json:"connection_instance,omitempty"`
 	RegistrationId     string                 `protobuf:"bytes,7,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	Generation         uint64                 `protobuf:"varint,8,opt,name=generation,proto3" json:"generation,omitempty"`
+	ResourcesV2        *WorkloadResourcesV2   `protobuf:"bytes,9,opt,name=resources_v2,json=resourcesV2,proto3" json:"resources_v2,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *EnsureAllocationRequest) Reset() {
 	*x = EnsureAllocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[198]
+	mi := &file_host_v1_host_proto_msgTypes[199]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14741,7 +14855,7 @@ func (x *EnsureAllocationRequest) String() string {
 func (*EnsureAllocationRequest) ProtoMessage() {}
 
 func (x *EnsureAllocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[198]
+	mi := &file_host_v1_host_proto_msgTypes[199]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14754,7 +14868,7 @@ func (x *EnsureAllocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureAllocationRequest.ProtoReflect.Descriptor instead.
 func (*EnsureAllocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{198}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{199}
 }
 
 func (x *EnsureAllocationRequest) GetAllocationId() string {
@@ -14806,6 +14920,20 @@ func (x *EnsureAllocationRequest) GetRegistrationId() string {
 	return ""
 }
 
+func (x *EnsureAllocationRequest) GetGeneration() uint64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *EnsureAllocationRequest) GetResourcesV2() *WorkloadResourcesV2 {
+	if x != nil {
+		return x.ResourcesV2
+	}
+	return nil
+}
+
 type AllocationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Allocation    *RemoteAllocation      `protobuf:"bytes,1,opt,name=allocation,proto3" json:"allocation,omitempty"`
@@ -14815,7 +14943,7 @@ type AllocationResponse struct {
 
 func (x *AllocationResponse) Reset() {
 	*x = AllocationResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[199]
+	mi := &file_host_v1_host_proto_msgTypes[200]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14827,7 +14955,7 @@ func (x *AllocationResponse) String() string {
 func (*AllocationResponse) ProtoMessage() {}
 
 func (x *AllocationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[199]
+	mi := &file_host_v1_host_proto_msgTypes[200]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14840,7 +14968,7 @@ func (x *AllocationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationResponse.ProtoReflect.Descriptor instead.
 func (*AllocationResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{199}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{200}
 }
 
 func (x *AllocationResponse) GetAllocation() *RemoteAllocation {
@@ -14856,13 +14984,14 @@ type ReleaseAllocationRequest struct {
 	ExpectedPolicyRevision uint64                 `protobuf:"varint,2,opt,name=expected_policy_revision,json=expectedPolicyRevision,proto3" json:"expected_policy_revision,omitempty"`
 	RegistrationId         string                 `protobuf:"bytes,3,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
 	ConnectionInstance     string                 `protobuf:"bytes,4,opt,name=connection_instance,json=connectionInstance,proto3" json:"connection_instance,omitempty"`
+	ExpectedGeneration     uint64                 `protobuf:"varint,5,opt,name=expected_generation,json=expectedGeneration,proto3" json:"expected_generation,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
 
 func (x *ReleaseAllocationRequest) Reset() {
 	*x = ReleaseAllocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[200]
+	mi := &file_host_v1_host_proto_msgTypes[201]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14874,7 +15003,7 @@ func (x *ReleaseAllocationRequest) String() string {
 func (*ReleaseAllocationRequest) ProtoMessage() {}
 
 func (x *ReleaseAllocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[200]
+	mi := &file_host_v1_host_proto_msgTypes[201]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14887,7 +15016,7 @@ func (x *ReleaseAllocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseAllocationRequest.ProtoReflect.Descriptor instead.
 func (*ReleaseAllocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{200}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{201}
 }
 
 func (x *ReleaseAllocationRequest) GetAllocationId() string {
@@ -14918,6 +15047,13 @@ func (x *ReleaseAllocationRequest) GetConnectionInstance() string {
 	return ""
 }
 
+func (x *ReleaseAllocationRequest) GetExpectedGeneration() uint64 {
+	if x != nil {
+		return x.ExpectedGeneration
+	}
+	return 0
+}
+
 type PlanCleanupAllocationRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	AllocationId       string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
@@ -14930,7 +15066,7 @@ type PlanCleanupAllocationRequest struct {
 
 func (x *PlanCleanupAllocationRequest) Reset() {
 	*x = PlanCleanupAllocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[201]
+	mi := &file_host_v1_host_proto_msgTypes[202]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14942,7 +15078,7 @@ func (x *PlanCleanupAllocationRequest) String() string {
 func (*PlanCleanupAllocationRequest) ProtoMessage() {}
 
 func (x *PlanCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[201]
+	mi := &file_host_v1_host_proto_msgTypes[202]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14955,7 +15091,7 @@ func (x *PlanCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanCleanupAllocationRequest.ProtoReflect.Descriptor instead.
 func (*PlanCleanupAllocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{201}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{202}
 }
 
 func (x *PlanCleanupAllocationRequest) GetAllocationId() string {
@@ -14999,7 +15135,7 @@ type AllocationCleanupPlan struct {
 
 func (x *AllocationCleanupPlan) Reset() {
 	*x = AllocationCleanupPlan{}
-	mi := &file_host_v1_host_proto_msgTypes[202]
+	mi := &file_host_v1_host_proto_msgTypes[203]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15011,7 +15147,7 @@ func (x *AllocationCleanupPlan) String() string {
 func (*AllocationCleanupPlan) ProtoMessage() {}
 
 func (x *AllocationCleanupPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[202]
+	mi := &file_host_v1_host_proto_msgTypes[203]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15024,7 +15160,7 @@ func (x *AllocationCleanupPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationCleanupPlan.ProtoReflect.Descriptor instead.
 func (*AllocationCleanupPlan) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{202}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{203}
 }
 
 func (x *AllocationCleanupPlan) GetAllocationId() string {
@@ -15071,7 +15207,7 @@ type AllocationCleanupPlanResponse struct {
 
 func (x *AllocationCleanupPlanResponse) Reset() {
 	*x = AllocationCleanupPlanResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[203]
+	mi := &file_host_v1_host_proto_msgTypes[204]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15083,7 +15219,7 @@ func (x *AllocationCleanupPlanResponse) String() string {
 func (*AllocationCleanupPlanResponse) ProtoMessage() {}
 
 func (x *AllocationCleanupPlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[203]
+	mi := &file_host_v1_host_proto_msgTypes[204]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15096,7 +15232,7 @@ func (x *AllocationCleanupPlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationCleanupPlanResponse.ProtoReflect.Descriptor instead.
 func (*AllocationCleanupPlanResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{203}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{204}
 }
 
 func (x *AllocationCleanupPlanResponse) GetPlan() *AllocationCleanupPlan {
@@ -15122,7 +15258,7 @@ type ExecuteCleanupAllocationRequest struct {
 
 func (x *ExecuteCleanupAllocationRequest) Reset() {
 	*x = ExecuteCleanupAllocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[204]
+	mi := &file_host_v1_host_proto_msgTypes[205]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15134,7 +15270,7 @@ func (x *ExecuteCleanupAllocationRequest) String() string {
 func (*ExecuteCleanupAllocationRequest) ProtoMessage() {}
 
 func (x *ExecuteCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[204]
+	mi := &file_host_v1_host_proto_msgTypes[205]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15147,7 +15283,7 @@ func (x *ExecuteCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteCleanupAllocationRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteCleanupAllocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{204}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{205}
 }
 
 func (x *ExecuteCleanupAllocationRequest) GetAllocationId() string {
@@ -15220,7 +15356,7 @@ type AcquireLeaseRequest struct {
 
 func (x *AcquireLeaseRequest) Reset() {
 	*x = AcquireLeaseRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[205]
+	mi := &file_host_v1_host_proto_msgTypes[206]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15232,7 +15368,7 @@ func (x *AcquireLeaseRequest) String() string {
 func (*AcquireLeaseRequest) ProtoMessage() {}
 
 func (x *AcquireLeaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[205]
+	mi := &file_host_v1_host_proto_msgTypes[206]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15245,7 +15381,7 @@ func (x *AcquireLeaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcquireLeaseRequest.ProtoReflect.Descriptor instead.
 func (*AcquireLeaseRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{205}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{206}
 }
 
 func (x *AcquireLeaseRequest) GetAllocationId() string {
@@ -15303,7 +15439,7 @@ type RenewLeaseRequest struct {
 
 func (x *RenewLeaseRequest) Reset() {
 	*x = RenewLeaseRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[206]
+	mi := &file_host_v1_host_proto_msgTypes[207]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15315,7 +15451,7 @@ func (x *RenewLeaseRequest) String() string {
 func (*RenewLeaseRequest) ProtoMessage() {}
 
 func (x *RenewLeaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[206]
+	mi := &file_host_v1_host_proto_msgTypes[207]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15328,7 +15464,7 @@ func (x *RenewLeaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewLeaseRequest.ProtoReflect.Descriptor instead.
 func (*RenewLeaseRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{206}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{207}
 }
 
 func (x *RenewLeaseRequest) GetLeaseId() string {
@@ -15378,7 +15514,7 @@ type ReleaseLeaseRequest struct {
 
 func (x *ReleaseLeaseRequest) Reset() {
 	*x = ReleaseLeaseRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[207]
+	mi := &file_host_v1_host_proto_msgTypes[208]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15390,7 +15526,7 @@ func (x *ReleaseLeaseRequest) String() string {
 func (*ReleaseLeaseRequest) ProtoMessage() {}
 
 func (x *ReleaseLeaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[207]
+	mi := &file_host_v1_host_proto_msgTypes[208]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15403,7 +15539,7 @@ func (x *ReleaseLeaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseLeaseRequest.ProtoReflect.Descriptor instead.
 func (*ReleaseLeaseRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{207}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{208}
 }
 
 func (x *ReleaseLeaseRequest) GetLeaseId() string {
@@ -15444,7 +15580,7 @@ type LeaseResponse struct {
 
 func (x *LeaseResponse) Reset() {
 	*x = LeaseResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[208]
+	mi := &file_host_v1_host_proto_msgTypes[209]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15456,7 +15592,7 @@ func (x *LeaseResponse) String() string {
 func (*LeaseResponse) ProtoMessage() {}
 
 func (x *LeaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[208]
+	mi := &file_host_v1_host_proto_msgTypes[209]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15469,7 +15605,7 @@ func (x *LeaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseResponse.ProtoReflect.Descriptor instead.
 func (*LeaseResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{208}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{209}
 }
 
 func (x *LeaseResponse) GetLease() *RemoteLease {
@@ -15499,7 +15635,7 @@ type OpenRuntimeSessionRequest struct {
 
 func (x *OpenRuntimeSessionRequest) Reset() {
 	*x = OpenRuntimeSessionRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[209]
+	mi := &file_host_v1_host_proto_msgTypes[210]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15511,7 +15647,7 @@ func (x *OpenRuntimeSessionRequest) String() string {
 func (*OpenRuntimeSessionRequest) ProtoMessage() {}
 
 func (x *OpenRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[209]
+	mi := &file_host_v1_host_proto_msgTypes[210]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15524,7 +15660,7 @@ func (x *OpenRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenRuntimeSessionRequest.ProtoReflect.Descriptor instead.
 func (*OpenRuntimeSessionRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{209}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{210}
 }
 
 func (x *OpenRuntimeSessionRequest) GetLeaseId() string {
@@ -15575,7 +15711,7 @@ type RevokeRuntimeSessionRequest struct {
 
 func (x *RevokeRuntimeSessionRequest) Reset() {
 	*x = RevokeRuntimeSessionRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[210]
+	mi := &file_host_v1_host_proto_msgTypes[211]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15587,7 +15723,7 @@ func (x *RevokeRuntimeSessionRequest) String() string {
 func (*RevokeRuntimeSessionRequest) ProtoMessage() {}
 
 func (x *RevokeRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[210]
+	mi := &file_host_v1_host_proto_msgTypes[211]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15600,7 +15736,7 @@ func (x *RevokeRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeRuntimeSessionRequest.ProtoReflect.Descriptor instead.
 func (*RevokeRuntimeSessionRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{210}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{211}
 }
 
 func (x *RevokeRuntimeSessionRequest) GetSessionId() string {
@@ -15996,7 +16132,16 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\v_cpu_millisB\x0f\n" +
 	"\r_memory_bytesB\a\n" +
 	"\x05_pidsB\r\n" +
-	"\v_disk_bytes\"\x9c\x01\n" +
+	"\v_disk_bytes\"\xad\x02\n" +
+	"\x13WorkloadResourcesV2\x120\n" +
+	"\x14cpu_guarantee_millis\x18\x01 \x01(\rR\x12cpuGuaranteeMillis\x12$\n" +
+	"\x0ecpu_max_millis\x18\x02 \x01(\rR\fcpuMaxMillis\x12\x1d\n" +
+	"\n" +
+	"cpu_weight\x18\x03 \x01(\rR\tcpuWeight\x12*\n" +
+	"\x11memory_high_bytes\x18\x04 \x01(\x04R\x0fmemoryHighBytes\x12(\n" +
+	"\x10memory_max_bytes\x18\x05 \x01(\x04R\x0ememoryMaxBytes\x12\x17\n" +
+	"\apid_max\x18\x06 \x01(\rR\x06pidMax\x120\n" +
+	"\x14writable_quota_bytes\x18\a \x01(\x04R\x12writableQuotaBytes\"\x9c\x01\n" +
 	"\x10EnvironmentOwner\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.agentvmm.host.v1.EnvironmentOwnerKindR\x04kind\x12'\n" +
 	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12#\n" +
@@ -16701,7 +16846,7 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x1fListRemoteRegistrationsResponse\x12J\n" +
 	"\rregistrations\x18\x01 \x03(\v2$.agentvmm.host.v1.RemoteRegistrationR\rregistrations\"f\n" +
 	"\x1aRemoteRegistrationResponse\x12H\n" +
-	"\fregistration\x18\x01 \x01(\v2$.agentvmm.host.v1.RemoteRegistrationR\fregistration\"\x86\x03\n" +
+	"\fregistration\x18\x01 \x01(\v2$.agentvmm.host.v1.RemoteRegistrationR\fregistration\"\xf0\x03\n" +
 	"\x10RemoteAllocation\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12#\n" +
 	"\rdisplay_label\x18\x02 \x01(\tR\fdisplayLabel\x128\n" +
@@ -16711,7 +16856,12 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\brevision\x18\x05 \x01(\x04R\brevision\x127\n" +
 	"\x05state\x18\x06 \x01(\x0e2!.agentvmm.host.v1.AllocationStateR\x05state\x123\n" +
 	"\x05lease\x18\a \x01(\v2\x1d.agentvmm.host.v1.RemoteLeaseR\x05lease\x12%\n" +
-	"\x0eenvironment_id\x18\b \x01(\tR\renvironmentId\"\xff\x01\n" +
+	"\x0eenvironment_id\x18\b \x01(\tR\renvironmentId\x12\x1e\n" +
+	"\n" +
+	"generation\x18\t \x01(\x04R\n" +
+	"generation\x12H\n" +
+	"\fresources_v2\x18\n" +
+	" \x01(\v2%.agentvmm.host.v1.WorkloadResourcesV2R\vresourcesV2\"\xff\x01\n" +
 	"\vRemoteLease\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12#\n" +
 	"\rallocation_id\x18\x02 \x01(\tR\fallocationId\x12!\n" +
@@ -16747,7 +16897,7 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x1cReportConnectorStatusRequest\x12/\n" +
 	"\x13connection_instance\x18\x01 \x01(\tR\x12connectionInstance\x129\n" +
 	"\x06status\x18\x02 \x01(\v2!.agentvmm.host.v1.ConnectorStatusR\x06status\x12'\n" +
-	"\x0fregistration_id\x18\x03 \x01(\tR\x0eregistrationId\"\xdf\x02\n" +
+	"\x0fregistration_id\x18\x03 \x01(\tR\x0eregistrationId\"\xc9\x03\n" +
 	"\x17EnsureAllocationRequest\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12#\n" +
 	"\rdisplay_label\x18\x02 \x01(\tR\fdisplayLabel\x128\n" +
@@ -16756,16 +16906,21 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"egressMode\x12'\n" +
 	"\x0fpolicy_revision\x18\x05 \x01(\x04R\x0epolicyRevision\x12/\n" +
 	"\x13connection_instance\x18\x06 \x01(\tR\x12connectionInstance\x12'\n" +
-	"\x0fregistration_id\x18\a \x01(\tR\x0eregistrationId\"X\n" +
+	"\x0fregistration_id\x18\a \x01(\tR\x0eregistrationId\x12\x1e\n" +
+	"\n" +
+	"generation\x18\b \x01(\x04R\n" +
+	"generation\x12H\n" +
+	"\fresources_v2\x18\t \x01(\v2%.agentvmm.host.v1.WorkloadResourcesV2R\vresourcesV2\"X\n" +
 	"\x12AllocationResponse\x12B\n" +
 	"\n" +
 	"allocation\x18\x01 \x01(\v2\".agentvmm.host.v1.RemoteAllocationR\n" +
-	"allocation\"\xd3\x01\n" +
+	"allocation\"\x84\x02\n" +
 	"\x18ReleaseAllocationRequest\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x128\n" +
 	"\x18expected_policy_revision\x18\x02 \x01(\x04R\x16expectedPolicyRevision\x12'\n" +
 	"\x0fregistration_id\x18\x03 \x01(\tR\x0eregistrationId\x12/\n" +
-	"\x13connection_instance\x18\x04 \x01(\tR\x12connectionInstance\"\xd0\x01\n" +
+	"\x13connection_instance\x18\x04 \x01(\tR\x12connectionInstance\x12/\n" +
+	"\x13expected_generation\x18\x05 \x01(\x04R\x12expectedGeneration\"\xd0\x01\n" +
 	"\x1cPlanCleanupAllocationRequest\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12'\n" +
 	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12/\n" +
@@ -17118,7 +17273,7 @@ func file_host_v1_host_proto_rawDescGZIP() []byte {
 }
 
 var file_host_v1_host_proto_enumTypes = make([]protoimpl.EnumInfo, 28)
-var file_host_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 211)
+var file_host_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 212)
 var file_host_v1_host_proto_goTypes = []any{
 	(DeviceIdentityState)(0),                          // 0: agentvmm.host.v1.DeviceIdentityState
 	(ServiceListenerExposure)(0),                      // 1: agentvmm.host.v1.ServiceListenerExposure
@@ -17212,194 +17367,195 @@ var file_host_v1_host_proto_goTypes = []any{
 	(*StopVMRequest)(nil),                             // 89: agentvmm.host.v1.StopVMRequest
 	(*VMResponse)(nil),                                // 90: agentvmm.host.v1.VMResponse
 	(*ResourceLimits)(nil),                            // 91: agentvmm.host.v1.ResourceLimits
-	(*EnvironmentOwner)(nil),                          // 92: agentvmm.host.v1.EnvironmentOwner
-	(*AgentEnvironment)(nil),                          // 93: agentvmm.host.v1.AgentEnvironment
-	(*CreateAgentSessionRequest)(nil),                 // 94: agentvmm.host.v1.CreateAgentSessionRequest
-	(*CreateAgentSessionResponse)(nil),                // 95: agentvmm.host.v1.CreateAgentSessionResponse
-	(*RevokeAgentSessionRequest)(nil),                 // 96: agentvmm.host.v1.RevokeAgentSessionRequest
-	(*AgentIntegration)(nil),                          // 97: agentvmm.host.v1.AgentIntegration
-	(*ListAgentIntegrationsRequest)(nil),              // 98: agentvmm.host.v1.ListAgentIntegrationsRequest
-	(*ListAgentIntegrationsResponse)(nil),             // 99: agentvmm.host.v1.ListAgentIntegrationsResponse
-	(*PrepareAgentIntegrationRequest)(nil),            // 100: agentvmm.host.v1.PrepareAgentIntegrationRequest
-	(*BeginAgentIntegrationConfigurationRequest)(nil), // 101: agentvmm.host.v1.BeginAgentIntegrationConfigurationRequest
-	(*CommitAgentIntegrationRequest)(nil),             // 102: agentvmm.host.v1.CommitAgentIntegrationRequest
-	(*FailAgentIntegrationRequest)(nil),               // 103: agentvmm.host.v1.FailAgentIntegrationRequest
-	(*BeginAgentIntegrationRemovalRequest)(nil),       // 104: agentvmm.host.v1.BeginAgentIntegrationRemovalRequest
-	(*CompleteAgentIntegrationRemovalRequest)(nil),    // 105: agentvmm.host.v1.CompleteAgentIntegrationRemovalRequest
-	(*AgentIntegrationResponse)(nil),                  // 106: agentvmm.host.v1.AgentIntegrationResponse
-	(*AgentSession)(nil),                              // 107: agentvmm.host.v1.AgentSession
-	(*ListAgentSessionsRequest)(nil),                  // 108: agentvmm.host.v1.ListAgentSessionsRequest
-	(*ListAgentSessionsResponse)(nil),                 // 109: agentvmm.host.v1.ListAgentSessionsResponse
-	(*RevokeAgentSessionsRequest)(nil),                // 110: agentvmm.host.v1.RevokeAgentSessionsRequest
-	(*ReleaseSessionRequest)(nil),                     // 111: agentvmm.host.v1.ReleaseSessionRequest
-	(*GetOwnEnvironmentRequest)(nil),                  // 112: agentvmm.host.v1.GetOwnEnvironmentRequest
-	(*GetEnvironmentRequest)(nil),                     // 113: agentvmm.host.v1.GetEnvironmentRequest
-	(*GetEnvironmentResponse)(nil),                    // 114: agentvmm.host.v1.GetEnvironmentResponse
-	(*ListEnvironmentsRequest)(nil),                   // 115: agentvmm.host.v1.ListEnvironmentsRequest
-	(*ListEnvironmentsResponse)(nil),                  // 116: agentvmm.host.v1.ListEnvironmentsResponse
-	(*VolumeMount)(nil),                               // 117: agentvmm.host.v1.VolumeMount
-	(*Container)(nil),                                 // 118: agentvmm.host.v1.Container
-	(*StringList)(nil),                                // 119: agentvmm.host.v1.StringList
-	(*CreateContainerRequest)(nil),                    // 120: agentvmm.host.v1.CreateContainerRequest
-	(*ContainerRequest)(nil),                          // 121: agentvmm.host.v1.ContainerRequest
-	(*ContainerMutationRequest)(nil),                  // 122: agentvmm.host.v1.ContainerMutationRequest
-	(*StopContainerRequest)(nil),                      // 123: agentvmm.host.v1.StopContainerRequest
-	(*ContainerResponse)(nil),                         // 124: agentvmm.host.v1.ContainerResponse
-	(*WaitContainerResponse)(nil),                     // 125: agentvmm.host.v1.WaitContainerResponse
-	(*ListContainersRequest)(nil),                     // 126: agentvmm.host.v1.ListContainersRequest
-	(*ListContainersResponse)(nil),                    // 127: agentvmm.host.v1.ListContainersResponse
-	(*PullImageRequest)(nil),                          // 128: agentvmm.host.v1.PullImageRequest
-	(*PullImageResponse)(nil),                         // 129: agentvmm.host.v1.PullImageResponse
-	(*ImportImageHeader)(nil),                         // 130: agentvmm.host.v1.ImportImageHeader
-	(*ImportImageRequest)(nil),                        // 131: agentvmm.host.v1.ImportImageRequest
-	(*Image)(nil),                                     // 132: agentvmm.host.v1.Image
-	(*ListImagesRequest)(nil),                         // 133: agentvmm.host.v1.ListImagesRequest
-	(*ListEnvironmentImagesRequest)(nil),              // 134: agentvmm.host.v1.ListEnvironmentImagesRequest
-	(*ListImagesResponse)(nil),                        // 135: agentvmm.host.v1.ListImagesResponse
-	(*DeleteImageRequest)(nil),                        // 136: agentvmm.host.v1.DeleteImageRequest
-	(*DeleteEnvironmentImageRequest)(nil),             // 137: agentvmm.host.v1.DeleteEnvironmentImageRequest
-	(*LogsRequest)(nil),                               // 138: agentvmm.host.v1.LogsRequest
-	(*OperatorLogsRequest)(nil),                       // 139: agentvmm.host.v1.OperatorLogsRequest
-	(*LogRecord)(nil),                                 // 140: agentvmm.host.v1.LogRecord
-	(*SignalContainerRequest)(nil),                    // 141: agentvmm.host.v1.SignalContainerRequest
-	(*ExecStart)(nil),                                 // 142: agentvmm.host.v1.ExecStart
-	(*ExecResize)(nil),                                // 143: agentvmm.host.v1.ExecResize
-	(*ExecRequest)(nil),                               // 144: agentvmm.host.v1.ExecRequest
-	(*ExecResponse)(nil),                              // 145: agentvmm.host.v1.ExecResponse
-	(*Volume)(nil),                                    // 146: agentvmm.host.v1.Volume
-	(*CreateVolumeRequest)(nil),                       // 147: agentvmm.host.v1.CreateVolumeRequest
-	(*DeleteVolumeRequest)(nil),                       // 148: agentvmm.host.v1.DeleteVolumeRequest
-	(*VolumeRequest)(nil),                             // 149: agentvmm.host.v1.VolumeRequest
-	(*VolumeResponse)(nil),                            // 150: agentvmm.host.v1.VolumeResponse
-	(*ListVolumesRequest)(nil),                        // 151: agentvmm.host.v1.ListVolumesRequest
-	(*ListVolumesResponse)(nil),                       // 152: agentvmm.host.v1.ListVolumesResponse
-	(*ForwardTCPHeader)(nil),                          // 153: agentvmm.host.v1.ForwardTCPHeader
-	(*ForwardTCPRequest)(nil),                         // 154: agentvmm.host.v1.ForwardTCPRequest
-	(*ForwardTCPResponse)(nil),                        // 155: agentvmm.host.v1.ForwardTCPResponse
-	(*BuildArgument)(nil),                             // 156: agentvmm.host.v1.BuildArgument
-	(*BuildSecret)(nil),                               // 157: agentvmm.host.v1.BuildSecret
-	(*BuildImageHeader)(nil),                          // 158: agentvmm.host.v1.BuildImageHeader
-	(*BuildContextChunk)(nil),                         // 159: agentvmm.host.v1.BuildContextChunk
-	(*BuildSecretChunk)(nil),                          // 160: agentvmm.host.v1.BuildSecretChunk
-	(*BuildImageRequest)(nil),                         // 161: agentvmm.host.v1.BuildImageRequest
-	(*BuildImageResult)(nil),                          // 162: agentvmm.host.v1.BuildImageResult
-	(*BuildImageResponse)(nil),                        // 163: agentvmm.host.v1.BuildImageResponse
-	(*ComponentHealth)(nil),                           // 164: agentvmm.host.v1.ComponentHealth
-	(*HealthStatus)(nil),                              // 165: agentvmm.host.v1.HealthStatus
-	(*Usage)(nil),                                     // 166: agentvmm.host.v1.Usage
-	(*GetSystemSnapshotRequest)(nil),                  // 167: agentvmm.host.v1.GetSystemSnapshotRequest
-	(*GetSystemSnapshotResponse)(nil),                 // 168: agentvmm.host.v1.GetSystemSnapshotResponse
-	(*WatchEventsRequest)(nil),                        // 169: agentvmm.host.v1.WatchEventsRequest
-	(*ResourceReference)(nil),                         // 170: agentvmm.host.v1.ResourceReference
-	(*RuntimeEvent)(nil),                              // 171: agentvmm.host.v1.RuntimeEvent
-	(*WatchMetricsRequest)(nil),                       // 172: agentvmm.host.v1.WatchMetricsRequest
-	(*MetricsSample)(nil),                             // 173: agentvmm.host.v1.MetricsSample
-	(*UpdateEnvironmentPolicyRequest)(nil),            // 174: agentvmm.host.v1.UpdateEnvironmentPolicyRequest
-	(*OperatorContainerMutationRequest)(nil),          // 175: agentvmm.host.v1.OperatorContainerMutationRequest
-	(*OperatorStopContainerRequest)(nil),              // 176: agentvmm.host.v1.OperatorStopContainerRequest
-	(*OperatorSignalContainerRequest)(nil),            // 177: agentvmm.host.v1.OperatorSignalContainerRequest
-	(*OperatorDeleteContainerRequest)(nil),            // 178: agentvmm.host.v1.OperatorDeleteContainerRequest
-	(*ContainerIDList)(nil),                           // 179: agentvmm.host.v1.ContainerIDList
-	(*ContainerSelector)(nil),                         // 180: agentvmm.host.v1.ContainerSelector
-	(*NetworkLink)(nil),                               // 181: agentvmm.host.v1.NetworkLink
-	(*ApplyNetworkLinkRequest)(nil),                   // 182: agentvmm.host.v1.ApplyNetworkLinkRequest
-	(*DeleteNetworkLinkRequest)(nil),                  // 183: agentvmm.host.v1.DeleteNetworkLinkRequest
-	(*PlanEnvironmentRequest)(nil),                    // 184: agentvmm.host.v1.PlanEnvironmentRequest
-	(*CleanupImpact)(nil),                             // 185: agentvmm.host.v1.CleanupImpact
-	(*CleanupPlan)(nil),                               // 186: agentvmm.host.v1.CleanupPlan
-	(*CleanupPlanResponse)(nil),                       // 187: agentvmm.host.v1.CleanupPlanResponse
-	(*ExecuteCleanupRequest)(nil),                     // 188: agentvmm.host.v1.ExecuteCleanupRequest
-	(*EnvironmentOperationRequest)(nil),               // 189: agentvmm.host.v1.EnvironmentOperationRequest
-	(*OperationError)(nil),                            // 190: agentvmm.host.v1.OperationError
-	(*Operation)(nil),                                 // 191: agentvmm.host.v1.Operation
-	(*OperationResponse)(nil),                         // 192: agentvmm.host.v1.OperationResponse
-	(*GetOperationRequest)(nil),                       // 193: agentvmm.host.v1.GetOperationRequest
-	(*RunDiagnosticsRequest)(nil),                     // 194: agentvmm.host.v1.RunDiagnosticsRequest
-	(*PreviewSupportBundleRequest)(nil),               // 195: agentvmm.host.v1.PreviewSupportBundleRequest
-	(*SupportBundleItem)(nil),                         // 196: agentvmm.host.v1.SupportBundleItem
-	(*SupportBundlePreview)(nil),                      // 197: agentvmm.host.v1.SupportBundlePreview
-	(*ExportSupportBundleRequest)(nil),                // 198: agentvmm.host.v1.ExportSupportBundleRequest
-	(*ConnectorStatus)(nil),                           // 199: agentvmm.host.v1.ConnectorStatus
-	(*ControllerDomainMetrics)(nil),                   // 200: agentvmm.host.v1.ControllerDomainMetrics
-	(*RemotePoolPolicy)(nil),                          // 201: agentvmm.host.v1.RemotePoolPolicy
-	(*RemoteRegistration)(nil),                        // 202: agentvmm.host.v1.RemoteRegistration
-	(*BeginRemoteEnrollmentRequest)(nil),              // 203: agentvmm.host.v1.BeginRemoteEnrollmentRequest
-	(*ApplyManagedRemoteEnrollmentRequest)(nil),       // 204: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
-	(*CompleteRemoteEnrollmentRequest)(nil),           // 205: agentvmm.host.v1.CompleteRemoteEnrollmentRequest
-	(*FailRemoteEnrollmentRequest)(nil),               // 206: agentvmm.host.v1.FailRemoteEnrollmentRequest
-	(*RetryRemoteEnrollmentRequest)(nil),              // 207: agentvmm.host.v1.RetryRemoteEnrollmentRequest
-	(*RemoveIncompleteRemoteRegistrationRequest)(nil), // 208: agentvmm.host.v1.RemoveIncompleteRemoteRegistrationRequest
-	(*BeginRemoteRevocationRequest)(nil),              // 209: agentvmm.host.v1.BeginRemoteRevocationRequest
-	(*CompleteRemoteRevocationRequest)(nil),           // 210: agentvmm.host.v1.CompleteRemoteRevocationRequest
-	(*UpdateRemotePoolRequest)(nil),                   // 211: agentvmm.host.v1.UpdateRemotePoolRequest
-	(*SetRemoteRegistrationStateRequest)(nil),         // 212: agentvmm.host.v1.SetRemoteRegistrationStateRequest
-	(*GetRemoteRegistrationRequest)(nil),              // 213: agentvmm.host.v1.GetRemoteRegistrationRequest
-	(*ListRemoteRegistrationsRequest)(nil),            // 214: agentvmm.host.v1.ListRemoteRegistrationsRequest
-	(*ListRemoteRegistrationsResponse)(nil),           // 215: agentvmm.host.v1.ListRemoteRegistrationsResponse
-	(*RemoteRegistrationResponse)(nil),                // 216: agentvmm.host.v1.RemoteRegistrationResponse
-	(*RemoteAllocation)(nil),                          // 217: agentvmm.host.v1.RemoteAllocation
-	(*RemoteLease)(nil),                               // 218: agentvmm.host.v1.RemoteLease
-	(*GetRemoteStateRequest)(nil),                     // 219: agentvmm.host.v1.GetRemoteStateRequest
-	(*GetRemoteStateResponse)(nil),                    // 220: agentvmm.host.v1.GetRemoteStateResponse
-	(*GetRemoteObservationRequest)(nil),               // 221: agentvmm.host.v1.GetRemoteObservationRequest
-	(*GetRemoteObservationResponse)(nil),              // 222: agentvmm.host.v1.GetRemoteObservationResponse
-	(*SetConnectionStateRequest)(nil),                 // 223: agentvmm.host.v1.SetConnectionStateRequest
-	(*SetRemoteAdmissionStateRequest)(nil),            // 224: agentvmm.host.v1.SetRemoteAdmissionStateRequest
-	(*ReportConnectorStatusRequest)(nil),              // 225: agentvmm.host.v1.ReportConnectorStatusRequest
-	(*EnsureAllocationRequest)(nil),                   // 226: agentvmm.host.v1.EnsureAllocationRequest
-	(*AllocationResponse)(nil),                        // 227: agentvmm.host.v1.AllocationResponse
-	(*ReleaseAllocationRequest)(nil),                  // 228: agentvmm.host.v1.ReleaseAllocationRequest
-	(*PlanCleanupAllocationRequest)(nil),              // 229: agentvmm.host.v1.PlanCleanupAllocationRequest
-	(*AllocationCleanupPlan)(nil),                     // 230: agentvmm.host.v1.AllocationCleanupPlan
-	(*AllocationCleanupPlanResponse)(nil),             // 231: agentvmm.host.v1.AllocationCleanupPlanResponse
-	(*ExecuteCleanupAllocationRequest)(nil),           // 232: agentvmm.host.v1.ExecuteCleanupAllocationRequest
-	(*AcquireLeaseRequest)(nil),                       // 233: agentvmm.host.v1.AcquireLeaseRequest
-	(*RenewLeaseRequest)(nil),                         // 234: agentvmm.host.v1.RenewLeaseRequest
-	(*ReleaseLeaseRequest)(nil),                       // 235: agentvmm.host.v1.ReleaseLeaseRequest
-	(*LeaseResponse)(nil),                             // 236: agentvmm.host.v1.LeaseResponse
-	(*OpenRuntimeSessionRequest)(nil),                 // 237: agentvmm.host.v1.OpenRuntimeSessionRequest
-	(*RevokeRuntimeSessionRequest)(nil),               // 238: agentvmm.host.v1.RevokeRuntimeSessionRequest
-	(*v1.DeviceIdentity)(nil),                         // 239: agentvmm.trust.v1.DeviceIdentity
-	(*v1.DeviceRootRotation)(nil),                     // 240: agentvmm.trust.v1.DeviceRootRotation
-	(*v1.RouteBudget)(nil),                            // 241: agentvmm.trust.v1.RouteBudget
-	(*timestamppb.Timestamp)(nil),                     // 242: google.protobuf.Timestamp
-	(*v1.PersonalMeshDescriptor)(nil),                 // 243: agentvmm.trust.v1.PersonalMeshDescriptor
-	(*v1.MeshSnapshot)(nil),                           // 244: agentvmm.trust.v1.MeshSnapshot
-	(*v1.RegistryOperation)(nil),                      // 245: agentvmm.trust.v1.RegistryOperation
-	(v1.MeshPermission)(0),                            // 246: agentvmm.trust.v1.MeshPermission
-	(*durationpb.Duration)(nil),                       // 247: google.protobuf.Duration
-	(v11.ServiceProtocol)(0),                          // 248: agentvmm.service.v1.ServiceProtocol
-	(*v1.RouteCapability)(nil),                        // 249: agentvmm.trust.v1.RouteCapability
-	(*v11.ServiceImport)(nil),                         // 250: agentvmm.service.v1.ServiceImport
-	(*emptypb.Empty)(nil),                             // 251: google.protobuf.Empty
-	(*v11.ServiceExport)(nil),                         // 252: agentvmm.service.v1.ServiceExport
-	(*v11.ListServiceExportsResponse)(nil),            // 253: agentvmm.service.v1.ListServiceExportsResponse
+	(*WorkloadResourcesV2)(nil),                       // 92: agentvmm.host.v1.WorkloadResourcesV2
+	(*EnvironmentOwner)(nil),                          // 93: agentvmm.host.v1.EnvironmentOwner
+	(*AgentEnvironment)(nil),                          // 94: agentvmm.host.v1.AgentEnvironment
+	(*CreateAgentSessionRequest)(nil),                 // 95: agentvmm.host.v1.CreateAgentSessionRequest
+	(*CreateAgentSessionResponse)(nil),                // 96: agentvmm.host.v1.CreateAgentSessionResponse
+	(*RevokeAgentSessionRequest)(nil),                 // 97: agentvmm.host.v1.RevokeAgentSessionRequest
+	(*AgentIntegration)(nil),                          // 98: agentvmm.host.v1.AgentIntegration
+	(*ListAgentIntegrationsRequest)(nil),              // 99: agentvmm.host.v1.ListAgentIntegrationsRequest
+	(*ListAgentIntegrationsResponse)(nil),             // 100: agentvmm.host.v1.ListAgentIntegrationsResponse
+	(*PrepareAgentIntegrationRequest)(nil),            // 101: agentvmm.host.v1.PrepareAgentIntegrationRequest
+	(*BeginAgentIntegrationConfigurationRequest)(nil), // 102: agentvmm.host.v1.BeginAgentIntegrationConfigurationRequest
+	(*CommitAgentIntegrationRequest)(nil),             // 103: agentvmm.host.v1.CommitAgentIntegrationRequest
+	(*FailAgentIntegrationRequest)(nil),               // 104: agentvmm.host.v1.FailAgentIntegrationRequest
+	(*BeginAgentIntegrationRemovalRequest)(nil),       // 105: agentvmm.host.v1.BeginAgentIntegrationRemovalRequest
+	(*CompleteAgentIntegrationRemovalRequest)(nil),    // 106: agentvmm.host.v1.CompleteAgentIntegrationRemovalRequest
+	(*AgentIntegrationResponse)(nil),                  // 107: agentvmm.host.v1.AgentIntegrationResponse
+	(*AgentSession)(nil),                              // 108: agentvmm.host.v1.AgentSession
+	(*ListAgentSessionsRequest)(nil),                  // 109: agentvmm.host.v1.ListAgentSessionsRequest
+	(*ListAgentSessionsResponse)(nil),                 // 110: agentvmm.host.v1.ListAgentSessionsResponse
+	(*RevokeAgentSessionsRequest)(nil),                // 111: agentvmm.host.v1.RevokeAgentSessionsRequest
+	(*ReleaseSessionRequest)(nil),                     // 112: agentvmm.host.v1.ReleaseSessionRequest
+	(*GetOwnEnvironmentRequest)(nil),                  // 113: agentvmm.host.v1.GetOwnEnvironmentRequest
+	(*GetEnvironmentRequest)(nil),                     // 114: agentvmm.host.v1.GetEnvironmentRequest
+	(*GetEnvironmentResponse)(nil),                    // 115: agentvmm.host.v1.GetEnvironmentResponse
+	(*ListEnvironmentsRequest)(nil),                   // 116: agentvmm.host.v1.ListEnvironmentsRequest
+	(*ListEnvironmentsResponse)(nil),                  // 117: agentvmm.host.v1.ListEnvironmentsResponse
+	(*VolumeMount)(nil),                               // 118: agentvmm.host.v1.VolumeMount
+	(*Container)(nil),                                 // 119: agentvmm.host.v1.Container
+	(*StringList)(nil),                                // 120: agentvmm.host.v1.StringList
+	(*CreateContainerRequest)(nil),                    // 121: agentvmm.host.v1.CreateContainerRequest
+	(*ContainerRequest)(nil),                          // 122: agentvmm.host.v1.ContainerRequest
+	(*ContainerMutationRequest)(nil),                  // 123: agentvmm.host.v1.ContainerMutationRequest
+	(*StopContainerRequest)(nil),                      // 124: agentvmm.host.v1.StopContainerRequest
+	(*ContainerResponse)(nil),                         // 125: agentvmm.host.v1.ContainerResponse
+	(*WaitContainerResponse)(nil),                     // 126: agentvmm.host.v1.WaitContainerResponse
+	(*ListContainersRequest)(nil),                     // 127: agentvmm.host.v1.ListContainersRequest
+	(*ListContainersResponse)(nil),                    // 128: agentvmm.host.v1.ListContainersResponse
+	(*PullImageRequest)(nil),                          // 129: agentvmm.host.v1.PullImageRequest
+	(*PullImageResponse)(nil),                         // 130: agentvmm.host.v1.PullImageResponse
+	(*ImportImageHeader)(nil),                         // 131: agentvmm.host.v1.ImportImageHeader
+	(*ImportImageRequest)(nil),                        // 132: agentvmm.host.v1.ImportImageRequest
+	(*Image)(nil),                                     // 133: agentvmm.host.v1.Image
+	(*ListImagesRequest)(nil),                         // 134: agentvmm.host.v1.ListImagesRequest
+	(*ListEnvironmentImagesRequest)(nil),              // 135: agentvmm.host.v1.ListEnvironmentImagesRequest
+	(*ListImagesResponse)(nil),                        // 136: agentvmm.host.v1.ListImagesResponse
+	(*DeleteImageRequest)(nil),                        // 137: agentvmm.host.v1.DeleteImageRequest
+	(*DeleteEnvironmentImageRequest)(nil),             // 138: agentvmm.host.v1.DeleteEnvironmentImageRequest
+	(*LogsRequest)(nil),                               // 139: agentvmm.host.v1.LogsRequest
+	(*OperatorLogsRequest)(nil),                       // 140: agentvmm.host.v1.OperatorLogsRequest
+	(*LogRecord)(nil),                                 // 141: agentvmm.host.v1.LogRecord
+	(*SignalContainerRequest)(nil),                    // 142: agentvmm.host.v1.SignalContainerRequest
+	(*ExecStart)(nil),                                 // 143: agentvmm.host.v1.ExecStart
+	(*ExecResize)(nil),                                // 144: agentvmm.host.v1.ExecResize
+	(*ExecRequest)(nil),                               // 145: agentvmm.host.v1.ExecRequest
+	(*ExecResponse)(nil),                              // 146: agentvmm.host.v1.ExecResponse
+	(*Volume)(nil),                                    // 147: agentvmm.host.v1.Volume
+	(*CreateVolumeRequest)(nil),                       // 148: agentvmm.host.v1.CreateVolumeRequest
+	(*DeleteVolumeRequest)(nil),                       // 149: agentvmm.host.v1.DeleteVolumeRequest
+	(*VolumeRequest)(nil),                             // 150: agentvmm.host.v1.VolumeRequest
+	(*VolumeResponse)(nil),                            // 151: agentvmm.host.v1.VolumeResponse
+	(*ListVolumesRequest)(nil),                        // 152: agentvmm.host.v1.ListVolumesRequest
+	(*ListVolumesResponse)(nil),                       // 153: agentvmm.host.v1.ListVolumesResponse
+	(*ForwardTCPHeader)(nil),                          // 154: agentvmm.host.v1.ForwardTCPHeader
+	(*ForwardTCPRequest)(nil),                         // 155: agentvmm.host.v1.ForwardTCPRequest
+	(*ForwardTCPResponse)(nil),                        // 156: agentvmm.host.v1.ForwardTCPResponse
+	(*BuildArgument)(nil),                             // 157: agentvmm.host.v1.BuildArgument
+	(*BuildSecret)(nil),                               // 158: agentvmm.host.v1.BuildSecret
+	(*BuildImageHeader)(nil),                          // 159: agentvmm.host.v1.BuildImageHeader
+	(*BuildContextChunk)(nil),                         // 160: agentvmm.host.v1.BuildContextChunk
+	(*BuildSecretChunk)(nil),                          // 161: agentvmm.host.v1.BuildSecretChunk
+	(*BuildImageRequest)(nil),                         // 162: agentvmm.host.v1.BuildImageRequest
+	(*BuildImageResult)(nil),                          // 163: agentvmm.host.v1.BuildImageResult
+	(*BuildImageResponse)(nil),                        // 164: agentvmm.host.v1.BuildImageResponse
+	(*ComponentHealth)(nil),                           // 165: agentvmm.host.v1.ComponentHealth
+	(*HealthStatus)(nil),                              // 166: agentvmm.host.v1.HealthStatus
+	(*Usage)(nil),                                     // 167: agentvmm.host.v1.Usage
+	(*GetSystemSnapshotRequest)(nil),                  // 168: agentvmm.host.v1.GetSystemSnapshotRequest
+	(*GetSystemSnapshotResponse)(nil),                 // 169: agentvmm.host.v1.GetSystemSnapshotResponse
+	(*WatchEventsRequest)(nil),                        // 170: agentvmm.host.v1.WatchEventsRequest
+	(*ResourceReference)(nil),                         // 171: agentvmm.host.v1.ResourceReference
+	(*RuntimeEvent)(nil),                              // 172: agentvmm.host.v1.RuntimeEvent
+	(*WatchMetricsRequest)(nil),                       // 173: agentvmm.host.v1.WatchMetricsRequest
+	(*MetricsSample)(nil),                             // 174: agentvmm.host.v1.MetricsSample
+	(*UpdateEnvironmentPolicyRequest)(nil),            // 175: agentvmm.host.v1.UpdateEnvironmentPolicyRequest
+	(*OperatorContainerMutationRequest)(nil),          // 176: agentvmm.host.v1.OperatorContainerMutationRequest
+	(*OperatorStopContainerRequest)(nil),              // 177: agentvmm.host.v1.OperatorStopContainerRequest
+	(*OperatorSignalContainerRequest)(nil),            // 178: agentvmm.host.v1.OperatorSignalContainerRequest
+	(*OperatorDeleteContainerRequest)(nil),            // 179: agentvmm.host.v1.OperatorDeleteContainerRequest
+	(*ContainerIDList)(nil),                           // 180: agentvmm.host.v1.ContainerIDList
+	(*ContainerSelector)(nil),                         // 181: agentvmm.host.v1.ContainerSelector
+	(*NetworkLink)(nil),                               // 182: agentvmm.host.v1.NetworkLink
+	(*ApplyNetworkLinkRequest)(nil),                   // 183: agentvmm.host.v1.ApplyNetworkLinkRequest
+	(*DeleteNetworkLinkRequest)(nil),                  // 184: agentvmm.host.v1.DeleteNetworkLinkRequest
+	(*PlanEnvironmentRequest)(nil),                    // 185: agentvmm.host.v1.PlanEnvironmentRequest
+	(*CleanupImpact)(nil),                             // 186: agentvmm.host.v1.CleanupImpact
+	(*CleanupPlan)(nil),                               // 187: agentvmm.host.v1.CleanupPlan
+	(*CleanupPlanResponse)(nil),                       // 188: agentvmm.host.v1.CleanupPlanResponse
+	(*ExecuteCleanupRequest)(nil),                     // 189: agentvmm.host.v1.ExecuteCleanupRequest
+	(*EnvironmentOperationRequest)(nil),               // 190: agentvmm.host.v1.EnvironmentOperationRequest
+	(*OperationError)(nil),                            // 191: agentvmm.host.v1.OperationError
+	(*Operation)(nil),                                 // 192: agentvmm.host.v1.Operation
+	(*OperationResponse)(nil),                         // 193: agentvmm.host.v1.OperationResponse
+	(*GetOperationRequest)(nil),                       // 194: agentvmm.host.v1.GetOperationRequest
+	(*RunDiagnosticsRequest)(nil),                     // 195: agentvmm.host.v1.RunDiagnosticsRequest
+	(*PreviewSupportBundleRequest)(nil),               // 196: agentvmm.host.v1.PreviewSupportBundleRequest
+	(*SupportBundleItem)(nil),                         // 197: agentvmm.host.v1.SupportBundleItem
+	(*SupportBundlePreview)(nil),                      // 198: agentvmm.host.v1.SupportBundlePreview
+	(*ExportSupportBundleRequest)(nil),                // 199: agentvmm.host.v1.ExportSupportBundleRequest
+	(*ConnectorStatus)(nil),                           // 200: agentvmm.host.v1.ConnectorStatus
+	(*ControllerDomainMetrics)(nil),                   // 201: agentvmm.host.v1.ControllerDomainMetrics
+	(*RemotePoolPolicy)(nil),                          // 202: agentvmm.host.v1.RemotePoolPolicy
+	(*RemoteRegistration)(nil),                        // 203: agentvmm.host.v1.RemoteRegistration
+	(*BeginRemoteEnrollmentRequest)(nil),              // 204: agentvmm.host.v1.BeginRemoteEnrollmentRequest
+	(*ApplyManagedRemoteEnrollmentRequest)(nil),       // 205: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
+	(*CompleteRemoteEnrollmentRequest)(nil),           // 206: agentvmm.host.v1.CompleteRemoteEnrollmentRequest
+	(*FailRemoteEnrollmentRequest)(nil),               // 207: agentvmm.host.v1.FailRemoteEnrollmentRequest
+	(*RetryRemoteEnrollmentRequest)(nil),              // 208: agentvmm.host.v1.RetryRemoteEnrollmentRequest
+	(*RemoveIncompleteRemoteRegistrationRequest)(nil), // 209: agentvmm.host.v1.RemoveIncompleteRemoteRegistrationRequest
+	(*BeginRemoteRevocationRequest)(nil),              // 210: agentvmm.host.v1.BeginRemoteRevocationRequest
+	(*CompleteRemoteRevocationRequest)(nil),           // 211: agentvmm.host.v1.CompleteRemoteRevocationRequest
+	(*UpdateRemotePoolRequest)(nil),                   // 212: agentvmm.host.v1.UpdateRemotePoolRequest
+	(*SetRemoteRegistrationStateRequest)(nil),         // 213: agentvmm.host.v1.SetRemoteRegistrationStateRequest
+	(*GetRemoteRegistrationRequest)(nil),              // 214: agentvmm.host.v1.GetRemoteRegistrationRequest
+	(*ListRemoteRegistrationsRequest)(nil),            // 215: agentvmm.host.v1.ListRemoteRegistrationsRequest
+	(*ListRemoteRegistrationsResponse)(nil),           // 216: agentvmm.host.v1.ListRemoteRegistrationsResponse
+	(*RemoteRegistrationResponse)(nil),                // 217: agentvmm.host.v1.RemoteRegistrationResponse
+	(*RemoteAllocation)(nil),                          // 218: agentvmm.host.v1.RemoteAllocation
+	(*RemoteLease)(nil),                               // 219: agentvmm.host.v1.RemoteLease
+	(*GetRemoteStateRequest)(nil),                     // 220: agentvmm.host.v1.GetRemoteStateRequest
+	(*GetRemoteStateResponse)(nil),                    // 221: agentvmm.host.v1.GetRemoteStateResponse
+	(*GetRemoteObservationRequest)(nil),               // 222: agentvmm.host.v1.GetRemoteObservationRequest
+	(*GetRemoteObservationResponse)(nil),              // 223: agentvmm.host.v1.GetRemoteObservationResponse
+	(*SetConnectionStateRequest)(nil),                 // 224: agentvmm.host.v1.SetConnectionStateRequest
+	(*SetRemoteAdmissionStateRequest)(nil),            // 225: agentvmm.host.v1.SetRemoteAdmissionStateRequest
+	(*ReportConnectorStatusRequest)(nil),              // 226: agentvmm.host.v1.ReportConnectorStatusRequest
+	(*EnsureAllocationRequest)(nil),                   // 227: agentvmm.host.v1.EnsureAllocationRequest
+	(*AllocationResponse)(nil),                        // 228: agentvmm.host.v1.AllocationResponse
+	(*ReleaseAllocationRequest)(nil),                  // 229: agentvmm.host.v1.ReleaseAllocationRequest
+	(*PlanCleanupAllocationRequest)(nil),              // 230: agentvmm.host.v1.PlanCleanupAllocationRequest
+	(*AllocationCleanupPlan)(nil),                     // 231: agentvmm.host.v1.AllocationCleanupPlan
+	(*AllocationCleanupPlanResponse)(nil),             // 232: agentvmm.host.v1.AllocationCleanupPlanResponse
+	(*ExecuteCleanupAllocationRequest)(nil),           // 233: agentvmm.host.v1.ExecuteCleanupAllocationRequest
+	(*AcquireLeaseRequest)(nil),                       // 234: agentvmm.host.v1.AcquireLeaseRequest
+	(*RenewLeaseRequest)(nil),                         // 235: agentvmm.host.v1.RenewLeaseRequest
+	(*ReleaseLeaseRequest)(nil),                       // 236: agentvmm.host.v1.ReleaseLeaseRequest
+	(*LeaseResponse)(nil),                             // 237: agentvmm.host.v1.LeaseResponse
+	(*OpenRuntimeSessionRequest)(nil),                 // 238: agentvmm.host.v1.OpenRuntimeSessionRequest
+	(*RevokeRuntimeSessionRequest)(nil),               // 239: agentvmm.host.v1.RevokeRuntimeSessionRequest
+	(*v1.DeviceIdentity)(nil),                         // 240: agentvmm.trust.v1.DeviceIdentity
+	(*v1.DeviceRootRotation)(nil),                     // 241: agentvmm.trust.v1.DeviceRootRotation
+	(*v1.RouteBudget)(nil),                            // 242: agentvmm.trust.v1.RouteBudget
+	(*timestamppb.Timestamp)(nil),                     // 243: google.protobuf.Timestamp
+	(*v1.PersonalMeshDescriptor)(nil),                 // 244: agentvmm.trust.v1.PersonalMeshDescriptor
+	(*v1.MeshSnapshot)(nil),                           // 245: agentvmm.trust.v1.MeshSnapshot
+	(*v1.RegistryOperation)(nil),                      // 246: agentvmm.trust.v1.RegistryOperation
+	(v1.MeshPermission)(0),                            // 247: agentvmm.trust.v1.MeshPermission
+	(*durationpb.Duration)(nil),                       // 248: google.protobuf.Duration
+	(v11.ServiceProtocol)(0),                          // 249: agentvmm.service.v1.ServiceProtocol
+	(*v1.RouteCapability)(nil),                        // 250: agentvmm.trust.v1.RouteCapability
+	(*v11.ServiceImport)(nil),                         // 251: agentvmm.service.v1.ServiceImport
+	(*emptypb.Empty)(nil),                             // 252: google.protobuf.Empty
+	(*v11.ServiceExport)(nil),                         // 253: agentvmm.service.v1.ServiceExport
+	(*v11.ListServiceExportsResponse)(nil),            // 254: agentvmm.service.v1.ListServiceExportsResponse
 }
 var file_host_v1_host_proto_depIdxs = []int32{
-	239, // 0: agentvmm.host.v1.DeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	240, // 0: agentvmm.host.v1.DeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
 	0,   // 1: agentvmm.host.v1.DeviceIdentityResponse.state:type_name -> agentvmm.host.v1.DeviceIdentityState
-	239, // 2: agentvmm.host.v1.RotateDeviceRootResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	240, // 3: agentvmm.host.v1.RotateDeviceRootResponse.rotation:type_name -> agentvmm.trust.v1.DeviceRootRotation
+	240, // 2: agentvmm.host.v1.RotateDeviceRootResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	241, // 3: agentvmm.host.v1.RotateDeviceRootResponse.rotation:type_name -> agentvmm.trust.v1.DeviceRootRotation
 	41,  // 4: agentvmm.host.v1.ListPersonalMeshesResponse.meshes:type_name -> agentvmm.host.v1.PersonalMeshResponse
 	1,   // 5: agentvmm.host.v1.CreatePersonalServiceListenerRequest.exposure:type_name -> agentvmm.host.v1.ServiceListenerExposure
-	241, // 6: agentvmm.host.v1.CreatePersonalServiceListenerRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
+	242, // 6: agentvmm.host.v1.CreatePersonalServiceListenerRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
 	1,   // 7: agentvmm.host.v1.ServiceListener.exposure:type_name -> agentvmm.host.v1.ServiceListenerExposure
-	242, // 8: agentvmm.host.v1.ServiceListener.expires_at:type_name -> google.protobuf.Timestamp
+	243, // 8: agentvmm.host.v1.ServiceListener.expires_at:type_name -> google.protobuf.Timestamp
 	36,  // 9: agentvmm.host.v1.ServiceListenerResponse.listener:type_name -> agentvmm.host.v1.ServiceListener
 	36,  // 10: agentvmm.host.v1.ListServiceListenersResponse.listeners:type_name -> agentvmm.host.v1.ServiceListener
-	243, // 11: agentvmm.host.v1.PersonalMeshResponse.mesh_descriptor:type_name -> agentvmm.trust.v1.PersonalMeshDescriptor
-	244, // 12: agentvmm.host.v1.PersonalMeshResponse.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
-	245, // 13: agentvmm.host.v1.PersonalMeshResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	244, // 14: agentvmm.host.v1.ApplyPersonalMeshSnapshotRequest.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
-	242, // 15: agentvmm.host.v1.PersonalMeshPairingInvitation.expires_at:type_name -> google.protobuf.Timestamp
+	244, // 11: agentvmm.host.v1.PersonalMeshResponse.mesh_descriptor:type_name -> agentvmm.trust.v1.PersonalMeshDescriptor
+	245, // 12: agentvmm.host.v1.PersonalMeshResponse.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
+	246, // 13: agentvmm.host.v1.PersonalMeshResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	245, // 14: agentvmm.host.v1.ApplyPersonalMeshSnapshotRequest.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
+	243, // 15: agentvmm.host.v1.PersonalMeshPairingInvitation.expires_at:type_name -> google.protobuf.Timestamp
 	44,  // 16: agentvmm.host.v1.JoinPersonalMeshPairingRequest.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	246, // 17: agentvmm.host.v1.JoinPersonalMeshPairingRequest.permissions:type_name -> agentvmm.trust.v1.MeshPermission
+	247, // 17: agentvmm.host.v1.JoinPersonalMeshPairingRequest.permissions:type_name -> agentvmm.trust.v1.MeshPermission
 	44,  // 18: agentvmm.host.v1.PersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	245, // 19: agentvmm.host.v1.PersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	242, // 20: agentvmm.host.v1.HostLoopbackFrontendLease.expires_at:type_name -> google.protobuf.Timestamp
+	246, // 19: agentvmm.host.v1.PersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	243, // 20: agentvmm.host.v1.HostLoopbackFrontendLease.expires_at:type_name -> google.protobuf.Timestamp
 	52,  // 21: agentvmm.host.v1.HostLoopbackFrontendLease.effective_capacity:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
-	247, // 22: agentvmm.host.v1.AcquireHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
-	247, // 23: agentvmm.host.v1.RenewHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
+	248, // 22: agentvmm.host.v1.AcquireHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
+	248, // 23: agentvmm.host.v1.RenewHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
 	52,  // 24: agentvmm.host.v1.HostLoopbackFrontendConnectionHeader.effective_capacity:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
 	27,  // 25: agentvmm.host.v1.HostLoopbackFrontendEvent.kind:type_name -> agentvmm.host.v1.HostLoopbackFrontendEvent.Kind
 	58,  // 26: agentvmm.host.v1.HostFrontendFrame.header:type_name -> agentvmm.host.v1.HostLoopbackFrontendConnectionHeader
@@ -17411,416 +17567,418 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	69,  // 32: agentvmm.host.v1.WriteWorkspaceRequest.header:type_name -> agentvmm.host.v1.WriteWorkspaceHeader
 	64,  // 33: agentvmm.host.v1.WriteWorkspaceResponse.entry:type_name -> agentvmm.host.v1.WorkspaceEntry
 	74,  // 34: agentvmm.host.v1.ExtractWorkspaceRequest.header:type_name -> agentvmm.host.v1.ExtractWorkspaceHeader
-	248, // 35: agentvmm.host.v1.CreateServiceExportRequest.protocol:type_name -> agentvmm.service.v1.ServiceProtocol
-	249, // 36: agentvmm.host.v1.CreateServiceImportRequest.capability:type_name -> agentvmm.trust.v1.RouteCapability
-	241, // 37: agentvmm.host.v1.CreatePersonalServiceImportRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
-	250, // 38: agentvmm.host.v1.ListServiceImportsResponse.imports:type_name -> agentvmm.service.v1.ServiceImport
+	249, // 35: agentvmm.host.v1.CreateServiceExportRequest.protocol:type_name -> agentvmm.service.v1.ServiceProtocol
+	250, // 36: agentvmm.host.v1.CreateServiceImportRequest.capability:type_name -> agentvmm.trust.v1.RouteCapability
+	242, // 37: agentvmm.host.v1.CreatePersonalServiceImportRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
+	251, // 38: agentvmm.host.v1.ListServiceImportsResponse.imports:type_name -> agentvmm.service.v1.ServiceImport
 	3,   // 39: agentvmm.host.v1.VM.state:type_name -> agentvmm.host.v1.VMState
 	86,  // 40: agentvmm.host.v1.VMResponse.vm:type_name -> agentvmm.host.v1.VM
 	5,   // 41: agentvmm.host.v1.EnvironmentOwner.kind:type_name -> agentvmm.host.v1.EnvironmentOwnerKind
 	91,  // 42: agentvmm.host.v1.AgentEnvironment.limits:type_name -> agentvmm.host.v1.ResourceLimits
 	4,   // 43: agentvmm.host.v1.AgentEnvironment.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	165, // 44: agentvmm.host.v1.AgentEnvironment.health:type_name -> agentvmm.host.v1.HealthStatus
-	166, // 45: agentvmm.host.v1.AgentEnvironment.usage:type_name -> agentvmm.host.v1.Usage
-	118, // 46: agentvmm.host.v1.AgentEnvironment.containers:type_name -> agentvmm.host.v1.Container
-	146, // 47: agentvmm.host.v1.AgentEnvironment.volumes:type_name -> agentvmm.host.v1.Volume
-	92,  // 48: agentvmm.host.v1.AgentEnvironment.owner:type_name -> agentvmm.host.v1.EnvironmentOwner
+	166, // 44: agentvmm.host.v1.AgentEnvironment.health:type_name -> agentvmm.host.v1.HealthStatus
+	167, // 45: agentvmm.host.v1.AgentEnvironment.usage:type_name -> agentvmm.host.v1.Usage
+	119, // 46: agentvmm.host.v1.AgentEnvironment.containers:type_name -> agentvmm.host.v1.Container
+	147, // 47: agentvmm.host.v1.AgentEnvironment.volumes:type_name -> agentvmm.host.v1.Volume
+	93,  // 48: agentvmm.host.v1.AgentEnvironment.owner:type_name -> agentvmm.host.v1.EnvironmentOwner
 	6,   // 49: agentvmm.host.v1.AgentEnvironment.origin:type_name -> agentvmm.host.v1.EnvironmentOrigin
 	7,   // 50: agentvmm.host.v1.AgentEnvironment.inventory_state:type_name -> agentvmm.host.v1.InventoryState
-	242, // 51: agentvmm.host.v1.AgentEnvironment.inventory_observed_at:type_name -> google.protobuf.Timestamp
-	93,  // 52: agentvmm.host.v1.CreateAgentSessionResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
-	242, // 53: agentvmm.host.v1.CreateAgentSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
+	243, // 51: agentvmm.host.v1.AgentEnvironment.inventory_observed_at:type_name -> google.protobuf.Timestamp
+	94,  // 52: agentvmm.host.v1.CreateAgentSessionResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
+	243, // 53: agentvmm.host.v1.CreateAgentSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
 	8,   // 54: agentvmm.host.v1.AgentIntegration.scope:type_name -> agentvmm.host.v1.IntegrationScope
 	9,   // 55: agentvmm.host.v1.AgentIntegration.desired_state:type_name -> agentvmm.host.v1.IntegrationDesiredState
 	10,  // 56: agentvmm.host.v1.AgentIntegration.config_state:type_name -> agentvmm.host.v1.IntegrationConfigState
-	242, // 57: agentvmm.host.v1.AgentIntegration.created_at:type_name -> google.protobuf.Timestamp
-	242, // 58: agentvmm.host.v1.AgentIntegration.updated_at:type_name -> google.protobuf.Timestamp
-	242, // 59: agentvmm.host.v1.AgentIntegration.last_verified_at:type_name -> google.protobuf.Timestamp
-	97,  // 60: agentvmm.host.v1.ListAgentIntegrationsResponse.integrations:type_name -> agentvmm.host.v1.AgentIntegration
+	243, // 57: agentvmm.host.v1.AgentIntegration.created_at:type_name -> google.protobuf.Timestamp
+	243, // 58: agentvmm.host.v1.AgentIntegration.updated_at:type_name -> google.protobuf.Timestamp
+	243, // 59: agentvmm.host.v1.AgentIntegration.last_verified_at:type_name -> google.protobuf.Timestamp
+	98,  // 60: agentvmm.host.v1.ListAgentIntegrationsResponse.integrations:type_name -> agentvmm.host.v1.AgentIntegration
 	8,   // 61: agentvmm.host.v1.PrepareAgentIntegrationRequest.scope:type_name -> agentvmm.host.v1.IntegrationScope
-	97,  // 62: agentvmm.host.v1.AgentIntegrationResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
+	98,  // 62: agentvmm.host.v1.AgentIntegrationResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
 	11,  // 63: agentvmm.host.v1.AgentSession.origin:type_name -> agentvmm.host.v1.AgentSessionOrigin
 	12,  // 64: agentvmm.host.v1.AgentSession.state:type_name -> agentvmm.host.v1.AgentSessionState
-	242, // 65: agentvmm.host.v1.AgentSession.created_at:type_name -> google.protobuf.Timestamp
-	242, // 66: agentvmm.host.v1.AgentSession.expires_at:type_name -> google.protobuf.Timestamp
-	242, // 67: agentvmm.host.v1.AgentSession.connected_at:type_name -> google.protobuf.Timestamp
-	242, // 68: agentvmm.host.v1.AgentSession.last_activity_at:type_name -> google.protobuf.Timestamp
-	107, // 69: agentvmm.host.v1.ListAgentSessionsResponse.sessions:type_name -> agentvmm.host.v1.AgentSession
-	93,  // 70: agentvmm.host.v1.GetEnvironmentResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
-	93,  // 71: agentvmm.host.v1.ListEnvironmentsResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
+	243, // 65: agentvmm.host.v1.AgentSession.created_at:type_name -> google.protobuf.Timestamp
+	243, // 66: agentvmm.host.v1.AgentSession.expires_at:type_name -> google.protobuf.Timestamp
+	243, // 67: agentvmm.host.v1.AgentSession.connected_at:type_name -> google.protobuf.Timestamp
+	243, // 68: agentvmm.host.v1.AgentSession.last_activity_at:type_name -> google.protobuf.Timestamp
+	108, // 69: agentvmm.host.v1.ListAgentSessionsResponse.sessions:type_name -> agentvmm.host.v1.AgentSession
+	94,  // 70: agentvmm.host.v1.GetEnvironmentResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
+	94,  // 71: agentvmm.host.v1.ListEnvironmentsResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
 	13,  // 72: agentvmm.host.v1.Container.state:type_name -> agentvmm.host.v1.ContainerState
-	117, // 73: agentvmm.host.v1.Container.volumes:type_name -> agentvmm.host.v1.VolumeMount
-	166, // 74: agentvmm.host.v1.Container.usage:type_name -> agentvmm.host.v1.Usage
-	242, // 75: agentvmm.host.v1.Container.created_at:type_name -> google.protobuf.Timestamp
-	242, // 76: agentvmm.host.v1.Container.started_at:type_name -> google.protobuf.Timestamp
-	242, // 77: agentvmm.host.v1.Container.finished_at:type_name -> google.protobuf.Timestamp
+	118, // 73: agentvmm.host.v1.Container.volumes:type_name -> agentvmm.host.v1.VolumeMount
+	167, // 74: agentvmm.host.v1.Container.usage:type_name -> agentvmm.host.v1.Usage
+	243, // 75: agentvmm.host.v1.Container.created_at:type_name -> google.protobuf.Timestamp
+	243, // 76: agentvmm.host.v1.Container.started_at:type_name -> google.protobuf.Timestamp
+	243, // 77: agentvmm.host.v1.Container.finished_at:type_name -> google.protobuf.Timestamp
 	91,  // 78: agentvmm.host.v1.CreateContainerRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	117, // 79: agentvmm.host.v1.CreateContainerRequest.volumes:type_name -> agentvmm.host.v1.VolumeMount
-	119, // 80: agentvmm.host.v1.CreateContainerRequest.entrypoint_override:type_name -> agentvmm.host.v1.StringList
-	119, // 81: agentvmm.host.v1.CreateContainerRequest.command_override:type_name -> agentvmm.host.v1.StringList
-	118, // 82: agentvmm.host.v1.ContainerResponse.container:type_name -> agentvmm.host.v1.Container
-	118, // 83: agentvmm.host.v1.ListContainersResponse.containers:type_name -> agentvmm.host.v1.Container
-	130, // 84: agentvmm.host.v1.ImportImageRequest.header:type_name -> agentvmm.host.v1.ImportImageHeader
-	132, // 85: agentvmm.host.v1.ListImagesResponse.images:type_name -> agentvmm.host.v1.Image
-	242, // 86: agentvmm.host.v1.LogsRequest.since:type_name -> google.protobuf.Timestamp
-	138, // 87: agentvmm.host.v1.OperatorLogsRequest.query:type_name -> agentvmm.host.v1.LogsRequest
-	242, // 88: agentvmm.host.v1.LogRecord.timestamp:type_name -> google.protobuf.Timestamp
+	118, // 79: agentvmm.host.v1.CreateContainerRequest.volumes:type_name -> agentvmm.host.v1.VolumeMount
+	120, // 80: agentvmm.host.v1.CreateContainerRequest.entrypoint_override:type_name -> agentvmm.host.v1.StringList
+	120, // 81: agentvmm.host.v1.CreateContainerRequest.command_override:type_name -> agentvmm.host.v1.StringList
+	119, // 82: agentvmm.host.v1.ContainerResponse.container:type_name -> agentvmm.host.v1.Container
+	119, // 83: agentvmm.host.v1.ListContainersResponse.containers:type_name -> agentvmm.host.v1.Container
+	131, // 84: agentvmm.host.v1.ImportImageRequest.header:type_name -> agentvmm.host.v1.ImportImageHeader
+	133, // 85: agentvmm.host.v1.ListImagesResponse.images:type_name -> agentvmm.host.v1.Image
+	243, // 86: agentvmm.host.v1.LogsRequest.since:type_name -> google.protobuf.Timestamp
+	139, // 87: agentvmm.host.v1.OperatorLogsRequest.query:type_name -> agentvmm.host.v1.LogsRequest
+	243, // 88: agentvmm.host.v1.LogRecord.timestamp:type_name -> google.protobuf.Timestamp
 	14,  // 89: agentvmm.host.v1.LogRecord.stream:type_name -> agentvmm.host.v1.LogStream
 	15,  // 90: agentvmm.host.v1.SignalContainerRequest.signal:type_name -> agentvmm.host.v1.ProcessSignal
-	142, // 91: agentvmm.host.v1.ExecRequest.start:type_name -> agentvmm.host.v1.ExecStart
-	143, // 92: agentvmm.host.v1.ExecRequest.resize:type_name -> agentvmm.host.v1.ExecResize
+	143, // 91: agentvmm.host.v1.ExecRequest.start:type_name -> agentvmm.host.v1.ExecStart
+	144, // 92: agentvmm.host.v1.ExecRequest.resize:type_name -> agentvmm.host.v1.ExecResize
 	15,  // 93: agentvmm.host.v1.ExecRequest.signal:type_name -> agentvmm.host.v1.ProcessSignal
-	166, // 94: agentvmm.host.v1.Volume.usage:type_name -> agentvmm.host.v1.Usage
-	146, // 95: agentvmm.host.v1.VolumeResponse.volume:type_name -> agentvmm.host.v1.Volume
-	146, // 96: agentvmm.host.v1.ListVolumesResponse.volumes:type_name -> agentvmm.host.v1.Volume
-	153, // 97: agentvmm.host.v1.ForwardTCPRequest.header:type_name -> agentvmm.host.v1.ForwardTCPHeader
-	156, // 98: agentvmm.host.v1.BuildImageHeader.build_args:type_name -> agentvmm.host.v1.BuildArgument
+	167, // 94: agentvmm.host.v1.Volume.usage:type_name -> agentvmm.host.v1.Usage
+	147, // 95: agentvmm.host.v1.VolumeResponse.volume:type_name -> agentvmm.host.v1.Volume
+	147, // 96: agentvmm.host.v1.ListVolumesResponse.volumes:type_name -> agentvmm.host.v1.Volume
+	154, // 97: agentvmm.host.v1.ForwardTCPRequest.header:type_name -> agentvmm.host.v1.ForwardTCPHeader
+	157, // 98: agentvmm.host.v1.BuildImageHeader.build_args:type_name -> agentvmm.host.v1.BuildArgument
 	16,  // 99: agentvmm.host.v1.BuildImageHeader.network_mode:type_name -> agentvmm.host.v1.BuildNetworkMode
-	157, // 100: agentvmm.host.v1.BuildImageHeader.secrets:type_name -> agentvmm.host.v1.BuildSecret
-	158, // 101: agentvmm.host.v1.BuildImageRequest.header:type_name -> agentvmm.host.v1.BuildImageHeader
-	159, // 102: agentvmm.host.v1.BuildImageRequest.context:type_name -> agentvmm.host.v1.BuildContextChunk
-	160, // 103: agentvmm.host.v1.BuildImageRequest.secret:type_name -> agentvmm.host.v1.BuildSecretChunk
-	162, // 104: agentvmm.host.v1.BuildImageResponse.result:type_name -> agentvmm.host.v1.BuildImageResult
+	158, // 100: agentvmm.host.v1.BuildImageHeader.secrets:type_name -> agentvmm.host.v1.BuildSecret
+	159, // 101: agentvmm.host.v1.BuildImageRequest.header:type_name -> agentvmm.host.v1.BuildImageHeader
+	160, // 102: agentvmm.host.v1.BuildImageRequest.context:type_name -> agentvmm.host.v1.BuildContextChunk
+	161, // 103: agentvmm.host.v1.BuildImageRequest.secret:type_name -> agentvmm.host.v1.BuildSecretChunk
+	163, // 104: agentvmm.host.v1.BuildImageResponse.result:type_name -> agentvmm.host.v1.BuildImageResult
 	17,  // 105: agentvmm.host.v1.ComponentHealth.state:type_name -> agentvmm.host.v1.HealthState
-	242, // 106: agentvmm.host.v1.ComponentHealth.observed_at:type_name -> google.protobuf.Timestamp
+	243, // 106: agentvmm.host.v1.ComponentHealth.observed_at:type_name -> google.protobuf.Timestamp
 	17,  // 107: agentvmm.host.v1.HealthStatus.state:type_name -> agentvmm.host.v1.HealthState
-	164, // 108: agentvmm.host.v1.HealthStatus.components:type_name -> agentvmm.host.v1.ComponentHealth
-	242, // 109: agentvmm.host.v1.Usage.sampled_at:type_name -> google.protobuf.Timestamp
+	165, // 108: agentvmm.host.v1.HealthStatus.components:type_name -> agentvmm.host.v1.ComponentHealth
+	243, // 109: agentvmm.host.v1.Usage.sampled_at:type_name -> google.protobuf.Timestamp
 	86,  // 110: agentvmm.host.v1.GetSystemSnapshotResponse.vm:type_name -> agentvmm.host.v1.VM
-	165, // 111: agentvmm.host.v1.GetSystemSnapshotResponse.health:type_name -> agentvmm.host.v1.HealthStatus
-	166, // 112: agentvmm.host.v1.GetSystemSnapshotResponse.usage:type_name -> agentvmm.host.v1.Usage
-	93,  // 113: agentvmm.host.v1.GetSystemSnapshotResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
-	242, // 114: agentvmm.host.v1.GetSystemSnapshotResponse.collected_at:type_name -> google.protobuf.Timestamp
-	202, // 115: agentvmm.host.v1.GetSystemSnapshotResponse.remote_registrations:type_name -> agentvmm.host.v1.RemoteRegistration
-	170, // 116: agentvmm.host.v1.RuntimeEvent.resource:type_name -> agentvmm.host.v1.ResourceReference
-	242, // 117: agentvmm.host.v1.RuntimeEvent.timestamp:type_name -> google.protobuf.Timestamp
-	170, // 118: agentvmm.host.v1.WatchMetricsRequest.scope:type_name -> agentvmm.host.v1.ResourceReference
-	247, // 119: agentvmm.host.v1.WatchMetricsRequest.interval:type_name -> google.protobuf.Duration
-	170, // 120: agentvmm.host.v1.MetricsSample.scope:type_name -> agentvmm.host.v1.ResourceReference
-	166, // 121: agentvmm.host.v1.MetricsSample.usage:type_name -> agentvmm.host.v1.Usage
+	166, // 111: agentvmm.host.v1.GetSystemSnapshotResponse.health:type_name -> agentvmm.host.v1.HealthStatus
+	167, // 112: agentvmm.host.v1.GetSystemSnapshotResponse.usage:type_name -> agentvmm.host.v1.Usage
+	94,  // 113: agentvmm.host.v1.GetSystemSnapshotResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
+	243, // 114: agentvmm.host.v1.GetSystemSnapshotResponse.collected_at:type_name -> google.protobuf.Timestamp
+	203, // 115: agentvmm.host.v1.GetSystemSnapshotResponse.remote_registrations:type_name -> agentvmm.host.v1.RemoteRegistration
+	171, // 116: agentvmm.host.v1.RuntimeEvent.resource:type_name -> agentvmm.host.v1.ResourceReference
+	243, // 117: agentvmm.host.v1.RuntimeEvent.timestamp:type_name -> google.protobuf.Timestamp
+	171, // 118: agentvmm.host.v1.WatchMetricsRequest.scope:type_name -> agentvmm.host.v1.ResourceReference
+	248, // 119: agentvmm.host.v1.WatchMetricsRequest.interval:type_name -> google.protobuf.Duration
+	171, // 120: agentvmm.host.v1.MetricsSample.scope:type_name -> agentvmm.host.v1.ResourceReference
+	167, // 121: agentvmm.host.v1.MetricsSample.usage:type_name -> agentvmm.host.v1.Usage
 	91,  // 122: agentvmm.host.v1.UpdateEnvironmentPolicyRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
 	4,   // 123: agentvmm.host.v1.UpdateEnvironmentPolicyRequest.egress_mode:type_name -> agentvmm.host.v1.EgressMode
 	15,  // 124: agentvmm.host.v1.OperatorSignalContainerRequest.signal:type_name -> agentvmm.host.v1.ProcessSignal
-	179, // 125: agentvmm.host.v1.ContainerSelector.container_ids:type_name -> agentvmm.host.v1.ContainerIDList
-	180, // 126: agentvmm.host.v1.NetworkLink.source:type_name -> agentvmm.host.v1.ContainerSelector
-	180, // 127: agentvmm.host.v1.NetworkLink.destination:type_name -> agentvmm.host.v1.ContainerSelector
-	181, // 128: agentvmm.host.v1.ApplyNetworkLinkRequest.link:type_name -> agentvmm.host.v1.NetworkLink
-	170, // 129: agentvmm.host.v1.CleanupImpact.resource:type_name -> agentvmm.host.v1.ResourceReference
+	180, // 125: agentvmm.host.v1.ContainerSelector.container_ids:type_name -> agentvmm.host.v1.ContainerIDList
+	181, // 126: agentvmm.host.v1.NetworkLink.source:type_name -> agentvmm.host.v1.ContainerSelector
+	181, // 127: agentvmm.host.v1.NetworkLink.destination:type_name -> agentvmm.host.v1.ContainerSelector
+	182, // 128: agentvmm.host.v1.ApplyNetworkLinkRequest.link:type_name -> agentvmm.host.v1.NetworkLink
+	171, // 129: agentvmm.host.v1.CleanupImpact.resource:type_name -> agentvmm.host.v1.ResourceReference
 	18,  // 130: agentvmm.host.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
-	185, // 131: agentvmm.host.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
-	186, // 132: agentvmm.host.v1.CleanupPlanResponse.plan:type_name -> agentvmm.host.v1.CleanupPlan
-	186, // 133: agentvmm.host.v1.ExecuteCleanupRequest.plan:type_name -> agentvmm.host.v1.CleanupPlan
-	170, // 134: agentvmm.host.v1.OperationError.resource:type_name -> agentvmm.host.v1.ResourceReference
-	170, // 135: agentvmm.host.v1.Operation.resource:type_name -> agentvmm.host.v1.ResourceReference
+	186, // 131: agentvmm.host.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
+	187, // 132: agentvmm.host.v1.CleanupPlanResponse.plan:type_name -> agentvmm.host.v1.CleanupPlan
+	187, // 133: agentvmm.host.v1.ExecuteCleanupRequest.plan:type_name -> agentvmm.host.v1.CleanupPlan
+	171, // 134: agentvmm.host.v1.OperationError.resource:type_name -> agentvmm.host.v1.ResourceReference
+	171, // 135: agentvmm.host.v1.Operation.resource:type_name -> agentvmm.host.v1.ResourceReference
 	19,  // 136: agentvmm.host.v1.Operation.state:type_name -> agentvmm.host.v1.OperationState
-	242, // 137: agentvmm.host.v1.Operation.started_at:type_name -> google.protobuf.Timestamp
-	242, // 138: agentvmm.host.v1.Operation.updated_at:type_name -> google.protobuf.Timestamp
-	190, // 139: agentvmm.host.v1.Operation.error:type_name -> agentvmm.host.v1.OperationError
-	191, // 140: agentvmm.host.v1.OperationResponse.operation:type_name -> agentvmm.host.v1.Operation
-	196, // 141: agentvmm.host.v1.SupportBundlePreview.items:type_name -> agentvmm.host.v1.SupportBundleItem
+	243, // 137: agentvmm.host.v1.Operation.started_at:type_name -> google.protobuf.Timestamp
+	243, // 138: agentvmm.host.v1.Operation.updated_at:type_name -> google.protobuf.Timestamp
+	191, // 139: agentvmm.host.v1.Operation.error:type_name -> agentvmm.host.v1.OperationError
+	192, // 140: agentvmm.host.v1.OperationResponse.operation:type_name -> agentvmm.host.v1.Operation
+	197, // 141: agentvmm.host.v1.SupportBundlePreview.items:type_name -> agentvmm.host.v1.SupportBundleItem
 	24,  // 142: agentvmm.host.v1.ConnectorStatus.phase:type_name -> agentvmm.host.v1.ConnectorPhase
-	242, // 143: agentvmm.host.v1.ConnectorStatus.observed_at:type_name -> google.protobuf.Timestamp
-	242, // 144: agentvmm.host.v1.ConnectorStatus.last_connected_at:type_name -> google.protobuf.Timestamp
-	242, // 145: agentvmm.host.v1.ConnectorStatus.disconnected_at:type_name -> google.protobuf.Timestamp
-	242, // 146: agentvmm.host.v1.ConnectorStatus.next_retry_at:type_name -> google.protobuf.Timestamp
-	200, // 147: agentvmm.host.v1.ConnectorStatus.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
-	242, // 148: agentvmm.host.v1.ControllerDomainMetrics.sampled_at:type_name -> google.protobuf.Timestamp
+	243, // 143: agentvmm.host.v1.ConnectorStatus.observed_at:type_name -> google.protobuf.Timestamp
+	243, // 144: agentvmm.host.v1.ConnectorStatus.last_connected_at:type_name -> google.protobuf.Timestamp
+	243, // 145: agentvmm.host.v1.ConnectorStatus.disconnected_at:type_name -> google.protobuf.Timestamp
+	243, // 146: agentvmm.host.v1.ConnectorStatus.next_retry_at:type_name -> google.protobuf.Timestamp
+	201, // 147: agentvmm.host.v1.ConnectorStatus.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
+	243, // 148: agentvmm.host.v1.ControllerDomainMetrics.sampled_at:type_name -> google.protobuf.Timestamp
 	91,  // 149: agentvmm.host.v1.RemotePoolPolicy.aggregate_limits:type_name -> agentvmm.host.v1.ResourceLimits
 	91,  // 150: agentvmm.host.v1.RemotePoolPolicy.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
 	4,   // 151: agentvmm.host.v1.RemotePoolPolicy.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	247, // 152: agentvmm.host.v1.RemotePoolPolicy.max_lease_duration:type_name -> google.protobuf.Duration
-	247, // 153: agentvmm.host.v1.RemotePoolPolicy.disconnect_grace:type_name -> google.protobuf.Duration
-	247, // 154: agentvmm.host.v1.RemotePoolPolicy.stop_grace:type_name -> google.protobuf.Duration
+	248, // 152: agentvmm.host.v1.RemotePoolPolicy.max_lease_duration:type_name -> google.protobuf.Duration
+	248, // 153: agentvmm.host.v1.RemotePoolPolicy.disconnect_grace:type_name -> google.protobuf.Duration
+	248, // 154: agentvmm.host.v1.RemotePoolPolicy.stop_grace:type_name -> google.protobuf.Duration
 	52,  // 155: agentvmm.host.v1.RemotePoolPolicy.host_loopback_frontend:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
-	201, // 156: agentvmm.host.v1.RemoteRegistration.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
+	202, // 156: agentvmm.host.v1.RemoteRegistration.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
 	20,  // 157: agentvmm.host.v1.RemoteRegistration.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
 	22,  // 158: agentvmm.host.v1.RemoteRegistration.connection_state:type_name -> agentvmm.host.v1.RemoteConnectionState
-	217, // 159: agentvmm.host.v1.RemoteRegistration.allocations:type_name -> agentvmm.host.v1.RemoteAllocation
+	218, // 159: agentvmm.host.v1.RemoteRegistration.allocations:type_name -> agentvmm.host.v1.RemoteAllocation
 	23,  // 160: agentvmm.host.v1.RemoteRegistration.enrollment_state:type_name -> agentvmm.host.v1.RemoteEnrollmentState
-	199, // 161: agentvmm.host.v1.RemoteRegistration.connector_status:type_name -> agentvmm.host.v1.ConnectorStatus
-	242, // 162: agentvmm.host.v1.RemoteRegistration.created_at:type_name -> google.protobuf.Timestamp
-	242, // 163: agentvmm.host.v1.RemoteRegistration.updated_at:type_name -> google.protobuf.Timestamp
+	200, // 161: agentvmm.host.v1.RemoteRegistration.connector_status:type_name -> agentvmm.host.v1.ConnectorStatus
+	243, // 162: agentvmm.host.v1.RemoteRegistration.created_at:type_name -> google.protobuf.Timestamp
+	243, // 163: agentvmm.host.v1.RemoteRegistration.updated_at:type_name -> google.protobuf.Timestamp
 	21,  // 164: agentvmm.host.v1.RemoteRegistration.owner_kind:type_name -> agentvmm.host.v1.RemoteRegistrationOwnerKind
-	200, // 165: agentvmm.host.v1.RemoteRegistration.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
-	201, // 166: agentvmm.host.v1.BeginRemoteEnrollmentRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
-	203, // 167: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest.registration:type_name -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
-	201, // 168: agentvmm.host.v1.UpdateRemotePoolRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
+	201, // 165: agentvmm.host.v1.RemoteRegistration.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
+	202, // 166: agentvmm.host.v1.BeginRemoteEnrollmentRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
+	204, // 167: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest.registration:type_name -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
+	202, // 168: agentvmm.host.v1.UpdateRemotePoolRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
 	20,  // 169: agentvmm.host.v1.SetRemoteRegistrationStateRequest.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
-	202, // 170: agentvmm.host.v1.ListRemoteRegistrationsResponse.registrations:type_name -> agentvmm.host.v1.RemoteRegistration
-	202, // 171: agentvmm.host.v1.RemoteRegistrationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	203, // 170: agentvmm.host.v1.ListRemoteRegistrationsResponse.registrations:type_name -> agentvmm.host.v1.RemoteRegistration
+	203, // 171: agentvmm.host.v1.RemoteRegistrationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
 	91,  // 172: agentvmm.host.v1.RemoteAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
 	4,   // 173: agentvmm.host.v1.RemoteAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
 	25,  // 174: agentvmm.host.v1.RemoteAllocation.state:type_name -> agentvmm.host.v1.AllocationState
-	218, // 175: agentvmm.host.v1.RemoteAllocation.lease:type_name -> agentvmm.host.v1.RemoteLease
-	242, // 176: agentvmm.host.v1.RemoteLease.expires_at:type_name -> google.protobuf.Timestamp
-	26,  // 177: agentvmm.host.v1.RemoteLease.state:type_name -> agentvmm.host.v1.LeaseState
-	202, // 178: agentvmm.host.v1.GetRemoteStateResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	165, // 179: agentvmm.host.v1.GetRemoteObservationResponse.health:type_name -> agentvmm.host.v1.HealthStatus
-	166, // 180: agentvmm.host.v1.GetRemoteObservationResponse.usage:type_name -> agentvmm.host.v1.Usage
-	242, // 181: agentvmm.host.v1.GetRemoteObservationResponse.observed_at:type_name -> google.protobuf.Timestamp
-	22,  // 182: agentvmm.host.v1.SetConnectionStateRequest.state:type_name -> agentvmm.host.v1.RemoteConnectionState
-	20,  // 183: agentvmm.host.v1.SetRemoteAdmissionStateRequest.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
-	199, // 184: agentvmm.host.v1.ReportConnectorStatusRequest.status:type_name -> agentvmm.host.v1.ConnectorStatus
-	91,  // 185: agentvmm.host.v1.EnsureAllocationRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	4,   // 186: agentvmm.host.v1.EnsureAllocationRequest.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	217, // 187: agentvmm.host.v1.AllocationResponse.allocation:type_name -> agentvmm.host.v1.RemoteAllocation
-	18,  // 188: agentvmm.host.v1.PlanCleanupAllocationRequest.kind:type_name -> agentvmm.host.v1.CleanupKind
-	185, // 189: agentvmm.host.v1.AllocationCleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
-	18,  // 190: agentvmm.host.v1.AllocationCleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
-	230, // 191: agentvmm.host.v1.AllocationCleanupPlanResponse.plan:type_name -> agentvmm.host.v1.AllocationCleanupPlan
-	18,  // 192: agentvmm.host.v1.ExecuteCleanupAllocationRequest.kind:type_name -> agentvmm.host.v1.CleanupKind
-	247, // 193: agentvmm.host.v1.AcquireLeaseRequest.duration:type_name -> google.protobuf.Duration
-	247, // 194: agentvmm.host.v1.RenewLeaseRequest.duration:type_name -> google.protobuf.Duration
-	218, // 195: agentvmm.host.v1.LeaseResponse.lease:type_name -> agentvmm.host.v1.RemoteLease
-	112, // 196: agentvmm.host.v1.AgentRuntimeService.GetEnvironment:input_type -> agentvmm.host.v1.GetOwnEnvironmentRequest
-	128, // 197: agentvmm.host.v1.AgentRuntimeService.PullImage:input_type -> agentvmm.host.v1.PullImageRequest
-	131, // 198: agentvmm.host.v1.AgentRuntimeService.ImportImage:input_type -> agentvmm.host.v1.ImportImageRequest
-	133, // 199: agentvmm.host.v1.AgentRuntimeService.ListImages:input_type -> agentvmm.host.v1.ListImagesRequest
-	136, // 200: agentvmm.host.v1.AgentRuntimeService.DeleteImage:input_type -> agentvmm.host.v1.DeleteImageRequest
-	120, // 201: agentvmm.host.v1.AgentRuntimeService.CreateContainer:input_type -> agentvmm.host.v1.CreateContainerRequest
-	122, // 202: agentvmm.host.v1.AgentRuntimeService.StartContainer:input_type -> agentvmm.host.v1.ContainerMutationRequest
-	123, // 203: agentvmm.host.v1.AgentRuntimeService.StopContainer:input_type -> agentvmm.host.v1.StopContainerRequest
-	121, // 204: agentvmm.host.v1.AgentRuntimeService.WaitContainer:input_type -> agentvmm.host.v1.ContainerRequest
-	122, // 205: agentvmm.host.v1.AgentRuntimeService.DeleteContainer:input_type -> agentvmm.host.v1.ContainerMutationRequest
-	121, // 206: agentvmm.host.v1.AgentRuntimeService.GetContainer:input_type -> agentvmm.host.v1.ContainerRequest
-	126, // 207: agentvmm.host.v1.AgentRuntimeService.ListContainers:input_type -> agentvmm.host.v1.ListContainersRequest
-	138, // 208: agentvmm.host.v1.AgentRuntimeService.Logs:input_type -> agentvmm.host.v1.LogsRequest
-	144, // 209: agentvmm.host.v1.AgentRuntimeService.Exec:input_type -> agentvmm.host.v1.ExecRequest
-	141, // 210: agentvmm.host.v1.AgentRuntimeService.SignalContainer:input_type -> agentvmm.host.v1.SignalContainerRequest
-	147, // 211: agentvmm.host.v1.AgentRuntimeService.CreateVolume:input_type -> agentvmm.host.v1.CreateVolumeRequest
-	148, // 212: agentvmm.host.v1.AgentRuntimeService.DeleteVolume:input_type -> agentvmm.host.v1.DeleteVolumeRequest
-	149, // 213: agentvmm.host.v1.AgentRuntimeService.GetVolume:input_type -> agentvmm.host.v1.VolumeRequest
-	151, // 214: agentvmm.host.v1.AgentRuntimeService.ListVolumes:input_type -> agentvmm.host.v1.ListVolumesRequest
-	154, // 215: agentvmm.host.v1.AgentRuntimeService.ForwardTCP:input_type -> agentvmm.host.v1.ForwardTCPRequest
-	161, // 216: agentvmm.host.v1.AgentRuntimeService.BuildImage:input_type -> agentvmm.host.v1.BuildImageRequest
-	111, // 217: agentvmm.host.v1.AgentRuntimeService.ReleaseSession:input_type -> agentvmm.host.v1.ReleaseSessionRequest
-	112, // 218: agentvmm.host.v1.AgentRuntimeService.PlanResetEnvironment:input_type -> agentvmm.host.v1.GetOwnEnvironmentRequest
-	112, // 219: agentvmm.host.v1.AgentRuntimeService.PlanDiscardEnvironment:input_type -> agentvmm.host.v1.GetOwnEnvironmentRequest
-	189, // 220: agentvmm.host.v1.AgentRuntimeService.RequestReset:input_type -> agentvmm.host.v1.EnvironmentOperationRequest
-	189, // 221: agentvmm.host.v1.AgentRuntimeService.RequestDiscard:input_type -> agentvmm.host.v1.EnvironmentOperationRequest
-	63,  // 222: agentvmm.host.v1.AgentRuntimeService.StatWorkspace:input_type -> agentvmm.host.v1.WorkspacePathRequest
-	65,  // 223: agentvmm.host.v1.AgentRuntimeService.ListWorkspace:input_type -> agentvmm.host.v1.ListWorkspaceRequest
-	67,  // 224: agentvmm.host.v1.AgentRuntimeService.ReadWorkspace:input_type -> agentvmm.host.v1.ReadWorkspaceRequest
-	70,  // 225: agentvmm.host.v1.AgentRuntimeService.WriteWorkspace:input_type -> agentvmm.host.v1.WriteWorkspaceRequest
-	72,  // 226: agentvmm.host.v1.AgentRuntimeService.ArchiveWorkspace:input_type -> agentvmm.host.v1.ArchiveWorkspaceRequest
-	75,  // 227: agentvmm.host.v1.AgentRuntimeService.ExtractWorkspace:input_type -> agentvmm.host.v1.ExtractWorkspaceRequest
-	76,  // 228: agentvmm.host.v1.AgentRuntimeService.CreateServiceExport:input_type -> agentvmm.host.v1.CreateServiceExportRequest
-	77,  // 229: agentvmm.host.v1.AgentRuntimeService.ListServiceExports:input_type -> agentvmm.host.v1.ListOwnServiceExportsRequest
-	78,  // 230: agentvmm.host.v1.AgentRuntimeService.GetServiceExport:input_type -> agentvmm.host.v1.GetOwnServiceExportRequest
-	79,  // 231: agentvmm.host.v1.AgentRuntimeService.RevokeServiceExport:input_type -> agentvmm.host.v1.RevokeOwnServiceExportRequest
-	80,  // 232: agentvmm.host.v1.AgentRuntimeService.CreateServiceImport:input_type -> agentvmm.host.v1.CreateServiceImportRequest
-	81,  // 233: agentvmm.host.v1.AgentRuntimeService.CreatePersonalServiceImport:input_type -> agentvmm.host.v1.CreatePersonalServiceImportRequest
-	82,  // 234: agentvmm.host.v1.AgentRuntimeService.ListServiceImports:input_type -> agentvmm.host.v1.ListServiceImportsRequest
-	84,  // 235: agentvmm.host.v1.AgentRuntimeService.GetServiceImport:input_type -> agentvmm.host.v1.GetServiceImportRequest
-	85,  // 236: agentvmm.host.v1.AgentRuntimeService.RevokeServiceImport:input_type -> agentvmm.host.v1.RevokeServiceImportRequest
-	87,  // 237: agentvmm.host.v1.OperatorService.StartVM:input_type -> agentvmm.host.v1.StartVMRequest
-	88,  // 238: agentvmm.host.v1.OperatorService.GetVM:input_type -> agentvmm.host.v1.GetVMRequest
-	89,  // 239: agentvmm.host.v1.OperatorService.StopVM:input_type -> agentvmm.host.v1.StopVMRequest
-	94,  // 240: agentvmm.host.v1.OperatorService.CreateAgentSession:input_type -> agentvmm.host.v1.CreateAgentSessionRequest
-	96,  // 241: agentvmm.host.v1.OperatorService.RevokeAgentSession:input_type -> agentvmm.host.v1.RevokeAgentSessionRequest
-	98,  // 242: agentvmm.host.v1.OperatorService.ListAgentIntegrations:input_type -> agentvmm.host.v1.ListAgentIntegrationsRequest
-	100, // 243: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:input_type -> agentvmm.host.v1.PrepareAgentIntegrationRequest
-	101, // 244: agentvmm.host.v1.OperatorService.BeginAgentIntegrationConfiguration:input_type -> agentvmm.host.v1.BeginAgentIntegrationConfigurationRequest
-	102, // 245: agentvmm.host.v1.OperatorService.CommitAgentIntegration:input_type -> agentvmm.host.v1.CommitAgentIntegrationRequest
-	103, // 246: agentvmm.host.v1.OperatorService.FailAgentIntegration:input_type -> agentvmm.host.v1.FailAgentIntegrationRequest
-	104, // 247: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:input_type -> agentvmm.host.v1.BeginAgentIntegrationRemovalRequest
-	105, // 248: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:input_type -> agentvmm.host.v1.CompleteAgentIntegrationRemovalRequest
-	108, // 249: agentvmm.host.v1.OperatorService.ListAgentSessions:input_type -> agentvmm.host.v1.ListAgentSessionsRequest
-	110, // 250: agentvmm.host.v1.OperatorService.RevokeAgentSessions:input_type -> agentvmm.host.v1.RevokeAgentSessionsRequest
-	167, // 251: agentvmm.host.v1.OperatorService.GetSystemSnapshot:input_type -> agentvmm.host.v1.GetSystemSnapshotRequest
-	115, // 252: agentvmm.host.v1.OperatorService.ListEnvironments:input_type -> agentvmm.host.v1.ListEnvironmentsRequest
-	113, // 253: agentvmm.host.v1.OperatorService.GetEnvironment:input_type -> agentvmm.host.v1.GetEnvironmentRequest
-	134, // 254: agentvmm.host.v1.OperatorService.ListEnvironmentImages:input_type -> agentvmm.host.v1.ListEnvironmentImagesRequest
-	137, // 255: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:input_type -> agentvmm.host.v1.DeleteEnvironmentImageRequest
-	169, // 256: agentvmm.host.v1.OperatorService.WatchEvents:input_type -> agentvmm.host.v1.WatchEventsRequest
-	172, // 257: agentvmm.host.v1.OperatorService.WatchMetrics:input_type -> agentvmm.host.v1.WatchMetricsRequest
-	139, // 258: agentvmm.host.v1.OperatorService.Logs:input_type -> agentvmm.host.v1.OperatorLogsRequest
-	176, // 259: agentvmm.host.v1.OperatorService.StopContainer:input_type -> agentvmm.host.v1.OperatorStopContainerRequest
-	175, // 260: agentvmm.host.v1.OperatorService.ContinueContainer:input_type -> agentvmm.host.v1.OperatorContainerMutationRequest
-	177, // 261: agentvmm.host.v1.OperatorService.SignalContainer:input_type -> agentvmm.host.v1.OperatorSignalContainerRequest
-	178, // 262: agentvmm.host.v1.OperatorService.DeleteContainer:input_type -> agentvmm.host.v1.OperatorDeleteContainerRequest
-	174, // 263: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:input_type -> agentvmm.host.v1.UpdateEnvironmentPolicyRequest
-	182, // 264: agentvmm.host.v1.OperatorService.ApplyNetworkLink:input_type -> agentvmm.host.v1.ApplyNetworkLinkRequest
-	183, // 265: agentvmm.host.v1.OperatorService.DeleteNetworkLink:input_type -> agentvmm.host.v1.DeleteNetworkLinkRequest
-	184, // 266: agentvmm.host.v1.OperatorService.PlanResetEnvironment:input_type -> agentvmm.host.v1.PlanEnvironmentRequest
-	184, // 267: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:input_type -> agentvmm.host.v1.PlanEnvironmentRequest
-	188, // 268: agentvmm.host.v1.OperatorService.ExecuteCleanup:input_type -> agentvmm.host.v1.ExecuteCleanupRequest
-	193, // 269: agentvmm.host.v1.OperatorService.GetOperation:input_type -> agentvmm.host.v1.GetOperationRequest
-	194, // 270: agentvmm.host.v1.OperatorService.RunDiagnostics:input_type -> agentvmm.host.v1.RunDiagnosticsRequest
-	195, // 271: agentvmm.host.v1.OperatorService.PreviewSupportBundle:input_type -> agentvmm.host.v1.PreviewSupportBundleRequest
-	198, // 272: agentvmm.host.v1.OperatorService.ExportSupportBundle:input_type -> agentvmm.host.v1.ExportSupportBundleRequest
-	203, // 273: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:input_type -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
-	204, // 274: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:input_type -> agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
-	205, // 275: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:input_type -> agentvmm.host.v1.CompleteRemoteEnrollmentRequest
-	206, // 276: agentvmm.host.v1.OperatorService.FailRemoteEnrollment:input_type -> agentvmm.host.v1.FailRemoteEnrollmentRequest
-	207, // 277: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:input_type -> agentvmm.host.v1.RetryRemoteEnrollmentRequest
-	208, // 278: agentvmm.host.v1.OperatorService.RemoveIncompleteRemoteRegistration:input_type -> agentvmm.host.v1.RemoveIncompleteRemoteRegistrationRequest
-	209, // 279: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:input_type -> agentvmm.host.v1.BeginRemoteRevocationRequest
-	210, // 280: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:input_type -> agentvmm.host.v1.CompleteRemoteRevocationRequest
-	211, // 281: agentvmm.host.v1.OperatorService.UpdateRemotePool:input_type -> agentvmm.host.v1.UpdateRemotePoolRequest
-	212, // 282: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:input_type -> agentvmm.host.v1.SetRemoteRegistrationStateRequest
-	213, // 283: agentvmm.host.v1.OperatorService.GetRemoteRegistration:input_type -> agentvmm.host.v1.GetRemoteRegistrationRequest
-	214, // 284: agentvmm.host.v1.OperatorService.ListRemoteRegistrations:input_type -> agentvmm.host.v1.ListRemoteRegistrationsRequest
-	28,  // 285: agentvmm.host.v1.OperatorService.GetDeviceIdentity:input_type -> agentvmm.host.v1.GetDeviceIdentityRequest
-	30,  // 286: agentvmm.host.v1.OperatorService.RotateDeviceRoot:input_type -> agentvmm.host.v1.RotateDeviceRootRequest
-	33,  // 287: agentvmm.host.v1.OperatorService.ListPersonalMeshes:input_type -> agentvmm.host.v1.ListPersonalMeshesRequest
-	32,  // 288: agentvmm.host.v1.OperatorService.CreatePersonalMesh:input_type -> agentvmm.host.v1.CreatePersonalMeshRequest
-	42,  // 289: agentvmm.host.v1.OperatorService.ApplyPersonalMeshSnapshot:input_type -> agentvmm.host.v1.ApplyPersonalMeshSnapshotRequest
-	43,  // 290: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:input_type -> agentvmm.host.v1.RevokePersonalMeshMemberRequest
-	45,  // 291: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:input_type -> agentvmm.host.v1.BeginPersonalMeshPairingRequest
-	46,  // 292: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:input_type -> agentvmm.host.v1.JoinPersonalMeshPairingRequest
-	47,  // 293: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:input_type -> agentvmm.host.v1.GetPersonalMeshPairingRequest
-	48,  // 294: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:input_type -> agentvmm.host.v1.ConfirmPersonalMeshPairingRequest
-	49,  // 295: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:input_type -> agentvmm.host.v1.RejectPersonalMeshPairingRequest
-	51,  // 296: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:input_type -> agentvmm.host.v1.RepairDeviceIdentityRequest
-	35,  // 297: agentvmm.host.v1.OperatorService.CreatePersonalServiceListener:input_type -> agentvmm.host.v1.CreatePersonalServiceListenerRequest
-	38,  // 298: agentvmm.host.v1.OperatorService.ListServiceListeners:input_type -> agentvmm.host.v1.ListServiceListenersRequest
-	40,  // 299: agentvmm.host.v1.OperatorService.RevokeServiceListener:input_type -> agentvmm.host.v1.RevokeServiceListenerRequest
-	219, // 300: agentvmm.host.v1.RemoteComputeService.GetRemoteState:input_type -> agentvmm.host.v1.GetRemoteStateRequest
-	221, // 301: agentvmm.host.v1.RemoteComputeService.GetRemoteObservation:input_type -> agentvmm.host.v1.GetRemoteObservationRequest
-	223, // 302: agentvmm.host.v1.RemoteComputeService.SetConnectionState:input_type -> agentvmm.host.v1.SetConnectionStateRequest
-	224, // 303: agentvmm.host.v1.RemoteComputeService.SetRemoteAdmissionState:input_type -> agentvmm.host.v1.SetRemoteAdmissionStateRequest
-	225, // 304: agentvmm.host.v1.RemoteComputeService.ReportConnectorStatus:input_type -> agentvmm.host.v1.ReportConnectorStatusRequest
-	226, // 305: agentvmm.host.v1.RemoteComputeService.EnsureAllocation:input_type -> agentvmm.host.v1.EnsureAllocationRequest
-	228, // 306: agentvmm.host.v1.RemoteComputeService.ReleaseAllocation:input_type -> agentvmm.host.v1.ReleaseAllocationRequest
-	229, // 307: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:input_type -> agentvmm.host.v1.PlanCleanupAllocationRequest
-	232, // 308: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:input_type -> agentvmm.host.v1.ExecuteCleanupAllocationRequest
-	233, // 309: agentvmm.host.v1.RemoteComputeService.AcquireLease:input_type -> agentvmm.host.v1.AcquireLeaseRequest
-	234, // 310: agentvmm.host.v1.RemoteComputeService.RenewLease:input_type -> agentvmm.host.v1.RenewLeaseRequest
-	235, // 311: agentvmm.host.v1.RemoteComputeService.ReleaseLease:input_type -> agentvmm.host.v1.ReleaseLeaseRequest
-	237, // 312: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:input_type -> agentvmm.host.v1.OpenRuntimeSessionRequest
-	238, // 313: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:input_type -> agentvmm.host.v1.RevokeRuntimeSessionRequest
-	54,  // 314: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:input_type -> agentvmm.host.v1.AcquireHostLoopbackFrontendRequest
-	55,  // 315: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:input_type -> agentvmm.host.v1.RenewHostLoopbackFrontendRequest
-	56,  // 316: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:input_type -> agentvmm.host.v1.ReleaseHostLoopbackFrontendRequest
-	62,  // 317: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:input_type -> agentvmm.host.v1.ControllerFrontendFrame
-	114, // 318: agentvmm.host.v1.AgentRuntimeService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
-	129, // 319: agentvmm.host.v1.AgentRuntimeService.PullImage:output_type -> agentvmm.host.v1.PullImageResponse
-	132, // 320: agentvmm.host.v1.AgentRuntimeService.ImportImage:output_type -> agentvmm.host.v1.Image
-	135, // 321: agentvmm.host.v1.AgentRuntimeService.ListImages:output_type -> agentvmm.host.v1.ListImagesResponse
-	251, // 322: agentvmm.host.v1.AgentRuntimeService.DeleteImage:output_type -> google.protobuf.Empty
-	124, // 323: agentvmm.host.v1.AgentRuntimeService.CreateContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	124, // 324: agentvmm.host.v1.AgentRuntimeService.StartContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	124, // 325: agentvmm.host.v1.AgentRuntimeService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	125, // 326: agentvmm.host.v1.AgentRuntimeService.WaitContainer:output_type -> agentvmm.host.v1.WaitContainerResponse
-	251, // 327: agentvmm.host.v1.AgentRuntimeService.DeleteContainer:output_type -> google.protobuf.Empty
-	124, // 328: agentvmm.host.v1.AgentRuntimeService.GetContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	127, // 329: agentvmm.host.v1.AgentRuntimeService.ListContainers:output_type -> agentvmm.host.v1.ListContainersResponse
-	140, // 330: agentvmm.host.v1.AgentRuntimeService.Logs:output_type -> agentvmm.host.v1.LogRecord
-	145, // 331: agentvmm.host.v1.AgentRuntimeService.Exec:output_type -> agentvmm.host.v1.ExecResponse
-	251, // 332: agentvmm.host.v1.AgentRuntimeService.SignalContainer:output_type -> google.protobuf.Empty
-	150, // 333: agentvmm.host.v1.AgentRuntimeService.CreateVolume:output_type -> agentvmm.host.v1.VolumeResponse
-	251, // 334: agentvmm.host.v1.AgentRuntimeService.DeleteVolume:output_type -> google.protobuf.Empty
-	150, // 335: agentvmm.host.v1.AgentRuntimeService.GetVolume:output_type -> agentvmm.host.v1.VolumeResponse
-	152, // 336: agentvmm.host.v1.AgentRuntimeService.ListVolumes:output_type -> agentvmm.host.v1.ListVolumesResponse
-	155, // 337: agentvmm.host.v1.AgentRuntimeService.ForwardTCP:output_type -> agentvmm.host.v1.ForwardTCPResponse
-	163, // 338: agentvmm.host.v1.AgentRuntimeService.BuildImage:output_type -> agentvmm.host.v1.BuildImageResponse
-	251, // 339: agentvmm.host.v1.AgentRuntimeService.ReleaseSession:output_type -> google.protobuf.Empty
-	187, // 340: agentvmm.host.v1.AgentRuntimeService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	187, // 341: agentvmm.host.v1.AgentRuntimeService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	192, // 342: agentvmm.host.v1.AgentRuntimeService.RequestReset:output_type -> agentvmm.host.v1.OperationResponse
-	192, // 343: agentvmm.host.v1.AgentRuntimeService.RequestDiscard:output_type -> agentvmm.host.v1.OperationResponse
-	64,  // 344: agentvmm.host.v1.AgentRuntimeService.StatWorkspace:output_type -> agentvmm.host.v1.WorkspaceEntry
-	66,  // 345: agentvmm.host.v1.AgentRuntimeService.ListWorkspace:output_type -> agentvmm.host.v1.ListWorkspaceResponse
-	68,  // 346: agentvmm.host.v1.AgentRuntimeService.ReadWorkspace:output_type -> agentvmm.host.v1.ReadWorkspaceResponse
-	71,  // 347: agentvmm.host.v1.AgentRuntimeService.WriteWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
-	73,  // 348: agentvmm.host.v1.AgentRuntimeService.ArchiveWorkspace:output_type -> agentvmm.host.v1.ArchiveWorkspaceResponse
-	71,  // 349: agentvmm.host.v1.AgentRuntimeService.ExtractWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
-	252, // 350: agentvmm.host.v1.AgentRuntimeService.CreateServiceExport:output_type -> agentvmm.service.v1.ServiceExport
-	253, // 351: agentvmm.host.v1.AgentRuntimeService.ListServiceExports:output_type -> agentvmm.service.v1.ListServiceExportsResponse
-	252, // 352: agentvmm.host.v1.AgentRuntimeService.GetServiceExport:output_type -> agentvmm.service.v1.ServiceExport
-	251, // 353: agentvmm.host.v1.AgentRuntimeService.RevokeServiceExport:output_type -> google.protobuf.Empty
-	250, // 354: agentvmm.host.v1.AgentRuntimeService.CreateServiceImport:output_type -> agentvmm.service.v1.ServiceImport
-	250, // 355: agentvmm.host.v1.AgentRuntimeService.CreatePersonalServiceImport:output_type -> agentvmm.service.v1.ServiceImport
-	83,  // 356: agentvmm.host.v1.AgentRuntimeService.ListServiceImports:output_type -> agentvmm.host.v1.ListServiceImportsResponse
-	250, // 357: agentvmm.host.v1.AgentRuntimeService.GetServiceImport:output_type -> agentvmm.service.v1.ServiceImport
-	251, // 358: agentvmm.host.v1.AgentRuntimeService.RevokeServiceImport:output_type -> google.protobuf.Empty
-	192, // 359: agentvmm.host.v1.OperatorService.StartVM:output_type -> agentvmm.host.v1.OperationResponse
-	90,  // 360: agentvmm.host.v1.OperatorService.GetVM:output_type -> agentvmm.host.v1.VMResponse
-	192, // 361: agentvmm.host.v1.OperatorService.StopVM:output_type -> agentvmm.host.v1.OperationResponse
-	95,  // 362: agentvmm.host.v1.OperatorService.CreateAgentSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
-	251, // 363: agentvmm.host.v1.OperatorService.RevokeAgentSession:output_type -> google.protobuf.Empty
-	99,  // 364: agentvmm.host.v1.OperatorService.ListAgentIntegrations:output_type -> agentvmm.host.v1.ListAgentIntegrationsResponse
-	106, // 365: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	106, // 366: agentvmm.host.v1.OperatorService.BeginAgentIntegrationConfiguration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	106, // 367: agentvmm.host.v1.OperatorService.CommitAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	106, // 368: agentvmm.host.v1.OperatorService.FailAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	106, // 369: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	106, // 370: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	109, // 371: agentvmm.host.v1.OperatorService.ListAgentSessions:output_type -> agentvmm.host.v1.ListAgentSessionsResponse
-	251, // 372: agentvmm.host.v1.OperatorService.RevokeAgentSessions:output_type -> google.protobuf.Empty
-	168, // 373: agentvmm.host.v1.OperatorService.GetSystemSnapshot:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
-	116, // 374: agentvmm.host.v1.OperatorService.ListEnvironments:output_type -> agentvmm.host.v1.ListEnvironmentsResponse
-	114, // 375: agentvmm.host.v1.OperatorService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
-	135, // 376: agentvmm.host.v1.OperatorService.ListEnvironmentImages:output_type -> agentvmm.host.v1.ListImagesResponse
-	251, // 377: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:output_type -> google.protobuf.Empty
-	171, // 378: agentvmm.host.v1.OperatorService.WatchEvents:output_type -> agentvmm.host.v1.RuntimeEvent
-	173, // 379: agentvmm.host.v1.OperatorService.WatchMetrics:output_type -> agentvmm.host.v1.MetricsSample
-	140, // 380: agentvmm.host.v1.OperatorService.Logs:output_type -> agentvmm.host.v1.LogRecord
-	124, // 381: agentvmm.host.v1.OperatorService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	124, // 382: agentvmm.host.v1.OperatorService.ContinueContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	251, // 383: agentvmm.host.v1.OperatorService.SignalContainer:output_type -> google.protobuf.Empty
-	251, // 384: agentvmm.host.v1.OperatorService.DeleteContainer:output_type -> google.protobuf.Empty
-	114, // 385: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:output_type -> agentvmm.host.v1.GetEnvironmentResponse
-	251, // 386: agentvmm.host.v1.OperatorService.ApplyNetworkLink:output_type -> google.protobuf.Empty
-	251, // 387: agentvmm.host.v1.OperatorService.DeleteNetworkLink:output_type -> google.protobuf.Empty
-	187, // 388: agentvmm.host.v1.OperatorService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	187, // 389: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	192, // 390: agentvmm.host.v1.OperatorService.ExecuteCleanup:output_type -> agentvmm.host.v1.OperationResponse
-	192, // 391: agentvmm.host.v1.OperatorService.GetOperation:output_type -> agentvmm.host.v1.OperationResponse
-	192, // 392: agentvmm.host.v1.OperatorService.RunDiagnostics:output_type -> agentvmm.host.v1.OperationResponse
-	197, // 393: agentvmm.host.v1.OperatorService.PreviewSupportBundle:output_type -> agentvmm.host.v1.SupportBundlePreview
-	192, // 394: agentvmm.host.v1.OperatorService.ExportSupportBundle:output_type -> agentvmm.host.v1.OperationResponse
-	216, // 395: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 396: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 397: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 398: agentvmm.host.v1.OperatorService.FailRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 399: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	251, // 400: agentvmm.host.v1.OperatorService.RemoveIncompleteRemoteRegistration:output_type -> google.protobuf.Empty
-	216, // 401: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 402: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 403: agentvmm.host.v1.OperatorService.UpdateRemotePool:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 404: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	216, // 405: agentvmm.host.v1.OperatorService.GetRemoteRegistration:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	215, // 406: agentvmm.host.v1.OperatorService.ListRemoteRegistrations:output_type -> agentvmm.host.v1.ListRemoteRegistrationsResponse
-	29,  // 407: agentvmm.host.v1.OperatorService.GetDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
-	31,  // 408: agentvmm.host.v1.OperatorService.RotateDeviceRoot:output_type -> agentvmm.host.v1.RotateDeviceRootResponse
-	34,  // 409: agentvmm.host.v1.OperatorService.ListPersonalMeshes:output_type -> agentvmm.host.v1.ListPersonalMeshesResponse
-	41,  // 410: agentvmm.host.v1.OperatorService.CreatePersonalMesh:output_type -> agentvmm.host.v1.PersonalMeshResponse
-	41,  // 411: agentvmm.host.v1.OperatorService.ApplyPersonalMeshSnapshot:output_type -> agentvmm.host.v1.PersonalMeshResponse
-	41,  // 412: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:output_type -> agentvmm.host.v1.PersonalMeshResponse
-	50,  // 413: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	50,  // 414: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	50,  // 415: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	50,  // 416: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	50,  // 417: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	29,  // 418: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
-	37,  // 419: agentvmm.host.v1.OperatorService.CreatePersonalServiceListener:output_type -> agentvmm.host.v1.ServiceListenerResponse
-	39,  // 420: agentvmm.host.v1.OperatorService.ListServiceListeners:output_type -> agentvmm.host.v1.ListServiceListenersResponse
-	251, // 421: agentvmm.host.v1.OperatorService.RevokeServiceListener:output_type -> google.protobuf.Empty
-	220, // 422: agentvmm.host.v1.RemoteComputeService.GetRemoteState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	222, // 423: agentvmm.host.v1.RemoteComputeService.GetRemoteObservation:output_type -> agentvmm.host.v1.GetRemoteObservationResponse
-	220, // 424: agentvmm.host.v1.RemoteComputeService.SetConnectionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	220, // 425: agentvmm.host.v1.RemoteComputeService.SetRemoteAdmissionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	220, // 426: agentvmm.host.v1.RemoteComputeService.ReportConnectorStatus:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	227, // 427: agentvmm.host.v1.RemoteComputeService.EnsureAllocation:output_type -> agentvmm.host.v1.AllocationResponse
-	227, // 428: agentvmm.host.v1.RemoteComputeService.ReleaseAllocation:output_type -> agentvmm.host.v1.AllocationResponse
-	231, // 429: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:output_type -> agentvmm.host.v1.AllocationCleanupPlanResponse
-	227, // 430: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:output_type -> agentvmm.host.v1.AllocationResponse
-	236, // 431: agentvmm.host.v1.RemoteComputeService.AcquireLease:output_type -> agentvmm.host.v1.LeaseResponse
-	236, // 432: agentvmm.host.v1.RemoteComputeService.RenewLease:output_type -> agentvmm.host.v1.LeaseResponse
-	236, // 433: agentvmm.host.v1.RemoteComputeService.ReleaseLease:output_type -> agentvmm.host.v1.LeaseResponse
-	95,  // 434: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
-	251, // 435: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:output_type -> google.protobuf.Empty
-	53,  // 436: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
-	53,  // 437: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
-	251, // 438: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:output_type -> google.protobuf.Empty
-	61,  // 439: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostFrontendFrame
-	318, // [318:440] is the sub-list for method output_type
-	196, // [196:318] is the sub-list for method input_type
-	196, // [196:196] is the sub-list for extension type_name
-	196, // [196:196] is the sub-list for extension extendee
-	0,   // [0:196] is the sub-list for field type_name
+	219, // 175: agentvmm.host.v1.RemoteAllocation.lease:type_name -> agentvmm.host.v1.RemoteLease
+	92,  // 176: agentvmm.host.v1.RemoteAllocation.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
+	243, // 177: agentvmm.host.v1.RemoteLease.expires_at:type_name -> google.protobuf.Timestamp
+	26,  // 178: agentvmm.host.v1.RemoteLease.state:type_name -> agentvmm.host.v1.LeaseState
+	203, // 179: agentvmm.host.v1.GetRemoteStateResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	166, // 180: agentvmm.host.v1.GetRemoteObservationResponse.health:type_name -> agentvmm.host.v1.HealthStatus
+	167, // 181: agentvmm.host.v1.GetRemoteObservationResponse.usage:type_name -> agentvmm.host.v1.Usage
+	243, // 182: agentvmm.host.v1.GetRemoteObservationResponse.observed_at:type_name -> google.protobuf.Timestamp
+	22,  // 183: agentvmm.host.v1.SetConnectionStateRequest.state:type_name -> agentvmm.host.v1.RemoteConnectionState
+	20,  // 184: agentvmm.host.v1.SetRemoteAdmissionStateRequest.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
+	200, // 185: agentvmm.host.v1.ReportConnectorStatusRequest.status:type_name -> agentvmm.host.v1.ConnectorStatus
+	91,  // 186: agentvmm.host.v1.EnsureAllocationRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	4,   // 187: agentvmm.host.v1.EnsureAllocationRequest.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	92,  // 188: agentvmm.host.v1.EnsureAllocationRequest.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
+	218, // 189: agentvmm.host.v1.AllocationResponse.allocation:type_name -> agentvmm.host.v1.RemoteAllocation
+	18,  // 190: agentvmm.host.v1.PlanCleanupAllocationRequest.kind:type_name -> agentvmm.host.v1.CleanupKind
+	186, // 191: agentvmm.host.v1.AllocationCleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
+	18,  // 192: agentvmm.host.v1.AllocationCleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
+	231, // 193: agentvmm.host.v1.AllocationCleanupPlanResponse.plan:type_name -> agentvmm.host.v1.AllocationCleanupPlan
+	18,  // 194: agentvmm.host.v1.ExecuteCleanupAllocationRequest.kind:type_name -> agentvmm.host.v1.CleanupKind
+	248, // 195: agentvmm.host.v1.AcquireLeaseRequest.duration:type_name -> google.protobuf.Duration
+	248, // 196: agentvmm.host.v1.RenewLeaseRequest.duration:type_name -> google.protobuf.Duration
+	219, // 197: agentvmm.host.v1.LeaseResponse.lease:type_name -> agentvmm.host.v1.RemoteLease
+	113, // 198: agentvmm.host.v1.AgentRuntimeService.GetEnvironment:input_type -> agentvmm.host.v1.GetOwnEnvironmentRequest
+	129, // 199: agentvmm.host.v1.AgentRuntimeService.PullImage:input_type -> agentvmm.host.v1.PullImageRequest
+	132, // 200: agentvmm.host.v1.AgentRuntimeService.ImportImage:input_type -> agentvmm.host.v1.ImportImageRequest
+	134, // 201: agentvmm.host.v1.AgentRuntimeService.ListImages:input_type -> agentvmm.host.v1.ListImagesRequest
+	137, // 202: agentvmm.host.v1.AgentRuntimeService.DeleteImage:input_type -> agentvmm.host.v1.DeleteImageRequest
+	121, // 203: agentvmm.host.v1.AgentRuntimeService.CreateContainer:input_type -> agentvmm.host.v1.CreateContainerRequest
+	123, // 204: agentvmm.host.v1.AgentRuntimeService.StartContainer:input_type -> agentvmm.host.v1.ContainerMutationRequest
+	124, // 205: agentvmm.host.v1.AgentRuntimeService.StopContainer:input_type -> agentvmm.host.v1.StopContainerRequest
+	122, // 206: agentvmm.host.v1.AgentRuntimeService.WaitContainer:input_type -> agentvmm.host.v1.ContainerRequest
+	123, // 207: agentvmm.host.v1.AgentRuntimeService.DeleteContainer:input_type -> agentvmm.host.v1.ContainerMutationRequest
+	122, // 208: agentvmm.host.v1.AgentRuntimeService.GetContainer:input_type -> agentvmm.host.v1.ContainerRequest
+	127, // 209: agentvmm.host.v1.AgentRuntimeService.ListContainers:input_type -> agentvmm.host.v1.ListContainersRequest
+	139, // 210: agentvmm.host.v1.AgentRuntimeService.Logs:input_type -> agentvmm.host.v1.LogsRequest
+	145, // 211: agentvmm.host.v1.AgentRuntimeService.Exec:input_type -> agentvmm.host.v1.ExecRequest
+	142, // 212: agentvmm.host.v1.AgentRuntimeService.SignalContainer:input_type -> agentvmm.host.v1.SignalContainerRequest
+	148, // 213: agentvmm.host.v1.AgentRuntimeService.CreateVolume:input_type -> agentvmm.host.v1.CreateVolumeRequest
+	149, // 214: agentvmm.host.v1.AgentRuntimeService.DeleteVolume:input_type -> agentvmm.host.v1.DeleteVolumeRequest
+	150, // 215: agentvmm.host.v1.AgentRuntimeService.GetVolume:input_type -> agentvmm.host.v1.VolumeRequest
+	152, // 216: agentvmm.host.v1.AgentRuntimeService.ListVolumes:input_type -> agentvmm.host.v1.ListVolumesRequest
+	155, // 217: agentvmm.host.v1.AgentRuntimeService.ForwardTCP:input_type -> agentvmm.host.v1.ForwardTCPRequest
+	162, // 218: agentvmm.host.v1.AgentRuntimeService.BuildImage:input_type -> agentvmm.host.v1.BuildImageRequest
+	112, // 219: agentvmm.host.v1.AgentRuntimeService.ReleaseSession:input_type -> agentvmm.host.v1.ReleaseSessionRequest
+	113, // 220: agentvmm.host.v1.AgentRuntimeService.PlanResetEnvironment:input_type -> agentvmm.host.v1.GetOwnEnvironmentRequest
+	113, // 221: agentvmm.host.v1.AgentRuntimeService.PlanDiscardEnvironment:input_type -> agentvmm.host.v1.GetOwnEnvironmentRequest
+	190, // 222: agentvmm.host.v1.AgentRuntimeService.RequestReset:input_type -> agentvmm.host.v1.EnvironmentOperationRequest
+	190, // 223: agentvmm.host.v1.AgentRuntimeService.RequestDiscard:input_type -> agentvmm.host.v1.EnvironmentOperationRequest
+	63,  // 224: agentvmm.host.v1.AgentRuntimeService.StatWorkspace:input_type -> agentvmm.host.v1.WorkspacePathRequest
+	65,  // 225: agentvmm.host.v1.AgentRuntimeService.ListWorkspace:input_type -> agentvmm.host.v1.ListWorkspaceRequest
+	67,  // 226: agentvmm.host.v1.AgentRuntimeService.ReadWorkspace:input_type -> agentvmm.host.v1.ReadWorkspaceRequest
+	70,  // 227: agentvmm.host.v1.AgentRuntimeService.WriteWorkspace:input_type -> agentvmm.host.v1.WriteWorkspaceRequest
+	72,  // 228: agentvmm.host.v1.AgentRuntimeService.ArchiveWorkspace:input_type -> agentvmm.host.v1.ArchiveWorkspaceRequest
+	75,  // 229: agentvmm.host.v1.AgentRuntimeService.ExtractWorkspace:input_type -> agentvmm.host.v1.ExtractWorkspaceRequest
+	76,  // 230: agentvmm.host.v1.AgentRuntimeService.CreateServiceExport:input_type -> agentvmm.host.v1.CreateServiceExportRequest
+	77,  // 231: agentvmm.host.v1.AgentRuntimeService.ListServiceExports:input_type -> agentvmm.host.v1.ListOwnServiceExportsRequest
+	78,  // 232: agentvmm.host.v1.AgentRuntimeService.GetServiceExport:input_type -> agentvmm.host.v1.GetOwnServiceExportRequest
+	79,  // 233: agentvmm.host.v1.AgentRuntimeService.RevokeServiceExport:input_type -> agentvmm.host.v1.RevokeOwnServiceExportRequest
+	80,  // 234: agentvmm.host.v1.AgentRuntimeService.CreateServiceImport:input_type -> agentvmm.host.v1.CreateServiceImportRequest
+	81,  // 235: agentvmm.host.v1.AgentRuntimeService.CreatePersonalServiceImport:input_type -> agentvmm.host.v1.CreatePersonalServiceImportRequest
+	82,  // 236: agentvmm.host.v1.AgentRuntimeService.ListServiceImports:input_type -> agentvmm.host.v1.ListServiceImportsRequest
+	84,  // 237: agentvmm.host.v1.AgentRuntimeService.GetServiceImport:input_type -> agentvmm.host.v1.GetServiceImportRequest
+	85,  // 238: agentvmm.host.v1.AgentRuntimeService.RevokeServiceImport:input_type -> agentvmm.host.v1.RevokeServiceImportRequest
+	87,  // 239: agentvmm.host.v1.OperatorService.StartVM:input_type -> agentvmm.host.v1.StartVMRequest
+	88,  // 240: agentvmm.host.v1.OperatorService.GetVM:input_type -> agentvmm.host.v1.GetVMRequest
+	89,  // 241: agentvmm.host.v1.OperatorService.StopVM:input_type -> agentvmm.host.v1.StopVMRequest
+	95,  // 242: agentvmm.host.v1.OperatorService.CreateAgentSession:input_type -> agentvmm.host.v1.CreateAgentSessionRequest
+	97,  // 243: agentvmm.host.v1.OperatorService.RevokeAgentSession:input_type -> agentvmm.host.v1.RevokeAgentSessionRequest
+	99,  // 244: agentvmm.host.v1.OperatorService.ListAgentIntegrations:input_type -> agentvmm.host.v1.ListAgentIntegrationsRequest
+	101, // 245: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:input_type -> agentvmm.host.v1.PrepareAgentIntegrationRequest
+	102, // 246: agentvmm.host.v1.OperatorService.BeginAgentIntegrationConfiguration:input_type -> agentvmm.host.v1.BeginAgentIntegrationConfigurationRequest
+	103, // 247: agentvmm.host.v1.OperatorService.CommitAgentIntegration:input_type -> agentvmm.host.v1.CommitAgentIntegrationRequest
+	104, // 248: agentvmm.host.v1.OperatorService.FailAgentIntegration:input_type -> agentvmm.host.v1.FailAgentIntegrationRequest
+	105, // 249: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:input_type -> agentvmm.host.v1.BeginAgentIntegrationRemovalRequest
+	106, // 250: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:input_type -> agentvmm.host.v1.CompleteAgentIntegrationRemovalRequest
+	109, // 251: agentvmm.host.v1.OperatorService.ListAgentSessions:input_type -> agentvmm.host.v1.ListAgentSessionsRequest
+	111, // 252: agentvmm.host.v1.OperatorService.RevokeAgentSessions:input_type -> agentvmm.host.v1.RevokeAgentSessionsRequest
+	168, // 253: agentvmm.host.v1.OperatorService.GetSystemSnapshot:input_type -> agentvmm.host.v1.GetSystemSnapshotRequest
+	116, // 254: agentvmm.host.v1.OperatorService.ListEnvironments:input_type -> agentvmm.host.v1.ListEnvironmentsRequest
+	114, // 255: agentvmm.host.v1.OperatorService.GetEnvironment:input_type -> agentvmm.host.v1.GetEnvironmentRequest
+	135, // 256: agentvmm.host.v1.OperatorService.ListEnvironmentImages:input_type -> agentvmm.host.v1.ListEnvironmentImagesRequest
+	138, // 257: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:input_type -> agentvmm.host.v1.DeleteEnvironmentImageRequest
+	170, // 258: agentvmm.host.v1.OperatorService.WatchEvents:input_type -> agentvmm.host.v1.WatchEventsRequest
+	173, // 259: agentvmm.host.v1.OperatorService.WatchMetrics:input_type -> agentvmm.host.v1.WatchMetricsRequest
+	140, // 260: agentvmm.host.v1.OperatorService.Logs:input_type -> agentvmm.host.v1.OperatorLogsRequest
+	177, // 261: agentvmm.host.v1.OperatorService.StopContainer:input_type -> agentvmm.host.v1.OperatorStopContainerRequest
+	176, // 262: agentvmm.host.v1.OperatorService.ContinueContainer:input_type -> agentvmm.host.v1.OperatorContainerMutationRequest
+	178, // 263: agentvmm.host.v1.OperatorService.SignalContainer:input_type -> agentvmm.host.v1.OperatorSignalContainerRequest
+	179, // 264: agentvmm.host.v1.OperatorService.DeleteContainer:input_type -> agentvmm.host.v1.OperatorDeleteContainerRequest
+	175, // 265: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:input_type -> agentvmm.host.v1.UpdateEnvironmentPolicyRequest
+	183, // 266: agentvmm.host.v1.OperatorService.ApplyNetworkLink:input_type -> agentvmm.host.v1.ApplyNetworkLinkRequest
+	184, // 267: agentvmm.host.v1.OperatorService.DeleteNetworkLink:input_type -> agentvmm.host.v1.DeleteNetworkLinkRequest
+	185, // 268: agentvmm.host.v1.OperatorService.PlanResetEnvironment:input_type -> agentvmm.host.v1.PlanEnvironmentRequest
+	185, // 269: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:input_type -> agentvmm.host.v1.PlanEnvironmentRequest
+	189, // 270: agentvmm.host.v1.OperatorService.ExecuteCleanup:input_type -> agentvmm.host.v1.ExecuteCleanupRequest
+	194, // 271: agentvmm.host.v1.OperatorService.GetOperation:input_type -> agentvmm.host.v1.GetOperationRequest
+	195, // 272: agentvmm.host.v1.OperatorService.RunDiagnostics:input_type -> agentvmm.host.v1.RunDiagnosticsRequest
+	196, // 273: agentvmm.host.v1.OperatorService.PreviewSupportBundle:input_type -> agentvmm.host.v1.PreviewSupportBundleRequest
+	199, // 274: agentvmm.host.v1.OperatorService.ExportSupportBundle:input_type -> agentvmm.host.v1.ExportSupportBundleRequest
+	204, // 275: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:input_type -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
+	205, // 276: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:input_type -> agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
+	206, // 277: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:input_type -> agentvmm.host.v1.CompleteRemoteEnrollmentRequest
+	207, // 278: agentvmm.host.v1.OperatorService.FailRemoteEnrollment:input_type -> agentvmm.host.v1.FailRemoteEnrollmentRequest
+	208, // 279: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:input_type -> agentvmm.host.v1.RetryRemoteEnrollmentRequest
+	209, // 280: agentvmm.host.v1.OperatorService.RemoveIncompleteRemoteRegistration:input_type -> agentvmm.host.v1.RemoveIncompleteRemoteRegistrationRequest
+	210, // 281: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:input_type -> agentvmm.host.v1.BeginRemoteRevocationRequest
+	211, // 282: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:input_type -> agentvmm.host.v1.CompleteRemoteRevocationRequest
+	212, // 283: agentvmm.host.v1.OperatorService.UpdateRemotePool:input_type -> agentvmm.host.v1.UpdateRemotePoolRequest
+	213, // 284: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:input_type -> agentvmm.host.v1.SetRemoteRegistrationStateRequest
+	214, // 285: agentvmm.host.v1.OperatorService.GetRemoteRegistration:input_type -> agentvmm.host.v1.GetRemoteRegistrationRequest
+	215, // 286: agentvmm.host.v1.OperatorService.ListRemoteRegistrations:input_type -> agentvmm.host.v1.ListRemoteRegistrationsRequest
+	28,  // 287: agentvmm.host.v1.OperatorService.GetDeviceIdentity:input_type -> agentvmm.host.v1.GetDeviceIdentityRequest
+	30,  // 288: agentvmm.host.v1.OperatorService.RotateDeviceRoot:input_type -> agentvmm.host.v1.RotateDeviceRootRequest
+	33,  // 289: agentvmm.host.v1.OperatorService.ListPersonalMeshes:input_type -> agentvmm.host.v1.ListPersonalMeshesRequest
+	32,  // 290: agentvmm.host.v1.OperatorService.CreatePersonalMesh:input_type -> agentvmm.host.v1.CreatePersonalMeshRequest
+	42,  // 291: agentvmm.host.v1.OperatorService.ApplyPersonalMeshSnapshot:input_type -> agentvmm.host.v1.ApplyPersonalMeshSnapshotRequest
+	43,  // 292: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:input_type -> agentvmm.host.v1.RevokePersonalMeshMemberRequest
+	45,  // 293: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:input_type -> agentvmm.host.v1.BeginPersonalMeshPairingRequest
+	46,  // 294: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:input_type -> agentvmm.host.v1.JoinPersonalMeshPairingRequest
+	47,  // 295: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:input_type -> agentvmm.host.v1.GetPersonalMeshPairingRequest
+	48,  // 296: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:input_type -> agentvmm.host.v1.ConfirmPersonalMeshPairingRequest
+	49,  // 297: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:input_type -> agentvmm.host.v1.RejectPersonalMeshPairingRequest
+	51,  // 298: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:input_type -> agentvmm.host.v1.RepairDeviceIdentityRequest
+	35,  // 299: agentvmm.host.v1.OperatorService.CreatePersonalServiceListener:input_type -> agentvmm.host.v1.CreatePersonalServiceListenerRequest
+	38,  // 300: agentvmm.host.v1.OperatorService.ListServiceListeners:input_type -> agentvmm.host.v1.ListServiceListenersRequest
+	40,  // 301: agentvmm.host.v1.OperatorService.RevokeServiceListener:input_type -> agentvmm.host.v1.RevokeServiceListenerRequest
+	220, // 302: agentvmm.host.v1.RemoteComputeService.GetRemoteState:input_type -> agentvmm.host.v1.GetRemoteStateRequest
+	222, // 303: agentvmm.host.v1.RemoteComputeService.GetRemoteObservation:input_type -> agentvmm.host.v1.GetRemoteObservationRequest
+	224, // 304: agentvmm.host.v1.RemoteComputeService.SetConnectionState:input_type -> agentvmm.host.v1.SetConnectionStateRequest
+	225, // 305: agentvmm.host.v1.RemoteComputeService.SetRemoteAdmissionState:input_type -> agentvmm.host.v1.SetRemoteAdmissionStateRequest
+	226, // 306: agentvmm.host.v1.RemoteComputeService.ReportConnectorStatus:input_type -> agentvmm.host.v1.ReportConnectorStatusRequest
+	227, // 307: agentvmm.host.v1.RemoteComputeService.EnsureAllocation:input_type -> agentvmm.host.v1.EnsureAllocationRequest
+	229, // 308: agentvmm.host.v1.RemoteComputeService.ReleaseAllocation:input_type -> agentvmm.host.v1.ReleaseAllocationRequest
+	230, // 309: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:input_type -> agentvmm.host.v1.PlanCleanupAllocationRequest
+	233, // 310: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:input_type -> agentvmm.host.v1.ExecuteCleanupAllocationRequest
+	234, // 311: agentvmm.host.v1.RemoteComputeService.AcquireLease:input_type -> agentvmm.host.v1.AcquireLeaseRequest
+	235, // 312: agentvmm.host.v1.RemoteComputeService.RenewLease:input_type -> agentvmm.host.v1.RenewLeaseRequest
+	236, // 313: agentvmm.host.v1.RemoteComputeService.ReleaseLease:input_type -> agentvmm.host.v1.ReleaseLeaseRequest
+	238, // 314: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:input_type -> agentvmm.host.v1.OpenRuntimeSessionRequest
+	239, // 315: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:input_type -> agentvmm.host.v1.RevokeRuntimeSessionRequest
+	54,  // 316: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:input_type -> agentvmm.host.v1.AcquireHostLoopbackFrontendRequest
+	55,  // 317: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:input_type -> agentvmm.host.v1.RenewHostLoopbackFrontendRequest
+	56,  // 318: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:input_type -> agentvmm.host.v1.ReleaseHostLoopbackFrontendRequest
+	62,  // 319: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:input_type -> agentvmm.host.v1.ControllerFrontendFrame
+	115, // 320: agentvmm.host.v1.AgentRuntimeService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
+	130, // 321: agentvmm.host.v1.AgentRuntimeService.PullImage:output_type -> agentvmm.host.v1.PullImageResponse
+	133, // 322: agentvmm.host.v1.AgentRuntimeService.ImportImage:output_type -> agentvmm.host.v1.Image
+	136, // 323: agentvmm.host.v1.AgentRuntimeService.ListImages:output_type -> agentvmm.host.v1.ListImagesResponse
+	252, // 324: agentvmm.host.v1.AgentRuntimeService.DeleteImage:output_type -> google.protobuf.Empty
+	125, // 325: agentvmm.host.v1.AgentRuntimeService.CreateContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	125, // 326: agentvmm.host.v1.AgentRuntimeService.StartContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	125, // 327: agentvmm.host.v1.AgentRuntimeService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	126, // 328: agentvmm.host.v1.AgentRuntimeService.WaitContainer:output_type -> agentvmm.host.v1.WaitContainerResponse
+	252, // 329: agentvmm.host.v1.AgentRuntimeService.DeleteContainer:output_type -> google.protobuf.Empty
+	125, // 330: agentvmm.host.v1.AgentRuntimeService.GetContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	128, // 331: agentvmm.host.v1.AgentRuntimeService.ListContainers:output_type -> agentvmm.host.v1.ListContainersResponse
+	141, // 332: agentvmm.host.v1.AgentRuntimeService.Logs:output_type -> agentvmm.host.v1.LogRecord
+	146, // 333: agentvmm.host.v1.AgentRuntimeService.Exec:output_type -> agentvmm.host.v1.ExecResponse
+	252, // 334: agentvmm.host.v1.AgentRuntimeService.SignalContainer:output_type -> google.protobuf.Empty
+	151, // 335: agentvmm.host.v1.AgentRuntimeService.CreateVolume:output_type -> agentvmm.host.v1.VolumeResponse
+	252, // 336: agentvmm.host.v1.AgentRuntimeService.DeleteVolume:output_type -> google.protobuf.Empty
+	151, // 337: agentvmm.host.v1.AgentRuntimeService.GetVolume:output_type -> agentvmm.host.v1.VolumeResponse
+	153, // 338: agentvmm.host.v1.AgentRuntimeService.ListVolumes:output_type -> agentvmm.host.v1.ListVolumesResponse
+	156, // 339: agentvmm.host.v1.AgentRuntimeService.ForwardTCP:output_type -> agentvmm.host.v1.ForwardTCPResponse
+	164, // 340: agentvmm.host.v1.AgentRuntimeService.BuildImage:output_type -> agentvmm.host.v1.BuildImageResponse
+	252, // 341: agentvmm.host.v1.AgentRuntimeService.ReleaseSession:output_type -> google.protobuf.Empty
+	188, // 342: agentvmm.host.v1.AgentRuntimeService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	188, // 343: agentvmm.host.v1.AgentRuntimeService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	193, // 344: agentvmm.host.v1.AgentRuntimeService.RequestReset:output_type -> agentvmm.host.v1.OperationResponse
+	193, // 345: agentvmm.host.v1.AgentRuntimeService.RequestDiscard:output_type -> agentvmm.host.v1.OperationResponse
+	64,  // 346: agentvmm.host.v1.AgentRuntimeService.StatWorkspace:output_type -> agentvmm.host.v1.WorkspaceEntry
+	66,  // 347: agentvmm.host.v1.AgentRuntimeService.ListWorkspace:output_type -> agentvmm.host.v1.ListWorkspaceResponse
+	68,  // 348: agentvmm.host.v1.AgentRuntimeService.ReadWorkspace:output_type -> agentvmm.host.v1.ReadWorkspaceResponse
+	71,  // 349: agentvmm.host.v1.AgentRuntimeService.WriteWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
+	73,  // 350: agentvmm.host.v1.AgentRuntimeService.ArchiveWorkspace:output_type -> agentvmm.host.v1.ArchiveWorkspaceResponse
+	71,  // 351: agentvmm.host.v1.AgentRuntimeService.ExtractWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
+	253, // 352: agentvmm.host.v1.AgentRuntimeService.CreateServiceExport:output_type -> agentvmm.service.v1.ServiceExport
+	254, // 353: agentvmm.host.v1.AgentRuntimeService.ListServiceExports:output_type -> agentvmm.service.v1.ListServiceExportsResponse
+	253, // 354: agentvmm.host.v1.AgentRuntimeService.GetServiceExport:output_type -> agentvmm.service.v1.ServiceExport
+	252, // 355: agentvmm.host.v1.AgentRuntimeService.RevokeServiceExport:output_type -> google.protobuf.Empty
+	251, // 356: agentvmm.host.v1.AgentRuntimeService.CreateServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	251, // 357: agentvmm.host.v1.AgentRuntimeService.CreatePersonalServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	83,  // 358: agentvmm.host.v1.AgentRuntimeService.ListServiceImports:output_type -> agentvmm.host.v1.ListServiceImportsResponse
+	251, // 359: agentvmm.host.v1.AgentRuntimeService.GetServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	252, // 360: agentvmm.host.v1.AgentRuntimeService.RevokeServiceImport:output_type -> google.protobuf.Empty
+	193, // 361: agentvmm.host.v1.OperatorService.StartVM:output_type -> agentvmm.host.v1.OperationResponse
+	90,  // 362: agentvmm.host.v1.OperatorService.GetVM:output_type -> agentvmm.host.v1.VMResponse
+	193, // 363: agentvmm.host.v1.OperatorService.StopVM:output_type -> agentvmm.host.v1.OperationResponse
+	96,  // 364: agentvmm.host.v1.OperatorService.CreateAgentSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
+	252, // 365: agentvmm.host.v1.OperatorService.RevokeAgentSession:output_type -> google.protobuf.Empty
+	100, // 366: agentvmm.host.v1.OperatorService.ListAgentIntegrations:output_type -> agentvmm.host.v1.ListAgentIntegrationsResponse
+	107, // 367: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	107, // 368: agentvmm.host.v1.OperatorService.BeginAgentIntegrationConfiguration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	107, // 369: agentvmm.host.v1.OperatorService.CommitAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	107, // 370: agentvmm.host.v1.OperatorService.FailAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	107, // 371: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	107, // 372: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	110, // 373: agentvmm.host.v1.OperatorService.ListAgentSessions:output_type -> agentvmm.host.v1.ListAgentSessionsResponse
+	252, // 374: agentvmm.host.v1.OperatorService.RevokeAgentSessions:output_type -> google.protobuf.Empty
+	169, // 375: agentvmm.host.v1.OperatorService.GetSystemSnapshot:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
+	117, // 376: agentvmm.host.v1.OperatorService.ListEnvironments:output_type -> agentvmm.host.v1.ListEnvironmentsResponse
+	115, // 377: agentvmm.host.v1.OperatorService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
+	136, // 378: agentvmm.host.v1.OperatorService.ListEnvironmentImages:output_type -> agentvmm.host.v1.ListImagesResponse
+	252, // 379: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:output_type -> google.protobuf.Empty
+	172, // 380: agentvmm.host.v1.OperatorService.WatchEvents:output_type -> agentvmm.host.v1.RuntimeEvent
+	174, // 381: agentvmm.host.v1.OperatorService.WatchMetrics:output_type -> agentvmm.host.v1.MetricsSample
+	141, // 382: agentvmm.host.v1.OperatorService.Logs:output_type -> agentvmm.host.v1.LogRecord
+	125, // 383: agentvmm.host.v1.OperatorService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	125, // 384: agentvmm.host.v1.OperatorService.ContinueContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	252, // 385: agentvmm.host.v1.OperatorService.SignalContainer:output_type -> google.protobuf.Empty
+	252, // 386: agentvmm.host.v1.OperatorService.DeleteContainer:output_type -> google.protobuf.Empty
+	115, // 387: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:output_type -> agentvmm.host.v1.GetEnvironmentResponse
+	252, // 388: agentvmm.host.v1.OperatorService.ApplyNetworkLink:output_type -> google.protobuf.Empty
+	252, // 389: agentvmm.host.v1.OperatorService.DeleteNetworkLink:output_type -> google.protobuf.Empty
+	188, // 390: agentvmm.host.v1.OperatorService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	188, // 391: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	193, // 392: agentvmm.host.v1.OperatorService.ExecuteCleanup:output_type -> agentvmm.host.v1.OperationResponse
+	193, // 393: agentvmm.host.v1.OperatorService.GetOperation:output_type -> agentvmm.host.v1.OperationResponse
+	193, // 394: agentvmm.host.v1.OperatorService.RunDiagnostics:output_type -> agentvmm.host.v1.OperationResponse
+	198, // 395: agentvmm.host.v1.OperatorService.PreviewSupportBundle:output_type -> agentvmm.host.v1.SupportBundlePreview
+	193, // 396: agentvmm.host.v1.OperatorService.ExportSupportBundle:output_type -> agentvmm.host.v1.OperationResponse
+	217, // 397: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 398: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 399: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 400: agentvmm.host.v1.OperatorService.FailRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 401: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	252, // 402: agentvmm.host.v1.OperatorService.RemoveIncompleteRemoteRegistration:output_type -> google.protobuf.Empty
+	217, // 403: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 404: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 405: agentvmm.host.v1.OperatorService.UpdateRemotePool:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 406: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	217, // 407: agentvmm.host.v1.OperatorService.GetRemoteRegistration:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	216, // 408: agentvmm.host.v1.OperatorService.ListRemoteRegistrations:output_type -> agentvmm.host.v1.ListRemoteRegistrationsResponse
+	29,  // 409: agentvmm.host.v1.OperatorService.GetDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
+	31,  // 410: agentvmm.host.v1.OperatorService.RotateDeviceRoot:output_type -> agentvmm.host.v1.RotateDeviceRootResponse
+	34,  // 411: agentvmm.host.v1.OperatorService.ListPersonalMeshes:output_type -> agentvmm.host.v1.ListPersonalMeshesResponse
+	41,  // 412: agentvmm.host.v1.OperatorService.CreatePersonalMesh:output_type -> agentvmm.host.v1.PersonalMeshResponse
+	41,  // 413: agentvmm.host.v1.OperatorService.ApplyPersonalMeshSnapshot:output_type -> agentvmm.host.v1.PersonalMeshResponse
+	41,  // 414: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:output_type -> agentvmm.host.v1.PersonalMeshResponse
+	50,  // 415: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	50,  // 416: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	50,  // 417: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	50,  // 418: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	50,  // 419: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	29,  // 420: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
+	37,  // 421: agentvmm.host.v1.OperatorService.CreatePersonalServiceListener:output_type -> agentvmm.host.v1.ServiceListenerResponse
+	39,  // 422: agentvmm.host.v1.OperatorService.ListServiceListeners:output_type -> agentvmm.host.v1.ListServiceListenersResponse
+	252, // 423: agentvmm.host.v1.OperatorService.RevokeServiceListener:output_type -> google.protobuf.Empty
+	221, // 424: agentvmm.host.v1.RemoteComputeService.GetRemoteState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	223, // 425: agentvmm.host.v1.RemoteComputeService.GetRemoteObservation:output_type -> agentvmm.host.v1.GetRemoteObservationResponse
+	221, // 426: agentvmm.host.v1.RemoteComputeService.SetConnectionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	221, // 427: agentvmm.host.v1.RemoteComputeService.SetRemoteAdmissionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	221, // 428: agentvmm.host.v1.RemoteComputeService.ReportConnectorStatus:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	228, // 429: agentvmm.host.v1.RemoteComputeService.EnsureAllocation:output_type -> agentvmm.host.v1.AllocationResponse
+	228, // 430: agentvmm.host.v1.RemoteComputeService.ReleaseAllocation:output_type -> agentvmm.host.v1.AllocationResponse
+	232, // 431: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:output_type -> agentvmm.host.v1.AllocationCleanupPlanResponse
+	228, // 432: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:output_type -> agentvmm.host.v1.AllocationResponse
+	237, // 433: agentvmm.host.v1.RemoteComputeService.AcquireLease:output_type -> agentvmm.host.v1.LeaseResponse
+	237, // 434: agentvmm.host.v1.RemoteComputeService.RenewLease:output_type -> agentvmm.host.v1.LeaseResponse
+	237, // 435: agentvmm.host.v1.RemoteComputeService.ReleaseLease:output_type -> agentvmm.host.v1.LeaseResponse
+	96,  // 436: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
+	252, // 437: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:output_type -> google.protobuf.Empty
+	53,  // 438: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
+	53,  // 439: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
+	252, // 440: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:output_type -> google.protobuf.Empty
+	61,  // 441: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostFrontendFrame
+	320, // [320:442] is the sub-list for method output_type
+	198, // [198:320] is the sub-list for method input_type
+	198, // [198:198] is the sub-list for extension type_name
+	198, // [198:198] is the sub-list for extension extendee
+	0,   // [0:198] is the sub-list for field type_name
 }
 
 func init() { file_host_v1_host_proto_init() }
@@ -17851,64 +18009,64 @@ func file_host_v1_host_proto_init() {
 		(*ExtractWorkspaceRequest_Finish)(nil),
 	}
 	file_host_v1_host_proto_msgTypes[63].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[72].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[80].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[90].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[92].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[95].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[101].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[103].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[73].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[81].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[91].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[93].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[96].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[102].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[104].OneofWrappers = []any{
 		(*ImportImageRequest_Header)(nil),
 		(*ImportImageRequest_ArchiveChunk)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[114].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[116].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[115].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[117].OneofWrappers = []any{
 		(*ExecRequest_Start)(nil),
 		(*ExecRequest_Stdin)(nil),
 		(*ExecRequest_CloseStdin)(nil),
 		(*ExecRequest_Resize)(nil),
 		(*ExecRequest_Signal)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[117].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[118].OneofWrappers = []any{
 		(*ExecResponse_Stdout)(nil),
 		(*ExecResponse_Stderr)(nil),
 		(*ExecResponse_ExitCode)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[119].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[126].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[120].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[127].OneofWrappers = []any{
 		(*ForwardTCPRequest_Header)(nil),
 		(*ForwardTCPRequest_Data)(nil),
 		(*ForwardTCPRequest_CloseWrite)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[127].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[128].OneofWrappers = []any{
 		(*ForwardTCPResponse_Data)(nil),
 		(*ForwardTCPResponse_CloseRead)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[130].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[133].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[131].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[134].OneofWrappers = []any{
 		(*BuildImageRequest_Header)(nil),
 		(*BuildImageRequest_Context)(nil),
 		(*BuildImageRequest_Secret)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[135].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[136].OneofWrappers = []any{
 		(*BuildImageResponse_Progress)(nil),
 		(*BuildImageResponse_Result)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[148].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[152].OneofWrappers = []any{
+	file_host_v1_host_proto_msgTypes[149].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[153].OneofWrappers = []any{
 		(*ContainerSelector_AllContainers)(nil),
 		(*ContainerSelector_ContainerIds)(nil),
 	}
-	file_host_v1_host_proto_msgTypes[166].OneofWrappers = []any{}
 	file_host_v1_host_proto_msgTypes[167].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[170].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[168].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[171].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_host_v1_host_proto_rawDesc), len(file_host_v1_host_proto_rawDesc)),
 			NumEnums:      28,
-			NumMessages:   211,
+			NumMessages:   212,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

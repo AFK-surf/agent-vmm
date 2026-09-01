@@ -22,9 +22,11 @@ import (
 	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
+	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -47,16 +49,69 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 			return rpcError(err)
 		}
 	}
-	namespace, err := s.runtime.GetNamespace(stream.Context(), header.GetActorNamespaceId())
+	_, err = s.runtime.GetNamespace(stream.Context(), header.GetActorNamespaceId())
 	if err != nil {
 		return rpcError(err)
 	}
-	archiveLimit := min(maxImportArchiveBytes, namespace.GetLimits().GetDiskBytes())
-	imageReference, manifestDigest, err := validateImportHeader(header, archiveLimit)
+	imageReference, manifestDigest, err := validateImportHeader(header, maxImportArchiveBytes)
 	if err != nil {
 		return invalid(err)
 	}
-	archive, err := s.runtime.createImportArchive(stream.Context(), header.GetActorNamespaceId(), header.GetRequestId(), header.GetArchiveSize(), namespace.GetLimits().GetDiskBytes())
+	unlockMaterializer := s.runtime.materializer.Lock(manifestDigest.String())
+	defer unlockMaterializer()
+	reusable, physicalGrowth, reusableTarget, err := s.runtime.imageMaterialized(stream.Context(), header.GetActorNamespaceId(), imageReference, manifestDigest, header.GetSystemImport())
+	if err != nil {
+		return rpcError(err)
+	}
+	if reusable && !physicalGrowth {
+		var value any
+		err := s.runtime.guardOCIMetadataGrowth(stream.Context(), func() error {
+			var mutationErr error
+			value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
+				return s.runtime.importImage(stream.Context(), nil, header, imageReference, ocispec.Descriptor{Digest: manifestDigest}, header.GetSystemImport())
+			})
+			return mutationErr
+		})
+		if err != nil {
+			return rpcError(err)
+		}
+		return stream.SendAndClose(value.(*vmmdv1.Image))
+	}
+	reservation, err := s.runtime.reserveImport(stream.Context(), header, true)
+	if err != nil {
+		return rpcError(err)
+	}
+	defer reservation.Release()
+	if reusable {
+		var value any
+		err = s.runtime.diskBudget.Mutate(func() error {
+			return s.runtime.guardOCIProjectGrowth(reservation, func() error {
+				if reusableTarget != nil {
+					if _, createErr := s.runtime.client.ImageService().Create(namespaceContext(stream.Context(), header.GetActorNamespaceId()), coreimages.Image{Name: imageReference, Target: *reusableTarget}); createErr != nil && !errdefs.IsAlreadyExists(createErr) {
+						return createErr
+					}
+				}
+				var mutationErr error
+				value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
+					return s.runtime.importImage(stream.Context(), nil, header, imageReference, ocispec.Descriptor{Digest: manifestDigest}, header.GetSystemImport())
+				})
+				return mutationErr
+			})
+		})
+		if err != nil {
+			return rpcError(err)
+		}
+		return stream.SendAndClose(value.(*vmmdv1.Image))
+	}
+	if err := s.runtime.diskBudget.Mutate(func() error { return s.runtime.openOCIProjectAllowance(reservation) }); err != nil {
+		return rpcError(err)
+	}
+	defer func() {
+		if err := s.runtime.tightenOCIProjectQuota(); err != nil {
+			log.Printf("tighten OCI project quota after interrupted import: %v", err)
+		}
+	}()
+	archive, err := s.runtime.createImportArchive(header.GetRequestId())
 	if err != nil {
 		return rpcError(err)
 	}
@@ -79,7 +134,15 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		if !ok || len(chunk.ArchiveChunk) == 0 || len(chunk.ArchiveChunk) > maxImportChunkBytes || uint64(len(chunk.ArchiveChunk)) > header.GetArchiveSize()-written {
 			return invalid(errors.New("archive chunks must be non-empty, bounded, and within archive_size"))
 		}
-		count, writeErr := io.MultiWriter(archive, hash).Write(chunk.ArchiveChunk)
+		count := 0
+		writeErr := s.runtime.diskBudget.Mutate(func() error {
+			if err := reservation.Consume(uint64(len(chunk.ArchiveChunk))); err != nil {
+				return err
+			}
+			var err error
+			count, err = io.MultiWriter(archive, hash).Write(chunk.ArchiveChunk)
+			return err
+		})
 		if writeErr != nil {
 			if errors.Is(writeErr, syscall.EDQUOT) || errors.Is(writeErr, syscall.ENOSPC) {
 				return rpcError(resourceExhausted("OCI archive exceeds namespace disk quota"))
@@ -98,9 +161,16 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	if err != nil {
 		return invalid(err)
 	}
-	value, err := s.mutate(stream.Context(), "import-image", header, func() (any, error) {
-		image, err := s.runtime.importImage(stream.Context(), archive, header, imageReference, *manifest, header.GetSystemImport())
-		return image, err
+	var value any
+	err = s.runtime.diskBudget.Mutate(func() error {
+		return s.runtime.guardOCIProjectGrowth(reservation, func() error {
+			var mutationErr error
+			value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
+				image, importErr := s.runtime.importImage(stream.Context(), archive, header, imageReference, *manifest, header.GetSystemImport())
+				return image, importErr
+			})
+			return mutationErr
+		})
 	})
 	if err != nil {
 		return rpcError(err)
@@ -108,28 +178,85 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	return stream.SendAndClose(value.(*vmmdv1.Image))
 }
 
-func (r *Runtime) createImportArchive(ctx context.Context, namespaceID, requestID string, archiveSize, diskLimit uint64) (*os.File, error) {
-	labels, err := r.client.NamespaceService().Labels(ctx, namespaceID)
-	if err != nil {
-		return nil, err
+func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageReference string, manifestDigest digest.Digest, system bool) (bool, bool, *ocispec.Descriptor, error) {
+	unlock := r.lockNamespace(namespaceID)
+	defer unlock()
+	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
+		return false, false, nil, err
 	}
-	projectID, _, err := namespaceFromLabels(namespaceID, labels)
-	if err != nil {
-		return nil, err
+	image, err := r.client.GetImage(namespaceContext(ctx, namespaceID), imageReference)
+	if errdefs.IsNotFound(err) {
+		names, listErr := r.client.NamespaceService().List(ctx)
+		if listErr != nil {
+			return false, false, nil, listErr
+		}
+		for _, sourceNamespace := range names {
+			if sourceNamespace == namespaceID {
+				continue
+			}
+			records, listErr := r.client.ImageService().List(namespaceContext(ctx, sourceNamespace))
+			if listErr != nil {
+				return false, false, nil, listErr
+			}
+			for _, record := range records {
+				if record.Target.Digest != manifestDigest {
+					continue
+				}
+				source := containerd.NewImage(r.client, record)
+				unpacked, unpackErr := source.IsUnpacked(namespaceContext(ctx, sourceNamespace), containerSnapshotter)
+				if unpackErr != nil {
+					return false, false, nil, unpackErr
+				}
+				if !unpacked {
+					continue
+				}
+				target := record.Target
+				return true, true, &target, nil
+			}
+		}
+		return false, true, nil, nil
 	}
-	directory := filepath.Join(stateRoot, "imports", namespaceID)
+	if err != nil {
+		return false, false, nil, err
+	}
+	if image.Target().Digest != manifestDigest {
+		return false, false, nil, imageError(codes.Aborted, "IMAGE_DIGEST_CONFLICT", "image reference already names different content", imageReference)
+	}
+	unpacked, err := image.IsUnpacked(namespaceContext(ctx, namespaceID), containerSnapshotter)
+	if err == nil && !unpacked {
+		names, listErr := r.client.NamespaceService().List(ctx)
+		if listErr != nil {
+			return false, false, nil, listErr
+		}
+		for _, sourceNamespace := range names {
+			if sourceNamespace == namespaceID {
+				continue
+			}
+			records, listErr := r.client.ImageService().List(namespaceContext(ctx, sourceNamespace))
+			if listErr != nil {
+				return false, false, nil, listErr
+			}
+			for _, record := range records {
+				if record.Target.Digest != manifestDigest {
+					continue
+				}
+				ready, readyErr := containerd.NewImage(r.client, record).IsUnpacked(namespaceContext(ctx, sourceNamespace), containerSnapshotter)
+				if readyErr != nil {
+					return false, false, nil, readyErr
+				}
+				if ready {
+					return true, true, nil, nil
+				}
+			}
+		}
+	}
+	return unpacked, !unpacked, nil, err
+}
+
+func (r *Runtime) createImportArchive(requestID string) (*os.File, error) {
+	directory := filepath.Join(stateRoot, "imports")
 	if err := ensureDirectory(directory, 0o700); err != nil {
 		return nil, err
-	}
-	if err := assignProject(directory, projectID); err != nil {
-		return nil, err
-	}
-	usage, err := projectUsage(r.stateDevice, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if usage > diskLimit || archiveSize > diskLimit-usage {
-		return nil, resourceExhausted("OCI archive exceeds remaining namespace disk quota")
 	}
 	file, err := os.CreateTemp(directory, requestID+"-*.oci.part")
 	if err != nil {
@@ -141,10 +268,6 @@ func (r *Runtime) createImportArchive(ctx context.Context, namespaceID, requestI
 		return nil, err
 	}
 	return file, nil
-}
-
-func (r *Runtime) ImportImage(ctx context.Context, archive io.ReadSeeker, header *vmmdv1.ImportImageHeader, imageReference string, manifest ocispec.Descriptor) (*vmmdv1.Image, error) {
-	return r.importImage(ctx, archive, header, imageReference, manifest, false)
 }
 
 func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header *vmmdv1.ImportImageHeader, imageReference string, manifest ocispec.Descriptor, system bool) (*vmmdv1.Image, error) {
@@ -201,45 +324,33 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	} else if !errdefs.IsNotFound(existingErr) {
 		return nil, existingErr
 	}
-	currentBytes, err := r.namespaceImageBytes(nsctx)
-	if err != nil {
-		return nil, err
-	}
-	namespace, err := r.getNamespaceForRole(ctx, header.GetActorNamespaceId(), system)
-	if err != nil {
-		return nil, err
-	}
-	if existingErr != nil && currentBytes+header.GetArchiveSize() > namespace.GetLimits().GetDiskBytes() {
-		return nil, resourceExhausted("OCI archive exceeds namespace disk quota")
-	}
-	if _, err := archive.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-	importedRecords, err := r.client.Import(stagingContext, archive,
-		containerd.WithImportPlatform(platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: "arm64"})),
-		containerd.WithImageRefTranslator(func(string) string { return "" }))
-	if err != nil {
-		return nil, imageError(codes.InvalidArgument, "OCI_ARCHIVE_INVALID", "OCI archive could not be imported", imageReference)
-	}
-	preservedRecord := ""
-	if existingErr == nil {
-		preservedRecord = imageReference
-	}
-	if err := cleanupImportedRecords(stagingContext, importedRecords, manifest, preservedRecord, func(ctx context.Context, name string) error {
-		return r.client.ImageService().Delete(ctx, name, coreimages.SynchronousDelete())
-	}); err != nil {
-		if errors.Is(err, errImportedManifestMismatch) {
-			return nil, imageError(codes.InvalidArgument, "OCI_MANIFEST_MISMATCH", "OCI archive imported an unexpected manifest", imageReference)
+	if archive != nil {
+		if _, err := archive.Seek(0, io.SeekStart); err != nil {
+			return nil, err
 		}
-		return nil, err
-	}
-	staged := containerd.NewImageWithPlatform(r.client, coreimages.Image{Name: imageReference, Target: manifest}, platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: "arm64"}))
-	size, err := staged.Size(stagingContext)
-	if err != nil {
-		return nil, err
-	}
-	if existingErr != nil && currentBytes+uint64(size) > namespace.GetLimits().GetDiskBytes() {
-		return nil, resourceExhausted("image logical size exceeds namespace disk quota")
+		importedRecords, err := r.client.Import(stagingContext, archive,
+			containerd.WithImportPlatform(platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: "arm64"})),
+			containerd.WithImageRefTranslator(func(string) string { return "" }))
+		if err != nil {
+			if ociQuotaExceeded(err) {
+				return nil, resourceExhausted("OCI materialization reached its hard project quota")
+			}
+			return nil, imageError(codes.InvalidArgument, "OCI_ARCHIVE_INVALID", "OCI archive could not be imported", imageReference)
+		}
+		preservedRecord := ""
+		if existingErr == nil {
+			preservedRecord = imageReference
+		}
+		if err := cleanupImportedRecords(stagingContext, importedRecords, manifest, preservedRecord, func(ctx context.Context, name string) error {
+			return r.client.ImageService().Delete(ctx, name, coreimages.SynchronousDelete())
+		}); err != nil {
+			if errors.Is(err, errImportedManifestMismatch) {
+				return nil, imageError(codes.InvalidArgument, "OCI_MANIFEST_MISMATCH", "OCI archive imported an unexpected manifest", imageReference)
+			}
+			return nil, err
+		}
+	} else if existingErr != nil {
+		return nil, imageError(codes.Aborted, "IMAGE_MATERIALIZATION_CHANGED", "materialized image changed before idempotent reuse", imageReference)
 	}
 	createdRecord := false
 	materialized := existing
@@ -260,6 +371,9 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			_ = r.client.ImageService().Delete(stagingContext, imageReference, coreimages.SynchronousDelete())
 		}
 		log.Printf("OCI import unpack failed for %q: %v", imageReference, err)
+		if ociQuotaExceeded(err) {
+			return nil, resourceExhausted("OCI materialization reached its hard project quota")
+		}
 		return nil, imageError(codes.FailedPrecondition, "IMAGE_UNPACK_FAILED", "image content could not be unpacked", imageReference)
 	}
 	if !createdRecord {
@@ -271,6 +385,10 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 		return nil, fmt.Errorf("persist imported image: %w", err)
 	}
 	return r.getImageForRole(nsctx, header.GetActorNamespaceId(), imageReference, system)
+}
+
+func ociQuotaExceeded(err error) bool {
+	return errdefs.IsResourceExhausted(err) || errors.Is(err, syscall.EDQUOT) || errors.Is(err, syscall.ENOSPC) || status.Code(err) == codes.ResourceExhausted
 }
 
 var errImportedManifestMismatch = errors.New("imported image record target does not match committed manifest")

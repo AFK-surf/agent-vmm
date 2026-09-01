@@ -337,8 +337,10 @@ func (controller *Controller) allocate(parent context.Context, clientID, allocat
 		return nil, nil, errors.New("controller capacity is incomplete")
 	}
 	limits := proto.Clone(hello.GetCapacity().GetPerEnvironmentLimits()).(*hostv1.ResourceLimits)
+	resources := &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: limits.GetCpuMillis(), CpuMaxMillis: limits.GetCpuMillis(), CpuWeight: 100,
+		MemoryHighBytes: limits.GetMemoryBytes(), MemoryMaxBytes: limits.GetMemoryBytes(), PidMax: limits.GetPids(), WritableQuotaBytes: limits.GetDiskBytes()}
 	ctx, cancel := context.WithTimeout(parent, commandTimeout)
-	ensured, err := controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-ensure", TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, DisplayLabel: "MCP client", Limits: limits, EgressMode: hello.GetCapacity().GetMaxEgressMode(), PolicyRevision: hello.GetPoolRevision()}}})
+	ensured, err := controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-ensure", TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, Generation: 1, DisplayLabel: "MCP client", ResourcesV2: resources, EgressMode: hello.GetCapacity().GetMaxEgressMode(), PolicyRevision: hello.GetPoolRevision()}}})
 	cancel()
 	if err != nil {
 		return nil, nil, err
@@ -399,7 +401,7 @@ func (controller *Controller) release(clientID, allocationID string, lease *remo
 		return
 	}
 	revision := released.GetLease().GetAllocationRevision()
-	_, err = controller.dispatch(ctx, &remotev1.ControllerCommand{CommandId: clientID + "-retain", TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: allocationID, ExpectedRevision: revision}}})
+	_, err = controller.dispatch(ctx, &remotev1.ControllerCommand{CommandId: clientID + "-retain", TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: allocationID, ExpectedRevision: revision, ExpectedGeneration: 1}}})
 	if err != nil {
 		controller.logger.Warn("retain MCP allocation", "allocation", allocationID, "error", err)
 	}

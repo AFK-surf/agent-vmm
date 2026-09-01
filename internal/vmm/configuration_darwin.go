@@ -4,13 +4,18 @@ package vmm
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"github.com/Code-Hex/vz/v3"
+	"golang.org/x/sys/unix"
 )
+
+const hostEmergencyBytes int64 = 10 << 30
 
 func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File, initializing bool) (*vz.VirtualMachineConfiguration, error) {
 	artifact := verified.Manifest.Artifacts
@@ -93,12 +98,58 @@ func prepareState(directory string, size int64) (bool, error) {
 	markerPath := filepath.Join(directory, "state.initializing")
 	file, err := os.OpenFile(statePath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err == nil {
+		removeIncomplete := true
+		defer func() {
+			if removeIncomplete {
+				_ = os.Remove(statePath)
+				_ = os.Remove(markerPath)
+			}
+		}()
+		freeBefore, err := freeBytes(directory)
+		if err != nil {
+			file.Close()
+			return false, err
+		}
+		if freeBefore < uint64(size+hostEmergencyBytes) {
+			file.Close()
+			return false, errors.New("state disk requires full physical backing plus 10 GiB host emergency space")
+		}
+		allocation := &unix.Fstore_t{Flags: unix.F_ALLOCATEALL, Posmode: unix.F_PEOFPOSMODE, Length: size}
+		if err := unix.FcntlFstore(file.Fd(), unix.F_PREALLOCATE, allocation); err != nil {
+			file.Close()
+			return false, fmt.Errorf("fully allocate state disk: %w", err)
+		}
 		if err := file.Truncate(size); err != nil {
 			file.Close()
 			return false, err
 		}
+		if err := file.Sync(); err != nil {
+			file.Close()
+			return false, err
+		}
+		info, err := file.Stat()
+		if err != nil {
+			file.Close()
+			return false, err
+		}
+		allocated, err := allocatedBytes(info)
+		if err != nil {
+			file.Close()
+			return false, err
+		}
+		if allocated < uint64(size) {
+			file.Close()
+			return false, errors.New("state disk is not fully physically backed")
+		}
 		if err := file.Close(); err != nil {
 			return false, err
+		}
+		freeAfter, err := freeBytes(directory)
+		if err != nil {
+			return false, err
+		}
+		if freeAfter < uint64(hostEmergencyBytes) {
+			return false, errors.New("state disk allocation consumed host emergency space")
 		}
 		marker, err := os.OpenFile(markerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -107,7 +158,11 @@ func prepareState(directory string, size int64) (bool, error) {
 		if err := marker.Close(); err != nil {
 			return false, err
 		}
-		return true, syncDirectory(directory)
+		if err := syncDirectory(directory); err != nil {
+			return false, err
+		}
+		removeIncomplete = false
+		return true, nil
 	}
 	if !errors.Is(err, os.ErrExist) {
 		return false, err
@@ -116,8 +171,28 @@ func prepareState(directory string, size int64) (bool, error) {
 	if err != nil || info.Size() != size {
 		return false, errors.New("existing state disk has unexpected size")
 	}
+	allocated, err := allocatedBytes(info)
+	if err != nil || allocated < uint64(size) {
+		return false, errors.New("existing state disk is sparse or only partially allocated; fresh recreate is required")
+	}
 	_, err = os.Stat(markerPath)
 	return err == nil, nil
+}
+
+func freeBytes(path string) (uint64, error) {
+	var stats unix.Statfs_t
+	if err := unix.Statfs(path, &stats); err != nil {
+		return 0, err
+	}
+	return stats.Bavail * uint64(stats.Bsize), nil
+}
+
+func allocatedBytes(info os.FileInfo) (uint64, error) {
+	stats, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stats.Blocks < 0 {
+		return 0, errors.New("state disk allocation metadata is unavailable")
+	}
+	return uint64(stats.Blocks) * 512, nil
 }
 
 func finishStateInitialization(directory string) error {

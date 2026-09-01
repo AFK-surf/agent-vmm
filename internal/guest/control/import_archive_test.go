@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"syscall"
 	"testing"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -15,7 +16,20 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func TestOCIQuotaFailureIsReportedAsCapacityNotArchiveCorruption(t *testing.T) {
+	for _, err := range []error{syscall.EDQUOT, syscall.ENOSPC, status.Error(codes.ResourceExhausted, "hard project quota")} {
+		if !ociQuotaExceeded(err) {
+			t.Fatalf("quota error %v was not classified as capacity exhaustion", err)
+		}
+	}
+	if ociQuotaExceeded(errors.New("invalid tar")) {
+		t.Fatal("archive corruption was classified as quota exhaustion")
+	}
+}
 
 func TestValidateOCIArchiveUsesHeaderReferenceInsteadOfBuildxAnnotations(t *testing.T) {
 	reference := "example.com/agent/pi:latest"

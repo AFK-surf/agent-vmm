@@ -6,7 +6,6 @@ import (
 	"context"
 	"io"
 	"net"
-	"net/http"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -84,16 +83,6 @@ func TestImportImageHeaderIsIdempotentAndRejectsConflictingReplay(t *testing.T) 
 	conflict.ArchiveSha256[0] = 1
 	if _, err := server.mutate(context.Background(), "import-image", conflict, operation); err == nil {
 		t.Fatal("conflicting import replay succeeded")
-	}
-}
-
-func TestPublicRegistryClientIgnoresProxyEnvironment(t *testing.T) {
-	transport, ok := publicRegistryClient().Transport.(*http.Transport)
-	if !ok {
-		t.Fatalf("registry transport = %T", publicRegistryClient().Transport)
-	}
-	if transport.Proxy != nil {
-		t.Fatal("registry transport uses a proxy")
 	}
 }
 

@@ -1374,14 +1374,16 @@ func (x *Capacity) GetDisconnectGraceSeconds() uint32 {
 }
 
 type Allocation struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AllocationId  string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	DisplayLabel  string                 `protobuf:"bytes,2,opt,name=display_label,json=displayLabel,proto3" json:"display_label,omitempty"`
-	Limits        *v11.ResourceLimits    `protobuf:"bytes,3,opt,name=limits,proto3" json:"limits,omitempty"`
-	EgressMode    v11.EgressMode         `protobuf:"varint,4,opt,name=egress_mode,json=egressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"egress_mode,omitempty"`
-	Revision      uint64                 `protobuf:"varint,5,opt,name=revision,proto3" json:"revision,omitempty"`
-	State         v11.AllocationState    `protobuf:"varint,6,opt,name=state,proto3,enum=agentvmm.host.v1.AllocationState" json:"state,omitempty"`
-	Lease         *Lease                 `protobuf:"bytes,7,opt,name=lease,proto3" json:"lease,omitempty"`
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	AllocationId  string                   `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	DisplayLabel  string                   `protobuf:"bytes,2,opt,name=display_label,json=displayLabel,proto3" json:"display_label,omitempty"`
+	Limits        *v11.ResourceLimits      `protobuf:"bytes,3,opt,name=limits,proto3" json:"limits,omitempty"`
+	EgressMode    v11.EgressMode           `protobuf:"varint,4,opt,name=egress_mode,json=egressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"egress_mode,omitempty"`
+	Revision      uint64                   `protobuf:"varint,5,opt,name=revision,proto3" json:"revision,omitempty"`
+	State         v11.AllocationState      `protobuf:"varint,6,opt,name=state,proto3,enum=agentvmm.host.v1.AllocationState" json:"state,omitempty"`
+	Lease         *Lease                   `protobuf:"bytes,7,opt,name=lease,proto3" json:"lease,omitempty"`
+	Generation    uint64                   `protobuf:"varint,8,opt,name=generation,proto3" json:"generation,omitempty"`
+	ResourcesV2   *v11.WorkloadResourcesV2 `protobuf:"bytes,9,opt,name=resources_v2,json=resourcesV2,proto3" json:"resources_v2,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1461,6 +1463,20 @@ func (x *Allocation) GetState() v11.AllocationState {
 func (x *Allocation) GetLease() *Lease {
 	if x != nil {
 		return x.Lease
+	}
+	return nil
+}
+
+func (x *Allocation) GetGeneration() uint64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *Allocation) GetResourcesV2() *v11.WorkloadResourcesV2 {
+	if x != nil {
+		return x.ResourcesV2
 	}
 	return nil
 }
@@ -2302,12 +2318,14 @@ func (x *ReleaseHostLoopbackFrontend) GetGeneration() uint64 {
 }
 
 type EnsureAllocation struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	AllocationId   string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	DisplayLabel   string                 `protobuf:"bytes,2,opt,name=display_label,json=displayLabel,proto3" json:"display_label,omitempty"`
-	Limits         *v11.ResourceLimits    `protobuf:"bytes,3,opt,name=limits,proto3" json:"limits,omitempty"`
-	EgressMode     v11.EgressMode         `protobuf:"varint,4,opt,name=egress_mode,json=egressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"egress_mode,omitempty"`
-	PolicyRevision uint64                 `protobuf:"varint,5,opt,name=policy_revision,json=policyRevision,proto3" json:"policy_revision,omitempty"`
+	state          protoimpl.MessageState   `protogen:"open.v1"`
+	AllocationId   string                   `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	DisplayLabel   string                   `protobuf:"bytes,2,opt,name=display_label,json=displayLabel,proto3" json:"display_label,omitempty"`
+	Limits         *v11.ResourceLimits      `protobuf:"bytes,3,opt,name=limits,proto3" json:"limits,omitempty"`
+	EgressMode     v11.EgressMode           `protobuf:"varint,4,opt,name=egress_mode,json=egressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"egress_mode,omitempty"`
+	PolicyRevision uint64                   `protobuf:"varint,5,opt,name=policy_revision,json=policyRevision,proto3" json:"policy_revision,omitempty"`
+	Generation     uint64                   `protobuf:"varint,6,opt,name=generation,proto3" json:"generation,omitempty"`
+	ResourcesV2    *v11.WorkloadResourcesV2 `protobuf:"bytes,7,opt,name=resources_v2,json=resourcesV2,proto3" json:"resources_v2,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2377,12 +2395,27 @@ func (x *EnsureAllocation) GetPolicyRevision() uint64 {
 	return 0
 }
 
+func (x *EnsureAllocation) GetGeneration() uint64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *EnsureAllocation) GetResourcesV2() *v11.WorkloadResourcesV2 {
+	if x != nil {
+		return x.ResourcesV2
+	}
+	return nil
+}
+
 type ReleaseAllocation struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	AllocationId     string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	ExpectedRevision uint64                 `protobuf:"varint,2,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	AllocationId       string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	ExpectedRevision   uint64                 `protobuf:"varint,2,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	ExpectedGeneration uint64                 `protobuf:"varint,3,opt,name=expected_generation,json=expectedGeneration,proto3" json:"expected_generation,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ReleaseAllocation) Reset() {
@@ -2425,6 +2458,13 @@ func (x *ReleaseAllocation) GetAllocationId() string {
 func (x *ReleaseAllocation) GetExpectedRevision() uint64 {
 	if x != nil {
 		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *ReleaseAllocation) GetExpectedGeneration() uint64 {
+	if x != nil {
+		return x.ExpectedGeneration
 	}
 	return 0
 }
@@ -3896,7 +3936,7 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x16per_environment_limits\x18\x03 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x14perEnvironmentLimits\x12D\n" +
 	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressMode\x12*\n" +
 	"\x11max_lease_seconds\x18\x05 \x01(\rR\x0fmaxLeaseSeconds\x128\n" +
-	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSeconds\"\xd5\x02\n" +
+	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSeconds\"\xbf\x03\n" +
 	"\n" +
 	"Allocation\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12#\n" +
@@ -3906,7 +3946,11 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"egressMode\x12\x1a\n" +
 	"\brevision\x18\x05 \x01(\x04R\brevision\x127\n" +
 	"\x05state\x18\x06 \x01(\x0e2!.agentvmm.host.v1.AllocationStateR\x05state\x12/\n" +
-	"\x05lease\x18\a \x01(\v2\x19.agentvmm.remote.v1.LeaseR\x05lease\"\x9f\x02\n" +
+	"\x05lease\x18\a \x01(\v2\x19.agentvmm.remote.v1.LeaseR\x05lease\x12\x1e\n" +
+	"\n" +
+	"generation\x18\b \x01(\x04R\n" +
+	"generation\x12H\n" +
+	"\fresources_v2\x18\t \x01(\v2%.agentvmm.host.v1.WorkloadResourcesV2R\vresourcesV2\"\x9f\x02\n" +
 	"\x05Lease\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12#\n" +
 	"\rallocation_id\x18\x02 \x01(\tR\fallocationId\x12!\n" +
@@ -3975,17 +4019,22 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x11frontend_lease_id\x18\x01 \x01(\tR\x0ffrontendLeaseId\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x02 \x01(\x04R\n" +
-	"generation\"\xfe\x01\n" +
+	"generation\"\xe8\x02\n" +
 	"\x10EnsureAllocation\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12#\n" +
 	"\rdisplay_label\x18\x02 \x01(\tR\fdisplayLabel\x128\n" +
 	"\x06limits\x18\x03 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x06limits\x12=\n" +
 	"\vegress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\n" +
 	"egressMode\x12'\n" +
-	"\x0fpolicy_revision\x18\x05 \x01(\x04R\x0epolicyRevision\"e\n" +
+	"\x0fpolicy_revision\x18\x05 \x01(\x04R\x0epolicyRevision\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x06 \x01(\x04R\n" +
+	"generation\x12H\n" +
+	"\fresources_v2\x18\a \x01(\v2%.agentvmm.host.v1.WorkloadResourcesV2R\vresourcesV2\"\x96\x01\n" +
 	"\x11ReleaseAllocation\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12+\n" +
-	"\x11expected_revision\x18\x02 \x01(\x04R\x10expectedRevision\"o\n" +
+	"\x11expected_revision\x18\x02 \x01(\x04R\x10expectedRevision\x12/\n" +
+	"\x13expected_generation\x18\x03 \x01(\x04R\x12expectedGeneration\"o\n" +
 	"\x15PlanCleanupAllocation\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x121\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1d.agentvmm.host.v1.CleanupKindR\x04kind\"\xb1\x02\n" +
@@ -4212,12 +4261,13 @@ var file_remote_v1_remote_proto_goTypes = []any{
 	(*v11.ResourceLimits)(nil),               // 50: agentvmm.host.v1.ResourceLimits
 	(v11.EgressMode)(0),                      // 51: agentvmm.host.v1.EgressMode
 	(v11.AllocationState)(0),                 // 52: agentvmm.host.v1.AllocationState
-	(v11.LeaseState)(0),                      // 53: agentvmm.host.v1.LeaseState
-	(v11.CleanupKind)(0),                     // 54: agentvmm.host.v1.CleanupKind
-	(*v11.HostLoopbackFrontendLease)(nil),    // 55: agentvmm.host.v1.HostLoopbackFrontendLease
-	(*v11.CleanupImpact)(nil),                // 56: agentvmm.host.v1.CleanupImpact
-	(*v11.HostFrontendFrame)(nil),            // 57: agentvmm.host.v1.HostFrontendFrame
-	(*v11.ControllerFrontendFrame)(nil),      // 58: agentvmm.host.v1.ControllerFrontendFrame
+	(*v11.WorkloadResourcesV2)(nil),          // 53: agentvmm.host.v1.WorkloadResourcesV2
+	(v11.LeaseState)(0),                      // 54: agentvmm.host.v1.LeaseState
+	(v11.CleanupKind)(0),                     // 55: agentvmm.host.v1.CleanupKind
+	(*v11.HostLoopbackFrontendLease)(nil),    // 56: agentvmm.host.v1.HostLoopbackFrontendLease
+	(*v11.CleanupImpact)(nil),                // 57: agentvmm.host.v1.CleanupImpact
+	(*v11.HostFrontendFrame)(nil),            // 58: agentvmm.host.v1.HostFrontendFrame
+	(*v11.ControllerFrontendFrame)(nil),      // 59: agentvmm.host.v1.ControllerFrontendFrame
 }
 var file_remote_v1_remote_proto_depIdxs = []int32{
 	44, // 0: agentvmm.remote.v1.EnrollRequest.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
@@ -4250,53 +4300,55 @@ var file_remote_v1_remote_proto_depIdxs = []int32{
 	51, // 27: agentvmm.remote.v1.Allocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
 	52, // 28: agentvmm.remote.v1.Allocation.state:type_name -> agentvmm.host.v1.AllocationState
 	16, // 29: agentvmm.remote.v1.Allocation.lease:type_name -> agentvmm.remote.v1.Lease
-	53, // 30: agentvmm.remote.v1.Lease.state:type_name -> agentvmm.host.v1.LeaseState
-	20, // 31: agentvmm.remote.v1.ControllerControlMessage.command:type_name -> agentvmm.remote.v1.ControllerCommand
-	39, // 32: agentvmm.remote.v1.ControllerControlMessage.rotate_credential:type_name -> agentvmm.remote.v1.RotateCredential
-	40, // 33: agentvmm.remote.v1.ControllerControlMessage.revoke_credential:type_name -> agentvmm.remote.v1.RevokeCredential
-	19, // 34: agentvmm.remote.v1.ControllerControlMessage.controller_ready:type_name -> agentvmm.remote.v1.ControllerReady
-	24, // 35: agentvmm.remote.v1.ControllerCommand.ensure_allocation:type_name -> agentvmm.remote.v1.EnsureAllocation
-	25, // 36: agentvmm.remote.v1.ControllerCommand.release_allocation:type_name -> agentvmm.remote.v1.ReleaseAllocation
-	26, // 37: agentvmm.remote.v1.ControllerCommand.plan_cleanup_allocation:type_name -> agentvmm.remote.v1.PlanCleanupAllocation
-	27, // 38: agentvmm.remote.v1.ControllerCommand.execute_cleanup_allocation:type_name -> agentvmm.remote.v1.ExecuteCleanupAllocation
-	28, // 39: agentvmm.remote.v1.ControllerCommand.acquire_lease:type_name -> agentvmm.remote.v1.AcquireLease
-	29, // 40: agentvmm.remote.v1.ControllerCommand.renew_lease:type_name -> agentvmm.remote.v1.RenewLease
-	30, // 41: agentvmm.remote.v1.ControllerCommand.release_lease:type_name -> agentvmm.remote.v1.ReleaseLease
-	31, // 42: agentvmm.remote.v1.ControllerCommand.drain_registration:type_name -> agentvmm.remote.v1.DrainRegistration
-	32, // 43: agentvmm.remote.v1.ControllerCommand.open_session:type_name -> agentvmm.remote.v1.OpenSession
-	21, // 44: agentvmm.remote.v1.ControllerCommand.acquire_host_loopback_frontend:type_name -> agentvmm.remote.v1.AcquireHostLoopbackFrontend
-	22, // 45: agentvmm.remote.v1.ControllerCommand.renew_host_loopback_frontend:type_name -> agentvmm.remote.v1.RenewHostLoopbackFrontend
-	23, // 46: agentvmm.remote.v1.ControllerCommand.release_host_loopback_frontend:type_name -> agentvmm.remote.v1.ReleaseHostLoopbackFrontend
-	50, // 47: agentvmm.remote.v1.EnsureAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	51, // 48: agentvmm.remote.v1.EnsureAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	54, // 49: agentvmm.remote.v1.PlanCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
-	54, // 50: agentvmm.remote.v1.ExecuteCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
-	2,  // 51: agentvmm.remote.v1.CommandResult.outcome:type_name -> agentvmm.remote.v1.CommandOutcome
-	3,  // 52: agentvmm.remote.v1.CommandResult.reason:type_name -> agentvmm.remote.v1.ErrorReason
-	15, // 53: agentvmm.remote.v1.CommandResult.allocation:type_name -> agentvmm.remote.v1.Allocation
-	16, // 54: agentvmm.remote.v1.CommandResult.lease:type_name -> agentvmm.remote.v1.Lease
-	36, // 55: agentvmm.remote.v1.CommandResult.cleanup_plan:type_name -> agentvmm.remote.v1.CleanupPlan
-	37, // 56: agentvmm.remote.v1.CommandResult.session_ready:type_name -> agentvmm.remote.v1.SessionReady
-	55, // 57: agentvmm.remote.v1.CommandResult.host_loopback_frontend_lease:type_name -> agentvmm.host.v1.HostLoopbackFrontendLease
-	0,  // 58: agentvmm.remote.v1.CommandAck.disposition:type_name -> agentvmm.remote.v1.CommandAckDisposition
-	3,  // 59: agentvmm.remote.v1.CommandAck.reason:type_name -> agentvmm.remote.v1.ErrorReason
-	1,  // 60: agentvmm.remote.v1.CommandEvidence.stage:type_name -> agentvmm.remote.v1.ExecutionStage
-	54, // 61: agentvmm.remote.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
-	56, // 62: agentvmm.remote.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
-	41, // 63: agentvmm.remote.v1.HostSessionFrame.header:type_name -> agentvmm.remote.v1.SessionHeader
-	4,  // 64: agentvmm.remote.v1.RemoteControllerService.Enroll:input_type -> agentvmm.remote.v1.EnrollRequest
-	6,  // 65: agentvmm.remote.v1.RemoteControllerService.Connect:input_type -> agentvmm.remote.v1.HostControlMessage
-	42, // 66: agentvmm.remote.v1.RemoteControllerService.ServeSession:input_type -> agentvmm.remote.v1.HostSessionFrame
-	57, // 67: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:input_type -> agentvmm.host.v1.HostFrontendFrame
-	5,  // 68: agentvmm.remote.v1.RemoteControllerService.Enroll:output_type -> agentvmm.remote.v1.EnrollResponse
-	18, // 69: agentvmm.remote.v1.RemoteControllerService.Connect:output_type -> agentvmm.remote.v1.ControllerControlMessage
-	43, // 70: agentvmm.remote.v1.RemoteControllerService.ServeSession:output_type -> agentvmm.remote.v1.ControllerSessionFrame
-	58, // 71: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:output_type -> agentvmm.host.v1.ControllerFrontendFrame
-	68, // [68:72] is the sub-list for method output_type
-	64, // [64:68] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	53, // 30: agentvmm.remote.v1.Allocation.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
+	54, // 31: agentvmm.remote.v1.Lease.state:type_name -> agentvmm.host.v1.LeaseState
+	20, // 32: agentvmm.remote.v1.ControllerControlMessage.command:type_name -> agentvmm.remote.v1.ControllerCommand
+	39, // 33: agentvmm.remote.v1.ControllerControlMessage.rotate_credential:type_name -> agentvmm.remote.v1.RotateCredential
+	40, // 34: agentvmm.remote.v1.ControllerControlMessage.revoke_credential:type_name -> agentvmm.remote.v1.RevokeCredential
+	19, // 35: agentvmm.remote.v1.ControllerControlMessage.controller_ready:type_name -> agentvmm.remote.v1.ControllerReady
+	24, // 36: agentvmm.remote.v1.ControllerCommand.ensure_allocation:type_name -> agentvmm.remote.v1.EnsureAllocation
+	25, // 37: agentvmm.remote.v1.ControllerCommand.release_allocation:type_name -> agentvmm.remote.v1.ReleaseAllocation
+	26, // 38: agentvmm.remote.v1.ControllerCommand.plan_cleanup_allocation:type_name -> agentvmm.remote.v1.PlanCleanupAllocation
+	27, // 39: agentvmm.remote.v1.ControllerCommand.execute_cleanup_allocation:type_name -> agentvmm.remote.v1.ExecuteCleanupAllocation
+	28, // 40: agentvmm.remote.v1.ControllerCommand.acquire_lease:type_name -> agentvmm.remote.v1.AcquireLease
+	29, // 41: agentvmm.remote.v1.ControllerCommand.renew_lease:type_name -> agentvmm.remote.v1.RenewLease
+	30, // 42: agentvmm.remote.v1.ControllerCommand.release_lease:type_name -> agentvmm.remote.v1.ReleaseLease
+	31, // 43: agentvmm.remote.v1.ControllerCommand.drain_registration:type_name -> agentvmm.remote.v1.DrainRegistration
+	32, // 44: agentvmm.remote.v1.ControllerCommand.open_session:type_name -> agentvmm.remote.v1.OpenSession
+	21, // 45: agentvmm.remote.v1.ControllerCommand.acquire_host_loopback_frontend:type_name -> agentvmm.remote.v1.AcquireHostLoopbackFrontend
+	22, // 46: agentvmm.remote.v1.ControllerCommand.renew_host_loopback_frontend:type_name -> agentvmm.remote.v1.RenewHostLoopbackFrontend
+	23, // 47: agentvmm.remote.v1.ControllerCommand.release_host_loopback_frontend:type_name -> agentvmm.remote.v1.ReleaseHostLoopbackFrontend
+	50, // 48: agentvmm.remote.v1.EnsureAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	51, // 49: agentvmm.remote.v1.EnsureAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	53, // 50: agentvmm.remote.v1.EnsureAllocation.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
+	55, // 51: agentvmm.remote.v1.PlanCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
+	55, // 52: agentvmm.remote.v1.ExecuteCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
+	2,  // 53: agentvmm.remote.v1.CommandResult.outcome:type_name -> agentvmm.remote.v1.CommandOutcome
+	3,  // 54: agentvmm.remote.v1.CommandResult.reason:type_name -> agentvmm.remote.v1.ErrorReason
+	15, // 55: agentvmm.remote.v1.CommandResult.allocation:type_name -> agentvmm.remote.v1.Allocation
+	16, // 56: agentvmm.remote.v1.CommandResult.lease:type_name -> agentvmm.remote.v1.Lease
+	36, // 57: agentvmm.remote.v1.CommandResult.cleanup_plan:type_name -> agentvmm.remote.v1.CleanupPlan
+	37, // 58: agentvmm.remote.v1.CommandResult.session_ready:type_name -> agentvmm.remote.v1.SessionReady
+	56, // 59: agentvmm.remote.v1.CommandResult.host_loopback_frontend_lease:type_name -> agentvmm.host.v1.HostLoopbackFrontendLease
+	0,  // 60: agentvmm.remote.v1.CommandAck.disposition:type_name -> agentvmm.remote.v1.CommandAckDisposition
+	3,  // 61: agentvmm.remote.v1.CommandAck.reason:type_name -> agentvmm.remote.v1.ErrorReason
+	1,  // 62: agentvmm.remote.v1.CommandEvidence.stage:type_name -> agentvmm.remote.v1.ExecutionStage
+	55, // 63: agentvmm.remote.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
+	57, // 64: agentvmm.remote.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
+	41, // 65: agentvmm.remote.v1.HostSessionFrame.header:type_name -> agentvmm.remote.v1.SessionHeader
+	4,  // 66: agentvmm.remote.v1.RemoteControllerService.Enroll:input_type -> agentvmm.remote.v1.EnrollRequest
+	6,  // 67: agentvmm.remote.v1.RemoteControllerService.Connect:input_type -> agentvmm.remote.v1.HostControlMessage
+	42, // 68: agentvmm.remote.v1.RemoteControllerService.ServeSession:input_type -> agentvmm.remote.v1.HostSessionFrame
+	58, // 69: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:input_type -> agentvmm.host.v1.HostFrontendFrame
+	5,  // 70: agentvmm.remote.v1.RemoteControllerService.Enroll:output_type -> agentvmm.remote.v1.EnrollResponse
+	18, // 71: agentvmm.remote.v1.RemoteControllerService.Connect:output_type -> agentvmm.remote.v1.ControllerControlMessage
+	43, // 72: agentvmm.remote.v1.RemoteControllerService.ServeSession:output_type -> agentvmm.remote.v1.ControllerSessionFrame
+	59, // 73: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:output_type -> agentvmm.host.v1.ControllerFrontendFrame
+	70, // [70:74] is the sub-list for method output_type
+	66, // [66:70] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_remote_v1_remote_proto_init() }

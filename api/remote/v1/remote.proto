@@ -136,6 +136,8 @@ message Allocation {
   uint64 revision = 5;
   agentvmm.host.v1.AllocationState state = 6;
   Lease lease = 7;
+  uint64 generation = 8;
+  agentvmm.host.v1.WorkloadResourcesV2 resources_v2 = 9;
 }
 
 message Lease {
@@ -219,10 +221,13 @@ message EnsureAllocation {
   agentvmm.host.v1.ResourceLimits limits = 3;
   agentvmm.host.v1.EgressMode egress_mode = 4;
   uint64 policy_revision = 5;
+  uint64 generation = 6;
+  agentvmm.host.v1.WorkloadResourcesV2 resources_v2 = 7;
 }
 message ReleaseAllocation {
   string allocation_id = 1;
   uint64 expected_revision = 2;
+  uint64 expected_generation = 3;
 }
 message PlanCleanupAllocation {
   string allocation_id = 1;

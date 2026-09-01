@@ -2752,6 +2752,34 @@ public nonisolated struct Agentvmm_Host_V1_ResourceLimits: Sendable {
   fileprivate var _diskBytes: UInt64? = nil
 }
 
+/// WorkloadResourcesV2 is the only resource contract accepted by remote
+/// allocation admission. CPU entitlement, burst ceiling, memory pressure,
+/// memory isolation, process isolation, and durable writable storage retain
+/// distinct semantics throughout Host and Guest enforcement.
+public nonisolated struct Agentvmm_Host_V1_WorkloadResourcesV2: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var cpuGuaranteeMillis: UInt32 = 0
+
+  public var cpuMaxMillis: UInt32 = 0
+
+  public var cpuWeight: UInt32 = 0
+
+  public var memoryHighBytes: UInt64 = 0
+
+  public var memoryMaxBytes: UInt64 = 0
+
+  public var pidMax: UInt32 = 0
+
+  public var writableQuotaBytes: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentvmm_Host_V1_EnvironmentOwner: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -6094,6 +6122,20 @@ public nonisolated struct Agentvmm_Host_V1_RemoteAllocation: @unchecked Sendable
     set {_uniqueStorage()._environmentID = newValue}
   }
 
+  public var generation: UInt64 {
+    get {_storage._generation}
+    set {_uniqueStorage()._generation = newValue}
+  }
+
+  public var resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2 {
+    get {_storage._resourcesV2 ?? Agentvmm_Host_V1_WorkloadResourcesV2()}
+    set {_uniqueStorage()._resourcesV2 = newValue}
+  }
+  /// Returns true if `resourcesV2` has been explicitly set.
+  public var hasResourcesV2: Bool {_storage._resourcesV2 != nil}
+  /// Clears the value of `resourcesV2`. Subsequent reads from it will return its default value.
+  public mutating func clearResourcesV2() {_uniqueStorage()._resourcesV2 = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -6281,37 +6323,69 @@ public nonisolated struct Agentvmm_Host_V1_ReportConnectorStatusRequest: Sendabl
   fileprivate var _status: Agentvmm_Host_V1_ConnectorStatus? = nil
 }
 
-public nonisolated struct Agentvmm_Host_V1_EnsureAllocationRequest: Sendable {
+public nonisolated struct Agentvmm_Host_V1_EnsureAllocationRequest: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var allocationID: String = String()
+  public var allocationID: String {
+    get {_storage._allocationID}
+    set {_uniqueStorage()._allocationID = newValue}
+  }
 
-  public var displayLabel: String = String()
+  public var displayLabel: String {
+    get {_storage._displayLabel}
+    set {_uniqueStorage()._displayLabel = newValue}
+  }
 
   public var limits: Agentvmm_Host_V1_ResourceLimits {
-    get {_limits ?? Agentvmm_Host_V1_ResourceLimits()}
-    set {_limits = newValue}
+    get {_storage._limits ?? Agentvmm_Host_V1_ResourceLimits()}
+    set {_uniqueStorage()._limits = newValue}
   }
   /// Returns true if `limits` has been explicitly set.
-  public var hasLimits: Bool {self._limits != nil}
+  public var hasLimits: Bool {_storage._limits != nil}
   /// Clears the value of `limits`. Subsequent reads from it will return its default value.
-  public mutating func clearLimits() {self._limits = nil}
+  public mutating func clearLimits() {_uniqueStorage()._limits = nil}
 
-  public var egressMode: Agentvmm_Host_V1_EgressMode = .unspecified
+  public var egressMode: Agentvmm_Host_V1_EgressMode {
+    get {_storage._egressMode}
+    set {_uniqueStorage()._egressMode = newValue}
+  }
 
-  public var policyRevision: UInt64 = 0
+  public var policyRevision: UInt64 {
+    get {_storage._policyRevision}
+    set {_uniqueStorage()._policyRevision = newValue}
+  }
 
-  public var connectionInstance: String = String()
+  public var connectionInstance: String {
+    get {_storage._connectionInstance}
+    set {_uniqueStorage()._connectionInstance = newValue}
+  }
 
-  public var registrationID: String = String()
+  public var registrationID: String {
+    get {_storage._registrationID}
+    set {_uniqueStorage()._registrationID = newValue}
+  }
+
+  public var generation: UInt64 {
+    get {_storage._generation}
+    set {_uniqueStorage()._generation = newValue}
+  }
+
+  public var resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2 {
+    get {_storage._resourcesV2 ?? Agentvmm_Host_V1_WorkloadResourcesV2()}
+    set {_uniqueStorage()._resourcesV2 = newValue}
+  }
+  /// Returns true if `resourcesV2` has been explicitly set.
+  public var hasResourcesV2: Bool {_storage._resourcesV2 != nil}
+  /// Clears the value of `resourcesV2`. Subsequent reads from it will return its default value.
+  public mutating func clearResourcesV2() {_uniqueStorage()._resourcesV2 = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _limits: Agentvmm_Host_V1_ResourceLimits? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Agentvmm_Host_V1_AllocationResponse: Sendable {
@@ -6347,6 +6421,8 @@ public nonisolated struct Agentvmm_Host_V1_ReleaseAllocationRequest: Sendable {
   public var registrationID: String = String()
 
   public var connectionInstance: String = String()
+
+  public var expectedGeneration: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -9745,6 +9821,66 @@ nonisolated extension Agentvmm_Host_V1_ResourceLimits: SwiftProtobuf.Message, Sw
     if lhs._memoryBytes != rhs._memoryBytes {return false}
     if lhs._pids != rhs._pids {return false}
     if lhs._diskBytes != rhs._diskBytes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_WorkloadResourcesV2: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".WorkloadResourcesV2"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}cpu_guarantee_millis\0\u{3}cpu_max_millis\0\u{3}cpu_weight\0\u{3}memory_high_bytes\0\u{3}memory_max_bytes\0\u{3}pid_max\0\u{3}writable_quota_bytes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.cpuGuaranteeMillis) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.cpuMaxMillis) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.cpuWeight) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.memoryHighBytes) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.memoryMaxBytes) }()
+      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.pidMax) }()
+      case 7: try { try decoder.decodeSingularUInt64Field(value: &self.writableQuotaBytes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.cpuGuaranteeMillis != 0 {
+      try visitor.visitSingularUInt32Field(value: self.cpuGuaranteeMillis, fieldNumber: 1)
+    }
+    if self.cpuMaxMillis != 0 {
+      try visitor.visitSingularUInt32Field(value: self.cpuMaxMillis, fieldNumber: 2)
+    }
+    if self.cpuWeight != 0 {
+      try visitor.visitSingularUInt32Field(value: self.cpuWeight, fieldNumber: 3)
+    }
+    if self.memoryHighBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.memoryHighBytes, fieldNumber: 4)
+    }
+    if self.memoryMaxBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.memoryMaxBytes, fieldNumber: 5)
+    }
+    if self.pidMax != 0 {
+      try visitor.visitSingularUInt32Field(value: self.pidMax, fieldNumber: 6)
+    }
+    if self.writableQuotaBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.writableQuotaBytes, fieldNumber: 7)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_WorkloadResourcesV2, rhs: Agentvmm_Host_V1_WorkloadResourcesV2) -> Bool {
+    if lhs.cpuGuaranteeMillis != rhs.cpuGuaranteeMillis {return false}
+    if lhs.cpuMaxMillis != rhs.cpuMaxMillis {return false}
+    if lhs.cpuWeight != rhs.cpuWeight {return false}
+    if lhs.memoryHighBytes != rhs.memoryHighBytes {return false}
+    if lhs.memoryMaxBytes != rhs.memoryMaxBytes {return false}
+    if lhs.pidMax != rhs.pidMax {return false}
+    if lhs.writableQuotaBytes != rhs.writableQuotaBytes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -15980,7 +16116,7 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistrationResponse: SwiftProtobuf
 
 nonisolated extension Agentvmm_Host_V1_RemoteAllocation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoteAllocation"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}display_label\0\u{1}limits\0\u{3}egress_mode\0\u{1}revision\0\u{1}state\0\u{1}lease\0\u{3}environment_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}display_label\0\u{1}limits\0\u{3}egress_mode\0\u{1}revision\0\u{1}state\0\u{1}lease\0\u{3}environment_id\0\u{1}generation\0\u{3}resources_v2\0")
 
   fileprivate class _StorageClass {
     var _allocationID: String = String()
@@ -15991,6 +16127,8 @@ nonisolated extension Agentvmm_Host_V1_RemoteAllocation: SwiftProtobuf.Message, 
     var _state: Agentvmm_Host_V1_AllocationState = .unspecified
     var _lease: Agentvmm_Host_V1_RemoteLease? = nil
     var _environmentID: String = String()
+    var _generation: UInt64 = 0
+    var _resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -16009,6 +16147,8 @@ nonisolated extension Agentvmm_Host_V1_RemoteAllocation: SwiftProtobuf.Message, 
       _state = source._state
       _lease = source._lease
       _environmentID = source._environmentID
+      _generation = source._generation
+      _resourcesV2 = source._resourcesV2
     }
   }
 
@@ -16035,6 +16175,8 @@ nonisolated extension Agentvmm_Host_V1_RemoteAllocation: SwiftProtobuf.Message, 
         case 6: try { try decoder.decodeSingularEnumField(value: &_storage._state) }()
         case 7: try { try decoder.decodeSingularMessageField(value: &_storage._lease) }()
         case 8: try { try decoder.decodeSingularStringField(value: &_storage._environmentID) }()
+        case 9: try { try decoder.decodeSingularUInt64Field(value: &_storage._generation) }()
+        case 10: try { try decoder.decodeSingularMessageField(value: &_storage._resourcesV2) }()
         default: break
         }
       }
@@ -16071,6 +16213,12 @@ nonisolated extension Agentvmm_Host_V1_RemoteAllocation: SwiftProtobuf.Message, 
       if !_storage._environmentID.isEmpty {
         try visitor.visitSingularStringField(value: _storage._environmentID, fieldNumber: 8)
       }
+      if _storage._generation != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._generation, fieldNumber: 9)
+      }
+      try { if let v = _storage._resourcesV2 {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -16088,6 +16236,8 @@ nonisolated extension Agentvmm_Host_V1_RemoteAllocation: SwiftProtobuf.Message, 
         if _storage._state != rhs_storage._state {return false}
         if _storage._lease != rhs_storage._lease {return false}
         if _storage._environmentID != rhs_storage._environmentID {return false}
+        if _storage._generation != rhs_storage._generation {return false}
+        if _storage._resourcesV2 != rhs_storage._resourcesV2 {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -16435,63 +16585,125 @@ nonisolated extension Agentvmm_Host_V1_ReportConnectorStatusRequest: SwiftProtob
 
 nonisolated extension Agentvmm_Host_V1_EnsureAllocationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".EnsureAllocationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}display_label\0\u{1}limits\0\u{3}egress_mode\0\u{3}policy_revision\0\u{3}connection_instance\0\u{3}registration_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}display_label\0\u{1}limits\0\u{3}egress_mode\0\u{3}policy_revision\0\u{3}connection_instance\0\u{3}registration_id\0\u{1}generation\0\u{3}resources_v2\0")
+
+  fileprivate class _StorageClass {
+    var _allocationID: String = String()
+    var _displayLabel: String = String()
+    var _limits: Agentvmm_Host_V1_ResourceLimits? = nil
+    var _egressMode: Agentvmm_Host_V1_EgressMode = .unspecified
+    var _policyRevision: UInt64 = 0
+    var _connectionInstance: String = String()
+    var _registrationID: String = String()
+    var _generation: UInt64 = 0
+    var _resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _allocationID = source._allocationID
+      _displayLabel = source._displayLabel
+      _limits = source._limits
+      _egressMode = source._egressMode
+      _policyRevision = source._policyRevision
+      _connectionInstance = source._connectionInstance
+      _registrationID = source._registrationID
+      _generation = source._generation
+      _resourcesV2 = source._resourcesV2
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.displayLabel) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._limits) }()
-      case 4: try { try decoder.decodeSingularEnumField(value: &self.egressMode) }()
-      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.policyRevision) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
-      case 7: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._allocationID) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._displayLabel) }()
+        case 3: try { try decoder.decodeSingularMessageField(value: &_storage._limits) }()
+        case 4: try { try decoder.decodeSingularEnumField(value: &_storage._egressMode) }()
+        case 5: try { try decoder.decodeSingularUInt64Field(value: &_storage._policyRevision) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._connectionInstance) }()
+        case 7: try { try decoder.decodeSingularStringField(value: &_storage._registrationID) }()
+        case 8: try { try decoder.decodeSingularUInt64Field(value: &_storage._generation) }()
+        case 9: try { try decoder.decodeSingularMessageField(value: &_storage._resourcesV2) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.allocationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 1)
-    }
-    if !self.displayLabel.isEmpty {
-      try visitor.visitSingularStringField(value: self.displayLabel, fieldNumber: 2)
-    }
-    try { if let v = self._limits {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
-    if self.egressMode != .unspecified {
-      try visitor.visitSingularEnumField(value: self.egressMode, fieldNumber: 4)
-    }
-    if self.policyRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.policyRevision, fieldNumber: 5)
-    }
-    if !self.connectionInstance.isEmpty {
-      try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 6)
-    }
-    if !self.registrationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 7)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      if !_storage._allocationID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._allocationID, fieldNumber: 1)
+      }
+      if !_storage._displayLabel.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._displayLabel, fieldNumber: 2)
+      }
+      try { if let v = _storage._limits {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+      } }()
+      if _storage._egressMode != .unspecified {
+        try visitor.visitSingularEnumField(value: _storage._egressMode, fieldNumber: 4)
+      }
+      if _storage._policyRevision != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._policyRevision, fieldNumber: 5)
+      }
+      if !_storage._connectionInstance.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._connectionInstance, fieldNumber: 6)
+      }
+      if !_storage._registrationID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._registrationID, fieldNumber: 7)
+      }
+      if _storage._generation != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._generation, fieldNumber: 8)
+      }
+      try { if let v = _storage._resourcesV2 {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_EnsureAllocationRequest, rhs: Agentvmm_Host_V1_EnsureAllocationRequest) -> Bool {
-    if lhs.allocationID != rhs.allocationID {return false}
-    if lhs.displayLabel != rhs.displayLabel {return false}
-    if lhs._limits != rhs._limits {return false}
-    if lhs.egressMode != rhs.egressMode {return false}
-    if lhs.policyRevision != rhs.policyRevision {return false}
-    if lhs.connectionInstance != rhs.connectionInstance {return false}
-    if lhs.registrationID != rhs.registrationID {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._allocationID != rhs_storage._allocationID {return false}
+        if _storage._displayLabel != rhs_storage._displayLabel {return false}
+        if _storage._limits != rhs_storage._limits {return false}
+        if _storage._egressMode != rhs_storage._egressMode {return false}
+        if _storage._policyRevision != rhs_storage._policyRevision {return false}
+        if _storage._connectionInstance != rhs_storage._connectionInstance {return false}
+        if _storage._registrationID != rhs_storage._registrationID {return false}
+        if _storage._generation != rhs_storage._generation {return false}
+        if _storage._resourcesV2 != rhs_storage._resourcesV2 {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -16533,7 +16745,7 @@ nonisolated extension Agentvmm_Host_V1_AllocationResponse: SwiftProtobuf.Message
 
 nonisolated extension Agentvmm_Host_V1_ReleaseAllocationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ReleaseAllocationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}expected_policy_revision\0\u{3}registration_id\0\u{3}connection_instance\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}expected_policy_revision\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}expected_generation\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -16545,6 +16757,7 @@ nonisolated extension Agentvmm_Host_V1_ReleaseAllocationRequest: SwiftProtobuf.M
       case 2: try { try decoder.decodeSingularUInt64Field(value: &self.expectedPolicyRevision) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.expectedGeneration) }()
       default: break
       }
     }
@@ -16563,6 +16776,9 @@ nonisolated extension Agentvmm_Host_V1_ReleaseAllocationRequest: SwiftProtobuf.M
     if !self.connectionInstance.isEmpty {
       try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 4)
     }
+    if self.expectedGeneration != 0 {
+      try visitor.visitSingularUInt64Field(value: self.expectedGeneration, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -16571,6 +16787,7 @@ nonisolated extension Agentvmm_Host_V1_ReleaseAllocationRequest: SwiftProtobuf.M
     if lhs.expectedPolicyRevision != rhs.expectedPolicyRevision {return false}
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
+    if lhs.expectedGeneration != rhs.expectedGeneration {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

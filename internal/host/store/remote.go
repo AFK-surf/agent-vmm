@@ -11,7 +11,7 @@ import (
 
 type RemoteLeaseProjection struct {
 	LeaseID, RegistrationID, AllocationID, EnvironmentID, WorkloadRef string
-	Generation                                                        uint64
+	Generation, AllocationGeneration                                  uint64
 	ExpiresAt                                                         time.Time
 	State                                                             int32
 }
@@ -24,9 +24,12 @@ func (store *Store) AcquireRemoteLeaseProjection(ctx context.Context, lease Remo
 	defer transaction.Rollback()
 	result, err := transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
 		updated_at=? WHERE id=? AND owner_kind=? AND registration_id=? AND allocation_id=?
-		AND allocation_state=? AND policy_revision=?`, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
+		AND allocation_state=? AND policy_revision=? AND EXISTS (
+			SELECT 1 FROM workload_reservations_v2 r WHERE r.environment_id=environments.id
+			AND r.allocation_id=? AND r.generation=? AND r.phase IN (?,?))`, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
 		time.Now().UnixNano(), lease.EnvironmentID, OwnerRemoteRegistration, lease.RegistrationID,
-		lease.AllocationID, int32(hostv1.AllocationState_ALLOCATION_STATE_READY), expectedRevision)
+		lease.AllocationID, int32(hostv1.AllocationState_ALLOCATION_STATE_READY), expectedRevision,
+		lease.AllocationID, lease.AllocationGeneration, WorkloadReservationLogical, WorkloadReservationAdmitted)
 	if err != nil {
 		return Environment{}, err
 	}
@@ -37,8 +40,8 @@ func (store *Store) AcquireRemoteLeaseProjection(ctx context.Context, lease Remo
 		return Environment{}, errors.New("allocation revision conflict")
 	}
 	if _, err := transaction.ExecContext(ctx, `INSERT INTO remote_lease_projections(lease_id, registration_id,
-		allocation_id, environment_id, workload_ref, generation, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		lease.LeaseID, lease.RegistrationID, lease.AllocationID, lease.EnvironmentID, lease.WorkloadRef,
+		allocation_id, allocation_generation, environment_id, workload_ref, generation, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		lease.LeaseID, lease.RegistrationID, lease.AllocationID, lease.AllocationGeneration, lease.EnvironmentID, lease.WorkloadRef,
 		lease.Generation, lease.ExpiresAt.UnixNano(), lease.State); err != nil {
 		return Environment{}, err
 	}
@@ -56,24 +59,22 @@ func (store *Store) AcquireRemoteLeaseProjection(ctx context.Context, lease Remo
 	return environment, nil
 }
 
+// FinishRemoteLeaseProjection atomically turns an automatic stop/revoke into
+// the same exact durable release obligation used by explicit allocation
+// retirement. Model anchor: ResourceAdmissionQueue Stop/Revoke.
 func (store *Store) FinishRemoteLeaseProjection(ctx context.Context, registrationID, leaseID, environmentID string, expectedRevision uint64, allocationState int32) (Environment, error) {
 	transaction, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Environment{}, err
 	}
 	defer transaction.Rollback()
-	result, err := transaction.ExecContext(ctx, `DELETE FROM remote_lease_projections
-		WHERE lease_id=? AND registration_id=? AND environment_id=?`, leaseID, registrationID, environmentID)
-	if err != nil {
+	var allocationID string
+	var allocationGeneration uint64
+	if err := transaction.QueryRowContext(ctx, `SELECT allocation_id,allocation_generation FROM remote_lease_projections
+		WHERE lease_id=? AND registration_id=? AND environment_id=?`, leaseID, registrationID, environmentID).Scan(&allocationID, &allocationGeneration); err != nil {
 		return Environment{}, err
 	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return Environment{}, err
-		}
-		return Environment{}, sql.ErrNoRows
-	}
-	result, err = transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
+	result, err := transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
 		updated_at=? WHERE id=? AND owner_kind=? AND registration_id=? AND allocation_state=? AND policy_revision=?`,
 		allocationState, time.Now().UnixNano(), environmentID,
 		OwnerRemoteRegistration, registrationID, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED), expectedRevision)
@@ -85,6 +86,35 @@ func (store *Store) FinishRemoteLeaseProjection(ctx context.Context, registratio
 			return Environment{}, err
 		}
 		return Environment{}, errors.New("allocation revision conflict")
+	}
+	if allocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		result, err = transaction.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=CASE
+			WHEN phase=? THEN ? WHEN phase=? THEN ? ELSE phase END,updated_at=?
+			WHERE environment_id=? AND allocation_id=? AND generation=? AND phase IN (?,?,?,?)`, WorkloadReservationLogical,
+			WorkloadReservationReleaseRequired, WorkloadReservationAdmitted, WorkloadReservationReleasing,
+			time.Now().UnixNano(), environmentID, allocationID, allocationGeneration, WorkloadReservationLogical, WorkloadReservationReleaseRequired,
+			WorkloadReservationAdmitted, WorkloadReservationReleasing)
+		if err != nil {
+			return Environment{}, err
+		}
+		if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != 1 {
+			if changeErr != nil {
+				return Environment{}, changeErr
+			}
+			return Environment{}, errors.New("exact workload retirement obligation is missing")
+		}
+	}
+	result, err = transaction.ExecContext(ctx, `DELETE FROM remote_lease_projections
+		WHERE lease_id=? AND registration_id=? AND environment_id=? AND allocation_id=? AND allocation_generation=?`,
+		leaseID, registrationID, environmentID, allocationID, allocationGeneration)
+	if err != nil {
+		return Environment{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return Environment{}, err
+		}
+		return Environment{}, sql.ErrNoRows
 	}
 	if _, err := transaction.ExecContext(ctx, `UPDATE remote_registrations SET inventory_revision=inventory_revision+1,
 		updated_at=? WHERE id=?`, time.Now().UnixNano(), registrationID); err != nil {
@@ -107,10 +137,10 @@ func (store *Store) PutRemoteLeaseProjection(ctx context.Context, lease RemoteLe
 	}
 	defer transaction.Rollback()
 	if _, err := transaction.ExecContext(ctx, `INSERT INTO remote_lease_projections(lease_id, registration_id,
-		allocation_id, environment_id, workload_ref, generation, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		allocation_id, allocation_generation, environment_id, workload_ref, generation, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(lease_id) DO UPDATE SET expires_at=excluded.expires_at, state=excluded.state
 		WHERE remote_lease_projections.registration_id=excluded.registration_id AND remote_lease_projections.generation=excluded.generation`,
-		lease.LeaseID, lease.RegistrationID, lease.AllocationID, lease.EnvironmentID, lease.WorkloadRef,
+		lease.LeaseID, lease.RegistrationID, lease.AllocationID, lease.AllocationGeneration, lease.EnvironmentID, lease.WorkloadRef,
 		lease.Generation, lease.ExpiresAt.UnixNano(), lease.State); err != nil {
 		return err
 	}
@@ -151,13 +181,46 @@ func (store *Store) RecoverRemoteLeaseProjections(ctx context.Context) error {
 		return err
 	}
 	defer transaction.Rollback()
-	if _, err := transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
-		updated_at=? WHERE owner_kind=? AND allocation_state=?`, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED),
-		time.Now().UnixNano(), OwnerRemoteRegistration, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED)); err != nil {
+	var projectionCount int64
+	if err := transaction.QueryRowContext(ctx, `SELECT COUNT(*) FROM remote_lease_projections`).Scan(&projectionCount); err != nil {
 		return err
 	}
+	now := time.Now().UnixNano()
+	result, err := transaction.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=CASE
+		WHEN phase=? THEN ? WHEN phase=? THEN ? ELSE phase END,updated_at=?
+		WHERE phase IN (?,?) AND EXISTS (SELECT 1 FROM remote_lease_projections p
+			WHERE p.environment_id=workload_reservations_v2.environment_id
+			AND p.allocation_id=workload_reservations_v2.allocation_id
+			AND p.allocation_generation=workload_reservations_v2.generation)`,
+		WorkloadReservationLogical, WorkloadReservationReleaseRequired,
+		WorkloadReservationAdmitted, WorkloadReservationReleasing, now,
+		WorkloadReservationLogical, WorkloadReservationAdmitted)
+	if err != nil {
+		return err
+	}
+	if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != projectionCount {
+		if changeErr != nil {
+			return changeErr
+		}
+		return errors.New("remote lease recovery exact reservation mismatch")
+	}
+	result, err = transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
+		updated_at=? WHERE owner_kind=? AND allocation_state=? AND EXISTS (
+			SELECT 1 FROM remote_lease_projections p WHERE p.environment_id=environments.id
+			AND p.registration_id=environments.registration_id AND p.allocation_id=environments.allocation_id)`,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), now, OwnerRemoteRegistration,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED))
+	if err != nil {
+		return err
+	}
+	if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != projectionCount {
+		if changeErr != nil {
+			return changeErr
+		}
+		return errors.New("remote lease recovery exact environment mismatch")
+	}
 	if _, err := transaction.ExecContext(ctx, `UPDATE remote_registrations SET inventory_revision=inventory_revision+1,
-		updated_at=? WHERE id IN (SELECT DISTINCT registration_id FROM remote_lease_projections)`, time.Now().UnixNano()); err != nil {
+		updated_at=? WHERE id IN (SELECT DISTINCT registration_id FROM remote_lease_projections)`, now); err != nil {
 		return err
 	}
 	if _, err := transaction.ExecContext(ctx, `DELETE FROM remote_lease_projections`); err != nil {

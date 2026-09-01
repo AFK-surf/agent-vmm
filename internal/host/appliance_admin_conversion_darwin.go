@@ -6,6 +6,7 @@ import (
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -96,7 +97,7 @@ func limitsFromAmount(value store.ResourceAmount) *hostv1.ResourceLimits {
 }
 
 func remoteRegistrationFromGrant(id string, installation store.ApplianceInstallation, grant store.ApplianceGrant) store.RemoteRegistration {
-	return store.RemoteRegistration{ID: id, Endpoint: "private.invalid:443", DisplayName: installation.ProductID, ProtocolVersion: "1",
+	return store.RemoteRegistration{ID: id, Endpoint: "private.invalid:443", DisplayName: installation.ProductID, ProtocolVersion: remoteconnector.ProtocolVersion,
 		MaxEnvironments: grant.MaxEnvironments, AggregateCPUMillis: uint32(grant.Aggregate.CPUMillis), AggregateMemoryBytes: grant.Aggregate.MemoryBytes,
 		AggregatePIDs: uint32(grant.Aggregate.PIDs), AggregateDiskBytes: grant.Aggregate.DiskBytes,
 		PerEnvCPUMillis: uint32(grant.PerEnvironment.CPUMillis), PerEnvMemoryBytes: grant.PerEnvironment.MemoryBytes,

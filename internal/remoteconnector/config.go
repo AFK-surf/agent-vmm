@@ -31,7 +31,7 @@ func LoadTLSRoots(path string) (*x509.CertPool, error) {
 }
 
 const (
-	ProtocolVersion         = "1"
+	ProtocolVersion         = "2"
 	HostAPIVersion          = "host.v1"
 	ConnectorRelease        = "0.1.0"
 	MaxControlBytes         = 1 << 20

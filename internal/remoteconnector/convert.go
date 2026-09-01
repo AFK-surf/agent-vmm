@@ -39,7 +39,7 @@ func allocationToRemote(allocation *hostv1.RemoteAllocation) *remotev1.Allocatio
 	if allocation == nil {
 		return nil
 	}
-	return &remotev1.Allocation{AllocationId: allocation.GetAllocationId(), DisplayLabel: boundedLabel(allocation.GetDisplayLabel()), Limits: allocation.GetLimits(), EgressMode: allocation.GetEgressMode(), Revision: allocation.GetRevision(), State: allocation.GetState(), Lease: leaseToRemote(allocation.GetLease(), allocation.GetRevision())}
+	return &remotev1.Allocation{AllocationId: allocation.GetAllocationId(), DisplayLabel: boundedLabel(allocation.GetDisplayLabel()), EgressMode: allocation.GetEgressMode(), Revision: allocation.GetRevision(), State: allocation.GetState(), Lease: leaseToRemote(allocation.GetLease(), allocation.GetRevision()), Generation: allocation.GetGeneration(), ResourcesV2: allocation.GetResourcesV2()}
 }
 
 func leaseToRemote(lease *hostv1.RemoteLease, allocationRevision uint64) *remotev1.Lease {

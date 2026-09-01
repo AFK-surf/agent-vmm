@@ -122,7 +122,7 @@ func cleanupReferenceTaskAllocation(ctx context.Context, cursor *referenceComman
 		return err
 	}
 	revision := released.GetLease().GetAllocationRevision()
-	if _, err := dispatchReferenceCommand(ctx, cursor, "release-task-allocation", &remotev1.ControllerCommand{TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision}}}); err != nil {
+	if _, err := dispatchReferenceCommand(ctx, cursor, "release-task-allocation", &remotev1.ControllerCommand{TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision, ExpectedGeneration: 1}}}); err != nil {
 		return err
 	}
 	planned, err := dispatchReferenceCommand(ctx, cursor, "plan-task-cleanup", &remotev1.ControllerCommand{Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})

@@ -16,15 +16,16 @@ import (
 )
 
 type remoteLease struct {
-	id             string
-	registrationID string
-	allocationID   string
-	environmentID  string
-	workloadRef    string
-	generation     uint64
-	expiresAt      time.Time
-	state          hostv1.LeaseState
-	sessionID      string
+	id                   string
+	registrationID       string
+	allocationID         string
+	environmentID        string
+	workloadRef          string
+	generation           uint64
+	allocationGeneration uint64
+	expiresAt            time.Time
+	state                hostv1.LeaseState
+	sessionID            string
 }
 
 func leaseToProto(lease *remoteLease) *hostv1.RemoteLease {
@@ -36,18 +37,50 @@ func leaseToProto(lease *remoteLease) *hostv1.RemoteLease {
 
 func (controller *Controller) scheduleLease(id string, generation uint64, deadline time.Time) {
 	time.AfterFunc(time.Until(deadline), func() {
-		controller.mu.Lock()
-		lease := controller.remoteLeases[id]
-		if lease == nil || lease.generation != generation || lease.expiresAt.After(deadline) {
-			controller.mu.Unlock()
-			return
-		}
-		controller.mu.Unlock()
-		_, _ = controller.finishLease(id, generation, hostv1.LeaseState_LEASE_STATE_EXPIRED, true)
+		_, _ = controller.expireLease(id, generation, time.Now())
 	})
 }
 
-func (controller *Controller) finishLease(id string, generation uint64, state hostv1.LeaseState, stop bool) (*remoteLease, error) {
+// expireLease revalidates the current deadline at the same admission
+// linearization point used by RenewLease. An old timer can never carry a stale
+// pre-lock observation through a successful renewal.
+func (controller *Controller) expireLease(id string, generation uint64, now time.Time) (*remoteLease, error) {
+	controller.remoteAdmissionMu.Lock()
+	defer controller.remoteAdmissionMu.Unlock()
+	controller.mu.Lock()
+	lease := controller.remoteLeases[id]
+	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE || now.Before(lease.expiresAt) {
+		controller.mu.Unlock()
+		return nil, nil
+	}
+	environmentID := lease.environmentID
+	controller.mu.Unlock()
+	unlockEnvironment := controller.lockEnvironment(environmentID)
+	defer unlockEnvironment()
+	return controller.finishLeaseLocked(id, generation, hostv1.LeaseState_LEASE_STATE_EXPIRED, true, true)
+}
+
+func (controller *Controller) finishLease(id string, generation uint64, state hostv1.LeaseState, stop, reconcileTerminal bool) (*remoteLease, error) {
+	controller.mu.Lock()
+	lease := controller.remoteLeases[id]
+	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
+		controller.mu.Unlock()
+		return nil, nil
+	}
+	environmentID := lease.environmentID
+	controller.mu.Unlock()
+	controller.remoteAdmissionMu.Lock()
+	defer controller.remoteAdmissionMu.Unlock()
+	unlockEnvironment := controller.lockEnvironment(environmentID)
+	defer unlockEnvironment()
+	return controller.finishLeaseLocked(id, generation, state, stop, reconcileTerminal)
+}
+
+// finishLeaseLocked is the single exact lease/projection/reservation terminal
+// transition. Callers hold remoteAdmissionMu and the environment lock, in that
+// order, so explicit release, expiry, and revocation cannot race READY against
+// RETAINED.
+func (controller *Controller) finishLeaseLocked(id string, generation uint64, state hostv1.LeaseState, stop, reconcileTerminal bool) (*remoteLease, error) {
 	controller.mu.Lock()
 	lease := controller.remoteLeases[id]
 	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
@@ -56,6 +89,7 @@ func (controller *Controller) finishLease(id string, generation uint64, state ho
 	}
 	result := *lease
 	lease.state = state
+	result.state = state
 	delete(controller.remoteLeases, id)
 	delete(controller.allocationLeases, lease.environmentID)
 	controller.mu.Unlock()
@@ -77,19 +111,29 @@ func (controller *Controller) finishLease(id string, generation uint64, state ho
 	environment, err := controller.store.GetEnvironment(context.Background(), result.environmentID)
 	if err != nil {
 		log.Printf("finish remote lease %q: load allocation: %v", id, err)
-		controller.retryRemoteLeaseProjection(result, targetStateForLease(stop), 1)
+		controller.retryRemoteLeaseProjection(result, targetStateForLease(stop), reconcileTerminal, 1)
 		return &result, errors.Join(cleanupErr, err)
 	}
 	targetState := int32(hostv1.AllocationState_ALLOCATION_STATE_READY)
 	if stop {
 		targetState = int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)
 	}
-	if _, err := controller.store.FinishRemoteLeaseProjection(context.Background(), result.registrationID, id, result.environmentID, environment.PolicyRevision, targetState); err != nil {
+	projected, err := controller.store.FinishRemoteLeaseProjection(context.Background(), result.registrationID, id, result.environmentID, environment.PolicyRevision, targetState)
+	if err != nil {
 		log.Printf("finish remote lease %q: commit projection: %v", id, err)
-		controller.retryRemoteLeaseProjection(result, targetState, 1)
+		controller.retryRemoteLeaseProjection(result, targetState, reconcileTerminal, 1)
 		return &result, errors.Join(cleanupErr, err)
 	}
-	return &result, cleanupErr
+	if reconcileTerminal {
+		if err := controller.reconcileEnvironment(context.Background(), projected); err != nil {
+			log.Printf("finish remote lease %q: reconcile exact retirement: %v", id, err)
+			controller.retryRemoteLeaseProjection(result, targetState, true, 1)
+		}
+	}
+	if cleanupErr != nil {
+		log.Printf("finish remote lease %q: workload stop deferred to existing retry owner: %v", id, cleanupErr)
+	}
+	return &result, nil
 }
 
 func targetStateForLease(stop bool) int32 {
@@ -99,7 +143,7 @@ func targetStateForLease(stop bool) int32 {
 	return int32(hostv1.AllocationState_ALLOCATION_STATE_READY)
 }
 
-func (controller *Controller) retryRemoteLeaseProjection(lease remoteLease, targetState int32, attempt int) {
+func (controller *Controller) retryRemoteLeaseProjection(lease remoteLease, targetState int32, reconcileTerminal bool, attempt int) {
 	if attempt > 4 {
 		return
 	}
@@ -108,19 +152,31 @@ func (controller *Controller) retryRemoteLeaseProjection(lease remoteLease, targ
 		defer cancel()
 		controller.remoteAdmissionMu.Lock()
 		defer controller.remoteAdmissionMu.Unlock()
+		unlockEnvironment := controller.lockEnvironment(lease.environmentID)
+		defer unlockEnvironment()
 		environment, err := controller.store.GetEnvironment(ctx, lease.environmentID)
 		if err == nil {
-			_, err = controller.store.FinishRemoteLeaseProjection(ctx, lease.registrationID, lease.id, lease.environmentID, environment.PolicyRevision, targetState)
+			if environment.AllocationState == targetState {
+				if reconcileTerminal {
+					err = controller.reconcileEnvironment(ctx, environment)
+				}
+			} else {
+				environment, err = controller.store.FinishRemoteLeaseProjection(ctx, lease.registrationID, lease.id, lease.environmentID, environment.PolicyRevision, targetState)
+				if err == nil && reconcileTerminal {
+					err = controller.reconcileEnvironment(ctx, environment)
+				}
+			}
 		}
 		if err != nil {
-			controller.retryRemoteLeaseProjection(lease, targetState, attempt+1)
+			controller.retryRemoteLeaseProjection(lease, targetState, reconcileTerminal, attempt+1)
 		}
 	})
 }
 
-// finishLeaseMemory is used when the durable projection mutation is already
-// part of the caller's transaction. It still fences capability use first.
-func (controller *Controller) finishLeaseMemory(id string, generation uint64, state hostv1.LeaseState) *remoteLease {
+// discardUncommittedLease rolls back the in-memory claim only when the atomic
+// AcquireRemoteLeaseProjection transaction failed, so no durable lease owner
+// exists. Durable terminal paths must use finishLeaseLocked.
+func (controller *Controller) discardUncommittedLease(id string, generation uint64, state hostv1.LeaseState) *remoteLease {
 	controller.mu.Lock()
 	lease := controller.remoteLeases[id]
 	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
@@ -139,19 +195,32 @@ func (controller *Controller) finishLeaseMemory(id string, generation uint64, st
 	return &result
 }
 
-func (controller *Controller) revokeAllocationLease(ctx context.Context, environment store.Environment, state hostv1.LeaseState, stop bool) {
+func (controller *Controller) revokeAllocationLease(ctx context.Context, environment store.Environment, state hostv1.LeaseState, stop bool) error {
 	controller.mu.Lock()
 	id := controller.allocationLeases[environment.ID]
 	lease := controller.remoteLeases[id]
 	controller.mu.Unlock()
 	if lease != nil {
-		_, _ = controller.finishLease(lease.id, lease.generation, state, stop)
+		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, state, stop, false)
+		if err != nil {
+			return err
+		}
+		if finished == nil {
+			return errors.New("allocation lease terminal claim was lost")
+		}
 	} else if stop {
-		controller.stopRemoteWorkload(ctx, environment.ID)
+		_ = controller.stopRemoteWorkload(ctx, environment.ID)
 	}
+	return nil
 }
 
 func (controller *Controller) revokeRemoteLeases(registrationID string) error {
+	controller.remoteAdmissionMu.Lock()
+	defer controller.remoteAdmissionMu.Unlock()
+	return controller.revokeRemoteLeasesLocked(registrationID)
+}
+
+func (controller *Controller) revokeRemoteLeasesLocked(registrationID string) error {
 	controller.mu.Lock()
 	leases := make([]remoteLease, 0, len(controller.remoteLeases))
 	for _, lease := range controller.remoteLeases {
@@ -162,7 +231,9 @@ func (controller *Controller) revokeRemoteLeases(registrationID string) error {
 	controller.mu.Unlock()
 	var failures []error
 	for _, lease := range leases {
-		finished, err := controller.finishLease(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true)
+		unlockEnvironment := controller.lockEnvironment(lease.environmentID)
+		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true, true)
+		unlockEnvironment()
 		if finished == nil && err == nil {
 			continue
 		}

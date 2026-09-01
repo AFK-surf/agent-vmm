@@ -20,6 +20,7 @@ var requiredProtocolFeatures = []string{
 	"inventory-watermark-v1",
 	"host-loopback-frontend-v1",
 	"unknown-outcome-v1",
+	"resource-v2",
 }
 
 var protocolFeatures = append(append([]string(nil), requiredProtocolFeatures...), remoteObservationFeature)
@@ -79,8 +80,16 @@ func (tracker *commandTracker) admit(command *remotev1.ControllerCommand, now ti
 	if !validGenerationFence(command) {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "lease generation fence mismatch"), nil
 	}
-	if ensure := command.GetEnsureAllocation(); ensure != nil && command.GetTargetRevision() != ensure.GetPolicyRevision() {
-		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "target revision fence mismatch"), nil
+	if ensure := command.GetEnsureAllocation(); ensure != nil {
+		if ensure.GetGeneration() == 0 || ensure.GetResourcesV2() == nil {
+			return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, "resource-v2 allocation identity is required"), nil
+		}
+		if command.GetTargetRevision() != ensure.GetPolicyRevision() {
+			return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "target revision fence mismatch"), nil
+		}
+	}
+	if release := command.GetReleaseAllocation(); release != nil && (release.GetExpectedGeneration() == 0 || command.GetTargetRevision() != release.GetExpectedRevision()) {
+		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation release fence mismatch"), nil
 	}
 	if command.GetAcquireLease() != nil && command.GetTargetRevision() == 0 {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation revision fence is required"), nil

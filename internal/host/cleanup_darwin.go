@@ -398,7 +398,27 @@ func (server *operatorServer) performCleanup(ctx context.Context, operation *sto
 	if len(remainingVolumes.GetVolumes()) != 0 {
 		return fmt.Errorf("verify cleanup volumes: %d volume records remain", len(remainingVolumes.GetVolumes()))
 	}
-	if _, err := client.DeleteNamespace(ctx, &vmmdv1.DeleteNamespaceRequest{RequestId: derivedRequestID(operation.RequestID + "-namespace"), NamespaceId: environment.NamespaceID}); err != nil {
+	if environment.OwnerKind == store.OwnerRemoteRegistration {
+		reservation, err := server.controller.store.GetWorkloadReservationByEnvironment(ctx, environment.ID)
+		if err != nil {
+			return fmt.Errorf("load exact cleanup reservation: %w", err)
+		}
+		if len(reservation.GuestReceipt) == 0 {
+			reservation, err = server.controller.recoverGuestReservationForRelease(ctx, client, environment, reservation)
+			if err != nil {
+				return fmt.Errorf("recover exact Guest reservation before cleanup: %w", err)
+			}
+		}
+		if reservation.Phase != store.WorkloadReservationReleasing && reservation.Phase != store.WorkloadReservationReleasedPendingConfirm {
+			reservation, err = server.controller.store.BeginWorkloadRelease(ctx, reservation.AllocationID, reservation.Generation, reservation.GuestReceipt)
+			if err != nil {
+				return fmt.Errorf("fence exact cleanup reservation: %w", err)
+			}
+		}
+		if err := server.controller.confirmWorkloadRelease(ctx, client, environment, reservation); err != nil {
+			return err
+		}
+	} else if _, err := client.DeleteNamespace(ctx, &vmmdv1.DeleteNamespaceRequest{RequestId: derivedRequestID(operation.RequestID + "-namespace"), NamespaceId: environment.NamespaceID}); err != nil {
 		return fmt.Errorf("delete cleanup namespace: %w", err)
 	}
 	if err := server.controller.store.DiscardEnvironment(ctx, environment.ID); err != nil {

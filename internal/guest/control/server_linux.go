@@ -109,6 +109,38 @@ func (s *Server) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureName
 	return value.(*vmmdv1.EnsureNamespaceResponse), nil
 }
 
+func (s *Server) ReserveWorkloadResources(ctx context.Context, request *vmmdv1.ReserveWorkloadResourcesRequest) (*vmmdv1.WorkloadResourceReceipt, error) {
+	value, err := s.mutate(ctx, "reserve-workload-resources", request, func() (any, error) {
+		return s.runtime.ReserveWorkloadResources(ctx, request)
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return value.(*vmmdv1.WorkloadResourceReceipt), nil
+}
+
+func (s *Server) ReleaseWorkloadResources(ctx context.Context, request *vmmdv1.ReleaseWorkloadResourcesRequest) (*vmmdv1.ReleaseWorkloadResourcesResponse, error) {
+	value, err := s.mutate(ctx, "release-workload-resources", request, func() (any, error) {
+		receipt, err := s.runtime.ReleaseWorkloadResources(ctx, request)
+		return &vmmdv1.ReleaseWorkloadResourcesResponse{Released: receipt}, err
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return value.(*vmmdv1.ReleaseWorkloadResourcesResponse), nil
+}
+
+func (s *Server) ConfirmWorkloadResourceRelease(ctx context.Context, request *vmmdv1.ConfirmWorkloadResourceReleaseRequest) (*vmmdv1.ConfirmWorkloadResourceReleaseResponse, error) {
+	value, err := s.mutate(ctx, "confirm-workload-resource-release", request, func() (any, error) {
+		receipt, err := s.runtime.ConfirmWorkloadResourceRelease(request)
+		return &vmmdv1.ConfirmWorkloadResourceReleaseResponse{Confirmed: receipt}, err
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return value.(*vmmdv1.ConfirmWorkloadResourceReleaseResponse), nil
+}
+
 func (s *Server) DeleteNamespace(ctx context.Context, request *vmmdv1.DeleteNamespaceRequest) (*vmmdv1.DeleteNamespaceResponse, error) {
 	value, err := s.mutate(ctx, "delete-namespace", request, func() (any, error) {
 		return &vmmdv1.DeleteNamespaceResponse{}, s.runtime.DeleteNamespace(ctx, request.GetNamespaceId())
@@ -314,6 +346,12 @@ func mutationRequestID(request proto.Message) string {
 	case *vmmdv1.StopSystemApplianceRequest:
 		return request.GetRequestId()
 	case *vmmdv1.EnsureNamespaceRequest:
+		return request.GetRequestId()
+	case *vmmdv1.ReserveWorkloadResourcesRequest:
+		return request.GetRequestId()
+	case *vmmdv1.ReleaseWorkloadResourcesRequest:
+		return request.GetRequestId()
+	case *vmmdv1.ConfirmWorkloadResourceReleaseRequest:
 		return request.GetRequestId()
 	case *vmmdv1.DeleteNamespaceRequest:
 		return request.GetRequestId()

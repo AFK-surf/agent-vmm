@@ -123,3 +123,48 @@ func TestBuildOutputIsBounded(t *testing.T) {
 		t.Fatalf("captured output = %d bytes", len(output.data))
 	}
 }
+
+func TestOCIGrowthFailsClosedAndRunsOnlyInsideInjectedGate(t *testing.T) {
+	operationRan := false
+	if err := (&Builder{}).growOCI(context.Background(), "output", func() error {
+		operationRan = true
+		return nil
+	}); err == nil || operationRan {
+		t.Fatalf("missing gate err=%v operationRan=%v", err, operationRan)
+	}
+	gateCalls := 0
+	builder := &Builder{growthGate: func(_ context.Context, identity string, operation func() error) error {
+		gateCalls++
+		if identity != "output" {
+			t.Fatalf("growth identity=%q", identity)
+		}
+		return operation()
+	}}
+	if err := builder.growOCI(context.Background(), "output", func() error {
+		operationRan = true
+		return nil
+	}); err != nil || !operationRan || gateCalls != 1 {
+		t.Fatalf("gated growth err=%v operationRan=%v gateCalls=%d", err, operationRan, gateCalls)
+	}
+}
+
+func TestOCIMetadataGrowthFailsClosedAndRunsOnlyInsideInjectedGate(t *testing.T) {
+	operationRan := false
+	if err := (&Builder{}).growMetadata(context.Background(), func() error {
+		operationRan = true
+		return nil
+	}); err == nil || operationRan {
+		t.Fatalf("missing metadata gate err=%v operationRan=%v", err, operationRan)
+	}
+	gateCalls := 0
+	builder := &Builder{metadataGate: func(_ context.Context, operation func() error) error {
+		gateCalls++
+		return operation()
+	}}
+	if err := builder.growMetadata(context.Background(), func() error {
+		operationRan = true
+		return nil
+	}); err != nil || !operationRan || gateCalls != 1 {
+		t.Fatalf("gated metadata err=%v operationRan=%v gateCalls=%d", err, operationRan, gateCalls)
+	}
+}

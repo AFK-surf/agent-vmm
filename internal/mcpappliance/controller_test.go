@@ -57,7 +57,7 @@ func (stream *applianceControlStream) Send(message *remotev1.ControllerControlMe
 	result := &remotev1.CommandResult{CommandId: command.GetCommandId(), Sequence: command.GetSequence(), ConnectionEpoch: command.GetConnectionEpoch(), Outcome: remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED, InventoryWatermark: command.GetSequence() + 1}
 	switch value := command.GetCommand().(type) {
 	case *remotev1.ControllerCommand_EnsureAllocation:
-		result.Result = &remotev1.CommandResult_Allocation{Allocation: &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Revision: 10}}
+		result.Result = &remotev1.CommandResult_Allocation{Allocation: &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Generation: value.EnsureAllocation.GetGeneration(), ResourcesV2: value.EnsureAllocation.GetResourcesV2(), Revision: 10}}
 	case *remotev1.ControllerCommand_AcquireLease:
 		result.Result = &remotev1.CommandResult_Lease{Lease: &remotev1.Lease{AllocationId: value.AcquireLease.GetAllocationId(), LeaseId: "lease-" + value.AcquireLease.GetAllocationId(), Generation: 1, AllocationRevision: 11, ExpiresUnixMillis: time.Now().Add(5 * time.Minute).UnixMilli()}}
 	case *remotev1.ControllerCommand_RenewLease:
@@ -313,5 +313,8 @@ func TestServeSessionRoutesOnlyTheExactLease(t *testing.T) {
 
 func applianceHello() *remotev1.HostHello {
 	features := append([]string(nil), controllerremote.RequiredFeatures...)
-	return &remotev1.HostHello{ProtocolVersion: "remote.v1", HostApiVersion: "host.v1", RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, InventoryWatermark: 1, PoolRevision: 3, SupportedFeatures: features, RequiredFeatures: features, Capacity: &remotev1.Capacity{MaxEnvironments: 8, PerEnvironmentLimits: &hostv1.ResourceLimits{}, MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseSeconds: uint32((5 * time.Minute) / time.Second)}, HostLoopbackFrontend: &hostv1.HostLoopbackFrontendCapacity{MaxActiveLeases: 16, MaxActiveLeasesPerAllocation: 16, MaxLeaseSeconds: 60, MaxConcurrentConnections: 64, MaxConcurrentConnectionsPerLease: 16, MaxFrameBytes: 64 << 10, MaxConnectionBytes: 1 << 30, ConnectionDeadlineSeconds: 3600, ConnectionIdleSeconds: 300, MaxUseCount: 1024}}
+	return &remotev1.HostHello{ProtocolVersion: controllerremote.ProtocolVersion, HostApiVersion: "host.v1", RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, InventoryWatermark: 1, PoolRevision: 3, SupportedFeatures: features, RequiredFeatures: features, Capacity: &remotev1.Capacity{MaxEnvironments: 8, PerEnvironmentLimits: &hostv1.ResourceLimits{CpuMillis: uint32Pointer(500), MemoryBytes: uint64Pointer(1 << 30), Pids: uint32Pointer(256), DiskBytes: uint64Pointer(2 << 30)}, MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseSeconds: uint32((5 * time.Minute) / time.Second)}, HostLoopbackFrontend: &hostv1.HostLoopbackFrontendCapacity{MaxActiveLeases: 16, MaxActiveLeasesPerAllocation: 16, MaxLeaseSeconds: 60, MaxConcurrentConnections: 64, MaxConcurrentConnectionsPerLease: 16, MaxFrameBytes: 64 << 10, MaxConnectionBytes: 1 << 30, ConnectionDeadlineSeconds: 3600, ConnectionIdleSeconds: 300, MaxUseCount: 1024}}
 }
+
+func uint32Pointer(value uint32) *uint32 { return &value }
+func uint64Pointer(value uint64) *uint64 { return &value }

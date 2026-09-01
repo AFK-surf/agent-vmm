@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -64,6 +66,134 @@ func TestServiceRoutePersistenceAndRevocationFences(t *testing.T) {
 	var generation uint64
 	if err := database.db.QueryRowContext(ctx, `SELECT state, generation FROM access_routes WHERE route_id='route'`).Scan(&state, &generation); err != nil || state != servicev1.RouteState_ROUTE_STATE_REVOKED || generation != 8 {
 		t.Fatalf("state=%s generation=%d err=%v", state, generation, err)
+	}
+}
+
+func TestMutationReceiptsAreAgeAndCountBounded(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	old := time.Now().Add(-auditRetention - time.Hour).UnixNano()
+	if _, err := database.db.ExecContext(ctx, `INSERT INTO audit(actor,target,method,grant_id,request_id,result_code,reason,occurred_at)
+		VALUES ('a','t','old','','',0,'',?)`, old); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < auditMaxRows+5; index++ {
+		if err := database.Audit(ctx, "a", "t", "mutation", "", fmt.Sprint(index), 0, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count, oldCount int
+	if err := database.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(occurred_at < ?),0) FROM audit`, time.Now().Add(-auditRetention).UnixNano()).Scan(&count, &oldCount); err != nil {
+		t.Fatal(err)
+	}
+	if count != auditMaxRows || oldCount != 0 {
+		t.Fatalf("receipt rows=%d old=%d", count, oldCount)
+	}
+	var autoCheckpoint, journalLimit int64
+	if err := database.db.QueryRowContext(ctx, "PRAGMA wal_autocheckpoint").Scan(&autoCheckpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRowContext(ctx, "PRAGMA journal_size_limit").Scan(&journalLimit); err != nil {
+		t.Fatal(err)
+	}
+	if autoCheckpoint != 1000 || journalLimit != 64<<20 {
+		t.Fatalf("wal bounds=%d/%d", autoCheckpoint, journalLimit)
+	}
+}
+
+func TestOldAuditMaintenanceUsesBoundedBatches(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	old := time.Now().Add(-auditRetention - time.Hour).UnixNano()
+	for index := 0; index < auditPruneBatch*3; index++ {
+		if _, err := database.db.ExecContext(ctx, `INSERT INTO audit(actor,target,method,grant_id,request_id,result_code,reason,occurred_at)
+			VALUES ('a','t','old','','',0,'',?)`, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.maintainStorage(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var remaining int
+	if err := database.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != auditPruneBatch*2 {
+		t.Fatalf("one maintenance pass removed an unbounded set: remaining=%d", remaining)
+	}
+	if err := database.maintainStorage(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.maintainStorage(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("subsequent owner passes did not converge: remaining=%d err=%v", remaining, err)
+	}
+}
+
+func TestWALConvergesAfterLongReaderReleasesSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	if err := database.Audit(ctx, "actor", "target", "seed", "", "seed", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	readTx, err := reader.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var initial int
+	if err := readTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit`).Scan(&initial); err != nil {
+		readTx.Rollback()
+		t.Fatal(err)
+	}
+	for index := 0; index < 128; index++ {
+		if err := database.Audit(ctx, "actor", "target", "mutation", "", fmt.Sprint(index), 0, ""); err != nil {
+			readTx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() == 0 {
+		readTx.Rollback()
+		t.Fatalf("held reader did not retain WAL frames: info=%v err=%v", info, err)
+	}
+	if err := readTx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Audit(ctx, "actor", "target", "post-reader-mutation", "", "post-reader", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	var busy, logFrames, checkpointed int
+	if err := database.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`).Scan(&busy, &logFrames, &checkpointed); err != nil {
+		t.Fatal(err)
+	}
+	if busy != 0 || logFrames != 0 || checkpointed != 0 {
+		t.Fatalf("WAL did not fully truncate after reader release: busy=%d log=%d checkpointed=%d", busy, logFrames, checkpointed)
+	}
+	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() > 64<<20 {
+		t.Fatalf("WAL exceeded its post-reader bound: info=%v err=%v", info, err)
+	}
+	var current int
+	if err := database.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit`).Scan(&current); err != nil || current != initial+129 {
+		t.Fatalf("checkpoint damaged mutation receipts: count=%d err=%v", current, err)
 	}
 }
 
@@ -856,12 +986,26 @@ func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := database.CreateEnvironment(context.Background(), Environment{
-		ID: "remote-leased", NamespaceID: "remote-leased-namespace", DisplayName: "leased",
-		CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1,
-		OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation",
-		AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
-	})
+	ctx := context.Background()
+	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 1,
+		AggregateCPUMillis: 1000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 4 << 30,
+		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	contract := resourcev2.Contract{CPUGuaranteeMillis: 250, CPUMaxMillis: 500, CPUWeight: 100, MemoryHighBytes: 512 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
+	created, _, err := database.BeginWorkloadAdmission(ctx, Environment{
+		ID: "remote-leased", NamespaceID: "remote-leased-namespace", DisplayName: "leased", OwnerKind: OwnerRemoteRegistration,
+		RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY),
+	}, WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: "registration", EnvironmentID: "remote-leased", Resources: contract},
+		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	created, err = database.AcquireRemoteLeaseProjection(ctx, RemoteLeaseProjection{LeaseID: "lease", RegistrationID: "registration", AllocationID: "allocation", AllocationGeneration: 7,
+		EnvironmentID: created.ID, WorkloadRef: "task", Generation: 1, ExpiresAt: time.Now().Add(time.Minute), State: int32(hostv1.LeaseState_LEASE_STATE_ACTIVE)}, created.PolicyRevision)
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
@@ -884,6 +1028,10 @@ func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
 	}
 	if recovered.PolicyRevision != created.PolicyRevision+1 {
 		t.Fatalf("policy revision after restart = %d, want %d", recovered.PolicyRevision, created.PolicyRevision+1)
+	}
+	reservation, err := reopened.GetWorkloadReservation(ctx, "allocation", 7)
+	if err != nil || reservation.Phase != WorkloadReservationReleaseRequired {
+		t.Fatalf("restart did not persist exact release obligation: reservation=%+v err=%v", reservation, err)
 	}
 }
 

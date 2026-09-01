@@ -92,6 +92,24 @@ func TestStateInitializationMarker(t *testing.T) {
 	}
 }
 
+func TestExistingSparseStateFailsClosed(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "state.raw")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(32 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareState(directory, 32<<20); err == nil || !strings.Contains(err.Error(), "fresh recreate") {
+		t.Fatalf("sparse state result = %v", err)
+	}
+}
+
 func TestConfigureApplianceBlocksRequiresStoppedVMAndExactImages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "controller.luks")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)

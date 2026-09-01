@@ -14,6 +14,9 @@ service VMMDService {
   rpc OpenSystemStream(stream SystemStreamFrame) returns (stream SystemStreamFrame);
 
   rpc EnsureNamespace(EnsureNamespaceRequest) returns (EnsureNamespaceResponse);
+  rpc ReserveWorkloadResources(ReserveWorkloadResourcesRequest) returns (WorkloadResourceReceipt);
+  rpc ReleaseWorkloadResources(ReleaseWorkloadResourcesRequest) returns (ReleaseWorkloadResourcesResponse);
+  rpc ConfirmWorkloadResourceRelease(ConfirmWorkloadResourceReleaseRequest) returns (ConfirmWorkloadResourceReleaseResponse);
   rpc DeleteNamespace(DeleteNamespaceRequest) returns (DeleteNamespaceResponse);
   rpc GetNamespace(GetNamespaceRequest) returns (GetNamespaceResponse);
   rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
@@ -233,6 +236,52 @@ message NamespaceLimits {
   uint64 disk_bytes   = 4;
 }
 
+message WorkloadResourcesV2 {
+  uint32 cpu_guarantee_millis = 1;
+  uint32 cpu_max_millis = 2;
+  uint32 cpu_weight = 3;
+  uint64 memory_high_bytes = 4;
+  uint64 memory_max_bytes = 5;
+  uint32 pid_max = 6;
+  uint64 writable_quota_bytes = 7;
+}
+
+message ReserveWorkloadResourcesRequest {
+  string request_id = 1;
+  string allocation_id = 2;
+  uint64 generation = 3;
+  string namespace_id = 4;
+  WorkloadResourcesV2 resources = 5;
+  EgressMode egress_mode = 6;
+}
+
+message WorkloadResourceReceipt {
+  string allocation_id = 1;
+  uint64 generation = 2;
+  string namespace_id = 3;
+  bytes contract_sha256 = 4;
+}
+
+message ReleaseWorkloadResourcesRequest {
+  string request_id = 1;
+  string allocation_id = 2;
+  uint64 generation = 3;
+  string namespace_id = 4;
+  bytes contract_sha256 = 5;
+}
+
+message ReleaseWorkloadResourcesResponse { WorkloadResourceReceipt released = 1; }
+
+message ConfirmWorkloadResourceReleaseRequest {
+  string request_id = 1;
+  string allocation_id = 2;
+  uint64 generation = 3;
+  string namespace_id = 4;
+  bytes contract_sha256 = 5;
+}
+
+message ConfirmWorkloadResourceReleaseResponse { WorkloadResourceReceipt confirmed = 1; }
+
 message Namespace {
   string          id              = 1;
   NamespaceLimits limits          = 2;
@@ -240,6 +289,9 @@ message Namespace {
   uint32          project_id      = 4;
   string          subnet          = 5;
   string          observed_status = 6;
+  WorkloadResourcesV2 resources_v2 = 7;
+  string allocation_id = 8;
+  uint64 generation = 9;
 }
 
 message EnsureNamespaceRequest {

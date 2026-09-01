@@ -37,7 +37,7 @@ func (store *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("unsupported host database schema %d; remove it explicitly", version)
 	}
 	if version == 0 {
-		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16} {
+		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV18} {
 			if err := migration(tx); err != nil {
 				return err
 			}
@@ -62,6 +62,28 @@ func (store *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("host database contains foreign key violations after schema migration")
 	}
 	return rows.Err()
+}
+
+func migrateV18(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE workload_reservations_v2 (
+			allocation_id TEXT NOT NULL, generation INTEGER NOT NULL CHECK(generation > 0),
+			registration_id TEXT NOT NULL REFERENCES remote_registrations(id) ON DELETE CASCADE,
+			environment_id TEXT NOT NULL UNIQUE REFERENCES environments(id) ON DELETE CASCADE,
+			cpu_guarantee_millis INTEGER NOT NULL, cpu_max_millis INTEGER NOT NULL, cpu_weight INTEGER NOT NULL,
+			memory_high_bytes INTEGER NOT NULL, memory_max_bytes INTEGER NOT NULL, pid_max INTEGER NOT NULL,
+			writable_quota_bytes INTEGER NOT NULL, phase INTEGER NOT NULL CHECK(phase BETWEEN 1 AND 5),
+			guest_receipt BLOB NOT NULL DEFAULT X'', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+			PRIMARY KEY(allocation_id, generation), UNIQUE(registration_id, allocation_id)
+		)`,
+		`CREATE INDEX workload_reservations_v2_phase ON workload_reservations_v2(phase, updated_at, allocation_id, generation)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("create resource-v2 schema: %w", err)
+		}
+	}
+	return nil
 }
 
 func migrateV16(tx *sql.Tx) error {
@@ -164,7 +186,8 @@ func migrateV10(tx *sql.Tx) error {
 		)`,
 		`CREATE TABLE remote_lease_projections (
 			lease_id TEXT PRIMARY KEY, registration_id TEXT NOT NULL REFERENCES remote_registrations(id) ON DELETE CASCADE,
-			allocation_id TEXT NOT NULL, environment_id TEXT NOT NULL, workload_ref TEXT NOT NULL,
+			allocation_id TEXT NOT NULL, allocation_generation INTEGER NOT NULL CHECK(allocation_generation > 0),
+			environment_id TEXT NOT NULL, workload_ref TEXT NOT NULL,
 			generation INTEGER NOT NULL, expires_at INTEGER NOT NULL, state INTEGER NOT NULL,
 			UNIQUE(registration_id, allocation_id)
 		)`,
@@ -423,6 +446,7 @@ func migrateV1(tx *sql.Tx) error {
 			method TEXT NOT NULL, grant_id TEXT NOT NULL, request_id TEXT NOT NULL,
 			result_code INTEGER NOT NULL, reason TEXT NOT NULL, occurred_at INTEGER NOT NULL
 		)`,
+		`CREATE INDEX audit_retention ON audit(occurred_at, sequence)`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement); err != nil {

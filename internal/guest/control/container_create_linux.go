@@ -106,13 +106,18 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if systemOption != nil {
 		specOptions = append(specOptions, systemOption)
 	}
-	container, err := r.client.NewContainer(nsctx, request.GetContainerId(),
-		containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter),
-		atContainerStage("rootfs_snapshot", containerd.WithNewSnapshot(request.GetContainerId()+"-rootfs", image)),
-		containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
-		containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10)}),
-		atContainerStage("oci_spec", containerd.WithNewSpec(specOptions...)), atContainerStage("supervisor_spec", withSupervisedProcess()),
-	)
+	var container containerd.Container
+	err = r.guardOCIPhysicalGrowth(ctx, "container-snapshot\x00"+namespaceID+"\x00"+request.GetContainerId()+"\x00"+canonicalImage, func() error {
+		var createErr error
+		container, createErr = r.client.NewContainer(nsctx, request.GetContainerId(),
+			containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter),
+			atContainerStage("rootfs_snapshot", containerd.WithNewSnapshot(request.GetContainerId()+"-rootfs", image)),
+			containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
+			containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10)}),
+			atContainerStage("oci_spec", containerd.WithNewSpec(specOptions...)), atContainerStage("supervisor_spec", withSupervisedProcess()),
+		)
+		return createErr
+	})
 	if err != nil {
 		return nil, atRuntimeStage("container_record", err)
 	}

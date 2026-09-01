@@ -1,0 +1,44 @@
+package resourcev2
+
+import (
+	"math"
+	"testing"
+)
+
+func TestIndependentAdmissionInvariants(t *testing.T) {
+	limit := NodeCapacity(8000, 9<<30, 2048, 8<<30)
+	meeting := Contract{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, CPUWeight: 8000, MemoryHighBytes: 7 << 29, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	codex := Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 3 << 29, MemoryMaxBytes: 2 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	if err := meeting.Validate(8000); err != nil {
+		t.Fatal(err)
+	}
+	used := Capacity{}.Add(meeting).Add(codex).Add(codex)
+	if err := used.Admits(Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 5000, CPUWeight: 1, MemoryHighBytes: 1 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 513, WritableQuotaBytes: 2 << 30}, limit); err == nil {
+		t.Fatal("PID overflow was admitted even though the other dimensions fit")
+	}
+	if limit.CPUMaxMillis != 12000 {
+		t.Fatalf("cpu max budget = %d", limit.CPUMaxMillis)
+	}
+}
+
+func TestContractRejectsCPUAboveNode(t *testing.T) {
+	contract := Contract{CPUGuaranteeMillis: 1000, CPUMaxMillis: 8001, CPUWeight: 100, MemoryHighBytes: 16 << 20, MemoryMaxBytes: 16 << 20, PIDMax: 1, WritableQuotaBytes: 1}
+	if err := contract.Validate(8000); err == nil {
+		t.Fatal("cpu max above node capacity was accepted")
+	}
+}
+
+func TestAdmissionArithmeticOverflowFailsClosed(t *testing.T) {
+	used := Capacity{MemoryMaxBytes: math.MaxUint64 - 1}
+	if err := used.Admits(Contract{MemoryMaxBytes: 2}, Capacity{MemoryMaxBytes: math.MaxUint64}); err == nil {
+		t.Fatal("overflowing memory commitment was admitted")
+	}
+}
+
+func TestCgroupValuesKeepPressureAndHardLimitsSeparate(t *testing.T) {
+	contract := Contract{CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 1536 << 20, MemoryMaxBytes: 2 << 30, PIDMax: 512}
+	values := contract.CgroupValues()
+	if values["cpu.max"] != "200000 100000" || values["cpu.weight"] != "5000" || values["memory.high"] == values["memory.max"] || values["pids.max"] != "512" {
+		t.Fatalf("cgroup values = %#v", values)
+	}
+}

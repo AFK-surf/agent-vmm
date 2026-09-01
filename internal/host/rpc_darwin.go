@@ -216,12 +216,19 @@ func protoStringField(message protoreflect.Message, name protoreflect.Name) stri
 func isMutation(method string) bool {
 	name := path.Base(method)
 	switch name {
-	case "GetEnvironment", "GetContainer", "ListContainers", "WaitContainer", "GetVolume", "ListVolumes", "Logs",
-		"GetVM", "GetSystemSnapshot", "ListEnvironments", "WatchEvents", "WatchMetrics", "GetOperation",
+	case "Health", "ComponentHealth", "InspectContainer", "ProbeEgress",
+		"GetEnvironment", "GetContainer", "ListContainers", "WaitContainer", "GetVolume", "ListVolumes", "ListImages", "Logs",
+		"GetVM", "GetSystemSnapshot", "ListEnvironments", "ListEnvironmentImages", "WatchEvents", "WatchMetrics", "GetOperation",
 		"PlanResetEnvironment", "PlanDiscardEnvironment", "PreviewSupportBundle", "GetDeviceIdentity",
-		"StatWorkspace", "ListWorkspace", "ReadWorkspace", "ArchiveWorkspace":
+		"StatWorkspace", "ListWorkspace", "ReadWorkspace", "ArchiveWorkspace",
+		"ListAgentIntegrations", "ListAgentSessions", "GetRemoteRegistration", "ListRemoteRegistrations", "ListPersonalMeshes",
+		"GetPersonalMeshPairing", "ListServiceListeners", "ListServiceExports", "GetServiceExport", "ListServiceImports", "GetServiceImport",
+		"GetRemoteState", "GetRemoteObservation", "ReportConnectorStatus", "PlanCleanupAllocation",
+		"RunDiagnostics", "ExportSupportBundle":
 		return false
 	default:
+		// Unknown RPCs retain mutation receipts until their owner explicitly
+		// classifies them as read/observation-only.
 		return true
 	}
 }

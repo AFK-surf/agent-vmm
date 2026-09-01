@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	coreimages "github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/errdefs"
 	digest "github.com/opencontainers/go-digest"
 )
 
@@ -69,7 +71,41 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	header := &vmmdv1.ImportImageHeader{RequestId: bundledImportRequestID(canonical), ActorNamespaceId: namespaceID,
 		ImageReference: canonical, ManifestDigest: manifestDigest.String(),
 		Platform: "linux/arm64", ArchiveSize: uint64(info.Size())}
-	image, err := r.importImage(ctx, archive, header, canonical, *manifest, true)
+	unlockMaterializer := r.materializer.Lock(manifestDigest.String())
+	defer unlockMaterializer()
+	reusable, physicalGrowth, reusableTarget, err := r.imageMaterialized(ctx, namespaceID, canonical, manifestDigest, true)
+	if err != nil {
+		return "", "", 0, err
+	}
+	if reusable && !physicalGrowth {
+		image, err := r.getImageForRole(namespaceContext(ctx, namespaceID), namespaceID, canonical, true)
+		if err != nil {
+			return "", "", 0, err
+		}
+		return image.GetReference(), image.GetDigest(), image.GetLogicalBytes(), nil
+	}
+	reservation, err := r.reserveImport(ctx, header, true)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer reservation.Release()
+	var image *vmmdv1.Image
+	err = r.diskBudget.Mutate(func() error {
+		return r.guardOCIProjectGrowth(reservation, func() error {
+			if reusableTarget != nil {
+				if _, createErr := r.client.ImageService().Create(namespaceContext(ctx, namespaceID), coreimages.Image{Name: canonical, Target: *reusableTarget}); createErr != nil && !errdefs.IsAlreadyExists(createErr) {
+					return createErr
+				}
+			}
+			var importErr error
+			if reusable {
+				image, importErr = r.importImage(ctx, nil, header, canonical, *manifest, true)
+			} else {
+				image, importErr = r.importImage(ctx, archive, header, canonical, *manifest, true)
+			}
+			return importErr
+		})
+	})
 	if err != nil {
 		return "", "", 0, err
 	}

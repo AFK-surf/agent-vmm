@@ -15,7 +15,10 @@ import (
 
 var ErrUnknownOutcome = errors.New("remote command outcome is unknown")
 
-const RemoteObservationFeature = "remote-observation-v1"
+const (
+	ProtocolVersion          = "2"
+	RemoteObservationFeature = "remote-observation-v1"
+)
 
 var RequiredFeatures = []string{
 	"command-evidence-v1",
@@ -25,6 +28,7 @@ var RequiredFeatures = []string{
 	"inventory-watermark-v1",
 	"host-loopback-frontend-v1",
 	"unknown-outcome-v1",
+	"resource-v2",
 }
 
 type ControlStream interface {
@@ -260,7 +264,7 @@ func ValidateHello(hello *remotev1.HostHello, registrationID string) error {
 	if hello == nil || hello.GetRegistrationId() == "" || hello.GetRegistrationId() != registrationID {
 		return errors.New("invalid remote registration identity")
 	}
-	if hello.GetConnectionEpoch() == 0 || hello.GetProtocolVersion() == "" || hello.GetHostApiVersion() == "" {
+	if hello.GetConnectionEpoch() == 0 || hello.GetProtocolVersion() != ProtocolVersion || hello.GetHostApiVersion() == "" {
 		return errors.New("remote connection contract is incomplete")
 	}
 	if !containsAll(hello.GetSupportedFeatures(), RequiredFeatures) || !containsAll(hello.GetRequiredFeatures(), RequiredFeatures) {

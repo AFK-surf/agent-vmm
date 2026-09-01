@@ -8,6 +8,7 @@ import (
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 )
 
 var (
@@ -99,6 +100,23 @@ type ResourceReservation struct {
 	OwnerKind, ResourceKind int32
 	Amount                  ResourceAmount
 	Retained                bool
+}
+
+const (
+	WorkloadReservationLogical                = 1
+	WorkloadReservationReleaseRequired        = 2
+	WorkloadReservationAdmitted               = 3
+	WorkloadReservationReleasing              = 4
+	WorkloadReservationReleasedPendingConfirm = 5
+)
+
+type WorkloadReservation struct {
+	AllocationID, RegistrationID, EnvironmentID string
+	Generation                                  uint64
+	Resources                                   resourcev2.Contract
+	Phase                                       int32
+	GuestReceipt                                []byte
+	CreatedAt, UpdatedAt                        time.Time
 }
 
 type ApplianceOperation struct {

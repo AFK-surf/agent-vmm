@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -57,6 +58,35 @@ func TestAuditOutcomeUsesOperationFailure(t *testing.T) {
 	}
 	if code, reason := auditOutcome(&hostv1.OperationResponse{Operation: &hostv1.Operation{State: hostv1.OperationState_OPERATION_STATE_SUCCEEDED}}, nil); code != codes.OK || reason != "" {
 		t.Fatalf("successful operation audit = %v/%q", code, reason)
+	}
+}
+
+func TestAuditReceiptsExcludeHighFrequencyReadAndObservationRPCs(t *testing.T) {
+	for _, method := range []string{
+		hostv1.RemoteComputeService_GetRemoteState_FullMethodName,
+		hostv1.RemoteComputeService_GetRemoteObservation_FullMethodName,
+		hostv1.RemoteComputeService_ReportConnectorStatus_FullMethodName,
+		hostv1.OperatorService_WatchMetrics_FullMethodName,
+		hostv1.OperatorService_RunDiagnostics_FullMethodName,
+		hostv1.OperatorService_ExportSupportBundle_FullMethodName,
+		vmmdv1.VMMDService_Health_FullMethodName,
+		vmmdv1.VMMDService_ComponentHealth_FullMethodName,
+		vmmdv1.VMMDService_InspectContainer_FullMethodName,
+		vmmdv1.VMMDService_ProbeEgress_FullMethodName,
+	} {
+		if isMutation(method) {
+			t.Fatalf("high-frequency observation would create a durable receipt: %s", method)
+		}
+	}
+	for _, method := range []string{
+		hostv1.RemoteComputeService_EnsureAllocation_FullMethodName,
+		hostv1.RemoteComputeService_ReleaseAllocation_FullMethodName,
+		hostv1.RemoteComputeService_SetRemoteAdmissionState_FullMethodName,
+		"/agentvmm.host.v1.OperatorService/FutureLifecycleMutation",
+	} {
+		if !isMutation(method) {
+			t.Fatalf("lifecycle mutation lost its durable receipt: %s", method)
+		}
 	}
 }
 

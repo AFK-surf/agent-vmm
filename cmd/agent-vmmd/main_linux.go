@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -19,14 +20,24 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/guest/egress"
 	"github.com/AFK-surf/agent-vmm/internal/guest/network"
 	"github.com/AFK-surf/agent-vmm/internal/guest/vsock"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 )
 
-const vmmdPort = 4050
+const (
+	vmmdPort              = 4050
+	containerdLauncherArg = "__agent_vmm_containerd"
+)
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == containerdLauncherArg {
+		log.Fatal(execContainerdWithoutQuotaBypass())
+	}
 	prepared, err := bootstrap.Prepare()
 	if err != nil {
+		log.Fatal(err)
+	}
+	if err := control.PrepareOCIStorage(prepared.StateDevice); err != nil {
 		log.Fatal(err)
 	}
 	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
@@ -123,7 +134,11 @@ func startContainerd() (*exec.Cmd, error) {
 	if err := os.MkdirAll("/run/containerd", 0o755); err != nil {
 		return nil, err
 	}
-	command := exec.Command("/usr/bin/containerd", "--config", "/etc/containerd/config.toml")
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	command := exec.Command(executable, containerdLauncherArg)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
@@ -138,6 +153,18 @@ func startContainerd() (*exec.Cmd, error) {
 	_ = command.Process.Kill()
 	_ = command.Wait()
 	return nil, errors.New("containerd startup timeout")
+}
+
+func execContainerdWithoutQuotaBypass() error {
+	// Capabilities are per-thread. Keep this launcher on one OS thread through
+	// exec so ordinary trusted containerd/shim writes remain subject to project
+	// hard limits. vmmd retains CAP_SYS_ADMIN as the quota/project-id authority.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := unix.Prctl(unix.PR_CAPBSET_DROP, unix.CAP_SYS_RESOURCE, 0, 0, 0); err != nil {
+		return err
+	}
+	return unix.Exec("/usr/bin/containerd", []string{"containerd", "--config", "/etc/containerd/config.toml"}, os.Environ())
 }
 
 func version(name string, argument string) string {

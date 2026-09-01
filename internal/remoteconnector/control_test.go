@@ -9,22 +9,24 @@ import (
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 )
 
-func TestReleaseAllocationRequiresMatchingRevisionFence(t *testing.T) {
+func TestReleaseAllocationRequiresExactRevisionAndGenerationFence(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name     string
-		target   uint64
-		expected uint64
+		name       string
+		target     uint64
+		expected   uint64
+		generation uint64
 	}{
 		{name: "missing", target: 0, expected: 0},
-		{name: "mismatch", target: 7, expected: 6},
+		{name: "mismatch", target: 7, expected: 6, generation: 2},
+		{name: "missing generation", target: 7, expected: 7},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			command := &remotev1.ControllerCommand{
 				CommandId:      "release",
 				TargetRevision: test.target,
 				Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{
-					AllocationId: "allocation", ExpectedRevision: test.expected,
+					AllocationId: "allocation", ExpectedRevision: test.expected, ExpectedGeneration: test.generation,
 				}},
 			}
 			result := (commandHandler{}).handle(context.Background(), command)

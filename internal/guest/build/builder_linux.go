@@ -38,12 +38,14 @@ const (
 )
 
 type Builder struct {
-	client    *containerd.Client
-	network   *guestnetwork.Manager
-	semaphore chan struct{}
-	mu        sync.Mutex
-	active    map[string]int
-	namespace map[string]*sync.Mutex
+	client       *containerd.Client
+	network      *guestnetwork.Manager
+	semaphore    chan struct{}
+	mu           sync.Mutex
+	active       map[string]int
+	namespace    map[string]*sync.Mutex
+	growthGate   func(context.Context, string, func() error) error
+	metadataGate func(context.Context, func() error) error
 }
 
 type Workspace struct {
@@ -65,8 +67,22 @@ type Workspace struct {
 	activeOnce    sync.Once
 }
 
-func NewBuilder(client *containerd.Client, network *guestnetwork.Manager) *Builder {
-	return &Builder{client: client, network: network, semaphore: make(chan struct{}, 2), active: make(map[string]int), namespace: make(map[string]*sync.Mutex)}
+func NewBuilder(client *containerd.Client, network *guestnetwork.Manager, growthGate func(context.Context, string, func() error) error, metadataGate func(context.Context, func() error) error) *Builder {
+	return &Builder{client: client, network: network, semaphore: make(chan struct{}, 2), active: make(map[string]int), namespace: make(map[string]*sync.Mutex), growthGate: growthGate, metadataGate: metadataGate}
+}
+
+func (b *Builder) growMetadata(ctx context.Context, operation func() error) error {
+	if b.metadataGate == nil {
+		return errors.New("builder OCI metadata gate is unavailable")
+	}
+	return b.metadataGate(ctx, operation)
+}
+
+func (b *Builder) growOCI(ctx context.Context, identity string, operation func() error) error {
+	if b.growthGate == nil {
+		return errors.New("builder OCI growth gate is unavailable")
+	}
+	return b.growthGate(ctx, identity, operation)
 }
 
 func (b *Builder) Begin(header *vmmdv1.BuildImageHeader) (*Workspace, error) {
@@ -347,14 +363,19 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 	detach := func() { detachOnce.Do(detachNetwork) }
 	defer detach()
 	containerID := "agent-vmm-build-" + w.id
-	container, err := w.builder.client.NewContainer(nsctx, containerID,
-		containerd.WithContainerLabels(map[string]string{InternalContainerLabel: "true"}),
-		containerd.WithImage(image),
-		containerd.WithSnapshotter(builderSnapshotter),
-		containerd.WithNewSnapshotView(containerID+"-rootfs", image),
-		containerd.WithRuntime(builderRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc-build.toml"}),
-		containerd.WithNewSpec(w.specOptions(image, netNSPath, limits)...),
-	)
+	var container containerd.Container
+	err = w.builder.growMetadata(ctx, func() error {
+		var createErr error
+		container, createErr = w.builder.client.NewContainer(nsctx, containerID,
+			containerd.WithContainerLabels(map[string]string{InternalContainerLabel: "true"}),
+			containerd.WithImage(image),
+			containerd.WithSnapshotter(builderSnapshotter),
+			containerd.WithNewSnapshotView(containerID+"-rootfs", image),
+			containerd.WithRuntime(builderRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc-build.toml"}),
+			containerd.WithNewSpec(w.specOptions(image, netNSPath, limits)...),
+		)
+		return createErr
+	})
 	if err != nil {
 		return false, err
 	}
@@ -478,23 +499,37 @@ func (w *Workspace) attachNetwork(ctx context.Context) (string, func(), error) {
 
 func (b *Builder) ensureBuilderImage(ctx context.Context) (containerd.Image, error) {
 	if image, err := b.client.GetImage(ctx, builderImage); err == nil {
+		unpacked, unpackErr := image.IsUnpacked(ctx, builderSnapshotter)
+		if unpackErr != nil {
+			return nil, unpackErr
+		}
+		if unpacked {
+			return image, nil
+		}
+		if err := b.growOCI(ctx, "builder-image", func() error { return image.Unpack(ctx, builderSnapshotter) }); err != nil {
+			return nil, err
+		}
 		return image, nil
 	} else if !errdefs.IsNotFound(err) {
 		return nil, err
 	}
-	archive, err := os.Open(builderArchive)
+	var image containerd.Image
+	err := b.growOCI(ctx, "builder-image", func() error {
+		archive, err := os.Open(builderArchive)
+		if err != nil {
+			return err
+		}
+		defer archive.Close()
+		if _, err := b.client.Import(ctx, archive, containerd.WithDigestRef(func(_ digest.Digest) string { return builderImage })); err != nil {
+			return err
+		}
+		image, err = b.client.GetImage(ctx, builderImage)
+		if err != nil {
+			return err
+		}
+		return image.Unpack(ctx, builderSnapshotter)
+	})
 	if err != nil {
-		return nil, err
-	}
-	defer archive.Close()
-	if _, err := b.client.Import(ctx, archive, containerd.WithDigestRef(func(_ digest.Digest) string { return builderImage })); err != nil {
-		return nil, err
-	}
-	image, err := b.client.GetImage(ctx, builderImage)
-	if err != nil {
-		return nil, err
-	}
-	if err := image.Unpack(ctx, builderSnapshotter); err != nil {
 		return nil, err
 	}
 	return image, nil
@@ -505,30 +540,34 @@ func (w *Workspace) importOutput(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	archive, err := os.Open(filepath.Join(w.outputRoot, "image.tar"))
-	if err != nil {
-		return "", err
-	}
-	defer archive.Close()
 	temporary := "agent-vmm.local/build-output:" + w.id
-	if _, err := w.builder.client.Import(namespaces.WithNamespace(ctx, w.header.GetActorNamespaceId()), archive, containerd.WithDigestRef(func(_ digest.Digest) string { return temporary })); err != nil {
-		return "", err
-	}
 	nsctx := namespaces.WithNamespace(ctx, w.header.GetActorNamespaceId())
-	image, err := w.builder.client.GetImage(nsctx, temporary)
-	if err != nil {
-		return "", err
-	}
-	defer w.builder.client.ImageService().Delete(nsctx, temporary, coreimages.SynchronousDelete())
-	if err := image.Unpack(nsctx, builderSnapshotter); err != nil {
-		return "", err
-	}
-	record := coreimages.Image{Name: canonicalReference, Target: image.Target()}
-	if _, err := w.builder.client.ImageService().Update(nsctx, record, "target"); errdefs.IsNotFound(err) {
-		if _, err = w.builder.client.ImageService().Create(nsctx, record); err != nil {
-			return "", err
+	var image containerd.Image
+	err = w.builder.growOCI(ctx, "build-output-"+w.id, func() error {
+		archive, err := os.Open(filepath.Join(w.outputRoot, "image.tar"))
+		if err != nil {
+			return err
 		}
-	} else if err != nil {
+		defer archive.Close()
+		if _, err := w.builder.client.Import(nsctx, archive, containerd.WithDigestRef(func(_ digest.Digest) string { return temporary })); err != nil {
+			return err
+		}
+		image, err = w.builder.client.GetImage(nsctx, temporary)
+		if err != nil {
+			return err
+		}
+		defer w.builder.client.ImageService().Delete(nsctx, temporary, coreimages.SynchronousDelete())
+		if err := image.Unpack(nsctx, builderSnapshotter); err != nil {
+			return err
+		}
+		record := coreimages.Image{Name: canonicalReference, Target: image.Target()}
+		if _, err := w.builder.client.ImageService().Update(nsctx, record, "target"); errdefs.IsNotFound(err) {
+			_, err = w.builder.client.ImageService().Create(nsctx, record)
+			return err
+		}
+		return err
+	})
+	if err != nil {
 		return "", err
 	}
 	return image.Target().Digest.String(), nil

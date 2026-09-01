@@ -96,7 +96,7 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	if err != nil {
 		return nil, err
 	}
-	if err := container.Update(nsctx, withNetworkNamespace(endpoint.NetNSPath)); err != nil {
+	if err := r.guardOCIMetadataGrowth(ctx, func() error { return container.Update(nsctx, withNetworkNamespace(endpoint.NetNSPath)) }); err != nil {
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}

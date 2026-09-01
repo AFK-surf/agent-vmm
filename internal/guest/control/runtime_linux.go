@@ -13,6 +13,8 @@ import (
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
@@ -21,8 +23,10 @@ import (
 
 const (
 	containerdSocket = "/run/containerd/containerd.sock"
+	containerdRoot   = "/state/containerd"
 	stateRoot        = "/state"
 	runscRuntime     = "io.containerd.runsc.v1"
+	ociProjectID     = uint32(9000)
 )
 
 type Runtime struct {
@@ -39,6 +43,8 @@ type Runtime struct {
 	volumeGeneration  map[string]uint64
 	volumeSampleSlots chan struct{}
 	workspaceSlots    chan struct{}
+	diskBudget        *guestdisk.Budget
+	materializer      *ocimaterializer.Manager
 	volumeSampler     func(string) (uint64, error)
 	tasks             sync.WaitGroup
 }
@@ -55,10 +61,15 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{client: client, network: network, builder: guestbuild.NewBuilder(client, network), stateDevice: stateDevice,
+	runtime := &Runtime{client: client, network: network, stateDevice: stateDevice,
 		waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool),
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
-		volumeSampler: directoryUsage}
+		volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
+	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth, runtime.guardOCIMetadataGrowth)
+	if err := runtime.initializeOCIProjectQuota(); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("initialize OCI project quota: %w", err)
+	}
 	if err := cleanupVolumeStaging(); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
@@ -66,6 +77,10 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 	if err := os.RemoveAll(filepath.Join(stateRoot, "imports")); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete image imports: %w", err)
+	}
+	if err := os.RemoveAll(filepath.Join(stateRoot, "import-reservations")); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("clean incomplete import reservations: %w", err)
 	}
 	if err := runtime.cleanupTasks(context.Background()); err != nil {
 		client.Close()
@@ -92,7 +107,9 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := r.client.NamespaceService().SetLabel(ctx, name, labelPrefix+"egress", fmt.Sprint(int32(vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL))); err != nil {
+		if err := r.guardOCIMetadataGrowth(ctx, func() error {
+			return r.client.NamespaceService().SetLabel(ctx, name, labelPrefix+"egress", fmt.Sprint(int32(vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL)))
+		}); err != nil {
 			return err
 		}
 		if err := r.network.EnsureNamespace(name, namespace.GetSubnet(), vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {

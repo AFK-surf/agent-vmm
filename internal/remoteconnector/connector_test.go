@@ -129,7 +129,7 @@ func (server *fakeLocal) EnsureAllocation(_ context.Context, request *hostv1.Ens
 	server.mu.Lock()
 	server.ensureCalls++
 	server.mu.Unlock()
-	return &hostv1.AllocationResponse{Allocation: &hostv1.RemoteAllocation{AllocationId: request.GetAllocationId(), DisplayLabel: request.GetDisplayLabel(), Limits: request.GetLimits(), EgressMode: request.GetEgressMode(), State: hostv1.AllocationState_ALLOCATION_STATE_READY}}, nil
+	return &hostv1.AllocationResponse{Allocation: &hostv1.RemoteAllocation{AllocationId: request.GetAllocationId(), DisplayLabel: request.GetDisplayLabel(), Generation: request.GetGeneration(), ResourcesV2: request.GetResourcesV2(), EgressMode: request.GetEgressMode(), State: hostv1.AllocationState_ALLOCATION_STATE_READY}}, nil
 }
 
 type fakeController struct {
@@ -216,7 +216,7 @@ func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.H
 	if err := session.Ready(); err != nil {
 		return err
 	}
-	command := &remotev1.ControllerCommand{CommandId: "ensure-1", Sequence: 1, ConnectionEpoch: session.Hello().GetConnectionEpoch(), TargetRevision: 7, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", DisplayLabel: "remote", Limits: &hostv1.ResourceLimits{CpuMillis: uint32Pointer(100)}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
+	command := &remotev1.ControllerCommand{CommandId: "ensure-1", Sequence: 1, ConnectionEpoch: session.Hello().GetConnectionEpoch(), TargetRevision: 7, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", Generation: 1, DisplayLabel: "remote", ResourcesV2: &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: 100, CpuMaxMillis: 100, CpuWeight: 100, MemoryHighBytes: 128 << 20, MemoryMaxBytes: 128 << 20, PidMax: 64, WritableQuotaBytes: 256 << 20}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
 	commandContext, cancel := context.WithTimeout(stream.Context(), 5*time.Second)
 	defer cancel()
 	transcript, err := session.Dispatch(commandContext, command)

@@ -114,8 +114,8 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 			// issuing EnsureAllocation against a partially settled inventory.
 			continue
 		}
-		limits := &hostv1.ResourceLimits{CpuMillis: optional(uint32(500)), MemoryBytes: optional(uint64(1 << 30)), Pids: optional(uint32(256)), DiskBytes: optional(uint64(2 << 30))}
-		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, DisplayLabel: allocationID, Limits: limits, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
+		resources := remoteResources(500, 1<<30, 256, 2<<30)
+		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, Generation: 1, DisplayLabel: allocationID, ResourcesV2: resources, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
 		if err != nil {
 			return err
 		}
@@ -159,7 +159,7 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 			return status.Errorf(codes.Internal, "release lease %s failed: %v %s", lease.GetAllocationId(), err, releasedLease.GetMessage())
 		}
 		revision := releasedLease.GetLease().GetAllocationRevision()
-		releasedAllocation, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision}}})
+		releasedAllocation, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "release-allocation-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision, ExpectedGeneration: 1}}})
 		if err != nil || releasedAllocation.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "release allocation %s failed: %v %s", lease.GetAllocationId(), err, releasedAllocation.GetMessage())
 		}
@@ -263,8 +263,8 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 		return status.Error(codes.FailedPrecondition, "isolated domain started with unexpected inventory")
 	}
 	cursor := &remoteCommandCursor{session: session}
-	limits := remoteLimits(100, 128<<20, 64, 256<<20)
-	ensured, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "ensure-shared", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "shared", DisplayLabel: "shared", Limits: limits, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision()}}})
+	resources := remoteResources(100, 128<<20, 64, 256<<20)
+	ensured, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "ensure-shared", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "shared", Generation: 1, DisplayLabel: "shared", ResourcesV2: resources, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision()}}})
 	if err != nil || ensured.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "ensure failed: %v %s", err, ensured.GetMessage())
 	}
@@ -287,7 +287,7 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 		return status.Errorf(codes.Internal, "release lease failed: %v %s", err, releasedLease.GetMessage())
 	}
 	revision := releasedLease.GetLease().GetAllocationRevision()
-	released, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "release-allocation-shared", Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: "shared", ExpectedRevision: revision}}})
+	released, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "release-allocation-shared", Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: "shared", ExpectedRevision: revision, ExpectedGeneration: 1}}})
 	if err != nil || released.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "release allocation failed: %v %s", err, released.GetMessage())
 	}
@@ -688,6 +688,11 @@ func testRemoteForward(t *testing.T, client *productClient, containerID string) 
 
 func remoteLimits(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
 	return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
+}
+
+func remoteResources(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.WorkloadResourcesV2 {
+	return &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: cpu, CpuMaxMillis: cpu, CpuWeight: 100,
+		MemoryHighBytes: memory, MemoryMaxBytes: memory, PidMax: pids, WritableQuotaBytes: disk}
 }
 
 func startRemoteController(t *testing.T, service remotev1.RemoteControllerServiceServer) (string, *x509.CertPool, func()) {

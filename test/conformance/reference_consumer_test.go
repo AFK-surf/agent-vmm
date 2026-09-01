@@ -69,7 +69,7 @@ func goFunctionExists(t *testing.T, path, name string) bool {
 
 func TestReferenceContractRejectsMalformedControllerInput(t *testing.T) {
 	valid := func() *remotev1.HostHello {
-		return &remotev1.HostHello{ProtocolVersion: "1", HostApiVersion: "host.v1", RegistrationId: "reference", ConnectionEpoch: 1,
+		return &remotev1.HostHello{ProtocolVersion: controllerremote.ProtocolVersion, HostApiVersion: "host.v1", RegistrationId: "reference", ConnectionEpoch: 1,
 			InventoryWatermark: 1, SupportedFeatures: append([]string(nil), controllerremote.RequiredFeatures...), RequiredFeatures: append([]string(nil), controllerremote.RequiredFeatures...)}
 	}
 	tests := []struct {
@@ -102,7 +102,7 @@ func TestReferenceConsumerHasNoProductWorkerIdentity(t *testing.T) {
 		"cmd/agent-vmm-reference-appliance/controller.go",
 		"api/remote/v1/remote.proto",
 		"spec/tla/ControllerAllocationLifecycle.tla",
-		"spec/tla/AggregateAdmission.tla",
+		"spec/tla/ResourceAdmissionQueue.tla",
 		"spec/tla/DomainAuthorityIsolation.tla",
 		"spec/tla/SystemInventorySeparation.tla",
 	}
@@ -156,11 +156,11 @@ func TestControllerModelsAreSeparatedAndWired(t *testing.T) {
 			t.Errorf("%s does not configure the bounded single-controller command fence", config)
 		}
 	}
-	admissionBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", "AggregateAdmission.cfg"))
+	admissionBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", "ResourceAdmissionQueue.cfg"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(admissionBytes), "Domains = {a, b, c}") {
-		t.Error("aggregate admission model does not retain the bounded three-domain instance")
+	if !strings.Contains(string(admissionBytes), "EnforceExactRelease = TRUE") {
+		t.Error("resource admission model does not enforce exact generation release")
 	}
 }
