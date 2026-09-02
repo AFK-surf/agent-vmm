@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-version=1.8.0
-expected_sha=eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a
+version=1.7.4
+expected_sha=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 cache_root=${AGENT_VMM_DOWNLOAD_CACHE:-${TMPDIR:-/tmp}/agent-vmm-download-cache}
 jar="$cache_root/tla2tools-$version.jar"
 temp_root=${TMPDIR:-/tmp}

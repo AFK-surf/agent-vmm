@@ -101,6 +101,23 @@ func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.
 	}
 }
 
+func TestEnvironmentCountLimitIsTerminalPolicyConflictNotDimensionlessCapacity(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	registration := store.RemoteRegistration{ID: "registration", MaxEnvironments: 1}
+	err = admitAllocationV2(context.Background(), database, registration,
+		[]store.Environment{{ID: "retained"}}, resourcev2.Contract{}, resourcev2.Capacity{}, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("environment slot exhaustion code = %s, want FailedPrecondition: %v", status.Code(err), err)
+	}
+	if got := capacityDimensionMetadata(err); got != "" {
+		t.Fatalf("environment slot exhaustion invented capacity dimension %q", got)
+	}
+}
+
 func TestAllocationProjectionPreservesGuestPhysicalCapacityDimension(t *testing.T) {
 	for _, dimension := range []string{"storage_headroom", "import_slot"} {
 		guestErr := resourceErrorWithMetadata(codes.ResourceExhausted, "RESOURCE_CAPACITY_EXHAUSTED", "guest_capacity", dimension,

@@ -271,30 +271,43 @@ func namespaceLabels(limits *vmmdv1.NamespaceLimits, egress vmmdv1.EgressMode, p
 }
 
 func namespaceFromLabels(id string, labels map[string]string) (uint32, *vmmdv1.Namespace, error) {
-	parse := func(key string, bits int) (uint64, error) {
-		value, err := strconv.ParseUint(labels[labelPrefix+key], 10, bits)
+	resourceLabels := map[string]string{
+		"cpu": labelPrefix + "cpu", "memory": labelPrefix + "memory",
+		"pids": labelPrefix + "pids", "disk": labelPrefix + "disk",
+	}
+	if labels[reservationLabelPrefix+"allocation"] != "" {
+		resourceLabels = map[string]string{
+			"cpu": reservationLabelPrefix + "cpu-max", "memory": reservationLabelPrefix + "memory-max",
+			"pids": reservationLabelPrefix + "pid-max", "disk": reservationLabelPrefix + "writable-quota",
+		}
+	}
+	parseLabel := func(name, key string, bits int) (uint64, error) {
+		value, err := strconv.ParseUint(labels[key], 10, bits)
 		if err != nil {
-			return 0, fmt.Errorf("invalid namespace label %s: %w", key, err)
+			return 0, fmt.Errorf("invalid namespace label %s: %w", name, err)
 		}
 		return value, nil
+	}
+	parse := func(key string, bits int) (uint64, error) {
+		return parseLabel(key, labelPrefix+key, bits)
 	}
 	projectID, err := parse("project-id", 32)
 	if err != nil {
 		return 0, nil, err
 	}
-	cpu, err := parse("cpu", 32)
+	cpu, err := parseLabel("cpu", resourceLabels["cpu"], 32)
 	if err != nil {
 		return 0, nil, err
 	}
-	memory, err := parse("memory", 64)
+	memory, err := parseLabel("memory", resourceLabels["memory"], 64)
 	if err != nil {
 		return 0, nil, err
 	}
-	pids, err := parse("pids", 32)
+	pids, err := parseLabel("pids", resourceLabels["pids"], 32)
 	if err != nil {
 		return 0, nil, err
 	}
-	disk, err := parse("disk", 64)
+	disk, err := parseLabel("disk", resourceLabels["disk"], 64)
 	if err != nil {
 		return 0, nil, err
 	}

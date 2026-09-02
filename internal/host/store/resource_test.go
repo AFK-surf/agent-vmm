@@ -75,6 +75,13 @@ func TestTerminalAdmissionRecoveryNeverRevivesAllocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.CommitGuestReservation(ctx, "allocation-admitted", 8, admittedReceipt); err != nil {
+		t.Fatalf("exact receipt replay while leased failed: %v", err)
+	}
+	stillLeased, err := database.GetEnvironment(ctx, admittedEnvironment.ID)
+	if err != nil || stillLeased.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED) || stillLeased.PolicyRevision != admittedEnvironment.PolicyRevision {
+		t.Fatalf("receipt replay regressed leased allocation=%+v err=%v", stillLeased, err)
+	}
 	admittedEnvironment, err = database.FinishRemoteLeaseProjection(ctx, "registration", "lease-admitted", admittedEnvironment.ID, admittedEnvironment.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
 	admittedObligation, loadErr := database.GetWorkloadReservation(ctx, "allocation-admitted", 8)
 	if err != nil || loadErr != nil || admittedEnvironment.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) || admittedObligation.Phase != WorkloadReservationReleasing || !bytes.Equal(admittedObligation.GuestReceipt, admittedReceipt) {
@@ -100,7 +107,7 @@ func TestGuestReservationReceiptRetryIsExactAndAtomic(t *testing.T) {
 		MemoryHighBytes: 768 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
 	capacity := resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
 	environment, logical, err := database.BeginWorkloadAdmission(ctx,
-		Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "workload", OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation", AllocationState: 2},
+		Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "workload", OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING)},
 		WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: "registration", EnvironmentID: "environment", Resources: contract}, capacity)
 	if err != nil || logical.Phase != WorkloadReservationLogical || environment.AllocationState == 1 {
 		t.Fatalf("logical admission=%+v environment=%+v err=%v", logical, environment, err)

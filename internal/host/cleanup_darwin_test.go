@@ -3,11 +3,14 @@
 package host
 
 import (
+	"errors"
 	"testing"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestValidateCleanupKindRejectsNonTerminalValues(t *testing.T) {
@@ -19,6 +22,25 @@ func TestValidateCleanupKindRejectsNonTerminalValues(t *testing.T) {
 	for _, kind := range []hostv1.CleanupKind{hostv1.CleanupKind_CLEANUP_KIND_UNSPECIFIED, hostv1.CleanupKind(99)} {
 		if err := validateCleanupKind(kind); err == nil {
 			t.Fatalf("invalid cleanup kind %v accepted", kind)
+		}
+	}
+}
+
+func TestDiscardTreatsNotFoundFromAnyGuestInventoryStageAsMissingNamespace(t *testing.T) {
+	environment := store.Environment{ID: "retained", PolicyRevision: 7}
+	plan, ok := missingNamespaceDiscardPlan(environment, hostv1.CleanupKind_CLEANUP_KIND_DISCARD, status.Error(codes.NotFound, "resource was not found"))
+	if !ok || plan.GetEnvironmentId() != environment.ID {
+		t.Fatalf("missing namespace was not converted to a host-only discard plan: plan=%+v ok=%t", plan, ok)
+	}
+	for _, test := range []struct {
+		kind hostv1.CleanupKind
+		err  error
+	}{
+		{kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, err: status.Error(codes.NotFound, "missing")},
+		{kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, err: errors.New("guest unavailable")},
+	} {
+		if _, ok := missingNamespaceDiscardPlan(environment, test.kind, test.err); ok {
+			t.Fatalf("non-discard/not-found error was swallowed: kind=%s err=%v", test.kind, test.err)
 		}
 	}
 }

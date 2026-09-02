@@ -398,7 +398,11 @@ func contractFromHost(value *hostv1.WorkloadResourcesV2) resourcev2.Contract {
 
 func admitAllocationV2(ctx context.Context, database *store.Store, registration store.RemoteRegistration, environments []store.Environment, resources resourcev2.Contract, hostCapacity resourcev2.Capacity, egress hostv1.EgressMode) error {
 	if uint32(len(environments)) >= registration.MaxEnvironments {
-		return resourceError(codes.ResourceExhausted, "POOL_ENVIRONMENT_LIMIT", "remote_registration", registration.ID, "remote environment count limit reached")
+		// The environment-count limit has no resource-v2 dimension and therefore
+		// cannot enter the dimension-keyed capacity queue. Reject it as an
+		// actionable pool-policy conflict instead of emitting an incomplete
+		// capacity result that the controller cannot durably settle.
+		return resourceError(codes.FailedPrecondition, "POOL_ENVIRONMENT_LIMIT", "remote_registration", registration.ID, "remote environment count limit reached; release and discard an existing environment or raise the pool limit")
 	}
 	if int32(egress) > registration.MaxEgressMode {
 		return resourceError(codes.PermissionDenied, "POOL_EGRESS_LIMIT", "remote_registration", registration.ID, "allocation egress exceeds pool policy")

@@ -36,6 +36,17 @@ func TestCapacityDimensionIsForwardedFromHostAdmissionAuthority(t *testing.T) {
 	}
 }
 
+func TestEnvironmentCountLimitIsReportedAsTerminalPolicyConflict(t *testing.T) {
+	value := status.New(codes.FailedPrecondition, "pool environment limit reached")
+	value, err := value.WithDetails(&errdetails.ErrorInfo{Reason: "POOL_ENVIRONMENT_LIMIT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reasonFor(value.Err()); got != remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT {
+		t.Fatalf("environment count reason = %s, want policy conflict", got)
+	}
+}
+
 func TestReleaseAllocationRequiresExactRevisionAndGenerationFence(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

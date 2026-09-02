@@ -66,6 +66,26 @@ func TestEveryNamespaceQuotaShapeIsAccounted(t *testing.T) {
 	}
 }
 
+func TestResourceV2ReservationProjectsToRuntimeNamespace(t *testing.T) {
+	request := &vmmdv1.ReserveWorkloadResourcesRequest{
+		AllocationId: "allocation", Generation: 7, EgressMode: vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL,
+		Resources: &vmmdv1.WorkloadResourcesV2{
+			CpuGuaranteeMillis: 1000, CpuMaxMillis: 2000, CpuWeight: 5000,
+			MemoryHighBytes: 1536 << 20, MemoryMaxBytes: 2 << 30,
+			PidMax: 512, WritableQuotaBytes: 4 << 30,
+		},
+	}
+	labels := workloadReservationLabels(request, 10042, "10.64.42.0/24", make([]byte, 32))
+	projectID, namespace, err := namespaceFromLabels("workload", labels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &vmmdv1.NamespaceLimits{CpuMillis: 2000, MemoryBytes: 2 << 30, Pids: 512, DiskBytes: 4 << 30}
+	if projectID != 10042 || !sameLimits(namespace.GetLimits(), want) || namespace.GetEgressMode() != vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL || namespace.GetSubnet() != "10.64.42.0/24" {
+		t.Fatalf("unexpected resource-v2 namespace: %+v", namespace)
+	}
+}
+
 func TestCgroupContractWritesPressureAndHardIsolationFiles(t *testing.T) {
 	root := t.TempDir()
 	contract := resourcev2.Contract{CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 1536 << 20, MemoryMaxBytes: 2 << 30, PIDMax: 512}

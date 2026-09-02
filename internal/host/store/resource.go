@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 )
 
@@ -162,8 +163,9 @@ func (store *Store) CommitGuestReservation(ctx context.Context, allocationID str
 		}
 		return WorkloadReservation{}, errors.New("guest reservation receipt conflict")
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE environments SET allocation_state=1,updated_at=? WHERE id=(
-		SELECT environment_id FROM workload_reservations_v2 WHERE allocation_id=? AND generation=?)`, now, allocationID, generation); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE environments SET allocation_state=?,updated_at=? WHERE allocation_state=? AND id=(
+		SELECT environment_id FROM workload_reservations_v2 WHERE allocation_id=? AND generation=?)`,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_READY), now, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), allocationID, generation); err != nil {
 		return WorkloadReservation{}, err
 	}
 	if err := tx.Commit(); err != nil {

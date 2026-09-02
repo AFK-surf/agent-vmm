@@ -70,17 +70,23 @@ func (server *operatorServer) planCleanupWithRemoteOwner(ctx context.Context, en
 	defer connection.Close()
 	containers, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
-		if kind == hostv1.CleanupKind_CLEANUP_KIND_DISCARD && status.Code(err) == codes.NotFound {
-			return missingNamespaceCleanupPlan(environment), nil
+		if plan, ok := missingNamespaceDiscardPlan(environment, kind, err); ok {
+			return plan, nil
 		}
 		return nil, err
 	}
 	volumes, err := client.ListVolumes(ctx, &vmmdv1.ListVolumesRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
+		if plan, ok := missingNamespaceDiscardPlan(environment, kind, err); ok {
+			return plan, nil
+		}
 		return nil, err
 	}
 	images, err := client.ListImages(ctx, &vmmdv1.ListImagesRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
+		if plan, ok := missingNamespaceDiscardPlan(environment, kind, err); ok {
+			return plan, nil
+		}
 		return nil, err
 	}
 	grants, err := server.controller.store.ActiveGrants(ctx)
@@ -153,6 +159,13 @@ func missingNamespaceCleanupPlan(environment store.Environment) *hostv1.CleanupP
 			cleanupImpact(environment.ID, "environment", environment.ID, "remaining host policy and retained metadata will be deleted", true),
 		},
 	}
+}
+
+func missingNamespaceDiscardPlan(environment store.Environment, kind hostv1.CleanupKind, err error) (*hostv1.CleanupPlan, bool) {
+	if kind != hostv1.CleanupKind_CLEANUP_KIND_DISCARD || status.Code(err) != codes.NotFound {
+		return nil, false
+	}
+	return missingNamespaceCleanupPlan(environment), true
 }
 
 func cleanupRevision(value uint64) uint64 {

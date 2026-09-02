@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -161,10 +162,21 @@ func execContainerdWithoutQuotaBypass() error {
 	// hard limits. vmmd retains CAP_SYS_ADMIN as the quota/project-id authority.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	// The runsc shim raises its child to the maximum killable OOM score. Give
+	// containerd and its descendants that score before removing
+	// CAP_SYS_RESOURCE, so the shim's same-value write remains permitted without
+	// restoring the capability that can override project quotas.
+	if err := setContainerdOOMScore("/proc/self/oom_score_adj"); err != nil {
+		return fmt.Errorf("set containerd OOM score: %w", err)
+	}
 	if err := unix.Prctl(unix.PR_CAPBSET_DROP, unix.CAP_SYS_RESOURCE, 0, 0, 0); err != nil {
 		return err
 	}
 	return unix.Exec("/usr/bin/containerd", []string{"containerd", "--config", "/etc/containerd/config.toml"}, os.Environ())
+}
+
+func setContainerdOOMScore(path string) error {
+	return os.WriteFile(path, []byte("1000"), 0o600)
 }
 
 func version(name string, argument string) string {

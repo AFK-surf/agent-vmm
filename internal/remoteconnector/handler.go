@@ -230,8 +230,10 @@ func reasonFor(err error) remotev1.ErrorReason {
 					return remotev1.ErrorReason_ERROR_REASON_LEASE_CONFLICT
 				case "POLICY_REVISION_CONFLICT":
 					return remotev1.ErrorReason_ERROR_REASON_STALE_REVISION
-				case "POOL_ENVIRONMENT_LIMIT", "POOL_PER_ENVIRONMENT_LIMIT", "POOL_AGGREGATE_LIMIT":
+				case "POOL_PER_ENVIRONMENT_LIMIT", "POOL_AGGREGATE_LIMIT":
 					return remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED
+				case "POOL_ENVIRONMENT_LIMIT":
+					return remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT
 				case "ALLOCATION_NOT_FOUND":
 					return remotev1.ErrorReason_ERROR_REASON_ALLOCATION_NOT_FOUND
 				}
