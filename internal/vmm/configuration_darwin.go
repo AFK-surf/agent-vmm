@@ -167,16 +167,142 @@ func prepareState(directory string, size int64) (bool, error) {
 	if !errors.Is(err, os.ErrExist) {
 		return false, err
 	}
-	info, err := os.Stat(statePath)
-	if err != nil || info.Size() != size {
+	fd, err := unix.Open(statePath, unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return false, errors.New("existing state disk is unavailable")
+	}
+	file = os.NewFile(uintptr(fd), statePath)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() != size {
 		return false, errors.New("existing state disk has unexpected size")
 	}
 	allocated, err := allocatedBytes(info)
-	if err != nil || allocated < uint64(size) {
-		return false, errors.New("existing state disk is sparse or only partially allocated; fresh recreate is required")
+	if err != nil {
+		return false, err
+	}
+	holeBytes, err := stateHoleBytes(file, size)
+	if err != nil {
+		return false, err
+	}
+	if holeBytes > 0 {
+		freeBefore, err := freeBytes(directory)
+		if err != nil {
+			return false, err
+		}
+		if holeBytes > ^uint64(0)-uint64(hostEmergencyBytes) || freeBefore < holeBytes+uint64(hostEmergencyBytes) {
+			return false, errors.New("state disk requires restored physical backing plus 10 GiB host emergency space")
+		}
+		if err := materializeStateHoles(file, size); err != nil {
+			return false, fmt.Errorf("restore state disk physical backing: %w", err)
+		}
+		if err := file.Sync(); err != nil {
+			return false, err
+		}
+		info, err = file.Stat()
+		if err != nil {
+			return false, err
+		}
+		allocated, err = allocatedBytes(info)
+		remainingHoles, holeErr := stateHoleBytes(file, size)
+		if err != nil || holeErr != nil || allocated < uint64(size) || remainingHoles != 0 {
+			return false, errors.New("state disk physical backing could not be restored")
+		}
+	}
+	if allocated < uint64(size) {
+		return false, errors.New("state disk is not fully physically backed")
+	}
+	freeAfter, err := freeBytes(directory)
+	if err != nil {
+		return false, err
+	}
+	if freeAfter < uint64(hostEmergencyBytes) {
+		return false, errors.New("state disk backing restoration consumed host emergency space")
 	}
 	_, err = os.Stat(markerPath)
 	return err == nil, nil
+}
+
+func stateHoleBytes(file *os.File, size int64) (uint64, error) {
+	var total uint64
+	for offset := int64(0); offset < size; {
+		hole, err := unix.Seek(int(file.Fd()), offset, unix.SEEK_HOLE)
+		if errors.Is(err, unix.ENXIO) {
+			return 0, errors.New("state disk logical extent map is unavailable")
+		}
+		if err != nil {
+			return 0, err
+		}
+		if hole >= size {
+			return total, nil
+		}
+		if hole < offset {
+			return 0, errors.New("state disk hole map moved backwards")
+		}
+		data, err := unix.Seek(int(file.Fd()), hole, unix.SEEK_DATA)
+		if errors.Is(err, unix.ENXIO) {
+			data = size
+		} else if err != nil {
+			return 0, err
+		}
+		if data > size {
+			data = size
+		}
+		if data <= hole {
+			return 0, errors.New("state disk hole map is invalid")
+		}
+		length := uint64(data - hole)
+		if length > ^uint64(0)-total {
+			return 0, errors.New("state disk hole accounting overflow")
+		}
+		total += length
+		offset = data
+	}
+	return total, nil
+}
+
+func materializeStateHoles(file *os.File, size int64) error {
+	zeros := make([]byte, 4<<20)
+	for offset := int64(0); offset < size; {
+		hole, err := unix.Seek(int(file.Fd()), offset, unix.SEEK_HOLE)
+		if errors.Is(err, unix.ENXIO) {
+			return errors.New("state disk logical extent map is unavailable")
+		}
+		if hole >= size {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if hole < offset {
+			return errors.New("state disk hole map moved backwards")
+		}
+		data, err := unix.Seek(int(file.Fd()), hole, unix.SEEK_DATA)
+		if errors.Is(err, unix.ENXIO) {
+			data = size
+		} else if err != nil {
+			return err
+		}
+		if data > size {
+			data = size
+		}
+		if data <= hole {
+			return errors.New("state disk hole map is invalid")
+		}
+		for position := hole; position < data; {
+			length := min(int64(len(zeros)), data-position)
+			written, err := file.WriteAt(zeros[:length], position)
+			if err != nil {
+				return err
+			}
+			if int64(written) != length {
+				return errors.New("short write while restoring state disk physical backing")
+			}
+			position += length
+		}
+		offset = data
+	}
+	return nil
 }
 
 func freeBytes(path string) (uint64, error) {

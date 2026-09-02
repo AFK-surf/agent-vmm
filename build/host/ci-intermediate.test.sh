@@ -21,6 +21,10 @@ jq -n --arg revision "$revision" \
 first="$scratch/first.tar.gz"
 second="$scratch/second.tar.gz"
 "$script" pack agent-vmm-host "$revision" "$scratch/input" "Agent VMM Host.app" "$first" >/dev/null
+if tar -tzf "$first" | LC_ALL=C sort | uniq -d | grep -q .; then
+  echo "archive contains duplicate paths that cross-platform tar may encode as self-hardlinks" >&2
+  exit 1
+fi
 touch "$app/Contents/MacOS/agent-vmm-host" "$resources/release-inventory.json"
 "$script" pack agent-vmm-host "$revision" "$scratch/input" "Agent VMM Host.app" "$second" >/dev/null
 cmp "$first" "$second"

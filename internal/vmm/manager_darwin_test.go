@@ -92,7 +92,7 @@ func TestStateInitializationMarker(t *testing.T) {
 	}
 }
 
-func TestExistingSparseStateFailsClosed(t *testing.T) {
+func TestExistingSparseStateRestoresPhysicalBacking(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "state.raw")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
@@ -102,11 +102,51 @@ func TestExistingSparseStateFailsClosed(t *testing.T) {
 	if err := file.Truncate(32 << 20); err != nil {
 		t.Fatal(err)
 	}
+	sentinel := []byte("existing-state-data")
+	for _, offset := range []int64{0, 8 << 20, (32 << 20) - int64(len(sentinel))} {
+		if _, err := file.WriteAt(sentinel, offset); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareState(directory, 32<<20); err == nil || !strings.Contains(err.Error(), "fresh recreate") {
-		t.Fatalf("sparse state result = %v", err)
+	initializing, err := prepareState(directory, 32<<20)
+	if err != nil || initializing {
+		t.Fatalf("sparse state result = %t, %v", initializing, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocated, err := allocatedBytes(info)
+	if err != nil || allocated < uint64(info.Size()) {
+		t.Fatalf("restored allocation = %d for size %d, err=%v", allocated, info.Size(), err)
+	}
+	file, err = os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holes, err := stateHoleBytes(file, info.Size())
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil || holes != 0 {
+		t.Fatalf("restored state still has %d logical hole bytes, err=%v", holes, err)
+	}
+	file, err = os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	for _, offset := range []int64{0, 8 << 20, (32 << 20) - int64(len(sentinel))} {
+		contents := make([]byte, len(sentinel))
+		if _, err := file.ReadAt(contents, offset); err != nil {
+			t.Fatal(err)
+		}
+		if string(contents) != string(sentinel) {
+			t.Fatalf("existing data changed at offset %d", offset)
+		}
 	}
 }
 

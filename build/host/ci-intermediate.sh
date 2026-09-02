@@ -147,10 +147,10 @@ case "$mode" in
     (cd "$scratch/stage" && LC_ALL=C find "$entry" -print | LC_ALL=C sort > "$scratch/files")
     partial="${archive}.partial.$$"
     if tar --version 2>&1 | grep -q bsdtar; then
-      COPYFILE_DISABLE=1 tar --format=ustar --uid 0 --gid 0 --uname root --gname wheel \
+      COPYFILE_DISABLE=1 tar --no-recursion --format=ustar --uid 0 --gid 0 --uname root --gname wheel \
         -C "$scratch/stage" -cf - -T "$scratch/files" | gzip -n -9 > "$partial"
     else
-      tar --format=ustar --owner=0 --group=0 --numeric-owner \
+      tar --no-recursion --format=ustar --owner=0 --group=0 --numeric-owner \
         -C "$scratch/stage" -cf - -T "$scratch/files" | gzip -n -9 > "$partial"
     fi
     mv "$partial" "$archive"
