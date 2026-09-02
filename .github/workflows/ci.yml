@@ -85,3 +85,5 @@ jobs:
           -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
           -derivedDataPath "$RUNNER_TEMP/DerivedData"
           CODE_SIGNING_ALLOWED=NO
+      - name: Test deterministic CI intermediate contract
+        run: build/host/ci-intermediate.test.sh

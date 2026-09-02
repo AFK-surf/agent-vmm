@@ -1,0 +1,129 @@
+name: Host bundle cache
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-bundle-cache-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-source:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - id: source
+        name: Resolve immutable source revision
+        run: |
+          revision="$(git rev-parse HEAD)"
+          test "${#revision}" -eq 40
+          test "$(git status --porcelain)" = ""
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+  build-guest:
+    needs: resolve-source
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
+    timeout-minutes: 45
+    outputs:
+      sha256: ${{ steps.publish.outputs.sha256 }}
+      size: ${{ steps.publish.outputs.size }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-source.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and verify Guest bundle
+        run: |
+          test "$(git rev-parse HEAD)" = '${{ needs.resolve-source.outputs.revision }}'
+          mkdir -p "$RUNNER_TEMP/guest-bundle"
+          docker run --rm --platform linux/arm64 --privileged \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -v "$RUNNER_TEMP/guest-bundle:/bundle" \
+            -w /src alpine:3.24 \
+            sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && git config --global --add safe.directory /src && build/guest/build.sh /bundle'
+          sudo chown -R "$USER":"$(id -gn)" "$RUNNER_TEMP/guest-bundle"
+          cd "$RUNNER_TEMP/guest-bundle"
+          jq -e '.architecture == "arm64"' manifest.json >/dev/null
+          jq -r '.artifacts | .mcp_appliance_digest, .mcp_appliance_manifest | "\(.sha256)  \(.path)"' manifest.json | sha256sum -c -
+      - name: Publish Guest CI intermediate to R2
+        id: publish
+        env:
+          CLOUDFLARE_R2_ACCOUNT_ID: ${{ vars.CLOUDFLARE_R2_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ vars.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.CLOUDFLARE_R2_REGION }}
+        run: |
+          build/host/ci-intermediate.sh pack agent-vmm-guest \
+            '${{ needs.resolve-source.outputs.revision }}' "$RUNNER_TEMP" guest-bundle \
+            "$RUNNER_TEMP/agent-vmm-guest.tar.gz"
+          build/host/ci-intermediate.sh publish agent-vmm-guest \
+            '${{ needs.resolve-source.outputs.revision }}' "$RUNNER_TEMP/agent-vmm-guest.tar.gz"
+
+  publish-host:
+    needs: [resolve-source, build-guest]
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-source.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
+          rustup target add aarch64-apple-darwin
+      - name: Download exact Guest CI intermediate from R2
+        run: |
+          build/host/ci-intermediate.sh download agent-vmm-guest \
+            '${{ needs.resolve-source.outputs.revision }}' \
+            '${{ needs.build-guest.outputs.sha256 }}' '${{ needs.build-guest.outputs.size }}' \
+            "$RUNNER_TEMP/agent-vmm-guest.tar.gz"
+          tar -xzf "$RUNNER_TEMP/agent-vmm-guest.tar.gz" -C "$RUNNER_TEMP"
+      - name: Assemble unsigned Agent VMM Host
+        env:
+          AGENT_VMM_GUEST_BUNDLE: ${{ runner.temp }}/guest-bundle
+          AGENT_VMM_PACKAGE_PHASE: assemble
+          AGENT_VMM_RELEASE_ID: agent-vmm-${{ needs.resolve-source.outputs.revision }}
+          OUTPUT_DIRECTORY: ${{ runner.temp }}/host
+        run: |
+          test "$(git rev-parse HEAD)" = '${{ needs.resolve-source.outputs.revision }}'
+          make headless-release
+      - name: Publish deterministic Host CI intermediate to R2
+        env:
+          CLOUDFLARE_R2_ACCOUNT_ID: ${{ vars.CLOUDFLARE_R2_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ vars.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.CLOUDFLARE_R2_REGION }}
+        run: |
+          build/host/ci-intermediate.sh pack agent-vmm-host \
+            '${{ needs.resolve-source.outputs.revision }}' "$RUNNER_TEMP/host" "Agent VMM Host.app" \
+            "$RUNNER_TEMP/Agent-VMM-Host-unsigned.tar.gz"
+          build/host/ci-intermediate.sh publish agent-vmm-host \
+            '${{ needs.resolve-source.outputs.revision }}' "$RUNNER_TEMP/Agent-VMM-Host-unsigned.tar.gz"
