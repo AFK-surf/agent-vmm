@@ -452,10 +452,10 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		current, err = database.GetEnvironment(ctx, expiringEnvironment.ID)
-		if err == nil && current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		if err == nil && current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
 			reservation, reservationErr := database.GetWorkloadReservation(ctx, "allocation-expiring", 8)
-			if reservationErr != nil || reservation.Phase != store.WorkloadReservationReleasing {
-				t.Fatalf("expired allocation has no exact release obligation: reservation=%+v err=%v", reservation, reservationErr)
+			if reservationErr != nil || reservation.Phase != store.WorkloadReservationAdmitted {
+				t.Fatalf("expired lease changed durable allocation reservation: reservation=%+v err=%v", reservation, reservationErr)
 			}
 			return
 		}
@@ -527,12 +527,12 @@ func TestDisconnectGraceUsesPersistedDisconnectFence(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		current, err = database.GetEnvironment(ctx, environment.ID)
-		if err == nil && current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		if err == nil && current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("current disconnect grace did not retain allocation: environment=%+v err=%v", current, err)
+	t.Fatalf("current disconnect grace did not return allocation to ready: environment=%+v err=%v", current, err)
 }
 
 func TestConcurrentLeaseExpiryAndExplicitReleaseHaveSingleTerminalOwner(t *testing.T) {
@@ -580,12 +580,12 @@ func TestConcurrentLeaseExpiryAndExplicitReleaseHaveSingleTerminalOwner(t *testi
 	results := make(chan result, 2)
 	go func() {
 		<-start
-		lease, finishErr := controller.finishLease("lease", 1, hostv1.LeaseState_LEASE_STATE_EXPIRED, true, false)
+		lease, finishErr := controller.finishLease("lease", 1, hostv1.LeaseState_LEASE_STATE_EXPIRED, true, false, false)
 		results <- result{lease: lease, err: finishErr}
 	}()
 	go func() {
 		<-start
-		lease, finishErr := controller.finishLease("lease", 1, hostv1.LeaseState_LEASE_STATE_RELEASED, false, false)
+		lease, finishErr := controller.finishLease("lease", 1, hostv1.LeaseState_LEASE_STATE_RELEASED, false, false, false)
 		results <- result{lease: lease, err: finishErr}
 	}()
 	close(start)
@@ -609,16 +609,11 @@ func TestConcurrentLeaseExpiryAndExplicitReleaseHaveSingleTerminalOwner(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if terminal == hostv1.LeaseState_LEASE_STATE_EXPIRED {
-		if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) || reservation.Phase != store.WorkloadReservationReleasing {
-			t.Fatalf("expiry winner revived allocation: environment=%+v reservation=%+v", current, reservation)
-		}
-	} else if terminal == hostv1.LeaseState_LEASE_STATE_RELEASED {
-		if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || reservation.Phase != store.WorkloadReservationAdmitted {
-			t.Fatalf("explicit release winner was overwritten: environment=%+v reservation=%+v", current, reservation)
-		}
-	} else {
+	if terminal != hostv1.LeaseState_LEASE_STATE_EXPIRED && terminal != hostv1.LeaseState_LEASE_STATE_RELEASED {
 		t.Fatalf("unexpected terminal winner %s", terminal)
+	}
+	if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || reservation.Phase != store.WorkloadReservationAdmitted {
+		t.Fatalf("lease terminal winner retired allocation: terminal=%s environment=%+v reservation=%+v", terminal, current, reservation)
 	}
 }
 
@@ -687,8 +682,8 @@ func TestConnectionReplacementRevokesActiveLeaseWithoutAdmissionDeadlock(t *test
 	}
 	current, err := database.GetEnvironment(ctx, environment.ID)
 	reservation, reservationErr := database.GetWorkloadReservation(ctx, "allocation", 7)
-	if err != nil || reservationErr != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) || reservation.Phase != store.WorkloadReservationReleasing {
-		t.Fatalf("replacement did not persist exact retirement: environment=%+v reservation=%+v err=%v reservationErr=%v", current, reservation, err, reservationErr)
+	if err != nil || reservationErr != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || reservation.Phase != store.WorkloadReservationAdmitted {
+		t.Fatalf("replacement did not revoke only the lease: environment=%+v reservation=%+v err=%v reservationErr=%v", current, reservation, err, reservationErr)
 	}
 	controller.mu.Lock()
 	active := controller.remoteLeases[lease.GetLease().GetLeaseId()]

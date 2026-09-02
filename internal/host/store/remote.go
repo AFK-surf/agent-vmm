@@ -59,9 +59,10 @@ func (store *Store) AcquireRemoteLeaseProjection(ctx context.Context, lease Remo
 	return environment, nil
 }
 
-// FinishRemoteLeaseProjection atomically turns an automatic stop/revoke into
-// the same exact durable release obligation used by explicit allocation
-// retirement. Model anchor: ResourceAdmissionQueue Stop/Revoke.
+// FinishRemoteLeaseProjection atomically removes a lease projection. A
+// short-lived lease stop returns the durable allocation to READY and preserves
+// its reservation. Only explicit allocation retirement advances the
+// reservation to its release obligation.
 func (store *Store) FinishRemoteLeaseProjection(ctx context.Context, registrationID, leaseID, environmentID string, expectedRevision uint64, allocationState int32) (Environment, error) {
 	transaction, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -186,30 +187,16 @@ func (store *Store) RecoverRemoteLeaseProjections(ctx context.Context) error {
 		return err
 	}
 	now := time.Now().UnixNano()
-	result, err := transaction.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=CASE
-		WHEN phase=? THEN ? WHEN phase=? THEN ? ELSE phase END,updated_at=?
-		WHERE phase IN (?,?) AND EXISTS (SELECT 1 FROM remote_lease_projections p
-			WHERE p.environment_id=workload_reservations_v2.environment_id
-			AND p.allocation_id=workload_reservations_v2.allocation_id
-			AND p.allocation_generation=workload_reservations_v2.generation)`,
-		WorkloadReservationLogical, WorkloadReservationReleaseRequired,
-		WorkloadReservationAdmitted, WorkloadReservationReleasing, now,
-		WorkloadReservationLogical, WorkloadReservationAdmitted)
-	if err != nil {
-		return err
-	}
-	if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != projectionCount {
-		if changeErr != nil {
-			return changeErr
-		}
-		return errors.New("remote lease recovery exact reservation mismatch")
-	}
-	result, err = transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
+	result, err := transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
 		updated_at=? WHERE owner_kind=? AND allocation_state=? AND EXISTS (
 			SELECT 1 FROM remote_lease_projections p WHERE p.environment_id=environments.id
-			AND p.registration_id=environments.registration_id AND p.allocation_id=environments.allocation_id)`,
-		int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), now, OwnerRemoteRegistration,
-		int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED))
+			AND p.registration_id=environments.registration_id AND p.allocation_id=environments.allocation_id
+			AND EXISTS (SELECT 1 FROM workload_reservations_v2 r WHERE r.environment_id=environments.id
+				AND r.allocation_id=p.allocation_id AND r.generation=p.allocation_generation
+				AND r.phase IN (?,?)))`,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_READY), now, OwnerRemoteRegistration,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
+		WorkloadReservationLogical, WorkloadReservationAdmitted)
 	if err != nil {
 		return err
 	}

@@ -1023,15 +1023,15 @@ func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+	if recovered.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
 		t.Fatalf("allocation state after restart = %s", hostv1.AllocationState(recovered.AllocationState))
 	}
 	if recovered.PolicyRevision != created.PolicyRevision+1 {
 		t.Fatalf("policy revision after restart = %d, want %d", recovered.PolicyRevision, created.PolicyRevision+1)
 	}
 	reservation, err := reopened.GetWorkloadReservation(ctx, "allocation", 7)
-	if err != nil || reservation.Phase != WorkloadReservationReleaseRequired {
-		t.Fatalf("restart did not persist exact release obligation: reservation=%+v err=%v", reservation, err)
+	if err != nil || reservation.Phase != WorkloadReservationLogical {
+		t.Fatalf("restart changed durable allocation reservation: reservation=%+v err=%v", reservation, err)
 	}
 }
 

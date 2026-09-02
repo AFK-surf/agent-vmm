@@ -9,7 +9,18 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/containerd/errdefs"
 )
+
+func TestMissingImageMaterializationIsSkippedByImageListing(t *testing.T) {
+	if !unmaterializedImage(errdefs.ErrNotFound) {
+		t.Fatal("containerd not-found errors must identify an unmaterialized image")
+	}
+	if unmaterializedImage(errors.New("content store is unavailable")) {
+		t.Fatal("non-not-found image errors must still fail the list")
+	}
+}
 
 func TestReadNetworkUsage(t *testing.T) {
 	directory := t.TempDir()

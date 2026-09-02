@@ -9,9 +9,16 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 )
+
+func TestInstalledVMResumeTimeoutAllowsBoundedGuestRecovery(t *testing.T) {
+	if installedVMResumeTimeout != 10*time.Minute {
+		t.Fatalf("installed VM resume timeout = %s, want 10m", installedVMResumeTimeout)
+	}
+}
 
 func TestRuntimeRejectsRoot(t *testing.T) {
 	if err := validateRuntimeUID(0); err == nil {

@@ -566,7 +566,7 @@ func (server *remoteComputeServer) ExecuteCleanupAllocation(ctx context.Context,
 	var revokeLease func() error
 	if activeLease {
 		revokeLease = func() error {
-			lease, finishErr := server.controller.finishLeaseLocked(request.GetExpectedLeaseId(), request.GetExpectedLeaseGeneration(), hostv1.LeaseState_LEASE_STATE_REVOKED, true, false)
+			lease, finishErr := server.controller.finishLeaseLocked(request.GetExpectedLeaseId(), request.GetExpectedLeaseGeneration(), hostv1.LeaseState_LEASE_STATE_REVOKED, true, false, false)
 			if finishErr != nil {
 				return finishErr
 			}
@@ -726,7 +726,7 @@ func (server *remoteComputeServer) ReleaseLease(ctx context.Context, request *ho
 	server.controller.mu.Unlock()
 	unlockEnvironment := server.controller.lockEnvironment(environmentID)
 	defer unlockEnvironment()
-	lease, err := server.controller.finishLeaseLocked(request.GetLeaseId(), request.GetGeneration(), hostv1.LeaseState_LEASE_STATE_RELEASED, false, false)
+	lease, err := server.controller.finishLeaseLocked(request.GetLeaseId(), request.GetGeneration(), hostv1.LeaseState_LEASE_STATE_RELEASED, false, false, false)
 	if err != nil {
 		return nil, err
 	}

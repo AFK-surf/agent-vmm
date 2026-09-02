@@ -2,8 +2,7 @@
 EXTENDS Naturals, FiniteSets, Sequences
 
 CONSTANTS EnforceExactRelease, EnforceCurrentFence, EnforceReleaseConfirmation,
-          EnforceTerminalCompensation, EnforceLeaseClaim,
-          EnforceDeadlineRevalidation
+          EnforceTerminalCompensation, EnforceDeadlineRevalidation
 
 Tasks == {1, 2}
 Generations == {1, 2}
@@ -23,7 +22,7 @@ VARIABLES queue, deadlines, now, hostRows, charged, guestReserved, receipts,
           stopped, revoked, expired, reserveResponseLost, releaseResponseLost,
           confirmResponseLost, lastClaimedTask, lastRequestedRelease, lastFreed
 
-VARIABLES leaseProjections, leaseReady, leaseRetained,
+VARIABLES leaseProjections, leaseReady,
           lastExpiredTask, lastExpiredDeadline
 
 vars == <<queue, deadlines, now, hostRows, charged, guestReserved, receipts,
@@ -31,9 +30,9 @@ vars == <<queue, deadlines, now, hostRows, charged, guestReserved, receipts,
           stopped, revoked, expired, reserveResponseLost, releaseResponseLost,
           confirmResponseLost, lastClaimedTask, lastRequestedRelease, lastFreed>>
 
-allVars == <<vars, leaseProjections, leaseReady, leaseRetained,
+allVars == <<vars, leaseProjections, leaseReady,
              lastExpiredTask, lastExpiredDeadline>>
-LeaseUnchanged == UNCHANGED <<leaseProjections, leaseReady, leaseRetained,
+LeaseUnchanged == UNCHANGED <<leaseProjections, leaseReady,
                               lastExpiredTask, lastExpiredDeadline>>
 
 Fits(ids) ==
@@ -53,7 +52,7 @@ Init ==
   /\ stopped = {} /\ revoked = {} /\ expired = {}
   /\ reserveResponseLost = {} /\ releaseResponseLost = {} /\ confirmResponseLost = {}
   /\ lastClaimedTask = 0 /\ lastRequestedRelease = <<0, 0, 0>> /\ lastFreed = <<0, 0, 0>>
-  /\ leaseProjections = {} /\ leaseReady = {} /\ leaseRetained = {}
+  /\ leaseProjections = {} /\ leaseReady = {}
   /\ lastExpiredTask = 0 /\ lastExpiredDeadline = 0
 
 ClaimHead ==
@@ -76,10 +75,10 @@ ClaimHead ==
 StartLease ==
   /\ \E i \in admitted:
        /\ ~\E p \in leaseProjections: p[1] = i[1]
-       /\ i[1] \notin leaseReady \cup leaseRetained \cup stopped \cup revoked
+       /\ i[1] \notin leaseReady \cup stopped \cup revoked
        /\ now < deadlines[i[1]]
        /\ leaseProjections' = leaseProjections \cup {i}
-  /\ UNCHANGED <<vars, leaseReady, leaseRetained,
+  /\ UNCHANGED <<vars, leaseReady,
                   lastExpiredTask, lastExpiredDeadline>>
 
 RenewLease ==
@@ -91,31 +90,28 @@ RenewLease ==
                   hostConfirmed, stopped, revoked, expired,
                   reserveResponseLost, releaseResponseLost,
                   confirmResponseLost, lastClaimedTask, lastRequestedRelease,
-                  lastFreed, leaseProjections, leaseReady, leaseRetained,
+                  lastFreed, leaseProjections, leaseReady,
                   lastExpiredTask, lastExpiredDeadline>>
 
 ExplicitReleaseLease ==
-  /\ \E i \in IF EnforceLeaseClaim THEN leaseProjections
-                  ELSE leaseProjections \cup {x \in Identities: x[1] \in leaseRetained}:
+  /\ \E i \in leaseProjections:
        /\ leaseProjections' = leaseProjections \ {i}
        /\ leaseReady' = leaseReady \cup {i[1]}
-  /\ UNCHANGED <<vars, leaseRetained, lastExpiredTask, lastExpiredDeadline>>
+  /\ UNCHANGED <<vars, lastExpiredTask, lastExpiredDeadline>>
 
 ExpireLease ==
   /\ \E i \in leaseProjections:
        /\ (~EnforceDeadlineRevalidation \/ deadlines[i[1]] <= now)
        /\ leaseProjections' = leaseProjections \ {i}
-       /\ leaseRetained' = leaseRetained \cup {i[1]}
-       /\ stopped' = stopped \cup {i[1]}
-       /\ admitted' = {a \in admitted : a[1] # i[1]}
-       /\ releasing' = releasing \cup {i}
+       /\ leaseReady' = leaseReady \cup {i[1]}
        /\ lastExpiredTask' = i[1]
        /\ lastExpiredDeadline' = deadlines[i[1]]
   /\ UNCHANGED <<queue, deadlines, now, hostRows, charged, guestReserved,
-                  receipts, guestTombstones, pendingConfirm, hostConfirmed,
-                  revoked, expired, reserveResponseLost, releaseResponseLost,
+                  receipts, admitted, releasing, guestTombstones,
+                  pendingConfirm, hostConfirmed, stopped, revoked, expired,
+                  reserveResponseLost, releaseResponseLost,
                   confirmResponseLost, lastClaimedTask, lastRequestedRelease,
-                  lastFreed, leaseReady>>
+                  lastFreed>>
 
 GuestReserve ==
   /\ \E i \in hostRows \ guestReserved:
@@ -154,8 +150,8 @@ ReconcileReserve ==
                        lastRequestedRelease, lastFreed>>
        /\ LeaseUnchanged
 
-\* Stop includes automatic lease expiry and disconnect revocation. The Host
-\* projection and exact release obligation are one durable transaction.
+\* Stop is explicit allocation retirement. Automatic lease expiry and
+\* disconnect revocation only remove leaseProjections and preserve admission.
 Stop ==
   /\ \E t \in Tasks \ stopped:
        /\ ~\E p \in leaseProjections: p[1] = t
@@ -312,27 +308,26 @@ FinalizeHostRelease(i) ==
                   lastRequestedRelease, lastFreed>>
   /\ LeaseUnchanged
 
-\* Restart discards transient transport-loss markers while preserving every
-\* durable Host row, Guest reservation, receipt, tombstone, and phase fact.
+\* Restart discards transient leases and transport-loss markers while
+\* preserving every durable Host row, Guest reservation, receipt, tombstone,
+\* and admission phase. It never manufactures a release obligation.
 HostRestart ==
   /\ LET recoveredTasks == {i[1] : i \in leaseProjections} IN
-       /\ leaseRetained' = leaseRetained \cup recoveredTasks
-       /\ stopped' = stopped \cup recoveredTasks
-       /\ admitted' = {i \in admitted : i[1] \notin recoveredTasks}
-       /\ releasing' = releasing \cup leaseProjections
+       /\ leaseReady' = leaseReady \cup recoveredTasks
   /\ leaseProjections' = {}
   /\ reserveResponseLost' = {} /\ releaseResponseLost' = {} /\ confirmResponseLost' = {}
   /\ UNCHANGED <<queue, deadlines, now, hostRows, charged, guestReserved,
-                  receipts, guestTombstones, pendingConfirm, hostConfirmed,
-                  revoked, expired, lastClaimedTask, lastRequestedRelease,
-                  lastFreed, leaseReady, lastExpiredTask, lastExpiredDeadline>>
+                  receipts, admitted, releasing, guestTombstones,
+                  pendingConfirm, hostConfirmed, stopped, revoked, expired,
+                  lastClaimedTask, lastRequestedRelease, lastFreed,
+                  lastExpiredTask, lastExpiredDeadline>>
 GuestRestart ==
   /\ reserveResponseLost' = {} /\ releaseResponseLost' = {} /\ confirmResponseLost' = {}
   /\ UNCHANGED <<queue, deadlines, now, hostRows, charged, guestReserved,
                   receipts, admitted, releasing, guestTombstones,
                   pendingConfirm, hostConfirmed, stopped, revoked, expired,
                   lastClaimedTask, lastRequestedRelease, lastFreed,
-                  leaseProjections, leaseReady, leaseRetained,
+                  leaseProjections, leaseReady,
                   lastExpiredTask, lastExpiredDeadline>>
 
 Next == \/ ClaimHead \/ GuestReserve \/ LoseReserveResponse \/ ReconcileReserve
@@ -356,7 +351,7 @@ TypeOK ==
   /\ lastClaimedTask \in 0..2 /\ lastRequestedRelease \in Identities \cup {<<0,0,0>>}
   /\ lastFreed \in Identities \cup {<<0,0,0>>}
   /\ leaseProjections \subseteq Identities
-  /\ leaseReady \subseteq Tasks /\ leaseRetained \subseteq Tasks
+  /\ leaseReady \subseteq Tasks
   /\ lastExpiredTask \in 0..2 /\ lastExpiredDeadline \in 0..4
 
 HardBudgetsHold == Fits(charged)
@@ -371,7 +366,6 @@ HostDeletesOnlyAfterConfirm == (Identities \ hostRows) \cap pendingConfirm = {}
 TerminalGuestHasReleaseObligation ==
   \A i \in guestReserved:
     i[1] \in stopped \cup revoked => i \in releasing \cup pendingConfirm
-LeaseTerminalExclusive == leaseReady \cap leaseRetained = {}
 LeaseExpiryDeadlineExact == lastExpiredTask = 0 \/ lastExpiredDeadline <= now
 
 Spec == Init /\ [][Next]_allVars

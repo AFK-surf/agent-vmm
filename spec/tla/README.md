@@ -7,7 +7,8 @@ form an artificial Cartesian product:
   acknowledgement, inventory watermark, epoch, command fence, allocation,
   lease, reconnect capability, revoke, and the atomic admission decision.
 - `RemoteLeaseDisconnectGrace.tla` owns the persisted disconnect fence used by
-  delayed lease revocation across reconnect and a later disconnect.
+  delayed lease revocation across reconnect and a later disconnect, and proves
+  that revocation preserves the durable allocation and reservation.
 - `OCIImageMaterialization.tla` owns exact-digest archive re-import after an
   image record survives without its content or native rootfs snapshot.
 - `ManagedCredentialReplacement.tla` owns same-policy-revision managed

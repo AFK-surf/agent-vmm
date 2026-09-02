@@ -162,10 +162,10 @@ func execContainerdWithoutQuotaBypass() error {
 	// hard limits. vmmd retains CAP_SYS_ADMIN as the quota/project-id authority.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	// The runsc shim raises its child to the maximum killable OOM score. Give
-	// containerd and its descendants that score before removing
-	// CAP_SYS_RESOURCE, so the shim's same-value write remains permitted without
-	// restoring the capability that can override project quotas.
+	// Give containerd the minimum OOM score before removing CAP_SYS_RESOURCE.
+	// The runsc shim inherits -1000 and raises itself to its built-in -999, which
+	// is permitted without restoring the capability that can override project
+	// quotas.
 	if err := setContainerdOOMScore("/proc/self/oom_score_adj"); err != nil {
 		return fmt.Errorf("set containerd OOM score: %w", err)
 	}
@@ -176,7 +176,7 @@ func execContainerdWithoutQuotaBypass() error {
 }
 
 func setContainerdOOMScore(path string) error {
-	return os.WriteFile(path, []byte("1000"), 0o600)
+	return os.WriteFile(path, []byte("-1000"), 0o600)
 }
 
 func version(name string, argument string) string {

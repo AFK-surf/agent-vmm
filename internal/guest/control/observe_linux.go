@@ -256,6 +256,13 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 	for _, image := range images {
 		unpacked, err := image.IsUnpacked(namespaceContext(ctx, namespaceID), containerSnapshotter)
 		if err != nil {
+			// A cancelled or interrupted import can leave containerd image
+			// metadata behind after its content or snapshot has disappeared.
+			// Such a record is not a usable image and must not prevent the
+			// authoritative importer from observing it as absent and retrying.
+			if unmaterializedImage(err) {
+				continue
+			}
 			return nil, err
 		}
 		if !unpacked {
@@ -273,6 +280,10 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].GetReference() < result[right].GetReference() })
 	return result, nil
+}
+
+func unmaterializedImage(err error) bool {
+	return errdefs.IsNotFound(err)
 }
 
 func (r *Runtime) GetImage(ctx context.Context, namespaceID, reference string) (*vmmdv1.Image, error) {

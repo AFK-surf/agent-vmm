@@ -4,10 +4,10 @@ EXTENDS Naturals
 CONSTANTS MaxFence, EnforceDisconnectFence
 
 VARIABLES connected, disconnectFence, pendingTimers, leaseActive,
-          staleTimerRevoked
+          staleTimerRevoked, allocationReady, reservationAdmitted
 
 vars == <<connected, disconnectFence, pendingTimers, leaseActive,
-          staleTimerRevoked>>
+          staleTimerRevoked, allocationReady, reservationAdmitted>>
 
 Init ==
   /\ connected = TRUE
@@ -15,6 +15,8 @@ Init ==
   /\ pendingTimers = {}
   /\ leaseActive = TRUE
   /\ staleTimerRevoked = FALSE
+  /\ allocationReady = TRUE
+  /\ reservationAdmitted = TRUE
 
 Disconnect ==
   /\ connected
@@ -22,13 +24,14 @@ Disconnect ==
   /\ connected' = FALSE
   /\ disconnectFence' = disconnectFence + 1
   /\ pendingTimers' = pendingTimers \cup {disconnectFence + 1}
-  /\ UNCHANGED <<leaseActive, staleTimerRevoked>>
+  /\ UNCHANGED <<leaseActive, staleTimerRevoked, allocationReady,
+                  reservationAdmitted>>
 
 Reconnect ==
   /\ ~connected
   /\ connected' = TRUE
   /\ UNCHANGED <<disconnectFence, pendingTimers, leaseActive,
-                  staleTimerRevoked>>
+                  staleTimerRevoked, allocationReady, reservationAdmitted>>
 
 GraceExpires(fence) ==
   /\ fence \in pendingTimers
@@ -39,7 +42,8 @@ GraceExpires(fence) ==
             /\ staleTimerRevoked' =
                  (staleTimerRevoked \/ fence # disconnectFence)
        ELSE UNCHANGED <<leaseActive, staleTimerRevoked>>
-  /\ UNCHANGED <<connected, disconnectFence>>
+  /\ UNCHANGED <<connected, disconnectFence, allocationReady,
+                  reservationAdmitted>>
 
 ExpireCurrentGrace == GraceExpires(disconnectFence)
 
@@ -52,8 +56,11 @@ TypeOK ==
   /\ pendingTimers \subseteq 1..MaxFence
   /\ leaseActive \in BOOLEAN
   /\ staleTimerRevoked \in BOOLEAN
+  /\ allocationReady \in BOOLEAN
+  /\ reservationAdmitted \in BOOLEAN
 
 NoStaleTimerRevocation == ~staleTimerRevoked
+DisconnectPreservesAllocation == allocationReady /\ reservationAdmitted
 
 CurrentDisconnectEventuallySettles ==
   (~connected /\ leaseActive) ~> (connected \/ ~leaseActive)

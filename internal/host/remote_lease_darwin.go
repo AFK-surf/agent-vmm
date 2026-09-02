@@ -57,10 +57,10 @@ func (controller *Controller) expireLease(id string, generation uint64, now time
 	controller.mu.Unlock()
 	unlockEnvironment := controller.lockEnvironment(environmentID)
 	defer unlockEnvironment()
-	return controller.finishLeaseLocked(id, generation, hostv1.LeaseState_LEASE_STATE_EXPIRED, true, true)
+	return controller.finishLeaseLocked(id, generation, hostv1.LeaseState_LEASE_STATE_EXPIRED, true, false, false)
 }
 
-func (controller *Controller) finishLease(id string, generation uint64, state hostv1.LeaseState, stop, reconcileTerminal bool) (*remoteLease, error) {
+func (controller *Controller) finishLease(id string, generation uint64, state hostv1.LeaseState, stop, retire, reconcileTerminal bool) (*remoteLease, error) {
 	controller.mu.Lock()
 	lease := controller.remoteLeases[id]
 	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
@@ -73,14 +73,13 @@ func (controller *Controller) finishLease(id string, generation uint64, state ho
 	defer controller.remoteAdmissionMu.Unlock()
 	unlockEnvironment := controller.lockEnvironment(environmentID)
 	defer unlockEnvironment()
-	return controller.finishLeaseLocked(id, generation, state, stop, reconcileTerminal)
+	return controller.finishLeaseLocked(id, generation, state, stop, retire, reconcileTerminal)
 }
 
-// finishLeaseLocked is the single exact lease/projection/reservation terminal
-// transition. Callers hold remoteAdmissionMu and the environment lock, in that
-// order, so explicit release, expiry, and revocation cannot race READY against
-// RETAINED.
-func (controller *Controller) finishLeaseLocked(id string, generation uint64, state hostv1.LeaseState, stop, reconcileTerminal bool) (*remoteLease, error) {
+// finishLeaseLocked is the single exact lease transition. Callers hold
+// remoteAdmissionMu and the environment lock, in that order, so short-lived
+// lease revocation cannot race explicit allocation retirement.
+func (controller *Controller) finishLeaseLocked(id string, generation uint64, state hostv1.LeaseState, stop, retire, reconcileTerminal bool) (*remoteLease, error) {
 	controller.mu.Lock()
 	lease := controller.remoteLeases[id]
 	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
@@ -111,11 +110,11 @@ func (controller *Controller) finishLeaseLocked(id string, generation uint64, st
 	environment, err := controller.store.GetEnvironment(context.Background(), result.environmentID)
 	if err != nil {
 		log.Printf("finish remote lease %q: load allocation: %v", id, err)
-		controller.retryRemoteLeaseProjection(result, targetStateForLease(stop), reconcileTerminal, 1)
+		controller.retryRemoteLeaseProjection(result, targetStateForLease(retire), reconcileTerminal, 1)
 		return &result, errors.Join(cleanupErr, err)
 	}
 	targetState := int32(hostv1.AllocationState_ALLOCATION_STATE_READY)
-	if stop {
+	if retire {
 		targetState = int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)
 	}
 	projected, err := controller.store.FinishRemoteLeaseProjection(context.Background(), result.registrationID, id, result.environmentID, environment.PolicyRevision, targetState)
@@ -136,8 +135,8 @@ func (controller *Controller) finishLeaseLocked(id string, generation uint64, st
 	return &result, nil
 }
 
-func targetStateForLease(stop bool) int32 {
-	if stop {
+func targetStateForLease(retire bool) int32 {
+	if retire {
 		return int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)
 	}
 	return int32(hostv1.AllocationState_ALLOCATION_STATE_READY)
@@ -201,7 +200,7 @@ func (controller *Controller) revokeAllocationLease(ctx context.Context, environ
 	lease := controller.remoteLeases[id]
 	controller.mu.Unlock()
 	if lease != nil {
-		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, state, stop, false)
+		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, state, stop, true, false)
 		if err != nil {
 			return err
 		}
@@ -232,7 +231,7 @@ func (controller *Controller) revokeRemoteLeasesLocked(registrationID string) er
 	var failures []error
 	for _, lease := range leases {
 		unlockEnvironment := controller.lockEnvironment(lease.environmentID)
-		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true, true)
+		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true, false, false)
 		unlockEnvironment()
 		if finished == nil && err == nil {
 			continue

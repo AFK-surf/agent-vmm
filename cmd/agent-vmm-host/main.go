@@ -25,6 +25,8 @@ import (
 	"google.golang.org/grpc"
 )
 
+const installedVMResumeTimeout = 10 * time.Minute
+
 func main() {
 	if err := validateRuntimeUID(os.Geteuid()); err != nil {
 		log.Fatal(err)
@@ -194,7 +196,7 @@ func main() {
 	if err := controller.StartExternalConnectors(ctx); err != nil {
 		log.Fatal(err)
 	}
-	resumeContext, resumeCancel := context.WithTimeout(ctx, 30*time.Second)
+	resumeContext, resumeCancel := context.WithTimeout(ctx, installedVMResumeTimeout)
 	resumeRequestID := fmt.Sprintf("host-start-resume-%d", time.Now().UnixNano())
 	if err := resumeInstalledVM(resumeContext, filepath.Join(config.InstanceDirectory, "state.raw"), config.StateBytes, resumeRequestID, controller.StartVM); err != nil {
 		log.Printf("installed VM was not resumed: %v", err)

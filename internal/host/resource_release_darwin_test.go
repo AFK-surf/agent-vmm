@@ -226,7 +226,7 @@ func TestReleaseLossAndRestartConvergesThroughExistingReservationReconcile(t *te
 	}
 }
 
-func TestAutomaticLeaseExpiryWithLostReserveConvergesAcrossHostAndGuestRestart(t *testing.T) {
+func TestHostRestartPreservesReservationBeforeExplicitReleaseConverges(t *testing.T) {
 	ctx := context.Background()
 	directory := t.TempDir()
 	databasePath := filepath.Join(directory, "host.db")
@@ -273,9 +273,8 @@ func TestAutomaticLeaseExpiryWithLostReserveConvergesAcrossHostAndGuestRestart(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A Host crash loses the in-memory lease owner. Open must atomically turn
-	// the exact persisted projection into a release obligation before any
-	// controller can observe and recommit the allocation as READY.
+	// A Host crash loses only the in-memory lease owner. Open returns the exact
+	// allocation to READY without changing its durable reservation.
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -287,8 +286,12 @@ func TestAutomaticLeaseExpiryWithLostReserveConvergesAcrossHostAndGuestRestart(t
 	controller.store = database
 	environment, err = database.GetEnvironment(ctx, environment.ID)
 	reservation, loadErr := database.GetWorkloadReservation(ctx, "allocation", 7)
-	if err != nil || loadErr != nil || reservation.Phase != store.WorkloadReservationReleaseRequired || environment.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
-		t.Fatalf("automatic expiry release obligation=%+v environment=%+v err=%v loadErr=%v", reservation, environment, err, loadErr)
+	if err != nil || loadErr != nil || reservation.Phase != store.WorkloadReservationLogical || environment.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
+		t.Fatalf("restart changed durable allocation=%+v environment=%+v err=%v loadErr=%v", reservation, environment, err, loadErr)
+	}
+	environment, reservation, err = database.BeginWorkloadRetirement(ctx, environment.ID, "allocation", 7, environment.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	if err != nil || reservation.Phase != store.WorkloadReservationReleaseRequired {
+		t.Fatalf("explicit retirement obligation=%+v environment=%+v err=%v", reservation, environment, err)
 	}
 	client, stopGuest = startDurableReservationServer(t, &durableReservationServer{path: guestState})
 	reservation, err = controller.recoverGuestReservationForRelease(ctx, client, environment, reservation)
