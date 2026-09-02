@@ -1,0 +1,25 @@
+name: Lifecycle models
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifecycle-models-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle-models:
+    name: Canonical lifecycle models
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check canonical lifecycle models
+        run: make tla
