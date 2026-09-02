@@ -3,14 +3,18 @@
 package control
 
 import (
+	"context"
 	"errors"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
+	"golang.org/x/sys/unix"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/status"
 )
@@ -106,6 +110,165 @@ func TestOCIMetadataAllowancePreservesEveryCommittedFloor(t *testing.T) {
 	}
 	if _, err := ociMetadataAllowance(snapshot, 4<<30); !errors.Is(err, guestdisk.ErrCapacityUnavailable) {
 		t.Fatalf("metadata growth borrowed committed floor: %v", err)
+	}
+}
+
+func TestOCIProjectQuotaSettlementRetriesAndPreservesRunFailure(t *testing.T) {
+	runErr := errors.New("containerd metadata mutation failed")
+	attempts := 0
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget)}
+	err := errors.Join(runErr, runtime.diskBudget.Settle(func() error {
+		return retryOCIProjectQuota(func() error {
+			attempts++
+			if attempts < 3 {
+				return errors.New("transient quota ioctl failure")
+			}
+			return nil
+		}, 3, 0)
+	}))
+	if !errors.Is(err, runErr) || attempts != 3 {
+		t.Fatalf("settlement error=%v attempts=%d", err, attempts)
+	}
+}
+
+func TestOCIProjectQuotaSettlementReportsRunAndPersistentTightenFailures(t *testing.T) {
+	runErr := errors.New("containerd metadata mutation failed")
+	tightenErr := errors.New("quota ioctl unavailable")
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget)}
+	err := errors.Join(runErr, runtime.diskBudget.Settle(func() error {
+		return retryOCIProjectQuota(func() error { return tightenErr }, 2, 0)
+	}))
+	if !errors.Is(err, runErr) || !errors.Is(err, tightenErr) {
+		t.Fatalf("settlement dropped an owner failure: %v", err)
+	}
+	if !errors.Is(runtime.ociGrowthError(), guestdisk.ErrGrowthSealed) {
+		t.Fatal("persistent settlement failure did not seal OCI growth")
+	}
+}
+
+func TestSealedOCIProjectQuotaGateRejectsEveryGrowthCallback(t *testing.T) {
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
+	_ = runtime.diskBudget.Settle(func() error { return errors.New("persistent settlement failure") })
+	callbacks := 0
+	for name, guard := range map[string]func(func() error) error{
+		"metadata": func(run func() error) error {
+			return runtime.guardOCIMetadataGrowth(context.Background(), run)
+		},
+		"metadata-locked": func(run func() error) error {
+			return runtime.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+				return runtime.guardOCIMetadataGrowthLockedWithCommit(context.Background(), transaction, 1, run)
+			})
+		},
+		"physical": func(run func() error) error {
+			return runtime.guardOCIPhysicalGrowth(context.Background(), "sealed-test", run)
+		},
+	} {
+		err := guard(func() error { callbacks++; return nil })
+		if !errors.Is(err, guestdisk.ErrGrowthSealed) {
+			t.Fatalf("%s gate error=%v", name, err)
+		}
+	}
+	if callbacks != 0 {
+		t.Fatalf("sealed OCI gate ran %d growth callbacks", callbacks)
+	}
+}
+
+func TestOCIMetadataAllowanceIsOnlySlackBeyondCommittedFloors(t *testing.T) {
+	snapshot := guestdisk.Snapshot{CapacityBytes: 20 << 30, UsedBytes: 5 << 30, WritableHeadroomBytes: 4 << 30,
+		ImportReservationBytes: 2 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
+	const additionalWritable = uint64(3 << 30)
+	allowance, err := ociMetadataAllowance(snapshot, additionalWritable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumed := snapshot.UsedBytes + allowance + snapshot.WritableHeadroomBytes + additionalWritable +
+		snapshot.ImportReservationBytes + snapshot.EmergencyBytes + snapshot.MetadataGrowthBytes
+	if consumed > snapshot.CapacityBytes || allowance != snapshot.CapacityBytes-(consumed-allowance) {
+		t.Fatalf("full metadata allowance breaks U+W+I+E+M<=D: allowance=%d committed_after=%d capacity=%d", allowance, consumed, snapshot.CapacityBytes)
+	}
+}
+
+func TestGuestRestartReestablishesExactOCIIdleCeiling(t *testing.T) {
+	if os.Getenv("AGENT_VMM_PRIVILEGED_QUOTA_TEST") != "1" || os.Geteuid() != 0 {
+		t.Skip("privileged project-quota integration is not enabled")
+	}
+	if entries, err := os.ReadDir(stateRoot); err == nil && len(entries) != 0 {
+		t.Skip("refusing to mount over a non-empty /state")
+	}
+	backing := filepath.Join(t.TempDir(), "state.raw")
+	file, err := os.OpenFile(backing, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = unix.Fallocate(int(file.Fd()), 0, 0, 256<<20); err != nil {
+		file.Close()
+		t.Skipf("fallocate unavailable: %v", err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.Command("losetup", "--find", "--show", backing).CombinedOutput()
+	if err != nil {
+		t.Skipf("loop device unavailable: %v: %s", err, output)
+	}
+	device := strings.TrimSpace(string(output))
+	defer exec.Command("losetup", "--detach", device).Run()
+	if output, err = exec.Command("mkfs.ext4", "-F", "-q", "-O", "project,quota", "-E", "nodiscard,lazy_itable_init=0,lazy_journal_init=0", device).CombinedOutput(); err != nil {
+		t.Fatalf("mkfs.ext4: %v: %s", err, output)
+	}
+	if err = os.MkdirAll(stateRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err = unix.Mount(device, stateRoot, "ext4", unix.MS_NOATIME, "prjquota"); err != nil {
+		t.Skipf("project-quota mount unavailable: %v", err)
+	}
+	defer func() {
+		_ = unix.Unmount(stateRoot, 0)
+		_ = os.Remove(stateRoot)
+	}()
+	if err = os.MkdirAll(containerdRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = assignProject(containerdRoot, ociProjectID); err != nil {
+		t.Fatalf("assign first-boot OCI root: %v", err)
+	}
+	seed := filepath.Join(containerdRoot, "metadata", "seed")
+	if err = os.MkdirAll(filepath.Dir(seed), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(seed, make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous := &Runtime{diskBudget: new(guestdisk.Budget)}
+	_ = previous.diskBudget.Settle(func() error { return errors.New("persistent settlement failure") })
+	if !errors.Is(previous.ociGrowthError(), guestdisk.ErrGrowthSealed) {
+		t.Fatal("old process was not terminally sealed")
+	}
+	restarted := &Runtime{stateDevice: device}
+	if err = restarted.initializeOCIProjectQuota(); err != nil {
+		t.Fatalf("restart quota initialization: %v", err)
+	}
+	if err = restarted.ociGrowthError(); err != nil {
+		t.Fatalf("new process inherited terminal seal: %v", err)
+	}
+	before, err := projectUsage(device, ociProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, lookupErr := exec.LookPath("setpriv"); lookupErr != nil {
+		t.Skip("setpriv is unavailable")
+	}
+	if err = os.Chmod(containerdRoot, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	output, err = exec.Command("setpriv", "--reuid=65534", "--regid=65534", "--clear-groups", "--bounding-set=-sys_resource", "--inh-caps=-all", "--ambient-caps=-all",
+		"dd", "if=/dev/zero", "of="+filepath.Join(containerdRoot, "after-restart"), "bs=1M", "count=2", "conv=fsync").CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "Disk quota exceeded") && !strings.Contains(string(output), "No space left on device") {
+		t.Fatalf("restart left OCI growth allowance open: err=%v output=%s", err, output)
+	}
+	after, usageErr := projectUsage(device, ociProjectID)
+	if usageErr != nil || after > before+(64<<10) {
+		t.Fatalf("restart idle ceiling drifted: before=%d after=%d err=%v", before, after, usageErr)
 	}
 }
 

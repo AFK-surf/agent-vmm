@@ -33,7 +33,7 @@ func Prepare() (*Result, error) {
 		return nil, err
 	}
 	if parameters["agent.state_init"] == "1" {
-		command := exec.Command("/sbin/mkfs.ext4", "-F", "-q", "-O", "project,quota", "-E", "lazy_itable_init=0,lazy_journal_init=0", stateDevice)
+		command := exec.Command("/sbin/mkfs.ext4", stateFilesystemFormatArgs(stateDevice)...)
 		if output, err := command.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("format state: %w: %s", err, output)
 		}
@@ -63,6 +63,13 @@ func Prepare() (*Result, error) {
 		return nil, fmt.Errorf("mount CNI state: %w", err)
 	}
 	return &Result{StateDevice: stateDevice, StateInitialized: true, RootReadOnly: rootReadOnly()}, nil
+}
+
+func stateFilesystemFormatArgs(stateDevice string) []string {
+	// The host fully allocates state.raw before boot. mke2fs otherwise issues
+	// discard for the whole device and punches those backing-file extents,
+	// making the next host-side sparse-file audit reject the state disk.
+	return []string{"-F", "-q", "-O", "project,quota", "-E", "nodiscard,lazy_itable_init=0,lazy_journal_init=0", stateDevice}
 }
 
 func UnmountState() error {

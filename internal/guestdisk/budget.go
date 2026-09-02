@@ -12,7 +12,10 @@ const (
 	MinimumImportBytes    = uint64(2 << 30)
 )
 
-var ErrCapacityUnavailable = errors.New("storage capacity unavailable")
+var (
+	ErrCapacityUnavailable = errors.New("storage capacity unavailable")
+	ErrGrowthSealed        = errors.New("storage growth is sealed after project quota settlement failed; restart the Agent VMM guest")
+)
 
 type Pressure uint8
 
@@ -77,29 +80,63 @@ func (snapshot Snapshot) WithQuotaIncrease(increase uint64) error {
 // Budget serializes every physical commitment. Durable quota and import facts
 // remain outside this lock and are supplied in Snapshot on each mutation.
 // Model anchor: spec/tla/GuestDiskBudget.tla U+W+I+E+M<=D.
-type Budget struct{ mu sync.Mutex }
+type Budget struct {
+	mu     sync.Mutex
+	sealed bool
+}
 
-func (budget *Budget) AdmitQuota(load func() (Snapshot, error), increase uint64, commit func() error) error {
+// Transaction is the only authority allowed to settle a temporary physical
+// growth allowance. It is valid only while Budget holds its mutation lock.
+type Transaction struct{ budget *Budget }
+
+func (transaction *Transaction) Settle(settle func() error) error {
+	if transaction.budget.sealed {
+		return ErrGrowthSealed
+	}
+	if err := settle(); err != nil {
+		transaction.budget.sealed = true
+		return errors.Join(ErrGrowthSealed, err)
+	}
+	return nil
+}
+
+func (budget *Budget) GrowthError() error {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	snapshot, err := load()
+	if budget.sealed {
+		return ErrGrowthSealed
+	}
+	return nil
+}
+
+func (budget *Budget) AdmitQuota(load func(*Transaction) (Snapshot, error), increase uint64, commit func(*Transaction) error) error {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if budget.sealed {
+		return ErrGrowthSealed
+	}
+	transaction := &Transaction{budget: budget}
+	snapshot, err := load(transaction)
 	if err != nil {
 		return err
 	}
 	if err := snapshot.WithQuotaIncrease(increase); err != nil {
 		return err
 	}
-	return commit()
+	return commit(transaction)
 }
 
 // ReserveImportHeadroom gives a cold import every byte not already committed
 // to physical usage, writable quotas, another import, or the fixed safety
 // floors. The caller physically backs this reservation and converts it to U as
 // containerd writes, so no archive compression ratio is assumed.
-func (budget *Budget) ReserveImportHeadroom(load func() (Snapshot, error), commit func(uint64) error) error {
+func (budget *Budget) ReserveImportHeadroom(load func(*Transaction) (Snapshot, error), commit func(uint64) error) error {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	snapshot, err := load()
+	if budget.sealed {
+		return ErrGrowthSealed
+	}
+	snapshot, err := load(&Transaction{budget: budget})
 	if err != nil {
 		return err
 	}
@@ -120,8 +157,20 @@ func (budget *Budget) ReserveImportHeadroom(load func() (Snapshot, error), commi
 	return commit(available)
 }
 
-func (budget *Budget) Mutate(fn func() error) error {
+func (budget *Budget) Mutate(fn func(*Transaction) error) error {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	return fn()
+	if budget.sealed {
+		return ErrGrowthSealed
+	}
+	return fn(&Transaction{budget: budget})
+}
+
+func (budget *Budget) Settle(settle func() error) error {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if budget.sealed {
+		return ErrGrowthSealed
+	}
+	return (&Transaction{budget: budget}).Settle(settle)
 }

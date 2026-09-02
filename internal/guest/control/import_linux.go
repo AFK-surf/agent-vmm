@@ -16,6 +16,7 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/diff"
 	coreimages "github.com/containerd/containerd/v2/core/images"
@@ -87,8 +88,8 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	defer reservation.Release()
 	if reusable {
 		var value any
-		err = s.runtime.diskBudget.Mutate(func() error {
-			return s.runtime.guardOCIProjectGrowth(reservation, func() error {
+		err = s.runtime.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+			return s.runtime.guardOCIProjectGrowth(transaction, reservation, func() error {
 				if reusableTarget != nil {
 					if _, createErr := s.runtime.client.ImageService().Create(namespaceContext(stream.Context(), header.GetActorNamespaceId()), coreimages.Image{Name: imageReference, Target: *reusableTarget}); createErr != nil && !errdefs.IsAlreadyExists(createErr) {
 						return createErr
@@ -106,18 +107,24 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		}
 		return stream.SendAndClose(value.(*vmmdv1.Image))
 	}
-	if err := s.runtime.diskBudget.Mutate(func() error { return s.runtime.openOCIProjectAllowance(reservation) }); err != nil {
+	var archive *os.File
+	if err := s.runtime.diskBudget.Mutate(func(_ *guestdisk.Transaction) error {
+		if err := s.runtime.openOCIProjectAllowance(reservation); err != nil {
+			return err
+		}
+		var createErr error
+		archive, createErr = s.runtime.createImportArchive(header.GetRequestId())
+		return createErr
+	}); err != nil {
 		return rpcError(err)
 	}
 	defer func() {
-		if err := s.runtime.tightenOCIProjectQuota(); err != nil {
+		if err := s.runtime.diskBudget.Settle(func() error {
+			return retryOCIProjectQuota(s.runtime.tightenOCIProjectQuota, 10, 100*time.Millisecond)
+		}); err != nil {
 			log.Printf("tighten OCI project quota after interrupted import: %v", err)
 		}
 	}()
-	archive, err := s.runtime.createImportArchive(header.GetRequestId())
-	if err != nil {
-		return rpcError(err)
-	}
 	archivePath := archive.Name()
 	defer func() {
 		_ = archive.Close()
@@ -137,15 +144,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		if !ok || len(chunk.ArchiveChunk) == 0 || len(chunk.ArchiveChunk) > maxImportChunkBytes || uint64(len(chunk.ArchiveChunk)) > header.GetArchiveSize()-written {
 			return invalid(errors.New("archive chunks must be non-empty, bounded, and within archive_size"))
 		}
-		count := 0
-		writeErr := s.runtime.diskBudget.Mutate(func() error {
-			if err := reservation.Consume(uint64(len(chunk.ArchiveChunk))); err != nil {
-				return err
-			}
-			var err error
-			count, err = io.MultiWriter(archive, hash).Write(chunk.ArchiveChunk)
-			return err
-		})
+		count, writeErr := writeImportChunk(s.runtime.diskBudget, reservation, io.MultiWriter(archive, hash), chunk.ArchiveChunk)
 		if writeErr != nil {
 			if errors.Is(writeErr, syscall.EDQUOT) || errors.Is(writeErr, syscall.ENOSPC) {
 				return rpcError(resourceExhausted("OCI archive exceeds namespace disk quota"))
@@ -165,8 +164,8 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		return invalid(err)
 	}
 	var value any
-	err = s.runtime.diskBudget.Mutate(func() error {
-		return s.runtime.guardOCIProjectGrowth(reservation, func() error {
+	err = s.runtime.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+		return s.runtime.guardOCIProjectGrowth(transaction, reservation, func() error {
 			var mutationErr error
 			value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
 				image, importErr := s.runtime.importImage(stream.Context(), archive, header, imageReference, *manifest, header.GetSystemImport())
@@ -179,6 +178,20 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		return rpcError(err)
 	}
 	return stream.SendAndClose(value.(*vmmdv1.Image))
+}
+
+// writeImportChunk keeps the sealed check and the physical write in the same
+// GuestDiskBudget critical section. This is the production transition modeled
+// by WriteImport in GuestDiskBudget.tla and Download in OCIContentLifecycle.tla.
+func writeImportChunk(budget *guestdisk.Budget, reservation *importReservation, writer io.Writer, chunk []byte) (count int, err error) {
+	err = budget.Mutate(func(_ *guestdisk.Transaction) error {
+		if consumeErr := reservation.Consume(uint64(len(chunk))); consumeErr != nil {
+			return consumeErr
+		}
+		count, err = writer.Write(chunk)
+		return err
+	})
+	return count, err
 }
 
 func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageReference string, manifestDigest digest.Digest, system bool) (bool, bool, *ocispec.Descriptor, error) {

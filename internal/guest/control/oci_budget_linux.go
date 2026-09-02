@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
@@ -29,7 +30,13 @@ type importReservation struct {
 }
 
 func (r *Runtime) initializeOCIProjectQuota() error {
-	return PrepareOCIStorage(r.stateDevice)
+	if err := PrepareOCIStorage(r.stateDevice); err != nil {
+		return err
+	}
+	// PrepareOCIStorage runs before containerd as well as here. Once containerd
+	// is live, startup is not ready until its actual usage is measured again and
+	// project 9000 is pinned to that exact idle ceiling.
+	return r.tightenOCIProjectQuota()
 }
 
 // PrepareOCIStorage establishes the kernel-enforced global OCI project before
@@ -96,7 +103,7 @@ func reserveFreshContainerdBootstrap(stateDevice string) error {
 	path := filepath.Join(stateRoot, "containerd-bootstrap-reservation")
 	reservation := &importReservation{path: path, holdPath: path + ".hold"}
 	budget := new(guestdisk.Budget)
-	err := budget.ReserveImportHeadroom(func() (guestdisk.Snapshot, error) { return snapshot, nil }, func(allowance uint64) error {
+	err := budget.ReserveImportHeadroom(func(*guestdisk.Transaction) (guestdisk.Snapshot, error) { return snapshot, nil }, func(allowance uint64) error {
 		reservation.remaining = allowance
 		if err := writeImportReservation(reservation.path, reservation.holdPath, allowance); err != nil {
 			return err
@@ -191,22 +198,26 @@ func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, r
 		return err
 	}
 	defer reservation.Release()
-	return r.diskBudget.Mutate(func() error { return r.guardOCIProjectGrowth(reservation, run) })
+	return r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+		return r.guardOCIProjectGrowth(transaction, reservation, run)
+	})
 }
 
-// guardOCIMetadataGrowth gives an explicit serialized metadata mutation only
-// the uncommitted slack beyond W/I/E/M, capped by M. Idle containerd remains
-// pinned to current usage, the fixed M floor remains protected after growth,
-// and bulk content/snapshot growth must use a physical I reservation instead.
+// guardOCIMetadataGrowth opens only true slack after U+W+I+E+M, capped by M.
+// Consuming the entire temporary allowance therefore cannot invade a committed
+// floor. A successful settlement restores the exact idle ceiling; persistent
+// settlement failure seals this process and requires a guest restart.
 func (r *Runtime) guardOCIMetadataGrowth(ctx context.Context, run func() error) error {
-	return r.diskBudget.Mutate(func() error { return r.guardOCIMetadataGrowthLocked(ctx, run) })
+	return r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+		return r.guardOCIMetadataGrowthLocked(ctx, transaction, run)
+	})
 }
 
-func (r *Runtime) guardOCIMetadataGrowthLocked(ctx context.Context, run func() error) (runErr error) {
-	return r.guardOCIMetadataGrowthLockedWithCommit(ctx, 0, run)
+func (r *Runtime) guardOCIMetadataGrowthLocked(ctx context.Context, transaction *guestdisk.Transaction, run func() error) (runErr error) {
+	return r.guardOCIMetadataGrowthLockedWithCommit(ctx, transaction, 0, run)
 }
 
-func (r *Runtime) guardOCIMetadataGrowthLockedWithCommit(ctx context.Context, additionalWritable uint64, run func() error) (runErr error) {
+func (r *Runtime) guardOCIMetadataGrowthLockedWithCommit(ctx context.Context, transaction *guestdisk.Transaction, additionalWritable uint64, run func() error) (runErr error) {
 	snapshot, err := r.guestDiskSnapshot(ctx)
 	if err != nil {
 		return err
@@ -227,11 +238,31 @@ func (r *Runtime) guardOCIMetadataGrowthLockedWithCommit(ctx context.Context, ad
 		return err
 	}
 	defer func() {
-		if tightenErr := r.tightenOCIProjectQuota(); runErr == nil {
-			runErr = tightenErr
-		}
+		runErr = errors.Join(runErr, transaction.Settle(func() error {
+			return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
+		}))
 	}()
 	return run()
+}
+
+func retryOCIProjectQuota(tighten func() error, attempts int, retryDelay time.Duration) error {
+	var tightenErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if tightenErr = tighten(); tightenErr == nil {
+			return nil
+		}
+		if attempt+1 < attempts {
+			time.Sleep(retryDelay)
+		}
+	}
+	return fmt.Errorf("tighten OCI project quota after %d attempts: %w", attempts, tightenErr)
+}
+
+func (r *Runtime) ociGrowthError() error {
+	if r != nil && r.diskBudget != nil {
+		return r.diskBudget.GrowthError()
+	}
+	return nil
 }
 
 func ociMetadataAllowance(snapshot guestdisk.Snapshot, additionalWritable uint64) (uint64, error) {
@@ -259,7 +290,7 @@ func ociProjectQuotaLimit(usage, allowance uint64) (uint64, error) {
 	return limit, nil
 }
 
-func (r *Runtime) guardOCIProjectGrowth(reservation *importReservation, run func() error) (runErr error) {
+func (r *Runtime) guardOCIProjectGrowth(transaction *guestdisk.Transaction, reservation *importReservation, run func() error) (runErr error) {
 	allowance, err := reservation.AllocatedBytes()
 	if err != nil {
 		return err
@@ -279,25 +310,26 @@ func (r *Runtime) guardOCIProjectGrowth(reservation *importReservation, run func
 	release := reservation.remaining
 	reservation.mu.Unlock()
 	if err := reservation.Consume(release); err != nil {
-		_ = r.tightenOCIProjectQuota()
-		return err
+		return errors.Join(err, transaction.Settle(func() error {
+			return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
+		}))
 	}
 	defer func() {
-		if tightenErr := r.tightenOCIProjectQuota(); runErr == nil {
-			runErr = tightenErr
-		}
+		runErr = errors.Join(runErr, transaction.Settle(func() error {
+			return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
+		}))
 	}()
 	return run()
 }
 
 func (r *Runtime) reserveImport(ctx context.Context, header *vmmdv1.ImportImageHeader, materializerHeld bool) (*importReservation, error) {
-	loadSnapshot := func() (guestdisk.Snapshot, error) {
+	loadSnapshot := func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
 		snapshot, err := r.guestDiskSnapshot(ctx)
 		if err != nil {
 			return guestdisk.Snapshot{}, err
 		}
 		if snapshot.Pressure() >= guestdisk.PressureGC {
-			if _, err := r.reclaimOCIWithMaterializer(ctx, maxGCDeletes, materializerHeld); err != nil {
+			if _, err := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, materializerHeld, transaction); err != nil {
 				return guestdisk.Snapshot{}, err
 			}
 			snapshot, err = r.guestDiskSnapshot(ctx)

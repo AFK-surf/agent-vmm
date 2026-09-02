@@ -9,14 +9,14 @@ import (
 func TestQuotaAdmissionPreservesPhysicalInvariant(t *testing.T) {
 	snapshot := Snapshot{CapacityBytes: 32 << 30, UsedBytes: 13 << 30, WritableHeadroomBytes: 4 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
 	var committed bool
-	load := func() (Snapshot, error) { return snapshot, nil }
-	if err := new(Budget).AdmitQuota(load, 2<<30, func() error { committed = true; return nil }); err != nil {
+	load := func(*Transaction) (Snapshot, error) { return snapshot, nil }
+	if err := new(Budget).AdmitQuota(load, 2<<30, func(*Transaction) error { committed = true; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if !committed {
 		t.Fatal("safe quota was not committed")
 	}
-	if err := new(Budget).AdmitQuota(load, 11<<30, func() error { t.Fatal("unsafe quota commit ran"); return nil }); err == nil {
+	if err := new(Budget).AdmitQuota(load, 11<<30, func(*Transaction) error { t.Fatal("unsafe quota commit ran"); return nil }); err == nil {
 		t.Fatal("unsafe quota admitted")
 	}
 }
@@ -25,8 +25,13 @@ func TestConcurrentQuotaAdmissionsReloadFactsInsideSingleGlobalGate(t *testing.T
 	budget := new(Budget)
 	snapshot := Snapshot{CapacityBytes: 8, UsedBytes: 1, WritableHeadroomBytes: 2, EmergencyBytes: 1, MetadataGrowthBytes: 1}
 	var facts sync.Mutex
-	load := func() (Snapshot, error) { facts.Lock(); defer facts.Unlock(); return snapshot, nil }
-	commit := func() error { facts.Lock(); snapshot.WritableHeadroomBytes += 2; facts.Unlock(); return nil }
+	load := func(*Transaction) (Snapshot, error) { facts.Lock(); defer facts.Unlock(); return snapshot, nil }
+	commit := func(*Transaction) error {
+		facts.Lock()
+		snapshot.WritableHeadroomBytes += 2
+		facts.Unlock()
+		return nil
+	}
 	errors := make(chan error, 2)
 	for range 2 {
 		go func() { errors <- budget.AdmitQuota(load, 2, commit) }()
@@ -51,7 +56,7 @@ func TestOverflowFailsClosed(t *testing.T) {
 		t.Fatal("quota overflow was accepted")
 	}
 	snapshot = Snapshot{CapacityBytes: math.MaxUint64, ImportReservationBytes: math.MaxUint64 - 1}
-	if err := new(Budget).ReserveImportHeadroom(func() (Snapshot, error) { return snapshot, nil }, func(uint64) error { return nil }); err == nil {
+	if err := new(Budget).ReserveImportHeadroom(func(*Transaction) (Snapshot, error) { return snapshot, nil }, func(uint64) error { return nil }); err == nil {
 		t.Fatal("import reservation overflow was accepted")
 	}
 }
@@ -76,7 +81,7 @@ func TestRetainedHeadroomAndCacheRemainInInvariant(t *testing.T) {
 func TestImportHasTwoGiBMinimumReservation(t *testing.T) {
 	snapshot := Snapshot{CapacityBytes: 32 << 30, UsedBytes: 20 << 30, WritableHeadroomBytes: 4 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
 	var reserved uint64
-	if err := new(Budget).ReserveImportHeadroom(func() (Snapshot, error) { return snapshot, nil }, func(value uint64) error { reserved = value; return nil }); err != nil {
+	if err := new(Budget).ReserveImportHeadroom(func(*Transaction) (Snapshot, error) { return snapshot, nil }, func(value uint64) error { reserved = value; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if reserved != 3<<30 {
@@ -87,7 +92,7 @@ func TestImportHasTwoGiBMinimumReservation(t *testing.T) {
 func TestColdImportReservesAllUncommittedHeadroomWithoutCompressionGuess(t *testing.T) {
 	snapshot := Snapshot{CapacityBytes: 32 << 30, UsedBytes: 13 << 30, WritableHeadroomBytes: 6 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
 	var reserved uint64
-	if err := new(Budget).ReserveImportHeadroom(func() (Snapshot, error) { return snapshot, nil }, func(value uint64) error { reserved = value; return nil }); err != nil {
+	if err := new(Budget).ReserveImportHeadroom(func(*Transaction) (Snapshot, error) { return snapshot, nil }, func(value uint64) error { reserved = value; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if reserved != 8<<30 {

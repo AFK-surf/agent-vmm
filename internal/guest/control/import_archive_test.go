@@ -8,10 +8,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
@@ -19,6 +24,68 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+type blockingImportWriter struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+	writes  int
+}
+
+func (w *blockingImportWriter) Write(data []byte) (int, error) {
+	w.writes++
+	w.once.Do(func() { close(w.entered) })
+	<-w.release
+	return len(data), nil
+}
+
+func TestImportChunkAndPersistentSettlementShareOneDiskBudgetLinearizationPoint(t *testing.T) {
+	budget := new(guestdisk.Budget)
+	reservationPath := filepath.Join(t.TempDir(), "reservation")
+	holdPath := reservationPath + ".hold"
+	reservation := &importReservation{path: reservationPath, holdPath: holdPath, remaining: 2}
+	if err := writeImportReservation(reservationPath, holdPath, reservation.remaining); err != nil {
+		t.Fatal(err)
+	}
+	w := &blockingImportWriter{entered: make(chan struct{}), release: make(chan struct{})}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := writeImportChunk(budget, reservation, w, []byte("a"))
+		firstDone <- err
+	}()
+	<-w.entered
+
+	settleEntered := make(chan struct{})
+	settleStarted := make(chan struct{})
+	settleDone := make(chan error, 1)
+	persistent := errors.New("persistent quota settlement failure")
+	go func() {
+		close(settleStarted)
+		settleDone <- budget.Settle(func() error {
+			close(settleEntered)
+			return persistent
+		})
+	}()
+	<-settleStarted
+	select {
+	case <-settleEntered:
+		t.Fatal("settlement crossed an in-flight physical import write")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(w.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first chunk: %v", err)
+	}
+	if err := <-settleDone; !errors.Is(err, guestdisk.ErrGrowthSealed) || !errors.Is(err, persistent) {
+		t.Fatalf("settlement error = %v", err)
+	}
+	if _, err := writeImportChunk(budget, reservation, io.Discard, []byte("b")); !errors.Is(err, guestdisk.ErrGrowthSealed) {
+		t.Fatalf("post-seal chunk error = %v, want sealed", err)
+	}
+	if reservation.remaining != 1 {
+		t.Fatalf("remaining = %d, post-seal callback consumed reservation", reservation.remaining)
+	}
+}
 
 func TestOCIQuotaFailureIsReportedAsCapacityNotArchiveCorruption(t *testing.T) {
 	for _, err := range []error{syscall.EDQUOT, syscall.ENOSPC, status.Error(codes.ResourceExhausted, "hard project quota")} {

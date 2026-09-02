@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strconv"
@@ -105,55 +106,9 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
-	task, err := container.NewTask(nsctx, cio.NullIO)
-	if err != nil {
-		stdout.Close()
-		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
-		return nil, err
-	}
 	lifecycleContext := namespaceContext(context.Background(), namespaceID)
-	taskExit, err := task.Wait(lifecycleContext)
+	started, err := startTaskMetadata(r.guardOCIMetadataGrowth, ctx, nsctx, lifecycleContext, container, mainSpec, stdout, stderr, instanceID)
 	if err != nil {
-		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
-		return nil, err
-	}
-	if err := task.Start(nsctx); err != nil {
-		_, _ = task.Delete(nsctx)
-		stdout.Close()
-		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
-		return nil, err
-	}
-	mainProcess, err := task.Exec(nsctx, mainProcessID, mainSpec, cio.NewCreator(cio.WithStreams(nil, stdout, stderr)))
-	if err != nil {
-		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		stdout.Close()
-		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
-		return nil, err
-	}
-	mainExit, err := mainProcess.Wait(lifecycleContext)
-	if err != nil {
-		_, _ = mainProcess.Delete(nsctx, containerd.WithProcessKill)
-		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		stdout.Close()
-		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
-		return nil, err
-	}
-	if err := mainProcess.Start(nsctx); err != nil {
-		_, _ = mainProcess.Delete(nsctx, containerd.WithProcessKill)
-		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		stdout.Close()
-		stderr.Close()
-		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
-		return nil, err
-	}
-	if _, err := container.SetLabels(nsctx, map[string]string{containerStateLabel: "running", containerExitLabel: "", containerInstanceLabel: instanceID, containerStartedLabel: strconv.FormatInt(time.Now().UnixNano(), 10), containerFinishedLabel: ""}); err != nil {
-		_ = mainProcess.Kill(nsctx, syscall.SIGKILL)
-		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
 		stdout.Close()
 		stderr.Close()
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
@@ -162,9 +117,73 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	r.tasks.Add(1)
 	go func() {
 		defer r.tasks.Done()
-		r.monitorTask(namespaceID, containerID, instanceID, container, task, mainProcess, mainExit, taskExit, stdout, stderr)
+		r.monitorTask(namespaceID, containerID, instanceID, container, started.task, started.mainProcess, started.mainExit, started.taskExit, stdout, stderr)
 	}()
 	return r.inspectContainer(nsctx, namespaceID, container)
+}
+
+type metadataGrowthGuard func(context.Context, func() error) error
+
+type startedTask struct {
+	task        containerd.Task
+	mainProcess containerd.Process
+	taskExit    <-chan containerd.ExitStatus
+	mainExit    <-chan containerd.ExitStatus
+}
+
+func startTaskMetadata(guard metadataGrowthGuard, ctx, nsctx, lifecycleContext context.Context, container containerd.Container, mainSpec *specs.Process, stdout, stderr io.Writer, instanceID string) (started startedTask, runErr error) {
+	runErr = guard(ctx, func() error {
+		var err error
+		started.task, err = container.NewTask(nsctx, cio.NullIO)
+		if err != nil {
+			return err
+		}
+		started.taskExit, err = started.task.Wait(lifecycleContext)
+		if err != nil {
+			return err
+		}
+		if err = started.task.Start(nsctx); err != nil {
+			return err
+		}
+		started.mainProcess, err = started.task.Exec(nsctx, mainProcessID, mainSpec, cio.NewCreator(cio.WithStreams(nil, stdout, stderr)))
+		if err != nil {
+			return err
+		}
+		started.mainExit, err = started.mainProcess.Wait(lifecycleContext)
+		if err != nil {
+			return err
+		}
+		if err = started.mainProcess.Start(nsctx); err != nil {
+			return err
+		}
+		if _, err = container.SetLabels(nsctx, map[string]string{containerStateLabel: "running", containerExitLabel: "", containerInstanceLabel: instanceID, containerStartedLabel: strconv.FormatInt(time.Now().UnixNano(), 10), containerFinishedLabel: ""}); err != nil {
+			return err
+		}
+		return nil
+	})
+	if runErr != nil {
+		runErr = errors.Join(runErr, cleanupUnmonitoredTask(nsctx, started))
+	}
+	return started, runErr
+}
+
+func cleanupUnmonitoredTask(nsctx context.Context, started startedTask) error {
+	// The request can be cancelled after containerd accepted NewTask. Preserve
+	// its namespace identity, but give cleanup an independent bounded lifetime
+	// because monitorTask has not taken ownership yet.
+	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(nsctx), 10*time.Second)
+	defer cancel()
+	if started.mainProcess != nil {
+		_ = started.mainProcess.Kill(cleanupContext, syscall.SIGKILL)
+		_, _ = started.mainProcess.Delete(cleanupContext, containerd.WithProcessKill)
+	}
+	if started.task == nil {
+		return nil
+	}
+	if err := deleteTask(cleanupContext, started.task); err != nil {
+		return fmt.Errorf("delete unmonitored container task: %w", err)
+	}
+	return nil
 }
 
 func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, container containerd.Container, task containerd.Task, mainProcess containerd.Process, mainExit, taskExit <-chan containerd.ExitStatus, logs ...io.Closer) {

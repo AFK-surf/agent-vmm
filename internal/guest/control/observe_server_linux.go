@@ -89,6 +89,9 @@ func (s *Server) GetContainerUsage(ctx context.Context, request *vmmdv1.GetConta
 func (s *Server) ComponentHealth(ctx context.Context, _ *vmmdv1.ComponentHealthRequest) (*vmmdv1.ComponentHealthResponse, error) {
 	now := time.Now().UnixNano()
 	probes := s.healthProbe(ctx)
+	if gateErr := s.runtime.ociGrowthError(); gateErr != nil {
+		probes.quota = gateErr
+	}
 	egressStatus := componentStatus("egress", probes.egress, now)
 	if probes.egress == nil && s.health.EgressStatus != nil {
 		egressStatus.Reason = s.health.EgressStatus()

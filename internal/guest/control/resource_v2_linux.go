@@ -72,14 +72,16 @@ func (r *Runtime) ReserveWorkloadResources(ctx context.Context, request *vmmdv1.
 		}
 		return stored, nil
 	}
-	loadSnapshot := func() (guestdisk.Snapshot, error) { return r.diskAdmissionSnapshot(ctx, true) }
-	commit := func() error {
+	loadSnapshot := func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
+		return r.diskAdmissionSnapshot(ctx, true, transaction)
+	}
+	commit := func(transaction *guestdisk.Transaction) error {
 		projectID, subnet, err := r.allocateNamespace(ctx, request.GetNamespaceId())
 		if err != nil {
 			return err
 		}
 		labels = workloadReservationLabels(request, projectID, subnet, digest[:])
-		if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, contract.WritableQuotaBytes, func() error { return r.client.NamespaceService().Create(ctx, request.GetNamespaceId(), labels) }); err != nil {
+		if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, transaction, contract.WritableQuotaBytes, func() error { return r.client.NamespaceService().Create(ctx, request.GetNamespaceId(), labels) }); err != nil {
 			return err
 		}
 		return r.enforceWorkloadReservation(ctx, request, labels)
@@ -459,13 +461,13 @@ func accountableNamespaceQuota(name string, labels map[string]string) (uint64, u
 	return quota, uint32(project), nil
 }
 
-func (r *Runtime) diskAdmissionSnapshot(ctx context.Context, cold bool) (guestdisk.Snapshot, error) {
+func (r *Runtime) diskAdmissionSnapshot(ctx context.Context, cold bool, transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
 	snapshot, err := r.guestDiskSnapshot(ctx)
 	if err != nil {
 		return guestdisk.Snapshot{}, err
 	}
 	if snapshot.Pressure() >= guestdisk.PressureGC {
-		if _, err := r.reclaimOCI(ctx, maxGCDeletes); err != nil {
+		if _, err := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, false, transaction); err != nil {
 			return guestdisk.Snapshot{}, err
 		}
 		snapshot, err = r.guestDiskSnapshot(ctx)

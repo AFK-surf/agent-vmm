@@ -71,7 +71,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) Health(context.Context, *vmmdv1.HealthRequest) (*vmmdv1.HealthResponse, error) {
-	return &vmmdv1.HealthResponse{Ready: !s.shuttingDown.Load(), StateInitialized: true, RootReadOnly: s.health.RootReadOnly, BootId: s.health.BootID, RuntimeVersions: s.health.Versions}, nil
+	return &vmmdv1.HealthResponse{Ready: !s.shuttingDown.Load() && s.runtime.ociGrowthError() == nil, StateInitialized: true, RootReadOnly: s.health.RootReadOnly, BootId: s.health.BootID, RuntimeVersions: s.health.Versions}, nil
 }
 
 func (s *Server) PrepareShutdown(ctx context.Context, request *vmmdv1.PrepareShutdownRequest) (*vmmdv1.PrepareShutdownResponse, error) {

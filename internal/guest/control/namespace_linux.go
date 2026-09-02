@@ -78,7 +78,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	if request.GetLimits().GetDiskBytes() > currentQuota {
 		increase = request.GetLimits().GetDiskBytes() - currentQuota
 	}
-	commit := func() error {
+	commit := func(transaction *guestdisk.Transaction) error {
 		if exists {
 			projectID, current, err := namespaceFromLabels(request.GetNamespaceId(), labels)
 			if err != nil {
@@ -89,7 +89,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 				if system {
 					updated[labelPrefix+"role"] = "system-appliance"
 				}
-				if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, increase, func() error {
+				if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, transaction, increase, func() error {
 					for key, value := range updated {
 						if err := store.SetLabel(ctx, request.GetNamespaceId(), key, value); err != nil {
 							return err
@@ -110,7 +110,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 			if system {
 				labels[labelPrefix+"role"] = "system-appliance"
 			}
-			if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, increase, func() error { return store.Create(ctx, request.GetNamespaceId(), labels) }); err != nil {
+			if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, transaction, increase, func() error { return store.Create(ctx, request.GetNamespaceId(), labels) }); err != nil {
 				return err
 			}
 		}
@@ -136,7 +136,9 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		return r.network.EnsureNamespace(namespace.GetId(), namespace.GetSubnet(), namespace.GetEgressMode())
 	}
 	if increase != 0 {
-		if err := r.diskBudget.AdmitQuota(func() (guestdisk.Snapshot, error) { return r.diskAdmissionSnapshot(ctx, true) }, increase, commit); err != nil {
+		if err := r.diskBudget.AdmitQuota(func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
+			return r.diskAdmissionSnapshot(ctx, true, transaction)
+		}, increase, commit); err != nil {
 			if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
 				return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")
 			}

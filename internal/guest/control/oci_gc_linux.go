@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
 	containerd "github.com/containerd/containerd/v2/client"
 	corecontent "github.com/containerd/containerd/v2/core/content"
@@ -50,9 +51,16 @@ func (r *Runtime) reclaimOCI(ctx context.Context, limit int) (int, error) {
 // reserving space, so the capacity-pressure path cannot recursively lock the
 // same global slot.
 func (r *Runtime) reclaimOCIWithMaterializer(ctx context.Context, limit int, materializerHeld bool) (deleted int, resultErr error) {
+	return r.reclaimOCIWithMaterializerTransaction(ctx, limit, materializerHeld, nil)
+}
+
+func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, limit int, materializerHeld bool, transaction *guestdisk.Transaction) (deleted int, resultErr error) {
 	defer func() {
-		if err := r.tightenOCIProjectQuota(); resultErr == nil {
-			resultErr = err
+		settle := func() error { return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond) }
+		if transaction != nil {
+			resultErr = errors.Join(resultErr, transaction.Settle(settle))
+		} else {
+			resultErr = errors.Join(resultErr, r.diskBudget.Settle(settle))
 		}
 	}()
 	if limit <= 0 || limit > maxGCDeletes {

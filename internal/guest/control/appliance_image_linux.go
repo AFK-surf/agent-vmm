@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/errdefs"
 	digest "github.com/opencontainers/go-digest"
@@ -93,8 +94,8 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	}
 	defer reservation.Release()
 	var image *vmmdv1.Image
-	err = r.diskBudget.Mutate(func() error {
-		return r.guardOCIProjectGrowth(reservation, func() error {
+	err = r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+		return r.guardOCIProjectGrowth(transaction, reservation, func() error {
 			if reusableTarget != nil {
 				if _, createErr := r.client.ImageService().Create(namespaceContext(ctx, namespaceID), coreimages.Image{Name: canonical, Target: *reusableTarget}); createErr != nil && !errdefs.IsAlreadyExists(createErr) {
 					return createErr
