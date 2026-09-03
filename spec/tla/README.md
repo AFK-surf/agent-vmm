@@ -51,9 +51,16 @@ Cartesian product.
   anchors are `selectServiceModeForAction` and `renderServiceDefinition`, with
   regressions in `TestServiceDefinitionUsesFreshBundleResourceGeometry` and
   `TestRepairRetainsConfiguredPairingRestriction`.
-  `HostVMRestartRecovery.tla` owns
-  the one-shot post-install VM resume after a Host process start; it never
-  re-enters installation and does not start a fresh or invalid VM state.
+  `HostVMRestartRecovery.tla` owns the one-shot post-install VM resume and the
+  single-owner recovery after an unexpected VM stop. Recovery revokes admission
+  and active lease capabilities before restart, requires a fresh boot with policies and connectors restored, and
+  fails closed after its only attempt. Host shutdown is mutually exclusive with
+  that owner. `RecoverySuccess` abstracts only the admission commit: the
+  Go owner performs boot, policy replay, and connector restoration as ordered
+  steps while admission remains revoked. Disk identity and filesystem contents
+  remain Go configuration concerns outside this lifecycle model. The separate
+  Manager regression proves that a closed VM notification channel fails closed;
+  this model does not cover that input.
 
 Run every normal configuration and single-mechanism negative configuration
 with `make tla`.
@@ -82,6 +89,6 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `PlanRemove`, `ExecuteRemove`, `RemoveRevisionExact` | `internal/host/appliance_admin_remove_darwin.go`, `internal/host/store/appliance_operation.go` | pending-destroy tombstone and revision-fence tests |
 | `CrossDomainRemove`, `InstallationNonInterference` | appliance admin authorization | cross-domain remove tests |
 | `Seal`, `RecoverSealed`, `SealedRecoveryIsBounded` | appliance supervisor and appliance admin operations | key loss, corruption, schema, and bounded repair tests |
-| `HostVMRestartRecovery.ResumeSuccess`, `NoFreshVMStart` | `cmd/agent-vmm-host`, `internal/host.Controller.StartVM` | exact state-disk guard and Host restart physical smoke |
+| `HostVMRestartRecovery.ResumeSuccess`, `UnexpectedStop`, `RecoverySuccess`, `RecoveryCommit`, `RecoveryFailure`, `Shutdown`, `NoFreshVMStart`, `RecoveryRevokesAdmission`, `RecoveryClearsLease` | `cmd/agent-vmm-host`, `internal/vmm.Manager.observeStateChanges`, `internal/vmm.Manager.terminalTransition`, `internal/host.VMLifecycleOwner` | startup state-disk guard, lease and admission revocation, one shutdown-exclusive lifecycle owner, fresh boot, closed-notification fail-closed behavior, and terminal failure tests |
 
 Consumer repositories may refine these actions, but they must not redefine host inventory, epoch, or lifecycle ownership.

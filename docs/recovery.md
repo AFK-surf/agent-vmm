@@ -6,6 +6,15 @@ epoch, and installation revision. A restart creates a fresh boot/container
 instance and revokes the previous runtime capabilities before publishing the
 replacement.
 
+An unexpected Virtualization.framework stop is handled once by the running
+Host process. It revokes remote sessions, active lease capabilities, and
+connector admission before using the same `state.raw`, then restores
+appliances, policies, and connectors
+under a fresh Guest boot ID. If that attempt fails, or if the recovered VM stops
+unexpectedly again, VM status remains `FAILED` with operator action required.
+Automatic recovery never formats or replaces the state disk, kills unrelated
+processes, restarts the Host, or reboots macOS.
+
 Bootstrap envelopes are opaque, stored in the service user's mode-`0600` state
 directory, bound to the installation and random single-use bootstrap ID, and
 deleted after consumption. A replay,

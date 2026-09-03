@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"time"
@@ -77,54 +76,7 @@ func (controller *Controller) systemApplianceProjection(ctx context.Context) map
 }
 
 func (controller *Controller) activateAppliance(ctx context.Context, installationID string) error {
-	if controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && !controller.manager.HasApplianceBlock(installationID) {
-		controller.stopEgress()
-		controller.invalidateRuntimeCapabilities(ctx)
-		if _, err := controller.manager.Stop(ctx, false); err != nil {
-			return err
-		}
-	}
-	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
-		if err := controller.configureApplianceBlocks(ctx); err != nil {
-			return err
-		}
-		if _, err := controller.manager.Start(ctx); err != nil {
-			return err
-		}
-		if err := controller.startEgress(); err != nil {
-			return err
-		}
-		installation, err := controller.store.GetApplianceInstallation(ctx, installationID)
-		if err != nil {
-			return err
-		}
-		client, connection, err := controller.guestClient(ctx)
-		if err != nil {
-			return err
-		}
-		if err := controller.startAppliance(ctx, client, installation); err != nil {
-			connection.Close()
-			return err
-		}
-		connection.Close()
-		if err := controller.reconcileAppliancesExcept(ctx, installationID); err != nil {
-			log.Printf("reconcile peer appliances after activating %q: %v", installationID, err)
-		}
-		return controller.reconcilePolicies(ctx)
-	}
-	installation, err := controller.store.GetApplianceInstallation(ctx, installationID)
-	if err != nil {
-		return err
-	}
-	client, connection, err := controller.guestClient(ctx)
-	if err != nil {
-		return err
-	}
-	defer connection.Close()
-	if err := controller.startAppliance(ctx, client, installation); err != nil {
-		return err
-	}
-	return nil
+	return controller.vmLifecycle.ActivateAppliance(ctx, installationID)
 }
 
 func (controller *Controller) stopAppliance(ctx context.Context, installationID string) error {

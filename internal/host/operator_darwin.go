@@ -31,8 +31,8 @@ func (server *operatorServer) StartVM(ctx context.Context, request *hostv1.Start
 	return server.controller.StartVM(ctx, request.GetRequestId())
 }
 
-// StartVM is the single VM start transition used by both the authenticated
-// Operator RPC and the bounded Host-start recovery attempt.
+// StartVM serializes an authenticated operator start with the bounded
+// unexpected-stop recovery owner.
 func (controller *Controller) StartVM(ctx context.Context, requestID string) (*hostv1.OperationResponse, error) {
 	if requestID == "" {
 		return nil, invalidField("request_id", "request ID is required")
@@ -52,43 +52,13 @@ func (controller *Controller) StartVM(ctx context.Context, requestID string) (*h
 		controller.failOperation(ctx, &operation, "APPLIANCE_REMOVE_RECOVERY_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_REMOVE_RECOVERY_FAILED", "vm", "local", err.Error())
 	}
-	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
-		err = controller.configureApplianceBlocks(ctx)
-	}
-	if err == nil {
-		_, err = controller.manager.Start(ctx)
-	}
+	_, err = controller.vmLifecycle.Start(ctx)
 	if err != nil {
 		controller.failOperation(ctx, &operation, "VM_START_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "VM_START_FAILED", "vm", "local", err.Error())
 	}
-	if err := controller.startEgress(); err != nil {
-		controller.rollbackStartedVM()
-		controller.failOperation(ctx, &operation, "EGRESS_START_FAILED", err)
-		return nil, resourceError(codes.FailedPrecondition, "EGRESS_START_FAILED", "vm", "local", err.Error())
-	}
-	if err := controller.reconcileAppliances(ctx); err != nil {
-		_ = controller.store.Audit(ctx, "system", "system", "appliance.reconcile", "", "", int32(codes.FailedPrecondition), "APPLIANCE_RECONCILE_PARTIAL")
-	}
-	if err := controller.reconcilePolicies(ctx); err != nil {
-		controller.rollbackStartedVM()
-		controller.failOperation(ctx, &operation, "POLICY_RECONCILE_FAILED", err)
-		return nil, retryable("POLICY_RECONCILE_FAILED", "VM started but policy projection failed", time.Second)
-	}
-	if err := controller.ReconcileExternalConnectors(ctx); err != nil {
-		controller.rollbackStartedVM()
-		controller.failOperation(ctx, &operation, "EXTERNAL_CONNECTOR_RECONCILE_FAILED", err)
-		return nil, retryable("EXTERNAL_CONNECTOR_RECONCILE_FAILED", "VM started but external connectors could not be reconciled", time.Second)
-	}
 	controller.completeOperation(ctx, &operation, "running")
 	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
-}
-
-func (controller *Controller) rollbackStartedVM() {
-	controller.stopEgress()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	_, _ = controller.manager.Stop(ctx, true)
 }
 
 func (server *operatorServer) GetVM(ctx context.Context, _ *hostv1.GetVMRequest) (*hostv1.VMResponse, error) {
@@ -112,14 +82,8 @@ func (server *operatorServer) StopVM(ctx context.Context, request *hostv1.StopVM
 	if existing {
 		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
 	}
-	server.controller.stopEgress()
-	server.controller.invalidateRuntimeCapabilities(ctx)
-	_, err = server.controller.manager.Stop(ctx, request.GetForce())
+	_, err = server.controller.vmLifecycle.Stop(ctx, request.GetForce())
 	if err != nil {
-		if server.controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-			_ = server.controller.startEgress()
-			_ = server.controller.reconcilePolicies(context.Background())
-		}
 		server.controller.failOperation(ctx, &operation, "VM_STOP_FAILED", err)
 		return nil, resourceError(codes.FailedPrecondition, "VM_STOP_FAILED", "vm", "local", err.Error())
 	}
@@ -217,6 +181,9 @@ func (server *operatorServer) UpdateEnvironmentPolicy(ctx context.Context, reque
 		return nil, err
 	} else if err := requireLocalOperatorEnvironment(environment); err != nil {
 		return nil, err
+	}
+	if _, err := server.controller.vmLifecycle.Start(ctx); err != nil {
+		return nil, resourceError(codes.FailedPrecondition, "VM_START_FAILED", "vm", "local", err.Error())
 	}
 	server.controller.projectionMu.Lock()
 	defer server.controller.projectionMu.Unlock()

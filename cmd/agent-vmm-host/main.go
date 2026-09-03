@@ -40,7 +40,7 @@ func main() {
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
 	flag.StringVar(&config.InstanceDirectory, "instance", "", "VM instance directory")
 	flag.UintVar(&config.CPUCount, "cpus", 8, "fixed VM CPU count")
-	flag.Uint64Var(&config.MemoryBytes, "memory", 12<<30, "fixed VM memory bytes")
+	flag.Uint64Var(&config.MemoryBytes, "memory", 8<<30, "fixed VM memory bytes")
 	flag.Int64Var(&config.StateBytes, "state-size", 32<<30, "fully physically backed state disk bytes")
 	flag.StringVar(&config.SerialLog, "serial-log", "", "serial log path")
 	flag.StringVar(&operatorSocket, "operator-socket", "", "operator Unix socket")
@@ -168,7 +168,7 @@ func main() {
 			log.Printf("stop data worker: %v", err)
 		}
 	}()
-	go shutdown(ctx, []*grpc.Server{server, remoteServer, trustServer, serviceServer, meshServer}, manager)
+	go shutdown(ctx, []*grpc.Server{server, remoteServer, trustServer, serviceServer, meshServer}, controller)
 	go func() {
 		if err := meshServer.Serve(meshListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			log.Printf("mesh control stopped: %v", err)
@@ -301,15 +301,11 @@ func ensureConnectorCapability(path string) ([]byte, error) {
 	return value, nil
 }
 
-func shutdown(ctx context.Context, servers []*grpc.Server, manager *vmm.Manager) {
+func shutdown(ctx context.Context, servers []*grpc.Server, controller *host.Controller) {
 	<-ctx.Done()
 	stopContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-		if _, err := manager.Stop(stopContext, false); err != nil {
-			_, _ = manager.Stop(stopContext, true)
-		}
-	}
+	_ = controller.Shutdown(stopContext)
 	for _, server := range servers {
 		done := make(chan struct{})
 		go func() {

@@ -177,8 +177,18 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 		request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED) {
 		return nil, invalidField("connection_instance/state", "connection instance and valid state are required")
 	}
+	if request.GetState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
+		if err := server.controller.requireRemoteAdmission(); err != nil {
+			return nil, err
+		}
+	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if request.GetState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
+		if err := server.controller.requireRemoteAdmission(); err != nil {
+			return nil, err
+		}
+	}
 	registration, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
@@ -228,8 +238,18 @@ func (server *remoteComputeServer) SetRemoteAdmissionState(ctx context.Context, 
 		request.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING) {
 		return nil, invalidField("connection_instance/state", "connection instance and admission state are required")
 	}
+	if request.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED {
+		if err := server.controller.requireRemoteAdmission(); err != nil {
+			return nil, err
+		}
+	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if request.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED {
+		if err := server.controller.requireRemoteAdmission(); err != nil {
+			return nil, err
+		}
+	}
 	registration, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
 	if err != nil {
 		return nil, err
@@ -311,8 +331,14 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 	if err := authorizeRemoteRegistration(ctx, request.GetRegistrationId()); err != nil {
 		return nil, err
 	}
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	registration, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
 	if err != nil || registration.State != int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED) || registration.EnrollmentState != int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY) {
 		return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_NOT_ENABLED", "remote_registration", "active", "remote registration is not enabled")
@@ -607,8 +633,14 @@ func equalStrings(left, right []string) bool {
 }
 
 func (server *remoteComputeServer) AcquireLease(ctx context.Context, request *hostv1.AcquireLeaseRequest) (*hostv1.LeaseResponse, error) {
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	environment, err := server.remoteEnvironment(ctx, request.GetRegistrationId(), request.GetAllocationId())
 	if err != nil {
 		return nil, err
@@ -672,6 +704,9 @@ func (server *remoteComputeServer) RenewLease(ctx context.Context, request *host
 	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	registration, err := server.requireCurrentRemoteConnectionLocked(ctx, request.GetRegistrationId(), request.GetConnectionInstance())
 	if err != nil {
 		return nil, err
@@ -745,8 +780,14 @@ func (server *remoteComputeServer) OpenRuntimeSession(ctx context.Context, reque
 	if err := authorizeRemoteRegistration(ctx, request.GetRegistrationId()); err != nil {
 		return nil, err
 	}
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	if _, err := server.requireCurrentRemoteConnectionLocked(ctx, request.GetRegistrationId(), request.GetConnectionInstance()); err != nil {
 		return nil, err
 	}

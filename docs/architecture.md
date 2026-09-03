@@ -169,6 +169,17 @@ The host controller has these responsibilities:
 - provide local TTY, file transfer, and port forwarding
 - reconcile desired policy after a virtual machine restart
 
+The packaged Host defaults the VM to 8 GiB and refuses a configuration that
+leaves less than 8 GiB of physical memory to macOS. If Virtualization.framework
+unexpectedly stops a running VM, the Host first revokes sessions, capabilities,
+active remote leases, and remote connector admission while preserving the
+durable registration, allocation, and state-disk identity. The same Host
+process owns one recovery attempt
+against the existing state disk. It publishes remote admission again only after
+a fresh Guest boot ID, appliance reconciliation, policy replay, and connector
+reconnection. A failed attempt or a second unexpected stop remains failed and
+requires operator action; it does not replace the disk or restart macOS.
+
 The host controller uses one local SQLite database for control-plane facts.
 It does not copy container runtime state or volume contents into this database.
 

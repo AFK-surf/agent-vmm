@@ -16,11 +16,17 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
 	"github.com/Code-Hex/vz/v3"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-const VMMDPort = 4050
+const (
+	VMMDPort          = 4050
+	hostMemoryReserve = 8 << 30
+)
+
+var physicalMemoryBytes = func() (uint64, error) { return unix.SysctlUint64("hw.memsize") }
 
 type Config struct {
 	BundleDirectory     string
@@ -51,6 +57,9 @@ type Manager struct {
 	verified        *bundle.Verified
 	applianceBlocks []ApplianceBlock
 	invalidate      func()
+	admissionFence  func()
+	recover         func(string)
+	recoveryUsed    bool
 }
 
 func (manager *Manager) SetInvalidationHandler(handler func()) {
@@ -59,9 +68,38 @@ func (manager *Manager) SetInvalidationHandler(handler func()) {
 	manager.mu.Unlock()
 }
 
+// SetAdmissionFence installs a non-blocking callback that must not call back
+// into Manager. terminalTransition invokes it while holding manager.mu.
+func (manager *Manager) SetAdmissionFence(handler func()) {
+	manager.mu.Lock()
+	manager.admissionFence = handler
+	manager.mu.Unlock()
+}
+
+func (manager *Manager) SetUnexpectedStopHandler(handler func(previousBootID string)) {
+	manager.mu.Lock()
+	manager.recover = handler
+	manager.mu.Unlock()
+}
+
+func (manager *Manager) ClearLifecycleHandlers() {
+	manager.mu.Lock()
+	manager.invalidate = nil
+	manager.admissionFence = nil
+	manager.recover = nil
+	manager.mu.Unlock()
+}
+
 func NewManager(config Config) (*Manager, error) {
 	if config.CPUCount == 0 || config.MemoryBytes < 512<<20 || config.StateBytes < 1<<30 {
 		return nil, errors.New("invalid VM resources")
+	}
+	physical, err := physicalMemoryBytes()
+	if err != nil {
+		return nil, fmt.Errorf("read host physical memory: %w", err)
+	}
+	if physical <= hostMemoryReserve || config.MemoryBytes > physical-hostMemoryReserve {
+		return nil, fmt.Errorf("VM memory %d leaves less than 8 GiB for the host", config.MemoryBytes)
 	}
 	for _, path := range []string{config.BundleDirectory, config.InstanceDirectory, config.SerialLog} {
 		if path == "" {
@@ -437,29 +475,74 @@ func (manager *Manager) dialVMMD(ctx context.Context, allowStopping bool) (*grpc
 
 func (manager *Manager) observe(machine *vz.VirtualMachine, serial *os.File) {
 	defer serial.Close()
-	for state := range machine.StateChangedNotify() {
+	manager.observeStateChanges(machine, machine.StateChangedNotify())
+}
+
+func (manager *Manager) observeStateChanges(machine *vz.VirtualMachine, states <-chan vz.VirtualMachineState) {
+	for state := range states {
 		if state != vz.VirtualMachineStateStopped && state != vz.VirtualMachineStateError {
 			continue
 		}
-		manager.mu.Lock()
-		if manager.machine == machine {
-			manager.closeEgressLocked()
-			manager.machine = nil
-			manager.socket = nil
-			if state == vz.VirtualMachineStateError {
-				manager.state = hostv1.VMState_VM_STATE_FAILED
-				manager.lastErr = "Virtualization.framework reported an error"
-			} else {
-				manager.state = hostv1.VMState_VM_STATE_STOPPED
-			}
-		}
-		invalidate := manager.invalidate
-		manager.mu.Unlock()
+		invalidate, recover, previousBootID := manager.terminalTransition(machine, state, true)
 		if invalidate != nil {
 			invalidate()
 		}
+		if recover != nil {
+			recover(previousBootID)
+		}
 		return
 	}
+	invalidate, _, _ := manager.terminalTransition(machine, vz.VirtualMachineStateError, false)
+	if invalidate != nil {
+		invalidate()
+	}
+}
+
+func (manager *Manager) terminalTransition(machine *vz.VirtualMachine, state vz.VirtualMachineState, recoverable bool) (func(), func(string), string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.machine != machine {
+		return nil, nil, ""
+	}
+	if manager.admissionFence != nil {
+		manager.admissionFence()
+	}
+	unexpected := false
+	previousBootID := ""
+	unexpected = manager.state == hostv1.VMState_VM_STATE_RUNNING
+	previousBootID = manager.bootID
+	manager.closeEgressLocked()
+	manager.machine = nil
+	manager.socket = nil
+	manager.bootID = ""
+	if unexpected && !recoverable {
+		manager.recoveryUsed = true
+		manager.state = hostv1.VMState_VM_STATE_FAILED
+		manager.lastErr = "VM state notification channel closed; operator action required"
+	} else if unexpected && manager.recoveryUsed {
+		manager.state = hostv1.VMState_VM_STATE_FAILED
+		manager.lastErr = "automatic VM recovery exhausted; operator action required"
+	} else if state == vz.VirtualMachineStateError {
+		manager.state = hostv1.VMState_VM_STATE_FAILED
+		manager.lastErr = "Virtualization.framework reported an error"
+	} else {
+		manager.state = hostv1.VMState_VM_STATE_STOPPED
+	}
+	invalidate := manager.invalidate
+	recover := manager.recover
+	if unexpected && !manager.recoveryUsed {
+		manager.recoveryUsed = true
+	} else {
+		recover = nil
+	}
+	return invalidate, recover, previousBootID
+}
+
+func (manager *Manager) FailRecovery(err error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	manager.state = hostv1.VMState_VM_STATE_FAILED
+	manager.lastErr = "automatic VM recovery failed; operator action required: " + err.Error()
 }
 
 func (manager *Manager) fail(err error) {

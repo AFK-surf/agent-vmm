@@ -1,0 +1,357 @@
+//go:build darwin
+
+package host
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/vmm"
+)
+
+type vmLifecycleOperation uint8
+
+const (
+	vmLifecycleStart vmLifecycleOperation = iota + 1
+	vmLifecycleStop
+	vmLifecycleRecover
+	vmLifecycleApplianceOffline
+	vmLifecycleShutdown
+)
+
+type vmLifecycleResult struct {
+	vm  *hostv1.VM
+	err error
+}
+
+type VMLifecycleOwner struct {
+	controller *Controller
+	manager    *vmm.Manager
+
+	operationMu         sync.Mutex
+	stateMu             sync.Mutex
+	closing             bool
+	recovery            context.CancelFunc
+	recoveryWG          sync.WaitGroup
+	shutdownDone        chan struct{}
+	shutdownErr         error
+	admission           atomic.Uint64
+	snapshot            func() *hostv1.VM
+	beforeAdmissionOpen func()
+}
+
+func newVMLifecycleOwner(controller *Controller, manager *vmm.Manager) *VMLifecycleOwner {
+	return &VMLifecycleOwner{controller: controller, manager: manager, shutdownDone: make(chan struct{}), snapshot: manager.Snapshot}
+}
+
+func (owner *VMLifecycleOwner) execute(operation vmLifecycleOperation, run func() vmLifecycleResult) vmLifecycleResult {
+	owner.operationMu.Lock()
+	defer owner.operationMu.Unlock()
+	owner.stateMu.Lock()
+	closing := owner.closing
+	owner.stateMu.Unlock()
+	if closing && operation != vmLifecycleShutdown {
+		return vmLifecycleResult{err: errors.New("VM lifecycle is shutting down")}
+	}
+	return run()
+}
+
+func (owner *VMLifecycleOwner) admitsRemoteWork() bool {
+	if owner == nil {
+		return false
+	}
+	_, open := owner.admissionToken()
+	return open
+}
+
+func (owner *VMLifecycleOwner) admissionToken() (uint64, bool) {
+	state := owner.admission.Load()
+	return state >> 1, state&1 == 1
+}
+
+func (owner *VMLifecycleOwner) closeAdmission() {
+	for {
+		state := owner.admission.Load()
+		if owner.admission.CompareAndSwap(state, ((state>>1)+1)<<1) {
+			return
+		}
+	}
+}
+
+func (owner *VMLifecycleOwner) openAdmission(generation uint64, bootID string) bool {
+	owner.stateMu.Lock()
+	defer owner.stateMu.Unlock()
+	if owner.closing {
+		return false
+	}
+	vm := owner.snapshot()
+	if vm.GetState() != hostv1.VMState_VM_STATE_RUNNING || bootID == "" || vm.GetBootId() != bootID {
+		return false
+	}
+	if owner.beforeAdmissionOpen != nil {
+		owner.beforeAdmissionOpen()
+	}
+	return owner.admission.CompareAndSwap(generation<<1, generation<<1|1)
+}
+
+func (owner *VMLifecycleOwner) commit(ctx context.Context, excludedInstallationID string) error {
+	vm := owner.manager.Snapshot()
+	generation, _ := owner.admissionToken()
+	return owner.controller.commitRunningVM(ctx, excludedInstallationID, generation, vm.GetBootId())
+}
+
+func (owner *VMLifecycleOwner) Start(ctx context.Context) (*hostv1.VM, error) {
+	result := owner.execute(vmLifecycleStart, func() vmLifecycleResult {
+		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && owner.admitsRemoteWork() {
+			return vmLifecycleResult{vm: owner.manager.Snapshot()}
+		}
+		owner.controller.prepareVMTransition(ctx)
+		owner.controller.stopEgress()
+		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+			err := owner.commit(ctx, "")
+			if err != nil {
+				owner.rollbackRunningVM()
+			}
+			return vmLifecycleResult{vm: owner.manager.Snapshot(), err: err}
+		}
+		if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
+			return vmLifecycleResult{err: err}
+		}
+		vm, err := owner.manager.Start(ctx)
+		if err == nil {
+			err = owner.commit(ctx, "")
+		}
+		if err != nil {
+			owner.rollbackRunningVM()
+		}
+		return vmLifecycleResult{vm: vm, err: err}
+	})
+	return result.vm, result.err
+}
+
+func (owner *VMLifecycleOwner) Stop(ctx context.Context, force bool) (*hostv1.VM, error) {
+	result := owner.execute(vmLifecycleStop, func() vmLifecycleResult {
+		owner.controller.prepareVMTransition(ctx)
+		owner.controller.stopEgress()
+		vm, err := owner.manager.Stop(ctx, force)
+		if err != nil && owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+			err = errors.Join(err, owner.commit(context.Background(), ""))
+		}
+		return vmLifecycleResult{vm: vm, err: err}
+	})
+	return result.vm, result.err
+}
+
+func (owner *VMLifecycleOwner) RecoverAsync(previousBootID string) {
+	owner.stateMu.Lock()
+	if owner.closing {
+		owner.stateMu.Unlock()
+		return
+	}
+	owner.recoveryWG.Add(1)
+	owner.stateMu.Unlock()
+	go func() {
+		defer owner.recoveryWG.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), unexpectedVMRecoveryTimeout)
+		owner.stateMu.Lock()
+		if owner.closing {
+			owner.stateMu.Unlock()
+			cancel()
+			return
+		}
+		owner.recovery = cancel
+		owner.stateMu.Unlock()
+		defer func() {
+			owner.stateMu.Lock()
+			owner.recovery = nil
+			owner.stateMu.Unlock()
+			cancel()
+		}()
+		owner.recover(ctx, previousBootID)
+	}()
+}
+
+func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID string) {
+	result := owner.execute(vmLifecycleRecover, func() vmLifecycleResult {
+		owner.controller.prepareVMTransition(ctx)
+		owner.controller.stopEgress()
+		if err := owner.controller.store.RecoverRemoteLeaseProjections(ctx); err != nil {
+			return vmLifecycleResult{err: err}
+		}
+		if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
+			return vmLifecycleResult{err: err}
+		}
+		vm, err := owner.manager.Start(ctx)
+		if err == nil && (vm.GetBootId() == "" || vm.GetBootId() == previousBootID) {
+			err = errors.New("recovered VM did not publish a fresh boot ID")
+		}
+		if err == nil {
+			err = owner.commit(ctx, "")
+		}
+		if err != nil {
+			owner.rollbackRunningVM()
+			owner.manager.FailRecovery(err)
+		}
+		return vmLifecycleResult{vm: vm, err: err}
+	})
+	_ = result
+}
+
+func (owner *VMLifecycleOwner) ActivateAppliance(ctx context.Context, installationID string) error {
+	return owner.execute(vmLifecycleApplianceOffline, func() vmLifecycleResult {
+		err := owner.activateApplianceOwned(ctx, installationID)
+		return vmLifecycleResult{err: err}
+	}).err
+}
+
+func (owner *VMLifecycleOwner) activateApplianceOwned(ctx context.Context, installationID string) error {
+	controller := owner.controller
+	if controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && !controller.manager.HasApplianceBlock(installationID) {
+		controller.prepareVMTransition(ctx)
+		controller.stopEgress()
+		if _, err := owner.manager.Stop(ctx, false); err != nil {
+			return err
+		}
+	}
+	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		if err := controller.configureApplianceBlocks(ctx); err != nil {
+			return err
+		}
+		if _, err := owner.manager.Start(ctx); err != nil {
+			return err
+		}
+		installation, err := controller.store.GetApplianceInstallation(ctx, installationID)
+		if err != nil {
+			owner.rollbackRunningVM()
+			return err
+		}
+		if err := controller.startEgress(); err != nil {
+			owner.rollbackRunningVM()
+			return err
+		}
+		client, connection, err := controller.guestClient(ctx)
+		if err != nil {
+			owner.rollbackRunningVM()
+			return err
+		}
+		if err := controller.startAppliance(ctx, client, installation); err != nil {
+			connection.Close()
+			owner.rollbackRunningVM()
+			return err
+		}
+		connection.Close()
+		if err := controller.reconcileAppliancesExcept(ctx, installationID); err != nil {
+			owner.rollbackRunningVM()
+			return err
+		}
+		if err := controller.reconcilePolicies(ctx); err != nil {
+			owner.rollbackRunningVM()
+			return err
+		}
+		if err := controller.ReconcileExternalConnectors(ctx); err != nil {
+			owner.rollbackRunningVM()
+			return err
+		}
+		vm := owner.manager.Snapshot()
+		generation, _ := owner.admissionToken()
+		if !owner.openAdmission(generation, vm.GetBootId()) {
+			owner.rollbackRunningVM()
+			return errors.New("VM lifecycle is shutting down")
+		}
+		return nil
+	}
+	installation, err := controller.store.GetApplianceInstallation(ctx, installationID)
+	if err != nil {
+		return err
+	}
+	client, connection, err := controller.guestClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	return controller.startAppliance(ctx, client, installation)
+}
+
+func (owner *VMLifecycleOwner) WithApplianceDataOffline(ctx context.Context, excludedInstallationID string, mutate func() error) error {
+	return owner.execute(vmLifecycleApplianceOffline, func() vmLifecycleResult {
+		wasRunning := owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING
+		if wasRunning {
+			owner.controller.prepareVMTransition(ctx)
+			owner.controller.stopEgress()
+			if _, err := owner.manager.Stop(ctx, false); err != nil {
+				return vmLifecycleResult{err: err}
+			}
+		}
+		mutationErr := mutate()
+		if !wasRunning {
+			return vmLifecycleResult{err: mutationErr}
+		}
+		err := owner.controller.configureApplianceBlocks(ctx)
+		if err == nil {
+			_, err = owner.manager.Start(ctx)
+		}
+		if err == nil {
+			err = owner.commit(ctx, excludedInstallationID)
+		}
+		if err != nil {
+			owner.rollbackRunningVM()
+		}
+		return vmLifecycleResult{err: errors.Join(mutationErr, err)}
+	}).err
+}
+
+func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {
+	owner.stateMu.Lock()
+	if owner.closing {
+		done := owner.shutdownDone
+		owner.stateMu.Unlock()
+		select {
+		case <-done:
+			owner.stateMu.Lock()
+			err := owner.shutdownErr
+			owner.stateMu.Unlock()
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	owner.closing = true
+	owner.closeAdmission()
+	if owner.recovery != nil {
+		owner.recovery()
+	}
+	owner.manager.ClearLifecycleHandlers()
+	owner.stateMu.Unlock()
+	owner.recoveryWG.Wait()
+	err := owner.execute(vmLifecycleShutdown, func() vmLifecycleResult {
+		owner.controller.prepareVMTransition(ctx)
+		owner.controller.stopEgress()
+		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+			_, err := owner.manager.Stop(ctx, false)
+			if err != nil {
+				_, err = owner.manager.Stop(ctx, true)
+			}
+			return vmLifecycleResult{err: err}
+		}
+		return vmLifecycleResult{}
+	}).err
+	owner.stateMu.Lock()
+	owner.shutdownErr = err
+	close(owner.shutdownDone)
+	owner.stateMu.Unlock()
+	return err
+}
+
+func (owner *VMLifecycleOwner) rollbackRunningVM() {
+	owner.controller.stopEgress()
+	if owner.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, _ = owner.manager.Stop(ctx, true)
+}

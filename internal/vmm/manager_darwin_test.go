@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,107 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"github.com/Code-Hex/vz/v3"
 )
+
+func TestNewManagerLeavesHostMemoryReserve(t *testing.T) {
+	original := physicalMemoryBytes
+	physicalMemoryBytes = func() (uint64, error) { return 16 << 30, nil }
+	t.Cleanup(func() { physicalMemoryBytes = original })
+	config := Config{BundleDirectory: "bundle", InstanceDirectory: "instance", SerialLog: "serial", CPUCount: 2, StateBytes: 32 << 30}
+	config.MemoryBytes = 8 << 30
+	if _, err := NewManager(config); err != nil {
+		t.Fatalf("8 GiB VM rejected on 16 GiB host: %v", err)
+	}
+	config.MemoryBytes = 12 << 30
+	if _, err := NewManager(config); err == nil {
+		t.Fatal("12 GiB VM accepted on 16 GiB host")
+	}
+}
+
+func TestUnexpectedStopHasOneRecoveryOwnerAndFailsClosed(t *testing.T) {
+	machine := new(vz.VirtualMachine)
+	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "boot-one", machine: machine}
+	fences := 0
+	manager.admissionFence = func() {
+		fences++
+		if manager.state != hostv1.VMState_VM_STATE_RUNNING || manager.bootID != "boot-one" {
+			t.Fatal("admission fence ran after terminal state was published")
+		}
+	}
+	invalidations := 0
+	manager.invalidate = func() { invalidations++ }
+	recoveries := 0
+	manager.recover = func(previousBootID string) {
+		recoveries++
+		if previousBootID != "boot-one" {
+			t.Fatalf("previous boot ID = %q", previousBootID)
+		}
+	}
+	invalidate, recover, bootID := manager.terminalTransition(machine, vz.VirtualMachineStateStopped, true)
+	if manager.state != hostv1.VMState_VM_STATE_STOPPED || manager.bootID != "" || !manager.recoveryUsed {
+		t.Fatalf("first transition = state %s boot %q used %t", manager.state, manager.bootID, manager.recoveryUsed)
+	}
+	invalidate()
+	recover(bootID)
+	if invalidations != 1 || recoveries != 1 || fences != 1 {
+		t.Fatalf("first transition callbacks = invalidate %d recover %d", invalidations, recoveries)
+	}
+	manager.state = hostv1.VMState_VM_STATE_RUNNING
+	manager.bootID = "boot-two"
+	machine = new(vz.VirtualMachine)
+	manager.machine = machine
+	manager.admissionFence = func() { fences++ }
+	invalidate, recover, _ = manager.terminalTransition(machine, vz.VirtualMachineStateError, true)
+	if recover != nil {
+		t.Fatal("second unexpected stop acquired another recovery owner")
+	}
+	invalidate()
+	if manager.state != hostv1.VMState_VM_STATE_FAILED || !strings.Contains(manager.lastErr, "operator action required") || manager.bootID != "" {
+		t.Fatalf("second transition = %+v", manager.snapshotLocked())
+	}
+	if invalidations != 2 || recoveries != 1 || fences != 2 {
+		t.Fatalf("terminal callbacks = invalidate %d recover %d", invalidations, recoveries)
+	}
+}
+
+func TestExpectedStopDoesNotConsumeRecovery(t *testing.T) {
+	machine := new(vz.VirtualMachine)
+	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPING, bootID: "boot", machine: machine}
+	_, recover, _ := manager.terminalTransition(machine, vz.VirtualMachineStateStopped, true)
+	if recover != nil || manager.recoveryUsed || manager.state != hostv1.VMState_VM_STATE_STOPPED {
+		t.Fatalf("expected stop = state %s used %t", manager.state, manager.recoveryUsed)
+	}
+}
+
+func TestStaleMachineNotificationCannotInvalidateCurrentRuntime(t *testing.T) {
+	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "current", machine: new(vz.VirtualMachine)}
+	invalidate, recover, _ := manager.terminalTransition(new(vz.VirtualMachine), vz.VirtualMachineStateStopped, true)
+	if invalidate != nil || recover != nil || manager.state != hostv1.VMState_VM_STATE_RUNNING || manager.bootID != "current" {
+		t.Fatalf("stale notification changed current runtime: %+v", manager.snapshotLocked())
+	}
+}
+
+func TestRecoveryFailureRequiresOperatorAction(t *testing.T) {
+	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPED, recoveryUsed: true}
+	manager.FailRecovery(errors.New("policy replay failed"))
+	if manager.state != hostv1.VMState_VM_STATE_FAILED || !strings.Contains(manager.lastErr, "operator action required") || !strings.Contains(manager.lastErr, "policy replay failed") {
+		t.Fatalf("recovery failure = %+v", manager.snapshotLocked())
+	}
+}
+
+func TestClosedStateNotificationFailsClosed(t *testing.T) {
+	machine := new(vz.VirtualMachine)
+	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "boot", machine: machine}
+	invalidated := false
+	manager.invalidate = func() { invalidated = true }
+	states := make(chan vz.VirtualMachineState)
+	close(states)
+	manager.observeStateChanges(machine, states)
+	if !invalidated || manager.state != hostv1.VMState_VM_STATE_FAILED || manager.bootID != "" {
+		t.Fatalf("closed notification channel did not fail closed: %+v invalidated=%t", manager.snapshotLocked(), invalidated)
+	}
+}
 
 func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T) {
 	directory := t.TempDir()

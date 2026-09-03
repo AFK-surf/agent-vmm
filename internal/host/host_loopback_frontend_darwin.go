@@ -254,11 +254,17 @@ func (server *remoteComputeServer) AcquireHostLoopbackFrontend(ctx context.Conte
 	if err := authorizeRemoteRegistration(ctx, request.GetRegistrationId()); err != nil {
 		return nil, err
 	}
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	if request.GetAssignmentId() == "" || len(request.GetAssignmentId()) > 256 || request.GetAllocationId() == "" || request.GetAllocationLeaseId() == "" || request.GetAllocationLeaseGeneration() == 0 || request.GetTargetRevision() == 0 {
 		return nil, invalidField("frontend identity", "exact allocation, lease, revision, and assignment are required")
 	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	registration, err := server.requireCurrentRemoteConnectionLocked(ctx, request.GetRegistrationId(), request.GetConnectionInstance())
 	if err != nil {
 		return nil, err
@@ -331,8 +337,14 @@ func (server *remoteComputeServer) RenewHostLoopbackFrontend(ctx context.Context
 	if err := authorizeRemoteRegistration(ctx, request.GetRegistrationId()); err != nil {
 		return nil, err
 	}
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return nil, err
+	}
 	if _, err := server.requireCurrentRemoteConnectionLocked(ctx, request.GetRegistrationId(), request.GetConnectionInstance()); err != nil {
 		return nil, err
 	}
@@ -403,6 +415,9 @@ func (server *remoteComputeServer) ReleaseHostLoopbackFrontend(ctx context.Conte
 }
 
 func (server *remoteComputeServer) AcceptHostLoopbackFrontend(stream hostv1.RemoteComputeService_AcceptHostLoopbackFrontendServer) error {
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		return err
+	}
 	first, err := stream.Recv()
 	if err != nil {
 		return err
@@ -415,6 +430,10 @@ func (server *remoteComputeServer) AcceptHostLoopbackFrontend(stream hostv1.Remo
 		return err
 	}
 	server.controller.remoteAdmissionMu.Lock()
+	if err := server.controller.requireRemoteAdmission(); err != nil {
+		server.controller.remoteAdmissionMu.Unlock()
+		return err
+	}
 	_, err = server.requireCurrentRemoteConnectionLocked(stream.Context(), accept.GetRegistrationId(), accept.GetConnectionInstance())
 	if err == nil {
 		err = server.requireFrontendConnectionEpochLocked(accept.GetRegistrationId(), accept.GetConnectionInstance(), accept.GetConnectionEpoch())
@@ -423,6 +442,10 @@ func (server *remoteComputeServer) AcceptHostLoopbackFrontend(stream hostv1.Remo
 	if err != nil {
 		return err
 	}
+	admissionGeneration, admissionOpen := server.controller.vmLifecycle.admissionToken()
+	if !admissionOpen {
+		return server.controller.requireRemoteAdmission()
+	}
 	var pending *hostLoopbackPendingConnection
 	select {
 	case pending = <-server.controller.hostFrontends.queue(accept.GetRegistrationId(), accept.GetConnectionInstance(), accept.GetConnectionEpoch()):
@@ -430,6 +453,11 @@ func (server *remoteComputeServer) AcceptHostLoopbackFrontend(stream hostv1.Remo
 		return stream.Send(&hostv1.HostFrontendFrame{Payload: &hostv1.HostFrontendFrame_Event{Event: event}})
 	case <-stream.Context().Done():
 		return stream.Context().Err()
+	}
+	currentGeneration, currentOpen := server.controller.vmLifecycle.admissionToken()
+	if !currentOpen || currentGeneration != admissionGeneration {
+		pending.connection.Close()
+		return server.controller.requireRemoteAdmission()
 	}
 	defer pending.lease.drop(pending.connectionID)
 	if pending.lease.proto.GetConnectionInstance() != accept.GetConnectionInstance() || pending.lease.proto.GetConnectionEpoch() != accept.GetConnectionEpoch() {

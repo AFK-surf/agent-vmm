@@ -125,6 +125,7 @@ type Controller struct {
 	externalConnectors       map[string]*externalConnectorRoute
 	externalConnectorContext context.Context
 	externalConnectorRunner  func(context.Context, remoteconnector.Config) error
+	vmLifecycle              *VMLifecycleOwner
 }
 
 func (controller *Controller) lockIntegration(id string) func() {
@@ -210,9 +211,16 @@ func New(config Config) (*Controller, error) {
 		remoteCapacity:      store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
 		remoteCapacityV2:    remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes),
 	}
+	controller.vmLifecycle = newVMLifecycleOwner(controller, config.Manager)
 	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
 	controller.remoteConnectionEpochs = make(map[string]uint64)
-	config.Manager.SetInvalidationHandler(func() { controller.invalidateRuntimeCapabilities(context.Background()) })
+	config.Manager.SetInvalidationHandler(func() {
+		controller.prepareVMTransition(context.Background())
+	})
+	config.Manager.SetAdmissionFence(controller.vmLifecycle.closeAdmission)
+	config.Manager.SetUnexpectedStopHandler(func(previousBootID string) {
+		controller.vmLifecycle.RecoverAsync(previousBootID)
+	})
 	// Appliance operation receipts outlive the host process. Recover them
 	// before exposing the controller so reconciliation cannot treat an
 	// interrupted lifecycle call as an active owner forever.
@@ -242,6 +250,8 @@ func New(config Config) (*Controller, error) {
 	return controller, nil
 }
 
+const unexpectedVMRecoveryTimeout = 10 * time.Minute
+
 func remoteWorkloadCapacity(cpuCount uint, memoryBytes uint64, stateBytes int64) resourcev2.Capacity {
 	cpu := uint64(cpuCount) * 1000
 	guarantee := cpu
@@ -265,11 +275,67 @@ func remoteWorkloadCapacity(cpuCount uint, memoryBytes uint64, stateBytes int64)
 }
 
 func (controller *Controller) invalidateRuntimeCapabilities(ctx context.Context) {
+	controller.prepareVMTransition(ctx)
+}
+
+func (controller *Controller) prepareVMTransition(ctx context.Context) {
+	if controller.vmLifecycle != nil {
+		controller.vmLifecycle.closeAdmission()
+	}
+	controller.stopAllExternalConnectors()
+	controller.remoteAdmissionMu.Lock()
+	defer controller.remoteAdmissionMu.Unlock()
+	controller.invalidateRuntimeCapabilitiesLocked(ctx)
+}
+
+func (controller *Controller) commitRunningVM(ctx context.Context, excludedInstallationID string, generation uint64, bootID string) error {
+	if err := controller.startEgress(); err != nil {
+		return err
+	}
+	var err error
+	if excludedInstallationID == "" {
+		err = controller.reconcileAppliances(ctx)
+	} else {
+		err = controller.reconcileAppliancesExcept(ctx, excludedInstallationID)
+	}
+	if err != nil {
+		return err
+	}
+	if err = controller.reconcilePolicies(ctx); err != nil {
+		return err
+	}
+	if err := controller.ReconcileExternalConnectors(ctx); err != nil {
+		return err
+	}
+	if !controller.vmLifecycle.openAdmission(generation, bootID) {
+		return errors.New("VM lifecycle is shutting down")
+	}
+	return nil
+}
+
+func (controller *Controller) requireRemoteAdmission() error {
+	if controller.vmLifecycle != nil && controller.vmLifecycle.admitsRemoteWork() {
+		return nil
+	}
+	return retryable("VM_ADMISSION_CLOSED", "VM runtime admission is temporarily unavailable", time.Second)
+}
+
+func (controller *Controller) invalidateRuntimeCapabilitiesLocked(ctx context.Context) {
 	controller.hostFrontends.closeAll(hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
 	controller.stopAllApplianceFrontends()
 	controller.clearAllApplianceHealth()
 	controller.stopAllPrivateControllerRoutes()
-	controller.stopAllExternalConnectors()
+	controller.mu.Lock()
+	leases := make([]remoteLease, 0, len(controller.remoteLeases))
+	for _, lease := range controller.remoteLeases {
+		leases = append(leases, *lease)
+	}
+	controller.mu.Unlock()
+	for _, lease := range leases {
+		unlockEnvironment := controller.lockEnvironment(lease.environmentID)
+		_, _ = controller.finishLeaseLocked(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, false, false, false)
+		unlockEnvironment()
+	}
 	controller.mu.Lock()
 	sessionIDs := make([]string, 0, len(controller.sessions))
 	for id := range controller.sessions {
@@ -291,6 +357,9 @@ func (controller *Controller) invalidateRuntimeCapabilities(ctx context.Context)
 }
 
 func (controller *Controller) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_ = controller.Shutdown(ctx)
 	if controller.applianceReconcileCancel != nil {
 		controller.applianceReconcileCancel()
 		controller.applianceReconcileWG.Wait()
@@ -314,6 +383,10 @@ func (controller *Controller) Close() error {
 	return controller.store.Close()
 }
 
+func (controller *Controller) Shutdown(ctx context.Context) error {
+	return controller.vmLifecycle.Shutdown(ctx)
+}
+
 func (controller *Controller) NewOperatorServer() *grpc.Server {
 	identity := auth.Identity{Role: auth.Operator}
 	limiter := newRPCRateLimiter(200, 400)
@@ -332,6 +405,13 @@ func (controller *Controller) NewOperatorServer() *grpc.Server {
 func (controller *Controller) createSession(ctx context.Context, environmentID, integrationID string, ownerKind int32, remoteIdentity auth.Identity) (store.Session, store.Environment, error) {
 	if environmentID == "" {
 		return store.Session{}, store.Environment{}, errors.New("environment ID is required")
+	}
+	if ownerKind == store.OwnerLocal {
+		if _, err := controller.vmLifecycle.Start(ctx); err != nil {
+			return store.Session{}, store.Environment{}, err
+		}
+	} else if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		return store.Session{}, store.Environment{}, errors.New("VM is not ready for remote admission")
 	}
 	unlock := controller.lockEnvironment(environmentID)
 	defer unlock()
@@ -407,6 +487,9 @@ func (controller *Controller) ensureLocalEnvironment(ctx context.Context, enviro
 	if environmentID == "" {
 		return store.Environment{}, errors.New("environment ID is required")
 	}
+	if _, err := controller.vmLifecycle.Start(ctx); err != nil {
+		return store.Environment{}, err
+	}
 	controller.projectionMu.Lock()
 	defer controller.projectionMu.Unlock()
 	environment, err := controller.store.GetEnvironment(ctx, environmentID)
@@ -451,24 +534,8 @@ func (controller *Controller) reconcileEnvironment(ctx context.Context, environm
 }
 
 func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, environment store.Environment) error {
-	started := false
 	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
-		if err := controller.configureApplianceBlocks(ctx); err != nil {
-			return err
-		}
-		if _, err := controller.manager.Start(ctx); err != nil {
-			return err
-		}
-		started = true
-	}
-	if started {
-		if err := controller.startEgress(); err != nil {
-			return err
-		}
-		if err := controller.reconcileAppliances(ctx); err != nil {
-			_ = controller.store.Audit(ctx, "system", "system", "appliance.reconcile", "", "", int32(codes.FailedPrecondition), "APPLIANCE_RECONCILE_PARTIAL")
-		}
-		return controller.reconcilePoliciesLocked(ctx)
+		return errors.New("VM is not running")
 	}
 	controller.egress.Policies.Clear()
 	if err := controller.projectEnvironment(ctx, environment); err != nil {
