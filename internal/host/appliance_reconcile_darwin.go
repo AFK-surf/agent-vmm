@@ -17,22 +17,40 @@ import (
 )
 
 func (controller *Controller) applianceReconcileLoop(ctx context.Context) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	delay := 100 * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+				delay = 100 * time.Millisecond
+				timer.Reset(delay)
 				continue
 			}
 			err := controller.reconcileObservedAppliances(ctx)
 			if err != nil {
 				log.Printf("reconcile observed appliances: %v", err)
+				delay = nextApplianceReconcileDelay(delay)
+			} else {
+				delay = 100 * time.Millisecond
 			}
+			timer.Reset(delay)
 		}
 	}
+}
+
+func nextApplianceReconcileDelay(current time.Duration) time.Duration {
+	next := current * 2
+	if next < 100*time.Millisecond {
+		return 100 * time.Millisecond
+	}
+	if next > 5*time.Second {
+		return 5 * time.Second
+	}
+	return next
 }
 
 func (controller *Controller) reconcileObservedAppliances(ctx context.Context) error {

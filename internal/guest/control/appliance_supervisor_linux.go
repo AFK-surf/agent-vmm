@@ -387,7 +387,6 @@ func systemSpecOption(runtimePath, dataPath string) oci.SpecOpts {
 		}
 		spec.Linux.Resources.Devices = []specs.LinuxDeviceCgroup{{Allow: false, Access: "rwm"}}
 		spec.Mounts = append(spec.Mounts,
-			specs.Mount{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"rw", "nosuid", "nodev", "noexec", "mode=1777", "size=64m"}},
 			specs.Mount{Destination: "/run/agent-vmm", Type: "bind", Source: runtimePath, Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
 			specs.Mount{Destination: "/var/lib/agent-vmm", Type: "bind", Source: dataPath, Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
 		)

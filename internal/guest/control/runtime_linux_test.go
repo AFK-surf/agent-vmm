@@ -39,6 +39,18 @@ func TestReusableSourceUnpackedSkipsStaleImageRecord(t *testing.T) {
 	}
 }
 
+func TestReusableTargetDescriptorPreservesManifestMetadata(t *testing.T) {
+	want := opencontainers.Descriptor{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Digest:    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Size:      1234,
+	}
+	got := reusableTargetDescriptor(images.Image{Target: want})
+	if got == nil || !reflect.DeepEqual(*got, want) {
+		t.Fatalf("reusable target descriptor = %+v, want %+v", got, want)
+	}
+}
+
 func TestShutdownWaitsForMutation(t *testing.T) {
 	server := new(Server)
 	started := make(chan struct{})
@@ -186,7 +198,7 @@ func TestFixedSpecPolicy(t *testing.T) {
 		Volumes: []*vmmdv1.VolumeMount{{VolumeId: "data", Destination: "/data", ReadOnly: true}},
 	}
 	options := runtime.specOptions("agent-a", request, nil)
-	spec := &oci.Spec{Process: &specs.Process{Args: []string{"/bin/sh"}, Capabilities: &specs.LinuxCapabilities{Effective: []string{"CAP_SYS_ADMIN"}}}, Linux: &specs.Linux{}}
+	spec := &oci.Spec{Root: &specs.Root{}, Process: &specs.Process{Args: []string{"/bin/sh"}, Capabilities: &specs.LinuxCapabilities{Effective: []string{"CAP_SYS_ADMIN"}}}, Linux: &specs.Linux{}}
 	if err := options[len(options)-1](context.Background(), nil, nil, spec); err != nil {
 		t.Fatal(err)
 	}
@@ -201,10 +213,38 @@ func TestFixedSpecPolicy(t *testing.T) {
 	}
 	want := []specs.Mount{
 		{Destination: "/data", Type: "bind", Source: "/state/volumes/agent-a/data", Options: []string{"rbind", "ro", "nosuid", "nodev"}},
+		{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"rw", "nosuid", "nodev", "noexec", "mode=1777", "size=64m"}},
 		{Destination: "/etc/resolv.conf", Type: "bind", Source: "/state/network/resolv/agent-a.conf", Options: []string{"bind", "ro", "nosuid", "nodev"}},
 	}
 	if !reflect.DeepEqual(spec.Mounts, want) {
 		t.Fatalf("mounts = %+v, want %+v", spec.Mounts, want)
+	}
+	if err := systemSpecOption("/run/system-a", "/data/system-a")(context.Background(), nil, nil, spec); err != nil {
+		t.Fatal(err)
+	}
+	tmpMounts := 0
+	for _, mount := range spec.Mounts {
+		if filepath.Clean(mount.Destination) == "/tmp" {
+			tmpMounts++
+		}
+	}
+	if tmpMounts != 1 {
+		t.Fatalf("system appliance received %d /tmp mounts: %+v", tmpMounts, spec.Mounts)
+	}
+	request.Volumes = append(request.Volumes, &vmmdv1.VolumeMount{VolumeId: "custom-tmp", Destination: "/tmp/../tmp"})
+	spec.Mounts = nil
+	options = runtime.specOptions("agent-a", request, nil)
+	if err := options[len(options)-1](context.Background(), nil, nil, spec); err != nil {
+		t.Fatal(err)
+	}
+	tmpMounts = 0
+	for _, mount := range spec.Mounts {
+		if filepath.Clean(mount.Destination) == "/tmp" {
+			tmpMounts++
+		}
+	}
+	if tmpMounts != 1 || spec.Mounts[len(spec.Mounts)-2].Type != "bind" {
+		t.Fatalf("explicit /tmp volume was not preserved: %+v", spec.Mounts)
 	}
 	encoded, err := typeurl.MarshalAny(spec)
 	if err != nil {

@@ -90,14 +90,13 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		var value any
 		err = s.runtime.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
 			return s.runtime.guardOCIProjectGrowth(transaction, reservation, func() error {
+				target := ocispec.Descriptor{Digest: manifestDigest}
 				if reusableTarget != nil {
-					if _, createErr := s.runtime.client.ImageService().Create(namespaceContext(stream.Context(), header.GetActorNamespaceId()), coreimages.Image{Name: imageReference, Target: *reusableTarget}); createErr != nil && !errdefs.IsAlreadyExists(createErr) {
-						return createErr
-					}
+					target = *reusableTarget
 				}
 				var mutationErr error
 				value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
-					return s.runtime.importImage(stream.Context(), nil, header, imageReference, ocispec.Descriptor{Digest: manifestDigest}, header.GetSystemImport())
+					return s.runtime.importImage(stream.Context(), nil, header, imageReference, target, header.GetSystemImport())
 				})
 				return mutationErr
 			})
@@ -267,12 +266,21 @@ func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageRefer
 					return false, false, nil, readyErr
 				}
 				if ready {
-					return true, true, nil, nil
+					// Preserve the authoritative manifest metadata from the ready
+					// source namespace. Digest alone is insufficient for containerd
+					// to traverse and unpack the shared manifest after replacing a
+					// stale target-namespace image record.
+					return true, true, reusableTargetDescriptor(record), nil
 				}
 			}
 		}
 	}
 	return unpacked, !unpacked, nil, nil
+}
+
+func reusableTargetDescriptor(record coreimages.Image) *ocispec.Descriptor {
+	target := record.Target
+	return &target
 }
 
 // A namespace image record can outlive its snapshot metadata after an
@@ -354,6 +362,15 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			}
 			return r.getImageForRole(nsctx, header.GetActorNamespaceId(), imageReference, system)
 		}
+		// An image record without a usable snapshot is an interrupted
+		// materialization, not reusable state. Remove it before this operation
+		// takes ownership so an unpack failure can clean up atomically and a
+		// later retry does not remain pinned to the same partial record.
+		if err := r.client.ImageService().Delete(nsctx, imageReference, coreimages.SynchronousDelete()); err != nil && !errdefs.IsNotFound(err) {
+			return nil, err
+		}
+		existing = nil
+		existingErr = errdefs.ErrNotFound
 	} else if !errdefs.IsNotFound(existingErr) {
 		return nil, existingErr
 	}
@@ -382,8 +399,6 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			}
 			return nil, err
 		}
-	} else if existingErr != nil {
-		return nil, imageError(codes.Aborted, "IMAGE_MATERIALIZATION_CHANGED", "materialized image changed before idempotent reuse", imageReference)
 	}
 	createdRecord := false
 	materialized := existing

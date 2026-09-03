@@ -12,6 +12,11 @@ import (
 
 const remoteObservationFeature = "remote-observation-v1"
 
+var runtimeCapabilityFeatures = []string{
+	"oci-cross-namespace-v1",
+	"readonly-root-tmpfs-v1",
+}
+
 var requiredProtocolFeatures = []string{
 	"command-evidence-v1",
 	"connection-epoch-v1",
@@ -23,7 +28,7 @@ var requiredProtocolFeatures = []string{
 	"resource-v2",
 }
 
-var protocolFeatures = append(append([]string(nil), requiredProtocolFeatures...), remoteObservationFeature)
+var protocolFeatures = append(append(append([]string(nil), requiredProtocolFeatures...), remoteObservationFeature), runtimeCapabilityFeatures...)
 
 type commandTracker struct {
 	epoch              uint64

@@ -28,7 +28,6 @@ func TestSystemApplianceSpecIsNonRootReadOnlyAndDeviceFree(t *testing.T) {
 		t.Fatalf("core rlimit = %+v", spec.Process.Rlimits)
 	}
 	wantMounts := []specs.Mount{
-		{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"rw", "nosuid", "nodev", "noexec", "mode=1777", "size=64m"}},
 		{Destination: "/run/agent-vmm", Type: "bind", Source: "/run/system-a", Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
 		{Destination: "/var/lib/agent-vmm", Type: "bind", Source: "/data/system-a", Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
 	}

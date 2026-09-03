@@ -196,12 +196,17 @@ func main() {
 	if err := controller.StartExternalConnectors(ctx); err != nil {
 		log.Fatal(err)
 	}
-	resumeContext, resumeCancel := context.WithTimeout(ctx, installedVMResumeTimeout)
-	resumeRequestID := fmt.Sprintf("host-start-resume-%d", time.Now().UnixNano())
-	if err := resumeInstalledVM(resumeContext, filepath.Join(config.InstanceDirectory, "state.raw"), config.StateBytes, resumeRequestID, controller.StartVM); err != nil {
-		log.Printf("installed VM was not resumed: %v", err)
-	}
-	resumeCancel()
+	// Keep the operator endpoint observable while a slow Guest resumes. The
+	// lifecycle helper must be able to distinguish STARTING from an unreadable
+	// Host instead of timing out and creating a competing update owner.
+	go func() {
+		resumeContext, resumeCancel := context.WithTimeout(ctx, installedVMResumeTimeout)
+		defer resumeCancel()
+		resumeRequestID := fmt.Sprintf("host-start-resume-%d", time.Now().UnixNano())
+		if err := resumeInstalledVM(resumeContext, filepath.Join(config.InstanceDirectory, "state.raw"), config.StateBytes, resumeRequestID, controller.StartVM); err != nil {
+			log.Printf("installed VM was not resumed: %v", err)
+		}
+	}()
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
 	}

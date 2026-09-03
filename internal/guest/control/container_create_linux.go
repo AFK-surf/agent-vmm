@@ -220,9 +220,21 @@ func (r *Runtime) specOptions(namespaceID string, request *vmmdv1.CreateContaine
 			}
 			spec.Mounts = append(spec.Mounts, specs.Mount{Destination: mount.GetDestination(), Type: "bind", Source: volumePath(namespaceID, mount.GetVolumeId()), Options: []string{"rbind", mode, "nosuid", "nodev"}})
 		}
+		if request.GetReadOnlyRoot() && !containerHasVolumeAt(request, "/tmp") {
+			spec.Mounts = append(spec.Mounts, specs.Mount{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"rw", "nosuid", "nodev", "noexec", "mode=1777", "size=64m"}})
+		}
 		spec.Mounts = append(spec.Mounts, specs.Mount{Destination: "/etc/resolv.conf", Type: "bind", Source: r.network.ResolvPath(namespaceID), Options: []string{"bind", "ro", "nosuid", "nodev"}})
 		return nil
 	})
+}
+
+func containerHasVolumeAt(request *vmmdv1.CreateContainerRequest, destination string) bool {
+	for _, volume := range request.GetVolumes() {
+		if filepath.Clean(volume.GetDestination()) == destination {
+			return true
+		}
+	}
+	return false
 }
 
 func processOverride(image containerd.Image, entrypointOverride, commandOverride *vmmdv1.StringList) oci.SpecOpts {

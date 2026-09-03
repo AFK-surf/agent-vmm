@@ -140,7 +140,7 @@ type fakeController struct {
 }
 
 func (server *fakeController) Enroll(_ context.Context, request *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || !containsAllFeatures(request.GetSupportedFeatures(), protocolFeatures) || !containsAllFeatures(request.GetRequiredFeatures(), requiredProtocolFeatures) || containsAllFeatures(request.GetRequiredFeatures(), []string{remoteObservationFeature}) || request.GetDeviceIdentity().GetDeviceId() == "" {
+	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || !containsAllFeatures(request.GetSupportedFeatures(), protocolFeatures) || !containsAllFeatures(request.GetSupportedFeatures(), runtimeCapabilityFeatures) || !containsAllFeatures(request.GetRequiredFeatures(), requiredProtocolFeatures) || containsAllFeatures(request.GetRequiredFeatures(), append([]string{remoteObservationFeature}, runtimeCapabilityFeatures...)) || request.GetDeviceIdentity().GetDeviceId() == "" {
 		return nil, status.Error(codes.Unauthenticated, "rejected")
 	}
 	if server.key == nil {
