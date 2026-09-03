@@ -4,13 +4,35 @@ package host
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 )
+
+func TestSendImportHeaderForwardsImmediateGuestResult(t *testing.T) {
+	want := &vmmdv1.Image{Reference: "cue.local/runtime/external:release"}
+	image, completed, err := sendImportHeader(
+		func(request *vmmdv1.ImportImageRequest) error {
+			if request.GetHeader().GetImageReference() != want.GetReference() {
+				t.Fatalf("header reference = %q", request.GetHeader().GetImageReference())
+			}
+			return io.EOF
+		},
+		func() (*vmmdv1.Image, error) { return want, nil },
+		&vmmdv1.ImportImageHeader{ImageReference: want.GetReference()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !completed || image != want {
+		t.Fatalf("completed = %v, image = %+v", completed, image)
+	}
+}
 
 func TestImportImageHeaderInjectsSessionNamespaceAndPreservesContentCommitment(t *testing.T) {
 	hash := make([]byte, 32)

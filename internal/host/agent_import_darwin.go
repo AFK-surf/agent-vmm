@@ -52,22 +52,38 @@ func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportI
 		return err
 	}
 	guestHeader := importHeaderToGuest(header, identity.NamespaceID)
-	if err := guest.Send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_Header{Header: guestHeader}}); err != nil {
-		if errors.Is(err, io.EOF) {
-			_, err = guest.CloseAndRecv()
-		}
+	image, completed, err := sendImportHeader(guest.Send, guest.CloseAndRecv, guestHeader)
+	if err != nil {
 		return err
+	}
+	if completed {
+		return stream.SendAndClose(imageFromGuest(image))
 	}
 	if err := downloadImportArchive(stream.Context(), header.GetArchiveUrl(), header.GetArchiveSize(), func(chunk []byte) error {
 		return guest.Send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: chunk}})
 	}); err != nil {
 		return err
 	}
-	image, err := guest.CloseAndRecv()
+	image, err = guest.CloseAndRecv()
 	if err != nil {
 		return err
 	}
 	return stream.SendAndClose(imageFromGuest(image))
+}
+
+func sendImportHeader(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), header *vmmdv1.ImportImageHeader) (*vmmdv1.Image, bool, error) {
+	err := send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_Header{Header: header}})
+	if err == nil {
+		return nil, false, nil
+	}
+	if !errors.Is(err, io.EOF) {
+		return nil, false, err
+	}
+	image, err := closeAndRecv()
+	if err != nil {
+		return nil, false, err
+	}
+	return image, true, nil
 }
 
 func validateImportArchiveURL(raw string) error {
