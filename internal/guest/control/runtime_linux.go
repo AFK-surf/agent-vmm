@@ -66,9 +66,9 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
 		volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
 	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth, runtime.guardOCIMetadataGrowth)
-	if err := runtime.initializeOCIProjectQuota(); err != nil {
+	if err := PrepareOCIStorage(runtime.stateDevice); err != nil {
 		client.Close()
-		return nil, fmt.Errorf("initialize OCI project quota: %w", err)
+		return nil, fmt.Errorf("open OCI startup quota: %w", err)
 	}
 	if err := cleanupVolumeStaging(); err != nil {
 		client.Close()
@@ -89,6 +89,10 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 	if err := runtime.rehydrateNetwork(context.Background()); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("rebuild namespace network: %w", err)
+	}
+	if err := runtime.settleOCIProjectQuota(context.Background()); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("settle OCI startup quota: %w", err)
 	}
 	return runtime, nil
 }

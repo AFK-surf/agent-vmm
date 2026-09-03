@@ -118,9 +118,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		return rpcError(err)
 	}
 	defer func() {
-		if err := s.runtime.diskBudget.Settle(func() error {
-			return retryOCIProjectQuota(s.runtime.tightenOCIProjectQuota, 10, 100*time.Millisecond)
-		}); err != nil {
+		if err := s.runtime.diskBudget.Settle(func() error { return s.runtime.settleOCIProjectQuota(stream.Context()) }); err != nil {
 			log.Printf("tighten OCI project quota after interrupted import: %v", err)
 		}
 	}()

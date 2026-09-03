@@ -19,6 +19,7 @@ import (
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
+	"github.com/containerd/containerd/v2/core/leases"
 	"golang.org/x/sys/unix"
 )
 
@@ -27,16 +28,6 @@ type importReservation struct {
 	path      string
 	holdPath  string
 	remaining uint64
-}
-
-func (r *Runtime) initializeOCIProjectQuota() error {
-	if err := PrepareOCIStorage(r.stateDevice); err != nil {
-		return err
-	}
-	// PrepareOCIStorage runs before containerd as well as here. Once containerd
-	// is live, startup is not ready until its actual usage is measured again and
-	// project 9000 is pinned to that exact idle ceiling.
-	return r.tightenOCIProjectQuota()
 }
 
 // PrepareOCIStorage establishes the kernel-enforced global OCI project before
@@ -65,7 +56,19 @@ func PrepareOCIStorage(stateDevice string) error {
 	if len(entries) == 0 {
 		return reserveFreshContainerdBootstrap(stateDevice)
 	}
-	return tightenOCIProjectQuota(stateDevice)
+	return openOCIStartupMetadataAllowance(stateDevice)
+}
+
+func openOCIStartupMetadataAllowance(stateDevice string) error {
+	usage, err := projectUsage(stateDevice, ociProjectID)
+	if err != nil {
+		return err
+	}
+	limit, err := ociProjectQuotaLimit(usage, guestdisk.DefaultMetadataBytes)
+	if err != nil {
+		return err
+	}
+	return setProjectQuota(stateDevice, ociProjectID, limit)
 }
 
 func (r *Runtime) openOCIProjectAllowance(reservation *importReservation) error {
@@ -89,8 +92,8 @@ func (r *Runtime) openOCIProjectAllowance(reservation *importReservation) error 
 // exists, so the same physical-reservation/project-quota protocol is applied
 // around startup. No workload quota exists while the tree is empty. After the
 // physically backed allowance is proven, the hold is converted to a kernel
-// ceiling; ordinary containerd writes cannot consume E or M. NewRuntime
-// immediately tightens the ceiling to observed usage after the daemon starts.
+// ceiling; ordinary containerd writes cannot consume E or M. NewRuntime first
+// drains scheduled startup GC, then tightens to observed usage.
 func reserveFreshContainerdBootstrap(stateDevice string) error {
 	var stats unix.Statfs_t
 	if err := unix.Statfs(stateRoot, &stats); err != nil {
@@ -124,7 +127,8 @@ func reserveFreshContainerdBootstrap(stateDevice string) error {
 	})
 	// Once the kernel ceiling exists, releasing the hold converts I to bounded
 	// writable capacity. Keeping it would force containerd to consume E/M even
-	// though the project ceiling correctly excludes those floors.
+	// though the project ceiling correctly excludes those floors. NewRuntime uses
+	// the startup GC barrier before restoring the exact idle ceiling.
 	reservation.Release()
 	return err
 }
@@ -159,6 +163,32 @@ func assignOCIProjectTree(root string, readProject func(string) (uint32, error),
 
 func (r *Runtime) tightenOCIProjectQuota() error {
 	return tightenOCIProjectQuota(r.stateDevice)
+}
+
+type leaseGCBarrier interface {
+	Create(context.Context, ...leases.Opt) (leases.Lease, error)
+	Delete(context.Context, leases.Lease, ...leases.DeleteOpt) error
+}
+
+func (r *Runtime) settleOCIProjectQuota(ctx context.Context) error {
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	return settleOCIProjectQuotaWith(settleCtx, r.client.LeasesService(), func() error {
+		return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
+	})
+}
+
+// A synchronous lease deletion asks containerd's official GC scheduler to
+// finish its pending collection before the temporary project allowance closes.
+func settleOCIProjectQuotaWith(ctx context.Context, manager leaseGCBarrier, tighten func() error) error {
+	barrier, err := manager.Create(ctx, leases.WithRandomID())
+	if err != nil {
+		return fmt.Errorf("create containerd GC barrier: %w", err)
+	}
+	if err := manager.Delete(ctx, barrier, leases.SynchronousDelete); err != nil {
+		return fmt.Errorf("complete containerd GC barrier: %w", err)
+	}
+	return tighten()
 }
 
 func tightenOCIProjectQuota(stateDevice string) error {
@@ -238,9 +268,7 @@ func (r *Runtime) guardOCIMetadataGrowthLockedWithCommit(ctx context.Context, tr
 		return err
 	}
 	defer func() {
-		runErr = errors.Join(runErr, transaction.Settle(func() error {
-			return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
-		}))
+		runErr = errors.Join(runErr, transaction.Settle(func() error { return r.settleOCIProjectQuota(ctx) }))
 	}()
 	return run()
 }
@@ -310,14 +338,10 @@ func (r *Runtime) guardOCIProjectGrowth(transaction *guestdisk.Transaction, rese
 	release := reservation.remaining
 	reservation.mu.Unlock()
 	if err := reservation.Consume(release); err != nil {
-		return errors.Join(err, transaction.Settle(func() error {
-			return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
-		}))
+		return errors.Join(err, transaction.Settle(func() error { return r.settleOCIProjectQuota(context.Background()) }))
 	}
 	defer func() {
-		runErr = errors.Join(runErr, transaction.Settle(func() error {
-			return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
-		}))
+		runErr = errors.Join(runErr, transaction.Settle(func() error { return r.settleOCIProjectQuota(context.Background()) }))
 	}()
 	return run()
 }

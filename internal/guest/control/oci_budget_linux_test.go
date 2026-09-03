@@ -14,6 +14,7 @@ import (
 
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
+	"github.com/containerd/containerd/v2/core/leases"
 	"golang.org/x/sys/unix"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/status"
@@ -98,6 +99,64 @@ func TestOCIProjectQuotaCeilingCannotConsumeProtectedHeadroom(t *testing.T) {
 	// at this exact ceiling instead of borrowing their physical headroom.
 	if _, err := ociProjectQuotaLimit(math.MaxUint64, 1); !errors.Is(err, guestdisk.ErrCapacityUnavailable) {
 		t.Fatalf("overflow error=%v", err)
+	}
+}
+
+type leaseBarrierStub struct {
+	events    []string
+	createErr error
+	deleteErr error
+	sync      bool
+}
+
+func (stub *leaseBarrierStub) Create(context.Context, ...leases.Opt) (leases.Lease, error) {
+	stub.events = append(stub.events, "create")
+	return leases.Lease{ID: "barrier"}, stub.createErr
+}
+
+func (stub *leaseBarrierStub) Delete(ctx context.Context, _ leases.Lease, options ...leases.DeleteOpt) error {
+	stub.events = append(stub.events, "delete")
+	settings := new(leases.DeleteOptions)
+	for _, option := range options {
+		if err := option(ctx, settings); err != nil {
+			return err
+		}
+	}
+	stub.sync = settings.Synchronous
+	return stub.deleteErr
+}
+
+func TestOCIQuotaSettlementWaitsForSynchronousGCBeforeExactTighten(t *testing.T) {
+	barrier := new(leaseBarrierStub)
+	err := settleOCIProjectQuotaWith(context.Background(), barrier, func() error {
+		barrier.events = append(barrier.events, "tighten")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(barrier.events, ","); got != "create,delete,tighten" || !barrier.sync {
+		t.Fatalf("settlement order=%s synchronous=%t", got, barrier.sync)
+	}
+}
+
+func TestOCIQuotaSettlementFailureDoesNotTighten(t *testing.T) {
+	want := errors.New("GC barrier unavailable")
+	barrier := &leaseBarrierStub{deleteErr: want}
+	tightened := false
+	err := settleOCIProjectQuotaWith(context.Background(), barrier, func() error {
+		tightened = true
+		return nil
+	})
+	if !errors.Is(err, want) || tightened {
+		t.Fatalf("settlement error=%v tightened=%t", err, tightened)
+	}
+}
+
+func TestOCIStartupAllowanceIsOnlyTheAccountedMetadataFloor(t *testing.T) {
+	limit, err := ociProjectQuotaLimit(11<<30, guestdisk.DefaultMetadataBytes)
+	if err != nil || limit != 12<<30 {
+		t.Fatalf("startup limit=%d err=%v", limit, err)
 	}
 }
 
@@ -188,7 +247,7 @@ func TestOCIMetadataAllowanceIsOnlySlackBeyondCommittedFloors(t *testing.T) {
 	}
 }
 
-func TestGuestRestartReestablishesExactOCIIdleCeiling(t *testing.T) {
+func TestGuestStartupAllowanceClosesToExactOCIIdleCeiling(t *testing.T) {
 	if os.Getenv("AGENT_VMM_PRIVILEGED_QUOTA_TEST") != "1" || os.Geteuid() != 0 {
 		t.Skip("privileged project-quota integration is not enabled")
 	}
@@ -244,12 +303,8 @@ func TestGuestRestartReestablishesExactOCIIdleCeiling(t *testing.T) {
 	if !errors.Is(previous.ociGrowthError(), guestdisk.ErrGrowthSealed) {
 		t.Fatal("old process was not terminally sealed")
 	}
-	restarted := &Runtime{stateDevice: device}
-	if err = restarted.initializeOCIProjectQuota(); err != nil {
-		t.Fatalf("restart quota initialization: %v", err)
-	}
-	if err = restarted.ociGrowthError(); err != nil {
-		t.Fatalf("new process inherited terminal seal: %v", err)
+	if err = PrepareOCIStorage(device); err != nil {
+		t.Fatalf("open restart startup allowance: %v", err)
 	}
 	before, err := projectUsage(device, ociProjectID)
 	if err != nil {
@@ -263,11 +318,19 @@ func TestGuestRestartReestablishesExactOCIIdleCeiling(t *testing.T) {
 	}
 	output, err = exec.Command("setpriv", "--reuid=65534", "--regid=65534", "--clear-groups", "--bounding-set=-sys_resource", "--inh-caps=-all", "--ambient-caps=-all",
 		"dd", "if=/dev/zero", "of="+filepath.Join(containerdRoot, "after-restart"), "bs=1M", "count=2", "conv=fsync").CombinedOutput()
+	if err != nil {
+		t.Fatalf("startup metadata allowance was unavailable: err=%v output=%s", err, output)
+	}
+	if err = tightenOCIProjectQuota(device); err != nil {
+		t.Fatalf("close startup allowance: %v", err)
+	}
+	output, err = exec.Command("setpriv", "--reuid=65534", "--regid=65534", "--clear-groups", "--bounding-set=-sys_resource", "--inh-caps=-all", "--ambient-caps=-all",
+		"dd", "if=/dev/zero", "of="+filepath.Join(containerdRoot, "after-settlement"), "bs=1M", "count=2", "conv=fsync").CombinedOutput()
 	if err == nil || !strings.Contains(string(output), "Disk quota exceeded") && !strings.Contains(string(output), "No space left on device") {
-		t.Fatalf("restart left OCI growth allowance open: err=%v output=%s", err, output)
+		t.Fatalf("settlement did not restore exact idle ceiling: err=%v output=%s", err, output)
 	}
 	after, usageErr := projectUsage(device, ociProjectID)
-	if usageErr != nil || after > before+(64<<10) {
+	if usageErr != nil || after > before+(3<<20) {
 		t.Fatalf("restart idle ceiling drifted: before=%d after=%d err=%v", before, after, usageErr)
 	}
 }

@@ -56,7 +56,7 @@ func (r *Runtime) reclaimOCIWithMaterializer(ctx context.Context, limit int, mat
 
 func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, limit int, materializerHeld bool, transaction *guestdisk.Transaction) (deleted int, resultErr error) {
 	defer func() {
-		settle := func() error { return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond) }
+		settle := func() error { return r.settleOCIProjectQuota(ctx) }
 		if transaction != nil {
 			resultErr = errors.Join(resultErr, transaction.Settle(settle))
 		} else {
