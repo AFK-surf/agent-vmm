@@ -22,6 +22,7 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host"
 	"github.com/AFK-surf/agent-vmm/internal/host/servicepreface"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 )
 
@@ -77,11 +78,16 @@ func main() {
 	if dataWorkerPath == "" {
 		dataWorkerPath = filepath.Join(filepath.Dir(os.Args[0]), "agent-vmm-data")
 	}
-	for _, directory := range []string{filepath.Dir(operatorSocket), filepath.Dir(remoteComputeSocket), filepath.Dir(trustSocket), filepath.Dir(serviceTunnelSocket), filepath.Dir(meshControlSocket), filepath.Dir(trustCapabilityFile), filepath.Dir(databasePath), filepath.Dir(config.SerialLog), sessionDirectory} {
+	for _, directory := range []string{config.InstanceDirectory, filepath.Dir(operatorSocket), filepath.Dir(remoteComputeSocket), filepath.Dir(trustSocket), filepath.Dir(serviceTunnelSocket), filepath.Dir(meshControlSocket), filepath.Dir(trustCapabilityFile), filepath.Dir(databasePath), filepath.Dir(config.SerialLog), sessionDirectory} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			log.Fatal(err)
 		}
 	}
+	ownerLock, err := acquireHostOwnerLock(filepath.Join(config.InstanceDirectory, "host-owner.lock"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ownerLock.Close()
 	manager, err := vmm.NewManager(config)
 	if err != nil {
 		log.Fatal(err)
@@ -210,6 +216,21 @@ func main() {
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
 	}
+}
+
+func acquireHostOwnerLock(path string) (*os.File, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open Host owner lock: %w", err)
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		file.Close()
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, errors.New("another Agent VMM Host owns the VM state disk and control-plane database")
+		}
+		return nil, fmt.Errorf("acquire Host owner lock: %w", err)
+	}
+	return file, nil
 }
 
 // HostVMRestartRecovery.tla owns this one-shot post-install transition. It is

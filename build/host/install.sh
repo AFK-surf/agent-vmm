@@ -23,15 +23,35 @@ fi
 service_home=$(dscl . -read "/Users/$service_user" NFSHomeDirectory | awk '{print $2}')
 case "$service_home" in /*) ;; *) echo "cannot resolve service user home" >&2; exit 1 ;; esac
 app="$service_home/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app"
+operation_suffix="$$-$(date +%s)"
+drain_request_id="local-host-update-drain-$operation_suffix"
+install_request_id="local-host-install-$operation_suffix"
 
 test -d "$payload/Agent VMM Host.app"
 mkdir -p "$(dirname "$app")"
-rm -rf "$app"
-ditto "$payload/Agent VMM Host.app" "$app"
+if [ -d "$app" ]; then
+	if [ "$(id -u)" -eq 0 ]; then
+		"$payload/Agent VMM Host.app/Contents/Helpers/agent-vmm-lifecycle" drain \
+			--service-app "$app" --service-type "$service_type" --service-user "$service_user" \
+			--request-id "$drain_request_id"
+	else
+		"$payload/Agent VMM Host.app/Contents/Helpers/agent-vmm-lifecycle" drain \
+			--service-type "$service_type" --service-user "$service_user" \
+			--request-id "$drain_request_id"
+	fi
+fi
+staged_app="$(dirname "$app")/.Agent VMM Host.$$.app"
+trap 'rm -rf "$staged_app"' EXIT HUP INT TERM
+ditto "$payload/Agent VMM Host.app" "$staged_app"
+"$payload/Agent VMM Host.app/Contents/Helpers/agent-vmm-lifecycle" atomic-replace-app \
+	--source-app "$staged_app" --target-app "$app"
+# After the swap, staged_app is the complete previous release. Retain it if
+# bootstrap or health verification fails so an operator can recover it.
+trap - EXIT HUP INT TERM
 if [ "$(id -u)" -eq 0 ]; then
 	"$payload/Agent VMM Host.app/Contents/Helpers/agent-vmm-lifecycle" install \
 		--service-app "$app" --service-type "$service_type" --service-user "$service_user" \
-		--request-id local-host-install
+		--request-id "$install_request_id"
 	for path in "$service_home/Library/Application Support/AgentVMM" "$service_home/Library/Logs/AgentVMM"; do
 		if [ -e "$path" ]; then chown -R "$service_uid:$service_gid" "$path"; fi
 	done
@@ -39,5 +59,6 @@ if [ "$(id -u)" -eq 0 ]; then
 else
 	"$app/Contents/Helpers/agent-vmm-lifecycle" install \
 		--service-type "$service_type" --service-user "$service_user" \
-		--request-id local-host-install
+		--request-id "$install_request_id"
 fi
+rm -rf "$staged_app"

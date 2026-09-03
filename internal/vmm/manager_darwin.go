@@ -115,6 +115,14 @@ func (manager *Manager) Snapshot() *hostv1.VM {
 	return manager.snapshotLocked()
 }
 
+// HasMachineAttachment reports whether Virtualization.framework may still own
+// the state disk. FAILED is not terminal for Host shutdown while this is true.
+func (manager *Manager) HasMachineAttachment() bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.machine != nil
+}
+
 func (manager *Manager) ConfigureApplianceBlocks(blocks []ApplianceBlock) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()

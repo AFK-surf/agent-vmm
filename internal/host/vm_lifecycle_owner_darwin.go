@@ -362,7 +362,8 @@ func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {
 		cleanup = func(ctx context.Context) error {
 			owner.controller.prepareVMTransition(ctx)
 			owner.controller.stopEgress()
-			if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+			state := owner.manager.Snapshot().GetState()
+			if state == hostv1.VMState_VM_STATE_RUNNING {
 				_, gracefulErr := owner.manager.Stop(ctx, false)
 				if gracefulErr == nil {
 					return nil
@@ -377,6 +378,12 @@ func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {
 					return errors.Join(gracefulErr, forceErr)
 				}
 				return nil
+			}
+			if owner.manager.HasMachineAttachment() {
+				forceCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				_, err := owner.manager.Stop(forceCtx, true)
+				return err
 			}
 			return nil
 		}

@@ -88,6 +88,17 @@ func TestExpectedStopDoesNotConsumeRecovery(t *testing.T) {
 	}
 }
 
+func TestFailedVMWithMachineIsStillAttached(t *testing.T) {
+	manager := &Manager{state: hostv1.VMState_VM_STATE_FAILED, machine: new(vz.VirtualMachine)}
+	if !manager.HasMachineAttachment() {
+		t.Fatal("FAILED VM attachment was treated as terminal")
+	}
+	manager.machine = nil
+	if manager.HasMachineAttachment() {
+		t.Fatal("released VM remained attached")
+	}
+}
+
 func TestStaleMachineNotificationCannotInvalidateCurrentRuntime(t *testing.T) {
 	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "current", machine: new(vz.VirtualMachine)}
 	invalidate, recover, _ := manager.terminalTransition(new(vz.VirtualMachine), vz.VirtualMachineStateStopped, true)

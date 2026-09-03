@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -135,6 +136,16 @@ func main() {
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID}); err != nil {
 			fatal("version encoding failed")
+		}
+		return
+	}
+	if os.Args[1] == "atomic-replace-app" {
+		source, target, err := parseAtomicReplaceAppArgs(os.Args[2:])
+		if err != nil {
+			fatal(err.Error())
+		}
+		if err := atomicReplaceApp(source, target); err != nil {
+			fatal(err.Error())
 		}
 		return
 	}
@@ -291,6 +302,44 @@ func main() {
 	default:
 		fatal("unknown lifecycle command")
 	}
+}
+
+func parseAtomicReplaceAppArgs(args []string) (string, string, error) {
+	var source, target string
+	for len(args) > 0 {
+		if len(args) < 2 {
+			return "", "", errors.New("atomic-replace-app requires --source-app and --target-app")
+		}
+		switch args[0] {
+		case "--source-app":
+			source = args[1]
+		case "--target-app":
+			target = args[1]
+		default:
+			return "", "", errors.New("unknown atomic-replace-app argument")
+		}
+		args = args[2:]
+	}
+	if source == "" || target == "" || filepath.Dir(source) != filepath.Dir(target) {
+		return "", "", errors.New("atomic app replacement requires sibling source and target bundles")
+	}
+	return source, target, nil
+}
+
+func atomicReplaceApp(source, target string) error {
+	if !directory(source) {
+		return errors.New("staged application bundle is unavailable")
+	}
+	if directory(target) {
+		if err := atomicSwapApp(source, target); err != nil {
+			return fmt.Errorf("application bundle could not be atomically replaced: %w", err)
+		}
+		return nil
+	}
+	if err := os.Rename(source, target); err != nil {
+		return fmt.Errorf("application bundle could not be installed: %w", err)
+	}
+	return nil
 }
 
 func lifecyclePaths(request serviceRequest) (paths, error) {
@@ -1124,11 +1173,185 @@ func drainWithContext(ctx context.Context, value paths, run func(context.Context
 	if value.service.Mode == serviceModeDaemon && os.Geteuid() != 0 {
 		return errors.New("stopping the Agent VMM daemon requires administrator access")
 	}
-	if err := stopHostServiceAt(ctx, run, value.serviceDomain()); err != nil {
-		return fmt.Errorf("host service could not be drained: %w", err)
+	domains := []string{value.serviceDomain(), value.alternateServiceDomain()}
+	loaded := false
+	loadedDomains := make(map[string]bool, len(domains))
+	for _, domain := range domains {
+		err := run(ctx, "print", domain+"/"+hostLabel)
+		if err == nil {
+			loaded = true
+			loadedDomains[domain] = true
+			continue
+		}
+		if !errors.Is(err, errLaunchctlServiceNotFound) {
+			return fmt.Errorf("host service status could not be read before drain: %w", err)
+		}
+	}
+	if err := drainVMForUpdate(ctx, value, newOperationID("update-drain")); err != nil {
+		if loaded {
+			return err
+		}
+	}
+	pids := make([]int, 0, len(domains))
+	for _, domain := range domains {
+		if !loadedDomains[domain] {
+			continue
+		}
+		pid, err := launchctlPID(ctx, domain+"/"+hostLabel)
+		if err == nil && pid > 0 {
+			pids = append(pids, pid)
+		} else if err != nil && !errors.Is(err, errLaunchctlServiceNotFound) {
+			return fmt.Errorf("host process identity could not be read before drain: %w", err)
+		}
+	}
+	for _, domain := range domains {
+		if err := stopHostServiceAt(ctx, run, domain); err != nil {
+			return fmt.Errorf("host service could not be drained: %w", err)
+		}
+	}
+	for _, pid := range pids {
+		if err := waitForProcessExit(ctx, pid); err != nil {
+			return fmt.Errorf("host process did not exit after launchd removed the service: %w", err)
+		}
+	}
+	stateDisk := filepath.Join(value.applicationData, "instance", "state.raw")
+	if err := waitForStateDiskRelease(ctx, stateDisk); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	return nil
+}
+
+var drainVMForUpdate = stopVMForUpdate
+
+func stopVMForUpdate(ctx context.Context, value paths, requestID string) error {
+	connection, err := operatorConnection(ctx, filepath.Join(value.applicationData, "operator.sock"))
+	if err != nil {
+		return errors.New("running Agent VMM Host is not readable; refusing to replace its application bundle")
+	}
+	defer connection.Close()
+	return stopVMForUpdateWith(ctx, hostv1.NewOperatorServiceClient(connection), requestID)
+}
+
+type updateVMClient interface {
+	GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.VMResponse, error)
+	StopVM(context.Context, *hostv1.StopVMRequest, ...grpc.CallOption) (*hostv1.OperationResponse, error)
+}
+
+func stopVMForUpdateWith(ctx context.Context, client updateVMClient, requestID string) error {
+	vm, err := client.GetVM(ctx, &hostv1.GetVMRequest{})
+	if err != nil {
+		return errors.New("Agent VMM VM status could not be read before update")
+	}
+	if vm.GetVm().GetState() == hostv1.VMState_VM_STATE_STOPPED {
+		return nil
+	}
+	gracefulCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	_, gracefulErr := client.StopVM(gracefulCtx, &hostv1.StopVMRequest{RequestId: requestID + "-graceful"})
+	cancel()
+	if gracefulErr != nil {
+		forceCtx, forceCancel := context.WithTimeout(ctx, 20*time.Second)
+		_, forceErr := client.StopVM(forceCtx, &hostv1.StopVMRequest{RequestId: requestID + "-force", Force: true})
+		forceCancel()
+		if forceErr != nil {
+			return fmt.Errorf("VM did not reach terminal state before update: graceful stop: %v; force stop: %w", gracefulErr, forceErr)
+		}
+	}
+	vm, err = client.GetVM(ctx, &hostv1.GetVMRequest{})
+	if err != nil || vm.GetVm().GetState() != hostv1.VMState_VM_STATE_STOPPED {
+		return errors.New("VM stop returned without a terminal stopped state; refusing to bootout the Host")
+	}
+	return nil
+}
+
+var launchctlPID = launchctlServicePID
+var processRunning = func(pid int) bool {
+	err := unix.Kill(pid, 0)
+	return err == nil || errors.Is(err, unix.EPERM)
+}
+
+var stateDiskOpenOwners = lsofOpenOwners
+
+func lsofOpenOwners(ctx context.Context, path string) ([]int, error) {
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("read VM state disk: %w", err)
+	}
+	command := exec.CommandContext(ctx, "/usr/sbin/lsof", "-F", "p", "--", path)
+	output, err := command.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(output) == 0 {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("inspect VM state disk owner: %w", err)
+	}
+	owners := make([]int, 0)
+	for _, line := range strings.Split(string(output), "\n") {
+		if len(line) < 2 || line[0] != 'p' {
+			continue
+		}
+		pid, parseErr := strconv.Atoi(line[1:])
+		if parseErr == nil && pid > 0 {
+			owners = append(owners, pid)
+		}
+	}
+	return owners, nil
+}
+
+func waitForStateDiskRelease(ctx context.Context, path string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		owners, err := stateDiskOpenOwners(waitCtx, path)
+		if err != nil {
+			return fmt.Errorf("VM state disk ownership could not be verified: %w", err)
+		}
+		if len(owners) == 0 {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("VM state disk is still open by process IDs %v; stop those exact owners before retrying the update: %w", owners, waitCtx.Err())
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func launchctlServicePID(ctx context.Context, target string) (int, error) {
+	command := exec.CommandContext(ctx, "/bin/launchctl", "print", target)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if launchctlServiceAbsent("print", message) {
+			return 0, fmt.Errorf("%w: %s", errLaunchctlServiceNotFound, message)
+		}
+		return 0, fmt.Errorf("launchctl print failed: %w", err)
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "pid" && fields[1] == "=" {
+			pid, parseErr := strconv.Atoi(fields[2])
+			if parseErr == nil && pid > 0 {
+				return pid, nil
+			}
+		}
+	}
+	return 0, nil
+}
+
+func waitForProcessExit(ctx context.Context, pid int) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for processRunning(pid) {
+		select {
+		case <-waitCtx.Done():
+			return waitCtx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
 	return nil
 }

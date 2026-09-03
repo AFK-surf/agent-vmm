@@ -286,6 +286,31 @@ func TestInstallOperationAcknowledgementRejectsUnboundPath(t *testing.T) {
 	}
 }
 
+func TestAtomicReplaceAppSwapsCompleteBundles(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, "Agent VMM Host.app")
+	source := filepath.Join(parent, ".Agent VMM Host.staged.app")
+	for path, value := range map[string]string{target: "old", source: "new"} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "release"), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := atomicReplaceApp(source, target); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := os.ReadFile(filepath.Join(target, "release"))
+	if err != nil || string(installed) != "new" {
+		t.Fatalf("installed bundle = %q, %v", installed, err)
+	}
+	retired, err := os.ReadFile(filepath.Join(source, "release"))
+	if err != nil || string(retired) != "old" {
+		t.Fatalf("retired bundle = %q, %v", retired, err)
+	}
+}
+
 func TestLifecyclePathsRejectsTheDebugAppBundle(t *testing.T) {
 	root := t.TempDir()
 	_, err := lifecyclePathsFor(filepath.Join(root, "home"), filepath.Join(root, "Agent VMM.app", "Contents", "Helpers", "agent-vmm-lifecycle"))
@@ -565,8 +590,146 @@ func TestDrainStopsHost(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 2 || !strings.Contains(commands[0], hostLabel) || !strings.HasPrefix(commands[1], "print") {
+	if len(commands) != 6 {
 		t.Fatalf("drain order=%v", commands)
+	}
+	for _, domain := range []string{value.serviceDomain(), value.alternateServiceDomain()} {
+		foundBootout := false
+		for _, command := range commands {
+			foundBootout = foundBootout || strings.HasPrefix(command, "bootout "+domain+"/")
+		}
+		if !foundBootout {
+			t.Fatalf("drain did not stop domain %s: %v", domain, commands)
+		}
+	}
+	if !strings.HasPrefix(commands[0], "print") || !strings.HasPrefix(commands[1], "print") {
+		t.Fatalf("drain order=%v", commands)
+	}
+}
+
+func TestDrainWaitsForHostPIDAfterLaunchdServiceDisappears(t *testing.T) {
+	value := testPaths(t.TempDir())
+	originalDrain, originalPID, originalRunning := drainVMForUpdate, launchctlPID, processRunning
+	t.Cleanup(func() { drainVMForUpdate, launchctlPID, processRunning = originalDrain, originalPID, originalRunning })
+	drainVMForUpdate = func(context.Context, paths, string) error { return nil }
+	launchctlPID = func(context.Context, string) (int, error) { return 42, nil }
+	checks := 0
+	processRunning = func(pid int) bool {
+		if pid != 42 {
+			t.Fatalf("pid=%d", pid)
+		}
+		checks++
+		return checks < 3
+	}
+	prints := 0
+	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		if arguments[0] == "print" {
+			prints++
+			if prints > 2 {
+				return errLaunchctlServiceNotFound
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checks < 3 {
+		t.Fatal("drain returned when launchd print disappeared but the Host PID was still alive")
+	}
+}
+
+func TestUpdateDrainRequestIDsAreUnique(t *testing.T) {
+	first := newOperationID("update-drain")
+	second := newOperationID("update-drain")
+	if first == second {
+		t.Fatalf("retry reused request id %q", first)
+	}
+}
+
+type updateVMClientStub struct {
+	state        hostv1.VMState
+	stopRequests []*hostv1.StopVMRequest
+}
+
+func (client *updateVMClientStub) GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.VMResponse, error) {
+	return &hostv1.VMResponse{Vm: &hostv1.VM{State: client.state}}, nil
+}
+
+func (client *updateVMClientStub) StopVM(_ context.Context, request *hostv1.StopVMRequest, _ ...grpc.CallOption) (*hostv1.OperationResponse, error) {
+	client.stopRequests = append(client.stopRequests, request)
+	if !request.GetForce() {
+		return nil, errors.New("graceful deadline")
+	}
+	client.state = hostv1.VMState_VM_STATE_STOPPED
+	return &hostv1.OperationResponse{}, nil
+}
+
+func TestUpdateDrainForcesAndConfirmsTerminalAfterGracefulFailure(t *testing.T) {
+	client := &updateVMClientStub{state: hostv1.VMState_VM_STATE_FAILED}
+	if err := stopVMForUpdateWith(context.Background(), client, "update-attempt"); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.stopRequests) != 2 || client.stopRequests[0].GetForce() || !client.stopRequests[1].GetForce() {
+		t.Fatalf("stop requests=%+v", client.stopRequests)
+	}
+	if client.stopRequests[0].GetRequestId() == client.stopRequests[1].GetRequestId() {
+		t.Fatal("graceful and force stop reused one durable request")
+	}
+}
+
+func TestDrainStopsReachableOrphanHostWithoutLaunchdJob(t *testing.T) {
+	value := testPaths(t.TempDir())
+	originalDrain, originalOwners := drainVMForUpdate, stateDiskOpenOwners
+	t.Cleanup(func() { drainVMForUpdate, stateDiskOpenOwners = originalDrain, originalOwners })
+	stopCalls := 0
+	drainVMForUpdate = func(context.Context, paths, string) error {
+		stopCalls++
+		return nil
+	}
+	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		if arguments[0] == "print" {
+			return errLaunchctlServiceNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopCalls != 1 {
+		t.Fatalf("orphan Host stop attempts=%d", stopCalls)
+	}
+}
+
+func TestDrainWaitsForExactStateDiskOwnerAfterJobsDisappear(t *testing.T) {
+	value := testPaths(t.TempDir())
+	originalDrain, originalOwners := drainVMForUpdate, stateDiskOpenOwners
+	t.Cleanup(func() { drainVMForUpdate, stateDiskOpenOwners = originalDrain, originalOwners })
+	drainVMForUpdate = func(context.Context, paths, string) error { return errors.New("stale operator socket") }
+	checks := 0
+	stateDiskOpenOwners = func(_ context.Context, path string) ([]int, error) {
+		want := filepath.Join(value.applicationData, "instance", "state.raw")
+		if path != want {
+			t.Fatalf("owner check path=%q want=%q", path, want)
+		}
+		checks++
+		if checks < 3 {
+			return []int{4242}, nil
+		}
+		return nil, nil
+	}
+	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		if arguments[0] == "print" {
+			return errLaunchctlServiceNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checks < 3 {
+		t.Fatal("drain did not wait for the exact state.raw owner to release")
 	}
 }
 

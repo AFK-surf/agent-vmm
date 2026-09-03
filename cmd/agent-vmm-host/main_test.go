@@ -14,6 +14,19 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 )
 
+func TestHostOwnerLockFailsClosedForSecondProcessOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host-owner.lock")
+	first, err := acquireHostOwnerLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if second, err := acquireHostOwnerLock(path); err == nil {
+		second.Close()
+		t.Fatal("second Host acquired the same VM and database owner lock")
+	}
+}
+
 func TestInstalledVMResumeTimeoutAllowsBoundedGuestRecovery(t *testing.T) {
 	if installedVMResumeTimeout != 10*time.Minute {
 		t.Fatalf("installed VM resume timeout = %s, want 10m", installedVMResumeTimeout)
