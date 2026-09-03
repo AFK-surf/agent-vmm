@@ -363,11 +363,20 @@ func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {
 			owner.controller.prepareVMTransition(ctx)
 			owner.controller.stopEgress()
 			if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-				_, err := owner.manager.Stop(ctx, false)
-				if err != nil {
-					_, err = owner.manager.Stop(ctx, true)
+				_, gracefulErr := owner.manager.Stop(ctx, false)
+				if gracefulErr == nil {
+					return nil
 				}
-				return err
+				// A graceful-stop deadline must not consume the force-stop budget.
+				// The force phase owns a fresh deadline so shutdown cannot abandon a
+				// still-attached VZ machine merely because its parent is expiring.
+				forceCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				_, forceErr := owner.manager.Stop(forceCtx, true)
+				if forceErr != nil {
+					return errors.Join(gracefulErr, forceErr)
+				}
+				return nil
 			}
 			return nil
 		}

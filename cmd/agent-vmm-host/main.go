@@ -303,9 +303,11 @@ func ensureConnectorCapability(path string) ([]byte, error) {
 
 func shutdown(ctx context.Context, servers []*grpc.Server, controller *host.Controller) {
 	<-ctx.Done()
-	stopContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	stopContext, cancel := context.WithTimeout(context.Background(), 50*time.Second)
 	defer cancel()
-	_ = controller.Shutdown(stopContext)
+	if err := controller.Shutdown(stopContext); err != nil {
+		log.Printf("VM shutdown did not reach a terminal state: %v", err)
+	}
 	for _, server := range servers {
 		done := make(chan struct{})
 		go func() {

@@ -298,10 +298,19 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 	manager.mu.Unlock()
 
 	if !force {
-		shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_ = manager.prepareShutdown(shutdownCtx)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		prepareErr := manager.prepareShutdown(shutdownCtx)
+		if prepareErr != nil {
+			cancel()
+			manager.mu.Lock()
+			manager.state = hostv1.VMState_VM_STATE_FAILED
+			manager.lastErr = fmt.Sprintf("guest shutdown preparation failed: %v", prepareErr)
+			manager.mu.Unlock()
+			return nil, prepareErr
+		}
+		var requestStopErr error
 		if machine.CanRequestStop() {
-			_, _ = machine.RequestStop()
+			_, requestStopErr = machine.RequestStop()
 		}
 		if err := waitState(shutdownCtx, machine, vz.VirtualMachineStateStopped); err == nil {
 			cancel()
@@ -309,6 +318,7 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 			manager.state = hostv1.VMState_VM_STATE_STOPPED
 			manager.machine = nil
 			manager.socket = nil
+			manager.bootID = ""
 			manager.closeEgressLocked()
 			result := manager.snapshotLocked()
 			manager.mu.Unlock()
@@ -320,6 +330,7 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 			manager.state = hostv1.VMState_VM_STATE_STOPPED
 			manager.machine = nil
 			manager.socket = nil
+			manager.bootID = ""
 			manager.closeEgressLocked()
 			result := manager.snapshotLocked()
 			manager.mu.Unlock()
@@ -332,7 +343,11 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 			manager.lastErr = "graceful VM stop did not complete"
 		}
 		manager.mu.Unlock()
-		return nil, errors.New("graceful VM stop failed; force stop requires explicit confirmation")
+		return nil, errors.Join(
+			errors.New("graceful VM stop failed; force stop requires explicit confirmation"),
+			prepareErr,
+			requestStopErr,
+		)
 	}
 	if machine.CanStop() {
 		if err := machine.Stop(); err != nil {
@@ -348,6 +363,7 @@ func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error
 	manager.state = hostv1.VMState_VM_STATE_STOPPED
 	manager.machine = nil
 	manager.socket = nil
+	manager.bootID = ""
 	manager.closeEgressLocked()
 	result := manager.snapshotLocked()
 	manager.mu.Unlock()
