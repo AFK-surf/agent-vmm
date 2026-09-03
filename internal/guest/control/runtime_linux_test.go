@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/oci"
+	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
 	opencontainers "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -24,6 +26,18 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestReusableSourceUnpackedSkipsStaleImageRecord(t *testing.T) {
+	ready, err := reusableSourceUnpacked(false, errdefs.ErrNotFound)
+	if err != nil || ready {
+		t.Fatalf("stale source = (%v, %v), want (false, nil)", ready, err)
+	}
+
+	want := io.ErrUnexpectedEOF
+	if _, err := reusableSourceUnpacked(false, want); !errors.Is(err, want) {
+		t.Fatalf("non-not-found error = %v, want %v", err, want)
+	}
+}
 
 func TestShutdownWaitsForMutation(t *testing.T) {
 	server := new(Server)

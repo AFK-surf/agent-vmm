@@ -80,6 +80,9 @@ func (manager *Manager) Snapshot() *hostv1.VM {
 func (manager *Manager) ConfigureApplianceBlocks(blocks []ApplianceBlock) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if applianceBlocksEqual(manager.applianceBlocks, blocks) {
+		return nil
+	}
 	if manager.state != hostv1.VMState_VM_STATE_STOPPED && manager.state != hostv1.VMState_VM_STATE_FAILED || manager.machine != nil {
 		return errors.New("appliance block attachments can only change while the VM is stopped")
 	}
@@ -99,6 +102,18 @@ func (manager *Manager) ConfigureApplianceBlocks(blocks []ApplianceBlock) error 
 	}
 	manager.applianceBlocks = append([]ApplianceBlock(nil), blocks...)
 	return nil
+}
+
+func applianceBlocksEqual(left, right []ApplianceBlock) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (manager *Manager) HasApplianceBlock(installationID string) bool {

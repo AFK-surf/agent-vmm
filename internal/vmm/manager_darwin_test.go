@@ -170,6 +170,11 @@ func TestConfigureApplianceBlocksRequiresStoppedVMAndExactImages(t *testing.T) {
 	if len(manager.applianceBlocks) != 1 || manager.applianceBlocks[0] != block {
 		t.Fatalf("blocks = %+v", manager.applianceBlocks)
 	}
+	manager.state = hostv1.VMState_VM_STATE_STARTING
+	if err := manager.ConfigureApplianceBlocks([]ApplianceBlock{block}); err != nil {
+		t.Fatalf("identical attachment replay during VM start failed: %v", err)
+	}
+	manager.state = hostv1.VMState_VM_STATE_STOPPED
 	if err := manager.ConfigureApplianceBlocks([]ApplianceBlock{block, block}); err == nil {
 		t.Fatal("duplicate attachment accepted")
 	}

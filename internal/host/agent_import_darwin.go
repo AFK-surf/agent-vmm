@@ -22,6 +22,8 @@ const (
 	importDownloadTimeout = 10 * time.Minute
 )
 
+var errGuestImportCompleted = errors.New("guest image import completed")
+
 func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportImageServer) error {
 	identity, err := auth.AgentIdentity(stream.Context())
 	if err != nil {
@@ -59,12 +61,7 @@ func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportI
 	if completed {
 		return stream.SendAndClose(imageFromGuest(image))
 	}
-	if err := downloadImportArchive(stream.Context(), header.GetArchiveUrl(), header.GetArchiveSize(), func(chunk []byte) error {
-		return guest.Send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: chunk}})
-	}); err != nil {
-		return err
-	}
-	image, err = guest.CloseAndRecv()
+	image, err = forwardImportArchive(stream.Context(), header.GetArchiveUrl(), header.GetArchiveSize(), guest.Send, guest.CloseAndRecv)
 	if err != nil {
 		return err
 	}
@@ -84,6 +81,28 @@ func sendImportHeader(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv 
 		return nil, false, err
 	}
 	return image, true, nil
+}
+
+func forwardImportArchive(ctx context.Context, raw string, size uint64, send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error)) (*vmmdv1.Image, error) {
+	var completed *vmmdv1.Image
+	err := downloadImportArchive(ctx, raw, size, func(chunk []byte) error {
+		err := send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: chunk}})
+		if !errors.Is(err, io.EOF) {
+			return err
+		}
+		completed, err = closeAndRecv()
+		if err != nil {
+			return err
+		}
+		return errGuestImportCompleted
+	})
+	if errors.Is(err, errGuestImportCompleted) {
+		return completed, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return closeAndRecv()
 }
 
 func validateImportArchiveURL(raw string) error {

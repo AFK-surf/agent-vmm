@@ -220,6 +220,7 @@ func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageRefer
 				}
 				source := containerd.NewImage(r.client, record)
 				unpacked, unpackErr := source.IsUnpacked(namespaceContext(ctx, sourceNamespace), containerSnapshotter)
+				unpacked, unpackErr = reusableSourceUnpacked(unpacked, unpackErr)
 				if unpackErr != nil {
 					return false, false, nil, unpackErr
 				}
@@ -239,7 +240,11 @@ func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageRefer
 		return false, false, nil, imageError(codes.Aborted, "IMAGE_DIGEST_CONFLICT", "image reference already names different content", imageReference)
 	}
 	unpacked, err := image.IsUnpacked(namespaceContext(ctx, namespaceID), containerSnapshotter)
-	if err == nil && !unpacked {
+	unpacked, err = reusableSourceUnpacked(unpacked, err)
+	if err != nil {
+		return false, false, nil, err
+	}
+	if !unpacked {
 		names, listErr := r.client.NamespaceService().List(ctx)
 		if listErr != nil {
 			return false, false, nil, listErr
@@ -257,6 +262,7 @@ func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageRefer
 					continue
 				}
 				ready, readyErr := containerd.NewImage(r.client, record).IsUnpacked(namespaceContext(ctx, sourceNamespace), containerSnapshotter)
+				ready, readyErr = reusableSourceUnpacked(ready, readyErr)
 				if readyErr != nil {
 					return false, false, nil, readyErr
 				}
@@ -266,7 +272,17 @@ func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageRefer
 			}
 		}
 	}
-	return unpacked, !unpacked, nil, err
+	return unpacked, !unpacked, nil, nil
+}
+
+// A namespace image record can outlive its snapshot metadata after an
+// interrupted cleanup. It is not a reusable source, but it must not hide a
+// later namespace that has the same digest fully materialized.
+func reusableSourceUnpacked(unpacked bool, err error) (bool, error) {
+	if errdefs.IsNotFound(err) {
+		return false, nil
+	}
+	return unpacked, err
 }
 
 func (r *Runtime) createImportArchive(requestID string) (*os.File, error) {

@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,27 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 )
+
+func TestForwardImportArchiveForwardsGuestFailureAfterHeader(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("archive"))
+	}))
+	defer server.Close()
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = server.Client().Transport
+	defer func() { http.DefaultTransport = previousTransport }()
+	want := errors.New("guest rejected import reservation")
+	_, err := forwardImportArchive(
+		context.Background(),
+		server.URL,
+		7,
+		func(*vmmdv1.ImportImageRequest) error { return io.EOF },
+		func() (*vmmdv1.Image, error) { return nil, want },
+	)
+	if !errors.Is(err, want) {
+		t.Fatalf("forwardImportArchive error = %v, want %v", err, want)
+	}
+}
 
 func TestSendImportHeaderForwardsImmediateGuestResult(t *testing.T) {
 	want := &vmmdv1.Image{Reference: "cue.local/runtime/external:release"}
