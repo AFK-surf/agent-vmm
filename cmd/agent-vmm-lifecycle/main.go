@@ -916,7 +916,7 @@ func mergeApplianceFacts(facts operatorFacts, appliances []*appliancev1.Applianc
 }
 
 func ensureVMStarted(value paths, requestID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCoordinatorStepTimeout)
 	defer cancel()
 	return ensureVMStartedContext(ctx, value, requestID)
 }
@@ -930,9 +930,6 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 	operator := hostv1.NewOperatorServiceClient(connection)
 	for {
 		vm, err := operator.GetVM(ctx, &hostv1.GetVMRequest{})
-		if err == nil && vm.GetVm().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-			return nil
-		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return errors.New("Agent VMM VM status could not be read")
@@ -940,8 +937,10 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 			time.Sleep(250 * time.Millisecond)
 			continue
 		}
-		if _, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID}); err != nil {
-			return fmt.Errorf("Agent VMM VM could not be started: %w", err)
+		if vm.GetVm().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+			if _, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID}); err != nil {
+				return fmt.Errorf("Agent VMM VM could not be started: %w", err)
+			}
 		}
 		for {
 			snapshot, snapshotErr := operator.GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})

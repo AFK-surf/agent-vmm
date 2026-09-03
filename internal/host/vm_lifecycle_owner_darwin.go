@@ -42,14 +42,17 @@ type VMLifecycleOwner struct {
 	admission           atomic.Uint64
 	snapshot            func() *hostv1.VM
 	beforeAdmissionOpen func()
+	shutdownCleanup     func(context.Context) error
 }
 
 func newVMLifecycleOwner(controller *Controller, manager *vmm.Manager) *VMLifecycleOwner {
 	return &VMLifecycleOwner{controller: controller, manager: manager, shutdownDone: make(chan struct{}), snapshot: manager.Snapshot}
 }
 
-func (owner *VMLifecycleOwner) execute(operation vmLifecycleOperation, run func() vmLifecycleResult) vmLifecycleResult {
-	owner.operationMu.Lock()
+func (owner *VMLifecycleOwner) execute(ctx context.Context, operation vmLifecycleOperation, run func() vmLifecycleResult) vmLifecycleResult {
+	if err := owner.lockOperation(ctx); err != nil {
+		return vmLifecycleResult{err: err}
+	}
 	defer owner.operationMu.Unlock()
 	owner.stateMu.Lock()
 	closing := owner.closing
@@ -58,6 +61,26 @@ func (owner *VMLifecycleOwner) execute(operation vmLifecycleOperation, run func(
 		return vmLifecycleResult{err: errors.New("VM lifecycle is shutting down")}
 	}
 	return run()
+}
+
+func (owner *VMLifecycleOwner) lockOperation(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if owner.operationMu.TryLock() {
+			if err := ctx.Err(); err != nil {
+				owner.operationMu.Unlock()
+				return err
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 func (owner *VMLifecycleOwner) admitsRemoteWork() bool {
@@ -105,7 +128,7 @@ func (owner *VMLifecycleOwner) commit(ctx context.Context, excludedInstallationI
 }
 
 func (owner *VMLifecycleOwner) Start(ctx context.Context) (*hostv1.VM, error) {
-	result := owner.execute(vmLifecycleStart, func() vmLifecycleResult {
+	result := owner.execute(ctx, vmLifecycleStart, func() vmLifecycleResult {
 		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && owner.admitsRemoteWork() {
 			return vmLifecycleResult{vm: owner.manager.Snapshot()}
 		}
@@ -134,7 +157,7 @@ func (owner *VMLifecycleOwner) Start(ctx context.Context) (*hostv1.VM, error) {
 }
 
 func (owner *VMLifecycleOwner) Stop(ctx context.Context, force bool) (*hostv1.VM, error) {
-	result := owner.execute(vmLifecycleStop, func() vmLifecycleResult {
+	result := owner.execute(ctx, vmLifecycleStop, func() vmLifecycleResult {
 		owner.controller.prepareVMTransition(ctx)
 		owner.controller.stopEgress()
 		vm, err := owner.manager.Stop(ctx, force)
@@ -176,7 +199,7 @@ func (owner *VMLifecycleOwner) RecoverAsync(previousBootID string) {
 }
 
 func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID string) {
-	result := owner.execute(vmLifecycleRecover, func() vmLifecycleResult {
+	result := owner.execute(ctx, vmLifecycleRecover, func() vmLifecycleResult {
 		owner.controller.prepareVMTransition(ctx)
 		owner.controller.stopEgress()
 		if err := owner.controller.store.RecoverRemoteLeaseProjections(ctx); err != nil {
@@ -202,7 +225,7 @@ func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID strin
 }
 
 func (owner *VMLifecycleOwner) ActivateAppliance(ctx context.Context, installationID string) error {
-	return owner.execute(vmLifecycleApplianceOffline, func() vmLifecycleResult {
+	return owner.execute(ctx, vmLifecycleApplianceOffline, func() vmLifecycleResult {
 		err := owner.activateApplianceOwned(ctx, installationID)
 		return vmLifecycleResult{err: err}
 	}).err
@@ -277,7 +300,7 @@ func (owner *VMLifecycleOwner) activateApplianceOwned(ctx context.Context, insta
 }
 
 func (owner *VMLifecycleOwner) WithApplianceDataOffline(ctx context.Context, excludedInstallationID string, mutate func() error) error {
-	return owner.execute(vmLifecycleApplianceOffline, func() vmLifecycleResult {
+	return owner.execute(ctx, vmLifecycleApplianceOffline, func() vmLifecycleResult {
 		wasRunning := owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING
 		if wasRunning {
 			owner.controller.prepareVMTransition(ctx)
@@ -305,6 +328,13 @@ func (owner *VMLifecycleOwner) WithApplianceDataOffline(ctx context.Context, exc
 }
 
 func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {
+	// Do not publish a terminal shutdown owner until this call owns the
+	// lifecycle lock. A caller deadline while queued must leave a later caller
+	// able to perform the cleanup.
+	if err := owner.lockOperation(ctx); err != nil {
+		return err
+	}
+	defer owner.operationMu.Unlock()
 	owner.stateMu.Lock()
 	if owner.closing {
 		done := owner.shutdownDone
@@ -327,18 +357,22 @@ func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {
 	owner.manager.ClearLifecycleHandlers()
 	owner.stateMu.Unlock()
 	owner.recoveryWG.Wait()
-	err := owner.execute(vmLifecycleShutdown, func() vmLifecycleResult {
-		owner.controller.prepareVMTransition(ctx)
-		owner.controller.stopEgress()
-		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-			_, err := owner.manager.Stop(ctx, false)
-			if err != nil {
-				_, err = owner.manager.Stop(ctx, true)
+	cleanup := owner.shutdownCleanup
+	if cleanup == nil {
+		cleanup = func(ctx context.Context) error {
+			owner.controller.prepareVMTransition(ctx)
+			owner.controller.stopEgress()
+			if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+				_, err := owner.manager.Stop(ctx, false)
+				if err != nil {
+					_, err = owner.manager.Stop(ctx, true)
+				}
+				return err
 			}
-			return vmLifecycleResult{err: err}
+			return nil
 		}
-		return vmLifecycleResult{}
-	}).err
+	}
+	err := cleanup(ctx)
 	owner.stateMu.Lock()
 	owner.shutdownErr = err
 	close(owner.shutdownDone)

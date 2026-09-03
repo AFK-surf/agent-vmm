@@ -177,21 +177,20 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 		request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED) {
 		return nil, invalidField("connection_instance/state", "connection instance and valid state are required")
 	}
-	if request.GetState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
-		if err := server.controller.requireRemoteAdmission(); err != nil {
-			return nil, err
-		}
-	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
-	if request.GetState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
-		if err := server.controller.requireRemoteAdmission(); err != nil {
-			return nil, err
-		}
-	}
 	registration, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
+	}
+	// A private appliance controller must report its transport connection while
+	// the VM start commit is still closed to workload admission. Its command
+	// path remains fenced by the private route's admission channel. External
+	// registrations still require the global admission fence to be open.
+	if connectionRequiresRemoteAdmission(registration, request.GetState()) {
+		if err := server.controller.requireRemoteAdmission(); err != nil {
+			return nil, err
+		}
 	}
 	if request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
 		key := frontendConnectionKey(registration.ID, request.GetConnectionInstance())
@@ -228,6 +227,11 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 		server.controller.hostFrontends.discardEpoch(registration.ID, request.GetConnectionInstance(), request.GetConnectionEpoch())
 	}
 	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, updated).GetRegistration()}, nil
+}
+
+func connectionRequiresRemoteAdmission(registration store.RemoteRegistration, state hostv1.RemoteConnectionState) bool {
+	return state == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED &&
+		registration.OwnerKind != store.RemoteRegistrationPrivate
 }
 
 func (server *remoteComputeServer) SetRemoteAdmissionState(ctx context.Context, request *hostv1.SetRemoteAdmissionStateRequest) (*hostv1.GetRemoteStateResponse, error) {

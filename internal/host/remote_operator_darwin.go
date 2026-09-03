@@ -104,11 +104,12 @@ func (server *operatorServer) ApplyManagedRemoteEnrollment(ctx context.Context, 
 	}
 	token := append([]byte(nil), request.GetEnrollmentToken()...)
 	if _, err := remoteconnector.Enroll(ctx, config, token); err != nil {
+		message := "managed controller enrollment failed: " + err.Error()
 		_, _ = server.controller.store.SetRemoteEnrollment(ctx, stored.ID, stored.Revision,
 			int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL),
 			int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_SETUP_INCOMPLETE),
-			"MANAGED_ENROLLMENT_FAILED", "The managed controller enrollment did not complete.")
-		return nil, resourceError(codes.Unavailable, "MANAGED_ENROLLMENT_FAILED", "remote_registration", stored.ID, "managed controller enrollment failed")
+			"MANAGED_ENROLLMENT_FAILED", message)
+		return nil, resourceError(codes.Unavailable, "MANAGED_ENROLLMENT_FAILED", "remote_registration", stored.ID, message)
 	}
 	completed, err := server.controller.store.SetRemoteEnrollment(ctx, stored.ID, stored.Revision,
 		int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL),

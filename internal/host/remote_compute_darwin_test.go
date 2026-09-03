@@ -61,6 +61,89 @@ func TestCollectScopedRemoteObservationUsesOneHealthCallAndExactNamespaces(t *te
 	}
 }
 
+func TestPrivateControllerMayConnectWhileWorkloadAdmissionIsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		registration store.RemoteRegistration
+		state        hostv1.RemoteConnectionState
+		want         bool
+	}{
+		{
+			name:         "private controller connects during VM commit",
+			registration: store.RemoteRegistration{OwnerKind: store.RemoteRegistrationPrivate},
+			state:        hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+			want:         false,
+		},
+		{
+			name:         "external controller remains fenced",
+			registration: store.RemoteRegistration{OwnerKind: store.RemoteRegistrationExternal},
+			state:        hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+			want:         true,
+		},
+		{
+			name:         "disconnect remains available while fenced",
+			registration: store.RemoteRegistration{OwnerKind: store.RemoteRegistrationExternal},
+			state:        hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED,
+			want:         false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := connectionRequiresRemoteAdmission(test.registration, test.state); got != test.want {
+				t.Fatalf("connectionRequiresRemoteAdmission() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestPrivateControllerConnectionPersistsWhileWorkloadAdmissionIsClosed(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	registration, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{
+		ID: "private-registration", OwnerKind: store.RemoteRegistrationPrivate,
+		InstallationID: "private-installation",
+		Endpoint:       "private", DisplayName: "private", ProtocolVersion: "2",
+		MaxEnvironments: 1, AggregateCPUMillis: 1000, AggregateMemoryBytes: 1 << 30,
+		AggregatePIDs: 128, AggregateDiskBytes: 4 << 30, PerEnvCPUMillis: 1000,
+		PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
+		State:           int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED),
+		ConnectionState: int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED),
+		EnrollmentState: int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY), ConnectorPhase: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &Controller{manager: &vmm.Manager{}, store: database, sessions: make(map[string]*sessionServer), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string)}
+	controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
+	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
+	listener := bufconn.Listen(1 << 20)
+	grpcServer := controller.NewRemoteComputeServer()
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(func() { grpcServer.Stop(); _ = listener.Close() })
+	connection, err := grpc.NewClient("passthrough:///remote", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+		return invoke(metadata.AppendToOutgoingContext(ctx, "x-agent-vmm-registration", registration.ID), method, request, reply, connection, options...)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := hostv1.NewRemoteComputeServiceClient(connection)
+	if _, err := client.SetConnectionState(ctx, &hostv1.SetConnectionStateRequest{
+		RegistrationId: registration.ID, ConnectionInstance: "private-controller", ConnectionEpoch: 1,
+		State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
+	}); err != nil {
+		t.Fatalf("private controller connection was blocked by closed workload admission: %v", err)
+	}
+	stored, err := database.GetRemoteRegistration(ctx, registration.ID)
+	if err != nil || stored.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
+		t.Fatalf("private controller connection was not persisted: registration=%+v err=%v", stored, err)
+	}
+}
+
 func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {

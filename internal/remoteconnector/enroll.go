@@ -34,7 +34,7 @@ func Enroll(ctx context.Context, config Config, token []byte) (string, error) {
 	wipe(requestToken)
 	request.EnrollmentToken = nil
 	if err != nil {
-		return "", fmt.Errorf("controller enrollment failed")
+		return "", fmt.Errorf("controller enrollment failed: %w", err)
 	}
 	if response.GetProtocolVersion() != ProtocolVersion || response.GetRegistrationId() != config.RegistrationID {
 		wipe(response.Credential)

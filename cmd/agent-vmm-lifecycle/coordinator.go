@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	defaultCoordinatorOperationTimeout = 2 * time.Minute
-	defaultCoordinatorStepTimeout      = 30 * time.Second
+	defaultCoordinatorOperationTimeout = 5 * time.Minute
+	defaultCoordinatorStepTimeout      = 2 * time.Minute
 )
 
 var (
