@@ -41,7 +41,7 @@ func main() {
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
 	flag.StringVar(&config.InstanceDirectory, "instance", "", "VM instance directory")
 	flag.UintVar(&config.CPUCount, "cpus", 8, "fixed VM CPU count")
-	flag.Uint64Var(&config.MemoryBytes, "memory", 8<<30, "fixed VM memory bytes")
+	flag.Uint64Var(&config.MemoryBytes, "memory", 12<<30, "fixed VM memory bytes")
 	flag.Int64Var(&config.StateBytes, "state-size", 32<<30, "fully physically backed state disk bytes")
 	flag.StringVar(&config.SerialLog, "serial-log", "", "serial log path")
 	flag.StringVar(&operatorSocket, "operator-socket", "", "operator Unix socket")

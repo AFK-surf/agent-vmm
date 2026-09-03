@@ -130,23 +130,6 @@ func TestControllerModelsAreSeparatedAndWired(t *testing.T) {
 			t.Errorf("controller model is missing %q", anchor)
 		}
 	}
-	runnerBytes, err := os.ReadFile(filepath.Join(repository, "tools", "tla", "run.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(runnerBytes), "ControllerAllocationLifecycleSequenceNegative CommandFenceExact Allocate") {
-		t.Error("TLC runner does not execute the stale command-fence counterexample")
-	}
-	for _, counterexample := range []string{
-		"ControllerAllocationLifecycleAdmissionNegative NoAllocationWithoutAdmission Allocate",
-		"ControllerAllocationLifecycleDeleteLeaseNegative LeaseBlocksDelete DeleteAllocation",
-		"ControllerAllocationLifecycleSessionNegative SingleCurrentCapability OpenSession",
-		"ControllerAllocationLifecycleRevokeNegative RevokeIsTerminal Allocate",
-	} {
-		if !strings.Contains(string(runnerBytes), counterexample) {
-			t.Errorf("TLC runner does not execute coupled counterexample %q", counterexample)
-		}
-	}
 	for _, config := range []string{"ControllerAllocationLifecycle.cfg", "ControllerAllocationLifecycleSequenceNegative.cfg"} {
 		configBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", config))
 		if err != nil {

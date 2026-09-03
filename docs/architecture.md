@@ -169,8 +169,8 @@ The host controller has these responsibilities:
 - provide local TTY, file transfer, and port forwarding
 - reconcile desired policy after a virtual machine restart
 
-The packaged Host defaults the VM to 8 GiB and refuses a configuration that
-leaves less than 8 GiB of physical memory to macOS. If Virtualization.framework
+The packaged Host defaults the VM to 12 GiB and refuses a configuration that
+leaves less than 4 GiB of physical memory to macOS. If Virtualization.framework
 unexpectedly stops a running VM, the Host first revokes sessions, capabilities,
 active remote leases, and remote connector admission while preserving the
 durable registration, allocation, and state-disk identity. The same Host

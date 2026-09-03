@@ -23,13 +23,13 @@ func TestNewManagerLeavesHostMemoryReserve(t *testing.T) {
 	physicalMemoryBytes = func() (uint64, error) { return 16 << 30, nil }
 	t.Cleanup(func() { physicalMemoryBytes = original })
 	config := Config{BundleDirectory: "bundle", InstanceDirectory: "instance", SerialLog: "serial", CPUCount: 2, StateBytes: 32 << 30}
-	config.MemoryBytes = 8 << 30
-	if _, err := NewManager(config); err != nil {
-		t.Fatalf("8 GiB VM rejected on 16 GiB host: %v", err)
-	}
 	config.MemoryBytes = 12 << 30
+	if _, err := NewManager(config); err != nil {
+		t.Fatalf("12 GiB VM rejected on 16 GiB host: %v", err)
+	}
+	config.MemoryBytes = (12 << 30) + 1
 	if _, err := NewManager(config); err == nil {
-		t.Fatal("12 GiB VM accepted on 16 GiB host")
+		t.Fatal("VM accepted without the 4 GiB host reserve")
 	}
 }
 

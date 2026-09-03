@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,6 +20,29 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func TestParseFuserOwners(t *testing.T) {
+	if got, want := parseFuserOwners([]byte("4044 4051\n")), []int{4044, 4051}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("owners=%v want=%v", got, want)
+	}
+	if got := parseFuserOwners(nil); len(got) != 0 {
+		t.Fatalf("empty output returned owners=%v", got)
+	}
+}
+
+func TestFuserOpenOwnersTreatsUnownedFileAsReleasedOnMacOS(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the lifecycle helper uses the macOS fuser contract")
+	}
+	path := filepath.Join(t.TempDir(), "state.raw")
+	if err := os.WriteFile(path, []byte("state"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owners, err := fuserOpenOwners(context.Background(), path)
+	if err != nil || len(owners) != 0 {
+		t.Fatalf("unowned state disk owners=%v err=%v", owners, err)
+	}
+}
 
 func TestXMLEscape(t *testing.T) {
 	if got := xmlEscape("/Users/a&b<c>"); got != "/Users/a&amp;b&lt;c&gt;" {

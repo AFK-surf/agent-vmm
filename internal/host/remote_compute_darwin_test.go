@@ -184,22 +184,22 @@ func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.
 	}
 }
 
-func TestEightGiBHostCapacityAdmitsFourProductTemplates(t *testing.T) {
-	capacity := remoteWorkloadCapacity(8, 8<<30, 32<<30)
-	if capacity.MemoryHighBytes != 9<<29 {
-		t.Fatalf("8 GiB VM memory-high capacity = %d, want 4.5 GiB", capacity.MemoryHighBytes)
+func TestTwelveGiBHostCapacityAdmitsFourProductTemplates(t *testing.T) {
+	capacity := remoteWorkloadCapacity(8, 12<<30, 32<<30)
+	if capacity.MemoryHighBytes != 17<<29 {
+		t.Fatalf("12 GiB VM memory-high capacity = %d, want 8.5 GiB", capacity.MemoryHighBytes)
 	}
-	external := resourcev2.Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 1 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
-	meeting := resourcev2.Contract{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, CPUWeight: 8000, MemoryHighBytes: 1 << 30, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	external := resourcev2.Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 1536 << 20, MemoryMaxBytes: 2 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	meeting := resourcev2.Contract{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, CPUWeight: 8000, MemoryHighBytes: 3584 << 20, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
 	// Codex, Pi, and Claude use the external profile; Meeting has its own max.
 	used := resourcev2.Capacity{}.Add(external).Add(external).Add(external)
 	if err := used.AdmitsShared(meeting, capacity); err != nil {
-		t.Fatalf("soft memory-high profile was rejected: %v (capacity=%+v used=%+v)", err, capacity, used)
+		t.Fatalf("four-workload memory-high profile was rejected: %v (capacity=%+v used=%+v)", err, capacity, used)
 	}
 	overBudget := meeting
-	overBudget.MemoryHighBytes = (1536 << 20) + 1
+	overBudget.MemoryHighBytes += (512 << 20) + 1
 	if err := used.AdmitsShared(overBudget, capacity); err == nil {
-		t.Fatal("memory-high profile above 4.5 GiB was admitted")
+		t.Fatal("memory-high profile above 8.5 GiB was admitted")
 	}
 }
 

@@ -23,7 +23,7 @@ import (
 
 const (
 	VMMDPort          = 4050
-	hostMemoryReserve = 8 << 30
+	hostMemoryReserve = 4 << 30
 )
 
 var physicalMemoryBytes = func() (uint64, error) { return unix.SysctlUint64("hw.memsize") }
@@ -99,7 +99,7 @@ func NewManager(config Config) (*Manager, error) {
 		return nil, fmt.Errorf("read host physical memory: %w", err)
 	}
 	if physical <= hostMemoryReserve || config.MemoryBytes > physical-hostMemoryReserve {
-		return nil, fmt.Errorf("VM memory %d leaves less than 8 GiB for the host", config.MemoryBytes)
+		return nil, fmt.Errorf("VM memory %d leaves less than 4 GiB for the host", config.MemoryBytes)
 	}
 	for _, path := range []string{config.BundleDirectory, config.InstanceDirectory, config.SerialLog} {
 		if path == "" {

@@ -1272,34 +1272,31 @@ var processRunning = func(pid int) bool {
 	return err == nil || errors.Is(err, unix.EPERM)
 }
 
-var stateDiskOpenOwners = lsofOpenOwners
+var stateDiskOpenOwners = fuserOpenOwners
 
-func lsofOpenOwners(ctx context.Context, path string) ([]int, error) {
+func fuserOpenOwners(ctx context.Context, path string) ([]int, error) {
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("read VM state disk: %w", err)
 	}
-	command := exec.CommandContext(ctx, "/usr/sbin/lsof", "-F", "p", "--", path)
+	command := exec.CommandContext(ctx, "/usr/bin/fuser", path)
 	output, err := command.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(output) == 0 {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("inspect VM state disk owner: %w", err)
 	}
+	return parseFuserOwners(output), nil
+}
+
+func parseFuserOwners(output []byte) []int {
 	owners := make([]int, 0)
-	for _, line := range strings.Split(string(output), "\n") {
-		if len(line) < 2 || line[0] != 'p' {
-			continue
-		}
-		pid, parseErr := strconv.Atoi(line[1:])
+	for _, field := range strings.Fields(string(output)) {
+		pid, parseErr := strconv.Atoi(field)
 		if parseErr == nil && pid > 0 {
 			owners = append(owners, pid)
 		}
 	}
-	return owners, nil
+	return owners
 }
 
 func waitForStateDiskRelease(ctx context.Context, path string) error {

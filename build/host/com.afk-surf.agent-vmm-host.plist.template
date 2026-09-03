@@ -10,7 +10,7 @@
     <string>--cpus</string>
     <string>8</string>
     <string>--memory</string>
-    <string>8589934592</string>
+    <string>12884901888</string>
     <string>--state-size</string>
     <string>34359738368</string>
     <string>--bundle</string>
