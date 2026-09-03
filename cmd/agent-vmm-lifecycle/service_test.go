@@ -120,7 +120,7 @@ func TestServiceDefinitionUsesFreshBundleResourceGeometry(t *testing.T) {
 			t.Errorf("updated definition did not retain %q: %s", expected, definition)
 		}
 	}
-	if strings.Contains(definition, "17179869184") {
+	if strings.Contains(definition, "<string>--state-size</string><string>17179869184</string>") {
 		t.Fatal("fresh profile inherited old state geometry")
 	}
 }

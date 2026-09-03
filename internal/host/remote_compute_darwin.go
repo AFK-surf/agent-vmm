@@ -421,11 +421,11 @@ func admitAllocationV2(ctx context.Context, database *store.Store, registration 
 	if err != nil {
 		return err
 	}
-	domain := resourcev2.Capacity{CPUGuaranteeMillis: uint64(registration.AggregateCPUMillis), CPUMaxMillis: uint64(registration.AggregateCPUMillis) * 3 / 2, MemoryMaxBytes: registration.AggregateMemoryBytes, PIDMax: uint64(registration.AggregatePIDs), WritableQuotaBytes: registration.AggregateDiskBytes}
-	if err := used.Admits(resources, domain); err != nil {
+	domain := resourcev2.Capacity{CPUGuaranteeMillis: uint64(registration.AggregateCPUMillis), CPUMaxMillis: uint64(registration.AggregateCPUMillis) * 3 / 2, MemoryHighBytes: registration.AggregateMemoryBytes, PIDMax: uint64(registration.AggregatePIDs), WritableQuotaBytes: registration.AggregateDiskBytes}
+	if err := used.AdmitsShared(resources, domain); err != nil {
 		return capacityError("POOL_AGGREGATE_LIMIT", registration.ID, err)
 	}
-	if err := used.Admits(resources, hostCapacity); err != nil {
+	if err := used.AdmitsShared(resources, hostCapacity); err != nil {
 		return capacityError("RESOURCE_LEDGER_EXHAUSTED", registration.ID, err)
 	}
 	return nil
@@ -486,6 +486,7 @@ func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, reques
 	if err != nil {
 		return nil, err
 	}
+	server.controller.wakeWorkloadReleaseReconcile()
 	return &hostv1.AllocationResponse{Allocation: server.controller.remoteAllocation(current)}, nil
 }
 

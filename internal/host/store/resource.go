@@ -57,7 +57,7 @@ func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Envi
 	if err != nil {
 		return Environment{}, WorkloadReservation{}, err
 	}
-	if err := used.Admits(reservation.Resources, capacity); err != nil {
+	if err := used.AdmitsShared(reservation.Resources, capacity); err != nil {
 		return Environment{}, WorkloadReservation{}, fmt.Errorf("%w: %w", ErrResourceCapacityExceeded, err)
 	}
 	now := time.Now().UnixNano()
@@ -92,7 +92,7 @@ func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Envi
 
 func sumWorkloadReservations(ctx context.Context, tx *sql.Tx, registrationID string) (resourcev2.Capacity, error) {
 	query := `SELECT COALESCE(SUM(cpu_guarantee_millis),0),COALESCE(SUM(cpu_max_millis),0),
-		COALESCE(SUM(memory_max_bytes),0),COALESCE(SUM(pid_max),0),COALESCE(SUM(writable_quota_bytes),0)
+		COALESCE(SUM(memory_high_bytes),0),COALESCE(SUM(memory_max_bytes),0),COALESCE(SUM(pid_max),0),COALESCE(SUM(writable_quota_bytes),0)
 		FROM workload_reservations_v2 WHERE phase IN (1,2,3,4)`
 	var args []any
 	if registrationID != "" {
@@ -100,7 +100,7 @@ func sumWorkloadReservations(ctx context.Context, tx *sql.Tx, registrationID str
 		args = append(args, registrationID)
 	}
 	var value resourcev2.Capacity
-	err := tx.QueryRowContext(ctx, query, args...).Scan(&value.CPUGuaranteeMillis, &value.CPUMaxMillis, &value.MemoryMaxBytes, &value.PIDMax, &value.WritableQuotaBytes)
+	err := tx.QueryRowContext(ctx, query, args...).Scan(&value.CPUGuaranteeMillis, &value.CPUMaxMillis, &value.MemoryHighBytes, &value.MemoryMaxBytes, &value.PIDMax, &value.WritableQuotaBytes)
 	return value, err
 }
 
@@ -114,6 +114,46 @@ func (store *Store) GetWorkloadReservationByAllocation(ctx context.Context, regi
 
 func (store *Store) GetWorkloadReservationByEnvironment(ctx context.Context, environmentID string) (WorkloadReservation, error) {
 	return scanWorkloadReservation(store.db.QueryRowContext(ctx, workloadReservationSelect+" WHERE environment_id=?", environmentID))
+}
+
+func (store *Store) ListWorkloadReleaseObligations(ctx context.Context, limit int) ([]WorkloadReservation, error) {
+	if limit <= 0 {
+		return nil, errors.New("workload release obligation limit must be positive")
+	}
+	rows, err := store.db.QueryContext(ctx, workloadReservationSelect+
+		" WHERE phase IN (?,?,?) ORDER BY updated_at,allocation_id,generation LIMIT ?",
+		WorkloadReservationReleaseRequired, WorkloadReservationReleasing,
+		WorkloadReservationReleasedPendingConfirm, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := make([]WorkloadReservation, 0, limit)
+	for rows.Next() {
+		value, err := scanWorkloadReservation(rows)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (store *Store) DeferWorkloadRelease(ctx context.Context, allocationID string, generation uint64) error {
+	result, err := store.db.ExecContext(ctx, `UPDATE workload_reservations_v2 SET updated_at=?
+		WHERE allocation_id=? AND generation=? AND phase IN (?,?,?)`, time.Now().UnixNano(), allocationID, generation,
+		WorkloadReservationReleaseRequired, WorkloadReservationReleasing, WorkloadReservationReleasedPendingConfirm)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return errors.New("exact workload release obligation no longer exists")
+	}
+	return nil
 }
 
 func (store *Store) WorkloadUsage(ctx context.Context, registrationID string) (resourcev2.Capacity, error) {

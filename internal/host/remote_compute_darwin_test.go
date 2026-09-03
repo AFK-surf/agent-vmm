@@ -71,7 +71,7 @@ func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.
 		AggregateCPUMillis: 2000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 8 << 30,
 		PerEnvCPUMillis: 2000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 8 << 30,
 		MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL)}
-	hostCapacity := resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 6000, MemoryMaxBytes: 8 << 30, PIDMax: 1024, WritableQuotaBytes: 24 << 30}
+	hostCapacity := resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 6000, MemoryHighBytes: 8 << 30, MemoryMaxBytes: 8 << 30, PIDMax: 1024, WritableQuotaBytes: 24 << 30}
 	base := resourcev2.Contract{CPUGuaranteeMillis: 1000, CPUMaxMillis: 2000, CPUWeight: 100, MemoryHighBytes: 1 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
 	if err := admitAllocationV2(context.Background(), database, registration, nil, base, hostCapacity, hostv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
 		t.Fatalf("valid independent contract rejected: %v", err)
@@ -98,6 +98,16 @@ func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.
 				t.Fatalf("capacity dimension = %q, want %q", got, test.dimension)
 			}
 		})
+	}
+}
+
+func TestDefaultHostCapacityAdmitsCodexPiClaudeAndMeeting(t *testing.T) {
+	capacity := remoteWorkloadCapacity(8, 12<<30, 32<<30)
+	agent := resourcev2.Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 1536 << 20, MemoryMaxBytes: 2 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	meeting := resourcev2.Contract{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, CPUWeight: 8000, MemoryHighBytes: 3584 << 20, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	used := resourcev2.Capacity{}.Add(agent).Add(agent).Add(agent)
+	if err := used.AdmitsShared(meeting, capacity); err != nil {
+		t.Fatalf("12GiB profile rejected Codex, Pi, Claude, and Meeting: %v (capacity=%+v used=%+v)", err, capacity, used)
 	}
 }
 
@@ -221,7 +231,7 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	remote, _, err := database.BeginWorkloadAdmission(ctx,
 		store.Environment{ID: "remote", NamespaceID: "remote-namespace", DisplayName: "remote", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: 1},
 		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "remote", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryHighBytes: 4 << 30, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +448,7 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	expiringEnvironment, _, err := database.BeginWorkloadAdmission(ctx,
 		store.Environment{ID: "remote-expiring", NamespaceID: "remote-expiring-namespace", DisplayName: "expiring", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation-expiring", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
 		store.WorkloadReservation{AllocationID: "allocation-expiring", Generation: 8, RegistrationID: registration.ID, EnvironmentID: "remote-expiring", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryHighBytes: 4 << 30, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +499,7 @@ func TestDisconnectGraceUsesPersistedDisconnectFence(t *testing.T) {
 		OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY),
 	}, store.WorkloadReservation{AllocationID: "allocation", Generation: 1, RegistrationID: registration.ID, EnvironmentID: "environment",
 		Resources: resourcev2.Contract{CPUGuaranteeMillis: 1, CPUMaxMillis: 1, CPUWeight: 1, MemoryHighBytes: 1, MemoryMaxBytes: 1, PIDMax: 1, WritableQuotaBytes: 1}},
-		resourcev2.Capacity{CPUGuaranteeMillis: 2, CPUMaxMillis: 2, MemoryMaxBytes: 2, PIDMax: 2, WritableQuotaBytes: 2})
+		resourcev2.Capacity{CPUGuaranteeMillis: 2, CPUMaxMillis: 2, MemoryHighBytes: 2, MemoryMaxBytes: 2, PIDMax: 2, WritableQuotaBytes: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -553,7 +563,7 @@ func TestConcurrentLeaseExpiryAndExplicitReleaseHaveSingleTerminalOwner(t *testi
 	environment, _, err := database.BeginWorkloadAdmission(ctx,
 		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
 		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "environment", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +646,7 @@ func TestConnectionReplacementRevokesActiveLeaseWithoutAdmissionDeadlock(t *test
 	environment, _, err := database.BeginWorkloadAdmission(ctx,
 		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
 		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "environment", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}

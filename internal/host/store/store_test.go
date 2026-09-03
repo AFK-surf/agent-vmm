@@ -999,7 +999,7 @@ func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
 		ID: "remote-leased", NamespaceID: "remote-leased-namespace", DisplayName: "leased", OwnerKind: OwnerRemoteRegistration,
 		RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY),
 	}, WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: "registration", EnvironmentID: "remote-leased", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		database.Close()
 		t.Fatal(err)

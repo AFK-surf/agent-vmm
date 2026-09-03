@@ -344,6 +344,7 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			return nil, imageError(codes.Aborted, "IMAGE_DIGEST_CONFLICT", "image reference already names different content", imageReference)
 		}
 		unpacked, err := existing.IsUnpacked(nsctx, containerSnapshotter)
+		unpacked, err = reusableSourceUnpacked(unpacked, err)
 		if err != nil {
 			return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", imageReference)
 		}

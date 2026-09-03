@@ -321,7 +321,7 @@ func (server *operatorServer) finishDiscardAfterMissingNamespace(ctx context.Con
 	}
 	server.controller.forgetContainers(environmentID)
 	if server.controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-		if err := server.controller.publishSourcePolicies(ctx); err != nil {
+		if err := server.controller.publishSourcePoliciesLocked(ctx, ""); err != nil {
 			server.controller.failOperation(ctx, &operation, "POLICY_RECONCILE_FAILED", err)
 			return operation, nil
 		}
@@ -367,7 +367,7 @@ func (server *operatorServer) performCleanup(ctx context.Context, operation *sto
 				return fmt.Errorf("discard cleanup host environment: %w", err)
 			}
 			server.controller.forgetContainers(environment.ID)
-			if err := server.controller.publishSourcePolicies(ctx); err != nil {
+			if err := server.controller.publishSourcePoliciesLocked(ctx, ""); err != nil {
 				return fmt.Errorf("publish cleanup source policies: %w", err)
 			}
 			return nil
@@ -438,7 +438,7 @@ func (server *operatorServer) performCleanup(ctx context.Context, operation *sto
 		return fmt.Errorf("discard cleanup host environment: %w", err)
 	}
 	server.controller.forgetContainers(environment.ID)
-	if err := server.controller.publishSourcePolicies(ctx); err != nil {
+	if err := server.controller.publishSourcePoliciesLocked(ctx, ""); err != nil {
 		return fmt.Errorf("publish cleanup source policies: %w", err)
 	}
 	return nil

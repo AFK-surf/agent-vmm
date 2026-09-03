@@ -91,6 +91,7 @@ type Controller struct {
 	remoteAdmissionMu        sync.Mutex
 	projectionMu             sync.Mutex
 	egress                   *egress.Subsystem
+	sourcePolicyPublisher    func(context.Context, string) error
 	egressCancel             context.CancelFunc
 	egressAcceptWG           sync.WaitGroup
 	egressSessionWG          sync.WaitGroup
@@ -119,6 +120,7 @@ type Controller struct {
 	domainMetrics            map[string]*controllerDomainMetricState
 	applianceReconcileCancel context.CancelFunc
 	applianceReconcileWG     sync.WaitGroup
+	workloadReleaseWake      chan struct{}
 	externalConnectorMu      sync.Mutex
 	externalConnectors       map[string]*externalConnectorRoute
 	externalConnectorContext context.Context
@@ -198,14 +200,15 @@ func New(config Config) (*Controller, error) {
 		remoteCredentials: remoteconnector.NewCredentialStore(filepath.Join(supportDirectory, "remote-credentials")),
 		egress:            egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
 		applianceHealth: make(map[string]*appliancev1.ApplianceHealth), pendingApplianceHealth: make(map[string]*appliancev1.ApplianceHealth),
-		serviceListeners:   make(map[string]*serviceListenerRuntime),
-		pairings:           make(map[string]*personalMeshPairingRuntime),
-		privateControllers: make(map[string]*privateControllerRoute),
-		applianceFrontends: make(map[string]*applianceFrontendRuntime),
-		domainMetrics:      make(map[string]*controllerDomainMetricState),
-		externalConnectors: make(map[string]*externalConnectorRoute),
-		remoteCapacity:     store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
-		remoteCapacityV2:   remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes),
+		serviceListeners:    make(map[string]*serviceListenerRuntime),
+		pairings:            make(map[string]*personalMeshPairingRuntime),
+		privateControllers:  make(map[string]*privateControllerRoute),
+		applianceFrontends:  make(map[string]*applianceFrontendRuntime),
+		domainMetrics:       make(map[string]*controllerDomainMetricState),
+		externalConnectors:  make(map[string]*externalConnectorRoute),
+		workloadReleaseWake: make(chan struct{}, 1),
+		remoteCapacity:      store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
+		remoteCapacityV2:    remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes),
 	}
 	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
 	controller.remoteConnectionEpochs = make(map[string]uint64)
@@ -227,10 +230,14 @@ func New(config Config) (*Controller, error) {
 	}
 	reconcileContext, reconcileCancel := context.WithCancel(context.Background())
 	controller.applianceReconcileCancel = reconcileCancel
-	controller.applianceReconcileWG.Add(1)
+	controller.applianceReconcileWG.Add(2)
 	go func() {
 		defer controller.applianceReconcileWG.Done()
 		controller.applianceReconcileLoop(reconcileContext)
+	}()
+	go func() {
+		defer controller.applianceReconcileWG.Done()
+		controller.workloadReleaseReconcileLoop(reconcileContext)
 	}()
 	return controller, nil
 }
@@ -249,12 +256,12 @@ func remoteWorkloadCapacity(cpuCount uint, memoryBytes uint64, stateBytes int64)
 	if memory > 7<<29 {
 		memory -= 7 << 29
 	}
-	pids := uint64(1536)
+	pids := uint64(2048)
 	writable := uint64(8 << 30)
 	if stateBytes > 0 && uint64(stateBytes)/4 < writable {
 		writable = uint64(stateBytes) / 4
 	}
-	return resourcev2.Capacity{CPUGuaranteeMillis: guarantee, CPUMaxMillis: maxCPU, MemoryMaxBytes: memory, PIDMax: pids, WritableQuotaBytes: writable}
+	return resourcev2.Capacity{CPUGuaranteeMillis: guarantee, CPUMaxMillis: maxCPU, MemoryHighBytes: memory, MemoryMaxBytes: memory, PIDMax: pids, WritableQuotaBytes: writable}
 }
 
 func (controller *Controller) invalidateRuntimeCapabilities(ctx context.Context) {
@@ -467,40 +474,36 @@ func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, en
 	if err := controller.projectEnvironment(ctx, environment); err != nil {
 		return err
 	}
-	return controller.publishSourcePolicies(ctx)
+	return controller.publishSourcePoliciesLocked(ctx, "")
 }
 
 func (controller *Controller) projectEnvironment(ctx context.Context, environment store.Environment) error {
+	if environment.OwnerKind == store.OwnerRemoteRegistration {
+		reservation, err := controller.store.GetWorkloadReservationByEnvironment(ctx, environment.ID)
+		if err != nil {
+			return fmt.Errorf("load exact workload reservation: %w", err)
+		}
+		if reservation.Phase == store.WorkloadReservationReleaseRequired || reservation.Phase == store.WorkloadReservationReleasing || reservation.Phase == store.WorkloadReservationReleasedPendingConfirm {
+			// The persistent workload-release reconciler is the sole terminal
+			// reservation owner. Policy projection must not race its exact Guest
+			// release/confirm sequence.
+			return nil
+		}
+		connection, err := controller.manager.DialVMMD(ctx)
+		if err != nil {
+			return err
+		}
+		defer connection.Close()
+		client := vmmdv1.NewVMMDServiceClient(connection)
+		_, err = controller.reconcileGuestReservation(ctx, client, environment, reservation)
+		return err
+	}
 	connection, err := controller.manager.DialVMMD(ctx)
 	if err != nil {
 		return err
 	}
 	defer connection.Close()
 	client := vmmdv1.NewVMMDServiceClient(connection)
-	if environment.OwnerKind == store.OwnerRemoteRegistration {
-		reservation, err := controller.store.GetWorkloadReservationByEnvironment(ctx, environment.ID)
-		if err != nil {
-			return fmt.Errorf("load exact workload reservation: %w", err)
-		}
-		if reservation.Phase == store.WorkloadReservationReleaseRequired {
-			reservation, err = controller.recoverGuestReservationForRelease(ctx, client, environment, reservation)
-			if err != nil {
-				return err
-			}
-		}
-		if reservation.Phase == store.WorkloadReservationReleasing || reservation.Phase == store.WorkloadReservationReleasedPendingConfirm {
-			if err := controller.confirmWorkloadRelease(ctx, client, environment, reservation); err != nil {
-				return err
-			}
-			if err := controller.store.DiscardEnvironment(ctx, environment.ID); err != nil {
-				return err
-			}
-			controller.forgetContainers(environment.ID)
-			return nil
-		}
-		_, err = controller.reconcileGuestReservation(ctx, client, environment, reservation)
-		return err
-	}
 	requestID, err := randomID()
 	if err != nil {
 		return err
@@ -684,7 +687,7 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 			}
 		}
 	}
-	return controller.publishSourcePolicies(ctx)
+	return controller.publishSourcePoliciesLocked(ctx, "")
 }
 
 func derivedRequestID(value string) string {

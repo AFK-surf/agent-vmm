@@ -49,6 +49,7 @@ type Contract struct {
 type Capacity struct {
 	CPUGuaranteeMillis uint64
 	CPUMaxMillis       uint64
+	MemoryHighBytes    uint64
 	MemoryMaxBytes     uint64
 	PIDMax             uint64
 	WritableQuotaBytes uint64
@@ -69,9 +70,30 @@ func (capacity Capacity) Add(contract Contract) Capacity {
 	return Capacity{
 		CPUGuaranteeMillis: capacity.CPUGuaranteeMillis + contract.CPUGuaranteeMillis,
 		CPUMaxMillis:       capacity.CPUMaxMillis + contract.CPUMaxMillis,
+		MemoryHighBytes:    capacity.MemoryHighBytes + contract.MemoryHighBytes,
 		MemoryMaxBytes:     capacity.MemoryMaxBytes + contract.MemoryMaxBytes,
 		PIDMax:             capacity.PIDMax + contract.PIDMax,
 		WritableQuotaBytes: capacity.WritableQuotaBytes + contract.WritableQuotaBytes,
+	}
+}
+
+// AdmitsShared applies the bounded shared-capacity contract. MemoryHighBytes is
+// the reclaimable admission entitlement; MemoryMaxBytes remains a per-workload
+// cgroup safety ceiling and is intentionally not reserved across workloads.
+func (used Capacity) AdmitsShared(contract Contract, limit Capacity) error {
+	switch {
+	case contract.CPUGuaranteeMillis > limit.CPUGuaranteeMillis || used.CPUGuaranteeMillis > limit.CPUGuaranteeMillis-contract.CPUGuaranteeMillis:
+		return &CapacityError{Dimension: CapacityCPUGuarantee}
+	case contract.CPUMaxMillis > limit.CPUMaxMillis || used.CPUMaxMillis > limit.CPUMaxMillis-contract.CPUMaxMillis:
+		return &CapacityError{Dimension: CapacityCPUMax}
+	case contract.MemoryHighBytes > limit.MemoryHighBytes || used.MemoryHighBytes > limit.MemoryHighBytes-contract.MemoryHighBytes:
+		return &CapacityError{Dimension: CapacityMemory}
+	case contract.PIDMax > limit.PIDMax || used.PIDMax > limit.PIDMax-contract.PIDMax:
+		return &CapacityError{Dimension: CapacityPIDs}
+	case contract.WritableQuotaBytes > limit.WritableQuotaBytes || used.WritableQuotaBytes > limit.WritableQuotaBytes-contract.WritableQuotaBytes:
+		return &CapacityError{Dimension: CapacityWritable}
+	default:
+		return nil
 	}
 }
 
@@ -98,6 +120,7 @@ func NodeCapacity(cpuMillis, memoryBytes, pidMax, writableQuotaBytes uint64) Cap
 	return Capacity{
 		CPUGuaranteeMillis: cpuMillis,
 		CPUMaxMillis:       cpuMillis * MaxCPUOversubscriptionNumerator / MaxCPUOversubscriptionDenominator,
+		MemoryHighBytes:    memoryBytes,
 		MemoryMaxBytes:     memoryBytes,
 		PIDMax:             pidMax,
 		WritableQuotaBytes: writableQuotaBytes,

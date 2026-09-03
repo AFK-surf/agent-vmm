@@ -28,7 +28,7 @@ func TestTerminalAdmissionRecoveryNeverRevivesAllocation(t *testing.T) {
 	environment, _, err := database.BeginWorkloadAdmission(ctx,
 		Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
 		WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: "registration", EnvironmentID: "environment", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestTerminalAdmissionRecoveryNeverRevivesAllocation(t *testing.T) {
 	admittedEnvironment, _, err := database.BeginWorkloadAdmission(ctx,
 		Environment{ID: "environment-admitted", NamespaceID: "namespace-admitted", OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation-admitted", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
 		WorkloadReservation{AllocationID: "allocation-admitted", Generation: 8, RegistrationID: "registration", EnvironmentID: "environment-admitted", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 8 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, MemoryHighBytes: 4 << 30, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 8 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestGuestReservationReceiptRetryIsExactAndAtomic(t *testing.T) {
 	}
 	contract := resourcev2.Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, CPUWeight: 100,
 		MemoryHighBytes: 768 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
-	capacity := resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
+	capacity := resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
 	environment, logical, err := database.BeginWorkloadAdmission(ctx,
 		Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "workload", OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING)},
 		WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: "registration", EnvironmentID: "environment", Resources: contract}, capacity)

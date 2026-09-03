@@ -21,6 +21,19 @@ func TestIndependentAdmissionInvariants(t *testing.T) {
 	}
 }
 
+func TestSharedAdmissionReservesMemoryHighWithoutSummingHardMax(t *testing.T) {
+	limit := NodeCapacity(8000, 17<<29, 2048, 8<<30)
+	agent := Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 2000, MemoryHighBytes: 3 << 29, MemoryMaxBytes: 2 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	meeting := Contract{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, MemoryHighBytes: 7 << 29, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
+	used := Capacity{}.Add(agent).Add(agent).Add(agent)
+	if err := used.AdmitsShared(meeting, limit); err != nil {
+		t.Fatalf("bounded memory overcommit was rejected: %v", err)
+	}
+	if err := (Capacity{}).Admits(meeting, Capacity{CPUGuaranteeMillis: 8000, CPUMaxMillis: 12000, MemoryMaxBytes: 3 << 30, PIDMax: 2048, WritableQuotaBytes: 8 << 30}); ExhaustedDimension(err) != CapacityMemory {
+		t.Fatalf("per-workload hard max was not enforced: %v", err)
+	}
+}
+
 func TestContractRejectsCPUAboveNode(t *testing.T) {
 	contract := Contract{CPUGuaranteeMillis: 1000, CPUMaxMillis: 8001, CPUWeight: 100, MemoryHighBytes: 16 << 20, MemoryMaxBytes: 16 << 20, PIDMax: 1, WritableQuotaBytes: 1}
 	if err := contract.Validate(8000); err == nil {

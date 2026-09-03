@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/egress"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"google.golang.org/grpc"
@@ -180,7 +182,7 @@ func TestReleaseLossAndRestartConvergesThroughExistingReservationReconcile(t *te
 	environment, _, err := database.BeginWorkloadAdmission(ctx,
 		store.Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "workload", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation", AllocationState: 2},
 		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: "registration", EnvironmentID: "environment", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,34 +194,54 @@ func TestReleaseLossAndRestartConvergesThroughExistingReservationReconcile(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	current, err := database.GetEnvironment(ctx, environment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err = database.SetAllocationState(ctx, environment.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	if err != nil {
+		t.Fatal(err)
+	}
 	client := new(lossReleaseClient)
-	controller := &Controller{store: database}
-	if err := controller.confirmWorkloadRelease(ctx, client, environment, reservation); status.Code(err) != codes.Unavailable || !client.tombstone {
+	controller := &Controller{store: database, egress: egress.New()}
+	if err := controller.reconcileWorkloadReleaseWithClient(ctx, client, environment, reservation); status.Code(err) != codes.Unavailable || !client.tombstone {
 		t.Fatalf("lost release response err=%v tombstone=%v", err, client.tombstone)
 	}
 	reservation, err = database.GetWorkloadReservation(ctx, "allocation", 7)
 	if err != nil || reservation.Phase != store.WorkloadReservationReleasing {
 		t.Fatalf("restart fence=%+v err=%v", reservation, err)
 	}
-	if err := controller.confirmWorkloadRelease(ctx, client, environment, reservation); status.Code(err) != codes.Unavailable || client.tombstone {
+	if err := controller.reconcileWorkloadReleaseWithClient(ctx, client, environment, reservation); status.Code(err) != codes.Unavailable || client.tombstone {
 		t.Fatalf("lost confirm response err=%v tombstone=%v", err, client.tombstone)
 	}
 	reservation, err = database.GetWorkloadReservation(ctx, "allocation", 7)
 	if err != nil || reservation.Phase != store.WorkloadReservationReleasedPendingConfirm {
 		t.Fatalf("pending confirmation=%+v err=%v", reservation, err)
 	}
-	if err := controller.confirmWorkloadRelease(ctx, client, environment, reservation); err != nil {
+	if err := controller.egress.Policies.Publish(egress.Snapshot{BootID: "boot", Revision: 1, Sources: []egress.Source{{EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, Subnet: netip.MustParsePrefix("192.0.2.0/24")}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.reconcileWorkloadReleaseWithClient(ctx, client, environment, reservation); err != nil {
 		t.Fatalf("idempotent confirmation after restart: %v", err)
 	}
-	current, err := database.GetEnvironment(ctx, environment.ID)
-	if err != nil {
-		t.Fatal(err)
+	controller.sourcePolicyPublisher = func(context.Context, string) error {
+		return status.Error(codes.Unavailable, "policy publication interrupted")
 	}
-	if _, err := database.SetAllocationState(ctx, environment.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)); err != nil {
-		t.Fatal(err)
+	if err := controller.finalizeWorkloadRelease(ctx, environment); status.Code(err) != codes.Unavailable {
+		t.Fatalf("transient publication failure = %v", err)
 	}
-	if err := database.DiscardEnvironment(ctx, environment.ID); err != nil {
-		t.Fatal(err)
+	if _, err := database.GetWorkloadReservation(ctx, "allocation", 7); err != nil {
+		t.Fatalf("publication failure lost durable release obligation: %v", err)
+	}
+	controller.sourcePolicyPublisher = func(context.Context, string) error {
+		controller.egress.Policies.Clear()
+		return nil
+	}
+	if err := controller.finalizeWorkloadRelease(ctx, environment); err != nil {
+		t.Fatalf("publication retry did not finalize release: %v", err)
+	}
+	if _, found := controller.egress.Policies.Lookup("boot", netip.MustParseAddr("192.0.2.1")); found {
+		t.Fatal("confirmed release left stale egress source authority")
 	}
 	if _, err := database.GetWorkloadReservation(ctx, "allocation", 7); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("Host reservation survived confirmed environment cleanup: %v", err)
@@ -245,11 +267,11 @@ func TestHostRestartPreservesReservationBeforeExplicitReleaseConverges(t *testin
 	environment, reservation, err := database.BeginWorkloadAdmission(ctx,
 		store.Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "workload", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
 		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: "registration", EnvironmentID: "environment", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+		resourcev2.Capacity{CPUGuaranteeMillis: 1000, CPUMaxMillis: 1500, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := &Controller{store: database}
+	controller := &Controller{store: database, egress: egress.New()}
 	client, stopGuest := startDurableReservationServer(t, &durableReservationServer{path: guestState, dropReserve: true})
 	if _, err := controller.reconcileGuestReservation(ctx, client, environment, reservation); status.Code(err) != codes.Unavailable {
 		t.Fatalf("lost reserve response error=%v", err)
@@ -263,7 +285,7 @@ func TestHostRestartPreservesReservationBeforeExplicitReleaseConverges(t *testin
 		t.Fatal(err)
 	}
 	defer database.Close()
-	controller = &Controller{store: database}
+	controller = &Controller{store: database, egress: egress.New()}
 	reservation, err = database.GetWorkloadReservation(ctx, "allocation", 7)
 	if err != nil || reservation.Phase != store.WorkloadReservationLogical || len(reservation.GuestReceipt) != 0 {
 		t.Fatalf("Host restart logical fence=%+v err=%v", reservation, err)

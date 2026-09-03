@@ -15,7 +15,8 @@ form an artificial Cartesian product:
   credential idempotence and the expiry fence for a newly signed payload.
 - `ResourceAdmissionQueue.tla` owns the exact Host logical/Guest physical
   reservation receipt and released-tombstone confirmation, five independent
-  admission dimensions, FIFO/deadline claim, command epoch/generation fences,
+  admission dimensions (memory is the aggregate `memory.high` entitlement;
+  each `memory.max` remains an individual cgroup ceiling), FIFO/deadline claim, command epoch/generation fences,
   response loss, restart, stop, and exact release convergence.
 - `OCIContentLifecycle.tla` owns the single global import slot, transient peak
   reservation, timeout/crash, committed content and snapshot facts, active and

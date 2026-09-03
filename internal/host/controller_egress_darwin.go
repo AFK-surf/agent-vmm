@@ -64,7 +64,7 @@ func (controller *Controller) stopEgress() {
 	controller.egressSessionWG.Wait()
 }
 
-func (controller *Controller) publishSourcePolicies(ctx context.Context) error {
+func (controller *Controller) publishSourcePoliciesLocked(ctx context.Context, excludedEnvironmentID string) error {
 	vm := controller.manager.Snapshot()
 	if vm.GetState() != hostv1.VMState_VM_STATE_RUNNING || vm.GetBootId() == "" {
 		controller.egress.Policies.Clear()
@@ -74,6 +74,15 @@ func (controller *Controller) publishSourcePolicies(ctx context.Context) error {
 	if err != nil {
 		controller.egress.Policies.Clear()
 		return err
+	}
+	if excludedEnvironmentID != "" {
+		filtered := environments[:0]
+		for _, environment := range environments {
+			if environment.ID != excludedEnvironmentID {
+				filtered = append(filtered, environment)
+			}
+		}
+		environments = filtered
 	}
 	client, connection, err := controller.guestClient(ctx)
 	if err != nil {
