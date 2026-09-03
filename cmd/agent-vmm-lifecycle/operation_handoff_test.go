@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestDecodeInstallDescriptorRequiresExactHTTPSExchangeRoute(t *testing.T) {
@@ -153,6 +155,128 @@ func writeBundledApplianceManifest(t *testing.T, value paths) {
 	}
 	if err := os.WriteFile(manifestPath, []byte("bundled-manifest"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRootDaemonInstallStateIsServiceUserOwnedAndResumable(t *testing.T) {
+	value := testPaths(t.TempDir())
+	value.service.Mode = serviceModeDaemon
+	value.service.UID, value.service.GID = testServiceIdentity(t)
+	owner := lifecycleOperationOwnerFor(value, 0, unix.Fchown)
+	material := validTestInstallMaterial()
+	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
+	writeBundledApplianceManifest(t, value)
+	if _, err := persistOperationHandoffOwned(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true, owner); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &productionLifecycleAdapter{value: value, material: &material}
+	if err := persistCompletedInstallOwned(value, adapter, owner); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{
+		value.applicationData,
+		filepath.Join(value.applicationData, "install-operations"), directory,
+		filepath.Join(directory, "manifest.pb"), filepath.Join(directory, "approved-grant.pb"),
+		filepath.Join(directory, "bootstrap-seed.bin"), filepath.Join(directory, "appliance.json"), filepath.Join(directory, "plan.json"),
+		filepath.Join(value.applicationData, "install-completions"), completedInstallPath(value, material.OperationID),
+	}
+	for _, path := range paths {
+		assertFileOwner(t, path, value.service.UID, value.service.GID)
+	}
+	if _, err := productionLifecycleAdapterForResume(value, material.OperationID); err != nil {
+		t.Fatalf("service-user continuation could not read root-persisted plan: %v", err)
+	}
+	if err := cleanupInstallPlan(value, material.OperationID); err != nil {
+		t.Fatalf("service-user continuation could not clean root-persisted plan: %v", err)
+	}
+	if completed, err := completedInstallExists(value, material.OperationID); err != nil || !completed {
+		t.Fatalf("service-user continuation could not read root-persisted receipt: completed=%t err=%v", completed, err)
+	}
+}
+
+func TestManagedInstallStateRejectsSymlinkDirectories(t *testing.T) {
+	root := t.TempDir()
+	value := testPaths(root)
+	value.service.Mode = serviceModeDaemon
+	value.service.UID = os.Geteuid()
+	value.service.GID = os.Getegid()
+	owner := lifecycleOperationOwnerFor(value, 0, unix.Fchown)
+	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(root, "victim")
+	if err := os.MkdirAll(victim, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(value.applicationData, "install-operations")); err != nil {
+		t.Fatal(err)
+	}
+	material := validTestInstallMaterial()
+	writeBundledApplianceManifest(t, value)
+	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
+	if _, err := persistOperationHandoffOwned(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true, owner); err == nil {
+		t.Fatal("symlinked install operation directory was accepted")
+	}
+	if err := cleanupInstallPlan(value, material.OperationID); err == nil {
+		t.Fatal("cleanup followed a symlinked install operation root")
+	}
+	entries, err := os.ReadDir(victim)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("symlink target was changed: entries=%v err=%v", entries, err)
+	}
+	if err := os.Remove(filepath.Join(value.applicationData, "install-operations")); err != nil {
+		t.Fatal(err)
+	}
+	operationDirectory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
+	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victimPlan := filepath.Join(victim, "plan.json")
+	if err := os.WriteFile(victimPlan, []byte(`{"version":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victimPlan, filepath.Join(operationDirectory, "plan.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := productionLifecycleAdapterForResume(value, material.OperationID); err == nil {
+		t.Fatal("symlinked managed install plan was read")
+	}
+	if err := cleanupInstallPlan(value, material.OperationID); err != nil {
+		t.Fatalf("safe cleanup could not unlink a plan symlink: %v", err)
+	}
+	if data, err := os.ReadFile(victimPlan); err != nil || string(data) != `{"version":1}` {
+		t.Fatalf("safe cleanup changed a plan symlink target: %q err=%v", data, err)
+	}
+	if err := os.Symlink(victim, filepath.Join(value.applicationData, "install-completions")); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &productionLifecycleAdapter{value: value, material: &material}
+	if err := persistCompletedInstallOwned(value, adapter, owner); err == nil {
+		t.Fatal("symlinked install completion directory was accepted")
+	}
+}
+
+func TestManagedInstallStateOwnershipFailureDoesNotPublishPlan(t *testing.T) {
+	value := testPaths(t.TempDir())
+	value.service.Mode = serviceModeDaemon
+	owner := lifecycleOperationOwnerFor(value, 0, func(fd, _, _ int) error {
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil {
+			return err
+		}
+		if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
+			return nil
+		}
+		return os.ErrPermission
+	})
+	material := validTestInstallMaterial()
+	writeBundledApplianceManifest(t, value)
+	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
+	if _, err := persistOperationHandoffOwned(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true, owner); err == nil {
+		t.Fatal("ownership failure published managed install state")
+	}
+	if _, err := os.Stat(filepath.Join(directory, "plan.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unowned managed install plan became visible: %v", err)
 	}
 }
 

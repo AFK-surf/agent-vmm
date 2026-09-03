@@ -386,7 +386,7 @@ func readStatusContext(ctx context.Context, value paths) serviceStatus {
 		AppInstalled:  directory(value.app),
 		HostInstalled: regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
 		HostLoaded:    launchctlContext(ctx, "print", value.serviceDomain()+"/"+hostLabel) == nil,
-		Operation:     readOperation(value.operationFile),
+		Operation:     readLifecycleOperation(value),
 	}
 	// Local Host and appliance diagnostics never claim Salix admission or
 	// product Node readiness. Those facts are owned by the server observation.
@@ -584,7 +584,8 @@ func runRegistrationStateOperation(value paths, kind, requestID string, action f
 }
 
 func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, retryFailed bool, action func() error) (lifecycleOperation, error) {
-	release, err := acquireOperationLock(value.operationFile)
+	owner := lifecycleOperationOwner(value)
+	release, err := acquireOperationLockOwned(value, owner)
 	if err != nil {
 		operation := lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}
 		if kind == "install-managed" {
@@ -597,7 +598,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		requestID = newOperationID("req")
 	}
 	var operation lifecycleOperation
-	if previous := readOperation(value.operationFile); previous != nil && previous.RequestID == requestID {
+	if previous := readLifecycleOperation(value); previous != nil && previous.RequestID == requestID {
 		if kind == "install-managed" && (previous.Kind != kind || previous.OperationID != requestID) {
 			previous.SecretDisposition = secretDispositionRetain
 			return *previous, errors.New("managed install operation identity does not match its durable request")
@@ -618,7 +619,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 				previous.FailureCode = "retry_limit_reached"
 				previous.FailureMessage = "Operation reached its retry limit. Review the failed stage before taking explicit action."
 				previous.UpdatedAt = time.Now().UnixMilli()
-				if err := persistOperation(value.operationFile, *previous); err != nil {
+				if err := persistOperationOwned(value, *previous, owner); err != nil {
 					previous.SecretDisposition = secretDispositionRetain
 					return *previous, err
 				}
@@ -633,7 +634,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 			operation.Retryable = false
 			operation.SecretDisposition = secretDispositionRetain
 			operation.UpdatedAt = time.Now().UnixMilli()
-			if err := persistOperation(value.operationFile, operation); err != nil {
+			if err := persistOperationOwned(value, operation, owner); err != nil {
 				return operation, err
 			}
 		} else if retryFailed && previous.Kind == kind {
@@ -645,7 +646,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 				previous.FailureCode = "retry_limit_reached"
 				previous.FailureMessage = "Operation outcome remained unknown through its retry limit. Review local state before taking explicit action."
 				previous.UpdatedAt = time.Now().UnixMilli()
-				if err := persistOperation(value.operationFile, *previous); err != nil {
+				if err := persistOperationOwned(value, *previous, owner); err != nil {
 					previous.SecretDisposition = secretDispositionRetain
 					return *previous, err
 				}
@@ -660,7 +661,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 			operation.Retryable = false
 			operation.SecretDisposition = secretDispositionRetain
 			operation.UpdatedAt = time.Now().UnixMilli()
-			if err := persistOperation(value.operationFile, operation); err != nil {
+			if err := persistOperationOwned(value, operation, owner); err != nil {
 				return operation, err
 			}
 		} else {
@@ -668,14 +669,14 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 			if operationConfirmed(previous.Kind, observed) {
 				previous.Outcome = "succeeded"
 				previous.UpdatedAt = time.Now().UnixMilli()
-				if err := persistOperation(value.operationFile, *previous); err != nil {
+				if err := persistOperationOwned(value, *previous, owner); err != nil {
 					return *previous, err
 				}
 				return *previous, nil
 			}
 			previous.Outcome = "unknown"
 			previous.UpdatedAt = time.Now().UnixMilli()
-			_ = persistOperation(value.operationFile, *previous)
+			_ = persistOperationOwned(value, *previous, owner)
 			return *previous, errors.New("operation outcome is unknown; read status and use a new request id only after review")
 		}
 	} else {
@@ -692,7 +693,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		if kind == "install-managed" {
 			operation.SecretDisposition = secretDispositionRetain
 		}
-		if err := persistOperation(value.operationFile, operation); err != nil {
+		if err := persistOperationOwned(value, operation, owner); err != nil {
 			return operation, err
 		}
 	}
@@ -710,7 +711,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 			}
 		}
 		operation.UpdatedAt = time.Now().UnixMilli()
-		if persistErr := persistOperation(value.operationFile, operation); persistErr != nil {
+		if persistErr := persistOperationOwned(value, operation, owner); persistErr != nil {
 			operation.SecretDisposition = secretDispositionRetain
 			return operation, errors.Join(err, persistErr)
 		}
@@ -721,7 +722,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		operation.SecretDisposition = secretDispositionDestroyCompleted
 	}
 	operation.UpdatedAt = time.Now().UnixMilli()
-	if err := persistOperation(value.operationFile, operation); err != nil {
+	if err := persistOperationOwned(value, operation, owner); err != nil {
 		return operation, err
 	}
 	return operation, nil
@@ -763,19 +764,32 @@ func lifecycleFailure(kind string, err error) (string, string, string, bool) {
 	return stage, "install_failed", message, false
 }
 
-func acquireOperationLock(operationPath string) (func(), error) {
-	if err := os.MkdirAll(filepath.Dir(operationPath), 0o700); err != nil {
-		return func() {}, err
-	}
-	lockPath := operationPath + ".lock"
-	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE, 0o600)
+func acquireOperationLock(value paths) (func(), error) {
+	return acquireOperationLockOwned(value, nil)
+}
+
+func acquireOperationLockOwned(value paths, owner *operationFileOwner) (func(), error) {
+	directory, err := openApplicationDataDirectory(value, owner)
 	if err != nil {
-		return func() {}, err
+		return func() {}, fmt.Errorf("assign lifecycle state directory ownership: %w", err)
+	}
+	lockName := filepath.Base(value.operationFile) + ".lock"
+	file, err := openStateFileAt(directory, lockName, unix.O_RDWR|unix.O_CREAT|unix.O_NONBLOCK, 0o600, owner)
+	if err != nil {
+		directory.Close()
+		return func() {}, fmt.Errorf("open lifecycle operation lock: %w", err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		err = unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
+			if handoffErr := handoffExistingStateFileAt(directory, filepath.Base(value.operationFile), owner); handoffErr != nil {
+				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+				_ = file.Close()
+				_ = directory.Close()
+				return func() {}, fmt.Errorf("assign lifecycle operation ownership: %w", handoffErr)
+			}
+			_ = directory.Close()
 			if truncateErr := file.Truncate(0); truncateErr != nil {
 				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
 				_ = file.Close()
@@ -798,10 +812,12 @@ func acquireOperationLock(operationPath string) (func(), error) {
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
 			_ = file.Close()
+			_ = directory.Close()
 			return func() {}, err
 		}
 		if time.Now().After(deadline) {
 			_ = file.Close()
+			_ = directory.Close()
 			return func() {}, errors.New("another Agent VMM lifecycle operation is still running")
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -834,7 +850,7 @@ func newOperationID(prefix string) string {
 }
 
 func readOperation(path string) *lifecycleOperation {
-	data, err := os.ReadFile(path)
+	data, err := readStateFileNoFollow(path, 1<<20)
 	if err != nil {
 		return nil
 	}
@@ -845,15 +861,36 @@ func readOperation(path string) *lifecycleOperation {
 	return &operation
 }
 
-func persistOperation(path string, operation lifecycleOperation) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
+func persistOperation(value paths, operation lifecycleOperation) error {
+	return persistOperationOwned(value, operation, nil)
+}
+
+func persistOperationOwned(value paths, operation lifecycleOperation, owner *operationFileOwner) error {
 	data, err := json.Marshal(operation)
 	if err != nil {
 		return err
 	}
-	return atomicWrite(path, data, 0o600)
+	directory, err := openApplicationDataDirectory(value, owner)
+	if err != nil {
+		return fmt.Errorf("open lifecycle state directory: %w", err)
+	}
+	defer directory.Close()
+	if err := atomicWriteStateFileAt(directory, filepath.Base(value.operationFile), data, 0o600, owner); err != nil {
+		return fmt.Errorf("persist lifecycle operation: %w", err)
+	}
+	return nil
+}
+
+func readLifecycleOperation(value paths) *lifecycleOperation {
+	data, err := readApplicationDataState(value, filepath.Base(value.operationFile), 1<<20)
+	if err != nil {
+		return nil
+	}
+	var operation lifecycleOperation
+	if json.Unmarshal(data, &operation) != nil || operation.OperationID == "" || operation.RequestID == "" {
+		return nil
+	}
+	return &operation
 }
 
 func writeOperation(operation lifecycleOperation) error {
@@ -1278,7 +1315,7 @@ func finalizeManagedInstallOperation(value paths, operationID string, operation 
 			return retain(errors.New("managed install completion receipt is not durable; retaining install plan"))
 		}
 	} else if operation.SecretDisposition == secretDispositionDestroyTerminal {
-		recorded := readOperation(value.operationFile)
+		recorded := readLifecycleOperation(value)
 		if recorded == nil || recorded.OperationID != operationID || recorded.RequestID != operationID || recorded.Kind != "install-managed" ||
 			recorded.Outcome != "failed" || recorded.SecretDisposition != secretDispositionDestroyTerminal {
 			return retain(errors.New("managed install terminal result is not durable; retaining install plan"))

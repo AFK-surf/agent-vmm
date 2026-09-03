@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,15 +26,15 @@ func TestXMLEscape(t *testing.T) {
 }
 
 func TestPersistedLifecycleOperationHasNoReleaseSelector(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "operation.json")
+	value := testPaths(t.TempDir())
 	operation := lifecycleOperation{
 		OperationID: "operation-1", RequestID: "operation-1", Kind: "install-managed",
 		Outcome: "pending", Attempt: 1, StartedAt: 1, UpdatedAt: 1,
 	}
-	if err := persistOperation(path, operation); err != nil {
+	if err := persistOperation(value, operation); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(value.operationFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +42,199 @@ func TestPersistedLifecycleOperationHasNoReleaseSelector(t *testing.T) {
 		if strings.Contains(string(data), forbidden) {
 			t.Fatalf("persisted operation contains retired release selector %q: %s", forbidden, data)
 		}
+	}
+}
+
+func TestDaemonRootLifecycleOperationPublishesServiceOwnedState(t *testing.T) {
+	value := testPaths(t.TempDir())
+	value.service.Mode = serviceModeDaemon
+	value.service.UID, value.service.GID = testServiceIdentity(t)
+	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(value.operationFile, []byte(`{"operation_id":"operation-old","request_id":"request-old","kind":"repair","outcome":"succeeded"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := lifecycleOperationOwnerFor(value, 0, unix.Fchown)
+	release, err := acquireOperationLockOwned(value, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	assertFileOwner(t, value.operationFile, value.service.UID, value.service.GID)
+	operation := lifecycleOperation{
+		OperationID: "operation-owned", RequestID: "request-owned", Kind: "repair",
+		Outcome: "pending", Attempt: 1, StartedAt: 1, UpdatedAt: 1,
+	}
+	if err := persistOperationOwned(value, operation, owner); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{value.applicationData, value.operationFile + ".lock", value.operationFile} {
+		assertFileOwner(t, path, value.service.UID, value.service.GID)
+	}
+}
+
+func testServiceIdentity(t *testing.T) (int, int) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		return 65534, 65534
+	}
+	groups, err := os.Getgroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gid := range groups {
+		if gid != os.Getegid() {
+			return os.Geteuid(), gid
+		}
+	}
+	return os.Geteuid(), os.Getegid()
+}
+
+func assertFileOwner(t *testing.T, path string, uid, gid int) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	if int(stat.Uid) != uid || int(stat.Gid) != gid {
+		t.Fatalf("state %s owner = %d:%d, want %d:%d", path, stat.Uid, stat.Gid, uid, gid)
+	}
+}
+
+func TestDaemonRootLifecycleOperationDoesNotPublishBeforeOwnership(t *testing.T) {
+	value := testPaths(t.TempDir())
+	value.service.Mode = serviceModeDaemon
+	owner := lifecycleOperationOwnerFor(value, 0, func(fd, _, _ int) error {
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil {
+			return err
+		}
+		if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
+			return nil
+		}
+		return os.ErrPermission
+	})
+	operation := lifecycleOperation{
+		OperationID: "operation-unowned", RequestID: "request-unowned", Kind: "repair",
+		Outcome: "pending", Attempt: 1, StartedAt: 1, UpdatedAt: 1,
+	}
+	if err := persistOperationOwned(value, operation, owner); err == nil {
+		t.Fatal("ownership failure published lifecycle state")
+	}
+	if _, err := os.Stat(value.operationFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unowned lifecycle state became visible: %v", err)
+	}
+}
+
+func TestLifecycleOperationStateDoesNotFollowSymlinks(t *testing.T) {
+	root := t.TempDir()
+	value := testPaths(root)
+	value.service.Mode = serviceModeDaemon
+	value.service.UID = os.Geteuid()
+	value.service.GID = os.Getegid()
+	owner := lifecycleOperationOwnerFor(value, 0, unix.Fchown)
+	victimDirectory := filepath.Join(root, "victim")
+	if err := os.MkdirAll(victimDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(value.applicationData), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victimDirectory, value.applicationData); err != nil {
+		t.Fatal(err)
+	}
+	operation := lifecycleOperation{OperationID: "operation-symlink", RequestID: "request-symlink", Kind: "repair", Outcome: "pending"}
+	if err := persistOperationOwned(value, operation, owner); err == nil {
+		t.Fatal("symlinked lifecycle state directory was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(victimDirectory, filepath.Base(value.operationFile))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlink target was changed: %v", err)
+	}
+
+	if err := os.Remove(value.applicationData); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victimFile := filepath.Join(victimDirectory, "victim.json")
+	if err := os.WriteFile(victimFile, []byte(`{"operation_id":"victim","request_id":"victim"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victimFile, value.operationFile); err != nil {
+		t.Fatal(err)
+	}
+	if observed := readOperation(value.operationFile); observed != nil {
+		t.Fatalf("symlinked operation was read: %+v", observed)
+	}
+	if release, err := acquireOperationLockOwned(value, owner); err == nil {
+		release()
+		t.Fatal("symlinked operation was handed to the service user")
+	}
+}
+
+func TestLifecycleOperationRejectsAncestorSymlinkWithoutChangingTarget(t *testing.T) {
+	root := t.TempDir()
+	value := testPaths(root)
+	value.service.Mode = serviceModeDaemon
+	value.service.UID, value.service.GID = testServiceIdentity(t)
+	owner := lifecycleOperationOwnerFor(value, 0, unix.Fchown)
+	victim := filepath.Join(root, "victim-library")
+	if err := os.Mkdir(victim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeStat := before.Sys().(*syscall.Stat_t)
+	if err := os.Symlink(victim, filepath.Join(value.home, "Library")); err != nil {
+		t.Fatal(err)
+	}
+	operation := lifecycleOperation{OperationID: "operation-ancestor", RequestID: "request-ancestor", Kind: "repair", Outcome: "pending"}
+	if err := persistOperationOwned(value, operation, owner); err == nil {
+		t.Fatal("symlinked service-state ancestor was accepted")
+	}
+	after, err := os.Stat(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterStat := after.Sys().(*syscall.Stat_t)
+	if beforeStat.Uid != afterStat.Uid || beforeStat.Gid != afterStat.Gid || before.Mode().Perm() != after.Mode().Perm() {
+		t.Fatalf("ancestor symlink target metadata changed: before=%d:%d/%o after=%d:%d/%o", beforeStat.Uid, beforeStat.Gid, before.Mode().Perm(), afterStat.Uid, afterStat.Gid, after.Mode().Perm())
+	}
+	if _, err := os.Stat(filepath.Join(victim, "Application Support")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("ancestor symlink target contents changed: %v", err)
+	}
+}
+
+func TestLifecycleOperationLockRejectsFIFOWithoutBlocking(t *testing.T) {
+	value := testPaths(t.TempDir())
+	directory, err := openApplicationDataDirectory(value, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory.Close()
+	if err := unix.Mkfifo(value.operationFile+".lock", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		release, err := acquireOperationLock(value)
+		if err == nil {
+			release()
+		}
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "regular file") {
+			t.Fatalf("FIFO lock result = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("FIFO lock blocked lifecycle availability")
 	}
 }
 
@@ -615,7 +810,7 @@ func TestManagedLifecycleLockContentionRetainsPlan(t *testing.T) {
 	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	release, err := acquireOperationLock(value.operationFile)
+	release, err := acquireOperationLock(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +844,7 @@ func TestSucceededManagedOperationWithoutCompletionDispositionRetainsPlan(t *tes
 		OperationID: operationID, RequestID: operationID, Kind: "install-managed",
 		Outcome: "succeeded", Attempt: 1, StartedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
 	}
-	if err := persistOperation(value.operationFile, previous); err != nil {
+	if err := persistOperation(value, previous); err != nil {
 		t.Fatal(err)
 	}
 	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
@@ -732,7 +927,7 @@ func TestManagedLifecycleOperationRetriesUnknownSameRequest(t *testing.T) {
 		OperationID: "operation-unknown", RequestID: "operation-unknown", Kind: "install-managed",
 		Outcome: "pending", Attempt: 1, StartedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
 	}
-	if err := persistOperation(value.operationFile, previous); err != nil {
+	if err := persistOperation(value, previous); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -771,7 +966,7 @@ func TestLifecycleOperationDoesNotReplayAnUnconfirmedPendingRequest(t *testing.T
 		t.Fatal(err)
 	}
 	first.Outcome = "pending"
-	if err := persistOperation(value.operationFile, first); err != nil {
+	if err := persistOperation(value, first); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -819,6 +1014,9 @@ func TestLifecycleOperationSerializesDuplicateRequests(t *testing.T) {
 
 func testPaths(root string) paths {
 	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		panic(err)
+	}
 	agentPlist := filepath.Join(home, "Library", "LaunchAgents", hostLabel+".plist")
 	return paths{
 		home: home, app: filepath.Join(root, "Agent VMM Host.app"), resources: filepath.Join(root, "resources"),

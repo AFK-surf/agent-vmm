@@ -121,7 +121,7 @@ func newProductionLifecycleAdapterForResume(value paths, operationID string) (Li
 
 func productionLifecycleAdapterForResume(value paths, operationID string) (*productionLifecycleAdapter, error) {
 	directory := filepath.Join(value.applicationData, "install-operations", operationID)
-	data, err := os.ReadFile(filepath.Join(directory, "plan.json"))
+	data, err := readInstallOperationState(value, operationID, "plan.json", lifecycleOperationHandoffMaxBytes)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, errManagedInstallPlanUnavailable
@@ -179,8 +179,7 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 		operationID = adapter.descriptor.OperationID
 	}
 	directory := filepath.Join(adapter.value.applicationData, "install-operations", operationID)
-	planPath := filepath.Join(directory, "plan.json")
-	if data, err := os.ReadFile(planPath); err == nil {
+	if data, err := readInstallOperationState(adapter.value, operationID, "plan.json", lifecycleOperationHandoffMaxBytes); err == nil {
 		var plan persistedInstallOperation
 		if json.Unmarshal(data, &plan) != nil || plan.Version != 1 || plan.OperationID != operationID || plan.Material.OperationID != operationID ||
 			plan.DeadlineUnixMillis <= 0 || !validPersistedAcknowledgement(plan, operationID) {
@@ -239,12 +238,6 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 	}
 	if err := validateOperationHandoff(material, *adapter.descriptor); err != nil {
 		return terminalManagedInstallError(err)
-	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create install operation directory: %w", err)
-	}
-	if err := syncInstallDirectory(filepath.Dir(directory)); err != nil {
-		return fmt.Errorf("persist install operation directory: %w", err)
 	}
 	deadlineUnixMillis := time.Now().Add(defaultCoordinatorOperationTimeout).UnixMilli()
 	configPath, err := persistOperationHandoff(adapter.value, directory, material, deadlineUnixMillis, false, adapter.descriptor)
@@ -374,9 +367,21 @@ func validateOperationHandoff(material operationHandoffPlan, descriptor operatio
 }
 
 func persistOperationHandoff(value paths, directory string, material operationHandoffPlan, deadlineUnixMillis int64, acknowledged bool, descriptors ...*operationHandoffDescriptor) (string, error) {
+	return persistOperationHandoffOwned(value, directory, material, deadlineUnixMillis, acknowledged, lifecycleOperationOwner(value), descriptors...)
+}
+
+func persistOperationHandoffOwned(value paths, directory string, material operationHandoffPlan, deadlineUnixMillis int64, acknowledged bool, owner *operationFileOwner, descriptors ...*operationHandoffDescriptor) (string, error) {
 	if deadlineUnixMillis <= 0 {
 		return "", errors.New("managed install deadline is invalid")
 	}
+	if !operationIDPattern.MatchString(material.OperationID) || filepath.Clean(directory) != filepath.Join(value.applicationData, "install-operations", material.OperationID) {
+		return "", errors.New("managed install operation directory is invalid")
+	}
+	operationDirectory, err := openInstallOperationDirectory(value, material.OperationID, owner)
+	if err != nil {
+		return "", fmt.Errorf("create install operation directory: %w", err)
+	}
+	defer operationDirectory.Close()
 	var ackDescriptor *operationHandoffDescriptor
 	if !acknowledged && len(descriptors) != 0 {
 		ackDescriptor = descriptors[0]
@@ -393,74 +398,41 @@ func persistOperationHandoff(value paths, directory string, material operationHa
 		return "", err
 	}
 	manifestPath := filepath.Join(directory, "manifest.pb")
-	if _, err := os.Stat(manifestPath); errors.Is(err, os.ErrNotExist) {
+	if exists, err := regularStateFileExistsAt(operationDirectory, "manifest.pb"); err != nil {
+		return "", err
+	} else if exists {
+		if err := handoffExistingStateFileAt(operationDirectory, "manifest.pb", owner); err != nil {
+			return "", err
+		}
+	} else if !exists {
 		manifest, readErr := os.ReadFile(filepath.Join(value.resources, "Guest", "mcp-appliance", "manifest.pb"))
 		if readErr != nil || len(manifest) == 0 || len(manifest) > 4<<20 {
 			return "", errors.New("bundled appliance manifest is unavailable")
 		}
-		if err := atomicWritePlan(manifestPath, manifest); err != nil {
+		if err := atomicWriteStateFileAt(operationDirectory, "manifest.pb", manifest, 0o600, owner); err != nil {
 			return "", err
 		}
-	} else if err != nil {
-		return "", err
 	}
 	artifacts := []struct {
 		name string
 		data []byte
 	}{{"approved-grant.pb", grant}, {"bootstrap-seed.bin", seed}}
 	for _, artifact := range artifacts {
-		if err := atomicWritePlan(filepath.Join(directory, artifact.name), artifact.data); err != nil {
+		if err := atomicWriteStateFileAt(operationDirectory, artifact.name, artifact.data, 0o600, owner); err != nil {
 			return "", err
 		}
 	}
 	config := applianceLifecycleConfig{Version: 1, InstallationID: material.Appliance.InstallationID, ManifestPath: manifestPath, ApprovedGrantPath: filepath.Join(directory, "approved-grant.pb"), BootstrapSeedPath: filepath.Join(directory, "bootstrap-seed.bin")}
 	configBytes, _ := json.Marshal(config)
 	configPath := filepath.Join(directory, "appliance.json")
-	if err := atomicWritePlan(configPath, configBytes); err != nil {
+	if err := atomicWriteStateFileAt(operationDirectory, "appliance.json", configBytes, 0o600, owner); err != nil {
 		return "", err
 	}
 	planBytes, _ := json.Marshal(persistedInstallOperation{Version: 1, OperationID: material.OperationID, DeadlineUnixMillis: deadlineUnixMillis, Acknowledged: acknowledged, AckDescriptor: ackDescriptor, Material: material})
-	if err := atomicWritePlan(filepath.Join(directory, "plan.json"), planBytes); err != nil {
+	if err := atomicWriteStateFileAt(operationDirectory, "plan.json", planBytes, 0o600, owner); err != nil {
 		return "", err
 	}
 	return configPath, nil
-}
-
-func atomicWritePlan(path string, data []byte) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".install-plan-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return err
-	}
-	return syncInstallDirectory(filepath.Dir(path))
-}
-
-func syncInstallDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
 }
 
 func (material operationHandoffPlan) remotePoolPolicy() (*hostv1.RemotePoolPolicy, error) {
@@ -534,17 +506,7 @@ func (adapter *productionLifecycleAdapter) applyManagedEnrollment(ctx context.Co
 }
 
 func cleanupInstallPlan(value paths, operationID string) error {
-	if !operationIDPattern.MatchString(operationID) {
-		return errors.New("install operation id is invalid")
-	}
-	root := filepath.Join(value.applicationData, "install-operations")
-	if err := os.RemoveAll(filepath.Join(root, operationID)); err != nil {
-		return err
-	}
-	if err := syncInstallDirectory(root); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return removeInstallOperationState(value, operationID)
 }
 
 func completedInstallPath(value paths, operationID string) string {
@@ -552,6 +514,10 @@ func completedInstallPath(value paths, operationID string) string {
 }
 
 func persistCompletedInstall(value paths, adapter *productionLifecycleAdapter) error {
+	return persistCompletedInstallOwned(value, adapter, lifecycleOperationOwner(value))
+}
+
+func persistCompletedInstallOwned(value paths, adapter *productionLifecycleAdapter, owner *operationFileOwner) error {
 	if adapter == nil || adapter.material == nil {
 		return errors.New("managed install completion material is unavailable")
 	}
@@ -565,19 +531,17 @@ func persistCompletedInstall(value paths, adapter *productionLifecycleAdapter) e
 	if !validCompletedInstallReceipt(receipt, material.OperationID) {
 		return errors.New("managed install completion receipt is invalid")
 	}
-	directory := filepath.Dir(completedInstallPath(value, material.OperationID))
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	directory, err := openInstallCompletionDirectory(value, owner)
+	if err != nil {
 		return fmt.Errorf("create install completion directory: %w", err)
 	}
-	if err := syncInstallDirectory(filepath.Dir(directory)); err != nil {
-		return fmt.Errorf("persist install completion directory: %w", err)
-	}
+	defer directory.Close()
 	encoded, _ := json.Marshal(receipt)
-	return atomicWritePlan(completedInstallPath(value, material.OperationID), encoded)
+	return atomicWriteStateFileAt(directory, material.OperationID+".json", encoded, 0o600, owner)
 }
 
 func completedInstallExists(value paths, operationID string) (bool, error) {
-	data, err := os.ReadFile(completedInstallPath(value, operationID))
+	data, err := readInstallCompletionState(value, operationID, 4096)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
