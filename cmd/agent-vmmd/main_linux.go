@@ -38,7 +38,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := control.PrepareOCIStorage(prepared.StateDevice); err != nil {
+	startup, err := control.PrepareOCIStorage(prepared.StateDevice)
+	if err != nil {
 		log.Fatal(err)
 	}
 	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
@@ -70,7 +71,7 @@ func main() {
 		_ = containerd.Process.Signal(syscall.SIGTERM)
 		_ = containerd.Wait()
 	}()
-	runtime, err := control.NewRuntime(prepared.StateDevice, networkManager)
+	runtime, err := control.NewRuntime(prepared.StateDevice, networkManager, startup)
 	if err != nil {
 		log.Fatal(err)
 	}

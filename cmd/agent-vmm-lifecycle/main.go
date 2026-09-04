@@ -38,6 +38,21 @@ type managedInstallDispositionError struct {
 	disposition string
 }
 
+type lifecycleProgress struct {
+	Event       string `json:"event"`
+	RequestID   string `json:"requestId,omitempty"`
+	ElapsedMS   int64  `json:"elapsedMs,omitempty"`
+	VMState     string `json:"vmState,omitempty"`
+	HealthState string `json:"healthState,omitempty"`
+}
+
+func reportLifecycleProgress(progress lifecycleProgress) {
+	data, err := json.Marshal(progress)
+	if err == nil {
+		_, _ = fmt.Fprintln(os.Stderr, string(data))
+	}
+}
+
 func (err managedInstallDispositionError) Error() string { return err.err.Error() }
 func (err managedInstallDispositionError) Unwrap() error { return err.err }
 func (err managedInstallDispositionError) ManagedSecretDisposition() string {
@@ -221,6 +236,11 @@ func main() {
 		if descriptor != nil || resumeOperationID != "" {
 			operationKind = "install-managed"
 		}
+		// The same request identity must fence both the durable lifecycle
+		// operation and the VM start it performs. runLifecycleOperation can
+		// synthesize an ID internally, but that happens after this closure has
+		// captured requestID and would otherwise send an empty StartVM request.
+		requestID = lifecycleRequestID(requestID)
 		runOperation := runLifecycleOperation
 		if operationKind == "install-managed" {
 			runOperation = runManagedLifecycleOperation
@@ -228,9 +248,11 @@ func main() {
 		operation, operationErr := runOperation(resolved, operationKind, requestID, func() error {
 			if os.Args[1] == "install" {
 				if descriptor == nil && resumeOperationID == "" {
+					reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_started", RequestID: requestID})
 					if err := repairWithOptions(resolved, launchctl, disablePairing); err != nil {
 						return err
 					}
+					reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_completed", RequestID: requestID})
 					return ensureVMStarted(resolved, requestID)
 				}
 				if completedResume {
@@ -251,9 +273,11 @@ func main() {
 				}
 				return persistCompletedInstall(resolved, productionAdapter)
 			}
+			reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_started", RequestID: requestID})
 			if err := repairWithOptions(resolved, launchctl, disablePairing); err != nil {
 				return err
 			}
+			reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_completed", RequestID: requestID})
 			return ensureVMStarted(resolved, requestID)
 		})
 		completedOperationID := resumeOperationID
@@ -302,6 +326,13 @@ func main() {
 	default:
 		fatal("unknown lifecycle command")
 	}
+}
+
+func lifecycleRequestID(requestID string) string {
+	if requestID != "" {
+		return requestID
+	}
+	return newOperationID("req")
 }
 
 func parseAtomicReplaceAppArgs(args []string) (string, string, error) {
@@ -1002,17 +1033,20 @@ func mergeApplianceFacts(facts operatorFacts, appliances []*appliancev1.Applianc
 }
 
 func ensureVMStarted(value paths, requestID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultCoordinatorStepTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCoordinatorInitTimeout)
 	defer cancel()
 	return ensureVMStartedContext(ctx, value, requestID)
 }
 
 func ensureVMStartedContext(ctx context.Context, value paths, requestID string) error {
+	startedAt := time.Now()
+	reportLifecycleProgress(lifecycleProgress{Event: "operator_connect_started", RequestID: requestID})
 	connection, err := operatorConnection(ctx, filepath.Join(value.applicationData, "operator.sock"))
 	if err != nil {
 		return errors.New("Agent VMM operator is not readable")
 	}
 	defer connection.Close()
+	reportLifecycleProgress(lifecycleProgress{Event: "operator_connected", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds()})
 	operator := hostv1.NewOperatorServiceClient(connection)
 	for {
 		vm, err := operator.GetVM(ctx, &hostv1.GetVMRequest{})
@@ -1024,20 +1058,53 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 			continue
 		}
 		if vm.GetVm().GetState() != hostv1.VMState_VM_STATE_RUNNING {
-			if _, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID}); err != nil {
+			reportLifecycleProgress(lifecycleProgress{Event: "vm_start_requested", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds(), VMState: vm.GetVm().GetState().String()})
+			if err := startVMWithProgress(ctx, operator, requestID, startedAt); err != nil {
 				return fmt.Errorf("Agent VMM VM could not be started: %w", err)
 			}
+			reportLifecycleProgress(lifecycleProgress{Event: "vm_start_accepted", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds()})
 		}
+		lastProgress := time.Time{}
 		for {
 			snapshot, snapshotErr := operator.GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})
 			if snapshotErr == nil && snapshot.GetVm().GetState() == hostv1.VMState_VM_STATE_RUNNING &&
 				snapshot.GetHealth().GetState() == hostv1.HealthState_HEALTH_STATE_HEALTHY {
+				reportLifecycleProgress(lifecycleProgress{Event: "vm_healthy", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds(), VMState: snapshot.GetVm().GetState().String(), HealthState: snapshot.GetHealth().GetState().String()})
 				return nil
+			}
+			if lastProgress.IsZero() || time.Since(lastProgress) >= 15*time.Second {
+				progress := lifecycleProgress{Event: "health_wait", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds()}
+				if snapshotErr == nil {
+					progress.VMState = snapshot.GetVm().GetState().String()
+					progress.HealthState = snapshot.GetHealth().GetState().String()
+				}
+				reportLifecycleProgress(progress)
+				lastProgress = time.Now()
 			}
 			if ctx.Err() != nil {
 				return errors.New("Agent VMM VM did not become healthy")
 			}
 			time.Sleep(250 * time.Millisecond)
+		}
+	}
+}
+
+func startVMWithProgress(ctx context.Context, operator hostv1.OperatorServiceClient, requestID string, startedAt time.Time) error {
+	result := make(chan error, 1)
+	go func() {
+		_, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID})
+		result <- err
+	}()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-result:
+			return err
+		case <-ticker.C:
+			reportLifecycleProgress(lifecycleProgress{Event: "vm_start_wait", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds()})
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 }

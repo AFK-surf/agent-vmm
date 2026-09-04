@@ -226,6 +226,13 @@ backing file. The LaunchDaemon startup check restores the required fully-backed
 storage problem; do not start the VM on a partially allocated disk and do not
 recreate the disk while the existing filesystem still boots.
 
+If VZ reaches `Running` but VMMD repeatedly resets vsock 4050 before publishing
+health, preserve the state disk and inspect Guest startup first. An existing
+containerd tree needs bounded metadata headroom while containerd starts; only
+after startup recovery finishes may the Guest restore the exact idle project
+quota. This symptom alone is not evidence that ext4 is damaged and does not
+justify deleting `state.raw`.
+
 ### Targeted cleanup
 
 Targeted cleanup is the default response to an interrupted update. Resolve an

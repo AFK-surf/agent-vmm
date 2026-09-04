@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	defaultCoordinatorOperationTimeout = 5 * time.Minute
+	defaultCoordinatorOperationTimeout = 15 * time.Minute
 	defaultCoordinatorStepTimeout      = 2 * time.Minute
+	defaultCoordinatorInitTimeout      = 10 * time.Minute
 )
 
 var (
@@ -71,6 +72,7 @@ type LifecycleAdapter interface {
 type LifecycleCoordinatorConfig struct {
 	OperationTimeout time.Duration
 	StepTimeout      time.Duration
+	InitTimeout      time.Duration
 }
 
 type LifecycleCoordinator struct {
@@ -87,6 +89,9 @@ func NewLifecycleCoordinator(adapter LifecycleAdapter, config LifecycleCoordinat
 	}
 	if config.StepTimeout <= 0 {
 		config.StepTimeout = defaultCoordinatorStepTimeout
+	}
+	if config.InitTimeout <= 0 {
+		config.InitTimeout = defaultCoordinatorInitTimeout
 	}
 	return &LifecycleCoordinator{adapter: adapter, config: config}, nil
 }
@@ -194,7 +199,11 @@ func (coordinator *LifecycleCoordinator) steps(action LifecycleAction) ([]coordi
 
 func (coordinator *LifecycleCoordinator) runStep(ctx context.Context, name LifecycleAction,
 	call func(LifecycleAdapter, context.Context, LifecycleRequest) error, request LifecycleRequest) error {
-	stepContext, cancel := context.WithTimeout(ctx, coordinator.config.StepTimeout)
+	stepTimeout := coordinator.config.StepTimeout
+	if name == LifecycleInit {
+		stepTimeout = coordinator.config.InitTimeout
+	}
+	stepContext, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
 	if err := call(coordinator.adapter, stepContext, request); err != nil {
 		return fmt.Errorf("lifecycle %s: %w", name, err)

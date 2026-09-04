@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
@@ -56,7 +57,7 @@ func (r *Runtime) lockNamespace(namespaceID string) func() {
 	return lock.Unlock
 }
 
-func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, error) {
+func NewRuntime(stateDevice string, network *guestnetwork.Manager, startup OCIStartupState) (*Runtime, error) {
 	client, err := containerd.New(containerdSocket, containerd.WithDefaultRuntime(runscRuntime))
 	if err != nil {
 		return nil, err
@@ -66,10 +67,6 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
 		volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
 	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth, runtime.guardOCIMetadataGrowth)
-	if err := PrepareOCIStorage(runtime.stateDevice); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("open OCI startup quota: %w", err)
-	}
 	if err := cleanupVolumeStaging(); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
@@ -90,11 +87,25 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager) (*Runtime, er
 		client.Close()
 		return nil, fmt.Errorf("rebuild namespace network: %w", err)
 	}
-	if err := runtime.settleOCIProjectQuota(context.Background()); err != nil {
+	settleErr := settleOCIStartupQuota(startup,
+		func() error { return runtime.settleOCIProjectQuota(context.Background()) },
+		func() error { return retryOCIProjectQuota(runtime.tightenOCIProjectQuota, 10, 100*time.Millisecond) })
+	if settleErr != nil {
 		client.Close()
-		return nil, fmt.Errorf("settle OCI startup quota: %w", err)
+		return nil, fmt.Errorf("settle OCI startup quota: %w", settleErr)
 	}
 	return runtime, nil
+}
+
+func settleOCIStartupQuota(startup OCIStartupState, settleExisting, tightenFresh func() error) error {
+	// Model: spec/tla/GuestOCIStartup.tla. Existing state can carry scheduled
+	// containerd GC; fresh state cannot and must not wait on an unready scheduler.
+	if startup.Existing {
+		return settleExisting()
+	}
+	// A fresh containerd has no prior records for startup GC. Avoid creating a
+	// synchronous GC barrier before its scheduler has initialized.
+	return tightenFresh()
 }
 
 func (r *Runtime) rehydrateNetwork(ctx context.Context) error {

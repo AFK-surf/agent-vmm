@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"sync"
@@ -200,6 +201,8 @@ func (manager *Manager) Start(ctx context.Context) (*hostv1.VM, error) {
 }
 
 func (manager *Manager) start(ctx context.Context) error {
+	startedAt := time.Now()
+	log.Printf("vmm start stage: stage=verify_bundle")
 	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.GuestManifestDigest,
 		"kernel", "initramfs", "rootfs", "mcp_appliance_digest", "mcp_appliance_manifest")
 	if err != nil {
@@ -208,6 +211,7 @@ func (manager *Manager) start(ctx context.Context) error {
 	if err := os.MkdirAll(manager.config.InstanceDirectory, 0o700); err != nil {
 		return err
 	}
+	log.Printf("vmm start stage: stage=prepare_state")
 	initializing, err := prepareState(manager.config.InstanceDirectory, manager.config.StateBytes)
 	if err != nil {
 		return err
@@ -216,21 +220,25 @@ func (manager *Manager) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("vmm start stage: stage=build_configuration initializing=%t", initializing)
 	configuration, err := manager.configuration(verified, serial, initializing)
 	if err != nil {
 		serial.Close()
 		return err
 	}
+	log.Printf("vmm start stage: stage=validate_configuration")
 	valid, err := configuration.Validate()
 	if !valid || err != nil {
 		serial.Close()
 		return fmt.Errorf("validate VM configuration: valid=%t: %w", valid, err)
 	}
+	log.Printf("vmm start stage: stage=create_machine")
 	machine, err := vz.NewVirtualMachine(configuration)
 	if err != nil {
 		serial.Close()
 		return err
 	}
+	log.Printf("vmm start stage: stage=start_machine elapsed=%s", time.Since(startedAt).Round(time.Millisecond))
 	if err := machine.Start(); err != nil {
 		serial.Close()
 		return err
@@ -256,9 +264,11 @@ func (manager *Manager) start(ctx context.Context) error {
 		}
 		manager.mu.Unlock()
 	}()
+	log.Printf("vmm start stage: stage=wait_running state=%v elapsed=%s", machine.State(), time.Since(startedAt).Round(time.Millisecond))
 	if err := waitState(ctx, machine, vz.VirtualMachineStateRunning); err != nil {
 		return err
 	}
+	log.Printf("vmm start stage: stage=running elapsed=%s", time.Since(startedAt).Round(time.Millisecond))
 	manager.mu.Lock()
 	manager.closeEgressLocked()
 	manager.machine = machine
@@ -267,6 +277,7 @@ func (manager *Manager) start(ctx context.Context) error {
 	manager.bootID = ""
 	manager.mu.Unlock()
 
+	log.Printf("vmm start stage: stage=wait_guest_health")
 	health, err := manager.waitHealth(ctx)
 	if err != nil {
 		return err
@@ -277,6 +288,7 @@ func (manager *Manager) start(ctx context.Context) error {
 	manager.mu.Lock()
 	manager.bootID = health.GetBootId()
 	manager.mu.Unlock()
+	log.Printf("vmm start stage: stage=guest_healthy elapsed=%s", time.Since(startedAt).Round(time.Millisecond))
 	if initializing {
 		if !health.GetStateInitialized() {
 			return errors.New("guest did not initialize state disk")
@@ -463,8 +475,12 @@ func waitState(ctx context.Context, machine *vz.VirtualMachine, wanted vz.Virtua
 }
 
 func (manager *Manager) waitHealth(ctx context.Context) (*vmmdv1.HealthResponse, error) {
+	startedAt := time.Now()
+	lastProgress := time.Time{}
+	var lastErr error
 	for {
 		connection, err := manager.dialVMMD(ctx, false)
+		lastErr = err
 		if err == nil {
 			client := vmmdv1.NewVMMDServiceClient(connection)
 			health, healthErr := client.Health(ctx, &vmmdv1.HealthRequest{})
@@ -472,6 +488,11 @@ func (manager *Manager) waitHealth(ctx context.Context) (*vmmdv1.HealthResponse,
 			if healthErr == nil && health.GetReady() {
 				return health, nil
 			}
+			lastErr = healthErr
+		}
+		if lastProgress.IsZero() || time.Since(lastProgress) >= 15*time.Second {
+			log.Printf("vmm guest health waiting: elapsed=%s error=%v", time.Since(startedAt).Round(time.Millisecond), lastErr)
+			lastProgress = time.Now()
 		}
 		select {
 		case <-ctx.Done():

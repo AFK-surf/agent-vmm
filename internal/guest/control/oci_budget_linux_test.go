@@ -303,8 +303,12 @@ func TestGuestStartupAllowanceClosesToExactOCIIdleCeiling(t *testing.T) {
 	if !errors.Is(previous.ociGrowthError(), guestdisk.ErrGrowthSealed) {
 		t.Fatal("old process was not terminally sealed")
 	}
-	if err = PrepareOCIStorage(device); err != nil {
-		t.Fatalf("open restart startup allowance: %v", err)
+	startup, prepareErr := PrepareOCIStorage(device)
+	if prepareErr != nil {
+		t.Fatalf("open restart startup allowance: %v", prepareErr)
+	}
+	if !startup.Existing {
+		t.Fatal("non-empty OCI tree was classified as fresh")
 	}
 	before, err := projectUsage(device, ociProjectID)
 	if err != nil {
@@ -332,6 +336,22 @@ func TestGuestStartupAllowanceClosesToExactOCIIdleCeiling(t *testing.T) {
 	after, usageErr := projectUsage(device, ociProjectID)
 	if usageErr != nil || after > before+(3<<20) {
 		t.Fatalf("restart idle ceiling drifted: before=%d after=%d err=%v", before, after, usageErr)
+	}
+}
+
+func TestOCIStartupSettlementDistinguishesFreshAndExistingState(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		startup  OCIStartupState
+		expected string
+	}{{name: "fresh", expected: "tighten"}, {name: "existing", startup: OCIStartupState{Existing: true}, expected: "barrier"}} {
+		t.Run(test.name, func(t *testing.T) {
+			called := ""
+			err := settleOCIStartupQuota(test.startup, func() error { called = "barrier"; return nil }, func() error { called = "tighten"; return nil })
+			if err != nil || called != test.expected {
+				t.Fatalf("settlement called=%q err=%v want=%q", called, err, test.expected)
+			}
+		})
 	}
 }
 

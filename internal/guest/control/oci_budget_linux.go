@@ -30,33 +30,37 @@ type importReservation struct {
 	remaining uint64
 }
 
+type OCIStartupState struct {
+	Existing bool
+}
+
 // PrepareOCIStorage establishes the kernel-enforced global OCI project before
 // containerd starts, so its first content, snapshot, and metadata inode inherits
 // the same hard boundary.
-func PrepareOCIStorage(stateDevice string) error {
+func PrepareOCIStorage(stateDevice string) (OCIStartupState, error) {
 	bootstrapPath := filepath.Join(stateRoot, "containerd-bootstrap-reservation")
 	// A crash before the previous bootstrap allowance was converted can leave
 	// only its physical hold. Startup is the sole owner at this point, so remove
 	// that exact stale reservation before deriving a new ceiling.
 	if err := removeImportReservation(bootstrapPath, bootstrapPath+".hold"); err != nil {
-		return fmt.Errorf("remove stale containerd bootstrap reservation: %w", err)
+		return OCIStartupState{}, fmt.Errorf("remove stale containerd bootstrap reservation: %w", err)
 	}
 	for _, root := range []string{containerdRoot, filepath.Join(stateRoot, "imports")} {
 		if err := os.MkdirAll(root, 0o700); err != nil {
-			return err
+			return OCIStartupState{}, err
 		}
 		if err := assignOCIProjectTree(root, projectID, assignProject); err != nil {
-			return err
+			return OCIStartupState{}, err
 		}
 	}
 	entries, err := os.ReadDir(containerdRoot)
 	if err != nil {
-		return err
+		return OCIStartupState{}, err
 	}
 	if len(entries) == 0 {
-		return reserveFreshContainerdBootstrap(stateDevice)
+		return OCIStartupState{}, reserveFreshContainerdBootstrap(stateDevice)
 	}
-	return openOCIStartupMetadataAllowance(stateDevice)
+	return OCIStartupState{Existing: true}, openOCIStartupMetadataAllowance(stateDevice)
 }
 
 func openOCIStartupMetadataAllowance(stateDevice string) error {

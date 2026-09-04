@@ -1128,6 +1128,16 @@ func TestManagedLifecycleOperationRetriesUnknownSameRequest(t *testing.T) {
 	}
 }
 
+func TestLifecycleRequestIDFencesGeneratedVMStart(t *testing.T) {
+	generated := lifecycleRequestID("")
+	if generated == "" || !strings.HasPrefix(generated, "req-") {
+		t.Fatalf("generated request ID = %q", generated)
+	}
+	if got := lifecycleRequestID("operator-request"); got != "operator-request" {
+		t.Fatalf("explicit request ID changed to %q", got)
+	}
+}
+
 func TestRegistrationStateOperationRetriesTransientSameRevision(t *testing.T) {
 	value := testPaths(t.TempDir())
 	calls := 0

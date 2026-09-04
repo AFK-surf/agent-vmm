@@ -162,6 +162,26 @@ func TestLifecycleCoordinatorBoundsAStuckStep(t *testing.T) {
 	}
 }
 
+func TestLifecycleCoordinatorUsesIndependentInitTimeout(t *testing.T) {
+	mock := &coordinatorMock{blockAction: LifecycleInit}
+	coordinator, err := NewLifecycleCoordinator(mock, LifecycleCoordinatorConfig{
+		OperationTimeout: time.Second,
+		StepTimeout:      500 * time.Millisecond,
+		InitTimeout:      20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	err = coordinator.Run(context.Background(), LifecycleInit, LifecycleRequest{RequestID: "request-init-timeout"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error=%v want context deadline", err)
+	}
+	if elapsed := time.Since(started); elapsed >= 250*time.Millisecond {
+		t.Fatalf("init used the general step timeout: %s", elapsed)
+	}
+}
+
 func TestLifecycleCoordinatorRejectsMissingAdapter(t *testing.T) {
 	if _, err := NewLifecycleCoordinator(nil, LifecycleCoordinatorConfig{}); err == nil {
 		t.Fatal("expected missing adapter error")

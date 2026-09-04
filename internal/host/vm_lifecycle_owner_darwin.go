@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,17 +51,40 @@ func newVMLifecycleOwner(controller *Controller, manager *vmm.Manager) *VMLifecy
 }
 
 func (owner *VMLifecycleOwner) execute(ctx context.Context, operation vmLifecycleOperation, run func() vmLifecycleResult) vmLifecycleResult {
+	startedAt := time.Now()
+	log.Printf("vm lifecycle operation waiting: operation=%s", operation)
 	if err := owner.lockOperation(ctx); err != nil {
+		log.Printf("vm lifecycle operation lock failed: operation=%s elapsed=%s error=%v", operation, time.Since(startedAt).Round(time.Millisecond), err)
 		return vmLifecycleResult{err: err}
 	}
 	defer owner.operationMu.Unlock()
+	log.Printf("vm lifecycle operation acquired: operation=%s elapsed=%s", operation, time.Since(startedAt).Round(time.Millisecond))
 	owner.stateMu.Lock()
 	closing := owner.closing
 	owner.stateMu.Unlock()
 	if closing && operation != vmLifecycleShutdown {
 		return vmLifecycleResult{err: errors.New("VM lifecycle is shutting down")}
 	}
-	return run()
+	result := run()
+	log.Printf("vm lifecycle operation completed: operation=%s elapsed=%s error=%v", operation, time.Since(startedAt).Round(time.Millisecond), result.err)
+	return result
+}
+
+func (operation vmLifecycleOperation) String() string {
+	switch operation {
+	case vmLifecycleStart:
+		return "start"
+	case vmLifecycleStop:
+		return "stop"
+	case vmLifecycleRecover:
+		return "recover"
+	case vmLifecycleApplianceOffline:
+		return "appliance_offline"
+	case vmLifecycleShutdown:
+		return "shutdown"
+	default:
+		return "unknown"
+	}
 }
 
 func (owner *VMLifecycleOwner) lockOperation(ctx context.Context) error {
@@ -132,6 +156,7 @@ func (owner *VMLifecycleOwner) Start(ctx context.Context) (*hostv1.VM, error) {
 		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && owner.admitsRemoteWork() {
 			return vmLifecycleResult{vm: owner.manager.Snapshot()}
 		}
+		log.Printf("vm lifecycle start stage: stage=prepare_transition")
 		owner.controller.prepareVMTransition(ctx)
 		owner.controller.stopEgress()
 		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
@@ -141,11 +166,14 @@ func (owner *VMLifecycleOwner) Start(ctx context.Context) (*hostv1.VM, error) {
 			}
 			return vmLifecycleResult{vm: owner.manager.Snapshot(), err: err}
 		}
+		log.Printf("vm lifecycle start stage: stage=configure_appliance_blocks")
 		if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
 			return vmLifecycleResult{err: err}
 		}
+		log.Printf("vm lifecycle start stage: stage=vz_start")
 		vm, err := owner.manager.Start(ctx)
 		if err == nil {
+			log.Printf("vm lifecycle start stage: stage=commit")
 			err = owner.commit(ctx, "")
 		}
 		if err != nil {
@@ -200,19 +228,24 @@ func (owner *VMLifecycleOwner) RecoverAsync(previousBootID string) {
 
 func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID string) {
 	result := owner.execute(ctx, vmLifecycleRecover, func() vmLifecycleResult {
+		log.Printf("vm lifecycle recover stage: stage=prepare_transition")
 		owner.controller.prepareVMTransition(ctx)
 		owner.controller.stopEgress()
+		log.Printf("vm lifecycle recover stage: stage=recover_remote_leases")
 		if err := owner.controller.store.RecoverRemoteLeaseProjections(ctx); err != nil {
 			return vmLifecycleResult{err: err}
 		}
+		log.Printf("vm lifecycle recover stage: stage=configure_appliance_blocks")
 		if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
 			return vmLifecycleResult{err: err}
 		}
+		log.Printf("vm lifecycle recover stage: stage=vz_start")
 		vm, err := owner.manager.Start(ctx)
 		if err == nil && (vm.GetBootId() == "" || vm.GetBootId() == previousBootID) {
 			err = errors.New("recovered VM did not publish a fresh boot ID")
 		}
 		if err == nil {
+			log.Printf("vm lifecycle recover stage: stage=commit")
 			err = owner.commit(ctx, "")
 		}
 		if err != nil {
