@@ -36,14 +36,14 @@ const (
 	containerLogLimitLabel = labelPrefix + "log-limit"
 	runscContainerType     = "io.kubernetes.cri.container-type"
 	runscSandbox           = "sandbox"
-	containerSnapshotter   = "native"
+	containerSnapshotter   = "overlayfs"
 	containerProcess       = labelPrefix + "process"
 	containerInstanceLabel = labelPrefix + "instance-id"
 	containerStartedLabel  = labelPrefix + "started-at-unix-nano"
 	containerFinishedLabel = labelPrefix + "finished-at-unix-nano"
 	mainProcessID          = "agent-vmm-main"
 	supervisorHostPath     = "/usr/bin/agent-vmm-supervisor"
-	supervisorPath         = "/run/agent-vmm-supervisor"
+	supervisorPath         = "/.agent-vmm-supervisor"
 )
 
 func (r *Runtime) StartContainer(ctx context.Context, namespaceID, containerID string) (*vmmdv1.Container, error) {
@@ -77,6 +77,12 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	if err := r.removeExitedTask(nsctx, container); err != nil {
 		return nil, err
 	}
+	// Reinstall the trusted supervisor before every task. A workload with root
+	// inside its runsc sandbox may mutate its own upper layer after startup; it
+	// must not control the supervisor executed on a later start.
+	if err := r.materializeSupervisor(nsctx, namespaceID, container); err != nil {
+		return nil, atRuntimeStage("supervisor_materialization", err)
+	}
 	labels, err := container.Labels(nsctx)
 	if err != nil {
 		return nil, err
@@ -106,7 +112,7 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
-	lifecycleContext := namespaceContext(context.Background(), namespaceID)
+	lifecycleContext := runtimeContext(context.Background())
 	started, err := startTaskMetadata(r.guardOCIMetadataGrowth, ctx, nsctx, lifecycleContext, container, mainSpec, stdout, stderr, instanceID)
 	if err != nil {
 		stdout.Close()
@@ -195,10 +201,10 @@ func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, conta
 	// Publish the terminal process state before reaping the task.  The task
 	// cleanup is asynchronous; inspectContainer also reconciles a missing or
 	// stopped task if this metadata write races with containerd cleanup.
-	metadataContext, cancelMetadata := context.WithTimeout(namespaceContext(context.Background(), namespaceID), 5*time.Second)
+	metadataContext, cancelMetadata := context.WithTimeout(runtimeContext(context.Background()), 5*time.Second)
 	_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10), containerInstanceLabel: "", containerFinishedLabel: strconv.FormatInt(time.Now().UnixNano(), 10)})
 	cancelMetadata()
-	processContext, cancelProcesses := context.WithTimeout(namespaceContext(context.Background(), namespaceID), 10*time.Second)
+	processContext, cancelProcesses := context.WithTimeout(runtimeContext(context.Background()), 10*time.Second)
 	_ = task.Kill(processContext, syscall.SIGTERM)
 	select {
 	case <-taskExit:
@@ -317,7 +323,7 @@ func (r *Runtime) stopContainer(ctx context.Context, namespaceID, containerID st
 		}
 		return nil, err
 	}
-	mainExit, err := mainProcess.Wait(namespaceContext(context.Background(), namespaceID))
+	mainExit, err := mainProcess.Wait(runtimeContext(context.Background()))
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +379,7 @@ func (r *Runtime) waitContainerForRole(ctx context.Context, namespaceID, contain
 	}
 	channel := r.addWaiter(key)
 	defer r.removeWaiter(key, channel)
-	labels, err := container.Labels(namespaceContext(ctx, namespaceID))
+	labels, err := container.Labels(runtimeContext(ctx))
 	if err == nil && labels[containerStateLabel] == "stopped" {
 		code, _ := strconv.ParseUint(labels[containerExitLabel], 10, 32)
 		return uint32(code), nil
@@ -403,7 +409,7 @@ func (r *Runtime) ListContainers(ctx context.Context, namespaceID string) ([]*vm
 	if err := r.namespaceExists(ctx, namespaceID); err != nil {
 		return nil, err
 	}
-	nsctx := namespaceContext(ctx, namespaceID)
+	nsctx := runtimeContext(ctx)
 	containers, err := r.client.Containers(nsctx)
 	if err != nil {
 		return nil, err
@@ -415,6 +421,9 @@ func (r *Runtime) ListContainers(ctx context.Context, namespaceID string) ([]*vm
 			return nil, err
 		}
 		if labels[guestbuild.InternalContainerLabel] == "true" {
+			continue
+		}
+		if labels[runtimeOwnerLabel] != namespaceID {
 			continue
 		}
 		item, err := r.inspectContainer(nsctx, namespaceID, container)
@@ -437,8 +446,8 @@ func (r *Runtime) loadContainerForRole(ctx context.Context, namespaceID, contain
 	if err := validateID("container_id", containerID); err != nil {
 		return nil, nil, nil, err
 	}
-	nsctx := namespaceContext(ctx, namespaceID)
-	container, err := r.client.LoadContainer(nsctx, containerID)
+	nsctx := runtimeContext(ctx)
+	container, err := ownedRuntimeContainer(ctx, r.client, namespaceID, containerID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -479,7 +488,15 @@ func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, cont
 	if state != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		instanceID = ""
 	}
-	result := &vmmdv1.Container{Id: info.ID, NamespaceId: namespaceID, Image: info.Image, State: state, InstanceId: instanceID, GenerationId: containerGenerationID(info.ID, info.CreatedAt)}
+	externalID := info.Labels[runtimeExternalIDLabel]
+	if externalID == "" || info.Labels[runtimeOwnerLabel] != namespaceID {
+		return nil, errdefs.ErrNotFound
+	}
+	logicalImage := info.Labels[runtimeImageLabel]
+	if logicalImage == "" {
+		return nil, errdefs.ErrNotFound
+	}
+	result := &vmmdv1.Container{Id: externalID, NamespaceId: namespaceID, Image: logicalImage, State: state, InstanceId: instanceID, GenerationId: containerGenerationID(info.ID, info.CreatedAt)}
 	result.CreatedAtUnixNano = info.CreatedAt.UnixNano()
 	result.StartedAtUnixNano, err = parseTimestampLabel(info.Labels[containerStartedLabel])
 	if err != nil {

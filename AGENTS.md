@@ -82,7 +82,7 @@ Do not record temporary failures or narrow implementation mistakes.
 - Neither network exception gives a workload access to the LAN.
 - Mark each independent gVisor container spec with `io.kubernetes.cri.container-type=sandbox`.
 - Code-Hex/vz v3.7.1 does not wake a blocked virtio-socket `Accept` on listener close; keep the pinned post-v3.7.1 revision or a later release that preserves the close wakeup.
-- Use the containerd native snapshotter and runsc `overlay2=none` for persistent workloads.
+- Use one VMMD-owned internal containerd namespace and the containerd overlayfs snapshotter for persistent workloads. Share immutable lower snapshots by digest; keep each workload's writable upper, volume, runsc sandbox, cgroup, and network independent. Containerd namespaces are not a security boundary.
 - Use a build-only runsc `root:memory` overlay for the read-only BuildKit root.
 - Do not restore nested persistent overlays.
 - Use the fixed supervisor as the sandbox init. Run the user process as a retained exec process.

@@ -73,12 +73,16 @@ func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, lim
 	if len(names) > maxGCNamespaces {
 		return 0, errors.New("OCI GC namespace bound exceeded")
 	}
+	pruned, err := r.pruneUnreferencedRuntimeImages(ctx, names, limit, materializerHeld)
+	if err != nil {
+		return 0, err
+	}
+	deleted += pruned
 	snapshotReferences, snapshotCandidates, err := r.ociSnapshotFacts(ctx, names)
 	if err != nil {
 		return 0, err
 	}
 	sort.Slice(snapshotCandidates, func(i, j int) bool { return snapshotCandidates[i].updated.Before(snapshotCandidates[j].updated) })
-	deleted = 0
 	for _, candidate := range snapshotCandidates {
 		if deleted >= limit || snapshotReferences[snapshotFactKey(candidate.namespace, candidate.name)] {
 			continue
@@ -140,6 +144,83 @@ func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, lim
 		}
 	}
 	return deleted, nil
+}
+
+// Logical namespace image records are authorization/retention grants. The
+// internal runtime image record owns the one physical unpacked lower tree and
+// may be removed only after the last logical grant and container reference are
+// gone. OCIContentLifecycle models these records as retainedRefs/activeRefs.
+func (r *Runtime) pruneUnreferencedRuntimeImages(ctx context.Context, names []string, limit int, materializerHeld bool) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	images, err := r.client.ImageService().List(runtimeContext(ctx))
+	if err != nil {
+		return 0, err
+	}
+	sort.Slice(images, func(i, j int) bool { return images[i].UpdatedAt.Before(images[j].UpdatedAt) })
+	deleted := 0
+	for _, image := range images {
+		if deleted >= limit {
+			break
+		}
+		retained, err := r.runtimeImageRetained(ctx, names, image.Name, image.Target.Digest)
+		if err != nil {
+			return deleted, err
+		}
+		if retained {
+			continue
+		}
+		unlock := func() {}
+		if !materializerHeld {
+			unlock = r.materializer.Lock(image.Target.Digest.String())
+		}
+		retained, err = r.runtimeImageRetained(ctx, names, image.Name, image.Target.Digest)
+		if err == nil && !retained {
+			err = r.client.ImageService().Delete(runtimeContext(ctx), image.Name, coreimages.SynchronousDelete())
+			if errdefs.IsNotFound(err) {
+				err = nil
+			} else if err == nil {
+				deleted++
+			}
+		}
+		unlock()
+		if err != nil {
+			return deleted, err
+		}
+	}
+	return deleted, nil
+}
+
+func (r *Runtime) runtimeImageRetained(ctx context.Context, names []string, reference string, wanted digest.Digest) (bool, error) {
+	for _, name := range names {
+		if name == runtimeContainerdNamespace {
+			continue
+		}
+		records, err := r.client.ImageService().List(namespaceContext(ctx, name))
+		if err != nil {
+			return false, err
+		}
+		for _, record := range records {
+			if record.Target.Digest == wanted {
+				return true, nil
+			}
+		}
+	}
+	containers, err := r.client.Containers(runtimeContext(ctx))
+	if err != nil {
+		return false, err
+	}
+	for _, container := range containers {
+		info, err := container.Info(runtimeContext(ctx))
+		if err != nil {
+			return false, err
+		}
+		if info.Image == reference {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func snapshotFactKey(namespace, name string) string { return namespace + "\x00" + name }

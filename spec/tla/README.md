@@ -9,8 +9,9 @@ form an artificial Cartesian product:
 - `RemoteLeaseDisconnectGrace.tla` owns the persisted disconnect fence used by
   delayed lease revocation across reconnect and a later disconnect, and proves
   that revocation preserves the durable allocation and reservation.
-- `OCIImageMaterialization.tla` owns exact-digest archive re-import after an
-  image record survives without its content or native rootfs snapshot.
+- `OCIImageMaterialization.tla` owns exact-digest archive re-import after a
+  logical image grant survives without its shared content or persistent overlay
+  lower snapshot.
 - `ManagedCredentialReplacement.tla` owns same-policy-revision managed
   credential idempotence and the expiry fence for a newly signed payload.
 - `ResourceAdmissionQueue.tla` owns the exact Host logical/Guest physical
@@ -19,8 +20,11 @@ form an artificial Cartesian product:
   each `memory.max` remains an individual cgroup ceiling), FIFO/deadline claim, command epoch/generation fences,
   response loss, restart, stop, and exact release convergence.
 - `OCIContentLifecycle.tla` owns the single global import slot, transient peak
-  reservation, timeout/crash, committed content and snapshot facts, active and
-  retained namespace references, pressure watermarks, and ref-safe GC.
+  reservation, timeout/crash, the one shared content/lower-snapshot fact per
+  digest, active container references, logical namespace grants, pressure
+  watermarks, and ref-safe GC. The production private containerd image record
+  refines the shared materialization fact; per-environment image records refine
+  retained references rather than owning another physical snapshot.
 - `GuestDiskBudget.tla` owns the narrow physical `U+W+I+E+M<=D` budget shared by
   quota admission, retained namespaces, imports, and cache/content/snapshot GC;
   all allocated bytes live in the single `U` fact.

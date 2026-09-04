@@ -303,8 +303,8 @@ func (supervisor *applianceSupervisor) restartAfterBackoff(installationID, names
 }
 
 func (supervisor *applianceSupervisor) replaceStoppedContainer(ctx context.Context, namespaceID, containerID string) error {
-	nsctx := namespaceContext(ctx, namespaceID)
-	container, err := supervisor.runtime.client.LoadContainer(nsctx, containerID)
+	nsctx := runtimeContext(ctx)
+	container, err := ownedRuntimeContainer(ctx, supervisor.runtime.client, namespaceID, containerID)
 	if errdefs.IsNotFound(err) {
 		return nil
 	}

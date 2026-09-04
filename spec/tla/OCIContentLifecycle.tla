@@ -4,6 +4,12 @@ EXTENDS Naturals, FiniteSets
 CONSTANTS EnforceReferenceFence, EnforceGlobalSlot, EnforceCriticalGate,
           EnforceSealLinearization
 
+\* Production refinement: content/snapshots are the one private-containerd-
+\* namespace materialization per digest. retainedRefs are logical namespace
+\* image grants; activeRefs are owner-labelled runtime containers with
+\* independent overlay upper snapshots. Runtime image-record deletion followed
+\* by containerd snapshot/content GC refines the atomic GC transition below.
+
 Digests == {"a", "b"}
 Namespaces == {"one", "two"}
 Refs == Namespaces \X Digests

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
+	securejoin "github.com/cyphar/filepath-securejoin"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/grpc/codes"
 )
@@ -79,12 +81,20 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 			return nil, errors.New("named volume does not exist")
 		}
 	}
-	nsctx := namespaceContext(ctx, namespaceID)
+	logicalContext := namespaceContext(ctx, namespaceID)
 	canonicalImage, err := normalizeImageReference(request.GetImage())
 	if err != nil {
 		return nil, imageError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image reference is invalid", request.GetImage())
 	}
-	image, err := r.client.GetImage(nsctx, canonicalImage)
+	logicalImage, err := r.client.GetImage(logicalContext, canonicalImage)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil, imageError(codes.NotFound, "IMAGE_NOT_FOUND", "image is not available in this environment", canonicalImage)
+		}
+		return nil, err
+	}
+	nsctx := runtimeContext(ctx)
+	image, err := r.client.GetImage(nsctx, runtimeImageReference(logicalImage.Target().Digest))
 	if err != nil {
 		if errdefs.IsNotFound(err) {
 			return nil, imageError(codes.NotFound, "IMAGE_NOT_FOUND", "image is not available in this environment", canonicalImage)
@@ -109,11 +119,11 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	var container containerd.Container
 	err = r.guardOCIPhysicalGrowth(ctx, "container-snapshot\x00"+namespaceID+"\x00"+request.GetContainerId()+"\x00"+canonicalImage, func() error {
 		var createErr error
-		container, createErr = r.client.NewContainer(nsctx, request.GetContainerId(),
+		container, createErr = r.client.NewContainer(nsctx, runtimeContainerKey(namespaceID, request.GetContainerId()),
 			containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter),
-			atContainerStage("rootfs_snapshot", containerd.WithNewSnapshot(request.GetContainerId()+"-rootfs", image)),
+			atContainerStage("rootfs_snapshot", containerd.WithNewSnapshot(runtimeSnapshotKey(namespaceID, request.GetContainerId()), image)),
 			containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
-			containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10)}),
+			containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10), runtimeOwnerLabel: namespaceID, runtimeExternalIDLabel: request.GetContainerId(), runtimeImageLabel: canonicalImage}),
 			atContainerStage("oci_spec", containerd.WithNewSpec(specOptions...)), atContainerStage("supervisor_spec", withSupervisedProcess()),
 		)
 		return createErr
@@ -124,6 +134,10 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if err := r.assignSnapshotProject(nsctx, namespaceID, container); err != nil {
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
 		return nil, atRuntimeStage("snapshot_quota", err)
+	}
+	if err := r.materializeSupervisor(nsctx, namespaceID, container); err != nil {
+		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		return nil, atRuntimeStage("supervisor_materialization", err)
 	}
 	current, err := r.inspectContainer(nsctx, namespaceID, container)
 	if err != nil {
@@ -163,10 +177,77 @@ func withSupervisedProcess() containerd.NewContainerOpts {
 		container.Extensions[containerProcess] = process
 		spec.Process = &specs.Process{Args: []string{supervisorPath}, Cwd: "/", User: specs.User{}, NoNewPrivileges: true, Capabilities: &specs.LinuxCapabilities{},
 			Rlimits: []specs.POSIXRlimit{{Type: "RLIMIT_CORE", Hard: 0, Soft: 0}}}
-		spec.Mounts = append(spec.Mounts, specs.Mount{Destination: supervisorPath, Type: "bind", Source: supervisorHostPath, Options: []string{"bind", "ro", "nosuid", "nodev"}})
 		container.Spec, err = typeurl.MarshalAny(spec)
 		return err
 	}
+}
+
+func (r *Runtime) materializeSupervisor(ctx context.Context, namespaceID string, container containerd.Container) error {
+	info, err := container.Info(ctx)
+	if err != nil {
+		return err
+	}
+	mounts, err := r.client.SnapshotService(info.Snapshotter).Mounts(ctx, info.SnapshotKey)
+	if err != nil {
+		return err
+	}
+	var upper string
+	for _, snapshotMount := range mounts {
+		for _, option := range snapshotMount.Options {
+			if value, ok := strings.CutPrefix(option, "upperdir="); ok {
+				upper = value
+				break
+			}
+		}
+	}
+	if upper == "" {
+		return errors.New("writable overlay snapshot has no upper directory")
+	}
+	destination, err := securejoin.SecureJoin(upper, supervisorPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	labels, err := r.client.NamespaceService().Labels(context.Background(), namespaceID)
+	if err != nil {
+		return err
+	}
+	projectID, _, err := namespaceFromLabels(namespaceID, labels)
+	if err != nil {
+		return err
+	}
+	if err := assignProject(filepath.Dir(destination), projectID); err != nil {
+		return err
+	}
+	source, err := os.Open(supervisorHostPath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	// No task is running while this function executes. Remove the prior copy
+	// first so a quota-full upper can restart without requiring a second
+	// supervisor-sized allocation. O_EXCL also prevents following a path a
+	// previous workload replaced with a symlink.
+	if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, source)
+	closeErr := output.Close()
+	if copyErr != nil {
+		_ = os.Remove(destination)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(destination)
+		return closeErr
+	}
+	return nil
 }
 
 func containerMainProcess(ctx context.Context, container containerd.Container) (*specs.Process, error) {

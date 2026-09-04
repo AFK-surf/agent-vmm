@@ -14,7 +14,7 @@ The agent namespace is the primary resource, identity, and policy boundary.
 
 Each agent namespace maps to these resources:
 
-- one containerd namespace
+- one VMMD-owned logical resource record; all workload runtime objects use one internal containerd namespace
 - one cgroup subtree and its resource limits
 - one isolated network and IP range
 - a set of containers, volumes, image references, and build caches
@@ -110,14 +110,18 @@ The design uses `NetworkLink`, `VolumeGrant`, and `ControlGrant` as separate res
 
 Each resource records its parties, scope, rights, expiry, and revocation state.
 
-### Use containerd namespaces as resource scopes
+### Keep authorization outside containerd namespaces
 
-Docker Engine has no resource namespace that maps to one agent.
-Names and labels require authorization checks on every engine method.
+Containerd namespaces are management scopes, not a security boundary. Creating one per agent duplicates
+snapshot metadata and immutable root files without protecting them from a caller that can reach the
+containerd socket. Workloads never receive that socket.
 
-Containerd applies a namespace through the request context.
-`agent-vmmd` selects that context after host authorization.
-An agent cannot provide or replace the context.
+`agent-vmmd` uses one private containerd namespace, keys physical image records by manifest digest, and
+generates opaque internal container and snapshot keys. Every runtime object carries its logical owner;
+list, get, start, exec, stop, and delete verify that owner before returning or mutating it. Per-agent
+logical namespace records retain tag-to-digest image authorization,
+resource contracts, cgroup, network, volume, and build-cache ownership without duplicating read-only
+root files.
 
 ### Remove Podman and libpod
 
@@ -150,7 +154,8 @@ A shared BuildKit daemon would mix build control, contexts, secrets, and caches.
 The sandbox runs locked RootlessKit, BuildKit, and `buildkit-runc` components as UID 1000.
 
 The sandbox mounts only the current context, temporary secrets, one cache, and one OCI output.
-`agent-vmmd` verifies the output before import into the caller's containerd namespace.
+`agent-vmmd` verifies the output, records the caller's logical image grant, and materializes its rootfs in
+the internal runtime namespace.
 
 ## Components
 
@@ -209,7 +214,7 @@ It listens on a fixed vsock port and does not listen on TCP.
 
 It controls these resources:
 
-- containerd namespaces, containers, tasks, images, and snapshots
+- logical agent namespaces plus the private containerd runtime namespace, containers, tasks, images, and snapshots
 - cgroups, quotas, networks, and DNS views
 - CNI, IPAM, nftables rules, and port forwarding
 - named volumes and approved mounts
@@ -222,14 +227,16 @@ It accepts requests with an explicit actor, target, and capability from the host
 
 ### containerd and runsc
 
-Containerd owns runtime facts for containers, tasks, image references, and snapshots.
-`agent-vmmd` sets the containerd namespace from the authenticated agent identity.
+Containerd owns runtime facts for containers, tasks, physical image materialization, and snapshots in one
+private namespace. Per-agent image records are authorization and retention grants. `agent-vmmd` maps the
+authenticated agent identity to opaque internal keys and verifies owner labels on every operation.
 
 Runsc is the only workload runtime handler.
 It uses the systrap platform and one sandbox for each container.
 
-Persistent workloads use the containerd native snapshotter and runsc `overlay2=none`.
-This combination avoids nested overlay errors and temporary task-only writes.
+Persistent workloads use the containerd overlayfs snapshotter and runsc `overlay2=none`. Each image digest
+has one immutable committed lower tree; every container gets its own writable upper/work directory and
+runsc sandbox. Containerd owns the only persistent overlay layer.
 
 A fixed supervisor runs as the sandbox init.
 The user process runs as a retained exec process in the same sandbox.
@@ -253,7 +260,7 @@ Each agent namespace has these resources:
 - a cgroup root with CPU, memory, PID, I/O, and disk limits
 - an independent bridge and subnet
 - a policy-aware DNS view
-- containers, volumes, image references, and build caches
+- containers, volumes, logical image grants, and build caches
 - approved guest-volume grants
 - approved incoming or outgoing grants
 
@@ -333,7 +340,8 @@ An agreement between agents is only an input to host authorization.
 | `NetworkLink`, `VolumeGrant`, and `ControlGrant` | Host SQLite database |
 | Virtual machine configuration and disk identity | Host SQLite database |
 | Guest image and state disk bytes | Files in the host environment directory |
-| Containers, tasks, image references, and snapshots | The applicable containerd namespace |
+| Container/task records and shared immutable image/snapshot materialization | The private containerd runtime namespace |
+| Per-agent image authorization and retention | The logical agent namespace record |
 | Volume ownership, quotas, and grants | Host SQLite database |
 | Volume contents | One directory on the guest state disk |
 | Build cache contents | One cache volume for each agent namespace |
@@ -363,8 +371,10 @@ macOS host controller ---- SQLite: namespace / link / grant
        | authorized RPC and byte streams over virtio-vsock
        v
 agent-vmmd
-       +---- containerd namespace agent-A ---- runsc sandbox A1/A2/...
-       +---- containerd namespace agent-B ---- runsc sandbox B1/B2/...
+       +---- private containerd runtime namespace
+       |       +---- shared immutable image lower snapshots
+       |       +---- owner-fenced upper A1/A2 ---- runsc sandbox A1/A2/...
+       |       +---- owner-fenced upper B1/B2 ---- runsc sandbox B1/B2/...
        +---- CNI / IPAM / nftables / policy DNS
        +---- namespace volume / BuildKit cache
        |
@@ -453,18 +463,20 @@ The system never falls back to a guest-native runc.
 
 ### containerd
 
-Containerd namespaces map directly to persistent agent resource scopes.
-Runtime v2 supports the runsc shim for each container.
+Logical namespace records map to persistent agent resource scopes. Workload
+containers, tasks, and physical image records live in one private containerd
+namespace; runtime v2 supports the runsc shim for each container.
 
-The content store can deduplicate blobs while image references remain namespace-specific.
+Physical image records are keyed by manifest digest, while logical tag-to-digest
+grants remain namespace-specific.
 `agent-vmmd` uses the Go client and does not parse CLI output.
 
-An image is available only when its exact record, content graph, and native
-rootfs snapshot are materialized. Image listing does not project a record whose
-rootfs snapshot is missing, and container creation rejects it before creating a
-container record. Re-importing the same digest-bound OCI archive repairs that
-materialization in place; a different digest or import fingerprint remains a
-conflict and cannot replace the record.
+An image is available only when its logical grant, exact content graph, and
+shared overlay lower snapshot are materialized. Image listing does not project
+a grant whose physical rootfs is missing, and container creation rejects it
+before creating a container record. Re-importing the same digest-bound OCI
+archive repairs that materialization in place; a different digest or import
+fingerprint remains a conflict and cannot replace the logical grant.
 
 Containerd does not provide product volumes, service DNS, or cross-namespace grants.
 `agent-vmmd` implements this policy layer.
@@ -548,7 +560,7 @@ Cancellation stops the complete outer sandbox.
 | Requirement | Permanent structure | Failure without it |
 | --- | --- | --- |
 | Multiple agents in one virtual machine | Shared Virtualization.framework virtual machine | One machine per agent breaks density and collaboration goals |
-| Agent resource scope | Containerd namespace and host identity map | An agent can access another agent's resources |
+| Agent resource scope | Logical namespace records, owner-labelled objects in one private runtime namespace, and the host identity map | An agent can access another agent's resources |
 | Execution isolation | One runsc sandbox per container | An escape reaches the shared guest kernel |
 | Default network isolation | One subnet per namespace and deny rules | Agent namespaces can connect by default |
 | Selected service access | `NetworkLink` and IP sets | Access becomes global or requires container replacement |

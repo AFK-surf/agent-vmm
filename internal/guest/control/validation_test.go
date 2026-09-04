@@ -27,6 +27,12 @@ func TestValidation(t *testing.T) {
 	}
 }
 
+func TestInternalRuntimeNamespaceIsReserved(t *testing.T) {
+	if err := validateID("actor_namespace_id", runtimeContainerdNamespace); err == nil {
+		t.Fatal("internal runtime namespace was accepted as an actor namespace")
+	}
+}
+
 func TestDeduperSingleFlight(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32

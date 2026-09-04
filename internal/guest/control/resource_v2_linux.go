@@ -414,6 +414,9 @@ func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, er
 		return guestdisk.Snapshot{}, err
 	}
 	for _, name := range names {
+		if name == runtimeContainerdNamespace {
+			continue
+		}
 		labels, err := r.client.NamespaceService().Labels(ctx, name)
 		if err != nil {
 			return guestdisk.Snapshot{}, err

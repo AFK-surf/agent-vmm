@@ -67,6 +67,10 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager, startup OCISt
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
 		volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
 	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth, runtime.guardOCIMetadataGrowth)
+	if err := ensureRuntimeContainerdNamespace(context.Background(), client); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("ensure internal runtime namespace: %w", err)
+	}
 	if err := cleanupVolumeStaging(); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
@@ -114,6 +118,9 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 		return err
 	}
 	for _, name := range names {
+		if name == runtimeContainerdNamespace {
+			continue
+		}
 		labels, err := r.client.NamespaceService().Labels(ctx, name)
 		if err != nil {
 			return err
@@ -130,12 +137,19 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 		if err := r.network.EnsureNamespace(name, namespace.GetSubnet(), vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
 			return err
 		}
-		containers, err := r.client.Containers(namespaceContext(ctx, name))
+		containers, err := r.client.Containers(runtimeContext(ctx))
 		if err != nil {
 			return err
 		}
 		for _, container := range containers {
-			if err := r.network.CleanupStaleEndpoint(name, container.ID()); err != nil {
+			labels, err := container.Labels(runtimeContext(ctx))
+			if err != nil {
+				return err
+			}
+			if labels[runtimeOwnerLabel] != name {
+				continue
+			}
+			if err := r.network.CleanupStaleEndpoint(name, labels[runtimeExternalIDLabel]); err != nil {
 				return err
 			}
 		}

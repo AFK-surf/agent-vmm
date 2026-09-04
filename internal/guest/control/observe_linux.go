@@ -48,7 +48,7 @@ func (r *Runtime) ListNamespaces(ctx context.Context) ([]*vmmdv1.Namespace, erro
 	sort.Strings(names)
 	result := make([]*vmmdv1.Namespace, 0, len(names))
 	for _, name := range names {
-		if isSystemNamespace(name) {
+		if name == runtimeContainerdNamespace || isSystemNamespace(name) {
 			continue
 		}
 		namespace, err := r.GetNamespace(ctx, name)
@@ -248,13 +248,21 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 	if err := r.namespaceExists(ctx, namespaceID); err != nil {
 		return nil, err
 	}
-	images, err := r.client.ListImages(namespaceContext(ctx, namespaceID))
+	logicalContext := namespaceContext(ctx, namespaceID)
+	images, err := r.client.ListImages(logicalContext)
 	if err != nil {
 		return nil, err
 	}
 	result := make([]*vmmdv1.Image, 0, len(images))
 	for _, image := range images {
-		unpacked, err := image.IsUnpacked(namespaceContext(ctx, namespaceID), containerSnapshotter)
+		runtimeImage, err := r.client.GetImage(runtimeContext(ctx), runtimeImageReference(image.Target().Digest))
+		if errdefs.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), containerSnapshotter)
 		if err != nil {
 			// A cancelled or interrupted import can leave containerd image
 			// metadata behind after its content or snapshot has disappeared.
@@ -268,11 +276,11 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 		if !unpacked {
 			continue
 		}
-		size, err := image.Size(namespaceContext(ctx, namespaceID))
+		size, err := runtimeImage.Size(runtimeContext(ctx))
 		if err != nil {
 			return nil, err
 		}
-		metadata, err := r.client.ImageService().Get(namespaceContext(ctx, namespaceID), image.Name())
+		metadata, err := r.client.ImageService().Get(logicalContext, image.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -298,10 +306,18 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 	if err != nil {
 		return nil, imageError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image reference is invalid", reference)
 	}
-	nsctx := namespaceContext(ctx, namespaceID)
-	image, err := r.client.GetImage(nsctx, canonical)
+	logicalContext := namespaceContext(ctx, namespaceID)
+	logical, err := r.client.GetImage(logicalContext, canonical)
 	if err != nil {
 		return nil, err
+	}
+	nsctx := runtimeContext(ctx)
+	image, err := r.client.GetImage(nsctx, runtimeImageReference(logical.Target().Digest))
+	if err != nil {
+		return nil, err
+	}
+	if logical.Target().Digest != image.Target().Digest {
+		return nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "image grant does not match materialized root filesystem", canonical)
 	}
 	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
 	if err != nil {
@@ -314,11 +330,11 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 	if err != nil {
 		return nil, err
 	}
-	metadata, err := r.client.ImageService().Get(nsctx, canonical)
+	metadata, err := r.client.ImageService().Get(logicalContext, canonical)
 	if err != nil {
 		return nil, err
 	}
-	return &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata)}, nil
+	return &vmmdv1.Image{Reference: canonical, Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata)}, nil
 }
 
 func (r *Runtime) NamespaceUsage(ctx context.Context, namespaceID string) (*vmmdv1.Usage, error) {

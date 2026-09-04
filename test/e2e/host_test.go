@@ -398,6 +398,19 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 	first := imageByReference(t, client, firstEnvironment, workloadImage)
 	imageByReference(t, client, secondEnvironment, workloadImage)
 	container := createContainer(t, client, firstEnvironment, "image-user", []string{"sleep", "300"}, nil)
+	sameExternalID := createContainer(t, client, secondEnvironment, "image-user", []string{"true"}, nil)
+	if container.GetId() != sameExternalID.GetId() || container.GetGenerationId() == sameExternalID.GetGenerationId() {
+		t.Fatalf("cross-environment container identity was not independently fenced: first=%+v second=%+v", container, sameExternalID)
+	}
+	if listed, err := client.ListContainers(ctx, firstEnvironment); err != nil || len(listed.GetContainers()) != 1 || listed.GetContainers()[0].GetGenerationId() != container.GetGenerationId() {
+		t.Fatalf("first environment observed another environment container: response=%+v err=%v", listed, err)
+	}
+	if listed, err := client.ListContainers(ctx, secondEnvironment); err != nil || len(listed.GetContainers()) != 1 || listed.GetContainers()[0].GetGenerationId() != sameExternalID.GetGenerationId() {
+		t.Fatalf("second environment observed another environment container: response=%+v err=%v", listed, err)
+	}
+	if err := client.DeleteContainer(ctx, secondEnvironment, &hostv1.ContainerMutationRequest{RequestId: "remove-second-image-user", ContainerId: sameExternalID.GetId(), ExpectedGenerationId: sameExternalID.GetGenerationId()}); err != nil {
+		t.Fatal(err)
+	}
 	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-created-image", first)), "IMAGE_IN_USE")
 	if _, err := client.StartContainer(ctx, firstEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-image-user", ContainerId: container.GetId()}); err != nil {
 		t.Fatal(err)

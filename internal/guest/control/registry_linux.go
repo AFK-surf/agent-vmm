@@ -42,8 +42,16 @@ func (r *Runtime) pullImage(ctx context.Context, namespaceID, imageReference str
 	if err != nil {
 		return "", "", 0, imageError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image reference is invalid", imageReference)
 	}
-	nsctx := namespaceContext(ctx, namespaceID)
-	image, err := r.client.GetImage(nsctx, canonical)
+	logicalContext := namespaceContext(ctx, namespaceID)
+	logical, err := r.client.GetImage(logicalContext, canonical)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return "", "", 0, imageError(codes.FailedPrecondition, "IMAGE_IMPORT_REQUIRED", "cold images require the immutable ImportImage path", canonical)
+		}
+		return "", "", 0, err
+	}
+	nsctx := runtimeContext(ctx)
+	image, err := r.client.GetImage(nsctx, runtimeImageReference(logical.Target().Digest))
 	if errdefs.IsNotFound(err) {
 		return "", "", 0, imageError(codes.FailedPrecondition, "IMAGE_IMPORT_REQUIRED", "cold images require the immutable ImportImage path", canonical)
 	}
@@ -106,16 +114,12 @@ func (r *Runtime) DeleteImage(ctx context.Context, namespaceID, reference, expec
 	if imageGenerationID(image) != expectedGenerationID {
 		return imageError(codes.Aborted, "IMAGE_GENERATION_CONFLICT", "image record changed; refresh and try again", canonical)
 	}
-	containers, err := r.client.Containers(nsctx)
+	containers, err := r.ListContainers(ctx, namespaceID)
 	if err != nil {
 		return err
 	}
 	for _, container := range containers {
-		info, err := container.Info(nsctx)
-		if err != nil {
-			return err
-		}
-		if info.Image == canonical {
+		if container.GetImage() == canonical {
 			return imageError(codes.FailedPrecondition, "IMAGE_IN_USE", "image is used by a container", canonical)
 		}
 	}

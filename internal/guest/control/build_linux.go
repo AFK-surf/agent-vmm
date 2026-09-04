@@ -3,10 +3,13 @@
 package control
 
 import (
+	"context"
 	"errors"
 	"io"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	coreimages "github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/errdefs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -84,10 +87,53 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 	if err != nil {
 		return err
 	}
+	if err := r.promoteBuiltImage(stream.Context(), header.GetActorNamespaceId(), header.GetImage()); err != nil {
+		return err
+	}
 	if cacheHit {
 		if err := stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "namespace cache hit"}}); err != nil {
 			return err
 		}
 	}
 	return stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Result{Result: &vmmdv1.BuildImageResult{Image: header.GetImage(), Digest: digest}}})
+}
+
+func (r *Runtime) promoteBuiltImage(ctx context.Context, namespaceID, reference string) error {
+	canonical, err := normalizeImageReference(reference)
+	if err != nil {
+		return err
+	}
+	reference = canonical
+	logicalContext := namespaceContext(ctx, namespaceID)
+	image, err := r.client.GetImage(logicalContext, reference)
+	if err != nil {
+		return err
+	}
+	nsctx := runtimeContext(ctx)
+	runtimeReference := runtimeImageReference(image.Target().Digest)
+	record := coreimages.Image{Name: runtimeReference, Target: image.Target()}
+	current, currentErr := r.client.ImageService().Get(nsctx, runtimeReference)
+	if currentErr == nil && current.Target.Digest != image.Target().Digest {
+		return errors.New("digest-owned runtime image metadata is inconsistent")
+	}
+	if currentErr != nil && !errdefs.IsNotFound(currentErr) {
+		return currentErr
+	}
+	if _, err := r.client.ImageService().Update(nsctx, record, "target"); errdefs.IsNotFound(err) {
+		if _, err = r.client.ImageService().Create(nsctx, record); err != nil && !errdefs.IsAlreadyExists(err) {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	runtimeImage, err := r.client.GetImage(nsctx, runtimeReference)
+	if err != nil {
+		return err
+	}
+	if runtimeImage.Target().Digest != image.Target().Digest {
+		return errors.New("digest-owned runtime image metadata is inconsistent")
+	}
+	return r.guardOCIPhysicalGrowth(ctx, "build-output-runtime\x00"+namespaceID+"\x00"+reference, func() error {
+		return runtimeImage.Unpack(nsctx, containerSnapshotter)
+	})
 }

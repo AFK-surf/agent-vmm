@@ -135,16 +135,16 @@ func TestProjectQuotaIsAHardIndependentWriteBoundary(t *testing.T) {
 	if err := SetLimit(device, 9000, afterMetadata+(8<<20)); err != nil {
 		t.Fatal(err)
 	}
-	// Native snapshotters physically copy the parent rootfs during
-	// WithNewSnapshot. The product opens this same ceiling only after a
-	// physical I hold exists; the copied rootfs can consume that I allowance
-	// while workload W projects and the E/M floors remain outside project 9000.
+	// Snapshot metadata and lower-tree materialization consume the OCI project.
+	// The product opens this same ceiling only after a physical I hold exists;
+	// this bounded growth can consume that I allowance while workload W projects
+	// and the E/M floors remain outside project 9000.
 	if result := runHelper("snapshot"); result != "complete" {
-		t.Fatalf("native snapshot copy result=%q, want physically bounded success", result)
+		t.Fatalf("snapshot growth result=%q, want physically bounded success", result)
 	}
 	afterSnapshot, err := Usage(device, 9000)
 	if err != nil || afterSnapshot > afterMetadata+(7<<20) || afterSnapshot < afterMetadata+(5<<20) {
-		t.Fatalf("native snapshot usage=%d baseline=%d err=%v", afterSnapshot, afterMetadata, err)
+		t.Fatalf("snapshot usage=%d baseline=%d err=%v", afterSnapshot, afterMetadata, err)
 	}
 	if err := SetLimit(device, 9000, afterSnapshot+(8<<20)); err != nil {
 		t.Fatal(err)

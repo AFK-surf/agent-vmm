@@ -16,7 +16,7 @@ func validateID(kind, value string) error {
 	if !opaqueID.MatchString(value) {
 		return errors.New(kind + " must be a 1-63 character opaque identifier")
 	}
-	if strings.Contains(kind, "namespace") && isSystemNamespace(value) {
+	if strings.Contains(kind, "namespace") && (isSystemNamespace(value) || value == runtimeContainerdNamespace) {
 		return errors.New(kind + " does not name an ordinary environment")
 	}
 	return nil

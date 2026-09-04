@@ -180,7 +180,7 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	if err := r.builder.CleanupNamespace(ctx, namespaceID); err != nil {
 		return err
 	}
-	containers, err := r.client.Containers(nsctx)
+	containers, err := r.ListContainers(ctx, namespaceID)
 	if err != nil {
 		return err
 	}
