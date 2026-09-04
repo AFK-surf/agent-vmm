@@ -11,6 +11,7 @@ import (
 	"math/bits"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"syscall"
@@ -177,9 +178,26 @@ type leaseGCBarrier interface {
 func (r *Runtime) settleOCIProjectQuota(ctx context.Context) error {
 	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
+	names, err := r.client.NamespaceService().List(settleCtx)
+	if err != nil {
+		return fmt.Errorf("list containerd namespaces for GC barrier: %w", err)
+	}
+	settleCtx, ok := existingNamespaceContext(settleCtx, names)
+	if !ok {
+		return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
+	}
 	return settleOCIProjectQuotaWith(settleCtx, r.client.LeasesService(), func() error {
 		return retryOCIProjectQuota(r.tightenOCIProjectQuota, 10, 100*time.Millisecond)
 	})
+}
+
+func existingNamespaceContext(ctx context.Context, names []string) (context.Context, bool) {
+	if len(names) == 0 {
+		return ctx, false
+	}
+	names = slices.Clone(names)
+	slices.Sort(names)
+	return namespaceContext(ctx, names[0]), true
 }
 
 // A synchronous lease deletion asks containerd's official GC scheduler to

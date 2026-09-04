@@ -161,6 +161,21 @@ func (r *Runtime) DeleteNamespace(ctx context.Context, namespaceID string) error
 }
 
 func (r *Runtime) deleteNamespaceLocked(ctx context.Context, namespaceID string) error {
+	return r.mutateNamespaceInventory(func(*guestdisk.Transaction) error {
+		return r.deleteNamespaceUnderBudgetLocked(ctx, namespaceID)
+	})
+}
+
+func (r *Runtime) mutateNamespaceInventory(mutate func(*guestdisk.Transaction) error) error {
+	return r.diskBudget.Mutate(mutate)
+}
+
+// deleteNamespaceUnderBudgetLocked removes the containerd namespace bucket and
+// its quota state while holding both the namespace lock and the global disk
+// mutation lock. OCI quota settlement selects an existing containerd namespace
+// under the same disk lock, so deletion cannot invalidate or recreate that
+// bucket between selection and the synchronous GC barrier.
+func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespaceID string) error {
 	nsctx := namespaceContext(ctx, namespaceID)
 	if err := r.builder.CleanupNamespace(ctx, namespaceID); err != nil {
 		return err

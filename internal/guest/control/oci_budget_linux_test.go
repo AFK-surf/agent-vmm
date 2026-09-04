@@ -10,11 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
 	"github.com/containerd/containerd/v2/core/leases"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"golang.org/x/sys/unix"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/status"
@@ -107,10 +110,12 @@ type leaseBarrierStub struct {
 	createErr error
 	deleteErr error
 	sync      bool
+	namespace string
 }
 
-func (stub *leaseBarrierStub) Create(context.Context, ...leases.Opt) (leases.Lease, error) {
+func (stub *leaseBarrierStub) Create(ctx context.Context, _ ...leases.Opt) (leases.Lease, error) {
 	stub.events = append(stub.events, "create")
+	stub.namespace, _ = namespaces.Namespace(ctx)
 	return leases.Lease{ID: "barrier"}, stub.createErr
 }
 
@@ -137,6 +142,61 @@ func TestOCIQuotaSettlementWaitsForSynchronousGCBeforeExactTighten(t *testing.T)
 	}
 	if got := strings.Join(barrier.events, ","); got != "create,delete,tighten" || !barrier.sync {
 		t.Fatalf("settlement order=%s synchronous=%t", got, barrier.sync)
+	}
+}
+
+func TestOCIQuotaSettlementUsesExistingNamespaceWithoutCreatingMetadata(t *testing.T) {
+	ctx, ok := existingNamespaceContext(context.Background(), []string{"workload-z", "system-appliance", "workload-a"})
+	if !ok {
+		t.Fatal("existing namespace was not selected")
+	}
+	if namespace, _ := namespaces.Namespace(ctx); namespace != "system-appliance" {
+		t.Fatalf("selected namespace=%q want=%q", namespace, "system-appliance")
+	}
+	if _, ok := existingNamespaceContext(context.Background(), nil); ok {
+		t.Fatal("empty namespace inventory synthesized settlement metadata")
+	}
+}
+
+func TestNamespaceInventoryMutationWaitsForOCIQuotaSettlement(t *testing.T) {
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget)}
+	settlementStarted := make(chan struct{})
+	releaseSettlement := make(chan struct{})
+	settlementDone := make(chan error, 1)
+	go func() {
+		settlementDone <- runtime.diskBudget.Settle(func() error {
+			close(settlementStarted)
+			<-releaseSettlement
+			return nil
+		})
+	}()
+	<-settlementStarted
+
+	var deleted atomic.Bool
+	deleteDone := make(chan error, 1)
+	go func() {
+		deleteDone <- runtime.mutateNamespaceInventory(func(*guestdisk.Transaction) error {
+			deleted.Store(true)
+			return nil
+		})
+	}()
+	select {
+	case err := <-deleteDone:
+		t.Fatalf("namespace inventory mutation overlapped settlement: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	if deleted.Load() {
+		t.Fatal("namespace inventory changed while settlement owned its GC namespace")
+	}
+	close(releaseSettlement)
+	if err := <-settlementDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	if !deleted.Load() {
+		t.Fatal("namespace inventory mutation did not resume after settlement")
 	}
 }
 
