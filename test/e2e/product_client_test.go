@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,8 +19,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type registryArchive struct {
+	path   string
+	digest string
+	hash   []byte
+	size   uint64
+}
+
 type productClient struct {
-	operator hostv1.OperatorServiceClient
+	archiveMu        sync.Mutex
+	registryArchives map[string]registryArchive
+	archiveDirectory string
+	archiveURL       string
+	operator         hostv1.OperatorServiceClient
 
 	mu       sync.Mutex
 	sessions map[string]*productSession
@@ -207,40 +219,33 @@ func (client *productClient) RemoveEnvironmentAccess(ctx context.Context, enviro
 	return nil
 }
 
-func (client *productClient) PullImage(ctx context.Context, environmentID string, request *hostv1.PullImageRequest) (grpc.ServerStreamingClient[hostv1.PullImageResponse], error) {
-	session, err := client.session(environmentID)
-	if err != nil {
-		return nil, err
-	}
-	return session.client.PullImage(ctx, request)
-}
-
 func (client *productClient) ImportImage(ctx context.Context, environmentID string, header *hostv1.ImportImageHeader, archive io.Reader) (*hostv1.Image, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
 	}
+	file, err := os.CreateTemp(client.archiveDirectory, "import-*.tar")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(file.Name())
+	_, copyErr := io.Copy(file, archive)
+	if err := errors.Join(copyErr, file.Close()); err != nil {
+		return nil, err
+	}
+	header = proto.Clone(header).(*hostv1.ImportImageHeader)
+	header.ArchiveUrl = client.archiveURL + "/" + filepath.Base(file.Name())
+	// Preserve the caller's commitment so corruption and size tests still reach
+	// the Host/Guest validation boundary.
 	stream, err := session.client.ImportImage(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if err := stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_Header{Header: header}}); err != nil {
+		if errors.Is(err, io.EOF) {
+			return stream.CloseAndRecv()
+		}
 		return nil, err
-	}
-	buffer := make([]byte, 1<<20)
-	for {
-		count, readErr := archive.Read(buffer)
-		if count != 0 {
-			if err := stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: append([]byte(nil), buffer[:count]...)}}); err != nil {
-				return nil, err
-			}
-		}
-		if errors.Is(readErr, io.EOF) {
-			break
-		}
-		if readErr != nil {
-			return nil, readErr
-		}
 	}
 	return stream.CloseAndRecv()
 }

@@ -478,6 +478,19 @@ before creating a container record. Re-importing the same digest-bound OCI
 archive repairs that materialization in place; a different digest or import
 fingerprint remains a conflict and cannot replace the logical grant.
 
+Before containerd starts, VMMD establishes project 9000 and directory
+inheritance on the containerd and import roots. CAS content and overlay lower
+snapshots inherit that project as containerd creates them. The import archive
+owner restores inheritance when startup cleanup has removed the import root.
+The writable-snapshot owner assigns the workload project to both overlay upper
+and work directories before mounting. Copy-up can then move temporary inodes
+into upper without crossing the project boundary. Startup never recursively
+rewrites OCI content or changes that assignment.
+Quota operations pin a path without following symlinks and accept only regular
+files and directories. Image links and special inodes are not opened for quota
+inspection. Startup metadata allowance, stale-task recovery, the existing-state
+GC barrier, and subsequent idle-quota tightening retain their existing order.
+
 Containerd does not provide product volumes, service DNS, or cross-namespace grants.
 `agent-vmmd` implements this policy layer.
 

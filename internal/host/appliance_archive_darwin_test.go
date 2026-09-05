@@ -3,6 +3,14 @@
 package host
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"google.golang.org/grpc"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -44,4 +52,56 @@ func protoCloneImportHeader(value *vmmdv1.ImportImageHeader, mutate func(*vmmdv1
 	clone := proto.Clone(value).(*vmmdv1.ImportImageHeader)
 	mutate(clone)
 	return clone
+}
+
+// The server may finish before all archive chunks have been sent. Send's EOF
+// does not carry its terminal success or rejection; CloseAndRecv does.
+func TestApplianceArchiveReceivesEarlyGuestResult(t *testing.T) {
+	for _, at := range []int{1, 2} {
+		for _, terminal := range []error{nil, errors.New("system namespace rejected")} {
+			t.Run(fmt.Sprintf("send-%d/error-%t", at, terminal != nil), func(t *testing.T) {
+				controller := &Controller{supportDirectory: t.TempDir()}
+				artifact := store.ApplianceArtifact{CanonicalHash: []byte("test"), Platform: "linux/arm64"}
+				path := controller.applianceArchivePath(artifact)
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, make([]byte, 2*applianceArchiveChunkBytes), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				stream := &earlyApplianceResult{eofAt: at, terminal: terminal}
+				err := controller.importApplianceArchive(context.Background(), &earlyApplianceClient{stream: stream}, store.ApplianceInstallation{ID: "test"}, artifact, store.ApplianceGrant{})
+				if !errors.Is(err, terminal) || stream.sent != at || stream.received != 1 {
+					t.Fatalf("result=%v sends=%d receives=%d", err, stream.sent, stream.received)
+				}
+			})
+		}
+	}
+}
+
+type earlyApplianceClient struct {
+	vmmdv1.VMMDServiceClient
+	stream *earlyApplianceResult
+}
+
+func (client *earlyApplianceClient) ImportImage(context.Context, ...grpc.CallOption) (grpc.ClientStreamingClient[vmmdv1.ImportImageRequest, vmmdv1.Image], error) {
+	return client.stream, nil
+}
+
+type earlyApplianceResult struct {
+	grpc.ClientStream
+	eofAt, sent, received int
+	terminal              error
+}
+
+func (stream *earlyApplianceResult) Send(*vmmdv1.ImportImageRequest) error {
+	stream.sent++
+	if stream.sent == stream.eofAt {
+		return io.EOF
+	}
+	return nil
+}
+func (stream *earlyApplianceResult) CloseAndRecv() (*vmmdv1.Image, error) {
+	stream.received++
+	return &vmmdv1.Image{}, stream.terminal
 }

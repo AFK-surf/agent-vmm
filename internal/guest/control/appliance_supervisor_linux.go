@@ -107,6 +107,7 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 
 	namespaceRequest := &vmmdv1.EnsureNamespaceRequest{RequestId: request.GetRequestId(), NamespaceId: identity.GetNamespaceId(), Limits: request.GetLimits(), EgressMode: request.GetEgressMode()}
 	if _, err := supervisor.runtime.ensureNamespace(ctx, namespaceRequest, true); err != nil {
+		err = atRuntimeStage("namespace", err)
 		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
@@ -117,6 +118,7 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 		canonical, digest, _, err = supervisor.runtime.pullImage(ctx, identity.GetNamespaceId(), request.GetImageReference(), true)
 	}
 	if err != nil {
+		err = atRuntimeStage("image_materialization", err)
 		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
@@ -125,6 +127,7 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 		return supervisor.seal(identity.GetInstallationId(), "IMAGE_DIGEST_MISMATCH"), errors.New("system appliance image digest does not match verified artifact")
 	}
 	if err := supervisor.replaceStoppedContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId()); err != nil {
+		err = atRuntimeStage("stopped_container_cleanup", err)
 		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
@@ -137,6 +140,7 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	}
 	container, err := supervisor.runtime.startContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId(), true)
 	if err != nil {
+		err = atRuntimeStage("container_start", err)
 		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
@@ -318,7 +322,9 @@ func (supervisor *applianceSupervisor) replaceStoppedContainer(ctx context.Conte
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return errors.New("an unowned system appliance task is still running")
 	}
-	return container.Delete(nsctx, containerd.WithSnapshotCleanup)
+	return supervisor.runtime.guardOCIMetadataGrowth(ctx, func() error {
+		return container.Delete(nsctx, containerd.WithSnapshotCleanup)
+	})
 }
 
 func (supervisor *applianceSupervisor) fail(installationID string, err error) *vmmdv1.SystemAppliance {

@@ -50,7 +50,7 @@ func PrepareOCIStorage(stateDevice string) (OCIStartupState, error) {
 		if err := os.MkdirAll(root, 0o700); err != nil {
 			return OCIStartupState{}, err
 		}
-		if err := assignOCIProjectTree(root, projectID, assignProject); err != nil {
+		if err := assignOCIRoot(root, projectID, assignProject); err != nil {
 			return OCIStartupState{}, err
 		}
 	}
@@ -138,32 +138,15 @@ func reserveFreshContainerdBootstrap(stateDevice string) error {
 	return err
 }
 
-func assignOCIProjectTree(root string, readProject func(string) (uint32, error), assign func(string, uint32) error) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		current, err := readProject(path)
-		if err != nil {
-			return err
-		}
-		if current != 0 && current != ociProjectID {
-			if path == root {
-				return fmt.Errorf("OCI root %s belongs to foreign project %d", root, current)
-			}
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if current == ociProjectID && !info.IsDir() {
-			return nil
-		}
-		if err := assign(path, ociProjectID); err != nil {
-			return fmt.Errorf("assign OCI project to %s: %w", path, err)
-		}
-		return nil
-	})
+func assignOCIRoot(root string, readProject func(string) (uint32, error), assign func(string, uint32) error) error {
+	current, err := readProject(root)
+	if err != nil {
+		return err
+	}
+	if current != 0 && current != ociProjectID {
+		return fmt.Errorf("OCI root %s belongs to foreign project %d", root, current)
+	}
+	return assign(root, ociProjectID)
 }
 
 func (r *Runtime) tightenOCIProjectQuota() error {

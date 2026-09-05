@@ -452,8 +452,8 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 			t.Fatalf("unsafe remote projection: %+v", environment)
 		}
 	}
-	remoteClient := &productClient{sessions: map[string]*productSession{"remote-a": {connection: clients["remote-a"], client: hostv1.NewAgentRuntimeServiceClient(clients["remote-a"])}}}
-	pullImage(t, remoteClient, "remote-a")
+	remoteClient := &productClient{archiveDirectory: harness.runtimeClient.archiveDirectory, archiveURL: harness.runtimeClient.archiveURL, sessions: map[string]*productSession{"remote-a": {connection: clients["remote-a"], client: hostv1.NewAgentRuntimeServiceClient(clients["remote-a"])}}}
+	importRegistryImage(t, remoteClient, "remote-a")
 	contextArchive := dockerfileContext(t, buildShell(t))
 	result := buildImage(t, remoteClient, "remote-a", "agent.local/remote-e2e:latest", contextArchive, []byte("remote-secret"))
 	if result.digest == "" {

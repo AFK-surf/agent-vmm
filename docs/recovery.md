@@ -138,10 +138,11 @@ user.
 2. **Classify.** Select exactly one row from the decision table above. A bundle
    update is state preserving by default. Fewer than 20 obsolete records that
    do not block reconciliation are not a reason to purge or edit data.
-3. **Quiesce.** Boot out the exact launchd job once. Wait through its configured
-   graceful shutdown interval, then verify the Host and only the VZ processes
-   that own this installation have exited. Do not reboot macOS and do not kill
-   every process with the Virtualization XPC name.
+3. **Quiesce.** Use the existing lifecycle helper's `drain` with the resolved
+   service type and user. It requests StopVM, boots out the exact launchd job,
+   waits for the Host process, and waits for state-disk release. If drain fails,
+   preserve the installed bundle and investigate that failure before replacing
+   files. Do not reboot macOS or kill processes by Virtualization XPC name.
 4. **Clean or replace.** Remove only the objects authorized by the selected
    path. For a normal update, atomically replace the complete Host application
    and retain the existing database, keys, registration, and `state.raw`. For a
@@ -198,8 +199,8 @@ For a state-preserving update:
    executable must be linked with the SHA-256 of that exact Guest
    `manifest.json`; plain `go build ./cmd/agent-vmm-host` is not a valid Host
    replacement.
-3. Unload the launchd job and wait for both the Host process and its
-   Virtualization XPC process to exit before replacing the application. A VZ
+3. Run lifecycle `drain` before replacing the application. Wait for both the
+   Host process and its Virtualization XPC process to exit. A VZ
    process can be reparented to PID 1 and shown with user `launchctl`, so a
    cleanup check filtered only by the service UID is insufficient. Identify a
    survivor by its executable and open Guest/state files. Force termination
@@ -232,6 +233,49 @@ containerd tree needs bounded metadata headroom while containerd starts; only
 after startup recovery finishes may the Guest restore the exact idle project
 quota. This symptom alone is not evidence that ext4 is damaged and does not
 justify deleting `state.raw`.
+
+VMMD establishes project inheritance on fixed OCI roots before containerd
+starts. It does not traverse image content at startup. Imported absolute or
+dangling links and special inodes must not be opened for quota inspection;
+workload upper directories retain their separate project. The import creation
+owner restores inheritance after startup removes incomplete import archives.
+Do not repair a startup failure by recursively assigning quota or raising the
+quota ceiling.
+
+New writable snapshots assign both overlay upper and work directories to the
+workload project. A work directory left in the OCI project causes copy-up to
+fail with `invalid cross-device link`. This creation fix does not rewrite old
+snapshots during startup. Preserve their workload data and identify the exact
+snapshot and both directory projects before planning a bounded repair; do not
+reassign lower layers or traverse all snapshots as a startup fallback.
+
+The Host serial file receives Guest output through VZ's output-only file
+attachment. VMMD logs the bootstrap, OCI storage, containerd, recovery, and
+listener stages, including a bounded first error. A listener reset by itself
+does not identify filesystem damage or a provider-auth failure; read that first
+Guest error before choosing a recovery operation.
+
+The initramfs loads `virtio_rng` for the Host's configured entropy device.
+Without this module, containerd's synchronous random lease-ID generation can
+wait for entropy before making its GC-barrier RPC, exhausting the existing
+request deadline. Keep the secure random source and startup deadline; do not
+replace the ID generator or enlarge the timeout to hide missing entropy.
+
+System appliance launch errors retain the first runtime stage within the
+existing 1024-byte diagnostic bound. `stopped_container_cleanup` identifies
+failure to remove the previous stopped container before replacement. This
+metadata deletion, like ordinary container deletion, uses the existing bounded
+metadata allowance because containerd can allocate copy-on-write pages during
+delete. Settlement restores the exact idle quota. The existing slack and
+sealed-budget rules still apply; deletion does not bypass those rules.
+
+Foreground VM recovery and background appliance reconciliation use the same
+observed-instance selection. Host installation candidates are read before Guest
+inventory, so a stale missing-instance observation cannot be paired with a
+newly committed Host revision. The existing installation lock covers recovery
+revision checks, stopping an old exact instance, preparation, and start.
+Synchronous VM recovery requires the current installation and published health
+to agree on the current boot and container instance before reporting completion.
 
 ### Targeted cleanup
 
@@ -311,7 +355,7 @@ one-off shell history as an operational procedure.
 | A routine update leaves the VM recovering slowly or unable to resume | launchd terminated the Host before its bounded Guest shutdown completed, leaving the exact VZ process or disk dirty | Set `ExitTimeOut` to at least the Host shutdown bound, unload the job once, wait for the exact Host and state-disk-owning VZ process, and terminate only that survivor after the bound expires. Do not reboot. |
 | More than one Virtualization XPC process is visible | The main Guest and a system appliance can each own a legitimate VZ XPC process | Match processes by their open state files and Host inventory. Never kill by process name or require a single VZ process. |
 | A newly formatted `state.raw` has fewer allocated blocks than its configured size | ext4 formatting issued discard against the sparse backing file | Current builds format with `nodiscard`; the startup fully-backed check restores allocation before boot. If restoration fails, stop before VM start and repair Host storage. |
-| The Host and VZ process start, but the VM never publishes a boot ID or VMMD health; the same bundle boots with a fresh state disk | The selected state disk contains Guest state that prevents the Guest from completing boot; this is disk-specific rather than a connector, registration, or Host-process failure | Preserve the first timeout and exact disk identity, stop only the Host job, move the blocking disk aside, and allow one fresh fully-backed disk to initialize. Keep the registration initially; reconcile workloads from Cue. After Pi/Codex runtime validation succeeds, delete the blocking disk immediately. Do not reboot macOS or keep the second 32-GiB disk. |
+| The Host and VZ process start, but VMMD never publishes health | The failure occurred before a working VMMD listener; a fresh-disk comparison alone does not identify the cause | Preserve the exact disk and first Guest stage/error. Diagnose storage, containerd, and recovery separately. Do not format or replace the disk based only on a timeout. An explicitly approved reinstall must preserve required workload data and identity recovery material before isolating the old installation. |
 | Runtime image import returns a bare `Unknown desc = EOF` after the archive was sent | The Host treated stream EOF during the archive-chunk stage as a transport failure instead of receiving the Guest's final result | Install a Host containing the chunk-stage `CloseAndRecv` fix, then retry the same content-addressed import. Do not recreate the disk or registration for this error. |
 | An identical appliance block configuration fails while the VM is starting or running | A repeated reconciler request reached a non-idempotent state guard | Use a Host that accepts an identical configuration as a no-op; differing block configuration still fails closed and requires the owning lifecycle to stop the VM first. |
 

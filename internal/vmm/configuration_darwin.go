@@ -31,7 +31,7 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 	if err != nil {
 		return nil, err
 	}
-	serialAttachment, err := vz.NewFileHandleSerialPortAttachment(serial, serial)
+	serialAttachment, err := vz.NewFileSerialPortAttachment(serial.Name(), true)
 	if err != nil {
 		return nil, err
 	}

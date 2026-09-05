@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestOCIProjectAssignmentOwnsGlobalTreeAndPreservesWritableSnapshotProject(t *testing.T) {
+func TestOCIProjectAssignmentTouchesOnlyOwnerRoot(t *testing.T) {
 	root := t.TempDir()
 	global := filepath.Join(root, "content", "blob")
 	writable := filepath.Join(root, "snapshots", "active-workload")
@@ -36,10 +37,16 @@ func TestOCIProjectAssignmentOwnsGlobalTreeAndPreservesWritableSnapshotProject(t
 	if err := os.MkdirAll(writable, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	projects := map[string]uint32{writable: 10001}
+	projects := map[string]uint32{writable: 10001, global: ociProjectID}
 	read := func(path string) (uint32, error) { return projects[path], nil }
-	assign := func(path string, id uint32) error { projects[path] = id; return nil }
-	if err := assignOCIProjectTree(root, read, assign); err != nil {
+	assign := func(path string, id uint32) error {
+		if path != root {
+			t.Fatalf("startup visited content path %s", path)
+		}
+		projects[path] = id
+		return nil
+	}
+	if err := assignOCIRoot(root, read, assign); err != nil {
 		t.Fatal(err)
 	}
 	if projects[root] != ociProjectID || projects[global] != ociProjectID {
@@ -71,7 +78,7 @@ func TestRuntimeImportSlotOwnerReportsExactCapacityDimension(t *testing.T) {
 func TestOCIProjectAssignmentFailsClosedBeforeImport(t *testing.T) {
 	root := t.TempDir()
 	want := errors.New("project quota unavailable")
-	err := assignOCIProjectTree(root, func(string) (uint32, error) { return 0, nil }, func(string, uint32) error { return want })
+	err := assignOCIRoot(root, func(string) (uint32, error) { return 0, nil }, func(string, uint32) error { return want })
 	if !errors.Is(err, want) {
 		t.Fatalf("assignment error=%v", err)
 	}
@@ -79,7 +86,7 @@ func TestOCIProjectAssignmentFailsClosedBeforeImport(t *testing.T) {
 
 func TestOCIProjectAssignmentRejectsForeignRoot(t *testing.T) {
 	root := t.TempDir()
-	err := assignOCIProjectTree(root, func(path string) (uint32, error) {
+	err := assignOCIRoot(root, func(path string) (uint32, error) {
 		if path == root {
 			return 12345, nil
 		}
@@ -351,11 +358,46 @@ func TestGuestStartupAllowanceClosesToExactOCIIdleCeiling(t *testing.T) {
 	if err = assignProject(containerdRoot, ociProjectID); err != nil {
 		t.Fatalf("assign first-boot OCI root: %v", err)
 	}
+	created := seedOCIInheritance(t)
+	if _, err := PrepareOCIStorage(device); err != nil {
+		t.Fatal(err)
+	}
+	buildCreated, closeBuild := seedBuildInheritance(t)
+	defer closeBuild()
+	for path, project := range buildCreated {
+		created[path] = project
+	}
 	seed := filepath.Join(containerdRoot, "metadata", "seed")
 	if err = os.MkdirAll(filepath.Dir(seed), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err = os.WriteFile(seed, make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"absolute": "/usr/bin/missing-oci-target", "relative": "metadata/seed", "dangling": "missing"} {
+		if err := os.Symlink(target, filepath.Join(containerdRoot, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Link(seed, filepath.Join(containerdRoot, "hardlink")); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(filepath.Join(containerdRoot, "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mknod(filepath.Join(containerdRoot, "device"), unix.S_IFCHR|0o600, int(unix.Mkdev(1, 3))); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := net.Listen("unix", filepath.Join(containerdRoot, "socket"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer socket.Close()
+	writable := filepath.Join(containerdRoot, "active-upper")
+	if err := os.Mkdir(writable, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := assignProject(writable, 10001); err != nil {
 		t.Fatal(err)
 	}
 	previous := &Runtime{diskBudget: new(guestdisk.Budget)}
@@ -369,6 +411,29 @@ func TestGuestStartupAllowanceClosesToExactOCIIdleCeiling(t *testing.T) {
 	}
 	if !startup.Existing {
 		t.Fatal("non-empty OCI tree was classified as fresh")
+	}
+	for path, want := range created {
+		if id, err := projectID(path); err != nil || id != want {
+			t.Fatalf("persisted OCI project path=%s id=%d err=%v", path, id, err)
+		}
+	}
+	for path, want := range map[string]uint32{seed: ociProjectID, writable: 10001} {
+		if id, err := projectID(path); err != nil || id != want {
+			t.Fatalf("project after startup: path=%s id=%d want=%d err=%v", path, id, want, err)
+		}
+	}
+	// NewRuntime removes incomplete imports, including their inherited root.
+	// The archive creation owner must establish inheritance on its replacement.
+	if err := os.RemoveAll(filepath.Join(stateRoot, "imports")); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := new(Runtime).createImportArchive("restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive.Close()
+	if id, err := projectID(archive.Name()); err != nil || id != ociProjectID {
+		t.Fatalf("recreated import archive project=%d err=%v", id, err)
 	}
 	before, err := projectUsage(device, ociProjectID)
 	if err != nil {

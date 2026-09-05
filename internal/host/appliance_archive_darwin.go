@@ -52,7 +52,8 @@ func (controller *Controller) importApplianceArchive(ctx context.Context, client
 	if err != nil {
 		return err
 	}
-	if err := stream.Send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_Header{Header: header}}); err != nil {
+	_, completed, err := sendImportHeader(stream.Send, stream.CloseAndRecv, header)
+	if err != nil || completed {
 		return err
 	}
 	buffer := make([]byte, applianceArchiveChunkBytes)
@@ -60,6 +61,9 @@ func (controller *Controller) importApplianceArchive(ctx context.Context, client
 		count, readErr := archive.Read(buffer)
 		if count > 0 {
 			if err := stream.Send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: append([]byte(nil), buffer[:count]...)}}); err != nil {
+				if errors.Is(err, io.EOF) {
+					_, err = stream.CloseAndRecv()
+				}
 				return err
 			}
 		}

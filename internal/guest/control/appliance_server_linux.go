@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"errors"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"google.golang.org/grpc/codes"
@@ -22,7 +23,12 @@ func (server *Server) EnsureSystemAppliance(ctx context.Context, request *vmmdv1
 }
 
 func boundedSystemError(err error) string {
-	message := "system appliance launch failed: " + string(boundedStatus(err))
+	prefix := "system appliance launch failed: "
+	var stage runtimeStageError
+	if errors.As(err, &stage) {
+		prefix += "stage=" + stage.stage + ": "
+	}
+	message := prefix + string(boundedStatus(err))
 	if len(message) > 1024 {
 		message = message[:1024]
 	}

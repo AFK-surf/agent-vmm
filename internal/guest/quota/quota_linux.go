@@ -57,7 +57,7 @@ type quotaBlock struct {
 }
 
 func Assign(path string, projectID uint32) error {
-	file, err := os.Open(path)
+	file, err := openProjectInode(path)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,13 @@ func Assign(path string, projectID uint32) error {
 		return fmt.Errorf("get project for %s: %w", path, errno)
 	}
 	attributes.ProjectID = projectID
-	attributes.XFlags |= fsXFlagProjInherit
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		attributes.XFlags |= fsXFlagProjInherit
+	}
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, file.Fd(), fsIOCFSSetXAttr, uintptr(unsafe.Pointer(&attributes))); errno != 0 {
 		return fmt.Errorf("set project for %s: %w", path, errno)
 	}
@@ -75,7 +81,7 @@ func Assign(path string, projectID uint32) error {
 }
 
 func ProjectID(path string) (uint32, error) {
-	file, err := os.Open(path)
+	file, err := openProjectInode(path)
 	if err != nil {
 		return 0, err
 	}
@@ -85,6 +91,27 @@ func ProjectID(path string) (uint32, error) {
 		return 0, fmt.Errorf("get project for %s: %w", path, errno)
 	}
 	return attributes.ProjectID, nil
+}
+
+func openProjectInode(path string) (*os.File, error) {
+	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
+		Flags:   unix.O_PATH | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_NO_SYMLINKS,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer unix.Close(fd)
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return nil, err
+	}
+	if kind := stat.Mode & unix.S_IFMT; kind != unix.S_IFDIR && kind != unix.S_IFREG {
+		return nil, fmt.Errorf("project quota requires a directory or regular file: %s", path)
+	}
+	// Reopen the pinned inode, not the mutable pathname. O_PATH never opens
+	// a device or waits for a FIFO writer before the type check.
+	return os.Open(fmt.Sprintf("/proc/self/fd/%d", fd))
 }
 
 func SetLimit(device string, projectID uint32, bytes uint64) error {

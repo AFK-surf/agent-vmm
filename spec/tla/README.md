@@ -69,8 +69,8 @@ Cartesian product.
 Run every normal configuration and single-mechanism negative configuration
 with `make tla`.
 
-The runner pins the current official `tla2tools` 1.8.0 release asset to SHA-256
-`eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`,
+The runner pins the `tla2tools` 1.7.4 release asset to SHA-256
+`936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`,
 downloads it only into `AGENT_VMM_DOWNLOAD_CACHE` or the OS temporary directory,
 stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 
@@ -96,3 +96,56 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `HostVMRestartRecovery.ResumeSuccess`, `UnexpectedStop`, `RecoverySuccess`, `RecoveryCommit`, `RecoveryFailure`, `BeginShutdown`, `GuestQuiesceSuccess`, `VZTerminal`, `ReleaseDisk`, `ExitHost`, `NoFreshVMStart`, `RecoveryRevokesAdmission`, `RecoveryClearsLease`, `HostExitRequiresDiskRelease` | `cmd/agent-vmm-host.shutdown`, `internal/vmm.Manager.Stop`, `internal/vmm.Manager.observeStateChanges`, `internal/vmm.Manager.terminalTransition`, `internal/host.VMLifecycleOwner.Shutdown` | startup state-disk guard, lease and admission revocation, one shutdown-exclusive lifecycle owner, guest quiesce before clean stop, VZ terminal completion before disk release and host exit, fresh boot, closed-notification fail-closed behavior, and terminal failure tests |
 
 Consumer repositories may refine these actions, but they must not redefine host inventory, epoch, or lifecycle ownership.
+
+`GuestOCIStartup` maps `PrepareOCIStorage` to its initial allowance phase,
+then preserves containerd startup, stale-state recovery, existing-state GC
+drain, quota tightening, and readiness publication. Establishing inheritance
+on the fixed OCI roots instead of recursively rewriting image inodes does not
+change those transitions. Re-establishing the imports root project before
+archive creation preserves `OCIContentLifecycle`'s accounted import writes.
+Assigning both overlay upper and work directories to the workload project
+implements the same model's independent writable-snapshot ownership: copy-up
+creates a temporary inode in work before linking it into upper. It adds no
+distributed transition or recovery promise for existing misassigned snapshots.
+Loading the Host-provided entropy device's kernel module lets containerd's
+existing secure lease-ID generation run during startup; it changes neither the
+GC barrier nor its deadline, fairness assumptions, or failure transitions.
+The models do not represent Linux pathname resolution or inode flags; the
+privileged ext4 startup and quota regressions check those implementation facts.
+No new progress claim or fault assumption is introduced by these syscall fixes.
+
+System archive import uses the existing role-aware namespace lookup after
+system namespace admission and before full archive-header validation. This restores the system-resource
+path already represented by `SystemInventorySeparation`; ordinary requests
+still reject reserved system namespaces. The Host reads the existing final
+Guest result when a streaming send reports EOF, without resending the archive
+or adding a retry state. `OCIImageMaterialization` receipt and exact-archive
+transitions are unchanged; streamed early-result regressions and the real
+system-appliance import/activation E2E check this implementation mapping.
+
+Stopped-container replacement and ordinary container deletion use the existing
+`GuestDiskBudget` metadata mutation and `OCIQuotaSettlementNamespace` settlement
+owner. Deleting a containerd record or snapshot can allocate copy-on-write
+metadata before reclaiming space; it therefore needs the same temporary
+allowance as creation. This is an additional caller of the existing mutation
+transition, with unchanged floors, sealing, GC barrier, and idle ceiling.
+Task termination and monitor waits remain outside that budget transaction.
+
+`ApplianceRecoverySelection` refines only missing-instance selection shared by
+foreground VM recovery and the background appliance reconciler. Host candidates
+precede Guest observations; `SelectRecovery` maps the installation revision
+check in `recoverApplianceRuntime`, and `Launch` retains the second check in
+`startApplianceLocked`. The existing installation owner spans preparation and
+start. `Publish` abstracts the existing installation CAS and failed-start
+cleanup; explicit desired-state changes can occur while that owner is held.
+`SyncReturn` checks published Host facts for the current VM boot and instance,
+not instantaneous Guest process liveness. No new polling or progress guarantee
+is claimed. The bounded model includes two competing callers, an explicit
+disable, and a Guest restart; transport failures return existing errors and
+must not produce a successful synchronous completion. Full bootstrap, stale
+capability rejection, and publication protocols remain in
+`ApplianceActivationLifecycle`, rather than a Cartesian product here.
+Negative configurations remove snapshot ordering, the recovery revision fence,
+or synchronous completion validation. There is no negative claim that the old
+prepare/start lock gap alone caused duplicate launches: its second start-time
+revision check is real and must be retained.

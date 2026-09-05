@@ -54,6 +54,24 @@ func nextApplianceReconcileDelay(current time.Duration) time.Duration {
 }
 
 func (controller *Controller) reconcileObservedAppliances(ctx context.Context) error {
+	return controller.reconcileObservedAppliancesExcept(ctx, "", false)
+}
+
+func (controller *Controller) reconcileObservedAppliancesExcept(ctx context.Context, excludedInstallationID string, requireReady bool) error {
+	if controller.applianceSecrets == nil {
+		return errors.New("appliance protected store is unavailable")
+	}
+	// Model anchor: spec/tla/ApplianceRecoverySelection.tla CaptureHost/ObserveGuest.
+	// Read Host candidates before Guest observations. A newer Host revision must
+	// never be paired with an older missing-instance observation.
+	installations, err := controller.store.ListApplianceInstallations(ctx)
+	if err != nil {
+		return err
+	}
+	candidates := make(map[string]store.ApplianceInstallation, len(installations))
+	for _, installation := range installations {
+		candidates[installation.ID] = installation
+	}
 	client, connection, err := controller.guestClient(ctx)
 	if err != nil {
 		return err
@@ -75,17 +93,15 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 	var result error
 	for _, runtime := range response.GetAppliances() {
 		installationID := runtime.GetIdentity().GetInstallationId()
-		if installationID == "" {
+		if installationID == "" || installationID == excludedInstallationID {
 			continue
 		}
 		observed[installationID] = true
-		installation, err := controller.store.GetApplianceInstallation(ctx, installationID)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				result = errors.Join(result, fmt.Errorf("load appliance %s: %w", installationID, err))
-			}
+		installation, exists := candidates[installationID]
+		if !exists {
 			continue
 		}
+
 		// An explicit lifecycle call owns STARTING until its running operation
 		// settles. An interrupted or failed operation has no running receipt and
 		// is retried through the same replacement path below.
@@ -149,11 +165,10 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 			result = errors.Join(result, fmt.Errorf("adopt appliance %s: %w", installation.ID, err))
 		}
 	}
-	installations, err := controller.store.ListApplianceInstallations(ctx)
-	if err != nil {
-		return errors.Join(result, err)
-	}
 	for _, installation := range installations {
+		if installation.ID == excludedInstallationID {
+			continue
+		}
 		if !installation.DesiredEnabled && installation.RegistrationID != "" && !active[installation.ID] {
 			if err := controller.reconcileDisabledAppliance(ctx, installation); err != nil {
 				result = errors.Join(result, fmt.Errorf("retry revoked appliance %s: %w", installation.ID, err))
@@ -166,6 +181,27 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 			}
 		}
 	}
+	if requireReady {
+		bootID := controller.manager.Snapshot().GetBootId()
+		for _, candidate := range installations {
+			if candidate.ID == excludedInstallationID || !candidate.DesiredEnabled || candidate.RegistrationID == "" {
+				continue
+			}
+			current, err := controller.store.GetApplianceInstallation(ctx, candidate.ID)
+			if err != nil {
+				result = errors.Join(result, err)
+				continue
+			}
+			if !current.DesiredEnabled {
+				continue
+			}
+			health := controller.applianceHealthProjection(current.ID)
+			if current.ArtifactID != candidate.ArtifactID || current.State != int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING) || current.CurrentBootID != bootID || current.CurrentContainerInstance == "" || !health.GetHealthy() || health.GetBootId() != bootID || health.GetContainerInstance() != current.CurrentContainerInstance {
+				result = errors.Join(result, fmt.Errorf("appliance %s recovery has not published the current instance", current.ID))
+			}
+		}
+	}
+
 	return result
 }
 
@@ -176,21 +212,29 @@ func applianceRecoveryState(state int32) bool {
 }
 
 func (controller *Controller) recoverApplianceRuntime(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance) error {
+	unlock := controller.lockIntegration("appliance-lifecycle:" + installation.ID)
+	defer unlock()
+	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
+	if err != nil {
+		return err
+	}
+	if current.Revision != installation.Revision || current.State != installation.State || !current.DesiredEnabled || current.RegistrationID == "" {
+		return nil
+	}
+
 	if runtime != nil {
 		if err := controller.stopStartedAppliance(ctx, client, runtime.GetIdentity()); err != nil {
 			return controller.failAppliance(ctx, installation, "STALE_ARTIFACT_STOP_FAILED", err)
 		}
 	}
-	prepared, recover, err := controller.prepareApplianceRecovery(ctx, installation)
+	prepared, recover, err := controller.prepareApplianceRecoveryLocked(ctx, installation)
 	if err != nil || !recover {
 		return err
 	}
-	return controller.startAppliance(ctx, client, prepared)
+	return controller.startApplianceLocked(ctx, client, prepared)
 }
 
-func (controller *Controller) prepareApplianceRecovery(ctx context.Context, installation store.ApplianceInstallation) (store.ApplianceInstallation, bool, error) {
-	unlock := controller.lockIntegration("appliance-lifecycle:" + installation.ID)
-	defer unlock()
+func (controller *Controller) prepareApplianceRecoveryLocked(ctx context.Context, installation store.ApplianceInstallation) (store.ApplianceInstallation, bool, error) {
 	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
 	if err != nil {
 		return store.ApplianceInstallation{}, false, err

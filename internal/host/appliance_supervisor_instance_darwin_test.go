@@ -232,7 +232,7 @@ func TestPrepareMissingApplianceRecoveryAdvancesFenceOnce(t *testing.T) {
 	}
 	support := t.TempDir()
 	controller := &Controller{store: database, supportDirectory: support, applianceHealth: make(map[string]*appliancev1.ApplianceHealth), remoteLeases: make(map[string]*remoteLease)}
-	prepared, recover, err := controller.prepareApplianceRecovery(ctx, installation)
+	prepared, recover, err := controller.prepareApplianceRecoveryLocked(ctx, installation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestPrepareMissingApplianceRecoveryAdvancesFenceOnce(t *testing.T) {
 		prepared.RegistrationID != installation.RegistrationID || prepared.EncryptedVolumeID != installation.EncryptedVolumeID {
 		t.Fatalf("missing runtime was not prepared for bounded recovery: before=%+v after=%+v recover=%t", installation, prepared, recover)
 	}
-	again, recover, err := controller.prepareApplianceRecovery(ctx, installation)
+	again, recover, err := controller.prepareApplianceRecoveryLocked(ctx, installation)
 	if err != nil || recover || again.Revision != prepared.Revision {
 		t.Fatalf("stale reconcile advanced recovery fence twice: after=%+v recover=%t err=%v", again, recover, err)
 	}

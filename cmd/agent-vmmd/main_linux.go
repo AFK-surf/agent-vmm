@@ -34,13 +34,15 @@ func main() {
 	if len(os.Args) == 2 && os.Args[1] == containerdLauncherArg {
 		log.Fatal(execContainerdWithoutQuotaBypass())
 	}
+	log.Printf("guest startup stage=bootstrap")
 	prepared, err := bootstrap.Prepare()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("guest startup stage=bootstrap error=%.4096s", err.Error())
 	}
+	log.Printf("guest startup stage=oci_storage")
 	startup, err := control.PrepareOCIStorage(prepared.StateDevice)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("guest startup stage=oci_storage error=%.4096s", err.Error())
 	}
 	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
 	if err != nil {
@@ -63,22 +65,25 @@ func main() {
 		log.Fatal(err)
 	}
 	defer networkManager.Close()
+	log.Printf("guest startup stage=containerd")
 	containerd, err := startContainerd()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("guest startup stage=containerd error=%.4096s", err.Error())
 	}
 	defer func() {
 		_ = containerd.Process.Signal(syscall.SIGTERM)
 		_ = containerd.Wait()
 	}()
+	log.Printf("guest startup stage=recovery")
 	runtime, err := control.NewRuntime(prepared.StateDevice, networkManager, startup)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("guest startup stage=recovery error=%.4096s", err.Error())
 	}
 	defer runtime.Close()
+	log.Printf("guest startup stage=listener")
 	listener, err := vsock.Listen(vmmdPort)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("guest startup stage=listener error=%.4096s", err.Error())
 	}
 	defer listener.Close()
 	grpcServer := control.NewGRPCServer()

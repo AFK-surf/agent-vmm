@@ -8,10 +8,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,7 +40,7 @@ func TestE2E(t *testing.T) {
 	t.Run("boot", testBoot)
 	t.Run("state_initialization", testStateInitialization)
 
-	harness := startHostWithState(t, 8<<30)
+	harness := startHostWithState(t, 32<<30)
 	harness.start(t)
 	t.Run("system_appliance", func(t *testing.T) { testSystemAppliance(t, harness) })
 	client := harness.runtime(t)
@@ -91,7 +94,7 @@ func TestE2E(t *testing.T) {
 		// A failed registry download can intentionally leave an unknown runtime
 		// outcome. Keep this network-dependent contract on a dedicated final VM so
 		// it cannot cascade projection drift into the local lifecycle matrix.
-		isolated := startHostWithState(t, 8<<30)
+		isolated := startHostWithState(t, 32<<30)
 		isolated.start(t)
 		t.Cleanup(func() { isolated.stop(t, true) })
 		testPGVectorImageAndVolume(t, isolated.runtime(t))
@@ -99,15 +102,7 @@ func TestE2E(t *testing.T) {
 }
 
 func testSystemAppliance(t *testing.T, harness *hostHarness) {
-	bundle := os.Getenv("AGENT_VMM_E2E_BUNDLE")
-	if bundle == "" {
-		bundle = "/tmp/agent-vmm-e2e-bundle"
-	}
-	lockedDigest, err := os.ReadFile(filepath.Join(bundle, "reference-appliance.digest"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	imageDigest := strings.TrimSpace(string(lockedDigest))
+	archive, imageDigest := buildExecutableArchive(t, "./cmd/agent-vmm-reference-appliance", "bin/reference-appliance", true)
 	limits := func(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
 		return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
 	}
@@ -123,16 +118,36 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 		ProbationSeconds: 1, HealthTimeoutSeconds: 10, MinimumApplianceRuntime: "1"}
 	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
 	client := appliancev1.NewApplianceAdminServiceClient(harness.connection)
-	secretA := []byte("phase2-e2e-bootstrap-secret-a-4d57af9b")
-	secretB := []byte("phase2-e2e-bootstrap-secret-b-9c34b572")
+	secretA := []byte("appliance-bootstrap-secret-a-4d57af9b")
+	secretB := []byte("appliance-bootstrap-secret-b-9c34b572")
+	storeApplianceArchive(t, harness, manifest, archive)
 	statusA := activateReferenceAppliance(t, client, "e2e-reference-a", manifest, deadline, secretA)
 	manifestB := proto.Clone(manifest).(*appliancev1.ControllerApplianceManifest)
 	manifestB.Release = "e2e-b"
+	storeApplianceArchive(t, harness, manifestB, archive)
 	statusB := activateReferenceAppliance(t, client, "e2e-reference-b", manifestB, deadline, secretB)
 	for _, status := range []*appliancev1.ApplianceStatus{statusA, statusB} {
-		if status.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !status.GetHealth().GetHealthy() || status.GetHealth().GetStatus() != "ready;bootstrap-secret-surfaces-clean" {
+		if status.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !status.GetHealth().GetHealthy() || status.GetChannelState() != appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE {
 			t.Fatalf("appliance status = %+v", status)
 		}
+	}
+	database, err := openE2EDatabase(harness.database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, installationID := range []string{"e2e-reference-a", "e2e-reference-b"} {
+		var bootstrapID string
+		if err := database.QueryRow("SELECT bootstrap_id FROM appliance_installations WHERE id = ?", installationID).Scan(&bootstrapID); err != nil {
+			t.Fatal(err)
+		}
+		if bootstrapID != "" {
+			t.Fatal("activated appliance retained an unconsumed bootstrap")
+		}
+	}
+	bootstrapFiles, err := filepath.Glob(filepath.Join(harness.instance, "appliance-secrets", "*.bootstrap"))
+	if err != nil || len(bootstrapFiles) != 0 {
+		t.Fatalf("consumed bootstrap files remain: count=%d error=%v", len(bootstrapFiles), err)
 	}
 	if _, err := client.Restart(context.Background(), &appliancev1.RestartApplianceRequest{InstallationId: "e2e-reference-b", RequestId: "reference-b-explicit-restart",
 		ExpectedRevision: statusB.GetRevision(), DeadlineUnixMillis: deadline}); err != nil {
@@ -142,7 +157,7 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	if statusB.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !statusB.GetHealth().GetHealthy() {
 		t.Fatalf("explicit appliance restart failed: %+v", statusB)
 	}
-	support, err := harness.client.ExportSupportBundle(context.Background(), &hostv1.ExportSupportBundleRequest{RequestId: "phase2-secret-scan"})
+	support, err := harness.client.ExportSupportBundle(context.Background(), &hostv1.ExportSupportBundleRequest{RequestId: "appliance-secret-scan"})
 	if err != nil || support.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
 		t.Fatalf("support bundle = %+v, %v", support, err)
 	}
@@ -159,6 +174,29 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 		if status.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !status.GetHealth().GetHealthy() {
 			t.Fatalf("appliance did not unlock after ordinary restart: %+v", status)
 		}
+	}
+	log, err := os.ReadFile(harness.serial + ".host.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(log, []byte("system appliance launch failed:")) {
+		t.Fatalf("appliance recovery failed before reaching ACTIVE:\n%s", log)
+	}
+}
+
+func storeApplianceArchive(t *testing.T, harness *hostHarness, manifest *appliancev1.ControllerApplianceManifest, archive []byte) {
+	t.Helper()
+	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(encoded)
+	directory := filepath.Join(harness.instance, "support", "appliance-artifacts")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, fmt.Sprintf("%x.oci.tar", digest)), archive, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -189,7 +227,7 @@ func activateReferenceAppliance(t *testing.T, client appliancev1.ApplianceAdminS
 	if _, err := client.Activate(context.Background(), &appliancev1.ActivateRequest{InstallationId: installationID, RequestId: prefix + "-activate", ExpectedRevision: current.GetRevision(), DeadlineUnixMillis: deadline}); err != nil {
 		t.Fatal(err)
 	}
-	return applianceStatus(t, client, installationID)
+	return waitApplianceState(t, client, installationID, appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING)
 }
 
 func assertProcessSecretAbsent(t *testing.T, process *exec.Cmd, secret []byte) {
@@ -217,7 +255,7 @@ func waitApplianceState(t *testing.T, client appliancev1.ApplianceAdminServiceCl
 	var current *appliancev1.ApplianceStatus
 	for time.Now().Before(deadline) {
 		current = applianceStatus(t, client, installationID)
-		if current.GetApplianceState() == expected && (expected != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || current.GetHealth().GetHealthy()) {
+		if current.GetApplianceState() == expected && (expected != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || (current.GetHealth().GetHealthy() && current.GetChannelState() == appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE)) {
 			return current
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -389,10 +427,10 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, secondEnvironment, 1<<30)
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	if _, err := pullImageAttempt(ctx, client, firstEnvironment, "pull-image-record-a"); err != nil {
+	if _, err := importRegistryImageAttempt(ctx, client, firstEnvironment, "pull-image-record-a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pullImageAttempt(ctx, client, secondEnvironment, "pull-image-record-b"); err != nil {
+	if _, err := importRegistryImageAttempt(ctx, client, secondEnvironment, "pull-image-record-b"); err != nil {
 		t.Fatal(err)
 	}
 	first := imageByReference(t, client, firstEnvironment, workloadImage)
@@ -443,7 +481,7 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 	if _, err := client.StartContainer(ctx, secondEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-shared-image-user", ContainerId: shared.GetId()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pullImageAttempt(ctx, client, firstEnvironment, "recreate-image-record-a"); err != nil {
+	if _, err := importRegistryImageAttempt(ctx, client, firstEnvironment, "recreate-image-record-a"); err != nil {
 		t.Fatal(err)
 	}
 	recreated := imageByReference(t, client, firstEnvironment, workloadImage)
@@ -534,7 +572,7 @@ func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, environmentID, 2<<30)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
-	if digest, err := pullImageReference(ctx, client, environmentID, "pull-pgvector", image); err != nil || !strings.HasPrefix(digest, "sha256:") {
+	if digest, err := importRegistryImageReference(ctx, client, environmentID, "pull-pgvector", image); err != nil || !strings.HasPrefix(digest, "sha256:") {
 		if snapshot, snapshotErr := client.Snapshot(ctx); snapshotErr == nil {
 			t.Logf("pgvector pull failure snapshot: health=%+v usage=%+v", snapshot.GetHealth(), snapshot.GetUsage())
 		} else {
@@ -828,6 +866,9 @@ func testBoot(t *testing.T) {
 	if vm.GetState() != hostv1.VMState_VM_STATE_RUNNING || vm.GetBootId() == "" {
 		t.Fatalf("StartVM() = %+v", vm)
 	}
+	if output := readFileTail(harness.serial, 64<<10); !bytes.Contains(output, []byte("guest startup stage=listener")) {
+		t.Fatalf("Guest boot console did not reach Host serial log: %s", output)
+	}
 	if _, err := os.Stat(harness.runtimeSocket); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("raw runtime socket is exposed: %v", err)
 	}
@@ -861,7 +902,7 @@ func testStateInitialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := state.Truncate(1 << 30); err != nil {
+	if err := state.Truncate(8 << 30); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.Close(); err != nil {
@@ -879,7 +920,7 @@ func testStateInitialization(t *testing.T) {
 		t.Fatalf("initialization marker remains: %v", err)
 	}
 	info, err := os.Stat(filepath.Join(harness.instance, "state.raw"))
-	if err != nil || info.Size() != 1<<30 {
+	if err != nil || info.Size() != 8<<30 {
 		t.Fatalf("state disk = %v, %v", info, err)
 	}
 	harness.stop(t, true)
@@ -909,7 +950,7 @@ func testStateInitialization(t *testing.T) {
 
 func testContainerLifecycle(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "lifecycle", 128<<20)
-	pullImage(t, client, "lifecycle")
+	importRegistryImage(t, client, "lifecycle")
 	container := createContainer(t, client, "lifecycle", "persistent", []string{"/bin/sh", "-c", "trap 'exit 0' TERM; while :; do sleep 1; done"}, nil)
 	startContainer(t, client, "lifecycle", container.GetId())
 	if output, code := execContainer(t, client, "lifecycle", container.GetId(), []string{"/bin/sh", "-c", "echo snapshot > /root/value && echo hello"}); code != 0 || string(output) != "hello\n" {
@@ -1018,10 +1059,12 @@ func testDiskQuota(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "quota", 32<<20)
 	ensureNamespace(t, client, "healthy", 64<<20)
 	ensureNamespace(t, client, "shared-small", 2<<20)
-	pullImage(t, client, "quota")
-	pullImage(t, client, "healthy")
-	if err := pullImageError(client, "shared-small"); err == nil || !strings.Contains(err.Error(), "ResourceExhausted") {
-		t.Fatalf("shared content bypassed logical quota: %v", err)
+	importRegistryImage(t, client, "quota")
+	importRegistryImage(t, client, "healthy")
+	// Shared OCI content is outside the workload's writable project quota.
+	importRegistryImage(t, client, "shared-small")
+	if imageByReference(t, client, "shared-small", workloadImage).GetDigest() != imageByReference(t, client, "quota", workloadImage).GetDigest() {
+		t.Fatal("shared image identity differs across writable quota sizes")
 	}
 	createVolume(t, client, "quota", "data")
 	full := createContainer(t, client, "quota", "full", []string{"dd", "if=/dev/zero", "of=/data/blob", "bs=1048576", "count=64"}, []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
@@ -1045,7 +1088,7 @@ func testDiskQuota(t *testing.T, client *productClient) {
 
 func testSameNamespace(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "same", 128<<20)
-	pullImage(t, client, "same")
+	importRegistryImage(t, client, "same")
 	server := createContainer(t, client, "same", "server", echoServer(8080), nil)
 	caller := createContainer(t, client, "same", "caller", idleProcess(), nil)
 	startContainer(t, client, "same", server.GetId())
@@ -1061,7 +1104,7 @@ func testSameNamespace(t *testing.T, client *productClient) {
 func testDefaultIsolation(t *testing.T, client *productClient) {
 	for _, namespaceID := range []string{"isolated-source", "isolated-destination"} {
 		ensureNamespace(t, client, namespaceID, 128<<20)
-		pullImage(t, client, namespaceID)
+		importRegistryImage(t, client, namespaceID)
 	}
 	server := createContainer(t, client, "isolated-destination", "server", echoServer(8080), nil)
 	caller := createContainer(t, client, "isolated-source", "caller", idleProcess(), nil)
@@ -1080,7 +1123,7 @@ func testDefaultIsolation(t *testing.T, client *productClient) {
 func testPartialLink(t *testing.T, client *productClient) {
 	for _, namespaceID := range []string{"link-source", "link-destination"} {
 		ensureNamespace(t, client, namespaceID, 128<<20)
-		pullImage(t, client, namespaceID)
+		importRegistryImage(t, client, namespaceID)
 	}
 	server := createContainer(t, client, "link-destination", "server", []string{"sh", "-c", "nc -lk -p 8080 -e /bin/cat & nc -lk -p 9090 -e /bin/cat & wait"}, nil)
 	other := createContainer(t, client, "link-destination", "other", echoServer(8080), nil)
@@ -1111,7 +1154,7 @@ func testPartialLink(t *testing.T, client *productClient) {
 func testLinkRevoke(t *testing.T, client *productClient) {
 	for _, namespaceID := range []string{"revoke-source", "revoke-destination"} {
 		ensureNamespace(t, client, namespaceID, 128<<20)
-		pullImage(t, client, namespaceID)
+		importRegistryImage(t, client, namespaceID)
 	}
 	server := createContainer(t, client, "revoke-destination", "server", echoServer(8080), nil)
 	caller := createContainer(t, client, "revoke-source", "caller", idleProcess(), nil)
@@ -1149,7 +1192,7 @@ func testEgress(t *testing.T, client *productClient) {
 	ensureNamespaceWithEgress(t, client, "egress-deny", 128<<20, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)
 	ensureNamespaceWithEgress(t, client, "egress-public", 128<<20, hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET)
 	for _, namespaceID := range []string{"egress-deny", "egress-public"} {
-		pullImage(t, client, namespaceID)
+		importRegistryImage(t, client, namespaceID)
 	}
 	deny := createContainer(t, client, "egress-deny", "caller", idleProcess(), nil)
 	public := createContainer(t, client, "egress-public", "caller", idleProcess(), nil)
@@ -1180,7 +1223,7 @@ func testEgress(t *testing.T, client *productClient) {
 
 func testPortForward(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "forward", 128<<20)
-	pullImage(t, client, "forward")
+	importRegistryImage(t, client, "forward")
 	server := createContainer(t, client, "forward", "server", echoServer(8080), nil)
 	startContainer(t, client, "forward", server.GetId())
 	waitForContainerPort(t, client, "forward", server.GetId(), 8080)
@@ -1362,7 +1405,7 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 	client := harness.runtime(t)
 	for _, namespaceID := range []string{"restart-source", "restart-destination"} {
 		ensureNamespace(t, client, namespaceID, 256<<20)
-		pullImage(t, client, namespaceID)
+		importRegistryImage(t, client, namespaceID)
 	}
 	createVolume(t, client, "restart-source", "data")
 	caller := createContainer(t, client, "restart-source", "caller", idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
@@ -1537,7 +1580,7 @@ func testForcedVMStop(t *testing.T, harness *hostHarness) {
 	client := harness.runtime(t)
 	for _, namespaceID := range []string{"force-source", "force-destination"} {
 		ensureNamespace(t, client, namespaceID, 256<<20)
-		pullImage(t, client, namespaceID)
+		importRegistryImage(t, client, namespaceID)
 	}
 	createVolume(t, client, "force-source", "data")
 	caller := createContainer(t, client, "force-source", "caller", idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
@@ -1620,6 +1663,7 @@ func testResidualScan(t *testing.T, client *productClient) {
 const workloadImage = "mirror.gcr.io/library/alpine@sha256:1832327faf048390adc33852575d37c7ba155e064a339e78b9bd81983a8c7a00"
 
 type hostHarness struct {
+	archiveCA           string
 	client              hostv1.OperatorServiceClient
 	connection          *grpc.ClientConn
 	process             *exec.Cmd
@@ -1638,7 +1682,7 @@ type hostHarness struct {
 }
 
 func startHost(t *testing.T) *hostHarness {
-	return startHostWithState(t, 1<<30)
+	return startHostWithState(t, 8<<30)
 }
 
 func openE2EDatabase(path string) (*sql.DB, error) {
@@ -1666,6 +1710,30 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	archiveDirectory := filepath.Join(directory, "archives")
+	if err := os.MkdirAll(archiveDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	archiveServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if r.Method != http.MethodGet || name != filepath.Base(name) || !strings.HasPrefix(name, "import-") || !strings.HasSuffix(name, ".tar") {
+			http.NotFound(w, r)
+			return
+		}
+		path := filepath.Join(archiveDirectory, name)
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, path)
+	}))
+	t.Cleanup(archiveServer.Close)
+	archiveCA := filepath.Join(directory, "archive-ca.pem")
+	if err := os.WriteFile(archiveCA, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: archiveServer.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	binary := os.Getenv("AGENT_VMM_E2E_HOST_BINARY")
 	if binary == "" {
 		binary = filepath.Join(directory, "agent-vmm-host")
@@ -1690,7 +1758,7 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	if dataWorker := os.Getenv("AGENT_VMM_E2E_DATA_BINARY"); dataWorker != "" {
 		processArgs = append(processArgs, "--data-worker", dataWorker)
 	}
-	harness := &hostHarness{binary: binary, processArgs: processArgs, serial: serial, instance: instance, database: database,
+	harness := &hostHarness{archiveCA: archiveCA, binary: binary, processArgs: processArgs, serial: serial, instance: instance, database: database,
 		runtimeSocket: runtimeSocket, operatorSocket: operatorSocket, remoteComputeSocket: remoteComputeSocket,
 		trustSocket: trustSocket, trustCapabilityFile: trustCapabilityFile}
 	harness.launchHostProcess(t)
@@ -1712,6 +1780,7 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	t.Cleanup(func() { connection.Close() })
 	operator := hostv1.NewOperatorServiceClient(connection)
 	runtimeClient := newProductClient(operator)
+	runtimeClient.archiveDirectory, runtimeClient.archiveURL = archiveDirectory, archiveServer.URL
 	t.Cleanup(runtimeClient.close)
 	harness.client, harness.connection, harness.runtimeClient = operator, connection, runtimeClient
 	return harness
@@ -1720,8 +1789,14 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 func (harness *hostHarness) launchHostProcess(t *testing.T) {
 	t.Helper()
 	process := exec.Command(harness.binary, harness.processArgs...)
+	process.Env = append(os.Environ(), "AGENT_VMM_E2E_ARCHIVE_CA="+harness.archiveCA)
 	process.Stdout = os.Stdout
-	process.Stderr = os.Stderr
+	hostLog, err := os.OpenFile(harness.serial+".host.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hostLog.Close()
+	process.Stderr = hostLog
 	if err := process.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -1961,13 +2036,13 @@ func stopDeleteContainer(t *testing.T, client *productClient, namespaceID, conta
 	deleteContainerEventually(t, client, namespaceID, containerID)
 }
 
-func pullImage(t *testing.T, client *productClient, namespaceID string) {
+func importRegistryImage(t *testing.T, client *productClient, namespaceID string) {
 	t.Helper()
 	var digest string
 	var err error
 	for attempt := range 3 {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		digest, err = pullImageAttempt(ctx, client, namespaceID, fmt.Sprintf("pull-%s-%d", namespaceID, attempt))
+		digest, err = importRegistryImageAttempt(ctx, client, namespaceID, fmt.Sprintf("pull-%s-%d", namespaceID, attempt))
 		cancel()
 		if err == nil || strings.Contains(err.Error(), "429 Too Many Requests") {
 			break
@@ -1982,42 +2057,25 @@ func pullImage(t *testing.T, client *productClient, namespaceID string) {
 	}
 }
 
-func pullImageAttempt(ctx context.Context, client *productClient, namespaceID, requestID string) (string, error) {
-	return pullImageReference(ctx, client, namespaceID, requestID, workloadImage)
+func importRegistryImageAttempt(ctx context.Context, client *productClient, namespaceID, requestID string) (string, error) {
+	return importRegistryImageReference(ctx, client, namespaceID, requestID, workloadImage)
 }
 
-func pullImageReference(ctx context.Context, client *productClient, namespaceID, requestID, reference string) (string, error) {
-	stream, err := client.PullImage(ctx, namespaceID, &hostv1.PullImageRequest{RequestId: requestID, Reference: reference})
+func importRegistryImageReference(ctx context.Context, client *productClient, namespaceID, requestID, reference string) (string, error) {
+	archive, err := client.registryArchive(ctx, reference)
 	if err != nil {
 		return "", err
 	}
-	var digest string
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return digest, nil
-		}
-		if err != nil {
-			return "", err
-		}
-		if response.Digest != nil {
-			digest = response.GetDigest()
-		}
+	file, err := os.Open(archive.path)
+	if err != nil {
+		return "", err
 	}
-}
-
-func pullImageError(client *productClient, namespaceID string) error {
-	var lastErr error
-	for attempt := range 3 {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		_, lastErr = pullImageAttempt(ctx, client, namespaceID, fmt.Sprintf("pull-%s-error-%d", namespaceID, attempt))
-		cancel()
-		if lastErr == nil || strings.Contains(lastErr.Error(), "ResourceExhausted") {
-			return lastErr
-		}
-		time.Sleep(time.Duration(attempt+1) * time.Second)
+	defer file.Close()
+	image, err := client.ImportImage(ctx, namespaceID, &hostv1.ImportImageHeader{RequestId: requestID, ImageReference: reference, ArchiveSha256: archive.hash, ManifestDigest: archive.digest, Platform: "linux/arm64", ArchiveSize: archive.size}, file)
+	if err != nil {
+		return "", err
 	}
-	return lastErr
+	return image.GetDigest(), nil
 }
 
 func createContainer(t *testing.T, client *productClient, namespaceID, containerID string, argv []string, volumes []*hostv1.VolumeMount) *hostv1.Container {

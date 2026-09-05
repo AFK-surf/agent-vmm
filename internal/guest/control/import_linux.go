@@ -50,7 +50,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 			return rpcError(err)
 		}
 	}
-	_, err = s.runtime.GetNamespace(stream.Context(), header.GetActorNamespaceId())
+	_, err = s.runtime.getNamespaceForRole(stream.Context(), header.GetActorNamespaceId(), header.GetSystemImport())
 	if err != nil {
 		return rpcError(err)
 	}
@@ -244,6 +244,9 @@ func reusableSourceUnpacked(unpacked bool, err error) (bool, error) {
 func (r *Runtime) createImportArchive(requestID string) (*os.File, error) {
 	directory := filepath.Join(stateRoot, "imports")
 	if err := ensureDirectory(directory, 0o700); err != nil {
+		return nil, err
+	}
+	if err := assignOCIRoot(directory, projectID, assignProject); err != nil {
 		return nil, err
 	}
 	file, err := os.CreateTemp(directory, requestID+"-*.oci.part")

@@ -16,6 +16,7 @@ import (
 	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
+	"github.com/containerd/containerd/v2/core/mount"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
@@ -381,15 +382,31 @@ func (r *Runtime) assignSnapshotProject(ctx context.Context, namespaceID string,
 	if err != nil {
 		return err
 	}
-	for _, mount := range mounts {
-		if mount.Type == "bind" && mount.Source != "" {
-			return assignProject(mount.Source, projectID)
+	return assignSnapshotMountProject(mounts, projectID)
+}
+
+func assignSnapshotMountProject(mounts []mount.Mount, projectID uint32) error {
+	for _, item := range mounts {
+		if item.Type == "bind" && item.Source != "" {
+			return assignProject(item.Source, projectID)
 		}
-		for _, option := range mount.Options {
-			if upper, ok := strings.CutPrefix(option, "upperdir="); ok {
-				return assignProject(upper, projectID)
+		var upper, work string
+		for _, option := range item.Options {
+			if value, ok := strings.CutPrefix(option, "upperdir="); ok {
+				upper = value
+			}
+			if value, ok := strings.CutPrefix(option, "workdir="); ok {
+				work = value
 			}
 		}
+		if upper != "" && work != "" {
+			// Overlay copy-up creates a temporary inode in workdir and renames
+			// it into upperdir. Both must belong to the writable project.
+			if err := assignProject(work, projectID); err != nil {
+				return err
+			}
+			return assignProject(upper, projectID)
+		}
 	}
-	return errors.New("writable snapshot has no project directory")
+	return errors.New("writable snapshot has no project directories")
 }

@@ -4,7 +4,9 @@ package control
 
 import (
 	"context"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -114,5 +116,14 @@ func TestOrdinaryNamespaceCannotNameSystemRole(t *testing.T) {
 	}
 	if err := validateSystemNamespace("ordinary-a"); err == nil {
 		t.Fatal("system role accepted an ordinary namespace")
+	}
+}
+
+func TestSystemLaunchErrorPreservesFirstStageAndBound(t *testing.T) {
+	err := atRuntimeStage("snapshot_quota", errors.New(strings.Repeat("failure", 300)))
+	err = atRuntimeStage("container_start", err)
+	message := boundedSystemError(err)
+	if !strings.HasPrefix(message, "system appliance launch failed: stage=snapshot_quota: failure") || len(message) != 1024 {
+		t.Fatalf("bounded launch error lost its first stage or byte bound: %q", message)
 	}
 }

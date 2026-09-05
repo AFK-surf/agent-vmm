@@ -29,28 +29,7 @@ func (controller *Controller) reconcileAppliances(ctx context.Context) error {
 }
 
 func (controller *Controller) reconcileAppliancesExcept(ctx context.Context, excludedInstallationID string) error {
-	if controller.applianceSecrets == nil {
-		return errors.New("appliance protected store is unavailable")
-	}
-	installations, err := controller.store.ListApplianceInstallations(ctx)
-	if err != nil {
-		return err
-	}
-	client, connection, err := controller.guestClient(ctx)
-	if err != nil {
-		return err
-	}
-	defer connection.Close()
-	var result error
-	for _, installation := range installations {
-		if installation.ID == excludedInstallationID || !installation.DesiredEnabled || installation.RegistrationID == "" {
-			continue
-		}
-		if err := controller.startAppliance(ctx, client, installation); err != nil {
-			result = errors.Join(result, fmt.Errorf("start appliance %s: %w", installation.ID, err))
-		}
-	}
-	return result
+	return controller.reconcileObservedAppliancesExcept(ctx, excludedInstallationID, true)
 }
 
 func (controller *Controller) systemApplianceProjection(ctx context.Context) map[string]*vmmdv1.SystemAppliance {
@@ -117,6 +96,10 @@ func (controller *Controller) stopAppliance(ctx context.Context, installationID 
 func (controller *Controller) startAppliance(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation) error {
 	unlock := controller.lockIntegration("appliance-lifecycle:" + installation.ID)
 	defer unlock()
+	return controller.startApplianceLocked(ctx, client, installation)
+}
+
+func (controller *Controller) startApplianceLocked(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation) error {
 	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
 	if err != nil {
 		return err

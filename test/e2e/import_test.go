@@ -8,13 +8,23 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/layout"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 )
@@ -68,11 +78,16 @@ func importTestImage(t *testing.T, client *productClient, namespaceID, requestID
 
 func buildImportArchive(t *testing.T) ([]byte, string) {
 	t.Helper()
+	return buildExecutableArchive(t, "./test/e2e/testdata/providerstate", "bin/provider-state", false)
+}
+
+func buildExecutableArchive(t *testing.T, sourcePackage, executablePath string, entrypoint bool) ([]byte, string) {
+	t.Helper()
 	directory := t.TempDir()
 	providerState := filepath.Join(directory, "provider-state")
 	_, source, _, _ := runtime.Caller(0)
 	repository := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
-	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -buildid=", "-o", providerState, "./test/e2e/testdata/providerstate")
+	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -buildid=", "-o", providerState, sourcePackage)
 	build.Dir = repository
 	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -95,7 +110,7 @@ func buildImportArchive(t *testing.T) ([]byte, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.WriteHeader(&tar.Header{Name: "bin/provider-state", Mode: 0o755, Size: int64(len(helper))}); err != nil {
+	if err := writer.WriteHeader(&tar.Header{Name: executablePath, Mode: 0o755, Size: int64(len(helper))}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := writer.Write(helper); err != nil {
@@ -108,7 +123,11 @@ func buildImportArchive(t *testing.T) ([]byte, string) {
 		t.Fatal(err)
 	}
 	archivePath := filepath.Join(directory, "image.oci.tar")
-	command := exec.Command("go", "run", "./build/guest/oci", layerPath, archivePath)
+	arguments := []string{"run", "./build/guest/oci", layerPath, archivePath}
+	if entrypoint {
+		arguments = append(arguments, "/"+executablePath)
+	}
+	command := exec.Command("go", arguments...)
 	command.Dir = repository
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build OCI archive: %v: %s", err, output)
@@ -150,4 +169,97 @@ func readArchiveEntry(t *testing.T, archive []byte, name string) []byte {
 	}
 	t.Fatalf("OCI archive has no %s", name)
 	return nil
+}
+
+// Registry fixtures are fetched anonymously for linux/arm64 and exported with
+// the SDK's OCI layout writer. Each harness caches each fixed reference once.
+func (client *productClient) registryArchive(ctx context.Context, reference string) (registryArchive, error) {
+	client.archiveMu.Lock()
+	defer client.archiveMu.Unlock()
+	if cached, ok := client.registryArchives[reference]; ok {
+		return cached, nil
+	}
+	ref, err := name.ParseReference(reference)
+	if err != nil {
+		return registryArchive{}, err
+	}
+	image, err := remote.Image(ref, remote.WithContext(ctx), remote.WithPlatform(v1.Platform{OS: "linux", Architecture: "arm64"}), remote.WithAuth(authn.Anonymous))
+	if err != nil {
+		return registryArchive{}, err
+	}
+	config, err := image.ConfigFile()
+	if err != nil {
+		return registryArchive{}, err
+	}
+	// ARM64 v8 is the baseline platform. Build the fixture commitment from
+	// the normalized image, while retaining its layers and runtime config.
+	if config.OS == "linux" && config.Architecture == "arm64" && config.Variant == "v8" {
+		config = config.DeepCopy()
+		config.Variant = ""
+		image, err = mutate.ConfigFile(image, config)
+		if err != nil {
+			return registryArchive{}, err
+		}
+	}
+	digest, err := image.Digest()
+	if err != nil {
+		return registryArchive{}, err
+	}
+	directory, err := os.MkdirTemp(client.archiveDirectory, "oci-layout-")
+	if err != nil {
+		return registryArchive{}, err
+	}
+	defer os.RemoveAll(directory)
+	index, err := layout.Write(directory, empty.Index)
+	if err != nil {
+		return registryArchive{}, err
+	}
+	if err := index.AppendImage(image, layout.WithPlatform(v1.Platform{OS: "linux", Architecture: "arm64"})); err != nil {
+		return registryArchive{}, err
+	}
+	file, err := os.CreateTemp(client.archiveDirectory, "registry-*.tar")
+	if err != nil {
+		return registryArchive{}, err
+	}
+	hash := sha256.New()
+	writer := tar.NewWriter(io.MultiWriter(file, hash))
+	writeErr := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(directory, path)
+		if err != nil {
+			return err
+		}
+		if err := writer.WriteHeader(&tar.Header{Name: filepath.ToSlash(relative), Mode: 0o600, Size: info.Size()}); err != nil {
+			return err
+		}
+		source, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(writer, source)
+		return errors.Join(copyErr, source.Close())
+	})
+	if err := errors.Join(writeErr, writer.Close(), file.Close()); err != nil {
+		os.Remove(file.Name())
+		return registryArchive{}, err
+	}
+	info, err := os.Stat(file.Name())
+	if err != nil {
+		return registryArchive{}, err
+	}
+	result := registryArchive{path: file.Name(), digest: digest.String(), hash: hash.Sum(nil), size: uint64(info.Size())}
+	if client.registryArchives == nil {
+		client.registryArchives = make(map[string]registryArchive)
+	}
+	client.registryArchives[reference] = result
+	return result, nil
 }
