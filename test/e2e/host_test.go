@@ -62,9 +62,6 @@ func TestE2E(t *testing.T) {
 		{"partial_link", testPartialLink},
 		{"link_revoke", testLinkRevoke},
 		{"port_forward", testPortForward},
-		{"dockerfile_build", testDockerfileBuild},
-		{"parallel_agents", testParallelAgents},
-		{"cancellation_cleanup", testCancellationCleanup},
 	}
 	limit := make(chan struct{}, 4)
 	var active, peak atomic.Int32
@@ -82,6 +79,11 @@ func TestE2E(t *testing.T) {
 		}
 	})
 	t.Logf("E2E_PARALLEL_PEAK=%d", peak.Load())
+	// Bulk OCI reservations can legitimately reject unrelated namespace admission.
+	// Each build scenario admits its namespaces before starting its workers.
+	t.Run("dockerfile_build", func(t *testing.T) { testDockerfileBuild(t, client) })
+	t.Run("parallel_agents", func(t *testing.T) { testParallelAgents(t, client) })
+	t.Run("cancellation_cleanup", func(t *testing.T) { testCancellationCleanup(t, client) })
 	t.Run("egress", func(t *testing.T) { testEgress(t, client) })
 	t.Run("imported_image_forced_restart", func(t *testing.T) { testImportedImageForcedRestart(t, harness) })
 	t.Run("provider_state_VM_restart", func(t *testing.T) { testProviderStateVMRestart(t, harness) })
@@ -1294,6 +1296,22 @@ func testDockerfileBuild(t *testing.T, client *productClient) {
 		t.Fatalf("built image output = %q", output)
 	}
 	deleteContainer(t, client, "dockerfile-build", container.GetId())
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	rebuilt, err := buildImageRequest(ctx, client, "dockerfile-build", image, "rebuilt-ok", hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt.digest == first.digest {
+		t.Fatal("changed build retained the old digest")
+	}
+	container = createContainerWithImage(t, client, "dockerfile-build", "rebuilt", image, []string{"/bin/result", "--assert-absent", string(secret)})
+	startContainer(t, client, "dockerfile-build", container.GetId())
+	waitContainer(t, client, "dockerfile-build", container.GetId(), 0)
+	if output := readLogs(t, client, "dockerfile-build", container.GetId()); string(output) != "rebuilt-ok\n" {
+		t.Fatalf("rebuilt image output = %q", output)
+	}
+	deleteContainer(t, client, "dockerfile-build", container.GetId())
 	deleteNamespace(t, client, "dockerfile-build")
 }
 
@@ -1321,11 +1339,15 @@ func testParallelAgents(t *testing.T, client *productClient) {
 	for range namespaces {
 		outcome := <-outcomes
 		if outcome.err != nil {
-			t.Fatalf("build %s: %v", outcome.namespaceID, outcome.err)
+			t.Errorf("build %s: %v", outcome.namespaceID, outcome.err)
+			continue
 		}
 		if slices.Contains(outcome.result.progress, "namespace cache hit") {
 			t.Fatalf("namespace %s reused another namespace's cache", outcome.namespaceID)
 		}
+	}
+	if t.Failed() {
+		return
 	}
 	for _, namespaceID := range namespaces {
 		container := createContainerWithImage(t, client, namespaceID, "result", "agent.local/shared-name:latest", []string{"/bin/result"})
@@ -2321,12 +2343,15 @@ func deleteNamespaceEventually(t *testing.T, client *productClient, namespaceID 
 	t.Helper()
 	deadline := time.Now().Add(45 * time.Second)
 	var lastErr error
-	for time.Now().Before(deadline) {
+	for attempt := 0; time.Now().Before(deadline); attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		lastErr = client.DeleteEnvironment(ctx, namespaceID, "delete-"+namespaceID)
+		lastErr = client.DeleteEnvironment(ctx, namespaceID, fmt.Sprintf("delete-%s-%d", namespaceID, attempt))
 		cancel()
 		if lastErr == nil {
 			return
+		}
+		if !strings.HasPrefix(lastErr.Error(), "cleanup failed:") {
+			t.Fatal(lastErr)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

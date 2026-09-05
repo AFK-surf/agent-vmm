@@ -1,6 +1,8 @@
 package ocimaterializer
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -87,4 +89,42 @@ func TestImportSlotRejectsUnrelatedDigestButPreservesDigestSingleflight(t *testi
 	case <-time.After(time.Second):
 		t.Fatal("same digest singleflight did not advance")
 	}
+}
+
+func TestBuildWaitSharesImportSlotAndReleasesCanceledWaiter(t *testing.T) {
+	manager := new(Manager)
+	first, ok := manager.LockImport("streamed")
+	if !ok {
+		t.Fatal("streamed import not admitted")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		unlock, err := manager.LockBuild(ctx)
+		if unlock != nil {
+			unlock()
+		}
+		done <- err
+	}()
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled waiter: %v", err)
+	}
+	first()
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	unlock, err := manager.LockBuild(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other, ok := manager.LockImport("unrelated"); ok {
+		other()
+		t.Fatal("streaming import bypassed build materialization")
+	}
+	unlock()
+	next, err := manager.LockBuild(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next()
 }

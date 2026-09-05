@@ -131,12 +131,18 @@ func (budget *Budget) AdmitQuota(load func(*Transaction) (Snapshot, error), incr
 // floors. The caller physically backs this reservation and converts it to U as
 // containerd writes, so no archive compression ratio is assumed.
 func (budget *Budget) ReserveImportHeadroom(load func(*Transaction) (Snapshot, error), commit func(uint64) error) error {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if budget.sealed {
+	return budget.Mutate(func(transaction *Transaction) error {
+		return transaction.ReserveImportHeadroom(load, commit)
+	})
+}
+
+// Local materialization keeps reservation, conversion and settlement inside
+// the existing transaction; streamed imports may retain their physical hold.
+func (transaction *Transaction) ReserveImportHeadroom(load func(*Transaction) (Snapshot, error), commit func(uint64) error) error {
+	if transaction.budget.sealed {
 		return ErrGrowthSealed
 	}
-	snapshot, err := load(&Transaction{budget: budget})
+	snapshot, err := load(transaction)
 	if err != nil {
 		return err
 	}

@@ -75,6 +75,63 @@ func TestRuntimeImportSlotOwnerReportsExactCapacityDimension(t *testing.T) {
 	t.Fatalf("import slot error omitted exact owner dimension: %v", err)
 }
 
+func TestBuildMaterializationWaitHonorsCancellation(t *testing.T) {
+	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
+	unlock, err := runtime.lockImportSlot("sha256:occupied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	err = runtime.guardOCIPhysicalGrowth(ctx, "second-build", true, func() error { t.Fatal("occupied build materialization ran"); return nil })
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("admitted build returned %v instead of waiting to its deadline", err)
+	}
+}
+
+func TestLocalMaterializationDoesNotExposeReservationToMetadata(t *testing.T) {
+	budget := new(guestdisk.Budget)
+	snapshot := guestdisk.Snapshot{CapacityBytes: 32 << 30, UsedBytes: 13 << 30, WritableHeadroomBytes: 6 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
+	reserved, finish := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- budget.Mutate(func(transaction *guestdisk.Transaction) error {
+			return transaction.ReserveImportHeadroom(func(*guestdisk.Transaction) (guestdisk.Snapshot, error) { return snapshot, nil }, func(value uint64) error {
+				snapshot.ImportReservationBytes = value
+				// This is the pre-fix zero-slack condition, established without timing.
+				if _, err := ociMetadataAllowance(snapshot, 0); !errors.Is(err, guestdisk.ErrCapacityUnavailable) {
+					return errors.New("fixture did not consume metadata slack")
+				}
+				close(reserved)
+				<-finish
+				snapshot.ImportReservationBytes = 0
+				snapshot.UsedBytes += 1 << 20
+				return nil
+			})
+		})
+	}()
+	<-reserved
+	metadata := make(chan error, 1)
+	go func() {
+		metadata <- budget.Mutate(func(*guestdisk.Transaction) error { _, err := ociMetadataAllowance(snapshot, 0); return err })
+	}()
+	select {
+	case err := <-metadata:
+		close(finish)
+		<-done
+		t.Fatalf("metadata observed an intermediate local reservation: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(finish)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-metadata; err != nil {
+		t.Fatalf("metadata after local settlement: %v", err)
+	}
+}
+
 func TestOCIProjectAssignmentFailsClosedBeforeImport(t *testing.T) {
 	root := t.TempDir()
 	want := errors.New("project quota unavailable")
@@ -286,7 +343,7 @@ func TestSealedOCIProjectQuotaGateRejectsEveryGrowthCallback(t *testing.T) {
 			})
 		},
 		"physical": func(run func() error) error {
-			return runtime.guardOCIPhysicalGrowth(context.Background(), "sealed-test", run)
+			return runtime.guardOCIPhysicalGrowth(context.Background(), "sealed-test", false, run)
 		},
 	} {
 		err := guard(func() error { callbacks++; return nil })

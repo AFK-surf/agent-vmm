@@ -72,7 +72,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		err := s.runtime.guardOCIMetadataGrowth(stream.Context(), func() error {
 			var mutationErr error
 			value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
-				return s.runtime.importImage(stream.Context(), nil, header, imageReference, ocispec.Descriptor{Digest: manifestDigest}, header.GetSystemImport())
+				return s.runtime.importImage(stream.Context(), nil, header, imageReference, ocispec.Descriptor{Digest: manifestDigest}, header.GetSystemImport(), false)
 			})
 			return mutationErr
 		})
@@ -96,7 +96,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 				}
 				var mutationErr error
 				value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
-					return s.runtime.importImage(stream.Context(), nil, header, imageReference, target, header.GetSystemImport())
+					return s.runtime.importImage(stream.Context(), nil, header, imageReference, target, header.GetSystemImport(), false)
 				})
 				return mutationErr
 			})
@@ -165,7 +165,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		return s.runtime.guardOCIProjectGrowth(transaction, reservation, func() error {
 			var mutationErr error
 			value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
-				image, importErr := s.runtime.importImage(stream.Context(), archive, header, imageReference, *manifest, header.GetSystemImport())
+				image, importErr := s.runtime.importImage(stream.Context(), archive, header, imageReference, *manifest, header.GetSystemImport(), false)
 				return image, importErr
 			})
 			return mutationErr
@@ -261,7 +261,7 @@ func (r *Runtime) createImportArchive(requestID string) (*os.File, error) {
 	return file, nil
 }
 
-func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header *vmmdv1.ImportImageHeader, imageReference string, manifest ocispec.Descriptor, system bool) (*vmmdv1.Image, error) {
+func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header *vmmdv1.ImportImageHeader, imageReference string, manifest ocispec.Descriptor, system, replaceTarget bool) (*vmmdv1.Image, error) {
 	unlock := r.lockNamespace(header.GetActorNamespaceId())
 	defer unlock()
 	namespaceID := header.GetActorNamespaceId()
@@ -281,27 +281,30 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			log.Printf("OCI import staging lease cleanup failed for %q: %v", imageReference, releaseErr)
 		}
 	}()
-	fingerprint, err := importFingerprint(header)
-	if err != nil {
-		return nil, err
-	}
-	records, err := r.client.ImageService().List(logicalContext)
-	if err != nil {
-		return nil, err
-	}
-	requestLabel := fmt.Sprintf("%s%x", importRequestLabelBase, sha256.Sum256([]byte(header.GetRequestId())))
-	for _, record := range records {
-		storedFingerprint, found := record.Labels[requestLabel]
-		if !found {
-			continue
+	var fingerprint, requestLabel string
+	if !replaceTarget {
+		fingerprint, err = importFingerprint(header)
+		if err != nil {
+			return nil, err
 		}
-		if storedFingerprint != fingerprint || record.Name != imageReference || record.Target.Digest != manifest.Digest {
-			return nil, imageError(codes.Aborted, "IMPORT_IDEMPOTENCY_CONFLICT", "import request ID was reused with different input", imageReference)
+		records, err := r.client.ImageService().List(logicalContext)
+		if err != nil {
+			return nil, err
 		}
-		break
+		requestLabel = fmt.Sprintf("%s%x", importRequestLabelBase, sha256.Sum256([]byte(header.GetRequestId())))
+		for _, record := range records {
+			storedFingerprint, found := record.Labels[requestLabel]
+			if !found {
+				continue
+			}
+			if storedFingerprint != fingerprint || record.Name != imageReference || record.Target.Digest != manifest.Digest {
+				return nil, imageError(codes.Aborted, "IMPORT_IDEMPOTENCY_CONFLICT", "import request ID was reused with different input", imageReference)
+			}
+			break
+		}
 	}
 	logical, logicalErr := r.client.GetImage(logicalContext, imageReference)
-	if logicalErr == nil && logical.Target().Digest != manifest.Digest {
+	if logicalErr == nil && logical.Target().Digest != manifest.Digest && !replaceTarget {
 		return nil, imageError(codes.Aborted, "IMAGE_DIGEST_CONFLICT", "image reference already names different content", imageReference)
 	}
 	if logicalErr != nil && !errdefs.IsNotFound(logicalErr) {
@@ -358,8 +361,11 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	createdRecord := false
 	materialized := existing
 	if existingErr != nil {
-		if _, err := r.client.ImageService().Create(stagingContext, coreimages.Image{Name: runtimeReference, Target: manifest,
-			Labels: map[string]string{requestLabel: fingerprint}}); err != nil {
+		labels := map[string]string{}
+		if requestLabel != "" {
+			labels[requestLabel] = fingerprint
+		}
+		if _, err := r.client.ImageService().Create(stagingContext, coreimages.Image{Name: runtimeReference, Target: manifest, Labels: labels}); err != nil {
 			return nil, err
 		}
 		createdRecord = true
@@ -390,12 +396,25 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 
 func (r *Runtime) commitLogicalImageRecord(ctx context.Context, current containerd.Image, currentErr error, reference string, target ocispec.Descriptor, requestLabel, fingerprint string) error {
 	if currentErr == nil {
+		if current.Target().Digest != target.Digest {
+			metadata := current.Metadata()
+			metadata.Target = target
+			_, err := r.client.ImageService().Update(ctx, metadata, "target")
+			return err
+		}
+		if requestLabel == "" {
+			return nil
+		}
 		return r.commitImportRecord(ctx, current, requestLabel, fingerprint)
 	}
 	if !errdefs.IsNotFound(currentErr) {
 		return currentErr
 	}
-	_, err := r.client.ImageService().Create(ctx, coreimages.Image{Name: reference, Target: target, Labels: map[string]string{requestLabel: fingerprint}})
+	labels := map[string]string{}
+	if requestLabel != "" {
+		labels[requestLabel] = fingerprint
+	}
+	_, err := r.client.ImageService().Create(ctx, coreimages.Image{Name: reference, Target: target, Labels: labels})
 	return err
 }
 

@@ -3,13 +3,14 @@
 package control
 
 import (
-	"context"
 	"errors"
+	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"io"
+	"os"
+
+	"github.com/opencontainers/go-digest"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	coreimages "github.com/containerd/containerd/v2/core/images"
-	"github.com/containerd/errdefs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -81,59 +82,33 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 	if err := stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "building in isolated sandbox"}}); err != nil {
 		return err
 	}
-	digest, cacheHit, err := workspace.Run(stream.Context(), namespace.GetLimits(), func(progress string) error {
+	return workspace.RunArchive(stream.Context(), namespace.GetLimits(), func(progress string) error {
 		return stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: progress}})
-	})
-	if err != nil {
-		return err
-	}
-	if err := r.promoteBuiltImage(stream.Context(), header.GetActorNamespaceId(), header.GetImage()); err != nil {
-		return err
-	}
-	if cacheHit {
-		if err := stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "namespace cache hit"}}); err != nil {
+	}, func(archive *os.File, result guestbuild.ArchiveResult) error {
+		reference, err := normalizeImageReference(header.GetImage())
+		if err != nil {
 			return err
 		}
-	}
-	return stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Result{Result: &vmmdv1.BuildImageResult{Image: header.GetImage(), Digest: digest}}})
-}
-
-func (r *Runtime) promoteBuiltImage(ctx context.Context, namespaceID, reference string) error {
-	canonical, err := normalizeImageReference(reference)
-	if err != nil {
-		return err
-	}
-	reference = canonical
-	logicalContext := namespaceContext(ctx, namespaceID)
-	image, err := r.client.GetImage(logicalContext, reference)
-	if err != nil {
-		return err
-	}
-	nsctx := runtimeContext(ctx)
-	runtimeReference := runtimeImageReference(image.Target().Digest)
-	record := coreimages.Image{Name: runtimeReference, Target: image.Target()}
-	current, currentErr := r.client.ImageService().Get(nsctx, runtimeReference)
-	if currentErr == nil && current.Target.Digest != image.Target().Digest {
-		return errors.New("digest-owned runtime image metadata is inconsistent")
-	}
-	if currentErr != nil && !errdefs.IsNotFound(currentErr) {
-		return currentErr
-	}
-	if _, err := r.client.ImageService().Update(nsctx, record, "target"); errdefs.IsNotFound(err) {
-		if _, err = r.client.ImageService().Create(nsctx, record); err != nil && !errdefs.IsAlreadyExists(err) {
+		manifest, err := validateOCIArchive(archive, digest.Digest(result.ManifestDigest))
+		if err != nil {
 			return err
 		}
-	} else if err != nil {
-		return err
-	}
-	runtimeImage, err := r.client.GetImage(nsctx, runtimeReference)
-	if err != nil {
-		return err
-	}
-	if runtimeImage.Target().Digest != image.Target().Digest {
-		return errors.New("digest-owned runtime image metadata is inconsistent")
-	}
-	return r.guardOCIPhysicalGrowth(ctx, "build-output-runtime\x00"+namespaceID+"\x00"+reference, func() error {
-		return runtimeImage.Unpack(nsctx, containerSnapshotter)
+		importHeader := &vmmdv1.ImportImageHeader{RequestId: header.GetRequestId(), ActorNamespaceId: header.GetActorNamespaceId(),
+			ImageReference: reference, ManifestDigest: result.ManifestDigest, Platform: "linux/arm64",
+			ArchiveSize: result.Size, ArchiveSha256: result.ArchiveSHA256}
+		// OCIImageMaterialization.tla: runtime import precedes unpack and tag publication.
+		err = r.guardOCIPhysicalGrowth(stream.Context(), "build-output\x00"+header.GetActorNamespaceId()+"\x00"+header.GetRequestId(), true, func() error {
+			_, importErr := r.importImage(stream.Context(), archive, importHeader, reference, *manifest, false, true)
+			return importErr
+		})
+		if err != nil {
+			return err
+		}
+		if result.CacheHit {
+			if err := stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "namespace cache hit"}}); err != nil {
+				return err
+			}
+		}
+		return stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Result{Result: &vmmdv1.BuildImageResult{Image: header.GetImage(), Digest: result.ManifestDigest}}})
 	})
 }

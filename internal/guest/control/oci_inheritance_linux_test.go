@@ -155,6 +155,16 @@ func seedOCIInheritance(t *testing.T) map[string]uint32 {
 		if err := os.Link(source, destination); !errors.Is(err, unix.EXDEV) {
 			t.Fatalf("cross-project hardlink error=%v", err)
 		}
+		if err := os.Rename(source, destination); !errors.Is(err, unix.EXDEV) {
+			t.Fatalf("cross-project rename error=%v", err)
+		}
+	}
+	renamed := filepath.Join(lower, "etc", "renamed-content")
+	if err := os.Rename(filepath.Join(lower, "etc", "hardlink"), renamed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(renamed, filepath.Join(lower, "etc", "hardlink")); err != nil {
+		t.Fatal(err)
 	}
 	if id, err := projectID(zero); err != nil || id != 0 {
 		t.Fatalf("external source project=%d err=%v", id, err)

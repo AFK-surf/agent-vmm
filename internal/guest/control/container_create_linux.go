@@ -118,7 +118,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		specOptions = append(specOptions, systemOption)
 	}
 	var container containerd.Container
-	err = r.guardOCIPhysicalGrowth(ctx, "container-snapshot\x00"+namespaceID+"\x00"+request.GetContainerId()+"\x00"+canonicalImage, func() error {
+	err = r.guardOCIPhysicalGrowth(ctx, "container-snapshot\x00"+namespaceID+"\x00"+request.GetContainerId()+"\x00"+canonicalImage, false, func() error {
 		var createErr error
 		container, createErr = r.client.NewContainer(nsctx, runtimeContainerKey(namespaceID, request.GetContainerId()),
 			containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter),

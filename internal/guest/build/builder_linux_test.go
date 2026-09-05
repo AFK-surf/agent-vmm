@@ -101,9 +101,9 @@ func TestSemaphoreWaitCancellation(t *testing.T) {
 	workspace := &Workspace{builder: builder, contextClosed: true, contextRoot: root, header: &vmmdv1.BuildImageHeader{ActorNamespaceId: "actor", DockerfilePath: "Dockerfile"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err := workspace.Run(ctx, new(vmmdv1.NamespaceLimits), nil)
+	err := workspace.RunArchive(ctx, new(vmmdv1.NamespaceLimits), nil, nil)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run() = %v", err)
+		t.Fatalf("RunArchive() = %v", err)
 	}
 	if err := builder.CanDeleteNamespace("actor"); err != nil {
 		t.Fatalf("cancelled workspace retained namespace: %v", err)

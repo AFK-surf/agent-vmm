@@ -1,6 +1,11 @@
 package ocimaterializer
 
-import "sync"
+import (
+	"context"
+	"sync"
+
+	"golang.org/x/sync/semaphore"
+)
 
 // Manager is the single Guest-global materialization owner. It serializes the
 // physical import/unpack path per immutable digest and admits exactly one
@@ -8,7 +13,7 @@ import "sync"
 type Manager struct {
 	mu     sync.Mutex
 	keys   map[string]*keyLock
-	global sync.Mutex
+	global *semaphore.Weighted
 }
 
 type keyLock struct {
@@ -19,7 +24,7 @@ type keyLock struct {
 func (manager *Manager) Lock(digest string) func() {
 	item := manager.retain(digest)
 	item.mu.Lock()
-	manager.global.Lock()
+	_ = manager.slot().Acquire(context.Background(), 1)
 	return manager.unlock(digest, item)
 }
 
@@ -30,12 +35,31 @@ func (manager *Manager) Lock(digest string) func() {
 func (manager *Manager) LockImport(digest string) (func(), bool) {
 	item := manager.retain(digest)
 	item.mu.Lock()
-	if !manager.global.TryLock() {
+	if !manager.slot().TryAcquire(1) {
 		item.mu.Unlock()
 		manager.release(digest, item)
 		return nil, false
 	}
 	return manager.unlock(digest, item), true
+}
+
+// Admitted build workers wait within their request deadline. Their existing
+// two-worker semaphore remains held through output materialization.
+func (manager *Manager) LockBuild(ctx context.Context) (func(), error) {
+	slot := manager.slot()
+	if err := slot.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+	return func() { slot.Release(1) }, nil
+}
+
+func (manager *Manager) slot() *semaphore.Weighted {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.global == nil {
+		manager.global = semaphore.NewWeighted(1)
+	}
+	return manager.global
 }
 
 func (manager *Manager) retain(digest string) *keyLock {
@@ -55,7 +79,7 @@ func (manager *Manager) retain(digest string) *keyLock {
 
 func (manager *Manager) unlock(digest string, item *keyLock) func() {
 	return func() {
-		manager.global.Unlock()
+		manager.slot().Release(1)
 		item.mu.Unlock()
 		manager.release(digest, item)
 	}

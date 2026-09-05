@@ -85,7 +85,7 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 		var image *vmmdv1.Image
 		err := r.guardOCIMetadataGrowth(ctx, func() error {
 			var importErr error
-			image, importErr = r.importImage(ctx, nil, header, canonical, *reusableTarget, true)
+			image, importErr = r.importImage(ctx, nil, header, canonical, *reusableTarget, true, false)
 			return importErr
 		})
 		if err != nil {
@@ -108,9 +108,9 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 			}
 			var importErr error
 			if reusable {
-				image, importErr = r.importImage(ctx, nil, header, canonical, *manifest, true)
+				image, importErr = r.importImage(ctx, nil, header, canonical, *manifest, true, false)
 			} else {
-				image, importErr = r.importImage(ctx, archive, header, canonical, *manifest, true)
+				image, importErr = r.importImage(ctx, archive, header, canonical, *manifest, true, false)
 			}
 			return importErr
 		})

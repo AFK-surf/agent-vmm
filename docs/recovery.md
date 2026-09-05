@@ -269,6 +269,25 @@ metadata allowance because containerd can allocate copy-on-write pages during
 delete. Settlement restores the exact idle quota. The existing slack and
 sealed-budget rules still apply; deletion does not bypass those rules.
 
+BuildKit uses the same metadata allowance for its short container/task startup
+and final deletion. Running the build and waiting for exit do not hold the disk
+budget lock. Its output archive stays in the existing namespace build workspace
+until the runtime importer registers content and unpacks it in the runtime
+namespace. Copying a logical image descriptor alone cannot establish containerd
+content visibility there. The logical tag changes only after materialization;
+failure before publication leaves the prior tag usable, and an explicit rebuild
+can replace it. A later sync or response failure does not undo publication.
+Ordinary archive import retains its conflicting-digest refusal.
+
+The two build slots remain held through output consumption. An admitted build
+waits for the single materialization slot within its request deadline and can
+cancel while waiting. Its local capacity audit, physical reservation, conversion,
+materialization and quota settlement share one disk-budget transaction; metadata
+cannot observe an intermediate hold that has consumed all free slack. Native
+BuildKit execution stays outside that transaction. A streamed import retains its
+existing long-lived hold and admission refusal; this build path does not change
+streaming import policy. Real capacity exhaustion still fails closed.
+
 Foreground VM recovery and background appliance reconciliation use the same
 observed-instance selection. Host installation candidates are read before Guest
 inventory, so a stale missing-instance observation cannot be paired with a

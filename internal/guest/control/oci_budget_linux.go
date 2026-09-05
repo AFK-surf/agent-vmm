@@ -205,7 +205,7 @@ func tightenOCIProjectQuota(stateDevice string) error {
 }
 
 func (r *Runtime) guardBuilderOCIGrowth(ctx context.Context, identity string, run func() error) error {
-	return r.guardOCIPhysicalGrowth(ctx, "builder\x00"+identity, run)
+	return r.guardOCIPhysicalGrowth(ctx, "builder\x00"+identity, true, run)
 }
 
 func (r *Runtime) lockImportSlot(digest string) (func(), error) {
@@ -218,22 +218,32 @@ func (r *Runtime) lockImportSlot(digest string) (func(), error) {
 
 // guardOCIPhysicalGrowth serializes any operation that can materialize bulk
 // content or native-snapshot blocks through the same physical I reservation
-// and project-9000 hard ceiling as image import.
-func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, run func() error) error {
+// and project-9000 hard ceiling as image import. BuildMaterializationBudget.tla
+// keeps local reserve-to-settle indivisible to metadata and fences canceled waits.
+func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, waitForSlot bool, run func() error) error {
 	digest := sha256.Sum256([]byte(identity))
 	digestText := "sha256:" + hex.EncodeToString(digest[:])
-	unlock, err := r.lockImportSlot(digestText)
+	var unlock func()
+	var err error
+	if waitForSlot {
+		unlock, err = r.materializer.LockBuild(ctx)
+	} else {
+		unlock, err = r.lockImportSlot(digestText)
+	}
 	if err != nil {
 		return err
 	}
 	defer unlock()
 	header := &vmmdv1.ImportImageHeader{RequestId: "oci-growth-" + hex.EncodeToString(digest[:24]), ManifestDigest: digestText}
-	reservation, err := r.reserveImport(ctx, header, true)
-	if err != nil {
-		return err
-	}
-	defer reservation.Release()
 	return r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		reservation, err := r.reserveImportLocked(ctx, header, true, transaction)
+		if err != nil {
+			return err
+		}
+		defer reservation.Release()
 		return r.guardOCIProjectGrowth(transaction, reservation, run)
 	})
 }
@@ -352,6 +362,16 @@ func (r *Runtime) guardOCIProjectGrowth(transaction *guestdisk.Transaction, rese
 }
 
 func (r *Runtime) reserveImport(ctx context.Context, header *vmmdv1.ImportImageHeader, materializerHeld bool) (*importReservation, error) {
+	var reservation *importReservation
+	err := r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+		var err error
+		reservation, err = r.reserveImportLocked(ctx, header, materializerHeld, transaction)
+		return err
+	})
+	return reservation, err
+}
+
+func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.ImportImageHeader, materializerHeld bool, transaction *guestdisk.Transaction) (*importReservation, error) {
 	loadSnapshot := func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
 		snapshot, err := r.guestDiskSnapshot(ctx)
 		if err != nil {
@@ -391,12 +411,12 @@ func (r *Runtime) reserveImport(ctx context.Context, header *vmmdv1.ImportImageH
 		result.remaining = reserved
 		return writeImportReservation(path, result.holdPath, reserved)
 	}
-	err := r.diskBudget.ReserveImportHeadroom(loadSnapshot, commit)
+	err := transaction.ReserveImportHeadroom(loadSnapshot, commit)
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		if _, gcErr := r.reclaimOCIWithMaterializer(ctx, maxGCDeletes, materializerHeld); gcErr != nil {
+		if _, gcErr := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, materializerHeld, transaction); gcErr != nil {
 			return nil, gcErr
 		}
-		err = r.diskBudget.ReserveImportHeadroom(loadSnapshot, commit)
+		err = transaction.ReserveImportHeadroom(loadSnapshot, commit)
 	}
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
 		return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")

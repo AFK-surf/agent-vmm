@@ -131,6 +131,22 @@ allowance as creation. This is an additional caller of the existing mutation
 transition, with unchanged floors, sealing, GC barrier, and idle ceiling.
 Task termination and monitor waits remain outside that budget transaction.
 
+BuildKit container/task creation, wait registration, and start form one short
+metadata mutation. Task termination and exit waits remain outside it; task and
+snapshot cleanup use a second short metadata mutation. The existing budget,
+sealing, and settlement transitions are unchanged.
+
+`OCIImageMaterialization` also models build output publication in
+`Runtime.BuildImage` / `importImage`: `ImportBuild` registers content in the
+runtime namespace, `UnpackBuild` creates its snapshot, then `PublishBuild`
+updates the logical tag. Physically shared CAS blobs alone do not provide
+containerd namespace metadata. The build-import negative represents the former
+descriptor-only promotion and reaches an unpack without runtime content; the
+build-commit negative publishes before materialization. A build canceled or failed before publication
+may abandon its candidate and leaves the old logical image intact. An explicit
+successful build can replace a tag; ordinary archive import still rejects a
+conflicting digest. The model claims no build progress under failure or restart.
+
 `ApplianceRecoverySelection` refines only missing-instance selection shared by
 foreground VM recovery and the background appliance reconciler. Host candidates
 precede Guest observations; `SelectRecovery` maps the installation revision
@@ -149,3 +165,17 @@ Negative configurations remove snapshot ordering, the recovery revision fence,
 or synchronous completion validation. There is no negative claim that the old
 prepare/start lock gap alone caused duplicate launches: its second start-time
 revision check is real and must be retained.
+
+`BuildMaterializationBudget` isolates the existing two admitted build workers,
+one global materialization slot, and local reservation transaction. It maps
+`Workspace.RunArchive` to a slot held through output consumption,
+`Manager.LockBuild` to deadline/cancellation-aware waiting, and
+`guardOCIPhysicalGrowth` / `Transaction.ReserveImportHeadroom` to the closed
+reserve-convert-materialize-settle section. Metadata cannot see a local
+reservation with zero slack. Cancellation/timeout/disconnect may settle a waiter;
+restart clears volatile requests and orphan holds. Settlement failure seals
+further growth. No network or native-operation liveness is claimed. Physical
+capacity is sufficient in this focused model; `GuestDiskBudget` retains general
+capacity and retained-writable accounting. Streaming import admission is unchanged.
+Three expected counterexamples expose the split reservation transaction,
+immediate rejection of an admitted build, and an unfenced canceled waiter.

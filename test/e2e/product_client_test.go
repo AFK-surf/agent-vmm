@@ -179,24 +179,19 @@ func (client *productClient) DeleteEnvironment(ctx context.Context, environmentI
 	if err != nil {
 		return err
 	}
-	var lastOperation *hostv1.Operation
-	for attempt := 0; attempt < 3; attempt++ {
-		response, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: requestID, Plan: plan.GetPlan(), ConfirmedVolumeIds: volumes})
-		if err != nil {
-			return err
-		}
-		lastOperation = response.GetOperation()
-		if lastOperation.GetState() == hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
-			return nil
-		}
-		if lastOperation.GetState() != hostv1.OperationState_OPERATION_STATE_FAILED {
-			return fmt.Errorf("cleanup operation did not finish: %s", lastOperation.GetState())
-		}
-		if attempt < 2 {
-			time.Sleep(time.Duration(attempt+1) * time.Second)
-		}
+	response, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: requestID, Plan: plan.GetPlan(), ConfirmedVolumeIds: volumes})
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("cleanup failed: %s: %s", lastOperation.GetError().GetReason(), lastOperation.GetError().GetMessage())
+	operation := response.GetOperation()
+	switch operation.GetState() {
+	case hostv1.OperationState_OPERATION_STATE_SUCCEEDED:
+		return nil
+	case hostv1.OperationState_OPERATION_STATE_FAILED:
+		return fmt.Errorf("cleanup failed: %s: %s", operation.GetError().GetReason(), operation.GetError().GetMessage())
+	default:
+		return fmt.Errorf("cleanup operation did not finish: %s", operation.GetState())
+	}
 }
 
 func (client *productClient) RemoveEnvironmentAccess(ctx context.Context, environmentID, requestID string) error {

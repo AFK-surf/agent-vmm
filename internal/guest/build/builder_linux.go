@@ -16,11 +16,9 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
 	containerd "github.com/containerd/containerd/v2/client"
-	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
@@ -244,13 +242,15 @@ func (w *Workspace) AppendSecret(id string, data []byte, final bool) error {
 	return nil
 }
 
-func (w *Workspace) Run(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error) (string, bool, error) {
+// RunArchive holds the build slot and namespace owner until the existing
+// output archive has been consumed, including runtime materialization.
+func (w *Workspace) RunArchive(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error, consume func(*os.File, ArchiveResult) error) error {
 	if !w.contextClosed || w.secretFile != nil || w.secretIndex != len(w.header.GetSecrets()) {
-		return "", false, errors.New("build upload is incomplete")
+		return errors.New("build upload is incomplete")
 	}
 	dockerfile := filepath.Join(w.contextRoot, filepath.FromSlash(w.header.GetDockerfilePath()))
 	if info, err := os.Stat(dockerfile); err != nil || !info.Mode().IsRegular() {
-		return "", false, errors.New("Dockerfile is not a regular context file")
+		return errors.New("Dockerfile is not a regular context file")
 	}
 	defer func() {
 		if ctx.Err() != nil {
@@ -261,62 +261,29 @@ func (w *Workspace) Run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 	case w.builder.semaphore <- struct{}{}:
 		defer func() { <-w.builder.semaphore }()
 	case <-ctx.Done():
-		return "", false, ctx.Err()
+		return ctx.Err()
 	}
 	lock := w.builder.namespaceLock(w.header.GetActorNamespaceId())
 	lock.Lock()
 	defer lock.Unlock()
 	cacheHit, err := w.run(ctx, limits, progress)
 	if err != nil {
-		return "", false, err
-	}
-	digest, err := w.importOutput(ctx)
-	return digest, cacheHit, err
-}
-
-// RunArchive builds the uploaded Dockerfile without importing it into an
-// allocation namespace. The caller owns the returned archive bytes and must
-// persist or stream them before closing the workspace.
-func (w *Workspace) RunArchive(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error, output io.Writer) (ArchiveResult, error) {
-	if output == nil {
-		return ArchiveResult{}, errors.New("archive output is required")
-	}
-	if !w.contextClosed || w.secretFile != nil || w.secretIndex != len(w.header.GetSecrets()) {
-		return ArchiveResult{}, errors.New("build upload is incomplete")
-	}
-	dockerfile := filepath.Join(w.contextRoot, filepath.FromSlash(w.header.GetDockerfilePath()))
-	if info, err := os.Stat(dockerfile); err != nil || !info.Mode().IsRegular() {
-		return ArchiveResult{}, errors.New("Dockerfile is not a regular context file")
-	}
-	defer func() {
-		if ctx.Err() != nil {
-			w.releaseActive()
-		}
-	}()
-	select {
-	case w.builder.semaphore <- struct{}{}:
-		defer func() { <-w.builder.semaphore }()
-	case <-ctx.Done():
-		return ArchiveResult{}, ctx.Err()
-	}
-	lock := w.builder.namespaceLock(w.header.GetActorNamespaceId())
-	lock.Lock()
-	defer lock.Unlock()
-	cacheHit, err := w.run(ctx, limits, progress)
-	if err != nil {
-		return ArchiveResult{}, err
+		return err
 	}
 	archive, err := os.Open(filepath.Join(w.outputRoot, "image.tar"))
 	if err != nil {
-		return ArchiveResult{}, err
+		return err
 	}
 	defer archive.Close()
-	result, err := copyOCIArchive(archive, output)
+	result, err := copyOCIArchive(archive, io.Discard)
 	if err != nil {
-		return ArchiveResult{}, err
+		return err
+	}
+	if _, err := archive.Seek(0, io.SeekStart); err != nil {
+		return err
 	}
 	result.CacheHit = cacheHit
-	return result, nil
+	return consume(archive, result)
 }
 
 func (w *Workspace) Close() error {
@@ -345,7 +312,7 @@ func (w *Workspace) releaseActive() {
 	})
 }
 
-func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error) (bool, error) {
+func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error) (cacheHit bool, runErr error) {
 	namespaceID := w.header.GetActorNamespaceId()
 	nsctx := namespaces.WithNamespace(ctx, namespaceID)
 	if err := os.Chown(filepath.Join("/state/build-cache", namespaceID), 1000, 1000); err != nil {
@@ -364,6 +331,38 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 	defer detach()
 	containerID := "agent-vmm-build-" + w.id
 	var container containerd.Container
+	var task containerd.Task
+	var exit <-chan containerd.ExitStatus
+	output := new(buildOutput)
+	defer func() {
+		if container == nil {
+			return
+		}
+		detach()
+		cleanup, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), namespaceID), 10*time.Second)
+		defer cancel()
+		if task != nil {
+			if exit == nil {
+				exit, _ = task.Wait(cleanup)
+			}
+			_ = task.Kill(cleanup, syscall.SIGKILL)
+			if exit != nil {
+				select {
+				case <-exit:
+				case <-cleanup.Done():
+				}
+			}
+		}
+		cleanupErr := w.builder.growMetadata(cleanup, func() error {
+			if task != nil {
+				if _, err := task.Delete(cleanup, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
+					return err
+				}
+			}
+			return deleteBuildContainer(namespaceID, container)
+		})
+		runErr = errors.Join(runErr, cleanupErr)
+	}()
 	err = w.builder.growMetadata(ctx, func() error {
 		var createErr error
 		container, createErr = w.builder.client.NewContainer(nsctx, containerID,
@@ -374,74 +373,36 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 			containerd.WithRuntime(builderRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc-build.toml"}),
 			containerd.WithNewSpec(w.specOptions(image, netNSPath, limits)...),
 		)
-		return createErr
+		if createErr != nil {
+			return createErr
+		}
+		task, createErr = container.NewTask(nsctx, cio.NewCreator(cio.WithStreams(nil, output, output)))
+		if createErr != nil {
+			return createErr
+		}
+		exit, createErr = task.Wait(namespaces.WithNamespace(context.Background(), namespaceID))
+		if createErr != nil {
+			return createErr
+		}
+		return task.Start(nsctx)
 	})
 	if err != nil {
 		return false, err
 	}
-	cleaned := false
-	defer func() {
-		if !cleaned {
-			_ = deleteBuildContainer(namespaceID, container)
-		}
-	}()
-	output := new(buildOutput)
-	task, err := container.NewTask(nsctx, cio.NewCreator(cio.WithStreams(nil, output, output)))
-	if err != nil {
-		return false, err
-	}
-	exit, err := task.Wait(namespaces.WithNamespace(context.Background(), namespaceID))
-	if err != nil {
-		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		return false, err
-	}
-	if err := task.Start(nsctx); err != nil {
-		_, _ = task.Delete(nsctx, containerd.WithProcessKill)
-		return false, err
-	}
 	if progress != nil {
 		if err := progress("builder task started"); err != nil {
-			detach()
-			cleanup, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), namespaceID), 10*time.Second)
-			_ = task.Kill(cleanup, syscall.SIGKILL)
-			select {
-			case <-exit:
-			case <-cleanup.Done():
-			}
-			_, _ = task.Delete(cleanup, containerd.WithProcessKill)
-			cancel()
 			return false, err
 		}
 	}
 	select {
 	case status := <-exit:
 		code, _, resultErr := status.Result()
-		cleanup, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), namespaceID), 10*time.Second)
-		_, _ = task.Delete(cleanup, containerd.WithProcessKill)
-		cancel()
 		if resultErr != nil || code != 0 {
-			if ctx.Err() != nil {
-				w.releaseActive()
-			}
 			return false, errors.New("isolated BuildKit build failed")
 		}
 	case <-ctx.Done():
-		detach()
-		cleanup, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), namespaceID), 10*time.Second)
-		_ = task.Kill(cleanup, syscall.SIGKILL)
-		select {
-		case <-exit:
-		case <-cleanup.Done():
-		}
-		_, _ = task.Delete(cleanup, containerd.WithProcessKill)
-		cancel()
-		w.releaseActive()
 		return false, ctx.Err()
 	}
-	if err := deleteBuildContainer(namespaceID, container); err != nil {
-		return false, err
-	}
-	cleaned = true
 	return output.Contains([]byte(" CACHED")), nil
 }
 
@@ -533,44 +494,6 @@ func (b *Builder) ensureBuilderImage(ctx context.Context) (containerd.Image, err
 		return nil, err
 	}
 	return image, nil
-}
-
-func (w *Workspace) importOutput(ctx context.Context) (string, error) {
-	canonicalReference, err := guestimage.NormalizeReference(w.header.GetImage())
-	if err != nil {
-		return "", err
-	}
-	temporary := "agent-vmm.local/build-output:" + w.id
-	nsctx := namespaces.WithNamespace(ctx, w.header.GetActorNamespaceId())
-	var image containerd.Image
-	err = w.builder.growOCI(ctx, "build-output-"+w.id, func() error {
-		archive, err := os.Open(filepath.Join(w.outputRoot, "image.tar"))
-		if err != nil {
-			return err
-		}
-		defer archive.Close()
-		if _, err := w.builder.client.Import(nsctx, archive, containerd.WithDigestRef(func(_ digest.Digest) string { return temporary })); err != nil {
-			return err
-		}
-		image, err = w.builder.client.GetImage(nsctx, temporary)
-		if err != nil {
-			return err
-		}
-		defer w.builder.client.ImageService().Delete(nsctx, temporary, coreimages.SynchronousDelete())
-		if err := image.Unpack(nsctx, builderSnapshotter); err != nil {
-			return err
-		}
-		record := coreimages.Image{Name: canonicalReference, Target: image.Target()}
-		if _, err := w.builder.client.ImageService().Update(nsctx, record, "target"); errdefs.IsNotFound(err) {
-			_, err = w.builder.client.ImageService().Create(nsctx, record)
-			return err
-		}
-		return err
-	})
-	if err != nil {
-		return "", err
-	}
-	return image.Target().Digest.String(), nil
 }
 
 func (b *Builder) namespaceLock(namespaceID string) *sync.Mutex {

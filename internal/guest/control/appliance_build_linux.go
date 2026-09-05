@@ -4,7 +4,9 @@ package control
 
 import (
 	"errors"
+	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"io"
+	"os"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"google.golang.org/grpc"
@@ -73,14 +75,15 @@ func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApp
 	if err := stream.Send(&vmmdv1.BuildApplianceResponse{Event: &vmmdv1.BuildApplianceResponse_Progress{Progress: "building in isolated sandbox"}}); err != nil {
 		return err
 	}
-	result, err := workspace.RunArchive(stream.Context(), applianceBuildLimits, func(progress string) error {
+	return workspace.RunArchive(stream.Context(), applianceBuildLimits, func(progress string) error {
 		return stream.Send(&vmmdv1.BuildApplianceResponse{Event: &vmmdv1.BuildApplianceResponse_Progress{Progress: progress}})
-	}, applianceArchiveWriter{stream: stream})
-	if err != nil {
-		return err
-	}
-	return stream.Send(&vmmdv1.BuildApplianceResponse{Event: &vmmdv1.BuildApplianceResponse_Result{Result: &vmmdv1.BuildApplianceResult{
-		ArchiveSha256: result.ArchiveSHA256, ManifestDigest: result.ManifestDigest, ArchiveSize: result.Size, CacheHit: result.CacheHit}}})
+	}, func(archive *os.File, result guestbuild.ArchiveResult) error {
+		if _, err := io.Copy(applianceArchiveWriter{stream: stream}, archive); err != nil {
+			return err
+		}
+		return stream.Send(&vmmdv1.BuildApplianceResponse{Event: &vmmdv1.BuildApplianceResponse_Result{Result: &vmmdv1.BuildApplianceResult{
+			ArchiveSha256: result.ArchiveSHA256, ManifestDigest: result.ManifestDigest, ArchiveSize: result.Size, CacheHit: result.CacheHit}}})
+	})
 }
 
 type applianceArchiveWriter struct {
