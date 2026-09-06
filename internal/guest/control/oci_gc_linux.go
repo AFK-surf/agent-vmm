@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
@@ -344,8 +345,11 @@ func (r *Runtime) ociFacts(ctx context.Context, names []string) (map[digest.Dige
 }
 
 func markImageGraph(ctx context.Context, store corecontent.Store, root ocispec.Descriptor, references map[digest.Digest]bool) error {
+	var referencesMu sync.Mutex
 	handler := coreimages.Handlers(coreimages.HandlerFunc(func(_ context.Context, descriptor ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		referencesMu.Lock()
 		references[descriptor.Digest] = true
+		referencesMu.Unlock()
 		return nil, nil
 	}), coreimages.ChildrenHandler(store))
 	return coreimages.Dispatch(ctx, handler, nil, root)
