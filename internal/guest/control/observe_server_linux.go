@@ -43,13 +43,7 @@ func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageReq
 	if err != nil {
 		usage = unavailableUsage(err)
 	}
-	diskBudget, err := s.runtime.guestDiskSummary(ctx)
-	if err != nil {
-		// Usage predates the optional disk-budget observation. Preserve that
-		// availability contract when accounting is temporarily unavailable.
-		diskBudget = nil
-	}
-	return &vmmdv1.GetUsageResponse{Usage: usage, DiskBudget: diskBudget}, nil
+	return &vmmdv1.GetUsageResponse{Usage: usage}, nil
 }
 
 func (s *Server) GetVolume(ctx context.Context, request *vmmdv1.GetVolumeRequest) (*vmmdv1.GetVolumeResponse, error) {

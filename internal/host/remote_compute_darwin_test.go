@@ -27,11 +27,8 @@ import (
 
 type scopedObservationClientStub struct {
 	vmmdv1.VMMDServiceClient
-	healthCalls      int
-	systemUsageCalls int
-	usageNamespaces  []string
-	systemUsage      *vmmdv1.GetUsageResponse
-	systemUsageErr   error
+	healthCalls     int
+	usageNamespaces []string
 }
 
 func (client *scopedObservationClientStub) ComponentHealth(context.Context, *vmmdv1.ComponentHealthRequest, ...grpc.CallOption) (*vmmdv1.ComponentHealthResponse, error) {
@@ -44,44 +41,6 @@ func (client *scopedObservationClientStub) GetNamespaceUsage(_ context.Context, 
 	return &vmmdv1.GetUsageResponse{Usage: &vmmdv1.Usage{MemoryBytes: 10}}, nil
 }
 
-func (client *scopedObservationClientStub) GetSystemUsage(context.Context, *vmmdv1.GetSystemUsageRequest, ...grpc.CallOption) (*vmmdv1.GetUsageResponse, error) {
-	client.systemUsageCalls++
-	if client.systemUsage != nil || client.systemUsageErr != nil {
-		return client.systemUsage, client.systemUsageErr
-	}
-	return &vmmdv1.GetUsageResponse{DiskBudget: &vmmdv1.GuestDiskBudget{
-		CapacityBytes: 64 << 30, UsedBytes: 10 << 30, WritableHeadroomBytes: 20 << 30,
-		ImportReservationBytes: 2 << 30, SystemReserveBytes: 5 << 30, AvailableBytes: 27 << 30,
-		AllocationUnitBytes: 4096, NamespaceCount: 2, ActiveImportReservations: 1,
-	}}, nil
-}
-
-func TestCollectScopedRemoteObservationKeepsExistingFieldsWhenDiskBudgetIsUnavailable(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		response *vmmdv1.GetUsageResponse
-		err      error
-	}{
-		{name: "older Guest omits budget", response: &vmmdv1.GetUsageResponse{}},
-		{name: "accounting temporarily fails", err: status.Error(codes.Unavailable, "accounting unavailable")},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			client := &scopedObservationClientStub{systemUsage: test.response, systemUsageErr: test.err}
-			observedAt := timestamppb.Now()
-			response, err := collectScopedRemoteObservation(context.Background(), client, []store.Environment{{NamespaceID: "one"}}, nil, observedAt)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response.GetDiskBudget() != nil || response.GetUsage().GetMemoryBytes() != 10 || response.GetObservedAt() != observedAt {
-				t.Fatalf("observation=%+v", response)
-			}
-			if client.systemUsageCalls != 1 {
-				t.Fatalf("system usage calls=%d, want 1", client.systemUsageCalls)
-			}
-		})
-	}
-}
-
 func TestCollectScopedRemoteObservationUsesOneHealthCallAndExactNamespaces(t *testing.T) {
 	client := new(scopedObservationClientStub)
 	observedAt := timestamppb.Now()
@@ -89,14 +48,11 @@ func TestCollectScopedRemoteObservationUsesOneHealthCallAndExactNamespaces(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.healthCalls != 1 || client.systemUsageCalls != 1 || len(client.usageNamespaces) != 2 || client.usageNamespaces[0] != "one" || client.usageNamespaces[1] != "two" {
-		t.Fatalf("calls: health=%d system-usage=%d namespaces=%v", client.healthCalls, client.systemUsageCalls, client.usageNamespaces)
+	if client.healthCalls != 1 || len(client.usageNamespaces) != 2 || client.usageNamespaces[0] != "one" || client.usageNamespaces[1] != "two" {
+		t.Fatalf("calls: health=%d namespaces=%v", client.healthCalls, client.usageNamespaces)
 	}
 	if response.GetUsage().GetMemoryBytes() != 20 || response.GetUsage().GetStale() {
 		t.Fatalf("usage=%+v", response.GetUsage())
-	}
-	if budget := response.GetDiskBudget(); budget.GetCapacityBytes() != 64<<30 || budget.GetAvailableBytes() != 27<<30 || budget.GetNamespaceCount() != 2 || budget.GetActiveImportReservations() != 1 {
-		t.Fatalf("disk budget=%+v", budget)
 	}
 	for _, component := range response.GetHealth().GetComponents() {
 		if component.GetReason() != "" {

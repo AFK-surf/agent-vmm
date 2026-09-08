@@ -588,20 +588,7 @@ message Usage {
 }
 
 message GetUsageResponse {
-  Usage           usage       = 1;
-  GuestDiskBudget disk_budget = 2;
-}
-
-message GuestDiskBudget {
-  uint64 capacity_bytes           = 1;
-  uint64 used_bytes               = 2;
-  uint64 writable_headroom_bytes  = 3;
-  uint64 import_reservation_bytes = 4;
-  uint64 system_reserve_bytes     = 5;
-  uint64 available_bytes          = 6;
-  uint64 allocation_unit_bytes    = 7;
-  uint32 namespace_count          = 8;
-  uint32 active_import_reservations = 9;
+  Usage usage = 1;
 }
 
 enum LogStream {

@@ -102,7 +102,6 @@ func collectObservation(ctx context.Context, client remoteObservationClient, reg
 	result.InventoryObservedUnixMillis = observed.UnixMilli()
 	result.Health = publicHealth(response.GetHealth())
 	result.Usage = publicUsage(response.GetUsage())
-	result.DiskBudget = publicDiskBudget(response.GetDiskBudget())
 	return result
 }
 
@@ -167,23 +166,6 @@ func publicUsage(value *hostv1.Usage) *remotev1.RemoteObservationUsage {
 		result.Issue = "usage_stale"
 	}
 	return result
-}
-
-func publicDiskBudget(value *hostv1.GuestDiskBudget) *remotev1.RemoteGuestDiskBudget {
-	if value == nil {
-		return nil
-	}
-	return &remotev1.RemoteGuestDiskBudget{
-		CapacityBytes:            value.GetCapacityBytes(),
-		UsedBytes:                value.GetUsedBytes(),
-		WritableHeadroomBytes:    value.GetWritableHeadroomBytes(),
-		ImportReservationBytes:   value.GetImportReservationBytes(),
-		SystemReserveBytes:       value.GetSystemReserveBytes(),
-		AvailableBytes:           value.GetAvailableBytes(),
-		AllocationUnitBytes:      value.GetAllocationUnitBytes(),
-		NamespaceCount:           value.GetNamespaceCount(),
-		ActiveImportReservations: value.GetActiveImportReservations(),
-	}
 }
 
 func renewRemoteObservations(ctx context.Context, client hostv1.RemoteComputeServiceClient, registration *hostv1.RemoteRegistration, epoch uint64, initialSequence uint64, writer *controlWriter) error {

@@ -11,17 +11,6 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 )
 
-func TestGuestDiskNamespaceCountRejectsUnboundedObservationScan(t *testing.T) {
-	names := make([]string, maxGCNamespaces+1)
-	if _, err := guestDiskNamespaceCount(names); err == nil {
-		t.Fatal("Guest disk accounting accepted an unbounded namespace scan")
-	}
-	count, err := guestDiskNamespaceCount([]string{runtimeContainerdNamespace, "one", "two"})
-	if err != nil || count != 2 {
-		t.Fatalf("namespace count=(%d, %v), want (2, nil)", count, err)
-	}
-}
-
 func TestReleasedTombstoneReplaysUntilExactConfirmation(t *testing.T) {
 	root := t.TempDir()
 	request := &vmmdv1.ReleaseWorkloadResourcesRequest{AllocationId: "allocation", Generation: 7, NamespaceId: "namespace", ContractSha256: make([]byte, 32)}

@@ -26,117 +26,67 @@ case "$profile" in
   *) echo 'build profile must be development or release' >&2; exit 2 ;;
 esac
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-lock=$repository/build/guest/lock.json
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 root=$work/root
 bundle=$work/bundle
 mkdir -p "$root" "$bundle" "$work/downloads"
 
-value() {
-  jq -r "$1" "$lock"
-}
 fetch() {
   url=$1
   destination=$2
-  cached=${AGENT_VMM_DOWNLOAD_CACHE:-}/$(basename "$destination")
-  if [ -n "${AGENT_VMM_DOWNLOAD_CACHE:-}" ] && [ -f "$cached" ]; then
-    cp "$cached" "$destination"
-    return
-  fi
   partial=$destination.part
-  curl -fsSL --retry 5 --retry-all-errors --continue-at - --output "$partial" "$url"
+  curl -fsSL --retry 5 --retry-all-errors --output "$partial" "$url"
   mv "$partial" "$destination"
-  if [ -n "${AGENT_VMM_DOWNLOAD_CACHE:-}" ]; then
-    mkdir -p "$AGENT_VMM_DOWNLOAD_CACHE"
-    cache_partial=$cached.part
-    cp "$destination" "$cache_partial"
-    mv "$cache_partial" "$cached"
-  fi
-}
-verify256() {
-  expected=$1
-  file=$2
-  echo "$expected  $file" | sha256sum -c -
-}
-verify512() {
-  expected=$1
-  file=$2
-  echo "$expected  $file" | sha512sum -c -
 }
 
-alpine_version=$(value .alpine.version)
-alpine_branch=$(value .alpine.branch)
+alpine_releases=$work/downloads/alpine-releases.yaml
+fetch "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/aarch64/latest-releases.yaml" "$alpine_releases"
+alpine_miniroot=$(awk '
+  $1 == "flavor:" { flavor = $2 }
+  flavor == "alpine-minirootfs" && $1 == "file:" { print $2; exit }
+' "$alpine_releases")
+test -n "$alpine_miniroot"
 miniroot=$work/downloads/alpine-minirootfs.tar.gz
-fetch "https://dl-cdn.alpinelinux.org/alpine/$alpine_branch/releases/aarch64/alpine-minirootfs-$alpine_version-aarch64.tar.gz" "$miniroot"
-verify256 "$(value .alpine.minirootfs_sha256)" "$miniroot"
+fetch "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/aarch64/$alpine_miniroot" "$miniroot"
 tar -xzf "$miniroot" -C "$root"
 cp /etc/resolv.conf "$root/etc/resolv.conf"
+chroot "$root" /sbin/apk upgrade --no-cache
 chroot "$root" /sbin/apk add --no-cache \
-  "openrc=$(value '.packages.openrc')" \
-  "ca-certificates-bundle=$(value '.packages["ca-certificates-bundle"]')" \
-  "iproute2=$(value '.packages.iproute2')" \
-  "nftables=$(value '.packages.nftables')" \
-  "e2fsprogs=$(value '.packages.e2fsprogs')" \
-  "e2fsprogs-extra=$(value '.packages["e2fsprogs-extra"]')" \
-  "cni-plugins=$(value '.packages["cni-plugins"]')" \
-  "cryptsetup=$(value '.packages.cryptsetup')" \
-  "libcrypto3=$(value '.packages.libcrypto3')" \
-  "libssl3=$(value '.packages.libssl3')" \
-  "xz=$(value '.packages.xz')"
-jq -r '.packages | to_entries[] | "\(.key)=\(.value)"' "$lock" | while read -r package; do
+  openrc ca-certificates-bundle iproute2 nftables e2fsprogs e2fsprogs-extra \
+  cni-plugins cryptsetup libcrypto3 libssl3 xz linux-virt containerd
+for package in openrc ca-certificates-bundle iproute2 nftables e2fsprogs e2fsprogs-extra cni-plugins cryptsetup libcrypto3 libssl3 xz linux-virt containerd; do
   chroot "$root" /sbin/apk info -e "$package"
 done
 
-kernel_version=$(value .kernel.version)
-kernel_apk=$work/downloads/linux-virt.apk
-fetch "https://dl-cdn.alpinelinux.org/alpine/$alpine_branch/main/aarch64/linux-virt-$kernel_version.apk" "$kernel_apk"
-verify256 "$(value .kernel.apk_sha256)" "$kernel_apk"
-mkdir -p "$work/kernel"
-tar --warning=no-unknown-keyword -xf "$kernel_apk" -C "$work/kernel"
-kernel_config=$(find "$work/kernel/boot" -name 'config-*' -type f)
+kernel_config=$(find "$root/boot" -name 'config-*' -type f)
 for symbol in ARM64 BLK_DEV_DM BRIDGE CGROUPS CGROUP_BPF CRYPTO_AES CRYPTO_SHA256 CRYPTO_XTS DM_CRYPT DM_VERITY EXT4_FS INET NETFILTER NF_TABLES OVERLAY_FS RD_XZ SECCOMP SECCOMP_FILTER SQUASHFS SQUASHFS_XZ SQUASHFS_ZSTD TUN VETH VIRTIO VIRTIO_BALLOON VIRTIO_BLK VIRTIO_CONSOLE VIRTIO_NET VIRTIO_VSOCKETS VSOCKETS XZ_DEC XZ_DEC_ARM64; do
   grep -Eq "^CONFIG_${symbol}=[ym]$" "$kernel_config"
 done
-cp -a "$work/kernel/lib/modules" "$root/lib/"
 extract_vmlinux=$work/downloads/extract-vmlinux
-fetch "https://raw.githubusercontent.com/torvalds/linux/$(value .kernel.extract_vmlinux_version)/scripts/extract-vmlinux" "$extract_vmlinux"
-verify256 "$(value .kernel.extract_vmlinux_sha256)" "$extract_vmlinux"
+fetch "https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux" "$extract_vmlinux"
 chmod 0755 "$extract_vmlinux"
-"$extract_vmlinux" "$work/kernel/boot/vmlinuz-"* >"$bundle/Image"
+"$extract_vmlinux" "$root/boot/vmlinuz-"* >"$bundle/Image"
 test -s "$bundle/Image"
 
-containerd_version=$(value .containerd.version)
-containerd_archive=$work/downloads/containerd.tar.gz
-fetch "https://github.com/containerd/containerd/releases/download/v$containerd_version/containerd-static-$containerd_version-linux-arm64.tar.gz" "$containerd_archive"
-verify256 "$(value .containerd.archive_sha256)" "$containerd_archive"
-tar -xzf "$containerd_archive" -C "$work" bin/containerd
-install -m 0755 "$work/bin/containerd" "$root/usr/bin/containerd"
-
-runsc_version=$(value .runsc.version | sed 's/^release-//')
 runsc_archive=$work/downloads/gvisor.tar.bz2
-fetch "https://storage.googleapis.com/gvisor/releases/release/$runsc_version/aarch64/gvisor.tar.bz2" "$runsc_archive"
-verify512 "$(value .runsc.archive_sha512)" "$runsc_archive"
+fetch "https://storage.googleapis.com/gvisor/releases/release/latest/aarch64/gvisor.tar.bz2" "$runsc_archive"
 tar -xjf "$runsc_archive" -C "$work"
 install -m 0755 "$work/runsc" "$root/usr/bin/runsc"
 cp -a "$work/gvisor-bin" "$root/usr/bin/gvisor-bin"
-shim_version=$(value .runsc_shim.version | sed 's/^release-//')
-shim=$work/downloads/containerd-shim-runsc-v1
-fetch "https://storage.googleapis.com/gvisor/releases/release/$shim_version/aarch64/containerd-shim-runsc-v1" "$shim"
-verify512 "$(value .runsc_shim.binary_sha512)" "$shim"
-install -m 0755 "$shim" "$root/usr/bin/containerd-shim-runsc-v1"
+install -m 0755 "$work/containerd-shim-runsc-v1" "$root/usr/bin/containerd-shim-runsc-v1"
 
 mkdir -p "$work/builder-root"
 if [ -n "${AGENT_VMM_BUILDKIT_ROOT_TAR:-}" ]; then
   test -f "$AGENT_VMM_BUILDKIT_ROOT_TAR"
   cp "$AGENT_VMM_BUILDKIT_ROOT_TAR" "$work/builder-root.tar"
 else
-  GOBIN=$work/tools go install "github.com/google/go-containerregistry/cmd/crane@v$(value .crane)"
-  "$work/tools/crane" export --platform linux/arm64 "$(value .buildkit.image)" "$work/builder-root.tar"
+  GOBIN=$work/tools go install github.com/google/go-containerregistry/cmd/crane@latest
+  "$work/tools/crane" export --platform linux/arm64 docker.io/moby/buildkit:rootless "$work/builder-root.tar"
 fi
 tar -xf "$work/builder-root.tar" -C "$work/builder-root"
-verify256 "$(value .buildkit.rootlesskit_sha256)" "$work/builder-root/usr/bin/rootlesskit"
-verify256 "$(value .buildkit.buildkit_runc_sha256)" "$work/builder-root/usr/bin/buildkit-runc"
+test -x "$work/builder-root/usr/bin/rootlesskit"
+test -x "$work/builder-root/usr/bin/buildkit-runc"
 mkdir -p "$work/builder-root/workspace" "$work/builder-root/output" "$work/builder-root/run/secrets" "$work/builder-root/home/user/.local/share/buildkit"
 tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/builder-root.tar" -C "$work/builder-root" .
 mkdir -p "$root/usr/lib/agent-vmm"
@@ -163,6 +113,7 @@ ln -s /etc/init.d/agent-vmmd "$root/etc/runlevels/default/agent-vmmd"
 for service in devfs dmesg procfs sysfs cgroups; do ln -s "/etc/init.d/$service" "$root/etc/runlevels/sysinit/$service"; done
 for service in modules sysctl hostname networking; do ln -s "/etc/init.d/$service" "$root/etc/runlevels/boot/$service"; done
 find "$root/usr/libexec/cni" -type f ! -name bridge ! -name host-local ! -name loopback -delete
+rm -f "$root/usr/bin/runc" "$root/usr/bin/containerd-shim-runc-v2" "$root/usr/bin/ctr"
 test ! -e "$root/usr/bin/runc"
 test ! -e "$root/usr/bin/containerd-shim-runc-v2"
 test ! -e "$root/usr/bin/ctr"

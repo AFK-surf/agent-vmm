@@ -408,48 +408,19 @@ func reservationFromLabels(namespaceID string, labels map[string]string) (*vmmdv
 }
 
 func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, error) {
-	snapshot, _, _, err := r.guestDiskSnapshotWithCounts(ctx)
-	return snapshot, err
-}
-
-func (r *Runtime) guestDiskSummary(ctx context.Context) (*vmmdv1.GuestDiskBudget, error) {
-	snapshot, namespaceCount, reservationCount, err := r.guestDiskSnapshotWithCounts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	available, _ := snapshot.AvailableBytes()
-	reserve, ok := snapshot.SystemReserveBytes()
-	if !ok {
-		return nil, guestdisk.ErrCapacityUnavailable
-	}
-	return &vmmdv1.GuestDiskBudget{
-		CapacityBytes:            snapshot.CapacityBytes,
-		UsedBytes:                snapshot.UsedBytes,
-		WritableHeadroomBytes:    snapshot.WritableHeadroomBytes,
-		ImportReservationBytes:   snapshot.ImportReservationBytes,
-		SystemReserveBytes:       reserve,
-		AvailableBytes:           available,
-		AllocationUnitBytes:      snapshot.AllocationUnitBytes,
-		NamespaceCount:           namespaceCount,
-		ActiveImportReservations: reservationCount,
-	}, nil
-}
-
-func (r *Runtime) guestDiskSnapshotWithCounts(ctx context.Context) (guestdisk.Snapshot, uint32, uint32, error) {
 	var stats unix.Statfs_t
 	if err := unix.Statfs(stateRoot, &stats); err != nil {
-		return guestdisk.Snapshot{}, 0, 0, err
+		return guestdisk.Snapshot{}, err
 	}
 	used := (stats.Blocks - stats.Bfree) * uint64(stats.Bsize)
 	capacity := used + stats.Bavail*uint64(stats.Bsize)
 	var headroom uint64
 	names, err := r.client.NamespaceService().List(ctx)
 	if err != nil {
-		return guestdisk.Snapshot{}, 0, 0, err
+		return guestdisk.Snapshot{}, err
 	}
-	namespaceCount, err := guestDiskNamespaceCount(names)
-	if err != nil {
-		return guestdisk.Snapshot{}, 0, 0, err
+	if len(names) > maxGCNamespaces {
+		return guestdisk.Snapshot{}, errors.New("Guest disk accounting namespace bound exceeded")
 	}
 	for _, name := range names {
 		if name == runtimeContainerdNamespace {
@@ -457,48 +428,33 @@ func (r *Runtime) guestDiskSnapshotWithCounts(ctx context.Context) (guestdisk.Sn
 		}
 		labels, err := r.client.NamespaceService().Labels(ctx, name)
 		if err != nil {
-			return guestdisk.Snapshot{}, 0, 0, err
+			return guestdisk.Snapshot{}, err
 		}
 		quota, project, parseErr := accountableNamespaceQuota(name, labels)
 		if parseErr != nil {
-			return guestdisk.Snapshot{}, 0, 0, parseErr
+			return guestdisk.Snapshot{}, parseErr
 		}
 		usage, err := projectUsage(r.stateDevice, project)
 		if err != nil {
-			return guestdisk.Snapshot{}, 0, 0, err
+			return guestdisk.Snapshot{}, err
 		}
 		if quota > usage {
 			var carry uint64
 			headroom, carry = bits.Add64(headroom, quota-usage, 0)
 			if carry != 0 {
-				return guestdisk.Snapshot{}, 0, 0, errors.New("Guest writable quota accounting overflow")
+				return guestdisk.Snapshot{}, errors.New("Guest writable quota accounting overflow")
 			}
 		}
 	}
-	imports, reservationCount, err := importReservationSummary(filepath.Join(stateRoot, "import-reservations"))
+	imports, _, err := importReservationSummary(filepath.Join(stateRoot, "import-reservations"))
 	if err != nil {
-		return guestdisk.Snapshot{}, 0, 0, err
+		return guestdisk.Snapshot{}, err
 	}
 	if imports > used {
-		return guestdisk.Snapshot{}, 0, 0, errors.New("Guest import reservation exceeds physical usage")
+		return guestdisk.Snapshot{}, errors.New("Guest import reservation exceeds physical usage")
 	}
 	return guestdisk.Snapshot{CapacityBytes: capacity, UsedBytes: used - imports, WritableHeadroomBytes: headroom, ImportReservationBytes: imports,
-		EmergencyBytes: guestdisk.DefaultEmergencyBytes, MetadataGrowthBytes: guestdisk.DefaultMetadataBytes, AllocationUnitBytes: uint64(stats.Bsize)}, namespaceCount, reservationCount, nil
-}
-
-func guestDiskNamespaceCount(names []string) (uint32, error) {
-	// This is the same product-realizable bound enforced by the OCI GC owner.
-	// The 15-second observation must never turn it into an unbounded scan.
-	if len(names) > maxGCNamespaces {
-		return 0, errors.New("Guest disk accounting namespace bound exceeded")
-	}
-	count := len(names)
-	for _, name := range names {
-		if name == runtimeContainerdNamespace {
-			count--
-		}
-	}
-	return uint32(count), nil
+		EmergencyBytes: guestdisk.DefaultEmergencyBytes, MetadataGrowthBytes: guestdisk.DefaultMetadataBytes, AllocationUnitBytes: uint64(stats.Bsize)}, nil
 }
 
 func accountableNamespaceQuota(name string, labels map[string]string) (uint64, uint32, error) {

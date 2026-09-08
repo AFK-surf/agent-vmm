@@ -32,7 +32,7 @@ start verifies the full Guest bundle against the manifest digest embedded in
 the Host executable. Appliance reconciliation verifies and reads only
 `mcp-appliance/manifest.pb` and `mcp-appliance.digest` against that same
 manifest; the image digest and exact
-`agent-vmm.local/mcp@<digest>` reference must match the Guest lock. At Host
+`agent-vmm.local/mcp@<digest>` reference must match the Guest manifest. At Host
 startup, one unique desired installation for that product may atomically move
 to the bundled artifact and a stopped revision. The installation ID,
 registration, approved grant, and encrypted volume do not change. Multiple

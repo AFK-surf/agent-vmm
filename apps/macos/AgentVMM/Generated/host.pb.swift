@@ -6219,80 +6219,45 @@ public nonisolated struct Agentvmm_Host_V1_GetRemoteObservationRequest: Sendable
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Host_V1_GetRemoteObservationResponse: @unchecked Sendable {
+public nonisolated struct Agentvmm_Host_V1_GetRemoteObservationResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var health: Agentvmm_Host_V1_HealthStatus {
-    get {_storage._health ?? Agentvmm_Host_V1_HealthStatus()}
-    set {_uniqueStorage()._health = newValue}
+    get {_health ?? Agentvmm_Host_V1_HealthStatus()}
+    set {_health = newValue}
   }
   /// Returns true if `health` has been explicitly set.
-  public var hasHealth: Bool {_storage._health != nil}
+  public var hasHealth: Bool {self._health != nil}
   /// Clears the value of `health`. Subsequent reads from it will return its default value.
-  public mutating func clearHealth() {_uniqueStorage()._health = nil}
+  public mutating func clearHealth() {self._health = nil}
 
   public var usage: Agentvmm_Host_V1_Usage {
-    get {_storage._usage ?? Agentvmm_Host_V1_Usage()}
-    set {_uniqueStorage()._usage = newValue}
+    get {_usage ?? Agentvmm_Host_V1_Usage()}
+    set {_usage = newValue}
   }
   /// Returns true if `usage` has been explicitly set.
-  public var hasUsage: Bool {_storage._usage != nil}
+  public var hasUsage: Bool {self._usage != nil}
   /// Clears the value of `usage`. Subsequent reads from it will return its default value.
-  public mutating func clearUsage() {_uniqueStorage()._usage = nil}
+  public mutating func clearUsage() {self._usage = nil}
 
   public var observedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {_storage._observedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
-    set {_uniqueStorage()._observedAt = newValue}
+    get {_observedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_observedAt = newValue}
   }
   /// Returns true if `observedAt` has been explicitly set.
-  public var hasObservedAt: Bool {_storage._observedAt != nil}
+  public var hasObservedAt: Bool {self._observedAt != nil}
   /// Clears the value of `observedAt`. Subsequent reads from it will return its default value.
-  public mutating func clearObservedAt() {_uniqueStorage()._observedAt = nil}
-
-  public var diskBudget: Agentvmm_Host_V1_GuestDiskBudget {
-    get {_storage._diskBudget ?? Agentvmm_Host_V1_GuestDiskBudget()}
-    set {_uniqueStorage()._diskBudget = newValue}
-  }
-  /// Returns true if `diskBudget` has been explicitly set.
-  public var hasDiskBudget: Bool {_storage._diskBudget != nil}
-  /// Clears the value of `diskBudget`. Subsequent reads from it will return its default value.
-  public mutating func clearDiskBudget() {_uniqueStorage()._diskBudget = nil}
+  public mutating func clearObservedAt() {self._observedAt = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _storage = _StorageClass.defaultInstance
-}
-
-public nonisolated struct Agentvmm_Host_V1_GuestDiskBudget: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var capacityBytes: UInt64 = 0
-
-  public var usedBytes: UInt64 = 0
-
-  public var writableHeadroomBytes: UInt64 = 0
-
-  public var importReservationBytes: UInt64 = 0
-
-  public var systemReserveBytes: UInt64 = 0
-
-  public var availableBytes: UInt64 = 0
-
-  public var allocationUnitBytes: UInt64 = 0
-
-  public var namespaceCount: UInt32 = 0
-
-  public var activeImportReservations: UInt32 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
+  fileprivate var _health: Agentvmm_Host_V1_HealthStatus? = nil
+  fileprivate var _usage: Agentvmm_Host_V1_Usage? = nil
+  fileprivate var _observedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
 public nonisolated struct Agentvmm_Host_V1_SetConnectionStateRequest: Sendable {
@@ -16437,98 +16402,7 @@ nonisolated extension Agentvmm_Host_V1_GetRemoteObservationRequest: SwiftProtobu
 
 nonisolated extension Agentvmm_Host_V1_GetRemoteObservationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetRemoteObservationResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}health\0\u{1}usage\0\u{3}observed_at\0\u{3}disk_budget\0")
-
-  fileprivate class _StorageClass {
-    var _health: Agentvmm_Host_V1_HealthStatus? = nil
-    var _usage: Agentvmm_Host_V1_Usage? = nil
-    var _observedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
-    var _diskBudget: Agentvmm_Host_V1_GuestDiskBudget? = nil
-
-      // This property is used as the initial default value for new instances of the type.
-      // The type itself is protecting the reference to its storage via CoW semantics.
-      // This will force a copy to be made of this reference when the first mutation occurs;
-      // hence, it is safe to mark this as `nonisolated(unsafe)`.
-      static nonisolated(unsafe) let defaultInstance = _StorageClass()
-
-    private init() {}
-
-    init(copying source: _StorageClass) {
-      _health = source._health
-      _usage = source._usage
-      _observedAt = source._observedAt
-      _diskBudget = source._diskBudget
-    }
-  }
-
-  fileprivate mutating func _uniqueStorage() -> _StorageClass {
-    if !isKnownUniquelyReferenced(&_storage) {
-      _storage = _StorageClass(copying: _storage)
-    }
-    return _storage
-  }
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    _ = _uniqueStorage()
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      while let fieldNumber = try decoder.nextFieldNumber() {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch fieldNumber {
-        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._health) }()
-        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._usage) }()
-        case 3: try { try decoder.decodeSingularMessageField(value: &_storage._observedAt) }()
-        case 4: try { try decoder.decodeSingularMessageField(value: &_storage._diskBudget) }()
-        default: break
-        }
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every if/case branch local when no optimizations
-      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-      // https://github.com/apple/swift-protobuf/issues/1182
-      try { if let v = _storage._health {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-      } }()
-      try { if let v = _storage._usage {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-      } }()
-      try { if let v = _storage._observedAt {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-      } }()
-      try { if let v = _storage._diskBudget {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-      } }()
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_GetRemoteObservationResponse, rhs: Agentvmm_Host_V1_GetRemoteObservationResponse) -> Bool {
-    if lhs._storage !== rhs._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
-        let _storage = _args.0
-        let rhs_storage = _args.1
-        if _storage._health != rhs_storage._health {return false}
-        if _storage._usage != rhs_storage._usage {return false}
-        if _storage._observedAt != rhs_storage._observedAt {return false}
-        if _storage._diskBudget != rhs_storage._diskBudget {return false}
-        return true
-      }
-      if !storagesAreEqual {return false}
-    }
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_GuestDiskBudget: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GuestDiskBudget"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}capacity_bytes\0\u{3}used_bytes\0\u{3}writable_headroom_bytes\0\u{3}import_reservation_bytes\0\u{3}system_reserve_bytes\0\u{3}available_bytes\0\u{3}allocation_unit_bytes\0\u{3}namespace_count\0\u{3}active_import_reservations\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}health\0\u{1}usage\0\u{3}observed_at\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -16536,61 +16410,35 @@ nonisolated extension Agentvmm_Host_V1_GuestDiskBudget: SwiftProtobuf.Message, S
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.capacityBytes) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.usedBytes) }()
-      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.writableHeadroomBytes) }()
-      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.importReservationBytes) }()
-      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.systemReserveBytes) }()
-      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.availableBytes) }()
-      case 7: try { try decoder.decodeSingularUInt64Field(value: &self.allocationUnitBytes) }()
-      case 8: try { try decoder.decodeSingularUInt32Field(value: &self.namespaceCount) }()
-      case 9: try { try decoder.decodeSingularUInt32Field(value: &self.activeImportReservations) }()
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._health) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._usage) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._observedAt) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.capacityBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.capacityBytes, fieldNumber: 1)
-    }
-    if self.usedBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.usedBytes, fieldNumber: 2)
-    }
-    if self.writableHeadroomBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.writableHeadroomBytes, fieldNumber: 3)
-    }
-    if self.importReservationBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.importReservationBytes, fieldNumber: 4)
-    }
-    if self.systemReserveBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.systemReserveBytes, fieldNumber: 5)
-    }
-    if self.availableBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.availableBytes, fieldNumber: 6)
-    }
-    if self.allocationUnitBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.allocationUnitBytes, fieldNumber: 7)
-    }
-    if self.namespaceCount != 0 {
-      try visitor.visitSingularUInt32Field(value: self.namespaceCount, fieldNumber: 8)
-    }
-    if self.activeImportReservations != 0 {
-      try visitor.visitSingularUInt32Field(value: self.activeImportReservations, fieldNumber: 9)
-    }
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._health {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._usage {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._observedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentvmm_Host_V1_GuestDiskBudget, rhs: Agentvmm_Host_V1_GuestDiskBudget) -> Bool {
-    if lhs.capacityBytes != rhs.capacityBytes {return false}
-    if lhs.usedBytes != rhs.usedBytes {return false}
-    if lhs.writableHeadroomBytes != rhs.writableHeadroomBytes {return false}
-    if lhs.importReservationBytes != rhs.importReservationBytes {return false}
-    if lhs.systemReserveBytes != rhs.systemReserveBytes {return false}
-    if lhs.availableBytes != rhs.availableBytes {return false}
-    if lhs.allocationUnitBytes != rhs.allocationUnitBytes {return false}
-    if lhs.namespaceCount != rhs.namespaceCount {return false}
-    if lhs.activeImportReservations != rhs.activeImportReservations {return false}
+  public static func ==(lhs: Agentvmm_Host_V1_GetRemoteObservationResponse, rhs: Agentvmm_Host_V1_GetRemoteObservationResponse) -> Bool {
+    if lhs._health != rhs._health {return false}
+    if lhs._usage != rhs._usage {return false}
+    if lhs._observedAt != rhs._observedAt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

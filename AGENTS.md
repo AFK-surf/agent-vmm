@@ -33,6 +33,13 @@ Remove any text that does not affect a decision.
 - Ask a question when a wrong assumption costs more than the question.
 - Otherwise, use the best supported assumption and state it clearly.
 
+## Documentation style
+
+Use the project `ste-writing` skill for documentation, READMEs, runbooks, release
+notes, and pull request text. Use STE-flavored mode by default. Use strict mode
+for procedures and safety text. Do not use this default when the user requests
+detailed writing or a different style.
+
 ## Unexpected Situations
 
 - `build/host/install.sh` selects its payload exclusively through `OUTPUT_DIRECTORY`; a positional app path is ignored. Always set `OUTPUT_DIRECTORY` when installing a non-default package, then verify the installed helper set before reporting the local version.
@@ -61,13 +68,18 @@ Do not record temporary failures or narrow implementation mistakes.
 - `.context` contains planning documents only. Production and test code must not read from or write to it.
 - Do not preserve compatibility with previously installed MCP, connector, data-worker binaries, launchd jobs, configuration, or local state. Remove them with explicit manual cleanup instructions; production code must not detect, migrate, dual-run, or read their legacy state.
 - Build guest artifacts on Linux arm64 and a case-sensitive file system.
-- Alpine stable repositories remove superseded kernel package revisions; keep the locked kernel package and digest current or retain it in `AGENT_VMM_DOWNLOAD_CACHE`.
+- Build the Guest from the current Alpine stable repository. Do not pin Alpine,
+  APK, kernel, containerd, gVisor, or BuildKit versions or input hashes. CI must
+  test the resolved dependency set before it publishes a Guest bundle.
 - Install the complete gVisor release directory.
 - Select `linux/arm64` when an image index contains multiple platforms.
-- Verify the digest of each final guest component.
-- The Alpine `containerd` package installs a guest-native runc. Extract only the locked containerd payload.
+- Record the content identity of the completed Guest bundle and its published
+  artifacts. Do not treat downloaded dependency hashes as release identity.
+- The Alpine `containerd` package installs a guest-native runc. Remove runc and
+  `containerd-shim-runc-v2` from the assembled Guest.
 - Verify that the guest artifact contains no runc or shim-runc-v2.
-- Lock runsc, its shim, and containerd separately. Test the selected versions with a real sandbox.
+- Resolve runsc, its shim, and containerd during the Guest build. Test the
+  resolved set with a real sandbox.
 - Do not hide a compatibility failure with a wrapper or a runc fallback.
 - Run the nested rootless BuildKit worker as UID 1000 inside runsc.
 - Give it only sandbox-visible `CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP` for sub-ID mapping.
@@ -98,7 +110,7 @@ Do not record temporary failures or narrow implementation mistakes.
 - Remote leases are in-memory while allocation state is persisted. On host restart, reconcile every persisted `LEASED` allocation to a fail-closed non-leased state before admitting a replacement connector; an empty in-memory lease map cannot revoke or recover that allocation.
 - The supervised container process runs with an empty capability set. A root entrypoint cannot initialize a bind-mounted 0700 volume owned by a non-root UID; tests and workloads that require that ownership must start with the matching numeric UID/GID instead of relying on root capability bypass.
 - Containerd can retain the durable `running` label for a short interval after its task has been reaped; use `inspectContainer`'s task/status reconciliation as the state authority, treating a missing task as `stopped` and never exposing raw `NOT_FOUND` or stale `running` results.
-- The guest system namespace survives an appliance stop/removal lifecycle. A streamed system OCI import derives its request ID from the immutable import header; the bundled read-only image derives it from its locked canonical manifest reference. Reusing a fixed ID such as `bundled-mcp` makes a later setup fail with an idempotency conflict when content identity changes.
+- The guest system namespace survives an appliance stop/removal lifecycle. A streamed system OCI import derives its request ID from the immutable import header; the bundled read-only image derives it from its digest-bound canonical manifest reference. Reusing a fixed ID such as `bundled-mcp` makes a later setup fail with an idempotency conflict when content identity changes.
 - Appliance reconciliation runs frequently; publication must preserve an already-current private controller route and frontend runtime. Recreating either on every tick churns loopback ports and drops the MCP appliance's controller session.
 - `build/guest/build.sh` pipes `cpio` into `xz`; without an explicit `cpio` prerequisite, the redirected pipeline can emit a valid 32-byte empty initramfs and the host VM remains stuck in `STARTING`. Keep the prerequisite check and install `cpio` in every Linux arm64 build environment.
 - The development macOS VM is configured with two vCPUs; the bundled MCP grant currently reserves 1000 CPU millis for the system appliance and each client allocation, so one stale MCP client allocation can exhaust the host ledger and make a fresh Streamable HTTP handshake return 503. Clean up the stale allocation before diagnosing the endpoint as unhealthy, and keep the advertised client capacity aligned with the actual resource grant.

@@ -59,7 +59,7 @@ jobs:
           docker run --rm --platform linux/arm64 --privileged \
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$RUNNER_TEMP/guest-bundle:/bundle" \
-            -w /src alpine:3.24 \
+            -w /src alpine:latest \
             sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && git config --global --add safe.directory /src && build/guest/build.sh /bundle'
           sudo chown -R "$USER":"$(id -gn)" "$RUNNER_TEMP/guest-bundle"
           cd "$RUNNER_TEMP/guest-bundle"

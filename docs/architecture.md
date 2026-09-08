@@ -67,7 +67,12 @@ host-owned registry operations, snapshots, and the bounded endpoint projection.
 ## Security Facts
 
 - The code-signed Host executable embeds the expected Guest manifest digest. VM start verifies that manifest and every boot artifact before Virtualization.framework receives their paths. Guest health reports runtime observations; it does not echo Host-provided artifact identity as evidence.
-- The Guest dependency lock authorizes downloaded build inputs. The generated SBOM is CI inventory for dependency/license consumers, not a second runtime trust root.
+- The Guest build resolves the current upstream dependencies. CI tests and scans
+  that resolved set before publication. The generated SBOM records what entered
+  the bundle; it is inventory for dependency and license consumers, not a
+  runtime trust root. Moving upstream dependencies can fail the build, tests, or
+  scans before publication. The published Guest bundle identity, not an input
+  lock, selects the release artifact.
 - OCI manifest and blob digests bind image content. The control plane supplies an immutable HTTPS archive URL plus its expected size and SHA-256. The target Host downloads those bytes directly, and the Guest validates the exact Host-to-Guest transfer and idempotency record before activating the image. The URL transport is not a second content authority.
 - The packaged release inventory is diagnostic metadata. Lifecycle admission uses the fixed executable, helper, Guest, plist, and launchd-template layout rather than trusting fields declared by that inventory.
 - Virtualization.framework isolates macOS from the Linux guest. It does not isolate agents inside one guest.
@@ -151,7 +156,8 @@ Dockerfile `RUN` commands execute untrusted code.
 A shared BuildKit daemon would mix build control, contexts, secrets, and caches.
 
 `agent-vmmd` starts a short-lived outer runsc sandbox for each build.
-The sandbox runs locked RootlessKit, BuildKit, and `buildkit-runc` components as UID 1000.
+The sandbox runs the CI-tested RootlessKit, BuildKit, and `buildkit-runc`
+components as UID 1000.
 
 The sandbox mounts only the current context, temporary secrets, one cache, and one OCI output.
 `agent-vmmd` verifies the output, records the caller's logical image grant, and materializes its rootfs in
@@ -548,7 +554,8 @@ It does not provide the required single-guest agent namespace model.
 ### Dockerfile and BuildKit
 
 V0 supports Dockerfiles, Containerfiles, multi-stage targets, build arguments, secrets, caches, and OCI output.
-It uses a locked Dockerfile frontend and a short-lived BuildKit daemon.
+It uses the Dockerfile frontend from the resolved BuildKit image and a
+short-lived BuildKit daemon.
 
 The outer runsc sandbox sets the resource boundary through its cgroup and project quota.
 Its network has only loopback or filtered egress for the current agent namespace.
@@ -592,8 +599,8 @@ V0 permits these permanent production components:
 - one shared Virtualization.framework virtual machine
 - one versioned guest image
 - one `agent-vmmd` service
-- locked containerd, runsc shim, runsc, CNI, and nftables components
-- one locked BuildKit image and Dockerfile frontend
+- CI-tested containerd, runsc shim, runsc, CNI, and nftables components
+- one CI-tested BuildKit image and Dockerfile frontend
 - one host API and one versioned guest protocol
 - `NetworkLink`, `VolumeGrant`, and `ControlGrant`
 
@@ -630,12 +637,13 @@ Test link scope, direction, ports, future containers, revocation, and restart re
 
 ### Isolated image builds
 
-Add short-lived BuildKit jobs, a locked frontend, namespace caches, progress, and cancellation.
+Add short-lived BuildKit jobs, a tested frontend, namespace caches, progress,
+and cancellation.
 Test multi-stage builds, cache reuse, secrets, limits, hostile Dockerfiles, and namespace isolation.
 
 ### Hardening
 
-Sign and lock guest, runtime, and build artifacts.
+Publish content-addressed guest, runtime, and build artifacts.
 Minimize the kernel and guest user space.
 
 Fuzz RPC inputs, paths, OCI specifications, and grant state changes.
@@ -694,25 +702,11 @@ inventory observation, and destructive cleanup. Each RemoteComputeService transp
 is scoped to its exact registration and cannot see local or other-domain environments. This same-UID split is
 an application least-privilege boundary, not a separate macOS security principal.
 
-The remote observation stream also carries one fixed-size Guest disk budget.
-`GetSystemUsage` computes actual usable capacity, physical use excluding active
-import holds, unused writable commitments, active import holds, the fixed system
-reserve, aligned available bytes, allocation unit, and aggregate namespace/hold
-counts. The Host performs one Guest RPC per 15-second observation and the
-connector forwards nine scalars; it never returns namespace records, paths, or
-credentials. Guest accounting reuses the existing namespace list and project
-quota reads, accepts at most 128 names including the internal runtime namespace,
-and observes at most the single live hold permitted by the global import owner.
-Remote registrations admit at most 64 scoped environments. The existing OCI GC
-pass applies the same 128-namespace bound and independently rejects more than
-4096 snapshot/content facts. The observation does not run GC or traverse
-snapshot/content trees. It is not placement or admission authority; a changed,
-present summary may advance Cue's existing capacity epoch to wake a durable
-wait, while Guest admission remains the final capacity decision.
-The protobuf field is optional during rollout: an older Guest or a transient
-accounting failure omits only the disk budget and does not disconnect the
-existing observation stream. This also preserves stream availability after a
-fully rolled-out accounting fault; no fallback value is synthesized or stored.
+The remote observation stream contains bounded health, usage, and inventory
+facts. It does not publish the Guest disk budget. Guest disk accounting remains
+local admission authority and runs only when an operation needs it. A capacity
+rejection returns a typed error with safe fields; it does not create a periodic
+management projection.
 
 Release retains allocation data. Destruction requires a fresh plan and an execute
 request matching its revision and volume set. Disconnect starts a bounded grace

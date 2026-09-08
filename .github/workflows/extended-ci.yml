@@ -57,7 +57,7 @@ jobs:
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$RUNNER_TEMP/guest-bundle:/bundle" \
             -w /src \
-            alpine:3.24 \
+            alpine:latest \
             sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && build/guest/build.sh /bundle'
           cd "$RUNNER_TEMP/guest-bundle"
           jq -r '.artifacts | .mcp_appliance_digest, .mcp_appliance_manifest | "\(.sha256)  \(.path)"' manifest.json | sha256sum -c -
