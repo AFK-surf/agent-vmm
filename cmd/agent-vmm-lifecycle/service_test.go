@@ -95,7 +95,7 @@ func TestServiceDefinitionUsesFreshBundleResourceGeometry(t *testing.T) {
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	template := `<plist><dict><key>ProgramArguments</key><array><string>host</string><string>--cpus</string><string>8</string><string>--memory</string><string>12884901888</string><string>--state-size</string><string>34359738368</string></array></dict></plist>`
+	template := `<plist><dict><key>ProgramArguments</key><array><string>host</string><string>--cpus</string><string>8</string><string>--memory</string><string>12884901888</string><string>--state-size</string><string>68719476736</string></array></dict></plist>`
 	current := `<plist><dict><key>ProgramArguments</key><array><string>host</string><string>--cpus</string><string>8</string><string>--memory</string><string>8589934592</string><string>--state-size</string><string>17179869184</string></array></dict></plist>`
 	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(template), 0o600); err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestServiceDefinitionUsesFreshBundleResourceGeometry(t *testing.T) {
 	for _, expected := range []string{
 		"<string>--cpus</string><string>8</string>",
 		"<string>--memory</string><string>12884901888</string>",
-		"<string>--state-size</string><string>34359738368</string>",
+		"<string>--state-size</string><string>68719476736</string>",
 	} {
 		if !strings.Contains(definition, expected) {
 			t.Errorf("updated definition did not retain %q: %s", expected, definition)

@@ -26,7 +26,10 @@ import (
 	"google.golang.org/grpc"
 )
 
-const installedVMResumeTimeout = 10 * time.Minute
+const (
+	installedVMResumeTimeout = 10 * time.Minute
+	defaultNewStateBytes     = int64(64 << 30)
+)
 
 func main() {
 	if err := validateRuntimeUID(os.Geteuid()); err != nil {
@@ -36,13 +39,14 @@ func main() {
 		log.Fatal(err)
 	}
 	var config vmm.Config
+	var newStateBytes int64
 	var operatorSocket, remoteComputeSocket, trustSocket, serviceTunnelSocket, meshControlSocket, dataWorkerSocket, dataWorkerPath, trustCapabilityFile, databasePath, sessionDirectory string
 	var disablePersonalMeshPairing bool
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
 	flag.StringVar(&config.InstanceDirectory, "instance", "", "VM instance directory")
 	flag.UintVar(&config.CPUCount, "cpus", 8, "fixed VM CPU count")
 	flag.Uint64Var(&config.MemoryBytes, "memory", 12<<30, "fixed VM memory bytes")
-	flag.Int64Var(&config.StateBytes, "state-size", 32<<30, "fully physically backed state disk bytes")
+	flag.Int64Var(&newStateBytes, "state-size", defaultNewStateBytes, "fully physically backed state disk bytes for a new installation")
 	flag.StringVar(&config.SerialLog, "serial-log", "", "serial log path")
 	flag.StringVar(&operatorSocket, "operator-socket", "", "operator Unix socket")
 	flag.StringVar(&remoteComputeSocket, "remote-compute-socket", "", "restricted remote connector Unix socket")
@@ -88,6 +92,11 @@ func main() {
 		log.Fatal(err)
 	}
 	defer ownerLock.Close()
+	stateDisk := filepath.Join(config.InstanceDirectory, "state.raw")
+	config.StateBytes, err = resolveStateDiskBytes(stateDisk, newStateBytes)
+	if err != nil {
+		log.Fatal(err)
+	}
 	manager, err := vmm.NewManager(config)
 	if err != nil {
 		log.Fatal(err)
@@ -95,7 +104,7 @@ func main() {
 	controller, err := host.New(host.Config{
 		Manager: manager, DatabasePath: databasePath, SessionDirectory: sessionDirectory,
 		InstanceID: filepath.Base(config.InstanceDirectory), BundleDirectory: config.BundleDirectory,
-		InstanceDirectory: config.InstanceDirectory, StateDiskIdentity: filepath.Join(config.InstanceDirectory, "state.raw"),
+		InstanceDirectory: config.InstanceDirectory, StateDiskIdentity: stateDisk,
 		CPUCount: config.CPUCount, MemoryBytes: config.MemoryBytes, StateBytes: config.StateBytes,
 		TrustKeyProvider:           newTrustKeyProvider(config.InstanceDirectory),
 		DisablePersonalMeshPairing: disablePersonalMeshPairing,
@@ -209,7 +218,7 @@ func main() {
 		resumeContext, resumeCancel := context.WithTimeout(ctx, installedVMResumeTimeout)
 		defer resumeCancel()
 		resumeRequestID := fmt.Sprintf("host-start-resume-%d", time.Now().UnixNano())
-		if err := resumeInstalledVM(resumeContext, filepath.Join(config.InstanceDirectory, "state.raw"), config.StateBytes, resumeRequestID, controller.StartVM); err != nil {
+		if err := resumeInstalledVM(resumeContext, stateDisk, resumeRequestID, controller.StartVM); err != nil {
 			log.Printf("installed VM was not resumed: %v", err)
 		}
 	}()
@@ -236,7 +245,7 @@ func acquireHostOwnerLock(path string) (*os.File, error) {
 // HostVMRestartRecovery.tla owns this one-shot post-install transition. It is
 // deliberately separate from installation retries and ordinary connector
 // reconnect.
-func resumeInstalledVM(ctx context.Context, stateDisk string, expectedBytes int64, requestID string, start func(context.Context, string) (*hostv1.OperationResponse, error)) error {
+func resumeInstalledVM(ctx context.Context, stateDisk, requestID string, start func(context.Context, string) (*hostv1.OperationResponse, error)) error {
 	initializingMarker := filepath.Join(filepath.Dir(stateDisk), "state.initializing")
 	if marker, markerErr := os.Lstat(initializingMarker); markerErr == nil {
 		if !marker.Mode().IsRegular() {
@@ -246,18 +255,43 @@ func resumeInstalledVM(ctx context.Context, stateDisk string, expectedBytes int6
 	} else if !errors.Is(markerErr, os.ErrNotExist) {
 		return fmt.Errorf("read installed VM initialization marker: %w", markerErr)
 	}
-	info, err := os.Lstat(stateDisk)
-	if errors.Is(err, os.ErrNotExist) {
+	_, exists, err := existingStateDiskBytes(stateDisk)
+	if !exists && err == nil {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("read installed VM state: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Size() != expectedBytes {
-		return errors.New("installed VM state disk is invalid; run Agent VMM diagnostics")
+		return err
 	}
 	_, err = start(ctx, requestID)
 	return err
+}
+
+func resolveStateDiskBytes(path string, newStateBytes int64) (int64, error) {
+	bytes, exists, err := existingStateDiskBytes(path)
+	if err != nil {
+		return 0, err
+	}
+	if exists {
+		return bytes, nil
+	}
+	return newStateBytes, nil
+}
+
+func existingStateDiskBytes(path string) (int64, bool, error) {
+	fd, err := unix.Open(path, unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, errors.New("installed VM state disk is unavailable; run Agent VMM diagnostics")
+	}
+	file := os.NewFile(uintptr(fd), path)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 1<<30 {
+		return 0, false, errors.New("installed VM state disk is invalid; run Agent VMM diagnostics")
+	}
+	return info.Size(), true, nil
 }
 
 func validateRuntimeUID(uid int) error {

@@ -223,9 +223,12 @@ For a state-preserving update:
 
 Formatting an ext4 filesystem may discard or deallocate blocks from a sparse
 backing file. The LaunchDaemon startup check restores the required fully-backed
-`state.raw` size before the VM starts. Treat a failure of that check as a Host
-storage problem; do not start the VM on a partially allocated disk and do not
-recreate the disk while the existing filesystem still boots.
+existing `state.raw` to its actual file length before the VM starts. The
+`--state-size` launch argument (64 GiB by default) is used only when creating a
+new disk; it never resizes or rejects an existing disk. Treat a failure of the
+backing check as a Host storage problem; do not start the VM on a partially
+allocated disk and do not recreate the disk while the existing filesystem still
+boots.
 
 If VZ reaches `Running` but VMMD repeatedly resets vsock 4050 before publishing
 health, preserve the state disk and inspect Guest startup first. An existing
@@ -397,7 +400,7 @@ The operation is complete only when all applicable checks pass:
 - one loaded launchd job, one Host generation, and no stale VZ owner;
 - the installed bundle, embedded Guest manifest, signature, and entitlements
   form one coherent artifact;
-- exactly one selected `state.raw`, fully backed to the configured size, with
+- exactly one selected `state.raw`, fully backed to its actual file length, with
   obsolete disks and archives removed;
 - Host and Guest health are ready and the registration is connected;
 - an existing or freshly recreated allocation opens a runtime session;

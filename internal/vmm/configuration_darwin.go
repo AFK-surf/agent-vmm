@@ -93,7 +93,7 @@ func blockDevice(path string, readOnly bool, identifier string) (*vz.VirtioBlock
 	return device, nil
 }
 
-func prepareState(directory string, size int64) (bool, error) {
+func prepareState(directory string, newStateBytes int64) (bool, error) {
 	statePath := filepath.Join(directory, "state.raw")
 	markerPath := filepath.Join(directory, "state.initializing")
 	file, err := os.OpenFile(statePath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
@@ -110,16 +110,16 @@ func prepareState(directory string, size int64) (bool, error) {
 			file.Close()
 			return false, err
 		}
-		if freeBefore < uint64(size+hostEmergencyBytes) {
+		if freeBefore < uint64(newStateBytes+hostEmergencyBytes) {
 			file.Close()
 			return false, errors.New("state disk requires full physical backing plus 10 GiB host emergency space")
 		}
-		allocation := &unix.Fstore_t{Flags: unix.F_ALLOCATEALL, Posmode: unix.F_PEOFPOSMODE, Length: size}
+		allocation := &unix.Fstore_t{Flags: unix.F_ALLOCATEALL, Posmode: unix.F_PEOFPOSMODE, Length: newStateBytes}
 		if err := unix.FcntlFstore(file.Fd(), unix.F_PREALLOCATE, allocation); err != nil {
 			file.Close()
 			return false, fmt.Errorf("fully allocate state disk: %w", err)
 		}
-		if err := file.Truncate(size); err != nil {
+		if err := file.Truncate(newStateBytes); err != nil {
 			file.Close()
 			return false, err
 		}
@@ -137,7 +137,7 @@ func prepareState(directory string, size int64) (bool, error) {
 			file.Close()
 			return false, err
 		}
-		if allocated < uint64(size) {
+		if allocated < uint64(newStateBytes) {
 			file.Close()
 			return false, errors.New("state disk is not fully physically backed")
 		}
@@ -174,9 +174,10 @@ func prepareState(directory string, size int64) (bool, error) {
 	file = os.NewFile(uintptr(fd), statePath)
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != size {
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
 		return false, errors.New("existing state disk has unexpected size")
 	}
+	size := info.Size()
 	allocated, err := allocatedBytes(info)
 	if err != nil {
 		return false, err

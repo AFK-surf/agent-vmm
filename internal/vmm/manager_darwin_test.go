@@ -198,9 +198,13 @@ func TestStateInitializationMarker(t *testing.T) {
 	if err := finishStateInitialization(directory); err != nil {
 		t.Fatal(err)
 	}
-	initializing, err = prepareState(directory, size)
+	initializing, err = prepareState(directory, size*2)
 	if err != nil || initializing {
 		t.Fatalf("prepare initialized state = %t, %v", initializing, err)
+	}
+	info, err = os.Stat(filepath.Join(directory, "state.raw"))
+	if err != nil || info.Size() != size {
+		t.Fatalf("existing state disk was resized to the new-install default: %v, %v", info, err)
 	}
 }
 

@@ -926,6 +926,32 @@ func testStateInitialization(t *testing.T) {
 		t.Fatalf("state disk = %v, %v", info, err)
 	}
 	harness.stop(t, true)
+	for index := range harness.processArgs {
+		if harness.processArgs[index] == "--state-size" && index+1 < len(harness.processArgs) {
+			harness.processArgs[index+1] = fmt.Sprint(16 << 30)
+		}
+	}
+	harness.crashAndRestartHost(t)
+	afterRestart, err := os.Stat(filepath.Join(harness.instance, "state.raw"))
+	if err != nil || afterRestart.Size() != 8<<30 || !os.SameFile(info, afterRestart) {
+		t.Fatalf("existing state disk changed under a new-install size: before=%v after=%v err=%v", info, afterRestart, err)
+	}
+	database, err := openE2EDatabase(harness.database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recordedStateBytes int64
+	if err := database.QueryRow(`SELECT state_bytes FROM vm_config WHERE id = 1`).Scan(&recordedStateBytes); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if recordedStateBytes != 8<<30 {
+		t.Fatalf("persisted state bytes = %d, want actual file length %d", recordedStateBytes, int64(8<<30))
+	}
+	harness.stop(t, true)
 
 	state, err = os.OpenFile(filepath.Join(harness.instance, "state.raw"), os.O_WRONLY, 0)
 	if err != nil {
