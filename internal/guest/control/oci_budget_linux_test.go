@@ -544,17 +544,17 @@ func TestImportReservationIsPhysicallyBackedAndReleased(t *testing.T) {
 	if err := writeImportReservation(path, hold, 8<<20); err != nil {
 		t.Fatal(err)
 	}
-	reserved, err := importReservationBytes(directory)
-	if err != nil || reserved < 8<<20 {
-		t.Fatalf("physical reservation=%d err=%v", reserved, err)
+	reserved, count, err := importReservationSummary(directory)
+	if err != nil || reserved < 8<<20 || count != 1 {
+		t.Fatalf("physical reservation=%d count=%d err=%v", reserved, count, err)
 	}
 	reservation := &importReservation{path: path, holdPath: hold, remaining: 8 << 20}
 	if err := reservation.Consume(3 << 20); err != nil {
 		t.Fatal(err)
 	}
-	shrunk, err := importReservationBytes(directory)
-	if err != nil || shrunk >= reserved || shrunk < 5<<20 {
-		t.Fatalf("converted reservation=%d before=%d err=%v", shrunk, reserved, err)
+	shrunk, count, err := importReservationSummary(directory)
+	if err != nil || shrunk >= reserved || shrunk < 5<<20 || count != 1 {
+		t.Fatalf("converted reservation=%d before=%d count=%d err=%v", shrunk, reserved, count, err)
 	}
 	reservation.Release()
 	if _, err := os.Stat(hold); !os.IsNotExist(err) {

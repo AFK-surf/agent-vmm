@@ -694,6 +694,26 @@ inventory observation, and destructive cleanup. Each RemoteComputeService transp
 is scoped to its exact registration and cannot see local or other-domain environments. This same-UID split is
 an application least-privilege boundary, not a separate macOS security principal.
 
+The remote observation stream also carries one fixed-size Guest disk budget.
+`GetSystemUsage` computes actual usable capacity, physical use excluding active
+import holds, unused writable commitments, active import holds, the fixed system
+reserve, aligned available bytes, allocation unit, and aggregate namespace/hold
+counts. The Host performs one Guest RPC per 15-second observation and the
+connector forwards nine scalars; it never returns namespace records, paths, or
+credentials. Guest accounting reuses the existing namespace list and project
+quota reads, accepts at most 128 names including the internal runtime namespace,
+and observes at most the single live hold permitted by the global import owner.
+Remote registrations admit at most 64 scoped environments. The existing OCI GC
+pass applies the same 128-namespace bound and independently rejects more than
+4096 snapshot/content facts. The observation does not run GC or traverse
+snapshot/content trees. It is not placement or admission authority; a changed,
+present summary may advance Cue's existing capacity epoch to wake a durable
+wait, while Guest admission remains the final capacity decision.
+The protobuf field is optional during rollout: an older Guest or a transient
+accounting failure omits only the disk budget and does not disconnect the
+existing observation stream. This also preserves stream availability after a
+fully rolled-out accounting fault; no fallback value is synthesized or stored.
+
 Release retains allocation data. Destruction requires a fresh plan and an execute
 request matching its revision and volume set. Disconnect starts a bounded grace
 period; expiry or revocation closes the capability and stops remote-owned work.

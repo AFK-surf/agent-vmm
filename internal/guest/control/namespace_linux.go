@@ -136,11 +136,17 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		return r.network.EnsureNamespace(namespace.GetId(), namespace.GetSubnet(), namespace.GetEgressMode())
 	}
 	if increase != 0 {
+		var lastSnapshot guestdisk.Snapshot
 		if err := r.diskBudget.AdmitQuota(func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
-			return r.diskAdmissionSnapshot(ctx, true, transaction)
+			snapshot, loadErr := r.diskAdmissionSnapshot(ctx, true, transaction)
+			if loadErr == nil || errors.Is(loadErr, guestdisk.ErrCapacityUnavailable) {
+				lastSnapshot = snapshot
+			}
+			return snapshot, loadErr
 		}, increase, commit); err != nil {
 			if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-				return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")
+				available, _ := lastSnapshot.AvailableBytes()
+				return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "namespace_admission", "Guest storage headroom is unavailable", available, increase)
 			}
 			return nil, err
 		}

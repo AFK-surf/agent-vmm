@@ -3,6 +3,7 @@ package control
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -41,9 +42,24 @@ func resourceExhausted(message string) error {
 // resourceCapacityExhausted is emitted only by the Guest owner that observes
 // the physical capacity boundary. The Host connector forwards this finite
 // dimension; callers must not infer it from error prose.
-func resourceCapacityExhausted(dimension resourcev2.CapacityDimension, message string) error {
+func resourceCapacityExhausted(dimension resourcev2.CapacityDimension, stage, message string) error {
+	return resourceCapacityExhaustedMetadata(dimension, stage, message, nil)
+}
+
+func resourceCapacityExhaustedWithBytes(dimension resourcev2.CapacityDimension, stage, message string, available, required uint64) error {
+	return resourceCapacityExhaustedMetadata(dimension, stage, message, map[string]string{
+		"available_bytes": strconv.FormatUint(available, 10),
+		"required_bytes":  strconv.FormatUint(required, 10),
+	})
+}
+
+func resourceCapacityExhaustedMetadata(dimension resourcev2.CapacityDimension, stage, message string, values map[string]string) error {
+	metadata := map[string]string{"resource_dimension": string(dimension), "stage": stage}
+	for key, value := range values {
+		metadata[key] = value
+	}
 	return detailedErrorMetadata(codes.ResourceExhausted, "RESOURCE_CAPACITY_EXHAUSTED", message,
-		"guest_capacity", string(dimension), map[string]string{"resource_dimension": string(dimension)})
+		"guest_capacity", string(dimension), metadata)
 }
 
 func detailedError(code codes.Code, reason, message, resourceType, resourceName string) error {

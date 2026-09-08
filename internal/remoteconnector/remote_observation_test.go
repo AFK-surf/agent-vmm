@@ -46,6 +46,11 @@ func TestPublicObservationUsesFiniteHealthAndDropsNativeReasons(t *testing.T) {
 	if usage.GetMemoryBytes() != 42 || usage.GetIssue() != "usage_stale" || strings.Contains(usage.String(), "private") {
 		t.Fatalf("usage = %+v", usage)
 	}
+
+	budget := publicDiskBudget(&hostv1.GuestDiskBudget{CapacityBytes: 64 << 30, AvailableBytes: 27 << 30, NamespaceCount: 2, ActiveImportReservations: 1})
+	if budget.GetCapacityBytes() != 64<<30 || budget.GetAvailableBytes() != 27<<30 || budget.GetNamespaceCount() != 2 || budget.GetActiveImportReservations() != 1 {
+		t.Fatalf("disk budget = %+v", budget)
+	}
 }
 
 func TestCurrentObservationDoesNotRefreshCachedInventoryWhenStateReadFails(t *testing.T) {

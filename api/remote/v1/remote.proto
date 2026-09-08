@@ -91,6 +91,19 @@ message RemoteObservationSnapshot {
   uint64 inventory_watermark = 10;
   uint32 inventory_count = 11;
   int64 inventory_observed_unix_millis = 12;
+  RemoteGuestDiskBudget disk_budget = 13;
+}
+
+message RemoteGuestDiskBudget {
+  uint64 capacity_bytes = 1;
+  uint64 used_bytes = 2;
+  uint64 writable_headroom_bytes = 3;
+  uint64 import_reservation_bytes = 4;
+  uint64 system_reserve_bytes = 5;
+  uint64 available_bytes = 6;
+  uint64 allocation_unit_bytes = 7;
+  uint32 namespace_count = 8;
+  uint32 active_import_reservations = 9;
 }
 
 message RemoteObservationHealth {

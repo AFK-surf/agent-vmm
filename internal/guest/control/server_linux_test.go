@@ -48,7 +48,7 @@ func TestRPCErrorMapsPIDLimit(t *testing.T) {
 
 func TestPhysicalCapacityErrorCarriesFiniteOwnerDimension(t *testing.T) {
 	for _, dimension := range []resourcev2.CapacityDimension{resourcev2.CapacityStorageHeadroom, resourcev2.CapacityImportSlot} {
-		err := rpcError(resourceCapacityExhausted(dimension, "capacity unavailable"))
+		err := rpcError(resourceCapacityExhausted(dimension, "admission", "capacity unavailable"))
 		if status.Code(err) != codes.ResourceExhausted {
 			t.Fatalf("dimension %q code=%v", dimension, status.Code(err))
 		}
@@ -62,4 +62,17 @@ func TestPhysicalCapacityErrorCarriesFiniteOwnerDimension(t *testing.T) {
 			t.Fatalf("dimension %q omitted structured capacity owner: %v", dimension, err)
 		}
 	}
+}
+
+func TestPhysicalCapacityErrorCarriesStageAndApplicableBytes(t *testing.T) {
+	err := rpcError(resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "import_admission", "capacity unavailable", 1024, 2048))
+	for _, detail := range status.Convert(err).Details() {
+		if value, ok := detail.(*errdetails.ErrorInfo); ok {
+			metadata := value.GetMetadata()
+			if value.GetReason() == "RESOURCE_CAPACITY_EXHAUSTED" && metadata["stage"] == "import_admission" && metadata["resource_dimension"] == "storage_headroom" && metadata["available_bytes"] == "1024" && metadata["required_bytes"] == "2048" {
+				return
+			}
+		}
+	}
+	t.Fatalf("capacity error omitted canonical stage or byte bounds: %v", err)
 }

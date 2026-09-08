@@ -211,7 +211,7 @@ func (r *Runtime) guardBuilderOCIGrowth(ctx context.Context, identity string, ru
 func (r *Runtime) lockImportSlot(digest string) (func(), error) {
 	unlock, ok := r.materializer.LockImport(digest)
 	if !ok {
-		return nil, resourceCapacityExhausted(resourcev2.CapacityImportSlot, "Guest OCI import slot is occupied")
+		return nil, resourceCapacityExhausted(resourcev2.CapacityImportSlot, "import_slot", "Guest OCI import slot is occupied")
 	}
 	return unlock, nil
 }
@@ -372,11 +372,13 @@ func (r *Runtime) reserveImport(ctx context.Context, header *vmmdv1.ImportImageH
 }
 
 func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.ImportImageHeader, materializerHeld bool, transaction *guestdisk.Transaction) (*importReservation, error) {
+	var lastSnapshot guestdisk.Snapshot
 	loadSnapshot := func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
 		snapshot, err := r.guestDiskSnapshot(ctx)
 		if err != nil {
 			return guestdisk.Snapshot{}, err
 		}
+		lastSnapshot = snapshot
 		if snapshot.Pressure() >= guestdisk.PressureGC {
 			if _, err := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, materializerHeld, transaction); err != nil {
 				return guestdisk.Snapshot{}, err
@@ -385,6 +387,7 @@ func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.Import
 			if err != nil {
 				return guestdisk.Snapshot{}, err
 			}
+			lastSnapshot = snapshot
 		}
 		if snapshot.Pressure() >= guestdisk.PressureRejectCold {
 			return guestdisk.Snapshot{}, guestdisk.ErrCapacityUnavailable
@@ -419,7 +422,8 @@ func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.Import
 		err = transaction.ReserveImportHeadroom(loadSnapshot, commit)
 	}
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")
+		available, _ := lastSnapshot.AvailableBytes()
+		return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "import_admission", "Guest storage headroom is unavailable", available, guestdisk.MinimumImportBytes)
 	}
 	if err != nil {
 		return nil, err

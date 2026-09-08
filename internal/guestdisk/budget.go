@@ -36,16 +36,28 @@ type Snapshot struct {
 	AllocationUnitBytes    uint64
 }
 
-func (snapshot Snapshot) Safe() bool {
+func (snapshot Snapshot) SystemReserveBytes() (uint64, bool) {
+	value, carry := bits.Add64(snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes, 0)
+	return value, carry == 0
+}
+
+func (snapshot Snapshot) AvailableBytes() (uint64, bool) {
 	committed := snapshot.UsedBytes
 	for _, value := range []uint64{snapshot.WritableHeadroomBytes, snapshot.ImportReservationBytes, snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes} {
 		var carry uint64
 		committed, carry = bits.Add64(committed, value, 0)
-		if carry != 0 {
-			return false
+		if carry != 0 || committed > snapshot.CapacityBytes {
+			return 0, false
 		}
 	}
-	return committed <= snapshot.CapacityBytes
+	available := snapshot.CapacityBytes - committed
+	unit := max(snapshot.AllocationUnitBytes, uint64(1))
+	return available - available%unit, true
+}
+
+func (snapshot Snapshot) Safe() bool {
+	_, ok := snapshot.AvailableBytes()
+	return ok
 }
 
 func (snapshot Snapshot) Pressure() Pressure {
@@ -146,17 +158,10 @@ func (transaction *Transaction) ReserveImportHeadroom(load func(*Transaction) (S
 	if err != nil {
 		return err
 	}
-	committed := snapshot.UsedBytes
-	for _, value := range []uint64{snapshot.WritableHeadroomBytes, snapshot.ImportReservationBytes, snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes} {
-		var carry uint64
-		committed, carry = bits.Add64(committed, value, 0)
-		if carry != 0 || committed > snapshot.CapacityBytes {
-			return ErrCapacityUnavailable
-		}
+	available, ok := snapshot.AvailableBytes()
+	if !ok {
+		return ErrCapacityUnavailable
 	}
-	available := snapshot.CapacityBytes - committed
-	unit := max(snapshot.AllocationUnitBytes, uint64(1))
-	available -= available % unit
 	if available < MinimumImportBytes {
 		return ErrCapacityUnavailable
 	}

@@ -72,8 +72,13 @@ func (r *Runtime) ReserveWorkloadResources(ctx context.Context, request *vmmdv1.
 		}
 		return stored, nil
 	}
+	var lastSnapshot guestdisk.Snapshot
 	loadSnapshot := func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
-		return r.diskAdmissionSnapshot(ctx, true, transaction)
+		snapshot, err := r.diskAdmissionSnapshot(ctx, true, transaction)
+		if err == nil || errors.Is(err, guestdisk.ErrCapacityUnavailable) {
+			lastSnapshot = snapshot
+		}
+		return snapshot, err
 	}
 	commit := func(transaction *guestdisk.Transaction) error {
 		projectID, subnet, err := r.allocateNamespace(ctx, request.GetNamespaceId())
@@ -94,7 +99,8 @@ func (r *Runtime) ReserveWorkloadResources(ctx context.Context, request *vmmdv1.
 		err = r.diskBudget.AdmitQuota(loadSnapshot, contract.WritableQuotaBytes, commit)
 	}
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		return nil, resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, "Guest storage headroom is unavailable")
+		available, _ := lastSnapshot.AvailableBytes()
+		return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "workload_reservation", "Guest storage headroom is unavailable", available, contract.WritableQuotaBytes)
 	}
 	if err != nil {
 		return nil, err
@@ -402,16 +408,48 @@ func reservationFromLabels(namespaceID string, labels map[string]string) (*vmmdv
 }
 
 func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, error) {
+	snapshot, _, _, err := r.guestDiskSnapshotWithCounts(ctx)
+	return snapshot, err
+}
+
+func (r *Runtime) guestDiskSummary(ctx context.Context) (*vmmdv1.GuestDiskBudget, error) {
+	snapshot, namespaceCount, reservationCount, err := r.guestDiskSnapshotWithCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	available, _ := snapshot.AvailableBytes()
+	reserve, ok := snapshot.SystemReserveBytes()
+	if !ok {
+		return nil, guestdisk.ErrCapacityUnavailable
+	}
+	return &vmmdv1.GuestDiskBudget{
+		CapacityBytes:            snapshot.CapacityBytes,
+		UsedBytes:                snapshot.UsedBytes,
+		WritableHeadroomBytes:    snapshot.WritableHeadroomBytes,
+		ImportReservationBytes:   snapshot.ImportReservationBytes,
+		SystemReserveBytes:       reserve,
+		AvailableBytes:           available,
+		AllocationUnitBytes:      snapshot.AllocationUnitBytes,
+		NamespaceCount:           namespaceCount,
+		ActiveImportReservations: reservationCount,
+	}, nil
+}
+
+func (r *Runtime) guestDiskSnapshotWithCounts(ctx context.Context) (guestdisk.Snapshot, uint32, uint32, error) {
 	var stats unix.Statfs_t
 	if err := unix.Statfs(stateRoot, &stats); err != nil {
-		return guestdisk.Snapshot{}, err
+		return guestdisk.Snapshot{}, 0, 0, err
 	}
 	used := (stats.Blocks - stats.Bfree) * uint64(stats.Bsize)
 	capacity := used + stats.Bavail*uint64(stats.Bsize)
 	var headroom uint64
 	names, err := r.client.NamespaceService().List(ctx)
 	if err != nil {
-		return guestdisk.Snapshot{}, err
+		return guestdisk.Snapshot{}, 0, 0, err
+	}
+	namespaceCount, err := guestDiskNamespaceCount(names)
+	if err != nil {
+		return guestdisk.Snapshot{}, 0, 0, err
 	}
 	for _, name := range names {
 		if name == runtimeContainerdNamespace {
@@ -419,33 +457,48 @@ func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, er
 		}
 		labels, err := r.client.NamespaceService().Labels(ctx, name)
 		if err != nil {
-			return guestdisk.Snapshot{}, err
+			return guestdisk.Snapshot{}, 0, 0, err
 		}
 		quota, project, parseErr := accountableNamespaceQuota(name, labels)
 		if parseErr != nil {
-			return guestdisk.Snapshot{}, parseErr
+			return guestdisk.Snapshot{}, 0, 0, parseErr
 		}
 		usage, err := projectUsage(r.stateDevice, project)
 		if err != nil {
-			return guestdisk.Snapshot{}, err
+			return guestdisk.Snapshot{}, 0, 0, err
 		}
 		if quota > usage {
 			var carry uint64
 			headroom, carry = bits.Add64(headroom, quota-usage, 0)
 			if carry != 0 {
-				return guestdisk.Snapshot{}, errors.New("Guest writable quota accounting overflow")
+				return guestdisk.Snapshot{}, 0, 0, errors.New("Guest writable quota accounting overflow")
 			}
 		}
 	}
-	imports, err := importReservationBytes(filepath.Join(stateRoot, "import-reservations"))
+	imports, reservationCount, err := importReservationSummary(filepath.Join(stateRoot, "import-reservations"))
 	if err != nil {
-		return guestdisk.Snapshot{}, err
+		return guestdisk.Snapshot{}, 0, 0, err
 	}
 	if imports > used {
-		return guestdisk.Snapshot{}, errors.New("Guest import reservation exceeds physical usage")
+		return guestdisk.Snapshot{}, 0, 0, errors.New("Guest import reservation exceeds physical usage")
 	}
 	return guestdisk.Snapshot{CapacityBytes: capacity, UsedBytes: used - imports, WritableHeadroomBytes: headroom, ImportReservationBytes: imports,
-		EmergencyBytes: guestdisk.DefaultEmergencyBytes, MetadataGrowthBytes: guestdisk.DefaultMetadataBytes, AllocationUnitBytes: uint64(stats.Bsize)}, nil
+		EmergencyBytes: guestdisk.DefaultEmergencyBytes, MetadataGrowthBytes: guestdisk.DefaultMetadataBytes, AllocationUnitBytes: uint64(stats.Bsize)}, namespaceCount, reservationCount, nil
+}
+
+func guestDiskNamespaceCount(names []string) (uint32, error) {
+	// This is the same product-realizable bound enforced by the OCI GC owner.
+	// The 15-second observation must never turn it into an unbounded scan.
+	if len(names) > maxGCNamespaces {
+		return 0, errors.New("Guest disk accounting namespace bound exceeded")
+	}
+	count := len(names)
+	for _, name := range names {
+		if name == runtimeContainerdNamespace {
+			count--
+		}
+	}
+	return uint32(count), nil
 }
 
 func accountableNamespaceQuota(name string, labels map[string]string) (uint64, uint32, error) {
@@ -479,34 +532,39 @@ func (r *Runtime) diskAdmissionSnapshot(ctx context.Context, cold bool, transact
 		}
 	}
 	if snapshot.Pressure() == guestdisk.PressureCritical || cold && snapshot.Pressure() >= guestdisk.PressureRejectCold {
-		return guestdisk.Snapshot{}, guestdisk.ErrCapacityUnavailable
+		return snapshot, guestdisk.ErrCapacityUnavailable
 	}
 	return snapshot, nil
 }
 
-func importReservationBytes(directory string) (uint64, error) {
+func importReservationSummary(directory string) (uint64, uint32, error) {
 	entries, err := os.ReadDir(directory)
 	if errors.Is(err, os.ErrNotExist) {
-		return 0, nil
+		return 0, 0, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	var total uint64
+	var count uint32
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".hold" {
 			continue
 		}
+		if count == ^uint32(0) {
+			return 0, 0, errors.New("Guest import reservation count overflow")
+		}
+		count++
 		info, err := entry.Info()
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		value := uint64(info.Sys().(*syscall.Stat_t).Blocks) * 512
 		var carry uint64
 		total, carry = bits.Add64(total, value, 0)
 		if carry != 0 {
-			return 0, errors.New("Guest import reservation accounting overflow")
+			return 0, 0, errors.New("Guest import reservation accounting overflow")
 		}
 	}
-	return total, nil
+	return total, count, nil
 }

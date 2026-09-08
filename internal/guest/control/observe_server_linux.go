@@ -38,12 +38,18 @@ func (s *Server) GetNamespaceUsage(ctx context.Context, request *vmmdv1.GetNames
 	return &vmmdv1.GetUsageResponse{Usage: usage}, nil
 }
 
-func (s *Server) GetSystemUsage(context.Context, *vmmdv1.GetSystemUsageRequest) (*vmmdv1.GetUsageResponse, error) {
+func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageRequest) (*vmmdv1.GetUsageResponse, error) {
 	usage, err := s.runtime.SystemUsage()
 	if err != nil {
 		usage = unavailableUsage(err)
 	}
-	return &vmmdv1.GetUsageResponse{Usage: usage}, nil
+	diskBudget, err := s.runtime.guestDiskSummary(ctx)
+	if err != nil {
+		// Usage predates the optional disk-budget observation. Preserve that
+		// availability contract when accounting is temporarily unavailable.
+		diskBudget = nil
+	}
+	return &vmmdv1.GetUsageResponse{Usage: usage, DiskBudget: diskBudget}, nil
 }
 
 func (s *Server) GetVolume(ctx context.Context, request *vmmdv1.GetVolumeRequest) (*vmmdv1.GetVolumeResponse, error) {

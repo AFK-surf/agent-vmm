@@ -6,6 +6,33 @@ import (
 	"testing"
 )
 
+func TestSnapshotReportsCanonicalBudgetSummary(t *testing.T) {
+	snapshot := Snapshot{
+		CapacityBytes: 64 << 30, UsedBytes: 10 << 30, WritableHeadroomBytes: 20 << 30,
+		ImportReservationBytes: 2 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30,
+		AllocationUnitBytes: 4096,
+	}
+	reserve, ok := snapshot.SystemReserveBytes()
+	if !ok || reserve != 5<<30 {
+		t.Fatalf("system reserve=(%d, %v), want (5 GiB, true)", reserve, ok)
+	}
+	available, ok := snapshot.AvailableBytes()
+	if !ok || available != 27<<30 {
+		t.Fatalf("available=(%d, %v), want (27 GiB, true)", available, ok)
+	}
+}
+
+func TestSnapshotReportsZeroAvailableWhenCommitmentsExceedCapacity(t *testing.T) {
+	snapshot := Snapshot{
+		CapacityBytes: 32 << 30, UsedBytes: 20 << 30, WritableHeadroomBytes: 10 << 30,
+		EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30, AllocationUnitBytes: 4096,
+	}
+	available, ok := snapshot.AvailableBytes()
+	if ok || available != 0 {
+		t.Fatalf("available=(%d, %v), want (0, false)", available, ok)
+	}
+}
+
 func TestQuotaAdmissionPreservesPhysicalInvariant(t *testing.T) {
 	snapshot := Snapshot{CapacityBytes: 32 << 30, UsedBytes: 13 << 30, WritableHeadroomBytes: 4 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
 	var committed bool

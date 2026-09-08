@@ -31,6 +31,7 @@ const maxRemoteEnvironments = 64
 type scopedRemoteObservationClient interface {
 	ComponentHealth(context.Context, *vmmdv1.ComponentHealthRequest, ...grpc.CallOption) (*vmmdv1.ComponentHealthResponse, error)
 	GetNamespaceUsage(context.Context, *vmmdv1.GetNamespaceUsageRequest, ...grpc.CallOption) (*vmmdv1.GetUsageResponse, error)
+	GetSystemUsage(context.Context, *vmmdv1.GetSystemUsageRequest, ...grpc.CallOption) (*vmmdv1.GetUsageResponse, error)
 }
 
 func (controller *Controller) NewRemoteComputeServer() *grpc.Server {
@@ -166,7 +167,25 @@ func collectScopedRemoteObservation(ctx context.Context, client scopedRemoteObse
 	if !usageAvailable {
 		usage = &hostv1.Usage{SampledAt: observedAt, Stale: true, UnavailableReason: "registration metrics are unavailable"}
 	}
-	return &hostv1.GetRemoteObservationResponse{Health: health, Usage: usage, ObservedAt: observedAt}, nil
+	result := &hostv1.GetRemoteObservationResponse{Health: health, Usage: usage, ObservedAt: observedAt}
+	// The disk budget is an optional observation refinement. An older Guest or
+	// a transient accounting failure must not tear down the existing remote
+	// observation stream.
+	if systemUsage, systemUsageErr := client.GetSystemUsage(ctx, &vmmdv1.GetSystemUsageRequest{}); systemUsageErr == nil && systemUsage.GetDiskBudget() != nil {
+		diskBudget := systemUsage.GetDiskBudget()
+		result.DiskBudget = &hostv1.GuestDiskBudget{
+			CapacityBytes:            diskBudget.GetCapacityBytes(),
+			UsedBytes:                diskBudget.GetUsedBytes(),
+			WritableHeadroomBytes:    diskBudget.GetWritableHeadroomBytes(),
+			ImportReservationBytes:   diskBudget.GetImportReservationBytes(),
+			SystemReserveBytes:       diskBudget.GetSystemReserveBytes(),
+			AvailableBytes:           diskBudget.GetAvailableBytes(),
+			AllocationUnitBytes:      diskBudget.GetAllocationUnitBytes(),
+			NamespaceCount:           diskBudget.GetNamespaceCount(),
+			ActiveImportReservations: diskBudget.GetActiveImportReservations(),
+		}
+	}
+	return result, nil
 }
 
 func (server *remoteComputeServer) SetConnectionState(ctx context.Context, request *hostv1.SetConnectionStateRequest) (*hostv1.GetRemoteStateResponse, error) {
