@@ -1241,22 +1241,15 @@ func drainWithContext(ctx context.Context, value paths, run func(context.Context
 		return errors.New("stopping the Agent VMM daemon requires administrator access")
 	}
 	domains := []string{value.serviceDomain(), value.alternateServiceDomain()}
-	loaded := false
 	loadedDomains := make(map[string]bool, len(domains))
 	for _, domain := range domains {
 		err := run(ctx, "print", domain+"/"+hostLabel)
 		if err == nil {
-			loaded = true
 			loadedDomains[domain] = true
 			continue
 		}
 		if !errors.Is(err, errLaunchctlServiceNotFound) {
 			return fmt.Errorf("host service status could not be read before drain: %w", err)
-		}
-	}
-	if err := drainVMForUpdate(ctx, value, newOperationID("update-drain")); err != nil {
-		if loaded {
-			return err
 		}
 	}
 	pids := make([]int, 0, len(domains))
@@ -1267,8 +1260,13 @@ func drainWithContext(ctx context.Context, value paths, run func(context.Context
 		pid, err := launchctlPID(ctx, domain+"/"+hostLabel)
 		if err == nil && pid > 0 {
 			pids = append(pids, pid)
-		} else if err != nil && !errors.Is(err, errLaunchctlServiceNotFound) {
+		} else if err != nil {
 			return fmt.Errorf("host process identity could not be read before drain: %w", err)
+		}
+	}
+	if err := drainVMForUpdate(ctx, value, newOperationID("update-drain")); err != nil {
+		if len(pids) > 0 {
+			return err
 		}
 	}
 	for _, domain := range domains {
@@ -1395,16 +1393,28 @@ func launchctlServicePID(ctx context.Context, target string) (int, error) {
 		}
 		return 0, fmt.Errorf("launchctl print failed: %w", err)
 	}
+	return parseLaunchctlServicePID(output)
+}
+
+func parseLaunchctlServicePID(output []byte) (int, error) {
+	stopped := false
 	for _, line := range strings.Split(string(output), "\n") {
+		if strings.TrimSpace(line) == "state = not running" {
+			stopped = true
+		}
 		fields := strings.Fields(line)
 		if len(fields) == 3 && fields[0] == "pid" && fields[1] == "=" {
 			pid, parseErr := strconv.Atoi(fields[2])
-			if parseErr == nil && pid > 0 {
-				return pid, nil
+			if parseErr != nil || pid <= 0 {
+				return 0, errors.New("launchctl print reported an invalid Host PID")
 			}
+			return pid, nil
 		}
 	}
-	return 0, nil
+	if stopped {
+		return 0, nil
+	}
+	return 0, errors.New("launchctl print did not report a Host PID or stopped state")
 }
 
 func waitForProcessExit(ctx context.Context, pid int) error {

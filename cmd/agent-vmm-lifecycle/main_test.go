@@ -560,6 +560,23 @@ func TestLaunchctlServiceAbsentClassifiesHeadlessGUIDomain(t *testing.T) {
 	}
 }
 
+func TestParseLaunchctlServicePIDRequiresAnExplicitState(t *testing.T) {
+	pid, err := parseLaunchctlServicePID([]byte("state = running\n\tpid = 42\n"))
+	if err != nil || pid != 42 {
+		t.Fatalf("running service pid=%d err=%v", pid, err)
+	}
+	pid, err = parseLaunchctlServicePID([]byte("state = not running\n"))
+	if err != nil || pid != 0 {
+		t.Fatalf("stopped service pid=%d err=%v", pid, err)
+	}
+	if _, err := parseLaunchctlServicePID([]byte("state = running\n")); err == nil {
+		t.Fatal("running service without a PID was accepted as stopped")
+	}
+	if _, err := parseLaunchctlServicePID([]byte("state = not running\n\tpid = invalid\n")); err == nil {
+		t.Fatal("stopped service with an invalid PID was accepted")
+	}
+}
+
 func TestRepairPreservesContextCancellationDuringLaunchctlSteps(t *testing.T) {
 	for _, interrupted := range []string{"bootstrap", "enable"} {
 		t.Run(interrupted, func(t *testing.T) {
@@ -661,6 +678,82 @@ func TestDrainWaitsForHostPIDAfterLaunchdServiceDisappears(t *testing.T) {
 	}
 	if checks < 3 {
 		t.Fatal("drain returned when launchd print disappeared but the Host PID was still alive")
+	}
+}
+
+func TestDrainReplacesLoadedStoppedHostWhenOperatorIsUnavailable(t *testing.T) {
+	value := testPaths(t.TempDir())
+	originalDrain, originalPID, originalOwners := drainVMForUpdate, launchctlPID, stateDiskOpenOwners
+	t.Cleanup(func() {
+		drainVMForUpdate, launchctlPID, stateDiskOpenOwners = originalDrain, originalPID, originalOwners
+	})
+	drainVMForUpdate = func(context.Context, paths, string) error {
+		return errors.New("stale operator socket")
+	}
+	launchctlPID = func(context.Context, string) (int, error) { return 0, nil }
+	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	var commands []string
+	bootedOut := false
+	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		commands = append(commands, strings.Join(arguments, " "))
+		if arguments[0] == "bootout" {
+			bootedOut = true
+		}
+		if arguments[0] == "print" && bootedOut {
+			return errLaunchctlServiceNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootedOut {
+		t.Fatalf("drain did not remove the stopped launchd job: %v", commands)
+	}
+}
+
+func TestDrainPreservesRunningHostWhenOperatorIsUnavailable(t *testing.T) {
+	value := testPaths(t.TempDir())
+	originalDrain, originalPID := drainVMForUpdate, launchctlPID
+	t.Cleanup(func() { drainVMForUpdate, launchctlPID = originalDrain, originalPID })
+	drainVMForUpdate = func(context.Context, paths, string) error {
+		return errors.New("stale operator socket")
+	}
+	launchctlPID = func(context.Context, string) (int, error) { return 42, nil }
+	bootedOut := false
+	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		bootedOut = bootedOut || arguments[0] == "bootout"
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "stale operator socket") {
+		t.Fatalf("drain error=%v", err)
+	}
+	if bootedOut {
+		t.Fatal("drain removed the running Host after VM status failed")
+	}
+}
+
+func TestDrainPreservesHostWhenPIDLookupRacesWithLaunchdRemoval(t *testing.T) {
+	value := testPaths(t.TempDir())
+	originalDrain, originalPID := drainVMForUpdate, launchctlPID
+	t.Cleanup(func() { drainVMForUpdate, launchctlPID = originalDrain, originalPID })
+	drainVMForUpdate = func(context.Context, paths, string) error {
+		t.Fatal("VM drain ran without a reliable Host process observation")
+		return nil
+	}
+	launchctlPID = func(context.Context, string) (int, error) {
+		return 0, errLaunchctlServiceNotFound
+	}
+	bootedOut := false
+	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		bootedOut = bootedOut || arguments[0] == "bootout"
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "process identity could not be read") {
+		t.Fatalf("drain error=%v", err)
+	}
+	if bootedOut {
+		t.Fatal("drain removed the Host after its PID lookup became unavailable")
 	}
 }
 
