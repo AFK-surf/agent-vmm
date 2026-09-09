@@ -182,13 +182,16 @@ removed residue:
 ```
 
 Before changing files, resolve the service user and installed application from
-the launchd job. Do not assume that a system LaunchDaemon runs as root. The
-standard headless installation uses service user `bftvmm`, label
-`com.afk-surf.agent-vmm-host`, and this application:
+the launchd job. Do not assume that a system LaunchDaemon runs as root. A
+standard headless installation uses label `com.afk-surf.agent-vmm-host`. Its
+application is normally under the resolved service user's home directory:
 
 ```text
-/Users/bftvmm/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app
+/Users/<service-user>/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app
 ```
+
+Treat this path as a pattern, not as target discovery. Read the loaded launchd
+job and confirm the resolved user, home directory, and executable before use.
 
 For a state-preserving update:
 
@@ -353,13 +356,6 @@ Control-plane cleanup follows, rather than precedes, the Host purge:
 4. Enroll the new Host and recreate Codex, Pi, Claude, and Meeting workloads
    from Cue. Verify their provider, runtime digest/version, and registration
    before considering the cleanup complete.
-
-Direct database repair is a staging-only last resort after runtime owners are
-stopped and the affected rows are fully bounded. Record the query and row count
-before mutation, use one transaction, and verify the resulting lifecycle state
-before restarting writers. A successful one-off repair is not a new supported
-cleanup path; add the underlying defect and durable remedy to this runbook or
-its linked lifecycle documentation.
 
 If a replacement stalls, preserve the first exact error before retrying. Check,
 in order: final executable entitlement; embedded Guest manifest digest versus
