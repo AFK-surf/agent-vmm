@@ -130,12 +130,14 @@ func (server *agentServer) QuiesceContainer(ctx context.Context, request *hostv1
 		return nil, err
 	}
 	if request.GetCancel() {
-		if !run.quiescing || run.quiesceRequestID != request.GetRequestId() || run.stopping {
+		if run.stopping || (run.quiescing && run.quiesceRequestID != request.GetRequestId()) {
 			return nil, resourceError(codes.Aborted, "STALE_QUIESCE", "container", run.containerID, "quiesce command is no longer current")
 		}
-		run.quiescing = false
-		run.quiesceRequestID = ""
-		run.stopDeadline = time.Time{}
+		if run.quiescing {
+			run.quiescing = false
+			run.quiesceRequestID = ""
+			run.stopDeadline = time.Time{}
+		}
 	} else {
 		if run.execution != nil {
 			return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTION_BUSY", "container", run.containerID, "workload still has an active execution")

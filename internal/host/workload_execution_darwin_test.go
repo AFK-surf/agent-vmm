@@ -55,6 +55,16 @@ func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	if _, err := client.QuiesceContainer(ctx, quiesce); status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("quiesce ignored minimum idle period: %v", err)
 	}
+	cancelBeforeQuiesce := &hostv1.QuiesceContainerRequest{
+		RequestId:          quiesce.RequestId,
+		ContainerId:        quiesce.ContainerId,
+		ExpectedInstanceId: quiesce.ExpectedInstanceId,
+		MinimumIdleSeconds: quiesce.MinimumIdleSeconds,
+		Cancel:             true,
+	}
+	if _, err := client.QuiesceContainer(ctx, cancelBeforeQuiesce); err != nil {
+		t.Fatalf("idempotent cancel without a current quiesce failed: %v", err)
+	}
 	controller.mu.Lock()
 	run.idleSince = time.Now().Add(-time.Minute)
 	controller.mu.Unlock()
@@ -64,6 +74,16 @@ func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	next := &hostv1.ExecutionRequest{ExecutionId: "input-b", ContainerId: "main", ExpectedInstanceId: "instance-a"}
 	if _, err := client.AcquireExecution(ctx, next); status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("execution entered closing sandbox: %v", err)
+	}
+	staleCancel := &hostv1.QuiesceContainerRequest{
+		RequestId:          "sleep-old",
+		ContainerId:        quiesce.ContainerId,
+		ExpectedInstanceId: quiesce.ExpectedInstanceId,
+		MinimumIdleSeconds: quiesce.MinimumIdleSeconds,
+		Cancel:             true,
+	}
+	if _, err := client.QuiesceContainer(ctx, staleCancel); status.Code(err) != codes.Aborted {
+		t.Fatalf("different quiesce cancellation replaced current ownership: %v", err)
 	}
 	if err := controller.validateQuiescedStop(identity, &hostv1.StopContainerRequest{ContainerId: "main", ExpectedInstanceId: "instance-a", QuiesceRequestId: "sleep-old"}); status.Code(err) != codes.Aborted {
 		t.Fatalf("stale stop accepted: %v", err)

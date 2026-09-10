@@ -328,9 +328,11 @@ container instance. A repeated acquire is idempotent. Another identity remains
 busy until the first execution releases access. Safe sleep first closes new
 execution admission with a quiesce command. The matching instance and command
 must then be present on the stop request. Cancellation can reopen admission only
-for that same quiesce command before a stop starts. The quiesce request can
-require a bounded minimum idle duration. The Host rejects the request until the
-active instance has remained idle for that exact duration.
+for that same quiesce command before a stop starts. Repeating the cancellation
+when no quiesce is current is a successful no-op. A different command or a stop
+in progress remains fenced. The quiesce request can require a bounded minimum
+idle duration. The Host rejects the request until the active instance has
+remained idle for that exact duration.
 
 A workspace is a long-lived container.
 Its writable layer can persist while the container exists.
