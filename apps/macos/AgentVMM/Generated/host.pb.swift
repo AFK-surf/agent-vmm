@@ -3715,6 +3715,8 @@ public nonisolated struct Agentvmm_Host_V1_ExecutionResponse: Sendable {
 
   public var containerInstanceID: String = String()
 
+  public var acquired: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -11609,7 +11611,7 @@ nonisolated extension Agentvmm_Host_V1_ExecutionRequest: SwiftProtobuf.Message, 
 
 nonisolated extension Agentvmm_Host_V1_ExecutionResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ExecutionResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}execution_id\0\u{3}container_instance_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}execution_id\0\u{3}container_instance_id\0\u{1}acquired\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -11619,6 +11621,7 @@ nonisolated extension Agentvmm_Host_V1_ExecutionResponse: SwiftProtobuf.Message,
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.executionID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.containerInstanceID) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.acquired) }()
       default: break
       }
     }
@@ -11631,12 +11634,16 @@ nonisolated extension Agentvmm_Host_V1_ExecutionResponse: SwiftProtobuf.Message,
     if !self.containerInstanceID.isEmpty {
       try visitor.visitSingularStringField(value: self.containerInstanceID, fieldNumber: 2)
     }
+    if self.acquired != false {
+      try visitor.visitSingularBoolField(value: self.acquired, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_ExecutionResponse, rhs: Agentvmm_Host_V1_ExecutionResponse) -> Bool {
     if lhs.executionID != rhs.executionID {return false}
     if lhs.containerInstanceID != rhs.containerInstanceID {return false}
+    if lhs.acquired != rhs.acquired {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

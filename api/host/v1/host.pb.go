@@ -8121,6 +8121,7 @@ type ExecutionResponse struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId         string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
 	ContainerInstanceId string                 `protobuf:"bytes,2,opt,name=container_instance_id,json=containerInstanceId,proto3" json:"container_instance_id,omitempty"`
+	Acquired            bool                   `protobuf:"varint,3,opt,name=acquired,proto3" json:"acquired,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -8167,6 +8168,13 @@ func (x *ExecutionResponse) GetContainerInstanceId() string {
 		return x.ContainerInstanceId
 	}
 	return ""
+}
+
+func (x *ExecutionResponse) GetAcquired() bool {
+	if x != nil {
+		return x.Acquired
+	}
+	return false
 }
 
 type QuiesceContainerRequest struct {
@@ -16539,10 +16547,11 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x120\n" +
 	"\x14expected_instance_id\x18\x03 \x01(\tR\x12expectedInstanceId\x12,\n" +
-	"\x12deadline_unix_nano\x18\x04 \x01(\x03R\x10deadlineUnixNano\"j\n" +
+	"\x12deadline_unix_nano\x18\x04 \x01(\x03R\x10deadlineUnixNano\"\x86\x01\n" +
 	"\x11ExecutionResponse\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x122\n" +
-	"\x15container_instance_id\x18\x02 \x01(\tR\x13containerInstanceId\"\xd7\x01\n" +
+	"\x15container_instance_id\x18\x02 \x01(\tR\x13containerInstanceId\x12\x1a\n" +
+	"\bacquired\x18\x03 \x01(\bR\bacquired\"\xd7\x01\n" +
 	"\x17QuiesceContainerRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12!\n" +

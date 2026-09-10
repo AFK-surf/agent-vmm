@@ -806,6 +806,7 @@ message ExecutionRequest {
 message ExecutionResponse {
   string execution_id = 1;
   string container_instance_id = 2;
+  bool acquired = 3;
 }
 message QuiesceContainerRequest {
   string request_id = 1;

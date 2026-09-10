@@ -74,6 +74,7 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 		return nil, pendingWorkloadError(run, time.Now())
 	}
 	authority := executionAuthority(identity)
+	acquired := false
 	if run.execution != nil {
 		if run.execution.id != request.GetExecutionId() || run.execution.authority != authority || run.execution.instanceID != run.instanceID {
 			return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTION_BUSY", "container", run.containerID, "another execution still owns this workload")
@@ -81,8 +82,9 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 	} else {
 		run.execution = &workloadExecution{id: request.GetExecutionId(), authority: authority, instanceID: run.instanceID, deadline: deadline}
 		run.idleSince = time.Time{}
+		acquired = true
 	}
-	return &hostv1.ExecutionResponse{ExecutionId: run.execution.id, ContainerInstanceId: run.instanceID}, nil
+	return &hostv1.ExecutionResponse{ExecutionId: run.execution.id, ContainerInstanceId: run.instanceID, Acquired: acquired}, nil
 }
 
 func (server *agentServer) ReleaseExecution(ctx context.Context, request *hostv1.ExecutionRequest) (*emptypb.Empty, error) {

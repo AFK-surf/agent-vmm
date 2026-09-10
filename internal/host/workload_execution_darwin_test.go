@@ -33,13 +33,21 @@ func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	client := executionClient(t, controller, identity)
 	ctx := context.Background()
 	execution := &hostv1.ExecutionRequest{ExecutionId: "input-a", ContainerId: "main", ExpectedInstanceId: "instance-a", DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()}
-	if _, err := client.AcquireExecution(ctx, execution); err != nil {
+	acquired, err := client.AcquireExecution(ctx, execution)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !acquired.GetAcquired() {
+		t.Fatal("first execution acquisition was not identified as new")
 	}
 	firstDeadline := run.execution.deadline
 	execution.DeadlineUnixNano = time.Now().Add(time.Hour).UnixNano()
-	if _, err := client.AcquireExecution(ctx, execution); err != nil {
+	acquired, err = client.AcquireExecution(ctx, execution)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if acquired.GetAcquired() {
+		t.Fatal("idempotent execution acquisition was identified as new")
 	}
 	if !run.execution.deadline.Equal(firstDeadline) {
 		t.Fatal("idempotent acquire extended execution deadline")
