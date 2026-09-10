@@ -2,10 +2,6 @@ import SwiftUI
 
 struct RemotePoolDraft {
     var maxEnvironments: Int
-    var aggregateCPU: Int
-    var aggregateMemoryBytes: UInt64
-    var aggregatePIDs: Int
-    var aggregateDiskBytes: UInt64
     var perEnvironmentCPU: Int
     var perEnvironmentMemoryBytes: UInt64
     var perEnvironmentPIDs: Int
@@ -17,10 +13,6 @@ struct RemotePoolDraft {
 
     init(_ settings: RemotePoolSettings = .defaults) {
         maxEnvironments = Int(settings.maxEnvironments)
-        aggregateCPU = Int(settings.aggregateLimits.cpuMillis)
-        aggregateMemoryBytes = settings.aggregateLimits.memoryBytes
-        aggregatePIDs = Int(settings.aggregateLimits.pids)
-        aggregateDiskBytes = settings.aggregateLimits.diskBytes
         perEnvironmentCPU = Int(settings.perEnvironmentLimits.cpuMillis)
         perEnvironmentMemoryBytes = settings.perEnvironmentLimits.memoryBytes
         perEnvironmentPIDs = Int(settings.perEnvironmentLimits.pids)
@@ -32,19 +24,14 @@ struct RemotePoolDraft {
     }
 
     var isValid: Bool {
-        maxEnvironments > 0 && aggregateCPU >= perEnvironmentCPU &&
-            aggregateMemoryBytes >= perEnvironmentMemoryBytes && aggregatePIDs >= perEnvironmentPIDs &&
-            aggregateDiskBytes >= perEnvironmentDiskBytes && maxLeaseMinutes > 0 &&
+        maxEnvironments > 0 && perEnvironmentCPU > 0 && perEnvironmentMemoryBytes > 0 &&
+            perEnvironmentPIDs > 0 && perEnvironmentDiskBytes > 0 && maxLeaseMinutes > 0 &&
             disconnectGraceSeconds > 0 && stopGraceSeconds > 0
     }
 
     var settings: RemotePoolSettings {
         RemotePoolSettings(
             maxEnvironments: UInt32(maxEnvironments),
-            aggregateLimits: EnvironmentLimits(
-                cpuMillis: UInt32(aggregateCPU), memoryBytes: aggregateMemoryBytes,
-                pids: UInt32(aggregatePIDs), diskBytes: aggregateDiskBytes
-            ),
             perEnvironmentLimits: EnvironmentLimits(
                 cpuMillis: UInt32(perEnvironmentCPU), memoryBytes: perEnvironmentMemoryBytes,
                 pids: UInt32(perEnvironmentPIDs), diskBytes: perEnvironmentDiskBytes
@@ -54,16 +41,6 @@ struct RemotePoolDraft {
             disconnectGraceSeconds: Int64(disconnectGraceSeconds),
             stopGraceSeconds: Int64(stopGraceSeconds)
         )
-    }
-
-    var aggregateMemoryGiB: Int {
-        get { Int(aggregateMemoryBytes >> 30) }
-        set { aggregateMemoryBytes = UInt64(newValue) << 30 }
-    }
-
-    var aggregateDiskGiB: Int {
-        get { Int(aggregateDiskBytes >> 30) }
-        set { aggregateDiskBytes = UInt64(newValue) << 30 }
     }
 
     var perEnvironmentMemoryMiB: Int {
@@ -90,10 +67,6 @@ struct RemoteCapacityEditor: View {
 
         if showsAdvanced {
             DisclosureGroup("Advanced Capacity") {
-                Stepper("Aggregate CPU: \(draft.aggregateCPU) millicores", value: $draft.aggregateCPU, in: 100...64_000, step: 100)
-                Stepper("Aggregate memory: \(draft.aggregateMemoryGiB) GiB", value: $draft.aggregateMemoryGiB, in: 1...256)
-                Stepper("Aggregate PIDs: \(draft.aggregatePIDs)", value: $draft.aggregatePIDs, in: 16...65_536, step: 16)
-                Stepper("Aggregate disk: \(draft.aggregateDiskGiB) GiB", value: $draft.aggregateDiskGiB, in: 1...1_024)
                 Toggle("Allow public internet egress", isOn: $draft.allowsPublicEgress)
                 Stepper("Maximum lease: \(draft.maxLeaseMinutes) minutes", value: $draft.maxLeaseMinutes, in: 1...10_080)
                 Stepper("Disconnect grace: \(draft.disconnectGraceSeconds) seconds", value: $draft.disconnectGraceSeconds, in: 1...3_600)
@@ -101,10 +74,5 @@ struct RemoteCapacityEditor: View {
             }
         }
 
-        if !draft.isValid {
-            Label("Aggregate capacity must be at least as large as each per-environment limit.", systemImage: "exclamationmark.triangle")
-                .font(.caption)
-                .foregroundStyle(.orange)
-        }
     }
 }

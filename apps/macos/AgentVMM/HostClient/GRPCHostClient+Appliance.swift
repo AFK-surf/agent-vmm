@@ -94,7 +94,6 @@ private extension GRPCHostClient {
         var grant = Agentvmm_Appliance_V1_ApprovedGrant()
         grant.systemResources = manifest.systemResources
         grant.capacity.maxEnvironments = value.maxEnvironments
-        grant.capacity.aggregateLimits = resourceLimits(value.aggregateLimits)
         grant.capacity.perEnvironmentLimits = resourceLimits(value.perEnvironmentLimits)
         grant.capacity.maxEgressMode = value.allowsPublicEgress ? .publicInternet : .denyAll
         grant.capacity.maxLeaseSeconds = value.maxLeaseSeconds

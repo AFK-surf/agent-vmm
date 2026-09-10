@@ -7,11 +7,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/vmm"
 )
 
 func TestHostOwnerLockFailsClosedForSecondProcessOwner(t *testing.T) {
@@ -36,6 +38,33 @@ func TestInstalledVMResumeTimeoutAllowsBoundedGuestRecovery(t *testing.T) {
 func TestNewStateDiskDefaultIs64GiB(t *testing.T) {
 	if defaultNewStateBytes != 64<<30 {
 		t.Fatalf("new state disk default = %d, want %d", defaultNewStateBytes, int64(64<<30))
+	}
+}
+
+func TestNewStateDiskRequiresControlAndWorkloadFilesystems(t *testing.T) {
+	directory := t.TempDir()
+	if _, err := resolveStateDiskBytes(filepath.Join(directory, "state.raw"), minimumNewStateBytes-1); err == nil {
+		t.Fatal("undersized new state disk was accepted")
+	}
+}
+
+func TestStateMigrationRequiresSeparateNewTarget(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "legacy.raw")
+	file, err := os.Create(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(minimumNewStateBytes); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = runStateMigration(vmm.Config{BundleDirectory: "bundle", InstanceDirectory: directory, SerialLog: filepath.Join(directory, "serial.log")}, source)
+	if err == nil || !strings.Contains(err.Error(), "separate instance directory") {
+		t.Fatalf("same-directory migration error = %v", err)
 	}
 }
 

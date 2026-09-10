@@ -213,7 +213,7 @@ func seedBuildInheritance(t *testing.T) (map[string]uint32, func()) {
 	if err := assignProject(root, 10003); err != nil {
 		t.Fatal(err)
 	}
-	builder := guestbuild.NewBuilder(nil, nil, nil, nil)
+	builder := guestbuild.NewBuilder(nil, nil, nil)
 	workspace, err := builder.Begin(&vmmdv1.BuildImageHeader{RequestId: "inheritance", ActorNamespaceId: "inheritance", DockerfilePath: "Dockerfile", Image: "agent.local/inheritance:latest", NetworkMode: vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE})
 	if err != nil {
 		t.Fatal(err)

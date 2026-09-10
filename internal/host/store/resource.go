@@ -11,323 +11,92 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 )
 
-func (store *Store) ReserveResources(ctx context.Context, reservation ResourceReservation, hostCapacity, domainCeiling ResourceAmount) error {
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	total, err := sumReservations(ctx, tx, "", 0)
-	if err != nil {
-		return err
-	}
-	domain, err := sumReservations(ctx, tx, reservation.OwnerID, reservation.OwnerKind)
-	if err != nil {
-		return err
-	}
-	if !total.add(reservation.Amount).fits(hostCapacity) {
-		return ErrResourceCapacityExceeded
-	}
-	if reservation.OwnerKind != ReservationOwnerHost && !domain.add(reservation.Amount).fits(domainCeiling) {
-		return ErrDomainCapacityExceeded
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO resource_reservations(id, owner_kind, owner_id,
-		resource_kind, resource_id, cpu_millis, memory_bytes, pids, disk_bytes, retained, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, reservation.ID, reservation.OwnerKind,
-		reservation.OwnerID, reservation.ResourceKind, reservation.ResourceID, reservation.Amount.CPUMillis,
-		reservation.Amount.MemoryBytes, reservation.Amount.PIDs, reservation.Amount.DiskBytes,
-		reservation.Retained, time.Now().UnixNano())
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
-}
+var ErrStoredWorkloadLimit = errors.New("stored workload limit reached. Discard an unused environment before allocating another")
 
-// BeginWorkloadAdmission atomically owns the Host logical reservation and the
-// environment identity. Guest physical reservation is a later exact RPC and
-// cannot be reported admitted until CommitGuestReservation persists its receipt.
-// Model anchor: spec/tla/ResourceAdmissionQueue.tla Host logical/receipt phases.
-func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Environment, reservation WorkloadReservation, capacity resourcev2.Capacity) (Environment, WorkloadReservation, error) {
+// BeginWorkloadAdmission atomically bounds stored environments. Resource maxima
+// limit each environment and do not reserve the sum of their possible usage.
+func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Environment, capacity resourcev2.Contract) (Environment, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Environment{}, WorkloadReservation{}, err
+		return Environment{}, err
 	}
 	defer tx.Rollback()
-	used, err := sumWorkloadReservations(ctx, tx, "")
-	if err != nil {
-		return Environment{}, WorkloadReservation{}, err
+	var storedCount int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM environments WHERE owner_kind=?", OwnerRemoteRegistration).Scan(&storedCount); err != nil {
+		return Environment{}, err
 	}
-	if err := used.AdmitsShared(reservation.Resources, capacity); err != nil {
-		return Environment{}, WorkloadReservation{}, fmt.Errorf("%w: %w", ErrResourceCapacityExceeded, err)
+	if storedCount >= resourcev2.MaxStoredWorkloads {
+		return Environment{}, ErrStoredWorkloadLimit
+	}
+	if err := environment.Resources().Fits(capacity); err != nil {
+		return Environment{}, fmt.Errorf("%w: %w", ErrResourceCapacityExceeded, err)
 	}
 	now := time.Now().UnixNano()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO environments(id, namespace_id, display_name,
-		cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, owner_kind, registration_id,
-		allocation_id, allocation_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		environment.ID, environment.NamespaceID, environment.DisplayName, reservation.Resources.CPUMaxMillis,
-		reservation.Resources.MemoryMaxBytes, reservation.Resources.PIDMax, reservation.Resources.WritableQuotaBytes,
-		environment.EgressMode, environment.OwnerKind, environment.RegistrationID, environment.AllocationID,
-		environment.AllocationState, now, now); err != nil {
-		return Environment{}, WorkloadReservation{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workload_reservations_v2(allocation_id,generation,registration_id,
-		environment_id,cpu_guarantee_millis,cpu_max_millis,cpu_weight,memory_high_bytes,memory_max_bytes,pid_max,
-		writable_quota_bytes,phase,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, reservation.AllocationID,
-		reservation.Generation, reservation.RegistrationID, environment.ID, reservation.Resources.CPUGuaranteeMillis,
-		reservation.Resources.CPUMaxMillis, reservation.Resources.CPUWeight, reservation.Resources.MemoryHighBytes,
-		reservation.Resources.MemoryMaxBytes, reservation.Resources.PIDMax, reservation.Resources.WritableQuotaBytes,
-		WorkloadReservationLogical, now, now); err != nil {
-		return Environment{}, WorkloadReservation{}, err
+	if _, err := tx.ExecContext(ctx, `INSERT INTO environments(id,namespace_id,display_name,cpu_millis,memory_bytes,pids,disk_bytes,egress_mode,owner_kind,registration_id,allocation_id,allocation_generation,allocation_state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, environment.ID, environment.NamespaceID, environment.DisplayName, environment.CPUMillis, environment.MemoryBytes, environment.PIDs, environment.DiskBytes, environment.EgressMode, environment.OwnerKind, environment.RegistrationID, environment.AllocationID, environment.AllocationGeneration, environment.AllocationState, now, now); err != nil {
+		return Environment{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return Environment{}, WorkloadReservation{}, err
+		return Environment{}, err
 	}
-	env, err := store.GetEnvironment(ctx, environment.ID)
-	if err != nil {
-		return Environment{}, WorkloadReservation{}, err
-	}
-	stored, err := store.GetWorkloadReservation(ctx, reservation.AllocationID, reservation.Generation)
-	return env, stored, err
+	return store.GetEnvironment(ctx, environment.ID)
 }
 
-func sumWorkloadReservations(ctx context.Context, tx *sql.Tx, registrationID string) (resourcev2.Capacity, error) {
-	query := `SELECT COALESCE(SUM(cpu_guarantee_millis),0),COALESCE(SUM(cpu_max_millis),0),
-		COALESCE(SUM(memory_high_bytes),0),COALESCE(SUM(memory_max_bytes),0),COALESCE(SUM(pid_max),0),COALESCE(SUM(writable_quota_bytes),0)
-		FROM workload_reservations_v2 WHERE phase IN (1,2,3,4)`
-	var args []any
-	if registrationID != "" {
-		query += " AND registration_id=?"
-		args = append(args, registrationID)
-	}
-	var value resourcev2.Capacity
-	err := tx.QueryRowContext(ctx, query, args...).Scan(&value.CPUGuaranteeMillis, &value.CPUMaxMillis, &value.MemoryHighBytes, &value.MemoryMaxBytes, &value.PIDMax, &value.WritableQuotaBytes)
-	return value, err
+func (environment Environment) Resources() resourcev2.Contract {
+	return resourcev2.Contract{CPUMaxMillis: uint64(environment.CPUMillis), MemoryMaxBytes: environment.MemoryBytes, PIDMax: uint64(environment.PIDs), WritableQuotaBytes: environment.DiskBytes}
 }
 
-func (store *Store) GetWorkloadReservation(ctx context.Context, allocationID string, generation uint64) (WorkloadReservation, error) {
-	return scanWorkloadReservation(store.db.QueryRowContext(ctx, workloadReservationSelect+" WHERE allocation_id=? AND generation=?", allocationID, generation))
-}
-
-func (store *Store) GetWorkloadReservationByAllocation(ctx context.Context, registrationID, allocationID string) (WorkloadReservation, error) {
-	return scanWorkloadReservation(store.db.QueryRowContext(ctx, workloadReservationSelect+" WHERE registration_id=? AND allocation_id=?", registrationID, allocationID))
-}
-
-func (store *Store) GetWorkloadReservationByEnvironment(ctx context.Context, environmentID string) (WorkloadReservation, error) {
-	return scanWorkloadReservation(store.db.QueryRowContext(ctx, workloadReservationSelect+" WHERE environment_id=?", environmentID))
-}
-
-func (store *Store) ListWorkloadReleaseObligations(ctx context.Context, limit int) ([]WorkloadReservation, error) {
-	if limit <= 0 {
-		return nil, errors.New("workload release obligation limit must be positive")
-	}
-	rows, err := store.db.QueryContext(ctx, workloadReservationSelect+
-		" WHERE phase IN (?,?,?) ORDER BY updated_at,allocation_id,generation LIMIT ?",
-		WorkloadReservationReleaseRequired, WorkloadReservationReleasing,
-		WorkloadReservationReleasedPendingConfirm, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	values := make([]WorkloadReservation, 0, limit)
-	for rows.Next() {
-		value, err := scanWorkloadReservation(rows)
-		if err != nil {
-			return nil, err
-		}
-		values = append(values, value)
-	}
-	return values, rows.Err()
-}
-
-func (store *Store) DeferWorkloadRelease(ctx context.Context, allocationID string, generation uint64) error {
-	result, err := store.db.ExecContext(ctx, `UPDATE workload_reservations_v2 SET updated_at=?
-		WHERE allocation_id=? AND generation=? AND phase IN (?,?,?)`, time.Now().UnixNano(), allocationID, generation,
-		WorkloadReservationReleaseRequired, WorkloadReservationReleasing, WorkloadReservationReleasedPendingConfirm)
+func (store *Store) CommitNamespaceProjection(ctx context.Context, environment Environment) error {
+	result, err := store.db.ExecContext(ctx, `UPDATE environments SET allocation_state=CASE WHEN allocation_state=? THEN ? ELSE allocation_state END
+ WHERE id=? AND allocation_generation=? AND allocation_state IN (?,?,?)`, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), int32(hostv1.AllocationState_ALLOCATION_STATE_READY), environment.ID, environment.AllocationGeneration, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), int32(hostv1.AllocationState_ALLOCATION_STATE_READY), int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED))
 	if err != nil {
 		return err
 	}
-	count, err := result.RowsAffected()
+	changed, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if count != 1 {
-		return errors.New("exact workload release obligation no longer exists")
+	if changed != 1 {
+		return errors.New("allocation projection is no longer current")
 	}
 	return nil
 }
 
-func (store *Store) WorkloadUsage(ctx context.Context, registrationID string) (resourcev2.Capacity, error) {
-	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+func (store *Store) ListRetiringAllocations(ctx context.Context, since time.Time, limit int) ([]Environment, error) {
+	rows, err := store.db.QueryContext(ctx, environmentSelect+` WHERE owner_kind=? AND allocation_state=? AND updated_at>=? ORDER BY updated_at,id LIMIT ?`, OwnerRemoteRegistration, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), since.UnixNano(), limit)
 	if err != nil {
-		return resourcev2.Capacity{}, err
+		return nil, err
 	}
-	defer tx.Rollback()
-	return sumWorkloadReservations(ctx, tx, registrationID)
-}
-
-const workloadReservationSelect = `SELECT allocation_id,generation,registration_id,environment_id,
-	cpu_guarantee_millis,cpu_max_millis,cpu_weight,memory_high_bytes,memory_max_bytes,pid_max,writable_quota_bytes,
-	phase,guest_receipt,created_at,updated_at FROM workload_reservations_v2`
-
-func scanWorkloadReservation(row rowScanner) (WorkloadReservation, error) {
-	var value WorkloadReservation
-	var created, updated int64
-	err := row.Scan(&value.AllocationID, &value.Generation, &value.RegistrationID, &value.EnvironmentID,
-		&value.Resources.CPUGuaranteeMillis, &value.Resources.CPUMaxMillis, &value.Resources.CPUWeight,
-		&value.Resources.MemoryHighBytes, &value.Resources.MemoryMaxBytes, &value.Resources.PIDMax, &value.Resources.WritableQuotaBytes,
-		&value.Phase, &value.GuestReceipt, &created, &updated)
-	value.CreatedAt, value.UpdatedAt = time.Unix(0, created), time.Unix(0, updated)
-	return value, err
-}
-
-func (store *Store) CommitGuestReservation(ctx context.Context, allocationID string, generation uint64, receipt []byte) (WorkloadReservation, error) {
-	if len(receipt) == 0 {
-		return WorkloadReservation{}, errors.New("guest reservation receipt is required")
-	}
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return WorkloadReservation{}, err
-	}
-	defer tx.Rollback()
-	now := time.Now().UnixNano()
-	result, err := tx.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=?,guest_receipt=?,updated_at=?
-		WHERE allocation_id=? AND generation=? AND phase IN (?,?) AND (length(guest_receipt)=0 OR guest_receipt=?)`,
-		WorkloadReservationAdmitted, receipt, now, allocationID, generation,
-		WorkloadReservationLogical, WorkloadReservationAdmitted, receipt)
-	if err != nil {
-		return WorkloadReservation{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+	defer rows.Close()
+	var result []Environment
+	for rows.Next() {
+		environment, err := scanEnvironment(rows)
 		if err != nil {
-			return WorkloadReservation{}, err
+			return nil, err
 		}
-		return WorkloadReservation{}, errors.New("guest reservation receipt conflict")
+		result = append(result, environment)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE environments SET allocation_state=?,updated_at=? WHERE allocation_state=? AND id=(
-		SELECT environment_id FROM workload_reservations_v2 WHERE allocation_id=? AND generation=?)`,
-		int32(hostv1.AllocationState_ALLOCATION_STATE_READY), now, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), allocationID, generation); err != nil {
-		return WorkloadReservation{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorkloadReservation{}, err
-	}
-	return store.GetWorkloadReservation(ctx, allocationID, generation)
+	return result, rows.Err()
 }
 
-// BeginWorkloadRetirement atomically makes a remote allocation terminal and
-// creates its exact Host release obligation. A reserve response that was lost
-// before admission remains release-required; an admitted row can immediately
-// enter releasing because its exact Guest receipt is already durable.
-func (store *Store) BeginWorkloadRetirement(ctx context.Context, environmentID, allocationID string, generation, expectedRevision uint64, retainedState int32) (Environment, WorkloadReservation, error) {
-	tx, err := store.db.BeginTx(ctx, nil)
+// RequeueAllocationRetirement starts a new bounded retirement attempt window
+// without changing the allocation fence. A retained allocation whose previous
+// window expired otherwise remains a terminal, operator-visible fact.
+func (store *Store) RequeueAllocationRetirement(ctx context.Context, id string, expectedRevision uint64) (Environment, error) {
+	result, err := store.db.ExecContext(ctx, `UPDATE environments SET updated_at=?
+		WHERE id=? AND owner_kind=? AND allocation_state=? AND policy_revision=?`,
+		time.Now().UnixNano(), id, OwnerRemoteRegistration,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), expectedRevision)
 	if err != nil {
-		return Environment{}, WorkloadReservation{}, err
+		return Environment{}, err
 	}
-	defer tx.Rollback()
-	now := time.Now().UnixNano()
-	result, err := tx.ExecContext(ctx, `UPDATE environments SET allocation_state=?,policy_revision=policy_revision+1,updated_at=?
-		WHERE id=? AND owner_kind=2 AND allocation_id=? AND policy_revision=?`, retainedState, now, environmentID, allocationID, expectedRevision)
+	changed, err := result.RowsAffected()
 	if err != nil {
-		return Environment{}, WorkloadReservation{}, err
+		return Environment{}, err
 	}
-	if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != 1 {
-		if changeErr != nil {
-			return Environment{}, WorkloadReservation{}, changeErr
-		}
-		return Environment{}, WorkloadReservation{}, errors.New("allocation revision conflict")
+	if changed != 1 {
+		return Environment{}, errors.New("allocation retirement fence conflict")
 	}
-	result, err = tx.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=CASE
-		WHEN phase=? THEN ? WHEN phase=? THEN ? ELSE phase END,updated_at=?
-		WHERE environment_id=? AND allocation_id=? AND generation=? AND phase IN (?,?,?,?)`,
-		WorkloadReservationLogical, WorkloadReservationReleaseRequired,
-		WorkloadReservationAdmitted, WorkloadReservationReleasing, now,
-		environmentID, allocationID, generation, WorkloadReservationLogical,
-		WorkloadReservationReleaseRequired, WorkloadReservationAdmitted, WorkloadReservationReleasing)
-	if err != nil {
-		return Environment{}, WorkloadReservation{}, err
-	}
-	if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != 1 {
-		if changeErr != nil {
-			return Environment{}, WorkloadReservation{}, changeErr
-		}
-		return Environment{}, WorkloadReservation{}, errors.New("exact workload reservation is not retireable")
-	}
-	if err := tx.Commit(); err != nil {
-		return Environment{}, WorkloadReservation{}, err
-	}
-	environment, err := store.GetEnvironment(ctx, environmentID)
-	if err != nil {
-		return Environment{}, WorkloadReservation{}, err
-	}
-	reservation, err := store.GetWorkloadReservation(ctx, allocationID, generation)
-	return environment, reservation, err
-}
-
-// CommitGuestReservationForRelease persists a receipt recovered after a lost
-// reserve response directly into the existing terminal obligation. It never
-// makes the environment ready or exposes the reservation as admitted.
-func (store *Store) CommitGuestReservationForRelease(ctx context.Context, allocationID string, generation uint64, receipt []byte) (WorkloadReservation, error) {
-	if len(receipt) == 0 {
-		return WorkloadReservation{}, errors.New("guest reservation receipt is required")
-	}
-	result, err := store.db.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=?,guest_receipt=?,updated_at=?
-		WHERE allocation_id=? AND generation=? AND phase IN (?,?) AND (length(guest_receipt)=0 OR guest_receipt=?)`,
-		WorkloadReservationReleasing, receipt, time.Now().UnixNano(), allocationID, generation,
-		WorkloadReservationReleaseRequired, WorkloadReservationReleasing, receipt)
-	if err != nil {
-		return WorkloadReservation{}, err
-	}
-	if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != 1 {
-		if changeErr != nil {
-			return WorkloadReservation{}, changeErr
-		}
-		return WorkloadReservation{}, errors.New("terminal Guest reservation receipt conflict")
-	}
-	return store.GetWorkloadReservation(ctx, allocationID, generation)
-}
-
-// BeginWorkloadRelease durably fences reconciliation before the exact Guest
-// release crosses the Host/Guest failure boundary. Retrying the same identity
-// is idempotent; another generation or receipt cannot adopt the reservation.
-func (store *Store) BeginWorkloadRelease(ctx context.Context, allocationID string, generation uint64, receipt []byte) (WorkloadReservation, error) {
-	if len(receipt) == 0 {
-		return WorkloadReservation{}, errors.New("guest reservation receipt is required")
-	}
-	result, err := store.db.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=?,updated_at=?
-		WHERE allocation_id=? AND generation=? AND phase IN (?,?) AND guest_receipt=?`, WorkloadReservationReleasing,
-		time.Now().UnixNano(), allocationID, generation, WorkloadReservationAdmitted, WorkloadReservationReleasing, receipt)
-	if err != nil {
-		return WorkloadReservation{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return WorkloadReservation{}, err
-		}
-		return WorkloadReservation{}, errors.New("exact workload reservation is not releasable")
-	}
-	return store.GetWorkloadReservation(ctx, allocationID, generation)
-}
-
-// CommitGuestRelease durably records that Guest returned the exact released
-// tombstone. The Host keeps this row until a later exact confirmation removes
-// the Guest tombstone, so response loss at either boundary is restart-safe.
-func (store *Store) CommitGuestRelease(ctx context.Context, allocationID string, generation uint64, receipt []byte) (WorkloadReservation, error) {
-	if len(receipt) == 0 {
-		return WorkloadReservation{}, errors.New("guest reservation receipt is required")
-	}
-	result, err := store.db.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=?,updated_at=?
-		WHERE allocation_id=? AND generation=? AND phase IN (?,?) AND guest_receipt=?`, WorkloadReservationReleasedPendingConfirm,
-		time.Now().UnixNano(), allocationID, generation, WorkloadReservationReleasing, WorkloadReservationReleasedPendingConfirm, receipt)
-	if err != nil {
-		return WorkloadReservation{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return WorkloadReservation{}, err
-		}
-		return WorkloadReservation{}, errors.New("exact workload release is not confirmable")
-	}
-	return store.GetWorkloadReservation(ctx, allocationID, generation)
+	return store.GetEnvironment(ctx, id)
 }
 
 func sumReservations(ctx context.Context, tx *sql.Tx, ownerID string, ownerKind int32) (ResourceAmount, error) {
@@ -355,4 +124,27 @@ func (store *Store) ReleaseResources(ctx context.Context, id string) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (store *Store) ListWorkloadEnvironmentPage(ctx context.Context, after string, limit int) ([]Environment, error) {
+	if limit <= 0 || limit > 32 {
+		limit = 32
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
+ memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+ COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at
+ FROM environments WHERE id>? AND namespace_id NOT LIKE 'system.%' ORDER BY id LIMIT ?`, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Environment
+	for rows.Next() {
+		environment, err := scanEnvironment(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, environment)
+	}
+	return result, rows.Err()
 }

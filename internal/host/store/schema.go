@@ -33,14 +33,21 @@ func (store *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if version != 0 && version != schemaVersion {
-		return fmt.Errorf("unsupported host database schema %d; remove it explicitly", version)
+	if version != 0 && version != 18 && version != schemaVersion {
+		return fmt.Errorf("host database schema %d requires offline conversion. Preserve the existing database", version)
 	}
 	if version == 0 {
-		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV18} {
+		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV19} {
 			if err := migration(tx); err != nil {
 				return err
 			}
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
+			return err
+		}
+	} else if version == 18 {
+		if err := migrateV18ToV19(tx); err != nil {
+			return err
 		}
 		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
 			return err
@@ -64,23 +71,95 @@ func (store *Store) migrate(ctx context.Context) error {
 	return rows.Err()
 }
 
-func migrateV18(tx *sql.Tx) error {
+func migrateV19(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE environments ADD COLUMN allocation_generation INTEGER NOT NULL DEFAULT 0`)
+	return err
+}
+
+func migrateV18ToV19(tx *sql.Tx) error {
+	if err := migrateV19(tx); err != nil {
+		return fmt.Errorf("add allocation generation: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE environments SET allocation_generation=COALESCE((
+		SELECT generation FROM workload_reservations_v2 AS reservation
+		WHERE reservation.environment_id=environments.id
+		  AND reservation.registration_id=environments.registration_id
+		  AND reservation.allocation_id=environments.allocation_id
+	), 0) WHERE owner_kind=2`); err != nil {
+		return fmt.Errorf("convert allocation generation: %w", err)
+	}
+	var missing int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM environments
+		WHERE owner_kind=2 AND allocation_generation=0`).Scan(&missing); err != nil {
+		return fmt.Errorf("verify allocation generation conversion: %w", err)
+	}
+	if missing != 0 {
+		return fmt.Errorf("convert allocation generation: %d remote environments lack an exact reservation", missing)
+	}
+	if _, err := tx.Exec(`DROP TRIGGER IF EXISTS remote_reservation_delete`); err != nil {
+		return fmt.Errorf("remove obsolete allocation reservation trigger: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM resource_reservations WHERE owner_kind NOT IN (1, 2) OR resource_kind NOT IN (1, 2)`); err != nil {
+		return fmt.Errorf("remove obsolete allocation reservations: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE workload_reservations_v2`); err != nil {
+		return fmt.Errorf("remove obsolete workload reservations: %w", err)
+	}
+	for _, column := range []string{"aggregate_cpu_millis", "aggregate_memory_bytes", "aggregate_pids", "aggregate_disk_bytes"} {
+		if _, err := tx.Exec(`ALTER TABLE remote_registrations DROP COLUMN ` + column); err != nil {
+			return fmt.Errorf("remove remote aggregate limit %s: %w", column, err)
+		}
+		if _, err := tx.Exec(`ALTER TABLE appliance_grants DROP COLUMN ` + column); err != nil {
+			return fmt.Errorf("remove appliance aggregate limit %s: %w", column, err)
+		}
+	}
+	if _, err := tx.Exec(`CREATE TABLE resource_reservations_v19 (
+		id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind IN (1, 2)), owner_id TEXT NOT NULL,
+		resource_kind INTEGER NOT NULL CHECK(resource_kind IN (1, 2)), resource_id TEXT NOT NULL,
+		cpu_millis INTEGER NOT NULL, memory_bytes INTEGER NOT NULL, pids INTEGER NOT NULL, disk_bytes INTEGER NOT NULL,
+		retained INTEGER NOT NULL DEFAULT 0 CHECK(retained IN (0, 1)), created_at INTEGER NOT NULL,
+		UNIQUE(owner_kind, owner_id, resource_kind, resource_id)
+	)`); err != nil {
+		return fmt.Errorf("create fixed resource reservation table: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO resource_reservations_v19 SELECT * FROM resource_reservations`); err != nil {
+		return fmt.Errorf("preserve fixed resource reservations: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE resource_reservations`); err != nil {
+		return fmt.Errorf("replace obsolete resource reservation table: %w", err)
+	}
+	if _, err := tx.Exec(`ALTER TABLE resource_reservations_v19 RENAME TO resource_reservations`); err != nil {
+		return fmt.Errorf("activate fixed resource reservation table: %w", err)
+	}
+	return nil
+}
+
+// migrateV18Legacy creates the immediately previous schema for conversion
+// tests. Production initialization does not create this retired table.
+func migrateV18Legacy(tx *sql.Tx) error {
 	statements := []string{
-		`CREATE TABLE workload_reservations_v2 (
-			allocation_id TEXT NOT NULL, generation INTEGER NOT NULL CHECK(generation > 0),
-			registration_id TEXT NOT NULL REFERENCES remote_registrations(id) ON DELETE CASCADE,
-			environment_id TEXT NOT NULL UNIQUE REFERENCES environments(id) ON DELETE CASCADE,
-			cpu_guarantee_millis INTEGER NOT NULL, cpu_max_millis INTEGER NOT NULL, cpu_weight INTEGER NOT NULL,
-			memory_high_bytes INTEGER NOT NULL, memory_max_bytes INTEGER NOT NULL, pid_max INTEGER NOT NULL,
-			writable_quota_bytes INTEGER NOT NULL, phase INTEGER NOT NULL CHECK(phase BETWEEN 1 AND 5),
-			guest_receipt BLOB NOT NULL DEFAULT X'', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-			PRIMARY KEY(allocation_id, generation), UNIQUE(registration_id, allocation_id)
+		`DROP TABLE resource_reservations`,
+		`CREATE TABLE resource_reservations (
+			id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind IN (1, 2, 3)), owner_id TEXT NOT NULL,
+			resource_kind INTEGER NOT NULL CHECK(resource_kind IN (1, 2, 3)), resource_id TEXT NOT NULL,
+			cpu_millis INTEGER NOT NULL, memory_bytes INTEGER NOT NULL, pids INTEGER NOT NULL, disk_bytes INTEGER NOT NULL,
+			retained INTEGER NOT NULL DEFAULT 0 CHECK(retained IN (0, 1)), created_at INTEGER NOT NULL,
+			UNIQUE(owner_kind, owner_id, resource_kind, resource_id)
 		)`,
-		`CREATE INDEX workload_reservations_v2_phase ON workload_reservations_v2(phase, updated_at, allocation_id, generation)`,
+		`CREATE TABLE workload_reservations_v2 (
+		allocation_id TEXT NOT NULL, generation INTEGER NOT NULL CHECK(generation > 0),
+		registration_id TEXT NOT NULL REFERENCES remote_registrations(id) ON DELETE CASCADE,
+		environment_id TEXT NOT NULL UNIQUE REFERENCES environments(id) ON DELETE CASCADE,
+		cpu_guarantee_millis INTEGER NOT NULL, cpu_max_millis INTEGER NOT NULL, cpu_weight INTEGER NOT NULL,
+		memory_high_bytes INTEGER NOT NULL, memory_max_bytes INTEGER NOT NULL, pid_max INTEGER NOT NULL,
+		writable_quota_bytes INTEGER NOT NULL, phase INTEGER NOT NULL CHECK(phase BETWEEN 1 AND 5),
+		guest_receipt BLOB NOT NULL DEFAULT X'', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+		PRIMARY KEY(allocation_id, generation), UNIQUE(registration_id, allocation_id)
+	)`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement); err != nil {
-			return fmt.Errorf("create resource-v2 schema: %w", err)
+			return err
 		}
 	}
 	return nil
@@ -109,8 +188,6 @@ func migrateV16(tx *sql.Tx) error {
 			installation_id TEXT PRIMARY KEY REFERENCES appliance_installations(id) ON DELETE CASCADE,
 			revision INTEGER NOT NULL, system_cpu_millis INTEGER NOT NULL, system_memory_bytes INTEGER NOT NULL,
 			system_pids INTEGER NOT NULL, system_disk_bytes INTEGER NOT NULL, max_environments INTEGER NOT NULL,
-			aggregate_cpu_millis INTEGER NOT NULL, aggregate_memory_bytes INTEGER NOT NULL,
-			aggregate_pids INTEGER NOT NULL, aggregate_disk_bytes INTEGER NOT NULL,
 			per_env_cpu_millis INTEGER NOT NULL, per_env_memory_bytes INTEGER NOT NULL,
 			per_env_pids INTEGER NOT NULL, per_env_disk_bytes INTEGER NOT NULL,
 			egress_mode INTEGER NOT NULL CHECK(egress_mode IN (1, 2)),
@@ -178,8 +255,8 @@ func migrateV10(tx *sql.Tx) error {
 			WHEN (NEW.owner_kind = 1 AND NEW.installation_id IS NOT NULL) OR (NEW.owner_kind = 2 AND NEW.installation_id IS NULL)
 			BEGIN SELECT RAISE(ABORT, 'registration owner binding is invalid'); END`,
 		`CREATE TABLE resource_reservations (
-			id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind IN (1, 2, 3)), owner_id TEXT NOT NULL,
-			resource_kind INTEGER NOT NULL CHECK(resource_kind IN (1, 2, 3)), resource_id TEXT NOT NULL,
+			id TEXT PRIMARY KEY, owner_kind INTEGER NOT NULL CHECK(owner_kind IN (1, 2)), owner_id TEXT NOT NULL,
+			resource_kind INTEGER NOT NULL CHECK(resource_kind IN (1, 2)), resource_id TEXT NOT NULL,
 			cpu_millis INTEGER NOT NULL, memory_bytes INTEGER NOT NULL, pids INTEGER NOT NULL, disk_bytes INTEGER NOT NULL,
 			retained INTEGER NOT NULL DEFAULT 0 CHECK(retained IN (0, 1)), created_at INTEGER NOT NULL,
 			UNIQUE(owner_kind, owner_id, resource_kind, resource_id)
@@ -197,8 +274,6 @@ func migrateV10(tx *sql.Tx) error {
 			BEGIN UPDATE remote_registrations SET inventory_revision=inventory_revision+1, updated_at=NEW.updated_at WHERE id=NEW.registration_id; END`,
 		`CREATE TRIGGER remote_inventory_delete AFTER DELETE ON environments WHEN OLD.owner_kind = 2
 			BEGIN UPDATE remote_registrations SET inventory_revision=inventory_revision+1, updated_at=strftime('%s','now')*1000000000 WHERE id=OLD.registration_id; END`,
-		`CREATE TRIGGER remote_reservation_delete BEFORE DELETE ON environments WHEN OLD.owner_kind = 2
-			BEGIN DELETE FROM resource_reservations WHERE resource_kind=3 AND resource_id=OLD.id; END`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement); err != nil {
@@ -468,10 +543,6 @@ func migrateV2(tx *sql.Tx) error {
 			trust_bundle BLOB NOT NULL DEFAULT X'', scope_digest TEXT NOT NULL DEFAULT '',
 			source_policy_revision INTEGER NOT NULL DEFAULT 0 CHECK(source_policy_revision >= 0),
 			max_environments INTEGER NOT NULL CHECK(max_environments > 0),
-			aggregate_cpu_millis INTEGER NOT NULL CHECK(aggregate_cpu_millis > 0),
-			aggregate_memory_bytes INTEGER NOT NULL CHECK(aggregate_memory_bytes > 0),
-			aggregate_pids INTEGER NOT NULL CHECK(aggregate_pids > 0),
-			aggregate_disk_bytes INTEGER NOT NULL CHECK(aggregate_disk_bytes > 0),
 			per_env_cpu_millis INTEGER NOT NULL CHECK(per_env_cpu_millis > 0),
 			per_env_memory_bytes INTEGER NOT NULL CHECK(per_env_memory_bytes > 0),
 			per_env_pids INTEGER NOT NULL CHECK(per_env_pids > 0),

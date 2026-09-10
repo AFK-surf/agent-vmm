@@ -53,9 +53,9 @@ tar -xzf "$miniroot" -C "$root"
 cp /etc/resolv.conf "$root/etc/resolv.conf"
 chroot "$root" /sbin/apk upgrade --no-cache
 chroot "$root" /sbin/apk add --no-cache \
-  openrc ca-certificates-bundle iproute2 nftables e2fsprogs e2fsprogs-extra \
+  openrc ca-certificates-bundle iproute2 nftables e2fsprogs e2fsprogs-extra sfdisk \
   cni-plugins cryptsetup libcrypto3 libssl3 xz linux-virt containerd
-for package in openrc ca-certificates-bundle iproute2 nftables e2fsprogs e2fsprogs-extra cni-plugins cryptsetup libcrypto3 libssl3 xz linux-virt containerd; do
+for package in openrc ca-certificates-bundle iproute2 nftables e2fsprogs e2fsprogs-extra sfdisk cni-plugins cryptsetup libcrypto3 libssl3 xz linux-virt containerd; do
   chroot "$root" /sbin/apk info -e "$package"
 done
 
@@ -106,7 +106,7 @@ mkdir -p "$bundle/mcp-appliance"
 (cd "$repository" && go run ./build/appliance/manifest -output "$bundle/mcp-appliance" -image-digest "$(cat "$bundle/mcp-appliance.digest")" -release 1)
 cp -a "$repository/build/guest/root/." "$root/"
 ln -snf /run/resolv.conf "$root/etc/resolv.conf"
-mkdir -p "$root/state" "$root/var/lib/cni" "$root/opt/containerd" "$root/etc/cni/net.d"
+mkdir -p "$root/control" "$root/state" "$root/var/lib/cni" "$root/opt/containerd" "$root/etc/cni/net.d"
 test -L "$root/usr/bin/md5sum" || test -e "$root/usr/bin/md5sum" || ln -s /bin/busybox "$root/usr/bin/md5sum"
 chmod 0755 "$root/etc/init.d/agent-vmmd"
 ln -s /etc/init.d/agent-vmmd "$root/etc/runlevels/default/agent-vmmd"

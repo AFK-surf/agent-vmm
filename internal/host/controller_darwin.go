@@ -3,7 +3,6 @@
 package host
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -22,6 +21,7 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/egress"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
@@ -85,6 +85,11 @@ type Controller struct {
 	mu                       sync.Mutex
 	sessions                 map[string]*sessionServer
 	observed                 map[string][]*hostv1.Container
+	workloadRuns             map[string]*workloadRun
+	workloadRunsRecovered    bool
+	workloadPressureAt       time.Time
+	workloadMemoryPressure   bool
+	workloadOOMKills         uint64
 	environmentLocks         sync.Map
 	integrationLocks         sync.Map
 	sessionActivity          sync.Map
@@ -97,7 +102,8 @@ type Controller struct {
 	egressSessionWG          sync.WaitGroup
 	policyRevision           atomic.Uint64
 	remoteCapacity           store.Environment
-	remoteCapacityV2         resourcev2.Capacity
+	remoteCapacityV2         resourcev2.Contract
+	systemCapacity           store.Environment
 	remoteLeases             map[string]*remoteLease
 	allocationLeases         map[string]string
 	remoteLeaseGeneration    atomic.Uint64
@@ -120,7 +126,7 @@ type Controller struct {
 	domainMetrics            map[string]*controllerDomainMetricState
 	applianceReconcileCancel context.CancelFunc
 	applianceReconcileWG     sync.WaitGroup
-	workloadReleaseWake      chan struct{}
+	allocationRetirementWake chan struct{}
 	externalConnectorMu      sync.Mutex
 	externalConnectors       map[string]*externalConnectorRoute
 	externalConnectorContext context.Context
@@ -201,15 +207,16 @@ func New(config Config) (*Controller, error) {
 		remoteCredentials: remoteconnector.NewCredentialStore(filepath.Join(supportDirectory, "remote-credentials")),
 		egress:            egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
 		applianceHealth: make(map[string]*appliancev1.ApplianceHealth), pendingApplianceHealth: make(map[string]*appliancev1.ApplianceHealth),
-		serviceListeners:    make(map[string]*serviceListenerRuntime),
-		pairings:            make(map[string]*personalMeshPairingRuntime),
-		privateControllers:  make(map[string]*privateControllerRoute),
-		applianceFrontends:  make(map[string]*applianceFrontendRuntime),
-		domainMetrics:       make(map[string]*controllerDomainMetricState),
-		externalConnectors:  make(map[string]*externalConnectorRoute),
-		workloadReleaseWake: make(chan struct{}, 1),
-		remoteCapacity:      store.Environment{CPUMillis: uint32(config.CPUCount) * 1000, MemoryBytes: config.MemoryBytes, PIDs: 1 << 20, DiskBytes: uint64(max(config.StateBytes, 0))},
-		remoteCapacityV2:    remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes),
+		serviceListeners:         make(map[string]*serviceListenerRuntime),
+		pairings:                 make(map[string]*personalMeshPairingRuntime),
+		privateControllers:       make(map[string]*privateControllerRoute),
+		applianceFrontends:       make(map[string]*applianceFrontendRuntime),
+		domainMetrics:            make(map[string]*controllerDomainMetricState),
+		externalConnectors:       make(map[string]*externalConnectorRoute),
+		allocationRetirementWake: make(chan struct{}, 1),
+		remoteCapacity:           environmentFromContract(remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes)),
+		remoteCapacityV2:         remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes),
+		systemCapacity:           systemResourceCapacity(config.CPUCount, config.MemoryBytes),
 	}
 	controller.vmLifecycle = newVMLifecycleOwner(controller, config.Manager)
 	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
@@ -238,40 +245,45 @@ func New(config Config) (*Controller, error) {
 	}
 	reconcileContext, reconcileCancel := context.WithCancel(context.Background())
 	controller.applianceReconcileCancel = reconcileCancel
-	controller.applianceReconcileWG.Add(2)
+	controller.applianceReconcileWG.Add(3)
+	go func() {
+		defer controller.applianceReconcileWG.Done()
+		controller.workloadObservationLoop(reconcileContext)
+	}()
 	go func() {
 		defer controller.applianceReconcileWG.Done()
 		controller.applianceReconcileLoop(reconcileContext)
 	}()
 	go func() {
 		defer controller.applianceReconcileWG.Done()
-		controller.workloadReleaseReconcileLoop(reconcileContext)
+		controller.allocationRetirementLoop(reconcileContext)
 	}()
 	return controller, nil
 }
 
 const unexpectedVMRecoveryTimeout = 10 * time.Minute
 
-func remoteWorkloadCapacity(cpuCount uint, memoryBytes uint64, stateBytes int64) resourcev2.Capacity {
-	cpu := uint64(cpuCount) * 1000
-	guarantee := cpu
-	if guarantee > 500 {
-		guarantee -= 500
-	}
-	maxCPU := cpu * 3 / 2
-	if maxCPU > 1000 {
-		maxCPU -= 1000
-	}
-	memory := memoryBytes
-	if memory > 7<<29 {
-		memory -= 7 << 29
-	}
+func remoteWorkloadCapacity(cpuCount uint, memoryBytes uint64, stateBytes int64) resourcev2.Contract {
+	totalCPU := uint64(cpuCount) * 1000
+	maxCPU := max(uint64(500), totalCPU-min(totalCPU, uint64(1000)))
 	pids := uint64(2048)
 	writable := uint64(8 << 30)
 	if stateBytes > 0 && uint64(stateBytes)/4 < writable {
 		writable = uint64(stateBytes) / 4
 	}
-	return resourcev2.Capacity{CPUGuaranteeMillis: guarantee, CPUMaxMillis: maxCPU, MemoryHighBytes: memory, MemoryMaxBytes: memory, PIDMax: pids, WritableQuotaBytes: writable}
+	return resourcev2.Contract{CPUMaxMillis: maxCPU, MemoryMaxBytes: memoryBytes / 4 * 3, PIDMax: pids, WritableQuotaBytes: writable}
+}
+
+func environmentFromContract(capacity resourcev2.Contract) store.Environment {
+	return store.Environment{CPUMillis: uint32(capacity.CPUMaxMillis), MemoryBytes: capacity.MemoryMaxBytes,
+		PIDs: uint32(capacity.PIDMax), DiskBytes: capacity.WritableQuotaBytes}
+}
+
+func systemResourceCapacity(cpuCount uint, memoryBytes uint64) store.Environment {
+	totalCPU := uint64(cpuCount) * 1000
+	workload := remoteWorkloadCapacity(cpuCount, memoryBytes, 0)
+	return store.Environment{CPUMillis: uint32(totalCPU - workload.CPUMaxMillis), MemoryBytes: memoryBytes - workload.MemoryMaxBytes,
+		PIDs: 2048, DiskBytes: guestdisk.ControlSystemBytes}
 }
 
 func (controller *Controller) invalidateRuntimeCapabilities(ctx context.Context) {
@@ -279,6 +291,9 @@ func (controller *Controller) invalidateRuntimeCapabilities(ctx context.Context)
 }
 
 func (controller *Controller) prepareVMTransition(ctx context.Context) {
+	controller.mu.Lock()
+	controller.workloadRunsRecovered = false
+	controller.mu.Unlock()
 	if controller.vmLifecycle != nil {
 		controller.vmLifecycle.closeAdmission()
 	}
@@ -302,6 +317,9 @@ func (controller *Controller) commitRunningVM(ctx context.Context, excludedInsta
 		return err
 	}
 	if err = controller.reconcilePolicies(ctx); err != nil {
+		return err
+	}
+	if err := controller.recoverWorkloadRuns(ctx); err != nil {
 		return err
 	}
 	if err := controller.ReconcileExternalConnectors(ctx); err != nil {
@@ -545,25 +563,8 @@ func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, en
 }
 
 func (controller *Controller) projectEnvironment(ctx context.Context, environment store.Environment) error {
-	if environment.OwnerKind == store.OwnerRemoteRegistration {
-		reservation, err := controller.store.GetWorkloadReservationByEnvironment(ctx, environment.ID)
-		if err != nil {
-			return fmt.Errorf("load exact workload reservation: %w", err)
-		}
-		if reservation.Phase == store.WorkloadReservationReleaseRequired || reservation.Phase == store.WorkloadReservationReleasing || reservation.Phase == store.WorkloadReservationReleasedPendingConfirm {
-			// The persistent workload-release reconciler is the sole terminal
-			// reservation owner. Policy projection must not race its exact Guest
-			// release/confirm sequence.
-			return nil
-		}
-		connection, err := controller.manager.DialVMMD(ctx)
-		if err != nil {
-			return err
-		}
-		defer connection.Close()
-		client := vmmdv1.NewVMMDServiceClient(connection)
-		_, err = controller.reconcileGuestReservation(ctx, client, environment, reservation)
-		return err
+	if environment.OwnerKind == store.OwnerRemoteRegistration && environment.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		return nil
 	}
 	connection, err := controller.manager.DialVMMD(ctx)
 	if err != nil {
@@ -580,72 +581,11 @@ func (controller *Controller) projectEnvironment(ctx context.Context, environmen
 		Limits:     &vmmdv1.NamespaceLimits{CpuMillis: environment.CPUMillis, MemoryBytes: environment.MemoryBytes, Pids: environment.PIDs, DiskBytes: environment.DiskBytes},
 		EgressMode: vmmdv1.EgressMode(environment.EgressMode),
 	})
-	return err
-}
-
-func (controller *Controller) reconcileGuestReservation(ctx context.Context, client vmmdv1.VMMDServiceClient, environment store.Environment, reservation store.WorkloadReservation) (store.WorkloadReservation, error) {
-	receipt, err := controller.requestGuestReservation(ctx, client, environment, reservation)
 	if err != nil {
-		return store.WorkloadReservation{}, err
+		return err
 	}
-	return controller.store.CommitGuestReservation(ctx, reservation.AllocationID, reservation.Generation, receipt)
-}
-
-func (controller *Controller) recoverGuestReservationForRelease(ctx context.Context, client vmmdv1.VMMDServiceClient, environment store.Environment, reservation store.WorkloadReservation) (store.WorkloadReservation, error) {
-	receipt, err := controller.requestGuestReservation(ctx, client, environment, reservation)
-	if err != nil {
-		return store.WorkloadReservation{}, err
-	}
-	return controller.store.CommitGuestReservationForRelease(ctx, reservation.AllocationID, reservation.Generation, receipt)
-}
-
-func (controller *Controller) requestGuestReservation(ctx context.Context, client vmmdv1.VMMDServiceClient, environment store.Environment, reservation store.WorkloadReservation) ([]byte, error) {
-	resources := reservation.Resources
-	identity := fmt.Sprintf("reservation-reserve-%s-%d", reservation.AllocationID, reservation.Generation)
-	response, err := client.ReserveWorkloadResources(ctx, &vmmdv1.ReserveWorkloadResourcesRequest{RequestId: derivedRequestID(identity),
-		AllocationId: reservation.AllocationID, Generation: reservation.Generation, NamespaceId: environment.NamespaceID,
-		Resources: &vmmdv1.WorkloadResourcesV2{CpuGuaranteeMillis: uint32(resources.CPUGuaranteeMillis), CpuMaxMillis: uint32(resources.CPUMaxMillis), CpuWeight: uint32(resources.CPUWeight),
-			MemoryHighBytes: resources.MemoryHighBytes, MemoryMaxBytes: resources.MemoryMaxBytes, PidMax: uint32(resources.PIDMax), WritableQuotaBytes: resources.WritableQuotaBytes},
-		EgressMode: vmmdv1.EgressMode(environment.EgressMode)})
-	if err != nil {
-		return nil, err
-	}
-	expected := resources.Digest(reservation.AllocationID, reservation.Generation, environment.NamespaceID)
-	if response.GetAllocationId() != reservation.AllocationID || response.GetGeneration() != reservation.Generation || response.GetNamespaceId() != environment.NamespaceID || !bytes.Equal(response.GetContractSha256(), expected[:]) {
-		return nil, errors.New("Guest returned a conflicting workload reservation receipt")
-	}
-	return response.GetContractSha256(), nil
-}
-
-func (controller *Controller) confirmWorkloadRelease(ctx context.Context, client vmmdv1.VMMDServiceClient, environment store.Environment, reservation store.WorkloadReservation) error {
-	requestIdentity := fmt.Sprintf("%s-%d", reservation.AllocationID, reservation.Generation)
-	if reservation.Phase == store.WorkloadReservationReleasing {
-		response, err := client.ReleaseWorkloadResources(ctx, &vmmdv1.ReleaseWorkloadResourcesRequest{RequestId: derivedRequestID("reservation-release-" + requestIdentity),
-			AllocationId: reservation.AllocationID, Generation: reservation.Generation, NamespaceId: environment.NamespaceID, ContractSha256: reservation.GuestReceipt})
-		if err != nil {
-			return fmt.Errorf("release exact workload reservation: %w", err)
-		}
-		if response.GetReleased().GetAllocationId() != reservation.AllocationID || response.GetReleased().GetGeneration() != reservation.Generation ||
-			!bytes.Equal(response.GetReleased().GetContractSha256(), reservation.GuestReceipt) {
-			return errors.New("Guest released a conflicting workload reservation")
-		}
-		var commitErr error
-		reservation, commitErr = controller.store.CommitGuestRelease(ctx, reservation.AllocationID, reservation.Generation, reservation.GuestReceipt)
-		if commitErr != nil {
-			return fmt.Errorf("commit exact Guest release: %w", commitErr)
-		}
-	}
-	if reservation.Phase != store.WorkloadReservationReleasedPendingConfirm {
-		return errors.New("workload reservation is not pending release confirmation")
-	}
-	confirmed, err := client.ConfirmWorkloadResourceRelease(ctx, &vmmdv1.ConfirmWorkloadResourceReleaseRequest{RequestId: derivedRequestID("reservation-confirm-" + requestIdentity),
-		AllocationId: reservation.AllocationID, Generation: reservation.Generation, NamespaceId: environment.NamespaceID, ContractSha256: reservation.GuestReceipt})
-	if err != nil {
-		return fmt.Errorf("confirm exact workload reservation release: %w", err)
-	}
-	if confirmed.GetConfirmed().GetAllocationId() != reservation.AllocationID || confirmed.GetConfirmed().GetGeneration() != reservation.Generation ||
-		!bytes.Equal(confirmed.GetConfirmed().GetContractSha256(), reservation.GuestReceipt) {
-		return errors.New("Guest confirmed a conflicting workload reservation release")
+	if environment.OwnerKind == store.OwnerRemoteRegistration {
+		return controller.store.CommitNamespaceProjection(ctx, environment)
 	}
 	return nil
 }

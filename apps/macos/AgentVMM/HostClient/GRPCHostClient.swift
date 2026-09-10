@@ -401,7 +401,6 @@ extension GRPCHostClient {
     nonisolated func remotePool(_ value: RemotePoolSettings) -> Agentvmm_Host_V1_RemotePoolPolicy {
         var pool = Agentvmm_Host_V1_RemotePoolPolicy()
         pool.maxEnvironments = value.maxEnvironments
-        pool.aggregateLimits = resourceLimits(value.aggregateLimits)
         pool.perEnvironmentLimits = resourceLimits(value.perEnvironmentLimits)
         pool.maxEgressMode = value.allowsPublicEgress ? .publicInternet : .denyAll
         pool.maxLeaseDuration.seconds = value.maxLeaseSeconds
@@ -520,7 +519,6 @@ extension GRPCHostClient {
             owner: owner,
             pool: RemotePoolSettings(
                 maxEnvironments: value.pool.maxEnvironments,
-                aggregateLimits: environmentLimits(value.pool.aggregateLimits),
                 perEnvironmentLimits: environmentLimits(value.pool.perEnvironmentLimits),
                 allowsPublicEgress: value.pool.maxEgressMode == .publicInternet,
                 maxLeaseSeconds: value.pool.maxLeaseDuration.seconds,
@@ -599,7 +597,6 @@ extension GRPCHostClient {
             healthMessage: value.health.status.nilIfEmpty,
             grant: ApplianceGrantModel(
                 maxEnvironments: grant.capacity.maxEnvironments,
-                aggregateLimits: environmentLimits(grant.capacity.aggregateLimits),
                 perEnvironmentLimits: environmentLimits(grant.capacity.perEnvironmentLimits),
                 allowsPublicEgress: grant.capacity.maxEgressMode == .publicInternet,
                 maxLeaseSeconds: grant.capacity.maxLeaseSeconds,

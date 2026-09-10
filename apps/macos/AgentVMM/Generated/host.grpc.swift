@@ -125,6 +125,45 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "AcquireExecution" metadata.
+        public enum AcquireExecution: Sendable {
+            /// Request type for "AcquireExecution".
+            public typealias Input = Agentvmm_Host_V1_ExecutionRequest
+            /// Response type for "AcquireExecution".
+            public typealias Output = Agentvmm_Host_V1_ExecutionResponse
+            /// Descriptor for "AcquireExecution".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "AcquireExecution",
+                type: .unary
+            )
+        }
+        /// Namespace for "ReleaseExecution" metadata.
+        public enum ReleaseExecution: Sendable {
+            /// Request type for "ReleaseExecution".
+            public typealias Input = Agentvmm_Host_V1_ExecutionRequest
+            /// Response type for "ReleaseExecution".
+            public typealias Output = SwiftProtobuf.Google_Protobuf_Empty
+            /// Descriptor for "ReleaseExecution".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "ReleaseExecution",
+                type: .unary
+            )
+        }
+        /// Namespace for "QuiesceContainer" metadata.
+        public enum QuiesceContainer: Sendable {
+            /// Request type for "QuiesceContainer".
+            public typealias Input = Agentvmm_Host_V1_QuiesceContainerRequest
+            /// Response type for "QuiesceContainer".
+            public typealias Output = Agentvmm_Host_V1_ContainerResponse
+            /// Descriptor for "QuiesceContainer".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "QuiesceContainer",
+                type: .unary
+            )
+        }
         /// Namespace for "WaitContainer" metadata.
         public enum WaitContainer: Sendable {
             /// Request type for "WaitContainer".
@@ -564,6 +603,9 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
             CreateContainer.descriptor,
             StartContainer.descriptor,
             StopContainer.descriptor,
+            AcquireExecution.descriptor,
+            ReleaseExecution.descriptor,
+            QuiesceContainer.descriptor,
             WaitContainer.descriptor,
             DeleteContainer.descriptor,
             GetContainer.descriptor,
@@ -763,6 +805,63 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
         func stopContainer<Result>(
             request: GRPCCore.ClientRequest<Agentvmm_Host_V1_StopContainerRequest>,
             serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_StopContainerRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ContainerResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ContainerResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "AcquireExecution" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecutionRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecutionRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ExecutionResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func acquireExecution<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecutionRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ExecutionResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ExecutionResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ReleaseExecution" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecutionRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecutionRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func releaseExecution<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecutionRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "QuiesceContainer" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_QuiesceContainerRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_QuiesceContainerRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ContainerResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func quiesceContainer<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_QuiesceContainerRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_QuiesceContainerRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ContainerResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ContainerResponse>) async throws -> Result
@@ -1643,6 +1742,96 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.StopContainer.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "AcquireExecution" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecutionRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecutionRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ExecutionResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func acquireExecution<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecutionRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ExecutionResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ExecutionResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.AcquireExecution.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ReleaseExecution" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecutionRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecutionRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func releaseExecution<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecutionRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.ReleaseExecution.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "QuiesceContainer" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_QuiesceContainerRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_QuiesceContainerRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ContainerResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func quiesceContainer<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_QuiesceContainerRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_QuiesceContainerRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ContainerResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ContainerResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.QuiesceContainer.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -2831,6 +3020,81 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
         )
     }
 
+    /// Call the "AcquireExecution" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ExecutionRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func acquireExecution<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ExecutionResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.acquireExecution(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ExecutionRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ExecutionResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ReleaseExecution" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ExecutionRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func releaseExecution<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.releaseExecution(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ExecutionRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "QuiesceContainer" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_QuiesceContainerRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func quiesceContainer<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_QuiesceContainerRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ContainerResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.quiesceContainer(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_QuiesceContainerRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ContainerResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "WaitContainer" method.
     ///
     /// - Parameters:
@@ -3873,6 +4137,93 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
             metadata: metadata
         )
         return try await self.stopContainer(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "AcquireExecution" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func acquireExecution<Result>(
+        _ message: Agentvmm_Host_V1_ExecutionRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ExecutionResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.acquireExecution(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ReleaseExecution" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func releaseExecution<Result>(
+        _ message: Agentvmm_Host_V1_ExecutionRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecutionRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.releaseExecution(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "QuiesceContainer" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func quiesceContainer<Result>(
+        _ message: Agentvmm_Host_V1_QuiesceContainerRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ContainerResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_QuiesceContainerRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.quiesceContainer(
             request: request,
             options: options,
             onResponse: handleResponse

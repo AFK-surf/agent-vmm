@@ -60,8 +60,15 @@ func ownedRuntimeContainer(ctx context.Context, client *containerd.Client, names
 	if err != nil {
 		return nil, err
 	}
-	if labels[runtimeOwnerLabel] != namespaceID || labels[runtimeExternalIDLabel] != containerID {
-		return nil, errors.New("runtime container ownership mismatch")
+	if err := validateRuntimeContainerOwnership(labels, namespaceID, containerID); err != nil {
+		return nil, err
 	}
 	return container, nil
+}
+
+func validateRuntimeContainerOwnership(labels map[string]string, namespaceID, containerID string) error {
+	if labels[runtimeOwnerLabel] != namespaceID || labels[runtimeExternalIDLabel] != containerID {
+		return errors.New("runtime container ownership mismatch")
+	}
+	return nil
 }

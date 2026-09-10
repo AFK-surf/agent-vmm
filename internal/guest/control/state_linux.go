@@ -20,10 +20,10 @@ func removeNamespaceState(namespaceID string) error {
 	for _, path := range []string{
 		volumePath(namespaceID, ""),
 		workspacePath(namespaceID),
-		filepath.Join(stateRoot, "logs", namespaceID),
-		filepath.Join(stateRoot, "build-cache", namespaceID),
-		filepath.Join(stateRoot, "build-tmp", namespaceID),
-		filepath.Join(stateRoot, "imports", namespaceID),
+		filepath.Join(namespaceStateRoot(namespaceID), "logs", namespaceID),
+		filepath.Join(namespaceStateRoot(namespaceID), "build-cache", namespaceID),
+		filepath.Join(namespaceStateRoot(namespaceID), "build-tmp", namespaceID),
+		filepath.Join(namespaceStateRoot(namespaceID), "imports", namespaceID),
 	} {
 		if err := os.RemoveAll(path); err != nil {
 			return err

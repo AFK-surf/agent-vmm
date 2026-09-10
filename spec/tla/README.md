@@ -14,11 +14,9 @@ form an artificial Cartesian product:
   lower snapshot.
 - `ManagedCredentialReplacement.tla` owns same-policy-revision managed
   credential idempotence and the expiry fence for a newly signed payload.
-- `ResourceAdmissionQueue.tla` owns the exact Host logical/Guest physical
-  reservation receipt and released-tombstone confirmation, five independent
-  admission dimensions (memory is the aggregate `memory.high` entitlement;
-  each `memory.max` remains an individual cgroup ceiling), FIFO/deadline claim, command epoch/generation fences,
-  response loss, restart, stop, and exact release convergence.
+- `WorkloadRunLifecycle.tla` owns the Host active-sandbox bound, atomic start
+  admission, container-instance execution fence, quiesce fence, response loss,
+  exact stop observation, and fail-closed Host restart.
 - `OCIContentLifecycle.tla` owns the single global import slot, transient peak
   reservation, timeout/crash, the one shared content/lower-snapshot fact per
   digest, active container references, logical namespace grants, pressure
@@ -33,11 +31,10 @@ form an artificial Cartesian product:
 - `SystemInventorySeparation.tla` owns the tenant projection boundary for system
   resources.
 
-`ResourceAdmissionQueue` and `ControllerAllocationLifecycle` remain orthogonal:
-the former proves physical resource/receipt ownership while the latter owns the
+`WorkloadRunLifecycle` and `ControllerAllocationLifecycle` remain orthogonal.
+The former owns process slots and execution admission. The latter owns the
 controller epoch, revision, lease, and command ordering fences. OCI identity and
-aggregate disk arithmetic stay in their own narrow models to avoid a false
-Cartesian product.
+physical disk arithmetic stay in their own narrow models.
 
 - `ApplianceActivationLifecycle.tla` owns one installation's coupled bundled
   artifact upgrade, bounded missing-instance recovery, bootstrap, instance
@@ -82,7 +79,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `Disconnect`, `Reconnect`, `GraceExpires`, `NoStaleTimerRevocation` | `internal/host/remote_compute_darwin.go`, `internal/host/remote_lease_darwin.go`, persisted remote registration | disconnect grace timer behavior across reconnect and a newer disconnect |
 | `RetryExactArchive`, `CommitExactArchive`, `CreateRequiresExactMaterial` | guest OCI import, image projection, and container creation | real archive import, forced VM restart, and rootfs creation E2E |
 | `InstallValidReplacement`, `ReplacementRequiresExpired`, `ForgedCredentialNeverStored` | managed trust validation and atomic credential store | expired same-revision replacement and unexpired/forged rejection tests |
-| `HostLogicalReserve`, `GuestExactReserve`, `ReconcileReceipt`, `ExactReleaseOnly`, `RenewLease`, `ExplicitReleaseLease`, `ExpireLease`, `HostRestart` | `internal/host/store/resource.go`, `internal/host/store/remote.go`, `internal/host/remote_lease_darwin.go`, `internal/host/remote_compute_darwin.go`, `internal/guest/control/resource_v2_linux.go` | exact response-loss retry, close/reopen projection recovery, connection replacement without nested-lock deadlock, stale timer after renewal, concurrent expiry/release, and stale-generation release tests |
+| `BeginStart`, `CommitRunning`, `Acquire`, `BeginQuiesce`, `BeginStop`, `ObserveStopped`, `HostRestart` | `internal/host/workload_run_darwin.go`, `internal/host/workload_execution_darwin.go`, `internal/host/workload_observation_darwin.go` | concurrent start, response loss, stale instance, execution/quiesce race, exact stop, and restart recovery tests |
 | `ReserveImport`, `Commit`, `DeleteRetained`, `GC`, `SingleGlobalImportOwner`, `ReferencedContentNotDeleted` | `internal/guest/control/import_linux.go`, `internal/guest/control/oci_gc_linux.go`, `internal/ocimaterializer` | concurrent digest imports, unsafe concurrent-owner counterexample, and shared-digest release/GC tests |
 | `AdmitQuota`, `ReserveImport`, `RetainRelease`, `CacheGrow`, `DiskInvariant` | `internal/guestdisk`, guest project quota and OCI budget owners | overflow, retained accounting, import reservation, and cache pressure tests |
 | `AuthorizedCommand`, `ExactRegistrationIdentity`, `DomainNonInterference` | host controller transport and command authorization | wrong-identity and cross-domain failure tests |

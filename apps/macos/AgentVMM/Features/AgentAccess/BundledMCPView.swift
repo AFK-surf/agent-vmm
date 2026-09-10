@@ -99,7 +99,6 @@ struct BundledMCPView: View {
                 Stepper("Maximum clients: \(grant.maxEnvironments)", value: $grant.maxEnvironments, in: 1...16)
                 Toggle("Allow client workloads to access the public internet", isOn: $grant.allowsPublicEgress)
                 LabeledContent("Per-client maximum", value: "1 CPU · 512 MiB memory · 4 GiB disk")
-                LabeledContent("Aggregate maximum", value: "1 CPU · 512 MiB memory · 4 GiB disk")
             }
             HStack {
                 Spacer()

@@ -89,7 +89,8 @@ message RemoteObservationSnapshot {
   RemoteObservationHealth health = 8;
   RemoteObservationUsage usage = 9;
   uint64 inventory_watermark = 10;
-  uint32 inventory_count = 11;
+  reserved 11;
+  reserved "inventory_count";
   int64 inventory_observed_unix_millis = 12;
 }
 
@@ -120,8 +121,9 @@ message RemoteObservationUsage {
 }
 
 message Capacity {
+  reserved 2;
+  reserved "aggregate_limits";
   uint32 max_environments = 1;
-  agentvmm.host.v1.ResourceLimits aggregate_limits = 2;
   agentvmm.host.v1.ResourceLimits per_environment_limits = 3;
   agentvmm.host.v1.EgressMode max_egress_mode = 4;
   uint32 max_lease_seconds = 5;
@@ -282,13 +284,16 @@ message CommandResult {
 
 enum CapacityDimension {
   CAPACITY_DIMENSION_UNSPECIFIED = 0;
-  CAPACITY_DIMENSION_CPU_GUARANTEE = 1;
+  reserved 1;
+  reserved "CAPACITY_DIMENSION_CPU_GUARANTEE";
   CAPACITY_DIMENSION_CPU_MAX = 2;
   CAPACITY_DIMENSION_MEMORY = 3;
   CAPACITY_DIMENSION_PIDS = 4;
   CAPACITY_DIMENSION_WRITABLE = 5;
   CAPACITY_DIMENSION_STORAGE_HEADROOM = 6;
   CAPACITY_DIMENSION_IMPORT_SLOT = 7;
+  CAPACITY_DIMENSION_RUN_SLOT = 8;
+  CAPACITY_DIMENSION_MEMORY_PRESSURE = 9;
 }
 
 enum CommandAckDisposition {

@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	publicResolver = netprotocol.VirtualDNS
-	netnsRoot      = "/run/netns"
-	resolvRoot     = "/state/network/resolv"
+	publicResolver     = netprotocol.VirtualDNS
+	netnsRoot          = "/run/netns"
+	workloadResolvRoot = "/state/network/resolv"
+	systemResolvRoot   = "/control/network/resolv"
 )
 
 type Namespace struct {
@@ -218,7 +219,7 @@ func (m *Manager) DeleteNamespace(id string) error {
 	delete(m.settled, id)
 	delete(m.settledOK, id)
 	delete(m.namespaces, id)
-	if err := os.Remove(filepath.Join(resolvRoot, id+".conf")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(resolvPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return m.reconcileLocked()
@@ -244,13 +245,22 @@ func (m *Manager) CanDeleteNamespace(id string) error {
 }
 
 func (m *Manager) ResolvPath(namespaceID string) string {
-	return filepath.Join(resolvRoot, namespaceID+".conf")
+	return resolvPath(namespaceID)
 }
 
 func writeResolvConf(id string, gateway netip.Addr) error {
-	if err := os.MkdirAll(resolvRoot, 0o700); err != nil {
+	path := resolvPath(id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	content := "nameserver " + gateway.String() + "\nsearch " + id + ".agent\noptions ndots:1\n"
-	return os.WriteFile(filepath.Join(resolvRoot, id+".conf"), []byte(content), 0o644)
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func resolvPath(namespaceID string) string {
+	root := workloadResolvRoot
+	if strings.HasPrefix(namespaceID, "system.") {
+		root = systemResolvRoot
+	}
+	return filepath.Join(root, namespaceID+".conf")
 }

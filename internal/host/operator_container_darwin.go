@@ -28,7 +28,9 @@ func (server *operatorServer) StopContainer(ctx context.Context, request *hostv1
 		return nil, err
 	}
 	defer connection.Close()
-	response, err := client.StopContainer(ctx, &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds})
+	unlock := server.controller.lockEnvironment(environment.ID)
+	defer unlock()
+	response, err := server.controller.stopWorkloadContainerLocked(ctx, client, environment.ID, &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds})
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +53,7 @@ func (server *operatorServer) ContinueContainer(ctx context.Context, request *ho
 		return nil, err
 	}
 	defer connection.Close()
-	response, err := client.StartContainer(ctx, &vmmdv1.StartContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID, ContainerId: request.GetContainerId()})
+	response, err := server.controller.startWorkloadContainer(ctx, client, environment.ID, &vmmdv1.StartContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID, ContainerId: request.GetContainerId()})
 	if err != nil {
 		return nil, err
 	}

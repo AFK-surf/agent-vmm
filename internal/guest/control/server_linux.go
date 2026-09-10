@@ -71,7 +71,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) Health(context.Context, *vmmdv1.HealthRequest) (*vmmdv1.HealthResponse, error) {
-	return &vmmdv1.HealthResponse{Ready: !s.shuttingDown.Load() && s.runtime.ociGrowthError() == nil, StateInitialized: true, RootReadOnly: s.health.RootReadOnly, BootId: s.health.BootID, RuntimeVersions: s.health.Versions}, nil
+	return &vmmdv1.HealthResponse{Ready: !s.shuttingDown.Load(), StateInitialized: true, RootReadOnly: s.health.RootReadOnly, BootId: s.health.BootID, RuntimeVersions: s.health.Versions}, nil
 }
 
 func (s *Server) PrepareShutdown(ctx context.Context, request *vmmdv1.PrepareShutdownRequest) (*vmmdv1.PrepareShutdownResponse, error) {
@@ -107,38 +107,6 @@ func (s *Server) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureName
 		return nil, rpcError(err)
 	}
 	return value.(*vmmdv1.EnsureNamespaceResponse), nil
-}
-
-func (s *Server) ReserveWorkloadResources(ctx context.Context, request *vmmdv1.ReserveWorkloadResourcesRequest) (*vmmdv1.WorkloadResourceReceipt, error) {
-	value, err := s.mutate(ctx, "reserve-workload-resources", request, func() (any, error) {
-		return s.runtime.ReserveWorkloadResources(ctx, request)
-	})
-	if err != nil {
-		return nil, rpcError(err)
-	}
-	return value.(*vmmdv1.WorkloadResourceReceipt), nil
-}
-
-func (s *Server) ReleaseWorkloadResources(ctx context.Context, request *vmmdv1.ReleaseWorkloadResourcesRequest) (*vmmdv1.ReleaseWorkloadResourcesResponse, error) {
-	value, err := s.mutate(ctx, "release-workload-resources", request, func() (any, error) {
-		receipt, err := s.runtime.ReleaseWorkloadResources(ctx, request)
-		return &vmmdv1.ReleaseWorkloadResourcesResponse{Released: receipt}, err
-	})
-	if err != nil {
-		return nil, rpcError(err)
-	}
-	return value.(*vmmdv1.ReleaseWorkloadResourcesResponse), nil
-}
-
-func (s *Server) ConfirmWorkloadResourceRelease(ctx context.Context, request *vmmdv1.ConfirmWorkloadResourceReleaseRequest) (*vmmdv1.ConfirmWorkloadResourceReleaseResponse, error) {
-	value, err := s.mutate(ctx, "confirm-workload-resource-release", request, func() (any, error) {
-		receipt, err := s.runtime.ConfirmWorkloadResourceRelease(request)
-		return &vmmdv1.ConfirmWorkloadResourceReleaseResponse{Confirmed: receipt}, err
-	})
-	if err != nil {
-		return nil, rpcError(err)
-	}
-	return value.(*vmmdv1.ConfirmWorkloadResourceReleaseResponse), nil
 }
 
 func (s *Server) DeleteNamespace(ctx context.Context, request *vmmdv1.DeleteNamespaceRequest) (*vmmdv1.DeleteNamespaceResponse, error) {
@@ -228,6 +196,9 @@ func (s *Server) StopContainer(ctx context.Context, request *vmmdv1.StopContaine
 	}
 	value, err := s.mutate(ctx, "stop-container", request, func() (any, error) {
 		container, err := s.runtime.StopContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId(), timeout)
+		if err == nil && container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_UNKNOWN {
+			err = detailedError(codes.FailedPrecondition, "CONTAINER_STATE_UNKNOWN", "sandbox teardown is unresolved; inspect or stop the current instance", "container", request.GetContainerId())
+		}
 		return &vmmdv1.StopContainerResponse{Container: container}, err
 	})
 	if err != nil {
@@ -255,6 +226,8 @@ func (s *Server) DeleteContainer(ctx context.Context, request *vmmdv1.DeleteCont
 }
 
 func (s *Server) InspectContainer(ctx context.Context, request *vmmdv1.InspectContainerRequest) (*vmmdv1.InspectContainerResponse, error) {
+	unlock := s.runtime.lockNamespace(request.GetActorNamespaceId())
+	defer unlock()
 	container, err := s.runtime.InspectContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId())
 	if err != nil {
 		return nil, rpcError(err)
@@ -346,12 +319,6 @@ func mutationRequestID(request proto.Message) string {
 	case *vmmdv1.StopSystemApplianceRequest:
 		return request.GetRequestId()
 	case *vmmdv1.EnsureNamespaceRequest:
-		return request.GetRequestId()
-	case *vmmdv1.ReserveWorkloadResourcesRequest:
-		return request.GetRequestId()
-	case *vmmdv1.ReleaseWorkloadResourcesRequest:
-		return request.GetRequestId()
-	case *vmmdv1.ConfirmWorkloadResourceReleaseRequest:
 		return request.GetRequestId()
 	case *vmmdv1.DeleteNamespaceRequest:
 		return request.GetRequestId()

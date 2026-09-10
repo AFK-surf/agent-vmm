@@ -102,7 +102,7 @@ func TestReferenceConsumerHasNoProductWorkerIdentity(t *testing.T) {
 		"cmd/agent-vmm-reference-appliance/controller.go",
 		"api/remote/v1/remote.proto",
 		"spec/tla/ControllerAllocationLifecycle.tla",
-		"spec/tla/ResourceAdmissionQueue.tla",
+		"spec/tla/WorkloadRunLifecycle.tla",
 		"spec/tla/DomainAuthorityIsolation.tla",
 		"spec/tla/SystemInventorySeparation.tla",
 	}
@@ -139,11 +139,11 @@ func TestControllerModelsAreSeparatedAndWired(t *testing.T) {
 			t.Errorf("%s does not configure the bounded single-controller command fence", config)
 		}
 	}
-	admissionBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", "ResourceAdmissionQueue.cfg"))
+	admissionBytes, err := os.ReadFile(filepath.Join(repository, "spec", "tla", "WorkloadRunLifecycle.cfg"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(admissionBytes), "EnforceExactRelease = TRUE") {
-		t.Error("resource admission model does not enforce exact generation release")
+	if !strings.Contains(string(admissionBytes), "EnforceAtomicAdmission = TRUE") || !strings.Contains(string(admissionBytes), "EnforceQuiesceFence = TRUE") {
+		t.Error("workload lifecycle model does not enforce atomic admission and quiesce fencing")
 	}
 }

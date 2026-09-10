@@ -51,7 +51,6 @@ type resourcePolicy struct {
 
 type remotePoolMaterial struct {
 	MaxEnvironments        uint32         `json:"max_environments"`
-	AggregateLimits        resourcePolicy `json:"aggregate_limits"`
 	PerEnvironmentLimits   resourcePolicy `json:"per_environment_limits"`
 	MaxEgressMode          string         `json:"max_egress_mode"`
 	MaxLeaseSeconds        uint64         `json:"max_lease_seconds"`
@@ -449,7 +448,7 @@ func (material operationHandoffPlan) remotePoolPolicy() (*hostv1.RemotePoolPolic
 	limits := func(value resourcePolicy) *hostv1.ResourceLimits {
 		return &hostv1.ResourceLimits{CpuMillis: &value.CPUMillis, MemoryBytes: &value.MemoryBytes, Pids: &value.PIDs, DiskBytes: &value.DiskBytes}
 	}
-	return &hostv1.RemotePoolPolicy{MaxEnvironments: policy.MaxEnvironments, AggregateLimits: limits(policy.AggregateLimits), PerEnvironmentLimits: limits(policy.PerEnvironmentLimits), MaxEgressMode: egress,
+	return &hostv1.RemotePoolPolicy{MaxEnvironments: policy.MaxEnvironments, PerEnvironmentLimits: limits(policy.PerEnvironmentLimits), MaxEgressMode: egress,
 		MaxLeaseDuration: durationpb.New(time.Duration(policy.MaxLeaseSeconds) * time.Second), DisconnectGrace: durationpb.New(time.Duration(policy.DisconnectGraceSeconds) * time.Second), StopGrace: durationpb.New(time.Duration(policy.StopGraceSeconds) * time.Second)}, nil
 }
 

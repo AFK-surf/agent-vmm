@@ -188,6 +188,34 @@ func TestNamespaceLabelsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRuntimeContainerOwnershipCannotCrossNamespaces(t *testing.T) {
+	labels := map[string]string{runtimeOwnerLabel: "environment-a", runtimeExternalIDLabel: "main"}
+	if err := validateRuntimeContainerOwnership(labels, "environment-a", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRuntimeContainerOwnership(labels, "environment-b", "main"); err == nil {
+		t.Fatal("container owner mismatch was accepted")
+	}
+	if err := validateRuntimeContainerOwnership(labels, "environment-a", "other"); err == nil {
+		t.Fatal("container identity mismatch was accepted")
+	}
+}
+
+func TestContainerRoleKeepsSystemAndWorkloadNamespacesSeparate(t *testing.T) {
+	if err := validateContainerIdentityForRole("environment-a", "main", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateContainerIdentityForRole("environment-a", "main", true); err == nil {
+		t.Fatal("workload namespace was accepted for a system container")
+	}
+	if err := validateContainerIdentityForRole("system.appliance-a", "main", false); err == nil {
+		t.Fatal("system namespace was accepted for a workload container")
+	}
+	if err := validateContainerIdentityForRole("system.appliance-a", "main", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFixedSpecPolicy(t *testing.T) {
 	t.Parallel()
 	runtime := &Runtime{network: new(guestnetwork.Manager)}
@@ -199,8 +227,13 @@ func TestFixedSpecPolicy(t *testing.T) {
 	}
 	options := runtime.specOptions("agent-a", request, nil)
 	spec := &oci.Spec{Root: &specs.Root{}, Process: &specs.Process{Args: []string{"/bin/sh"}, Capabilities: &specs.LinuxCapabilities{Effective: []string{"CAP_SYS_ADMIN"}}}, Linux: &specs.Linux{}}
-	if err := options[len(options)-1](context.Background(), nil, nil, spec); err != nil {
-		t.Fatal(err)
+	for _, option := range options[2:] {
+		if err := option(context.Background(), nil, nil, spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if spec.Linux.CgroupsPath != "/agent-vmm/workload/agent-a/container" {
+		t.Fatalf("container escaped workload pool: %s", spec.Linux.CgroupsPath)
 	}
 	if !spec.Process.NoNewPrivileges || !reflect.DeepEqual(spec.Process.Capabilities, &specs.LinuxCapabilities{}) {
 		t.Fatalf("capabilities were not removed: %+v", spec.Process)

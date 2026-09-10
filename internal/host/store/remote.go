@@ -24,12 +24,9 @@ func (store *Store) AcquireRemoteLeaseProjection(ctx context.Context, lease Remo
 	defer transaction.Rollback()
 	result, err := transaction.ExecContext(ctx, `UPDATE environments SET allocation_state=?, policy_revision=policy_revision+1,
 		updated_at=? WHERE id=? AND owner_kind=? AND registration_id=? AND allocation_id=?
-		AND allocation_state=? AND policy_revision=? AND EXISTS (
-			SELECT 1 FROM workload_reservations_v2 r WHERE r.environment_id=environments.id
-			AND r.allocation_id=? AND r.generation=? AND r.phase IN (?,?))`, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
+		AND allocation_state=? AND policy_revision=? AND allocation_generation=?`, int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
 		time.Now().UnixNano(), lease.EnvironmentID, OwnerRemoteRegistration, lease.RegistrationID,
-		lease.AllocationID, int32(hostv1.AllocationState_ALLOCATION_STATE_READY), expectedRevision,
-		lease.AllocationID, lease.AllocationGeneration, WorkloadReservationLogical, WorkloadReservationAdmitted)
+		lease.AllocationID, int32(hostv1.AllocationState_ALLOCATION_STATE_READY), expectedRevision, lease.AllocationGeneration)
 	if err != nil {
 		return Environment{}, err
 	}
@@ -61,8 +58,7 @@ func (store *Store) AcquireRemoteLeaseProjection(ctx context.Context, lease Remo
 
 // FinishRemoteLeaseProjection atomically removes a lease projection. A
 // short-lived lease stop returns the durable allocation to READY and preserves
-// its reservation. Only explicit allocation retirement advances the
-// reservation to its release obligation.
+// its namespace and data. Explicit allocation retirement remains terminal.
 func (store *Store) FinishRemoteLeaseProjection(ctx context.Context, registrationID, leaseID, environmentID string, expectedRevision uint64, allocationState int32) (Environment, error) {
 	transaction, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -87,23 +83,6 @@ func (store *Store) FinishRemoteLeaseProjection(ctx context.Context, registratio
 			return Environment{}, err
 		}
 		return Environment{}, errors.New("allocation revision conflict")
-	}
-	if allocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
-		result, err = transaction.ExecContext(ctx, `UPDATE workload_reservations_v2 SET phase=CASE
-			WHEN phase=? THEN ? WHEN phase=? THEN ? ELSE phase END,updated_at=?
-			WHERE environment_id=? AND allocation_id=? AND generation=? AND phase IN (?,?,?,?)`, WorkloadReservationLogical,
-			WorkloadReservationReleaseRequired, WorkloadReservationAdmitted, WorkloadReservationReleasing,
-			time.Now().UnixNano(), environmentID, allocationID, allocationGeneration, WorkloadReservationLogical, WorkloadReservationReleaseRequired,
-			WorkloadReservationAdmitted, WorkloadReservationReleasing)
-		if err != nil {
-			return Environment{}, err
-		}
-		if changed, changeErr := result.RowsAffected(); changeErr != nil || changed != 1 {
-			if changeErr != nil {
-				return Environment{}, changeErr
-			}
-			return Environment{}, errors.New("exact workload retirement obligation is missing")
-		}
 	}
 	result, err = transaction.ExecContext(ctx, `DELETE FROM remote_lease_projections
 		WHERE lease_id=? AND registration_id=? AND environment_id=? AND allocation_id=? AND allocation_generation=?`,
@@ -191,12 +170,9 @@ func (store *Store) RecoverRemoteLeaseProjections(ctx context.Context) error {
 		updated_at=? WHERE owner_kind=? AND allocation_state=? AND EXISTS (
 			SELECT 1 FROM remote_lease_projections p WHERE p.environment_id=environments.id
 			AND p.registration_id=environments.registration_id AND p.allocation_id=environments.allocation_id
-			AND EXISTS (SELECT 1 FROM workload_reservations_v2 r WHERE r.environment_id=environments.id
-				AND r.allocation_id=p.allocation_id AND r.generation=p.allocation_generation
-				AND r.phase IN (?,?)))`,
-		int32(hostv1.AllocationState_ALLOCATION_STATE_READY), now, OwnerRemoteRegistration,
-		int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED),
-		WorkloadReservationLogical, WorkloadReservationAdmitted)
+ AND p.allocation_generation=environments.allocation_generation)`,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), now, OwnerRemoteRegistration,
+		int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED))
 	if err != nil {
 		return err
 	}
@@ -230,10 +206,6 @@ type RemoteRegistration struct {
 	ScopeDigest             string
 	SourcePolicyRevision    uint64
 	MaxEnvironments         uint32
-	AggregateCPUMillis      uint32
-	AggregateMemoryBytes    uint64
-	AggregatePIDs           uint32
-	AggregateDiskBytes      uint64
 	PerEnvCPUMillis         uint32
 	PerEnvMemoryBytes       uint64
 	PerEnvPIDs              uint32
@@ -270,7 +242,7 @@ type RemoteRegistration struct {
 func (store *Store) ListRemoteEnvironments(ctx context.Context, registrationID string) ([]Environment, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
 		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
-		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments
 		WHERE owner_kind = 2 AND registration_id = ? ORDER BY allocation_id`, registrationID)
 	if err != nil {
 		return nil, err
@@ -293,7 +265,7 @@ func (store *Store) ListRemoteEnvironmentsBounded(ctx context.Context, registrat
 	}
 	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
 		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
-		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments
 		WHERE owner_kind = 2 AND registration_id = ? ORDER BY allocation_id LIMIT ?`, registrationID, limit)
 	if err != nil {
 		return nil, err
@@ -323,16 +295,14 @@ func (store *Store) CreateRemoteRegistration(ctx context.Context, registration R
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `INSERT INTO remote_registrations(
 		id, endpoint, display_name, protocol_version, trust_bundle, scope_digest, source_policy_revision, max_environments,
-		aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
 		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
 		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds,
 		state, connection_state, enrollment_state, connector_phase, connector_observed_at,
 		enrollment_request_id, owner_kind, installation_id, inventory_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
 		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
 		registration.TrustBundle, registration.ScopeDigest, registration.SourcePolicyRevision,
-		registration.MaxEnvironments, registration.AggregateCPUMillis, registration.AggregateMemoryBytes,
-		registration.AggregatePIDs, registration.AggregateDiskBytes, registration.PerEnvCPUMillis,
+		registration.MaxEnvironments, registration.PerEnvCPUMillis,
 		registration.PerEnvMemoryBytes, registration.PerEnvPIDs, registration.PerEnvDiskBytes,
 		registration.MaxEgressMode, registration.MaxLeaseSeconds, registration.DisconnectGraceSeconds,
 		registration.StopGraceSeconds, registration.State, registration.ConnectionState, registration.EnrollmentState,
@@ -353,7 +323,6 @@ func (store *Store) RemoteRegistrationByEnrollmentRequest(ctx context.Context, r
 }
 
 const remoteRegistrationSelect = `SELECT id, endpoint, display_name, protocol_version, trust_bundle, scope_digest, source_policy_revision, max_environments,
-	aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
 	per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
 	max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds,
 	revision, state, connection_state, connection_instance, enrollment_state, enrollment_error_code,
@@ -366,8 +335,7 @@ func scanRemoteRegistration(row rowScanner) (RemoteRegistration, error) {
 	var connectorObserved, lastConnected, disconnected, nextRetry, created, updated int64
 	err := row.Scan(&registration.ID, &registration.Endpoint, &registration.DisplayName, &registration.ProtocolVersion,
 		&registration.TrustBundle, &registration.ScopeDigest, &registration.SourcePolicyRevision,
-		&registration.MaxEnvironments, &registration.AggregateCPUMillis, &registration.AggregateMemoryBytes,
-		&registration.AggregatePIDs, &registration.AggregateDiskBytes, &registration.PerEnvCPUMillis,
+		&registration.MaxEnvironments, &registration.PerEnvCPUMillis,
 		&registration.PerEnvMemoryBytes, &registration.PerEnvPIDs, &registration.PerEnvDiskBytes,
 		&registration.MaxEgressMode, &registration.MaxLeaseSeconds, &registration.DisconnectGraceSeconds,
 		&registration.StopGraceSeconds, &registration.Revision, &registration.State, &registration.ConnectionState,
@@ -404,12 +372,9 @@ func (store *Store) ListRemoteRegistrations(ctx context.Context) ([]RemoteRegist
 
 func (store *Store) UpdateRemotePool(ctx context.Context, registration RemoteRegistration, expectedRevision uint64) (RemoteRegistration, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET
-		max_environments=?, aggregate_cpu_millis=?, aggregate_memory_bytes=?, aggregate_pids=?, aggregate_disk_bytes=?,
-		per_env_cpu_millis=?, per_env_memory_bytes=?, per_env_pids=?, per_env_disk_bytes=?, max_egress_mode=?,
+		max_environments=?, per_env_cpu_millis=?, per_env_memory_bytes=?, per_env_pids=?, per_env_disk_bytes=?, max_egress_mode=?,
 		max_lease_seconds=?, disconnect_grace_seconds=?, stop_grace_seconds=?, revision=revision+1, pool_policy_revision=pool_policy_revision+1, updated_at=?
-		WHERE id=? AND revision=?`, registration.MaxEnvironments, registration.AggregateCPUMillis,
-		registration.AggregateMemoryBytes, registration.AggregatePIDs, registration.AggregateDiskBytes,
-		registration.PerEnvCPUMillis, registration.PerEnvMemoryBytes, registration.PerEnvPIDs,
+		WHERE id=? AND revision=?`, registration.MaxEnvironments, registration.PerEnvCPUMillis, registration.PerEnvMemoryBytes, registration.PerEnvPIDs,
 		registration.PerEnvDiskBytes, registration.MaxEgressMode, registration.MaxLeaseSeconds,
 		registration.DisconnectGraceSeconds, registration.StopGraceSeconds, time.Now().UnixNano(),
 		registration.ID, expectedRevision)

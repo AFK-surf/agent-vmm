@@ -44,7 +44,9 @@ func (r *Runtime) cleanupTasks(ctx context.Context) error {
 			task, err := container.Task(nsctx, nil)
 			if labels[guestbuild.InternalContainerLabel] == "true" {
 				if err == nil {
-					_, _ = task.Delete(nsctx, containerd.WithProcessKill)
+					if err := deleteTask(nsctx, task); err != nil {
+						return err
+					}
 				} else if !errdefs.IsNotFound(err) {
 					return err
 				}
@@ -62,7 +64,10 @@ func (r *Runtime) cleanupTasks(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			status, _ := task.Delete(nsctx, containerd.WithProcessKill)
+			status, deleteErr := task.Delete(nsctx, containerd.WithProcessKill)
+			if deleteErr != nil && !errdefs.IsNotFound(deleteErr) {
+				return deleteErr
+			}
 			code := uint32(containerd.UnknownExitStatus)
 			if status != nil && status.Error() == nil {
 				code = status.ExitCode()

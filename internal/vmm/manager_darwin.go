@@ -32,6 +32,7 @@ var physicalMemoryBytes = func() (uint64, error) { return unix.SysctlUint64("hw.
 type Config struct {
 	BundleDirectory     string
 	InstanceDirectory   string
+	LegacyStatePath     string
 	CPUCount            uint
 	MemoryBytes         uint64
 	StateBytes          int64
@@ -105,6 +106,15 @@ func NewManager(config Config) (*Manager, error) {
 	for _, path := range []string{config.BundleDirectory, config.InstanceDirectory, config.SerialLog} {
 		if path == "" {
 			return nil, errors.New("missing VM path")
+		}
+	}
+	if config.LegacyStatePath != "" {
+		info, err := os.Lstat(config.LegacyStatePath)
+		if err != nil || !info.Mode().IsRegular() {
+			return nil, errors.New("legacy state disk must be an existing regular file")
+		}
+		if info.Size() != config.StateBytes {
+			return nil, errors.New("legacy and target state disk sizes must match")
 		}
 	}
 	return &Manager{config: config, state: hostv1.VMState_VM_STATE_STOPPED}, nil

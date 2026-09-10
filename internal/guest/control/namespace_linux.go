@@ -12,13 +12,14 @@ import (
 	"strconv"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guest/namespaceconfig"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/leases"
 )
 
-const labelPrefix = "agentvmm.afk.surf/"
+const labelPrefix = namespaceconfig.LabelPrefix
 
 func (r *Runtime) EnsureNamespace(ctx context.Context, request *vmmdv1.EnsureNamespaceRequest) (*vmmdv1.Namespace, error) {
 	return r.ensureNamespace(ctx, request, false)
@@ -59,7 +60,6 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		}
 	}
 	var labels map[string]string
-	var currentQuota uint64
 	if exists {
 		labels, err = store.Labels(ctx, request.GetNamespaceId())
 		if err != nil {
@@ -68,15 +68,6 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		if system && labels[labelPrefix+"role"] != "system-appliance" {
 			return nil, errors.New("system namespace role does not match")
 		}
-		_, current, err := namespaceFromLabels(request.GetNamespaceId(), labels)
-		if err != nil {
-			return nil, err
-		}
-		currentQuota = current.GetLimits().GetDiskBytes()
-	}
-	increase := uint64(0)
-	if request.GetLimits().GetDiskBytes() > currentQuota {
-		increase = request.GetLimits().GetDiskBytes() - currentQuota
 	}
 	commit := func(transaction *guestdisk.Transaction) error {
 		if exists {
@@ -89,14 +80,14 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 				if system {
 					updated[labelPrefix+"role"] = "system-appliance"
 				}
-				if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, transaction, increase, func() error {
+				if err := func() error {
 					for key, value := range updated {
 						if err := store.SetLabel(ctx, request.GetNamespaceId(), key, value); err != nil {
 							return err
 						}
 					}
 					return nil
-				}); err != nil {
+				}(); err != nil {
 					return err
 				}
 				labels = updated
@@ -110,7 +101,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 			if system {
 				labels[labelPrefix+"role"] = "system-appliance"
 			}
-			if err := r.guardOCIMetadataGrowthLockedWithCommit(ctx, transaction, increase, func() error { return store.Create(ctx, request.GetNamespaceId(), labels) }); err != nil {
+			if err := func() error { return store.Create(ctx, request.GetNamespaceId(), labels) }(); err != nil {
 				return err
 			}
 		}
@@ -119,7 +110,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 			return err
 		}
 		for _, directory := range []string{volumePath(request.GetNamespaceId(), ""), workspacePath(request.GetNamespaceId()),
-			stateRoot + "/logs/" + request.GetNamespaceId(), stateRoot + "/build-cache/" + request.GetNamespaceId(), stateRoot + "/build-tmp/" + request.GetNamespaceId()} {
+			namespaceStateRoot(request.GetNamespaceId()) + "/logs/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-cache/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-tmp/" + request.GetNamespaceId()} {
 			if err := ensureDirectory(directory, 0o700); err != nil {
 				return err
 			}
@@ -127,7 +118,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 				return err
 			}
 		}
-		if err := setProjectQuota(r.stateDevice, projectID, request.GetLimits().GetDiskBytes()); err != nil {
+		if err := setProjectQuota(r.namespaceStateDevice(request.GetNamespaceId()), projectID, request.GetLimits().GetDiskBytes()); err != nil {
 			return err
 		}
 		if err := applyNamespaceCgroup(request.GetNamespaceId(), request.GetLimits()); err != nil {
@@ -135,22 +126,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		}
 		return r.network.EnsureNamespace(namespace.GetId(), namespace.GetSubnet(), namespace.GetEgressMode())
 	}
-	if increase != 0 {
-		var lastSnapshot guestdisk.Snapshot
-		if err := r.diskBudget.AdmitQuota(func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
-			snapshot, loadErr := r.diskAdmissionSnapshot(ctx, true, transaction)
-			if loadErr == nil || errors.Is(loadErr, guestdisk.ErrCapacityUnavailable) {
-				lastSnapshot = snapshot
-			}
-			return snapshot, loadErr
-		}, increase, commit); err != nil {
-			if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-				available, _ := lastSnapshot.AvailableBytes()
-				return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "namespace_admission", "Guest storage headroom is unavailable", available, increase)
-			}
-			return nil, err
-		}
-	} else if err := r.diskBudget.Mutate(commit); err != nil {
+	if err := r.diskBudget.MutateInventory(commit); err != nil {
 		return nil, err
 	}
 	_, namespace, err := namespaceFromLabels(request.GetNamespaceId(), labels)
@@ -173,7 +149,7 @@ func (r *Runtime) deleteNamespaceLocked(ctx context.Context, namespaceID string)
 }
 
 func (r *Runtime) mutateNamespaceInventory(mutate func(*guestdisk.Transaction) error) error {
-	return r.diskBudget.Mutate(mutate)
+	return r.diskBudget.MutateInventory(mutate)
 }
 
 // deleteNamespaceUnderBudgetLocked removes the containerd namespace bucket and
@@ -182,6 +158,21 @@ func (r *Runtime) mutateNamespaceInventory(mutate func(*guestdisk.Transaction) e
 // under the same disk lock, so deletion cannot invalidate or recreate that
 // bucket between selection and the synchronous GC barrier.
 func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespaceID string) error {
+	names, err := r.client.NamespaceService().List(ctx)
+	if err != nil {
+		return err
+	}
+	exists := false
+	for _, name := range names {
+		if name == namespaceID {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		return nil
+	}
+
 	nsctx := namespaceContext(ctx, namespaceID)
 	if err := r.builder.CleanupNamespace(ctx, namespaceID); err != nil {
 		return err
@@ -229,10 +220,10 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	if err := removeNamespaceState(namespaceID); err != nil {
 		return err
 	}
-	if err := setProjectQuota(r.stateDevice, projectID, 0); err != nil {
+	if err := setProjectQuota(r.namespaceStateDevice(namespaceID), projectID, 0); err != nil {
 		return err
 	}
-	if err := os.Remove(filepath.Join("/sys/fs/cgroup/agent-vmm", namespaceID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(filepath.Join("/sys/fs/cgroup", resourcev2.NamespaceCgroup(namespaceID))); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if err := r.network.DeleteNamespace(namespaceID); err != nil {
@@ -292,55 +283,7 @@ func namespaceLabels(limits *vmmdv1.NamespaceLimits, egress vmmdv1.EgressMode, p
 }
 
 func namespaceFromLabels(id string, labels map[string]string) (uint32, *vmmdv1.Namespace, error) {
-	resourceLabels := map[string]string{
-		"cpu": labelPrefix + "cpu", "memory": labelPrefix + "memory",
-		"pids": labelPrefix + "pids", "disk": labelPrefix + "disk",
-	}
-	if labels[reservationLabelPrefix+"allocation"] != "" {
-		resourceLabels = map[string]string{
-			"cpu": reservationLabelPrefix + "cpu-max", "memory": reservationLabelPrefix + "memory-max",
-			"pids": reservationLabelPrefix + "pid-max", "disk": reservationLabelPrefix + "writable-quota",
-		}
-	}
-	parseLabel := func(name, key string, bits int) (uint64, error) {
-		value, err := strconv.ParseUint(labels[key], 10, bits)
-		if err != nil {
-			return 0, fmt.Errorf("invalid namespace label %s: %w", name, err)
-		}
-		return value, nil
-	}
-	parse := func(key string, bits int) (uint64, error) {
-		return parseLabel(key, labelPrefix+key, bits)
-	}
-	projectID, err := parse("project-id", 32)
-	if err != nil {
-		return 0, nil, err
-	}
-	cpu, err := parseLabel("cpu", resourceLabels["cpu"], 32)
-	if err != nil {
-		return 0, nil, err
-	}
-	memory, err := parseLabel("memory", resourceLabels["memory"], 64)
-	if err != nil {
-		return 0, nil, err
-	}
-	pids, err := parseLabel("pids", resourceLabels["pids"], 32)
-	if err != nil {
-		return 0, nil, err
-	}
-	disk, err := parseLabel("disk", resourceLabels["disk"], 64)
-	if err != nil {
-		return 0, nil, err
-	}
-	egress, err := parse("egress", 32)
-	if err != nil {
-		return 0, nil, err
-	}
-	return uint32(projectID), &vmmdv1.Namespace{
-		Id:         id,
-		Limits:     &vmmdv1.NamespaceLimits{CpuMillis: uint32(cpu), MemoryBytes: memory, Pids: uint32(pids), DiskBytes: disk},
-		EgressMode: vmmdv1.EgressMode(egress), ProjectId: uint32(projectID), Subnet: labels[labelPrefix+"subnet"],
-	}, nil
+	return namespaceconfig.Decode(id, labels)
 }
 
 func sameLimits(left, right *vmmdv1.NamespaceLimits) bool {

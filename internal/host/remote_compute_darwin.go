@@ -26,11 +26,10 @@ type remoteComputeServer struct {
 	controller *Controller
 }
 
-const maxRemoteEnvironments = 64
+const maxRemoteEnvironments = resourcev2.MaxStoredWorkloads
 
 type scopedRemoteObservationClient interface {
 	ComponentHealth(context.Context, *vmmdv1.ComponentHealthRequest, ...grpc.CallOption) (*vmmdv1.ComponentHealthResponse, error)
-	GetNamespaceUsage(context.Context, *vmmdv1.GetNamespaceUsageRequest, ...grpc.CallOption) (*vmmdv1.GetUsageResponse, error)
 }
 
 func (controller *Controller) NewRemoteComputeServer() *grpc.Server {
@@ -81,6 +80,9 @@ func (server *remoteComputeServer) GetRemoteState(ctx context.Context, request *
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
 	}
+	if request.GetSummaryOnly() {
+		return &hostv1.GetRemoteStateResponse{Registration: registrationToProto(registration)}, nil
+	}
 	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, registration).GetRegistration()}, nil
 }
 
@@ -91,16 +93,6 @@ func (server *remoteComputeServer) GetRemoteObservation(ctx context.Context, req
 	registration, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
-	}
-	if registration.MaxEnvironments > maxRemoteEnvironments {
-		return nil, status.Error(codes.Unavailable, "host observation exceeds the supported remote environment bound")
-	}
-	environments, err := server.controller.store.ListRemoteEnvironmentsBounded(ctx, registration.ID, maxRemoteEnvironments+1)
-	if err != nil {
-		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
-	}
-	if len(environments) > maxRemoteEnvironments {
-		return nil, status.Error(codes.Unavailable, "host observation exceeds the supported remote environment bound")
 	}
 	observedAt := timestamppb.Now()
 	vm := server.controller.manager.Snapshot()
@@ -115,14 +107,15 @@ func (server *remoteComputeServer) GetRemoteObservation(ctx context.Context, req
 		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
 	}
 	defer connection.Close()
-	response, err := collectScopedRemoteObservation(ctx, client, environments, server.controller.hostEgressHealth(vm, observedAt), observedAt)
+	usage := server.controller.remoteWorkloadUsage(ctx, registration.ID, observedAt)
+	response, err := collectScopedRemoteObservation(ctx, client, usage, server.controller.hostEgressHealth(vm, observedAt), observedAt)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
 	}
 	return response, nil
 }
 
-func collectScopedRemoteObservation(ctx context.Context, client scopedRemoteObservationClient, environments []store.Environment, hostEgress *hostv1.ComponentHealth, observedAt *timestamppb.Timestamp) (*hostv1.GetRemoteObservationResponse, error) {
+func collectScopedRemoteObservation(ctx context.Context, client scopedRemoteObservationClient, usage *hostv1.Usage, hostEgress *hostv1.ComponentHealth, observedAt *timestamppb.Timestamp) (*hostv1.GetRemoteObservationResponse, error) {
 	healthResponse, err := client.ComponentHealth(ctx, &vmmdv1.ComponentHealthRequest{})
 	if err != nil {
 		return nil, err
@@ -144,27 +137,6 @@ func collectScopedRemoteObservation(ctx context.Context, client scopedRemoteObse
 		if hostEgress.GetState() > health.State {
 			health.State = hostEgress.GetState()
 		}
-	}
-	usage := &hostv1.Usage{SampledAt: observedAt}
-	usageAvailable := true
-	for _, environment := range environments {
-		response, usageErr := client.GetNamespaceUsage(ctx, &vmmdv1.GetNamespaceUsageRequest{NamespaceId: environment.NamespaceID})
-		if usageErr != nil || response.GetUsage() == nil || response.GetUsage().GetUnavailable() {
-			usageAvailable = false
-			continue
-		}
-		value := response.GetUsage()
-		usage.CpuNanos += value.GetCpuNanos()
-		usage.MemoryBytes += value.GetMemoryBytes()
-		usage.Pids += value.GetPids()
-		usage.ReadBytes += value.GetReadBytes()
-		usage.WriteBytes += value.GetWriteBytes()
-		usage.DiskBytes += value.GetDiskBytes()
-		usage.NetworkRxBytes += value.GetNetworkRxBytes()
-		usage.NetworkTxBytes += value.GetNetworkTxBytes()
-	}
-	if !usageAvailable {
-		usage = &hostv1.Usage{SampledAt: observedAt, Stale: true, UnavailableReason: "registration metrics are unavailable"}
 	}
 	return &hostv1.GetRemoteObservationResponse{Health: health, Usage: usage, ObservedAt: observedAt}, nil
 }
@@ -351,21 +323,20 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 		return nil, resourceError(codes.Aborted, "STALE_CONNECTION", "remote_connection", request.GetConnectionInstance(), "connection instance is not current")
 	}
 	resources := contractFromHost(request.GetResourcesV2())
-	if request.GetAllocationId() == "" || request.GetGeneration() == 0 || request.GetResourcesV2() == nil || resources.Validate(server.controller.remoteCapacityV2.CPUGuaranteeMillis+500) != nil {
+	if request.GetAllocationId() == "" || request.GetGeneration() == 0 || request.GetResourcesV2() == nil || resources.Validate(server.controller.remoteCapacityV2.CPUMaxMillis) != nil {
 		return nil, invalidField("allocation_id/generation/resources_v2", "complete resource-v2 allocation identity and resources are required")
 	}
 	if request.GetPolicyRevision() != registration.PoolPolicyRevision {
 		return nil, resourceError(codes.Aborted, "POLICY_REVISION_CONFLICT", "remote_registration", registration.ID, "pool policy revision is stale")
 	}
 	if existing, err := server.controller.store.GetRemoteEnvironment(ctx, registration.ID, request.GetAllocationId()); err == nil {
-		reservation, reservationErr := server.controller.store.GetWorkloadReservationByAllocation(ctx, registration.ID, request.GetAllocationId())
-		if reservationErr != nil || !sameAllocationRequest(existing, reservation, request) {
+		if !sameAllocationRequest(existing, request) {
 			return nil, resourceError(codes.AlreadyExists, "ALLOCATION_CONFLICT", "allocation", request.GetAllocationId(), "allocation exists with different limits")
 		}
 		unlockEnvironment := server.controller.lockEnvironment(existing.ID)
 		defer unlockEnvironment()
 		if err := server.controller.reconcileEnvironment(ctx, existing); err != nil {
-			return nil, allocationProjectionError(err, "exact Guest reservation is not committed")
+			return nil, allocationProjectionError(err, "Guest namespace projection is incomplete")
 		}
 		existing, err = server.controller.store.GetEnvironment(ctx, existing.ID)
 		if err != nil {
@@ -394,14 +365,14 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 		ID: environmentID, NamespaceID: namespaceID, DisplayName: request.GetDisplayLabel(),
 		CPUMillis: uint32(resources.CPUMaxMillis), MemoryBytes: resources.MemoryMaxBytes, PIDs: uint32(resources.PIDMax), DiskBytes: resources.WritableQuotaBytes,
 		EgressMode: int32(request.GetEgressMode()), OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID,
-		AllocationID: request.GetAllocationId(), AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING),
+		AllocationID: request.GetAllocationId(), AllocationGeneration: request.GetGeneration(), AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING),
 	}
-	environment, _, err := server.controller.store.BeginWorkloadAdmission(ctx, environmentFact, store.WorkloadReservation{
-		AllocationID: request.GetAllocationId(), Generation: request.GetGeneration(), RegistrationID: registration.ID,
-		EnvironmentID: environmentID, Resources: resources,
-	}, server.controller.remoteCapacityV2)
+	environment, err := server.controller.store.BeginWorkloadAdmission(ctx, environmentFact, server.controller.remoteCapacityV2)
 	if err != nil {
-		if errors.Is(err, store.ErrResourceCapacityExceeded) || errors.Is(err, store.ErrDomainCapacityExceeded) {
+		if errors.Is(err, store.ErrStoredWorkloadLimit) {
+			return nil, resourceError(codes.FailedPrecondition, "POOL_ENVIRONMENT_LIMIT", "remote_registration", registration.ID, err.Error())
+		}
+		if errors.Is(err, store.ErrResourceCapacityExceeded) {
 			return nil, capacityError("RESOURCE_LEDGER_EXHAUSTED", registration.ID, err)
 		}
 		return nil, err
@@ -422,11 +393,11 @@ func allocationProjectionError(err error, message string) error {
 }
 
 func contractFromHost(value *hostv1.WorkloadResourcesV2) resourcev2.Contract {
-	return resourcev2.Contract{CPUGuaranteeMillis: uint64(value.GetCpuGuaranteeMillis()), CPUMaxMillis: uint64(value.GetCpuMaxMillis()), CPUWeight: uint64(value.GetCpuWeight()),
-		MemoryHighBytes: value.GetMemoryHighBytes(), MemoryMaxBytes: value.GetMemoryMaxBytes(), PIDMax: uint64(value.GetPidMax()), WritableQuotaBytes: value.GetWritableQuotaBytes()}
+	return resourcev2.Contract{CPUMaxMillis: uint64(value.GetCpuMaxMillis()),
+		MemoryMaxBytes: value.GetMemoryMaxBytes(), PIDMax: uint64(value.GetPidMax()), WritableQuotaBytes: value.GetWritableQuotaBytes()}
 }
 
-func admitAllocationV2(ctx context.Context, database *store.Store, registration store.RemoteRegistration, environments []store.Environment, resources resourcev2.Contract, hostCapacity resourcev2.Capacity, egress hostv1.EgressMode) error {
+func admitAllocationV2(ctx context.Context, database *store.Store, registration store.RemoteRegistration, environments []store.Environment, resources resourcev2.Contract, hostCapacity resourcev2.Contract, egress hostv1.EgressMode) error {
 	if uint32(len(environments)) >= registration.MaxEnvironments {
 		// The environment-count limit has no resource-v2 dimension and therefore
 		// cannot enter the dimension-keyed capacity queue. Reject it as an
@@ -437,26 +408,18 @@ func admitAllocationV2(ctx context.Context, database *store.Store, registration 
 	if int32(egress) > registration.MaxEgressMode {
 		return resourceError(codes.PermissionDenied, "POOL_EGRESS_LIMIT", "remote_registration", registration.ID, "allocation egress exceeds pool policy")
 	}
-	perEnvironment := resourcev2.Capacity{
-		CPUGuaranteeMillis: uint64(registration.PerEnvCPUMillis),
+	perEnvironment := resourcev2.Contract{
+
 		CPUMaxMillis:       uint64(registration.PerEnvCPUMillis),
 		MemoryMaxBytes:     registration.PerEnvMemoryBytes,
 		PIDMax:             uint64(registration.PerEnvPIDs),
 		WritableQuotaBytes: registration.PerEnvDiskBytes,
 	}
-	if err := (resourcev2.Capacity{}).Admits(resources, perEnvironment); err != nil {
+	if err := resources.Fits(perEnvironment); err != nil {
 		return capacityError("POOL_PER_ENVIRONMENT_LIMIT", registration.ID, err)
 	}
-	used, err := database.WorkloadUsage(ctx, registration.ID)
-	if err != nil {
-		return err
-	}
-	domain := resourcev2.Capacity{CPUGuaranteeMillis: uint64(registration.AggregateCPUMillis), CPUMaxMillis: uint64(registration.AggregateCPUMillis) * 3 / 2, MemoryHighBytes: registration.AggregateMemoryBytes, PIDMax: uint64(registration.AggregatePIDs), WritableQuotaBytes: registration.AggregateDiskBytes}
-	if err := used.AdmitsShared(resources, domain); err != nil {
-		return capacityError("POOL_AGGREGATE_LIMIT", registration.ID, err)
-	}
-	if err := used.AdmitsShared(resources, hostCapacity); err != nil {
-		return capacityError("RESOURCE_LEDGER_EXHAUSTED", registration.ID, err)
+	if err := resources.Fits(hostCapacity); err != nil {
+		return capacityError("POOL_PER_ENVIRONMENT_LIMIT", registration.ID, err)
 	}
 	return nil
 }
@@ -469,8 +432,8 @@ func capacityError(reason, registrationID string, err error) error {
 	return resourceErrorWithMetadata(codes.ResourceExhausted, reason, "remote_registration", registrationID, err.Error(), metadata)
 }
 
-func sameAllocationRequest(environment store.Environment, reservation store.WorkloadReservation, request *hostv1.EnsureAllocationRequest) bool {
-	return reservation.Generation == request.GetGeneration() && reservation.Resources == contractFromHost(request.GetResourcesV2()) && environment.EgressMode == int32(request.GetEgressMode())
+func sameAllocationRequest(environment store.Environment, request *hostv1.EnsureAllocationRequest) bool {
+	return environment.AllocationGeneration == request.GetGeneration() && environment.Resources() == contractFromHost(request.GetResourcesV2()) && environment.EgressMode == int32(request.GetEgressMode())
 }
 
 func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, request *hostv1.ReleaseAllocationRequest) (*hostv1.AllocationResponse, error) {
@@ -486,8 +449,7 @@ func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, reques
 	if err != nil {
 		return nil, err
 	}
-	reservation, err := server.controller.store.GetWorkloadReservationByEnvironment(ctx, environment.ID)
-	if err != nil || reservation.Generation != request.GetExpectedGeneration() {
+	if environment.AllocationGeneration != request.GetExpectedGeneration() {
 		return nil, resourceError(codes.Aborted, "STALE_GENERATION", "allocation", request.GetAllocationId(), "release generation is not current")
 	}
 	unlockEnvironment := server.controller.lockEnvironment(environment.ID)
@@ -506,17 +468,15 @@ func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, reques
 	if err != nil {
 		return nil, err
 	}
-	reservation, err = server.controller.store.GetWorkloadReservationByEnvironment(ctx, environment.ID)
-	if err != nil {
-		return nil, err
-	}
-	if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) || reservation.Phase != store.WorkloadReservationReleaseRequired && reservation.Phase != store.WorkloadReservationReleasing {
-		current, _, err = server.controller.store.BeginWorkloadRetirement(ctx, environment.ID, request.GetAllocationId(), request.GetExpectedGeneration(), current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		current, err = server.controller.store.SetAllocationState(ctx, environment.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	} else {
+		current, err = server.controller.store.RequeueAllocationRetirement(ctx, environment.ID, current.PolicyRevision)
 	}
 	if err != nil {
 		return nil, err
 	}
-	server.controller.wakeWorkloadReleaseReconcile()
+	server.controller.wakeAllocationRetirement()
 	return &hostv1.AllocationResponse{Allocation: server.controller.remoteAllocation(current)}, nil
 }
 
@@ -672,21 +632,24 @@ func (server *remoteComputeServer) AcquireLease(ctx context.Context, request *ho
 	if duration <= 0 || duration > time.Duration(registration.MaxLeaseSeconds)*time.Second {
 		return nil, invalidField("duration", "lease duration exceeds pool policy")
 	}
-	reservation, err := server.controller.store.GetWorkloadReservationByEnvironment(ctx, environment.ID)
-	if err != nil || reservation.AllocationID != request.GetAllocationId() || reservation.Generation == 0 {
-		return nil, resourceError(codes.FailedPrecondition, "ALLOCATION_RESERVATION_MISSING", "allocation", request.GetAllocationId(), "allocation has no exact workload reservation")
-	}
 	server.controller.mu.Lock()
 	if _, exists := server.controller.allocationLeases[environment.ID]; exists {
 		server.controller.mu.Unlock()
 		return nil, resourceError(codes.AlreadyExists, "ACTIVE_LEASE_EXISTS", "allocation", request.GetAllocationId(), "allocation already has an active lease")
+	}
+	for _, run := range server.controller.workloadRuns {
+		if run.environmentID == environment.ID && (run.starting || run.stopping) {
+			err := pendingWorkloadError(run, time.Now())
+			server.controller.mu.Unlock()
+			return nil, err
+		}
 	}
 	leaseID, err := randomID()
 	if err != nil {
 		server.controller.mu.Unlock()
 		return nil, err
 	}
-	lease := &remoteLease{id: leaseID, registrationID: registration.ID, allocationID: request.GetAllocationId(), environmentID: environment.ID, workloadRef: request.GetWorkloadRef(), generation: server.controller.remoteLeaseGeneration.Add(1), allocationGeneration: reservation.Generation, expiresAt: time.Now().Add(duration), state: hostv1.LeaseState_LEASE_STATE_ACTIVE}
+	lease := &remoteLease{id: leaseID, registrationID: registration.ID, allocationID: request.GetAllocationId(), environmentID: environment.ID, workloadRef: request.GetWorkloadRef(), generation: server.controller.remoteLeaseGeneration.Add(1), allocationGeneration: environment.AllocationGeneration, expiresAt: time.Now().Add(duration), state: hostv1.LeaseState_LEASE_STATE_ACTIVE}
 	server.controller.remoteLeases[lease.id] = lease
 	server.controller.allocationLeases[environment.ID] = lease.id
 	result := *lease
@@ -912,11 +875,9 @@ func (controller *Controller) remoteAllocation(environment store.Environment) *h
 		AllocationId: environment.AllocationID, DisplayLabel: environment.DisplayName, Revision: environment.PolicyRevision, EnvironmentId: environment.ID,
 		EgressMode: hostv1.EgressMode(environment.EgressMode), State: hostv1.AllocationState(environment.AllocationState),
 	}
-	if reservation, err := controller.store.GetWorkloadReservationByEnvironment(context.Background(), environment.ID); err == nil {
-		resources := reservation.Resources
-		result.Generation = reservation.Generation
-		result.ResourcesV2 = &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: uint32(resources.CPUGuaranteeMillis), CpuMaxMillis: uint32(resources.CPUMaxMillis), CpuWeight: uint32(resources.CPUWeight), MemoryHighBytes: resources.MemoryHighBytes, MemoryMaxBytes: resources.MemoryMaxBytes, PidMax: uint32(resources.PIDMax), WritableQuotaBytes: resources.WritableQuotaBytes}
-	}
+	result.Generation = environment.AllocationGeneration
+	resources := environment.Resources()
+	result.ResourcesV2 = &hostv1.WorkloadResourcesV2{CpuMaxMillis: uint32(resources.CPUMaxMillis), MemoryMaxBytes: resources.MemoryMaxBytes, PidMax: uint32(resources.PIDMax), WritableQuotaBytes: resources.WritableQuotaBytes}
 	controller.mu.Lock()
 	if leaseID := controller.allocationLeases[environment.ID]; leaseID != "" {
 		result.Lease = leaseToProto(controller.remoteLeases[leaseID])

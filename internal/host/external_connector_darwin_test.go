@@ -31,8 +31,7 @@ func TestExternalConnectorSupervisorStartsAllAndStopsExactRegistration(t *testin
 	trustBundle := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Raw})
 	registration := store.RemoteRegistration{
 		ID: "registration-a", Endpoint: "controller.example.test:443", DisplayName: "a", ProtocolVersion: remoteconnector.ProtocolVersion,
-		TrustBundle: trustBundle, MaxEnvironments: 1, AggregateCPUMillis: 1000, AggregateMemoryBytes: 1 << 30,
-		AggregatePIDs: 128, AggregateDiskBytes: 2 << 30, PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30,
+		TrustBundle: trustBundle, MaxEnvironments: 1, PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30,
 		PerEnvPIDs: 128, PerEnvDiskBytes: 2 << 30, MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL),
 		MaxLeaseSeconds: 60, DisconnectGraceSeconds: 5, StopGraceSeconds: 2,
 		State:           int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED),

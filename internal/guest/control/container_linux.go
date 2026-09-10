@@ -25,6 +25,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"google.golang.org/grpc/codes"
 )
 
 var errInvalidEnvironment = errors.New("environment must contain valid KEY=VALUE entries; values may contain newlines but not NUL")
@@ -65,12 +66,18 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	}
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	nsctx, container, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
 	if err != nil {
 		return nil, err
 	}
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return current, nil
+	}
+	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_UNKNOWN {
+		return nil, detailedError(codes.FailedPrecondition, "CONTAINER_STATE_UNKNOWN", "previous sandbox has not stopped; stop and reconcile it before restarting", "container", containerID)
 	}
 	// A process can have exited while the containerd task is still being
 	// reaped by monitorTask.  Do not race a replacement task with that cleanup.
@@ -103,7 +110,7 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	if err != nil {
 		return nil, err
 	}
-	if err := r.guardOCIMetadataGrowth(ctx, func() error { return container.Update(nsctx, withNetworkNamespace(endpoint.NetNSPath)) }); err != nil {
+	if err := func() error { return container.Update(nsctx, withNetworkNamespace(endpoint.NetNSPath)) }(); err != nil {
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
@@ -113,7 +120,7 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 		return nil, err
 	}
 	lifecycleContext := runtimeContext(context.Background())
-	started, err := startTaskMetadata(r.guardOCIMetadataGrowth, ctx, nsctx, lifecycleContext, container, mainSpec, stdout, stderr, instanceID)
+	started, err := startTaskMetadata(nsctx, lifecycleContext, container, mainSpec, stdout, stderr, instanceID)
 	if err != nil {
 		stdout.Close()
 		stderr.Close()
@@ -128,8 +135,6 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	return r.inspectContainer(nsctx, namespaceID, container)
 }
 
-type metadataGrowthGuard func(context.Context, func() error) error
-
 type startedTask struct {
 	task        containerd.Task
 	mainProcess containerd.Process
@@ -137,8 +142,8 @@ type startedTask struct {
 	mainExit    <-chan containerd.ExitStatus
 }
 
-func startTaskMetadata(guard metadataGrowthGuard, ctx, nsctx, lifecycleContext context.Context, container containerd.Container, mainSpec *specs.Process, stdout, stderr io.Writer, instanceID string) (started startedTask, runErr error) {
-	runErr = guard(ctx, func() error {
+func startTaskMetadata(nsctx, lifecycleContext context.Context, container containerd.Container, mainSpec *specs.Process, stdout, stderr io.Writer, instanceID string) (started startedTask, runErr error) {
+	runErr = func() error {
 		var err error
 		started.task, err = container.NewTask(nsctx, cio.NullIO)
 		if err != nil {
@@ -166,7 +171,7 @@ func startTaskMetadata(guard metadataGrowthGuard, ctx, nsctx, lifecycleContext c
 			return err
 		}
 		return nil
-	})
+	}()
 	if runErr != nil {
 		runErr = errors.Join(runErr, cleanupUnmonitoredTask(nsctx, started))
 	}
@@ -198,12 +203,6 @@ func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, conta
 	if err != nil {
 		code = containerd.UnknownExitStatus
 	}
-	// Publish the terminal process state before reaping the task.  The task
-	// cleanup is asynchronous; inspectContainer also reconciles a missing or
-	// stopped task if this metadata write races with containerd cleanup.
-	metadataContext, cancelMetadata := context.WithTimeout(runtimeContext(context.Background()), 5*time.Second)
-	_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10), containerInstanceLabel: "", containerFinishedLabel: strconv.FormatInt(time.Now().UnixNano(), 10)})
-	cancelMetadata()
 	processContext, cancelProcesses := context.WithTimeout(runtimeContext(context.Background()), 10*time.Second)
 	_ = task.Kill(processContext, syscall.SIGTERM)
 	select {
@@ -216,9 +215,16 @@ func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, conta
 		}
 	}
 	_, _ = mainProcess.Delete(processContext, containerd.WithProcessKill)
-	_ = deleteTask(processContext, task)
+	cleanupErr := deleteTask(processContext, task)
 	cancelProcesses()
-	_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
+	detachContext, cancelDetach := context.WithTimeout(runtimeContext(context.Background()), 5*time.Second)
+	cleanupErr = errors.Join(cleanupErr, r.network.Detach(detachContext, namespaceID, containerID, instanceID))
+	cancelDetach()
+	if cleanupErr == nil {
+		metadataContext, cancelMetadata := context.WithTimeout(runtimeContext(context.Background()), 5*time.Second)
+		_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10), containerInstanceLabel: "", containerFinishedLabel: strconv.FormatInt(time.Now().UnixNano(), 10)})
+		cancelMetadata()
+	}
 	for _, log := range logs {
 		_ = log.Close()
 	}
@@ -298,6 +304,15 @@ func (r *Runtime) stopContainer(ctx context.Context, namespaceID, containerID st
 	nsctx, container, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
 	if err != nil {
 		return nil, err
+	}
+	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_UNKNOWN {
+		if err := r.removeExitedTask(nsctx, container); err != nil {
+			return nil, err
+		}
+		if err := r.network.Detach(nsctx, namespaceID, containerID, current.GetInstanceId()); err != nil {
+			return nil, err
+		}
+		return r.inspectContainer(nsctx, namespaceID, container)
 	}
 	if current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return current, nil
@@ -440,10 +455,7 @@ func (r *Runtime) loadContainer(ctx context.Context, namespaceID, containerID st
 }
 
 func (r *Runtime) loadContainerForRole(ctx context.Context, namespaceID, containerID string, system bool) (context.Context, containerd.Container, *vmmdv1.Container, error) {
-	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
-		return nil, nil, nil, err
-	}
-	if err := validateID("container_id", containerID); err != nil {
+	if err := validateContainerIdentityForRole(namespaceID, containerID, system); err != nil {
 		return nil, nil, nil, err
 	}
 	nsctx := runtimeContext(ctx)
@@ -462,30 +474,25 @@ func (r *Runtime) loadContainerForRole(ctx context.Context, namespaceID, contain
 	return nsctx, container, result, err
 }
 
+func validateContainerIdentityForRole(namespaceID, containerID string, system bool) error {
+	if system {
+		if err := validateSystemNamespace(namespaceID); err != nil {
+			return err
+		}
+	} else if err := validateID("actor_namespace_id", namespaceID); err != nil {
+		return err
+	}
+	return validateID("container_id", containerID)
+}
+
 func (r *Runtime) inspectContainer(ctx context.Context, namespaceID string, container containerd.Container) (*vmmdv1.Container, error) {
 	info, err := container.Info(ctx)
 	if err != nil {
 		return nil, err
 	}
-	state := vmmdv1.ContainerState_CONTAINER_STATE_CREATED
-	if info.Labels[containerStateLabel] == "running" {
-		state = vmmdv1.ContainerState_CONTAINER_STATE_RUNNING
-		if task, taskErr := container.Task(ctx, nil); errdefs.IsNotFound(taskErr) {
-			state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
-		} else if taskErr != nil {
-			// A running label without an observable task is not a usable
-			// running container. Fail closed while containerd reaps the task.
-			state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
-		} else if taskErr == nil {
-			if taskStatus, statusErr := task.Status(ctx); statusErr != nil || taskStatus.Status != containerd.Running {
-				state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
-			}
-		}
-	} else if info.Labels[containerStateLabel] == "stopped" {
-		state = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
-	}
+	state := observedSandboxState(ctx, container, info.Labels, func() (bool, error) { return sandboxCgroupEmpty(namespaceID, info.Labels[runtimeExternalIDLabel]) })
 	instanceID := info.Labels[containerInstanceLabel]
-	if state != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+	if state == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED || state == vmmdv1.ContainerState_CONTAINER_STATE_CREATED {
 		instanceID = ""
 	}
 	externalID := info.Labels[runtimeExternalIDLabel]

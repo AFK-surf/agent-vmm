@@ -10,6 +10,10 @@ const (
 	DefaultEmergencyBytes = uint64(4 << 30)
 	DefaultMetadataBytes  = uint64(1 << 30)
 	MinimumImportBytes    = uint64(2 << 30)
+	ControlPartitionBytes = uint64(8 << 30)
+	ControlSystemBytes    = uint64(4 << 30)
+	ControlImageBytes     = uint64(2 << 30)
+	ControlReserveBytes   = ControlPartitionBytes - ControlSystemBytes - ControlImageBytes
 )
 
 var (
@@ -27,9 +31,10 @@ const (
 )
 
 type Snapshot struct {
+	Inodes                 uint64
+	FreeInodes             uint64
 	CapacityBytes          uint64
 	UsedBytes              uint64
-	WritableHeadroomBytes  uint64
 	ImportReservationBytes uint64
 	EmergencyBytes         uint64
 	MetadataGrowthBytes    uint64
@@ -43,7 +48,7 @@ func (snapshot Snapshot) SystemReserveBytes() (uint64, bool) {
 
 func (snapshot Snapshot) AvailableBytes() (uint64, bool) {
 	committed := snapshot.UsedBytes
-	for _, value := range []uint64{snapshot.WritableHeadroomBytes, snapshot.ImportReservationBytes, snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes} {
+	for _, value := range []uint64{snapshot.ImportReservationBytes, snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes} {
 		var carry uint64
 		committed, carry = bits.Add64(committed, value, 0)
 		if carry != 0 || committed > snapshot.CapacityBytes {
@@ -64,34 +69,28 @@ func (snapshot Snapshot) Pressure() Pressure {
 	if snapshot.CapacityBytes == 0 || snapshot.UsedBytes > snapshot.CapacityBytes || snapshot.ImportReservationBytes > snapshot.CapacityBytes-snapshot.UsedBytes {
 		return PressureCritical
 	}
-	free := snapshot.CapacityBytes - snapshot.UsedBytes - snapshot.ImportReservationBytes
-	if free <= snapshot.CapacityBytes/10 {
+	return max(pressureFromFree(snapshot.CapacityBytes, snapshot.CapacityBytes-snapshot.UsedBytes-snapshot.ImportReservationBytes), pressureFromFree(snapshot.Inodes, snapshot.FreeInodes))
+}
+
+func pressureFromFree(total, free uint64) Pressure {
+	if total == 0 {
+		return PressureNormal
+	}
+	if free <= total/10 {
 		return PressureCritical
 	}
-	if free <= snapshot.CapacityBytes*15/100 {
+	if free <= total/100*15 {
 		return PressureRejectCold
 	}
-	if free <= snapshot.CapacityBytes/4 {
+	if free <= total/4 {
 		return PressureGC
 	}
 	return PressureNormal
 }
 
-func (snapshot Snapshot) WithQuotaIncrease(increase uint64) error {
-	var carry uint64
-	snapshot.WritableHeadroomBytes, carry = bits.Add64(snapshot.WritableHeadroomBytes, increase, 0)
-	if carry != 0 {
-		return ErrCapacityUnavailable
-	}
-	if !snapshot.Safe() {
-		return ErrCapacityUnavailable
-	}
-	return nil
-}
-
 // Budget serializes every physical commitment. Durable quota and import facts
 // remain outside this lock and are supplied in Snapshot on each mutation.
-// Model anchor: spec/tla/GuestDiskBudget.tla U+W+I+E+M<=D.
+// Model anchor: spec/tla/GuestDiskBudget.tla physical import expansion.
 type Budget struct {
 	mu     sync.Mutex
 	sealed bool
@@ -121,25 +120,8 @@ func (budget *Budget) GrowthError() error {
 	return nil
 }
 
-func (budget *Budget) AdmitQuota(load func(*Transaction) (Snapshot, error), increase uint64, commit func(*Transaction) error) error {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if budget.sealed {
-		return ErrGrowthSealed
-	}
-	transaction := &Transaction{budget: budget}
-	snapshot, err := load(transaction)
-	if err != nil {
-		return err
-	}
-	if err := snapshot.WithQuotaIncrease(increase); err != nil {
-		return err
-	}
-	return commit(transaction)
-}
-
 // ReserveImportHeadroom gives a cold import every byte not already committed
-// to physical usage, writable quotas, another import, or the fixed safety
+// to physical usage, another import, or the fixed safety
 // floors. The caller physically backs this reservation and converts it to U as
 // containerd writes, so no archive compression ratio is assumed.
 func (budget *Budget) ReserveImportHeadroom(load func(*Transaction) (Snapshot, error), commit func(uint64) error) error {
@@ -184,4 +166,12 @@ func (budget *Budget) Settle(settle func() error) error {
 		return ErrGrowthSealed
 	}
 	return (&Transaction{budget: budget}).Settle(settle)
+}
+
+// MutateInventory preserves namespace/GC serialization after import growth is
+// sealed. These control operations do not enlarge the shared import project.
+func (budget *Budget) MutateInventory(fn func(*Transaction) error) error {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	return fn(&Transaction{budget: budget})
 }

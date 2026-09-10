@@ -15,6 +15,15 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestResolverStateFollowsNamespaceStorageClass(t *testing.T) {
+	if got := resolvPath("workload-a"); got != "/state/network/resolv/workload-a.conf" {
+		t.Fatalf("workload resolver path = %q", got)
+	}
+	if got := resolvPath("system.appliance"); got != "/control/network/resolv/system.appliance.conf" {
+		t.Fatalf("system resolver path = %q", got)
+	}
+}
+
 func TestNetworkLinkPolicy(t *testing.T) {
 	all := &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_AllContainers{AllContainers: true}}
 	ids := &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_ContainerIds{ContainerIds: &vmmdv1.ContainerIDList{Ids: []string{"web"}}}}

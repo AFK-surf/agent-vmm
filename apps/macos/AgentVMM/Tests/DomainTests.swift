@@ -201,7 +201,6 @@ import Foundation
 @Test func remoteCapacityDraftPreservesUneditedPolicyExactly() {
     let policy = RemotePoolSettings(
         maxEnvironments: 7,
-        aggregateLimits: EnvironmentLimits(cpuMillis: 3_333, memoryBytes: 3_456_789_012, pids: 777, diskBytes: 9_876_543_210),
         perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_111, memoryBytes: 1_234_567_890, pids: 222, diskBytes: 4_567_890_123),
         allowsPublicEgress: false,
         maxLeaseSeconds: 5_400,
@@ -215,10 +214,9 @@ import Foundation
 
 @Test func remoteCapacityDefaultsFitTheDefaultHostAndDenyPublicEgress() {
     let defaults = RemotePoolSettings.defaults
-    #expect(defaults.aggregateLimits.cpuMillis <= 2_000)
-    #expect(defaults.aggregateLimits.memoryBytes <= 1 << 30)
-    #expect(defaults.aggregateLimits.diskBytes <= 8 << 30)
-    #expect(defaults.perEnvironmentLimits.memoryBytes <= defaults.aggregateLimits.memoryBytes)
+    #expect(defaults.perEnvironmentLimits.cpuMillis <= 2_000)
+    #expect(defaults.perEnvironmentLimits.memoryBytes <= 1 << 30)
+    #expect(defaults.perEnvironmentLimits.diskBytes <= 8 << 30)
     #expect(!defaults.allowsPublicEgress)
 }
 

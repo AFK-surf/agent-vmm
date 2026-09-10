@@ -29,6 +29,7 @@ import (
 const (
 	installedVMResumeTimeout = 10 * time.Minute
 	defaultNewStateBytes     = int64(64 << 30)
+	minimumNewStateBytes     = int64(16 << 30)
 )
 
 func main() {
@@ -40,6 +41,7 @@ func main() {
 	}
 	var config vmm.Config
 	var newStateBytes int64
+	var migrateStateFrom string
 	var operatorSocket, remoteComputeSocket, trustSocket, serviceTunnelSocket, meshControlSocket, dataWorkerSocket, dataWorkerPath, trustCapabilityFile, databasePath, sessionDirectory string
 	var disablePersonalMeshPairing bool
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
@@ -47,6 +49,7 @@ func main() {
 	flag.UintVar(&config.CPUCount, "cpus", 8, "fixed VM CPU count")
 	flag.Uint64Var(&config.MemoryBytes, "memory", 12<<30, "fixed VM memory bytes")
 	flag.Int64Var(&newStateBytes, "state-size", defaultNewStateBytes, "fully physically backed state disk bytes for a new installation")
+	flag.StringVar(&migrateStateFrom, "migrate-state-from", "", "offline legacy state disk to copy into a new state.raw in --instance")
 	flag.StringVar(&config.SerialLog, "serial-log", "", "serial log path")
 	flag.StringVar(&operatorSocket, "operator-socket", "", "operator Unix socket")
 	flag.StringVar(&remoteComputeSocket, "remote-compute-socket", "", "restricted remote connector Unix socket")
@@ -61,6 +64,12 @@ func main() {
 	flag.BoolVar(&disablePersonalMeshPairing, "disable-personal-mesh-pairing", false, "deny personal mesh genesis and new member admission while preserving revoke/repair")
 	flag.Parse()
 	config.GuestManifestDigest = guestManifestDigest
+	if migrateStateFrom != "" {
+		if err := runStateMigration(config, migrateStateFrom); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if operatorSocket == "" || remoteComputeSocket == "" || databasePath == "" || sessionDirectory == "" {
 		log.Fatal("operator-socket, remote-compute-socket, database, and session-directory are required")
 	}
@@ -227,6 +236,71 @@ func main() {
 	}
 }
 
+func runStateMigration(config vmm.Config, source string) error {
+	if config.BundleDirectory == "" || config.InstanceDirectory == "" || config.SerialLog == "" {
+		return errors.New("state migration requires bundle, instance, and serial-log")
+	}
+	sourcePath, err := filepath.Abs(source)
+	if err != nil {
+		return err
+	}
+	targetPath := filepath.Join(config.InstanceDirectory, "state.raw")
+	targetAbsolute, err := filepath.Abs(targetPath)
+	if err != nil {
+		return err
+	}
+	if sourcePath == targetAbsolute {
+		return errors.New("state migration source and target must be distinct")
+	}
+	if filepath.Dir(sourcePath) == filepath.Dir(targetAbsolute) {
+		return errors.New("state migration target must use a separate instance directory")
+	}
+	info, err := os.Lstat(sourcePath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() < minimumNewStateBytes {
+		return errors.New("state migration source must be a regular disk of at least 16 GiB")
+	}
+	if _, err := os.Lstat(targetAbsolute); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			return errors.New("state migration target already exists")
+		}
+		return err
+	}
+	if err := os.MkdirAll(config.InstanceDirectory, 0o700); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(config.SerialLog), 0o700); err != nil {
+		return err
+	}
+	sourceLock, err := acquireHostOwnerLock(filepath.Join(filepath.Dir(sourcePath), "host-owner.lock"))
+	if err != nil {
+		return fmt.Errorf("lock legacy state owner: %w", err)
+	}
+	defer sourceLock.Close()
+	targetLock, err := acquireHostOwnerLock(filepath.Join(config.InstanceDirectory, "host-owner.lock"))
+	if err != nil {
+		return fmt.Errorf("lock migration target: %w", err)
+	}
+	defer targetLock.Close()
+	config.StateBytes = info.Size()
+	config.LegacyStatePath = sourcePath
+	manager, err := vmm.NewManager(config)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	if _, err := manager.Start(ctx); err != nil {
+		return fmt.Errorf("migrate state: %w", err)
+	}
+	stopContext, stop := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer stop()
+	if _, err := manager.Stop(stopContext, false); err != nil {
+		return fmt.Errorf("stop migration VM: %w", err)
+	}
+	fmt.Printf("state migration complete: source=%s target=%s bytes=%d\n", sourcePath, targetAbsolute, info.Size())
+	return nil
+}
+
 func acquireHostOwnerLock(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -273,6 +347,9 @@ func resolveStateDiskBytes(path string, newStateBytes int64) (int64, error) {
 	}
 	if exists {
 		return bytes, nil
+	}
+	if newStateBytes < minimumNewStateBytes {
+		return 0, fmt.Errorf("new state disk must be at least %d bytes", minimumNewStateBytes)
 	}
 	return newStateBytes, nil
 }

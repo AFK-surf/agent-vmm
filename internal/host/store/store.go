@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 18
+const schemaVersion = 19
 
 const (
 	auditRetention  = 30 * 24 * time.Hour
@@ -34,19 +34,21 @@ var (
 )
 
 type Environment struct {
-	ID              string
-	NamespaceID     string
-	DisplayName     string
-	CPUMillis       uint32
-	MemoryBytes     uint64
-	PIDs            uint32
-	DiskBytes       uint64
-	EgressMode      int32
-	PolicyRevision  uint64
-	OwnerKind       int32
-	RegistrationID  string
-	AllocationID    string
-	AllocationState int32
+	ID                   string
+	NamespaceID          string
+	DisplayName          string
+	CPUMillis            uint32
+	MemoryBytes          uint64
+	PIDs                 uint32
+	DiskBytes            uint64
+	EgressMode           int32
+	PolicyRevision       uint64
+	OwnerKind            int32
+	RegistrationID       string
+	AllocationID         string
+	AllocationState      int32
+	AllocationGeneration uint64
+	UpdatedAt            time.Time
 }
 
 type Session struct {
@@ -181,7 +183,7 @@ func (store *Store) CreateEnvironment(ctx context.Context, environment Environme
 
 const environmentSelect = `SELECT id, namespace_id, display_name, cpu_millis,
 	memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
-	COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments`
+	COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments`
 
 func (store *Store) GetEnvironment(ctx context.Context, id string) (Environment, error) {
 	return scanEnvironment(store.db.QueryRowContext(ctx, environmentSelect+" WHERE id = ?", id))
@@ -190,30 +192,32 @@ func (store *Store) GetEnvironment(ctx context.Context, id string) (Environment,
 func (store *Store) GetRemoteEnvironment(ctx context.Context, registrationID, allocationID string) (Environment, error) {
 	return scanEnvironment(store.db.QueryRowContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
 		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
-		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments
 		WHERE owner_kind = 2 AND registration_id = ? AND allocation_id = ?`, registrationID, allocationID))
 }
 
 func (store *Store) EnvironmentByNamespace(ctx context.Context, namespaceID string) (Environment, error) {
 	return scanEnvironment(store.db.QueryRowContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
 		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
-		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments WHERE namespace_id = ?`, namespaceID))
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments WHERE namespace_id = ?`, namespaceID))
 }
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanEnvironment(row rowScanner) (Environment, error) {
 	var environment Environment
+	var updatedAt int64
 	err := row.Scan(&environment.ID, &environment.NamespaceID, &environment.DisplayName, &environment.CPUMillis,
 		&environment.MemoryBytes, &environment.PIDs, &environment.DiskBytes, &environment.EgressMode, &environment.PolicyRevision,
-		&environment.OwnerKind, &environment.RegistrationID, &environment.AllocationID, &environment.AllocationState)
+		&environment.OwnerKind, &environment.RegistrationID, &environment.AllocationID, &environment.AllocationState, &environment.AllocationGeneration, &updatedAt)
+	environment.UpdatedAt = time.Unix(0, updatedAt)
 	return environment, err
 }
 
 func (store *Store) ListEnvironments(ctx context.Context) ([]Environment, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
 		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
-		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0) FROM environments ORDER BY display_name, id`)
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments ORDER BY display_name, id`)
 	if err != nil {
 		return nil, err
 	}

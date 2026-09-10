@@ -15,21 +15,12 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
-func TestTaskStartMetadataMutationsRunInsideOneOCIGrowthGuard(t *testing.T) {
-	inside := false
+func TestTaskStartPublishesRunningOnlyAfterProcessStarts(t *testing.T) {
 	var calls []string
-	process := &guardedProcess{inside: &inside, calls: &calls}
-	task := &guardedTask{inside: &inside, calls: &calls, process: process}
-	container := &guardedContainer{inside: &inside, calls: &calls, task: task}
-	guard := func(_ context.Context, run func() error) error {
-		if inside {
-			t.Fatal("metadata guard was nested")
-		}
-		inside = true
-		defer func() { inside = false }()
-		return run()
-	}
-	started, err := startTaskMetadata(guard, context.Background(), context.Background(), context.Background(), container, &specs.Process{}, io.Discard, io.Discard, "instance-a")
+	process := &guardedProcess{calls: &calls}
+	task := &guardedTask{calls: &calls, process: process}
+	container := &guardedContainer{calls: &calls, task: task}
+	started, err := startTaskMetadata(context.Background(), context.Background(), container, &specs.Process{}, io.Discard, io.Discard, "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,27 +28,18 @@ func TestTaskStartMetadataMutationsRunInsideOneOCIGrowthGuard(t *testing.T) {
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("task-start mutations = %v, want %v", calls, want)
 	}
-	if inside || started.task != task || started.mainProcess != process {
-		t.Fatalf("guard escaped or returned wrong task: inside=%t started=%+v", inside, started)
+	if started.task != task || started.mainProcess != process {
+		t.Fatalf("returned wrong task: %+v", started)
 	}
 }
 
-func TestTaskStartMetadataGuardTightenFailureCleansStartedTask(t *testing.T) {
-	want := errors.New("metadata ceiling could not be tightened")
-	inside := false
+func TestTaskStartLabelFailureCleansStartedTask(t *testing.T) {
+	want := errors.New("running label could not be committed")
 	var calls []string
-	process := &guardedProcess{inside: &inside, calls: &calls}
-	task := &guardedTask{inside: &inside, calls: &calls, process: process}
-	container := &guardedContainer{inside: &inside, calls: &calls, task: task}
-	guard := func(_ context.Context, run func() error) error {
-		inside = true
-		if err := run(); err != nil {
-			return err
-		}
-		inside = false
-		return want
-	}
-	_, err := startTaskMetadata(guard, context.Background(), context.Background(), context.Background(), container, &specs.Process{}, io.Discard, io.Discard, "instance-a")
+	process := &guardedProcess{calls: &calls}
+	task := &guardedTask{calls: &calls, process: process}
+	container := &guardedContainer{calls: &calls, task: task, labelError: func() error { return want }}
+	_, err := startTaskMetadata(context.Background(), context.Background(), container, &specs.Process{}, io.Discard, io.Discard, "instance-a")
 	if !errors.Is(err, want) {
 		t.Fatalf("start error = %v, want %v", err, want)
 	}
@@ -68,24 +50,14 @@ func TestTaskStartMetadataGuardTightenFailureCleansStartedTask(t *testing.T) {
 
 func TestTaskStartCancellationUsesIndependentRetryingCleanup(t *testing.T) {
 	want := errors.New("request cancelled after task start")
-	requestContext, cancelRequest := context.WithCancel(context.Background())
+
 	namespaceContext, cancelNamespace := context.WithCancel(context.Background())
-	inside := false
+	defer cancelNamespace()
 	var calls []string
-	process := &guardedProcess{inside: &inside, calls: &calls, requireLiveCleanup: true}
-	task := &guardedTask{inside: &inside, calls: &calls, process: process, deleteFailures: 2, requireLiveCleanup: true}
-	container := &guardedContainer{inside: &inside, calls: &calls, task: task}
-	guard := func(_ context.Context, run func() error) error {
-		inside = true
-		if err := run(); err != nil {
-			return err
-		}
-		inside = false
-		cancelRequest()
-		cancelNamespace()
-		return want
-	}
-	_, err := startTaskMetadata(guard, requestContext, namespaceContext, context.Background(), container, &specs.Process{}, io.Discard, io.Discard, "instance-a")
+	process := &guardedProcess{calls: &calls, requireLiveCleanup: true}
+	task := &guardedTask{calls: &calls, process: process, deleteFailures: 2, requireLiveCleanup: true}
+	container := &guardedContainer{calls: &calls, task: task, labelError: func() error { cancelNamespace(); return want }}
+	_, err := startTaskMetadata(namespaceContext, context.Background(), container, &specs.Process{}, io.Discard, io.Discard, "instance-a")
 	if !errors.Is(err, want) {
 		t.Fatalf("start error = %v, want %v", err, want)
 	}
@@ -95,10 +67,10 @@ func TestTaskStartCancellationUsesIndependentRetryingCleanup(t *testing.T) {
 }
 
 type guardedContainer struct {
+	labelError func() error
 	containerd.Container
-	inside *bool
-	calls  *[]string
-	task   containerd.Task
+	calls *[]string
+	task  containerd.Task
 }
 
 func (container *guardedContainer) NewTask(context.Context, cio.Creator, ...containerd.NewTaskOpts) (containerd.Task, error) {
@@ -108,19 +80,18 @@ func (container *guardedContainer) NewTask(context.Context, cio.Creator, ...cont
 
 func (container *guardedContainer) SetLabels(context.Context, map[string]string) (map[string]string, error) {
 	container.record("set-labels")
+	if container.labelError != nil {
+		return nil, container.labelError()
+	}
 	return nil, nil
 }
 
 func (container *guardedContainer) record(call string) {
-	if !*container.inside {
-		panic(call + " ran outside metadata guard")
-	}
 	*container.calls = append(*container.calls, call)
 }
 
 type guardedTask struct {
 	containerd.Task
-	inside             *bool
 	calls              *[]string
 	process            containerd.Process
 	deleteCalls        int
@@ -156,15 +127,11 @@ func (task *guardedTask) Delete(ctx context.Context, _ ...containerd.ProcessDele
 }
 
 func (task *guardedTask) record(call string) {
-	if !*task.inside {
-		panic(call + " ran outside metadata guard")
-	}
 	*task.calls = append(*task.calls, call)
 }
 
 type guardedProcess struct {
 	containerd.Process
-	inside             *bool
 	calls              *[]string
 	requireLiveCleanup bool
 }
@@ -196,8 +163,5 @@ func (process *guardedProcess) Delete(ctx context.Context, _ ...containerd.Proce
 }
 
 func (process *guardedProcess) record(call string) {
-	if !*process.inside {
-		panic(call + " ran outside metadata guard")
-	}
 	*process.calls = append(*process.calls, call)
 }

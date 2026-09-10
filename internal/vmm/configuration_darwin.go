@@ -19,9 +19,15 @@ const hostEmergencyBytes int64 = 10 << 30
 
 func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File, initializing bool) (*vz.VirtualMachineConfiguration, error) {
 	artifact := verified.Manifest.Artifacts
-	commandLine := "console=hvc0 panic=-1"
+	commandLine := "console=hvc0 panic=-1 psi=1"
 	if initializing {
 		commandLine += " agent.state_init=1"
+	}
+	if manager.config.LegacyStatePath != "" {
+		if !initializing {
+			return nil, errors.New("state migration requires a new target disk")
+		}
+		commandLine += " agent.state_migrate=1"
 	}
 	bootloader, err := vz.NewLinuxBootLoader(filepath.Join(verified.Directory, artifact["kernel"].Path), vz.WithInitrd(filepath.Join(verified.Directory, artifact["initramfs"].Path)), vz.WithCommandLine(commandLine))
 	if err != nil {
@@ -49,6 +55,13 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 		return nil, err
 	}
 	storage := []vz.StorageDeviceConfiguration{root, state}
+	if manager.config.LegacyStatePath != "" {
+		legacy, err := blockDevice(manager.config.LegacyStatePath, true, "AGENT_STATE_LEGACY")
+		if err != nil {
+			return nil, err
+		}
+		storage = append(storage, legacy)
+	}
 	manager.mu.Lock()
 	blocks := append([]ApplianceBlock(nil), manager.applianceBlocks...)
 	manager.mu.Unlock()

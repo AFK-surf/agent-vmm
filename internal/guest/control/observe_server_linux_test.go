@@ -5,11 +5,26 @@ package control
 import (
 	"context"
 	"errors"
+	"syscall"
 	"testing"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 )
+
+func TestStateFilesystemHealthIncludesControlFilesystem(t *testing.T) {
+	var paths []string
+	err := stateFilesystemsHealth(func(path string) error {
+		paths = append(paths, path)
+		if path == controlRoot {
+			return syscall.ENOSPC
+		}
+		return nil
+	})
+	if !errors.Is(err, syscall.ENOSPC) || len(paths) != 2 || paths[0] != stateRoot || paths[1] != controlRoot {
+		t.Fatalf("filesystem probes=%v err=%v", paths, err)
+	}
+}
 
 func TestComponentHealthReportsContainerdVersionProbeFailure(t *testing.T) {
 	called := false
@@ -35,7 +50,7 @@ func TestComponentHealthReportsContainerdVersionProbeFailure(t *testing.T) {
 	t.Fatal("containerd/runsc health component is missing")
 }
 
-func TestPersistentOCIQuotaSettlementFailureMakesHealthActionableAndNotReady(t *testing.T) {
+func TestPersistentOCIQuotaSettlementFailureKeepsControlReadyAndMakesPoolHealthActionable(t *testing.T) {
 	runtime := &Runtime{diskBudget: new(guestdisk.Budget)}
 	_ = runtime.diskBudget.Settle(func() error { return errors.New("persistent settlement failure") })
 	server := &Server{runtime: runtime, healthProbe: func(context.Context) healthProbeResult { return healthProbeResult{} }}
@@ -43,8 +58,8 @@ func TestPersistentOCIQuotaSettlementFailureMakesHealthActionableAndNotReady(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if health.GetReady() {
-		t.Fatal("sealed OCI quota gate reported guest ready")
+	if !health.GetReady() {
+		t.Fatal("sealed workload-pool growth gate blocked Guest control readiness")
 	}
 	components, err := server.ComponentHealth(context.Background(), &vmmdv1.ComponentHealthRequest{})
 	if err != nil {

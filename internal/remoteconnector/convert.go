@@ -17,7 +17,7 @@ func hello(registration *hostv1.RemoteRegistration, instance string, epoch uint6
 		ConnectionEpoch: epoch, SupportedFeatures: append([]string(nil), protocolFeatures...),
 		RequiredFeatures:     append([]string(nil), requiredProtocolFeatures...),
 		InventoryWatermark:   registration.GetInventoryRevision(),
-		Capacity:             &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), AggregateLimits: pool.GetAggregateLimits(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
+		Capacity:             &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
 		HostLoopbackFrontend: pool.GetHostLoopbackFrontend(),
 		EndpointObservation:  endpointObservation,
 		Observation:          observation,

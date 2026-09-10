@@ -27,36 +27,39 @@ type CapacityDimension int32
 
 const (
 	CapacityDimension_CAPACITY_DIMENSION_UNSPECIFIED      CapacityDimension = 0
-	CapacityDimension_CAPACITY_DIMENSION_CPU_GUARANTEE    CapacityDimension = 1
 	CapacityDimension_CAPACITY_DIMENSION_CPU_MAX          CapacityDimension = 2
 	CapacityDimension_CAPACITY_DIMENSION_MEMORY           CapacityDimension = 3
 	CapacityDimension_CAPACITY_DIMENSION_PIDS             CapacityDimension = 4
 	CapacityDimension_CAPACITY_DIMENSION_WRITABLE         CapacityDimension = 5
 	CapacityDimension_CAPACITY_DIMENSION_STORAGE_HEADROOM CapacityDimension = 6
 	CapacityDimension_CAPACITY_DIMENSION_IMPORT_SLOT      CapacityDimension = 7
+	CapacityDimension_CAPACITY_DIMENSION_RUN_SLOT         CapacityDimension = 8
+	CapacityDimension_CAPACITY_DIMENSION_MEMORY_PRESSURE  CapacityDimension = 9
 )
 
 // Enum value maps for CapacityDimension.
 var (
 	CapacityDimension_name = map[int32]string{
 		0: "CAPACITY_DIMENSION_UNSPECIFIED",
-		1: "CAPACITY_DIMENSION_CPU_GUARANTEE",
 		2: "CAPACITY_DIMENSION_CPU_MAX",
 		3: "CAPACITY_DIMENSION_MEMORY",
 		4: "CAPACITY_DIMENSION_PIDS",
 		5: "CAPACITY_DIMENSION_WRITABLE",
 		6: "CAPACITY_DIMENSION_STORAGE_HEADROOM",
 		7: "CAPACITY_DIMENSION_IMPORT_SLOT",
+		8: "CAPACITY_DIMENSION_RUN_SLOT",
+		9: "CAPACITY_DIMENSION_MEMORY_PRESSURE",
 	}
 	CapacityDimension_value = map[string]int32{
 		"CAPACITY_DIMENSION_UNSPECIFIED":      0,
-		"CAPACITY_DIMENSION_CPU_GUARANTEE":    1,
 		"CAPACITY_DIMENSION_CPU_MAX":          2,
 		"CAPACITY_DIMENSION_MEMORY":           3,
 		"CAPACITY_DIMENSION_PIDS":             4,
 		"CAPACITY_DIMENSION_WRITABLE":         5,
 		"CAPACITY_DIMENSION_STORAGE_HEADROOM": 6,
 		"CAPACITY_DIMENSION_IMPORT_SLOT":      7,
+		"CAPACITY_DIMENSION_RUN_SLOT":         8,
+		"CAPACITY_DIMENSION_MEMORY_PRESSURE":  9,
 	}
 )
 
@@ -989,7 +992,6 @@ type RemoteObservationSnapshot struct {
 	Health                      *RemoteObservationHealth `protobuf:"bytes,8,opt,name=health,proto3" json:"health,omitempty"`
 	Usage                       *RemoteObservationUsage  `protobuf:"bytes,9,opt,name=usage,proto3" json:"usage,omitempty"`
 	InventoryWatermark          uint64                   `protobuf:"varint,10,opt,name=inventory_watermark,json=inventoryWatermark,proto3" json:"inventory_watermark,omitempty"`
-	InventoryCount              uint32                   `protobuf:"varint,11,opt,name=inventory_count,json=inventoryCount,proto3" json:"inventory_count,omitempty"`
 	InventoryObservedUnixMillis int64                    `protobuf:"varint,12,opt,name=inventory_observed_unix_millis,json=inventoryObservedUnixMillis,proto3" json:"inventory_observed_unix_millis,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
@@ -1091,13 +1093,6 @@ func (x *RemoteObservationSnapshot) GetUsage() *RemoteObservationUsage {
 func (x *RemoteObservationSnapshot) GetInventoryWatermark() uint64 {
 	if x != nil {
 		return x.InventoryWatermark
-	}
-	return 0
-}
-
-func (x *RemoteObservationSnapshot) GetInventoryCount() uint32 {
-	if x != nil {
-		return x.InventoryCount
 	}
 	return 0
 }
@@ -1356,7 +1351,6 @@ func (x *RemoteObservationUsage) GetIssue() string {
 type Capacity struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	MaxEnvironments        uint32                 `protobuf:"varint,1,opt,name=max_environments,json=maxEnvironments,proto3" json:"max_environments,omitempty"`
-	AggregateLimits        *v11.ResourceLimits    `protobuf:"bytes,2,opt,name=aggregate_limits,json=aggregateLimits,proto3" json:"aggregate_limits,omitempty"`
 	PerEnvironmentLimits   *v11.ResourceLimits    `protobuf:"bytes,3,opt,name=per_environment_limits,json=perEnvironmentLimits,proto3" json:"per_environment_limits,omitempty"`
 	MaxEgressMode          v11.EgressMode         `protobuf:"varint,4,opt,name=max_egress_mode,json=maxEgressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"max_egress_mode,omitempty"`
 	MaxLeaseSeconds        uint32                 `protobuf:"varint,5,opt,name=max_lease_seconds,json=maxLeaseSeconds,proto3" json:"max_lease_seconds,omitempty"`
@@ -1400,13 +1394,6 @@ func (x *Capacity) GetMaxEnvironments() uint32 {
 		return x.MaxEnvironments
 	}
 	return 0
-}
-
-func (x *Capacity) GetAggregateLimits() *v11.ResourceLimits {
-	if x != nil {
-		return x.AggregateLimits
-	}
-	return nil
 }
 
 func (x *Capacity) GetPerEnvironmentLimits() *v11.ResourceLimits {
@@ -3961,7 +3948,7 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x11required_features\x18\x0e \x03(\tR\x10requiredFeatures\x12Y\n" +
 	"\x14endpoint_observation\x18\x0f \x01(\v2&.agentvmm.trust.v1.EndpointObservationR\x13endpointObservation\x12d\n" +
 	"\x16host_loopback_frontend\x18\x10 \x01(\v2..agentvmm.host.v1.HostLoopbackFrontendCapacityR\x14hostLoopbackFrontend\x12O\n" +
-	"\vobservation\x18\x11 \x01(\v2-.agentvmm.remote.v1.RemoteObservationSnapshotR\vobservation\"\xfa\x04\n" +
+	"\vobservation\x18\x11 \x01(\v2-.agentvmm.remote.v1.RemoteObservationSnapshotR\vobservation\"\xe8\x04\n" +
 	"\x19RemoteObservationSnapshot\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x120\n" +
 	"\x14observed_unix_millis\x18\x02 \x01(\x03R\x12observedUnixMillis\x12)\n" +
@@ -3973,9 +3960,8 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x06health\x18\b \x01(\v2+.agentvmm.remote.v1.RemoteObservationHealthR\x06health\x12@\n" +
 	"\x05usage\x18\t \x01(\v2*.agentvmm.remote.v1.RemoteObservationUsageR\x05usage\x12/\n" +
 	"\x13inventory_watermark\x18\n" +
-	" \x01(\x04R\x12inventoryWatermark\x12'\n" +
-	"\x0finventory_count\x18\v \x01(\rR\x0einventoryCount\x12C\n" +
-	"\x1einventory_observed_unix_millis\x18\f \x01(\x03R\x1binventoryObservedUnixMillis\"\xb1\x01\n" +
+	" \x01(\x04R\x12inventoryWatermark\x12C\n" +
+	"\x1einventory_observed_unix_millis\x18\f \x01(\x03R\x1binventoryObservedUnixMillisJ\x04\b\v\x10\fR\x0finventory_count\"\xb1\x01\n" +
 	"\x17RemoteObservationHealth\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x14\n" +
 	"\x05issue\x18\x02 \x01(\tR\x05issue\x12\x18\n" +
@@ -4001,14 +3987,13 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x13sampled_unix_millis\x18\t \x01(\x03R\x11sampledUnixMillis\x12\x14\n" +
 	"\x05stale\x18\n" +
 	" \x01(\bR\x05stale\x12\x14\n" +
-	"\x05issue\x18\v \x01(\tR\x05issue\"\x86\x03\n" +
+	"\x05issue\x18\v \x01(\tR\x05issue\"\xd1\x02\n" +
 	"\bCapacity\x12)\n" +
-	"\x10max_environments\x18\x01 \x01(\rR\x0fmaxEnvironments\x12K\n" +
-	"\x10aggregate_limits\x18\x02 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x0faggregateLimits\x12V\n" +
+	"\x10max_environments\x18\x01 \x01(\rR\x0fmaxEnvironments\x12V\n" +
 	"\x16per_environment_limits\x18\x03 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x14perEnvironmentLimits\x12D\n" +
 	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressMode\x12*\n" +
 	"\x11max_lease_seconds\x18\x05 \x01(\rR\x0fmaxLeaseSeconds\x128\n" +
-	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSeconds\"\xbf\x03\n" +
+	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSecondsJ\x04\b\x02\x10\x03R\x10aggregate_limits\"\xbf\x03\n" +
 	"\n" +
 	"Allocation\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12#\n" +
@@ -4226,16 +4211,17 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x04data\x18\x01 \x01(\fH\x00R\x04data\x12!\n" +
 	"\vclose_write\x18\x02 \x01(\bH\x00R\n" +
 	"closeWriteB\t\n" +
-	"\apayload*\xa7\x02\n" +
+	"\apayload*\xf2\x02\n" +
 	"\x11CapacityDimension\x12\"\n" +
-	"\x1eCAPACITY_DIMENSION_UNSPECIFIED\x10\x00\x12$\n" +
-	" CAPACITY_DIMENSION_CPU_GUARANTEE\x10\x01\x12\x1e\n" +
+	"\x1eCAPACITY_DIMENSION_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aCAPACITY_DIMENSION_CPU_MAX\x10\x02\x12\x1d\n" +
 	"\x19CAPACITY_DIMENSION_MEMORY\x10\x03\x12\x1b\n" +
 	"\x17CAPACITY_DIMENSION_PIDS\x10\x04\x12\x1f\n" +
 	"\x1bCAPACITY_DIMENSION_WRITABLE\x10\x05\x12'\n" +
 	"#CAPACITY_DIMENSION_STORAGE_HEADROOM\x10\x06\x12\"\n" +
-	"\x1eCAPACITY_DIMENSION_IMPORT_SLOT\x10\a*\xb3\x01\n" +
+	"\x1eCAPACITY_DIMENSION_IMPORT_SLOT\x10\a\x12\x1f\n" +
+	"\x1bCAPACITY_DIMENSION_RUN_SLOT\x10\b\x12&\n" +
+	"\"CAPACITY_DIMENSION_MEMORY_PRESSURE\x10\t\"\x04\b\x01\x10\x01* CAPACITY_DIMENSION_CPU_GUARANTEE*\xb3\x01\n" +
 	"\x15CommandAckDisposition\x12'\n" +
 	"#COMMAND_ACK_DISPOSITION_UNSPECIFIED\x10\x00\x12$\n" +
 	" COMMAND_ACK_DISPOSITION_ADMITTED\x10\x01\x12$\n" +
@@ -4376,63 +4362,62 @@ var file_remote_v1_remote_proto_depIdxs = []int32{
 	12, // 20: agentvmm.remote.v1.RemoteObservationSnapshot.health:type_name -> agentvmm.remote.v1.RemoteObservationHealth
 	14, // 21: agentvmm.remote.v1.RemoteObservationSnapshot.usage:type_name -> agentvmm.remote.v1.RemoteObservationUsage
 	13, // 22: agentvmm.remote.v1.RemoteObservationHealth.components:type_name -> agentvmm.remote.v1.RemoteObservationComponent
-	51, // 23: agentvmm.remote.v1.Capacity.aggregate_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	51, // 24: agentvmm.remote.v1.Capacity.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	52, // 25: agentvmm.remote.v1.Capacity.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	51, // 26: agentvmm.remote.v1.Allocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	52, // 27: agentvmm.remote.v1.Allocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	53, // 28: agentvmm.remote.v1.Allocation.state:type_name -> agentvmm.host.v1.AllocationState
-	17, // 29: agentvmm.remote.v1.Allocation.lease:type_name -> agentvmm.remote.v1.Lease
-	54, // 30: agentvmm.remote.v1.Allocation.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
-	55, // 31: agentvmm.remote.v1.Lease.state:type_name -> agentvmm.host.v1.LeaseState
-	21, // 32: agentvmm.remote.v1.ControllerControlMessage.command:type_name -> agentvmm.remote.v1.ControllerCommand
-	40, // 33: agentvmm.remote.v1.ControllerControlMessage.rotate_credential:type_name -> agentvmm.remote.v1.RotateCredential
-	41, // 34: agentvmm.remote.v1.ControllerControlMessage.revoke_credential:type_name -> agentvmm.remote.v1.RevokeCredential
-	20, // 35: agentvmm.remote.v1.ControllerControlMessage.controller_ready:type_name -> agentvmm.remote.v1.ControllerReady
-	25, // 36: agentvmm.remote.v1.ControllerCommand.ensure_allocation:type_name -> agentvmm.remote.v1.EnsureAllocation
-	26, // 37: agentvmm.remote.v1.ControllerCommand.release_allocation:type_name -> agentvmm.remote.v1.ReleaseAllocation
-	27, // 38: agentvmm.remote.v1.ControllerCommand.plan_cleanup_allocation:type_name -> agentvmm.remote.v1.PlanCleanupAllocation
-	28, // 39: agentvmm.remote.v1.ControllerCommand.execute_cleanup_allocation:type_name -> agentvmm.remote.v1.ExecuteCleanupAllocation
-	29, // 40: agentvmm.remote.v1.ControllerCommand.acquire_lease:type_name -> agentvmm.remote.v1.AcquireLease
-	30, // 41: agentvmm.remote.v1.ControllerCommand.renew_lease:type_name -> agentvmm.remote.v1.RenewLease
-	31, // 42: agentvmm.remote.v1.ControllerCommand.release_lease:type_name -> agentvmm.remote.v1.ReleaseLease
-	32, // 43: agentvmm.remote.v1.ControllerCommand.drain_registration:type_name -> agentvmm.remote.v1.DrainRegistration
-	33, // 44: agentvmm.remote.v1.ControllerCommand.open_session:type_name -> agentvmm.remote.v1.OpenSession
-	22, // 45: agentvmm.remote.v1.ControllerCommand.acquire_host_loopback_frontend:type_name -> agentvmm.remote.v1.AcquireHostLoopbackFrontend
-	23, // 46: agentvmm.remote.v1.ControllerCommand.renew_host_loopback_frontend:type_name -> agentvmm.remote.v1.RenewHostLoopbackFrontend
-	24, // 47: agentvmm.remote.v1.ControllerCommand.release_host_loopback_frontend:type_name -> agentvmm.remote.v1.ReleaseHostLoopbackFrontend
-	51, // 48: agentvmm.remote.v1.EnsureAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	52, // 49: agentvmm.remote.v1.EnsureAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	54, // 50: agentvmm.remote.v1.EnsureAllocation.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
-	56, // 51: agentvmm.remote.v1.PlanCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
-	56, // 52: agentvmm.remote.v1.ExecuteCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
-	3,  // 53: agentvmm.remote.v1.CommandResult.outcome:type_name -> agentvmm.remote.v1.CommandOutcome
-	4,  // 54: agentvmm.remote.v1.CommandResult.reason:type_name -> agentvmm.remote.v1.ErrorReason
-	16, // 55: agentvmm.remote.v1.CommandResult.allocation:type_name -> agentvmm.remote.v1.Allocation
-	17, // 56: agentvmm.remote.v1.CommandResult.lease:type_name -> agentvmm.remote.v1.Lease
-	37, // 57: agentvmm.remote.v1.CommandResult.cleanup_plan:type_name -> agentvmm.remote.v1.CleanupPlan
-	38, // 58: agentvmm.remote.v1.CommandResult.session_ready:type_name -> agentvmm.remote.v1.SessionReady
-	57, // 59: agentvmm.remote.v1.CommandResult.host_loopback_frontend_lease:type_name -> agentvmm.host.v1.HostLoopbackFrontendLease
-	0,  // 60: agentvmm.remote.v1.CommandResult.capacity_dimension:type_name -> agentvmm.remote.v1.CapacityDimension
-	1,  // 61: agentvmm.remote.v1.CommandAck.disposition:type_name -> agentvmm.remote.v1.CommandAckDisposition
-	4,  // 62: agentvmm.remote.v1.CommandAck.reason:type_name -> agentvmm.remote.v1.ErrorReason
-	2,  // 63: agentvmm.remote.v1.CommandEvidence.stage:type_name -> agentvmm.remote.v1.ExecutionStage
-	56, // 64: agentvmm.remote.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
-	58, // 65: agentvmm.remote.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
-	42, // 66: agentvmm.remote.v1.HostSessionFrame.header:type_name -> agentvmm.remote.v1.SessionHeader
-	5,  // 67: agentvmm.remote.v1.RemoteControllerService.Enroll:input_type -> agentvmm.remote.v1.EnrollRequest
-	7,  // 68: agentvmm.remote.v1.RemoteControllerService.Connect:input_type -> agentvmm.remote.v1.HostControlMessage
-	43, // 69: agentvmm.remote.v1.RemoteControllerService.ServeSession:input_type -> agentvmm.remote.v1.HostSessionFrame
-	59, // 70: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:input_type -> agentvmm.host.v1.HostFrontendFrame
-	6,  // 71: agentvmm.remote.v1.RemoteControllerService.Enroll:output_type -> agentvmm.remote.v1.EnrollResponse
-	19, // 72: agentvmm.remote.v1.RemoteControllerService.Connect:output_type -> agentvmm.remote.v1.ControllerControlMessage
-	44, // 73: agentvmm.remote.v1.RemoteControllerService.ServeSession:output_type -> agentvmm.remote.v1.ControllerSessionFrame
-	60, // 74: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:output_type -> agentvmm.host.v1.ControllerFrontendFrame
-	71, // [71:75] is the sub-list for method output_type
-	67, // [67:71] is the sub-list for method input_type
-	67, // [67:67] is the sub-list for extension type_name
-	67, // [67:67] is the sub-list for extension extendee
-	0,  // [0:67] is the sub-list for field type_name
+	51, // 23: agentvmm.remote.v1.Capacity.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	52, // 24: agentvmm.remote.v1.Capacity.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	51, // 25: agentvmm.remote.v1.Allocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	52, // 26: agentvmm.remote.v1.Allocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	53, // 27: agentvmm.remote.v1.Allocation.state:type_name -> agentvmm.host.v1.AllocationState
+	17, // 28: agentvmm.remote.v1.Allocation.lease:type_name -> agentvmm.remote.v1.Lease
+	54, // 29: agentvmm.remote.v1.Allocation.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
+	55, // 30: agentvmm.remote.v1.Lease.state:type_name -> agentvmm.host.v1.LeaseState
+	21, // 31: agentvmm.remote.v1.ControllerControlMessage.command:type_name -> agentvmm.remote.v1.ControllerCommand
+	40, // 32: agentvmm.remote.v1.ControllerControlMessage.rotate_credential:type_name -> agentvmm.remote.v1.RotateCredential
+	41, // 33: agentvmm.remote.v1.ControllerControlMessage.revoke_credential:type_name -> agentvmm.remote.v1.RevokeCredential
+	20, // 34: agentvmm.remote.v1.ControllerControlMessage.controller_ready:type_name -> agentvmm.remote.v1.ControllerReady
+	25, // 35: agentvmm.remote.v1.ControllerCommand.ensure_allocation:type_name -> agentvmm.remote.v1.EnsureAllocation
+	26, // 36: agentvmm.remote.v1.ControllerCommand.release_allocation:type_name -> agentvmm.remote.v1.ReleaseAllocation
+	27, // 37: agentvmm.remote.v1.ControllerCommand.plan_cleanup_allocation:type_name -> agentvmm.remote.v1.PlanCleanupAllocation
+	28, // 38: agentvmm.remote.v1.ControllerCommand.execute_cleanup_allocation:type_name -> agentvmm.remote.v1.ExecuteCleanupAllocation
+	29, // 39: agentvmm.remote.v1.ControllerCommand.acquire_lease:type_name -> agentvmm.remote.v1.AcquireLease
+	30, // 40: agentvmm.remote.v1.ControllerCommand.renew_lease:type_name -> agentvmm.remote.v1.RenewLease
+	31, // 41: agentvmm.remote.v1.ControllerCommand.release_lease:type_name -> agentvmm.remote.v1.ReleaseLease
+	32, // 42: agentvmm.remote.v1.ControllerCommand.drain_registration:type_name -> agentvmm.remote.v1.DrainRegistration
+	33, // 43: agentvmm.remote.v1.ControllerCommand.open_session:type_name -> agentvmm.remote.v1.OpenSession
+	22, // 44: agentvmm.remote.v1.ControllerCommand.acquire_host_loopback_frontend:type_name -> agentvmm.remote.v1.AcquireHostLoopbackFrontend
+	23, // 45: agentvmm.remote.v1.ControllerCommand.renew_host_loopback_frontend:type_name -> agentvmm.remote.v1.RenewHostLoopbackFrontend
+	24, // 46: agentvmm.remote.v1.ControllerCommand.release_host_loopback_frontend:type_name -> agentvmm.remote.v1.ReleaseHostLoopbackFrontend
+	51, // 47: agentvmm.remote.v1.EnsureAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	52, // 48: agentvmm.remote.v1.EnsureAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	54, // 49: agentvmm.remote.v1.EnsureAllocation.resources_v2:type_name -> agentvmm.host.v1.WorkloadResourcesV2
+	56, // 50: agentvmm.remote.v1.PlanCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
+	56, // 51: agentvmm.remote.v1.ExecuteCleanupAllocation.kind:type_name -> agentvmm.host.v1.CleanupKind
+	3,  // 52: agentvmm.remote.v1.CommandResult.outcome:type_name -> agentvmm.remote.v1.CommandOutcome
+	4,  // 53: agentvmm.remote.v1.CommandResult.reason:type_name -> agentvmm.remote.v1.ErrorReason
+	16, // 54: agentvmm.remote.v1.CommandResult.allocation:type_name -> agentvmm.remote.v1.Allocation
+	17, // 55: agentvmm.remote.v1.CommandResult.lease:type_name -> agentvmm.remote.v1.Lease
+	37, // 56: agentvmm.remote.v1.CommandResult.cleanup_plan:type_name -> agentvmm.remote.v1.CleanupPlan
+	38, // 57: agentvmm.remote.v1.CommandResult.session_ready:type_name -> agentvmm.remote.v1.SessionReady
+	57, // 58: agentvmm.remote.v1.CommandResult.host_loopback_frontend_lease:type_name -> agentvmm.host.v1.HostLoopbackFrontendLease
+	0,  // 59: agentvmm.remote.v1.CommandResult.capacity_dimension:type_name -> agentvmm.remote.v1.CapacityDimension
+	1,  // 60: agentvmm.remote.v1.CommandAck.disposition:type_name -> agentvmm.remote.v1.CommandAckDisposition
+	4,  // 61: agentvmm.remote.v1.CommandAck.reason:type_name -> agentvmm.remote.v1.ErrorReason
+	2,  // 62: agentvmm.remote.v1.CommandEvidence.stage:type_name -> agentvmm.remote.v1.ExecutionStage
+	56, // 63: agentvmm.remote.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
+	58, // 64: agentvmm.remote.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
+	42, // 65: agentvmm.remote.v1.HostSessionFrame.header:type_name -> agentvmm.remote.v1.SessionHeader
+	5,  // 66: agentvmm.remote.v1.RemoteControllerService.Enroll:input_type -> agentvmm.remote.v1.EnrollRequest
+	7,  // 67: agentvmm.remote.v1.RemoteControllerService.Connect:input_type -> agentvmm.remote.v1.HostControlMessage
+	43, // 68: agentvmm.remote.v1.RemoteControllerService.ServeSession:input_type -> agentvmm.remote.v1.HostSessionFrame
+	59, // 69: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:input_type -> agentvmm.host.v1.HostFrontendFrame
+	6,  // 70: agentvmm.remote.v1.RemoteControllerService.Enroll:output_type -> agentvmm.remote.v1.EnrollResponse
+	19, // 71: agentvmm.remote.v1.RemoteControllerService.Connect:output_type -> agentvmm.remote.v1.ControllerControlMessage
+	44, // 72: agentvmm.remote.v1.RemoteControllerService.ServeSession:output_type -> agentvmm.remote.v1.ControllerSessionFrame
+	60, // 73: agentvmm.remote.v1.RemoteControllerService.ServeFrontend:output_type -> agentvmm.host.v1.ControllerFrontendFrame
+	70, // [70:74] is the sub-list for method output_type
+	66, // [66:70] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_remote_v1_remote_proto_init() }

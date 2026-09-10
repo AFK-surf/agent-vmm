@@ -19,6 +19,9 @@ service AgentRuntimeService {
   rpc CreateContainer(CreateContainerRequest) returns (ContainerResponse);
   rpc StartContainer(ContainerMutationRequest) returns (ContainerResponse);
   rpc StopContainer(StopContainerRequest) returns (ContainerResponse);
+  rpc AcquireExecution(ExecutionRequest) returns (ExecutionResponse);
+  rpc ReleaseExecution(ExecutionRequest) returns (google.protobuf.Empty);
+  rpc QuiesceContainer(QuiesceContainerRequest) returns (ContainerResponse);
   rpc WaitContainer(ContainerRequest) returns (WaitContainerResponse);
   rpc DeleteContainer(ContainerMutationRequest) returns (google.protobuf.Empty);
   rpc GetContainer(ContainerRequest) returns (ContainerResponse);
@@ -514,14 +517,12 @@ message ResourceLimits {
 }
 
 // WorkloadResourcesV2 is the only resource contract accepted by remote
-// allocation admission. CPU entitlement, burst ceiling, memory pressure,
-// memory isolation, process isolation, and durable writable storage retain
-// distinct semantics throughout Host and Guest enforcement.
+// allocation admission. Each field limits one workload, without reserving
+// the sum of maxima across stored workloads.
 message WorkloadResourcesV2 {
-  uint32 cpu_guarantee_millis = 1;
+  reserved 1, 3, 4;
+  reserved "cpu_guarantee_millis", "cpu_weight", "memory_high_bytes";
   uint32 cpu_max_millis = 2;
-  uint32 cpu_weight = 3;
-  uint64 memory_high_bytes = 4;
   uint64 memory_max_bytes = 5;
   uint32 pid_max = 6;
   uint64 writable_quota_bytes = 7;
@@ -793,6 +794,25 @@ message StopContainerRequest {
   string request_id = 1;
   string container_id = 2;
   optional uint32 timeout_seconds = 3;
+  string expected_instance_id = 4;
+  string quiesce_request_id = 5;
+}
+message ExecutionRequest {
+  string execution_id = 1;
+  string container_id = 2;
+  string expected_instance_id = 3;
+  int64 deadline_unix_nano = 4;
+}
+message ExecutionResponse {
+  string execution_id = 1;
+  string container_instance_id = 2;
+}
+message QuiesceContainerRequest {
+  string request_id = 1;
+  string container_id = 2;
+  string expected_instance_id = 3;
+  bool cancel = 4;
+  uint32 minimum_idle_seconds = 5;
 }
 message ContainerResponse {
   Container container = 1;
@@ -1296,8 +1316,9 @@ message ControllerDomainMetrics {
 }
 
 message RemotePoolPolicy {
+  reserved 2;
+  reserved "aggregate_limits";
   uint32 max_environments = 1;
-  ResourceLimits aggregate_limits = 2;
   ResourceLimits per_environment_limits = 3;
   EgressMode max_egress_mode = 4;
   google.protobuf.Duration max_lease_duration = 5;
@@ -1441,7 +1462,10 @@ message RemoteLease {
   LeaseState state = 6;
 }
 
-message GetRemoteStateRequest { string registration_id = 1; }
+message GetRemoteStateRequest {
+  string registration_id = 1;
+  bool summary_only = 2;
+}
 
 message GetRemoteStateResponse {
   RemoteRegistration registration = 1;

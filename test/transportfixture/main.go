@@ -33,7 +33,6 @@ func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapsh
 			EnrollmentState: hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY,
 			Pool: &hostv1.RemotePoolPolicy{
 				MaxEnvironments:      3,
-				AggregateLimits:      fixtureLimits(3000, 3<<30, 768, 12<<30),
 				PerEnvironmentLimits: fixtureLimits(1000, 1<<30, 256, 4<<30),
 				MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
 				MaxLeaseDuration:     durationpb.New(45 * time.Minute), DisconnectGrace: durationpb.New(45 * time.Second), StopGrace: durationpb.New(12 * time.Second),

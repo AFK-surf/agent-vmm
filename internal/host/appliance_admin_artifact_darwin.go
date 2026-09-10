@@ -209,7 +209,7 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 		controllerCapacity(server.controller), remoteRegistrationFromGrant(registrationID, installation, grant),
 		frontendsFromProto(request.GetApprovedGrant().GetFrontends()), operation)
 	if err != nil {
-		if errors.Is(err, store.ErrResourceCapacityExceeded) || errors.Is(err, store.ErrDomainCapacityExceeded) {
+		if errors.Is(err, store.ErrResourceCapacityExceeded) {
 			return nil, resourceError(codes.ResourceExhausted, "RESOURCE_LEDGER_EXHAUSTED", "appliance_installation", installation.ID, err.Error())
 		}
 		return nil, err

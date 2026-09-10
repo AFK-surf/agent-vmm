@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +17,8 @@ import (
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
 	"google.golang.org/grpc/codes"
 )
@@ -262,7 +265,7 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 		if err != nil {
 			return nil, err
 		}
-		unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), containerSnapshotter)
+		unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), namespaceSnapshotter(namespaceID))
 		if err != nil {
 			// A cancelled or interrupted import can leave containerd image
 			// metadata behind after its content or snapshot has disappeared.
@@ -319,7 +322,7 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 	if logical.Target().Digest != image.Target().Digest {
 		return nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "image grant does not match materialized root filesystem", canonical)
 	}
-	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
+	unpacked, err := image.IsUnpacked(nsctx, namespaceSnapshotter(namespaceID))
 	if err != nil {
 		return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonical)
 	}
@@ -338,15 +341,15 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 }
 
 func (r *Runtime) NamespaceUsage(ctx context.Context, namespaceID string) (*vmmdv1.Usage, error) {
-	namespace, err := r.GetNamespace(ctx, namespaceID)
+	namespace, err := namespaceForUsage(ctx, r.client.NamespaceService(), namespaceID)
 	if err != nil {
 		return nil, err
 	}
-	usage, err := readCgroupUsage(filepath.Join("/sys/fs/cgroup/agent-vmm", namespaceID))
+	usage, err := readCgroupUsage(filepath.Join("/sys/fs/cgroup", resourcev2.NamespaceCgroup(namespaceID)))
 	if err != nil {
 		return unavailableUsage(err), nil
 	}
-	disk, err := projectUsage(r.stateDevice, namespace.GetProjectId())
+	disk, err := projectUsage(r.namespaceStateDevice(namespaceID), namespace.GetProjectId())
 	if err != nil {
 		return unavailableUsage(err), nil
 	}
@@ -360,12 +363,24 @@ func (r *Runtime) NamespaceUsage(ctx context.Context, namespaceID string) (*vmmd
 	return usage, nil
 }
 
+func namespaceForUsage(ctx context.Context, store namespaces.Store, namespaceID string) (*vmmdv1.Namespace, error) {
+	if err := validateID("namespace_id", namespaceID); err != nil {
+		return nil, err
+	}
+	labels, err := store.Labels(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
+	_, namespace, err := namespaceFromLabels(namespaceID, labels)
+	return namespace, err
+}
+
 func (r *Runtime) ContainerUsage(ctx context.Context, namespaceID, containerID string) (*vmmdv1.Usage, error) {
 	container, err := r.InspectContainer(ctx, namespaceID, containerID)
 	if err != nil {
 		return nil, err
 	}
-	usage, err := readCgroupUsage(filepath.Join("/sys/fs/cgroup/agent-vmm", namespaceID, containerID))
+	usage, err := readCgroupUsage(filepath.Join("/sys/fs/cgroup", resourcev2.NamespaceCgroup(namespaceID), containerID))
 	if err != nil {
 		return unavailableUsage(err), nil
 	}
@@ -380,7 +395,23 @@ func (r *Runtime) ContainerUsage(ctx context.Context, namespaceID, containerID s
 }
 
 func (r *Runtime) SystemUsage() (*vmmdv1.Usage, error) {
-	return readNetworkUsage(filepath.Join("/sys/class/net", netprotocol.TunName, "statistics"))
+	return readSystemUsage(filepath.Join("/sys/class/net", netprotocol.TunName, "statistics"), controlRoot)
+}
+
+func readSystemUsage(networkPath, controlPath string) (*vmmdv1.Usage, error) {
+	usage, err := readNetworkUsage(networkPath)
+	if err != nil {
+		return nil, err
+	}
+	var filesystem syscall.Statfs_t
+	if err := syscall.Statfs(controlPath, &filesystem); err != nil {
+		return nil, err
+	}
+	if filesystem.Blocks < filesystem.Bfree || filesystem.Bsize <= 0 {
+		return nil, errors.New("control filesystem usage is invalid")
+	}
+	usage.DiskBytes = (filesystem.Blocks - filesystem.Bfree) * uint64(filesystem.Bsize)
+	return usage, nil
 }
 
 func readNetworkUsage(path string) (*vmmdv1.Usage, error) {
@@ -462,6 +493,11 @@ func unavailableUsage(err error) *vmmdv1.Usage {
 }
 
 func usageFailureReason(err error) string {
+	for _, reason := range []string{"workload pool usage", "workload pool memory limit", "workload pool memory events", "workload pool memory pressure"} {
+		if strings.Contains(err.Error(), reason) {
+			return reason + " is unavailable"
+		}
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return "usage source is not available"
 	}
@@ -469,4 +505,36 @@ func usageFailureReason(err error) string {
 		return "usage source is not readable"
 	}
 	return "usage could not be collected"
+}
+
+func workloadPoolUsage(path string) (*vmmdv1.Usage, uint64, float64, uint64, error) {
+	usage, err := readCgroupUsage(path)
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("workload pool usage: %w", err)
+	}
+	limit, err := uintFile(filepath.Join(path, "memory.max"))
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("workload pool memory limit: %w", err)
+	}
+	events, err := keyValueFile(filepath.Join(path, "memory.events"))
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("workload pool memory events: %w", err)
+	}
+	data, err := os.ReadFile(filepath.Join(path, "memory.pressure"))
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("workload pool memory pressure: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != "full" {
+			continue
+		}
+		for _, field := range fields[1:] {
+			if value, ok := strings.CutPrefix(field, "avg10="); ok {
+				pressure, err := strconv.ParseFloat(value, 64)
+				return usage, limit, pressure, events["oom_kill"], err
+			}
+		}
+	}
+	return nil, 0, 0, 0, errors.New("workload memory pressure is unavailable")
 }

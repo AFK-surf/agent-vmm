@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	maxGCNamespaces   = 128
+	maxGCNamespaces   = 258
 	maxGCContentFacts = 4096
 	maxGCDeletes      = 32
 )
@@ -34,9 +34,10 @@ type contentCandidate struct {
 }
 
 type snapshotCandidate struct {
-	namespace string
-	name      string
-	updated   time.Time
+	snapshotter string
+	namespace   string
+	name        string
+	updated     time.Time
 }
 
 // reclaimOCI is the sole ref-safe cache GC owner. It derives references from
@@ -56,14 +57,6 @@ func (r *Runtime) reclaimOCIWithMaterializer(ctx context.Context, limit int, mat
 }
 
 func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, limit int, materializerHeld bool, transaction *guestdisk.Transaction) (deleted int, resultErr error) {
-	defer func() {
-		settle := func() error { return r.settleOCIProjectQuota(ctx) }
-		if transaction != nil {
-			resultErr = errors.Join(resultErr, transaction.Settle(settle))
-		} else {
-			resultErr = errors.Join(resultErr, r.diskBudget.Settle(settle))
-		}
-	}()
 	if limit <= 0 || limit > maxGCDeletes {
 		limit = maxGCDeletes
 	}
@@ -85,16 +78,16 @@ func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, lim
 	}
 	sort.Slice(snapshotCandidates, func(i, j int) bool { return snapshotCandidates[i].updated.Before(snapshotCandidates[j].updated) })
 	for _, candidate := range snapshotCandidates {
-		if deleted >= limit || snapshotReferences[snapshotFactKey(candidate.namespace, candidate.name)] {
+		if deleted >= limit || snapshotReferences[snapshotFactKey(candidate.namespace, candidate.snapshotter, candidate.name)] {
 			continue
 		}
 		unlock := func() {}
 		if !materializerHeld {
-			unlock = r.materializer.Lock("snapshot:" + snapshotFactKey(candidate.namespace, candidate.name))
+			unlock = r.materializer.Lock("snapshot:" + snapshotFactKey(candidate.namespace, candidate.snapshotter, candidate.name))
 		}
 		currentReferences, _, checkErr := r.ociSnapshotFacts(ctx, []string{candidate.namespace})
-		if checkErr == nil && !currentReferences[snapshotFactKey(candidate.namespace, candidate.name)] {
-			checkErr = r.client.SnapshotService(containerSnapshotter).Remove(namespaceContext(ctx, candidate.namespace), candidate.name)
+		if checkErr == nil && !currentReferences[snapshotFactKey(candidate.namespace, candidate.snapshotter, candidate.name)] {
+			checkErr = r.client.SnapshotService(candidate.snapshotter).Remove(namespaceContext(ctx, candidate.namespace), candidate.name)
 			if errdefs.IsNotFound(checkErr) || errdefs.IsFailedPrecondition(checkErr) {
 				checkErr = nil
 			} else if checkErr == nil {
@@ -224,7 +217,9 @@ func (r *Runtime) runtimeImageRetained(ctx context.Context, names []string, refe
 	return false, nil
 }
 
-func snapshotFactKey(namespace, name string) string { return namespace + "\x00" + name }
+func snapshotFactKey(namespace, snapshotter, name string) string {
+	return namespace + "\x00" + snapshotter + "\x00" + name
+}
 
 func (r *Runtime) ociSnapshotFacts(ctx context.Context, names []string) (map[string]bool, []snapshotCandidate, error) {
 	references := make(map[string]bool)
@@ -242,7 +237,9 @@ func (r *Runtime) ociSnapshotFacts(ctx context.Context, names []string) (map[str
 				return nil, nil, err
 			}
 			if len(diffs) != 0 {
-				references[snapshotFactKey(name, identity.ChainID(diffs).String())] = true
+				for _, snapshotter := range []string{containerSnapshotter, "native"} {
+					references[snapshotFactKey(name, snapshotter, identity.ChainID(diffs).String())] = true
+				}
 			}
 		}
 		containers, err := r.client.Containers(nsctx)
@@ -254,8 +251,8 @@ func (r *Runtime) ociSnapshotFacts(ctx context.Context, names []string) (map[str
 			if err != nil {
 				return nil, nil, err
 			}
-			if info.Snapshotter == containerSnapshotter && info.SnapshotKey != "" {
-				references[snapshotFactKey(name, info.SnapshotKey)] = true
+			if info.SnapshotKey != "" {
+				references[snapshotFactKey(name, info.Snapshotter, info.SnapshotKey)] = true
 			}
 		}
 		leases, err := r.client.LeasesService().List(nsctx)
@@ -268,23 +265,27 @@ func (r *Runtime) ociSnapshotFacts(ctx context.Context, names []string) (map[str
 				return nil, nil, err
 			}
 			for _, resource := range resources {
-				if resource.Type == "snapshots/"+containerSnapshotter {
-					references[snapshotFactKey(name, resource.ID)] = true
+				for _, snapshotter := range []string{containerSnapshotter, "native"} {
+					if resource.Type == "snapshots/"+snapshotter {
+						references[snapshotFactKey(name, snapshotter, resource.ID)] = true
+					}
 				}
 			}
 		}
-		if err := r.client.SnapshotService(containerSnapshotter).Walk(nsctx, func(_ context.Context, info snapshots.Info) error {
-			if len(candidates) >= maxGCContentFacts {
-				return errors.New("OCI GC snapshot fact bound exceeded")
+		for _, snapshotter := range []string{containerSnapshotter, "native"} {
+			if err := r.client.SnapshotService(snapshotter).Walk(nsctx, func(_ context.Context, info snapshots.Info) error {
+				if len(candidates) >= maxGCContentFacts {
+					return errors.New("OCI GC snapshot fact bound exceeded")
+				}
+				key := snapshotFactKey(name, snapshotter, info.Name)
+				if info.Parent != "" {
+					parents[key] = snapshotFactKey(name, snapshotter, info.Parent)
+				}
+				candidates = append(candidates, snapshotCandidate{snapshotter: snapshotter, namespace: name, name: info.Name, updated: info.Updated})
+				return nil
+			}); err != nil {
+				return nil, nil, err
 			}
-			key := snapshotFactKey(name, info.Name)
-			if info.Parent != "" {
-				parents[key] = snapshotFactKey(name, info.Parent)
-			}
-			candidates = append(candidates, snapshotCandidate{namespace: name, name: info.Name, updated: info.Updated})
-			return nil
-		}); err != nil {
-			return nil, nil, err
 		}
 	}
 	return ocimaterializer.SnapshotReferenceClosure(references, parents), candidates, nil

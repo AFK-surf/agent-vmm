@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -43,7 +44,17 @@ func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageReq
 	if err != nil {
 		usage = unavailableUsage(err)
 	}
-	return &vmmdv1.GetUsageResponse{Usage: usage}, nil
+	response := &vmmdv1.GetUsageResponse{Usage: usage}
+	pool, limit, pressure, kills, err := workloadPoolUsage("/sys/fs/cgroup/agent-vmm/workload")
+	if err != nil {
+		response.WorkloadPool = unavailableUsage(err)
+	} else {
+		response.WorkloadPool = pool
+		response.WorkloadMemoryLimitBytes = limit
+		response.WorkloadMemoryFullAvg10 = pressure
+		response.WorkloadOomKills = kills
+	}
+	return response, nil
 }
 
 func (s *Server) GetVolume(ctx context.Context, request *vmmdv1.GetVolumeRequest) (*vmmdv1.GetVolumeResponse, error) {
@@ -130,11 +141,7 @@ type healthProbeResult struct {
 }
 
 func (s *Server) probeComponents(ctx context.Context) healthProbeResult {
-	var disk syscall.Statfs_t
-	diskErr := syscall.Statfs(stateRoot, &disk)
-	if diskErr == nil && disk.Blocks == 0 {
-		diskErr = fmt.Errorf("state filesystem reports zero blocks")
-	}
+	diskErr := stateFilesystemsHealth(filesystemHealth)
 	_, quotaErr := projectUsage(s.runtime.stateDevice, 0)
 	_, containerdErr := s.runtime.client.Version(ctx)
 	var egressErr error
@@ -142,12 +149,27 @@ func (s *Server) probeComponents(ctx context.Context) healthProbeResult {
 		egressErr = s.health.EgressHealth()
 	}
 	return healthProbeResult{
-		disk:       errors.Join(diskErr, pathWritable(stateRoot)),
+		disk:       diskErr,
 		network:    s.runtime.network.Health(),
 		egress:     egressErr,
 		quota:      quotaErr,
 		containerd: containerdErr,
 	}
+}
+
+func stateFilesystemsHealth(probe func(string) error) error {
+	return errors.Join(probe(stateRoot), probe(controlRoot))
+}
+
+func filesystemHealth(path string) error {
+	var disk syscall.Statfs_t
+	if err := syscall.Statfs(path, &disk); err != nil {
+		return err
+	}
+	if disk.Blocks == 0 {
+		return fmt.Errorf("%s filesystem reports zero blocks", filepath.Base(path))
+	}
+	return pathWritable(path)
 }
 
 func pathWritable(path string) error {

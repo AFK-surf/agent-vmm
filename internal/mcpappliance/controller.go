@@ -337,8 +337,8 @@ func (controller *Controller) allocate(parent context.Context, clientID, allocat
 		return nil, nil, errors.New("controller capacity is incomplete")
 	}
 	limits := proto.Clone(hello.GetCapacity().GetPerEnvironmentLimits()).(*hostv1.ResourceLimits)
-	resources := &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: limits.GetCpuMillis(), CpuMaxMillis: limits.GetCpuMillis(), CpuWeight: 100,
-		MemoryHighBytes: limits.GetMemoryBytes(), MemoryMaxBytes: limits.GetMemoryBytes(), PidMax: limits.GetPids(), WritableQuotaBytes: limits.GetDiskBytes()}
+	resources := &hostv1.WorkloadResourcesV2{CpuMaxMillis: limits.GetCpuMillis(),
+		MemoryMaxBytes: limits.GetMemoryBytes(), PidMax: limits.GetPids(), WritableQuotaBytes: limits.GetDiskBytes()}
 	ctx, cancel := context.WithTimeout(parent, commandTimeout)
 	ensured, err := controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-ensure", TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, Generation: 1, DisplayLabel: "MCP client", ResourcesV2: resources, EgressMode: hello.GetCapacity().GetMaxEgressMode(), PolicyRevision: hello.GetPoolRevision()}}})
 	cancel()

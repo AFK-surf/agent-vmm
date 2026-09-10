@@ -31,8 +31,8 @@ func referenceAllocations() []referenceAllocation {
 }
 
 func referenceResources(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.WorkloadResourcesV2 {
-	return &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: cpu, CpuMaxMillis: cpu, CpuWeight: 100,
-		MemoryHighBytes: memory, MemoryMaxBytes: memory, PidMax: pids, WritableQuotaBytes: disk}
+	return &hostv1.WorkloadResourcesV2{CpuMaxMillis: cpu,
+		MemoryMaxBytes: memory, PidMax: pids, WritableQuotaBytes: disk}
 }
 
 type referenceCommandCursor struct {

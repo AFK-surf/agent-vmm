@@ -3,6 +3,7 @@
 package control
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,8 +11,49 @@ import (
 	"testing"
 	"time"
 
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
 )
+
+type namespaceUsageStore struct {
+	namespaces.Store
+	labelsCalls int
+	listCalls   int
+	labels      map[string]string
+	err         error
+}
+
+func (store *namespaceUsageStore) Labels(context.Context, string) (map[string]string, error) {
+	store.labelsCalls++
+	return store.labels, store.err
+}
+
+func (store *namespaceUsageStore) List(context.Context) ([]string, error) {
+	store.listCalls++
+	return nil, errors.New("namespace inventory must not be listed")
+}
+
+func TestNamespaceUsageResolvesOneNamespaceWithoutInventoryScan(t *testing.T) {
+	store := &namespaceUsageStore{labels: namespaceLabels(&vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 1 << 30, Pids: 128, DiskBytes: 4 << 30}, vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, 10001, "10.64.1.0/24")}
+	namespace, err := namespaceForUsage(context.Background(), store, "environment-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.labelsCalls != 1 || store.listCalls != 0 || namespace.GetProjectId() != 10001 {
+		t.Fatalf("labels=%d list=%d namespace=%+v", store.labelsCalls, store.listCalls, namespace)
+	}
+}
+
+func TestNamespaceUsageRejectsIncompletePointRead(t *testing.T) {
+	store := &namespaceUsageStore{labels: map[string]string{labelPrefix + "project-id": "10001"}}
+	if _, err := namespaceForUsage(context.Background(), store, "environment-a"); err == nil {
+		t.Fatal("incomplete namespace labels were accepted")
+	}
+	if store.labelsCalls != 1 || store.listCalls != 0 {
+		t.Fatalf("labels=%d list=%d", store.labelsCalls, store.listCalls)
+	}
+}
 
 func TestMissingImageMaterializationIsSkippedByImageListing(t *testing.T) {
 	if !unmaterializedImage(errdefs.ErrNotFound) {
@@ -36,6 +78,33 @@ func TestReadNetworkUsage(t *testing.T) {
 	}
 	if usage.GetNetworkRxBytes() != 1234 || usage.GetNetworkTxBytes() != 5678 || usage.GetSampledAtUnixNano() == 0 {
 		t.Fatalf("readNetworkUsage() = %+v", usage)
+	}
+}
+
+func TestReadSystemUsageIncludesControlFilesystem(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "rx_bytes"), []byte("1234\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "tx_bytes"), []byte("5678\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	usage, err := readSystemUsage(directory, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.GetNetworkRxBytes() != 1234 || usage.GetNetworkTxBytes() != 5678 || usage.GetDiskBytes() == 0 {
+		t.Fatalf("system usage = %+v", usage)
+	}
+}
+
+func TestNamespaceStateDeviceSeparatesSystemUsage(t *testing.T) {
+	runtime := &Runtime{stateDevice: "workload-device", controlDevice: "control-device"}
+	if got := runtime.namespaceStateDevice("system.appliance"); got != "control-device" {
+		t.Fatalf("system namespace device = %q", got)
+	}
+	if got := runtime.namespaceStateDevice("workload-a"); got != "workload-device" {
+		t.Fatalf("workload namespace device = %q", got)
 	}
 }
 

@@ -246,7 +246,6 @@ struct RemoteRegistrationModel: Sendable, Equatable {
 
 struct RemotePoolSettings: Sendable, Equatable {
     let maxEnvironments: UInt32
-    let aggregateLimits: EnvironmentLimits
     let perEnvironmentLimits: EnvironmentLimits
     let allowsPublicEgress: Bool
     let maxLeaseSeconds: Int64
@@ -255,7 +254,6 @@ struct RemotePoolSettings: Sendable, Equatable {
 
     static let defaults = RemotePoolSettings(
         maxEnvironments: 2,
-        aggregateLimits: EnvironmentLimits(cpuMillis: 2_000, memoryBytes: 1 << 30, pids: 512, diskBytes: 4 << 30),
         perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 1 << 30, pids: 256, diskBytes: 2 << 30),
         allowsPublicEgress: false,
         maxLeaseSeconds: 3_600,
@@ -387,7 +385,6 @@ enum ApplianceAction: Sendable, Equatable {
 
 struct ApplianceGrantModel: Sendable, Equatable {
     var maxEnvironments: UInt32
-    var aggregateLimits: EnvironmentLimits
     var perEnvironmentLimits: EnvironmentLimits
     var allowsPublicEgress: Bool
     var maxLeaseSeconds: UInt32
@@ -396,7 +393,6 @@ struct ApplianceGrantModel: Sendable, Equatable {
 
     static let bundledMCPDefault = ApplianceGrantModel(
         maxEnvironments: 4,
-        aggregateLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 512 << 20, pids: 1_024, diskBytes: 4 << 30),
         perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 512 << 20, pids: 512, diskBytes: 4 << 30),
         allowsPublicEgress: true,
         maxLeaseSeconds: 3_600,

@@ -69,13 +69,13 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	}
 	if reusable && !physicalGrowth {
 		var value any
-		err := s.runtime.guardOCIMetadataGrowth(stream.Context(), func() error {
+		err := func() error {
 			var mutationErr error
 			value, mutationErr = s.mutate(stream.Context(), "import-image", header, func() (any, error) {
 				return s.runtime.importImage(stream.Context(), nil, header, imageReference, ocispec.Descriptor{Digest: manifestDigest}, header.GetSystemImport(), false)
 			})
 			return mutationErr
-		})
+		}()
 		if err != nil {
 			return rpcError(err)
 		}
@@ -214,12 +214,21 @@ func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageRefer
 	if runtimeImage.Target().Digest != manifestDigest {
 		return false, false, nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "digest-owned runtime image metadata is inconsistent", imageReference)
 	}
-	unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), containerSnapshotter)
+	unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), namespaceSnapshotter(namespaceID))
 	unpacked, err = reusableSourceUnpacked(unpacked, err)
 	if err != nil {
 		return false, false, nil, err
 	}
 	if !unpacked {
+		target := runtimeImage.Target()
+		_, _, _, missing, checkErr := coreimages.Check(runtimeContext(ctx), runtimeImage.ContentStore(), target,
+			platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: "arm64"}))
+		if checkErr != nil {
+			return false, false, nil, checkErr
+		}
+		if len(missing) == 0 {
+			return false, true, &target, nil
+		}
 		return false, true, nil, nil
 	}
 	target := runtimeImage.Target()
@@ -312,7 +321,7 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	}
 	existing, existingErr := r.client.GetImage(nsctx, runtimeReference)
 	if existingErr == nil {
-		unpacked, err := existing.IsUnpacked(nsctx, containerSnapshotter)
+		unpacked, err := existing.IsUnpacked(nsctx, namespaceSnapshotter(namespaceID))
 		unpacked, err = reusableSourceUnpacked(unpacked, err)
 		if err != nil {
 			return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", imageReference)
@@ -375,7 +384,7 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			return nil, err
 		}
 	}
-	if err := materialized.Unpack(stagingContext, containerSnapshotter, containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); err != nil {
+	if err := materialized.Unpack(stagingContext, namespaceSnapshotter(namespaceID), containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); err != nil {
 		if createdRecord {
 			_ = r.client.ImageService().Delete(stagingContext, runtimeReference, coreimages.SynchronousDelete())
 		}

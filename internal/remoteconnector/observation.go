@@ -56,7 +56,7 @@ func ObserveRegistration(ctx context.Context, socket, registrationID string) (Re
 		return RegistrationObservation{}, err
 	}
 	defer local.connection.Close()
-	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID})
+	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID, SummaryOnly: true})
 	if err != nil {
 		return RegistrationObservation{}, err
 	}
@@ -106,7 +106,7 @@ func collectObservation(ctx context.Context, client remoteObservationClient, reg
 }
 
 func collectCurrentObservation(ctx context.Context, client remoteObservationClient, registrationID string, sequence uint64) (*remotev1.RemoteObservationSnapshot, error) {
-	state, err := client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID})
+	state, err := client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID, SummaryOnly: true})
 	if err != nil || state.GetRegistration() == nil {
 		return nil, errors.New("current remote registration observation is unavailable")
 	}
@@ -118,9 +118,9 @@ func observationBase(registration *hostv1.RemoteRegistration, sequence uint64, o
 	return &remotev1.RemoteObservationSnapshot{
 		Sequence: sequence, ObservedUnixMillis: observed.UnixMilli(), ProtocolVersion: ProtocolVersion,
 		HostApiVersion: HostAPIVersion, ConnectorRelease: ConnectorRelease,
-		SupportedFeatures:  append([]string(nil), protocolFeatures...),
-		Capacity:           &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), AggregateLimits: pool.GetAggregateLimits(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
-		InventoryWatermark: registration.GetInventoryRevision(), InventoryCount: uint32(len(registration.GetAllocations())),
+		SupportedFeatures:           append([]string(nil), protocolFeatures...),
+		Capacity:                    &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
+		InventoryWatermark:          registration.GetInventoryRevision(),
 		InventoryObservedUnixMillis: observed.UnixMilli(),
 	}
 }

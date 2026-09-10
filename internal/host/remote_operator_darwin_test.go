@@ -17,15 +17,13 @@ func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) 
 		RegistrationId: "registration-1", Endpoint: "gateway.example.test:7443", DisplayName: "Managed",
 		ProtocolVersion: "1", TrustBundle: []byte("trust"), ScopeDigest: "scope", SourcePolicyRevision: 7,
 		Pool: &hostv1.RemotePoolPolicy{MaxEnvironments: 1,
-			AggregateLimits:      &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk},
 			PerEnvironmentLimits: &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk},
 			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseDuration: durationpb.New(time.Minute),
 			DisconnectGrace: durationpb.New(time.Second), StopGrace: durationpb.New(time.Second)},
 	}
 	stored := store.RemoteRegistration{ID: managed.RegistrationId, Endpoint: managed.Endpoint, DisplayName: managed.DisplayName,
 		ProtocolVersion: managed.ProtocolVersion, TrustBundle: append([]byte(nil), managed.TrustBundle...), ScopeDigest: managed.ScopeDigest,
-		SourcePolicyRevision: managed.SourcePolicyRevision, MaxEnvironments: 1, AggregateCPUMillis: cpu, AggregateMemoryBytes: memory,
-		AggregatePIDs: pids, AggregateDiskBytes: disk, PerEnvCPUMillis: cpu, PerEnvMemoryBytes: memory, PerEnvPIDs: pids,
+		SourcePolicyRevision: managed.SourcePolicyRevision, MaxEnvironments: 1, PerEnvCPUMillis: cpu, PerEnvMemoryBytes: memory, PerEnvPIDs: pids,
 		PerEnvDiskBytes: disk, MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL), MaxLeaseSeconds: 60,
 		DisconnectGraceSeconds: 1, StopGraceSeconds: 1}
 	capacity := store.Environment{CPUMillis: cpu, MemoryBytes: memory, PIDs: pids, DiskBytes: disk}
@@ -40,5 +38,10 @@ func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) 
 	managed.Pool.MaxEnvironments = maxRemoteEnvironments + 1
 	if _, err := registrationFromPool(managed.Pool, capacity); err == nil {
 		t.Fatal("remote pool above the end-to-end environment bound was accepted")
+	}
+	managed.Pool.MaxEnvironments = 1
+	*managed.Pool.PerEnvironmentLimits.CpuMillis = cpu + 1
+	if _, err := registrationFromPool(managed.Pool, capacity); err == nil {
+		t.Fatal("per-environment limit above host capacity was accepted")
 	}
 }

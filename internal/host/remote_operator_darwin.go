@@ -130,9 +130,7 @@ func managedRegistrationMatches(managed *hostv1.BeginRemoteEnrollmentRequest, st
 		stored.DisplayName == managed.GetDisplayName() && stored.ProtocolVersion == managed.GetProtocolVersion() &&
 		bytes.Equal(stored.TrustBundle, managed.GetTrustBundle()) && stored.ScopeDigest == managed.GetScopeDigest() &&
 		stored.SourcePolicyRevision == managed.GetSourcePolicyRevision() &&
-		stored.MaxEnvironments == policy.MaxEnvironments && stored.AggregateCPUMillis == policy.AggregateCPUMillis &&
-		stored.AggregateMemoryBytes == policy.AggregateMemoryBytes && stored.AggregatePIDs == policy.AggregatePIDs &&
-		stored.AggregateDiskBytes == policy.AggregateDiskBytes && stored.PerEnvCPUMillis == policy.PerEnvCPUMillis &&
+		stored.MaxEnvironments == policy.MaxEnvironments && stored.PerEnvCPUMillis == policy.PerEnvCPUMillis &&
 		stored.PerEnvMemoryBytes == policy.PerEnvMemoryBytes && stored.PerEnvPIDs == policy.PerEnvPIDs &&
 		stored.PerEnvDiskBytes == policy.PerEnvDiskBytes && stored.MaxEgressMode == policy.MaxEgressMode &&
 		stored.MaxLeaseSeconds == policy.MaxLeaseSeconds && stored.DisconnectGraceSeconds == policy.DisconnectGraceSeconds &&
@@ -329,22 +327,17 @@ func (server *operatorServer) ListRemoteRegistrations(ctx context.Context, _ *ho
 }
 
 func registrationFromPool(pool *hostv1.RemotePoolPolicy, capacity store.Environment) (store.RemoteRegistration, error) {
-	if pool == nil || pool.GetAggregateLimits() == nil || pool.GetPerEnvironmentLimits() == nil ||
+	if pool == nil || pool.GetPerEnvironmentLimits() == nil ||
 		pool.GetMaxLeaseDuration() == nil || pool.GetDisconnectGrace() == nil || pool.GetStopGrace() == nil {
 		return store.RemoteRegistration{}, invalidField("pool", "complete remote pool policy is required")
 	}
-	aggregate := pool.GetAggregateLimits()
 	perEnvironment := pool.GetPerEnvironmentLimits()
-	if pool.GetMaxEnvironments() == 0 || pool.GetMaxEnvironments() > maxRemoteEnvironments || validatePolicy(aggregate, pool.GetMaxEgressMode()) != nil || validatePolicy(perEnvironment, pool.GetMaxEgressMode()) != nil {
+	if pool.GetMaxEnvironments() == 0 || pool.GetMaxEnvironments() > maxRemoteEnvironments || validatePolicy(perEnvironment, pool.GetMaxEgressMode()) != nil {
 		return store.RemoteRegistration{}, invalidField("pool", "remote pool limits are invalid")
 	}
-	if aggregate.GetCpuMillis() > capacity.CPUMillis || aggregate.GetMemoryBytes() > capacity.MemoryBytes ||
-		aggregate.GetPids() > capacity.PIDs || aggregate.GetDiskBytes() > capacity.DiskBytes {
-		return store.RemoteRegistration{}, invalidField("aggregate_limits", "remote pool exceeds configured VM capacity")
-	}
-	if perEnvironment.GetCpuMillis() > aggregate.GetCpuMillis() || perEnvironment.GetMemoryBytes() > aggregate.GetMemoryBytes() ||
-		perEnvironment.GetPids() > aggregate.GetPids() || perEnvironment.GetDiskBytes() > aggregate.GetDiskBytes() {
-		return store.RemoteRegistration{}, invalidField("per_environment_limits", "per-environment limit exceeds aggregate pool")
+	if perEnvironment.GetCpuMillis() > capacity.CPUMillis || perEnvironment.GetMemoryBytes() > capacity.MemoryBytes ||
+		perEnvironment.GetPids() > capacity.PIDs || perEnvironment.GetDiskBytes() > capacity.DiskBytes {
+		return store.RemoteRegistration{}, invalidField("per_environment_limits", "per-environment limit exceeds configured VM capacity")
 	}
 	lease := pool.GetMaxLeaseDuration().AsDuration()
 	disconnect := pool.GetDisconnectGrace().AsDuration()
@@ -353,8 +346,7 @@ func registrationFromPool(pool *hostv1.RemotePoolPolicy, capacity store.Environm
 		return store.RemoteRegistration{}, invalidField("pool duration", "lease or grace duration is outside supported bounds")
 	}
 	return store.RemoteRegistration{
-		MaxEnvironments: pool.GetMaxEnvironments(), AggregateCPUMillis: aggregate.GetCpuMillis(), AggregateMemoryBytes: aggregate.GetMemoryBytes(),
-		AggregatePIDs: aggregate.GetPids(), AggregateDiskBytes: aggregate.GetDiskBytes(), PerEnvCPUMillis: perEnvironment.GetCpuMillis(),
+		MaxEnvironments: pool.GetMaxEnvironments(), PerEnvCPUMillis: perEnvironment.GetCpuMillis(),
 		PerEnvMemoryBytes: perEnvironment.GetMemoryBytes(), PerEnvPIDs: perEnvironment.GetPids(), PerEnvDiskBytes: perEnvironment.GetDiskBytes(),
 		MaxEgressMode: int32(pool.GetMaxEgressMode()), MaxLeaseSeconds: uint32(lease / time.Second),
 		DisconnectGraceSeconds: uint32(disconnect / time.Second), StopGraceSeconds: uint32(stop / time.Second),
@@ -386,7 +378,6 @@ func registrationToProto(registration store.RemoteRegistration) *hostv1.RemoteRe
 			ReconnectAttempt: registration.ReconnectAttempt, FailureCode: failureCode, FailureMessage: failureMessage},
 		Pool: &hostv1.RemotePoolPolicy{
 			MaxEnvironments:      registration.MaxEnvironments,
-			AggregateLimits:      &hostv1.ResourceLimits{CpuMillis: optional(registration.AggregateCPUMillis), MemoryBytes: optional(registration.AggregateMemoryBytes), Pids: optional(registration.AggregatePIDs), DiskBytes: optional(registration.AggregateDiskBytes)},
 			PerEnvironmentLimits: &hostv1.ResourceLimits{CpuMillis: optional(registration.PerEnvCPUMillis), MemoryBytes: optional(registration.PerEnvMemoryBytes), Pids: optional(registration.PerEnvPIDs), DiskBytes: optional(registration.PerEnvDiskBytes)},
 			MaxEgressMode:        hostv1.EgressMode(registration.MaxEgressMode), MaxLeaseDuration: durationpb.New(time.Duration(registration.MaxLeaseSeconds) * time.Second),
 			DisconnectGrace: durationpb.New(time.Duration(registration.DisconnectGraceSeconds) * time.Second), StopGrace: durationpb.New(time.Duration(registration.StopGraceSeconds) * time.Second),

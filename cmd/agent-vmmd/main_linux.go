@@ -39,9 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("guest startup stage=bootstrap error=%.4096s", err.Error())
 	}
-	log.Printf("guest startup stage=oci_storage")
-	startup, err := control.PrepareOCIStorage(prepared.StateDevice)
-	if err != nil {
+	if err := control.PrepareOCIStorage(prepared.StateDevice, prepared.ControlDevice); err != nil {
 		log.Fatalf("guest startup stage=oci_storage error=%.4096s", err.Error())
 	}
 	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
@@ -75,7 +73,7 @@ func main() {
 		_ = containerd.Wait()
 	}()
 	log.Printf("guest startup stage=recovery")
-	runtime, err := control.NewRuntime(prepared.StateDevice, networkManager, startup)
+	runtime, err := control.NewRuntime(prepared.StateDevice, prepared.ControlDevice, networkManager)
 	if err != nil {
 		log.Fatalf("guest startup stage=recovery error=%.4096s", err.Error())
 	}

@@ -8,13 +8,11 @@ import (
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
-	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 )
 
 var (
 	ErrInstallationRevisionConflict = errors.New("installation revision conflict")
 	ErrResourceCapacityExceeded     = errors.New("host resource capacity exceeded")
-	ErrDomainCapacityExceeded       = errors.New("controller domain capacity exceeded")
 	ErrArtifactReplay               = errors.New("appliance artifact was already staged")
 	ErrApplianceDomainNotEmpty      = errors.New("appliance domain still owns environments")
 	ErrOperationReceiptConflict     = errors.New("appliance operation receipt conflict")
@@ -24,12 +22,10 @@ var (
 )
 
 const (
-	ReservationOwnerHost          int32 = 1
-	ReservationOwnerAppliance     int32 = 2
-	ReservationOwnerRegistration  int32 = 3
-	ReservationResourceSystem     int32 = 1
-	ReservationResourceRuntime    int32 = 2
-	ReservationResourceAllocation int32 = 3
+	ReservationOwnerHost       int32 = 1
+	ReservationOwnerAppliance  int32 = 2
+	ReservationResourceSystem  int32 = 1
+	ReservationResourceRuntime int32 = 2
 )
 
 type ResourceAmount struct {
@@ -81,7 +77,7 @@ type ApplianceFrontend struct {
 type ApplianceGrant struct {
 	InstallationID                                           string
 	Revision                                                 uint64
-	System, Aggregate, PerEnvironment                        ResourceAmount
+	System, PerEnvironment                                   ResourceAmount
 	MaxEnvironments, MaxLeaseSeconds, DisconnectGraceSeconds uint32
 	EgressMode, MaxEgressMode                                int32
 	DynamicHostLoopback                                      HostLoopbackFrontendCapacity
@@ -100,23 +96,6 @@ type ResourceReservation struct {
 	OwnerKind, ResourceKind int32
 	Amount                  ResourceAmount
 	Retained                bool
-}
-
-const (
-	WorkloadReservationLogical                = 1
-	WorkloadReservationReleaseRequired        = 2
-	WorkloadReservationAdmitted               = 3
-	WorkloadReservationReleasing              = 4
-	WorkloadReservationReleasedPendingConfirm = 5
-)
-
-type WorkloadReservation struct {
-	AllocationID, RegistrationID, EnvironmentID string
-	Generation                                  uint64
-	Resources                                   resourcev2.Contract
-	Phase                                       int32
-	GuestReceipt                                []byte
-	CreatedAt, UpdatedAt                        time.Time
 }
 
 type ApplianceOperation struct {
@@ -356,8 +335,7 @@ func (store *Store) GetApplianceGrant(ctx context.Context, installationID string
 }
 
 const applianceGrantSelect = `SELECT installation_id, revision, system_cpu_millis, system_memory_bytes,
-	system_pids, system_disk_bytes, max_environments, aggregate_cpu_millis, aggregate_memory_bytes,
-	aggregate_pids, aggregate_disk_bytes, per_env_cpu_millis, per_env_memory_bytes, per_env_pids,
+	system_pids, system_disk_bytes, max_environments, per_env_cpu_millis, per_env_memory_bytes, per_env_pids,
 	per_env_disk_bytes, egress_mode, max_egress_mode, max_lease_seconds, disconnect_grace_seconds,
 	dynamic_max_active_leases, dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
 	dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease, dynamic_max_frame_bytes,
@@ -366,8 +344,7 @@ const applianceGrantSelect = `SELECT installation_id, revision, system_cpu_milli
 
 func applianceGrantScan(grant *ApplianceGrant) []any {
 	return []any{&grant.InstallationID, &grant.Revision, &grant.System.CPUMillis, &grant.System.MemoryBytes,
-		&grant.System.PIDs, &grant.System.DiskBytes, &grant.MaxEnvironments, &grant.Aggregate.CPUMillis,
-		&grant.Aggregate.MemoryBytes, &grant.Aggregate.PIDs, &grant.Aggregate.DiskBytes,
+		&grant.System.PIDs, &grant.System.DiskBytes, &grant.MaxEnvironments,
 		&grant.PerEnvironment.CPUMillis, &grant.PerEnvironment.MemoryBytes, &grant.PerEnvironment.PIDs,
 		&grant.PerEnvironment.DiskBytes, &grant.EgressMode, &grant.MaxEgressMode, &grant.MaxLeaseSeconds,
 		&grant.DisconnectGraceSeconds, &grant.DynamicHostLoopback.MaxActiveLeases,
@@ -380,8 +357,7 @@ func applianceGrantScan(grant *ApplianceGrant) []any {
 
 func applianceGrantArgs(grant ApplianceGrant, now int64) []any {
 	return []any{grant.InstallationID, grant.Revision, grant.System.CPUMillis, grant.System.MemoryBytes,
-		grant.System.PIDs, grant.System.DiskBytes, grant.MaxEnvironments, grant.Aggregate.CPUMillis,
-		grant.Aggregate.MemoryBytes, grant.Aggregate.PIDs, grant.Aggregate.DiskBytes,
+		grant.System.PIDs, grant.System.DiskBytes, grant.MaxEnvironments,
 		grant.PerEnvironment.CPUMillis, grant.PerEnvironment.MemoryBytes, grant.PerEnvironment.PIDs,
 		grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode, grant.MaxLeaseSeconds, grant.DisconnectGraceSeconds,
 		grant.DynamicHostLoopback.MaxActiveLeases, grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation,
@@ -424,15 +400,13 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 	// The installation's registration_id is an immediate foreign key. Create
 	// the independent registration row before linking it from the installation.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO remote_registrations(id, endpoint, display_name,
-		protocol_version, max_environments, aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids,
-		aggregate_disk_bytes, per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
+		protocol_version, max_environments, per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
 		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds, state,
 		connection_state, enrollment_state, connector_phase, connector_observed_at, enrollment_request_id,
 		owner_kind, installation_id, inventory_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
-		registration.MaxEnvironments, registration.AggregateCPUMillis, registration.AggregateMemoryBytes,
-		registration.AggregatePIDs, registration.AggregateDiskBytes, registration.PerEnvCPUMillis,
+		registration.MaxEnvironments, registration.PerEnvCPUMillis,
 		registration.PerEnvMemoryBytes, registration.PerEnvPIDs, registration.PerEnvDiskBytes, registration.MaxEgressMode,
 		registration.MaxLeaseSeconds, registration.DisconnectGraceSeconds, registration.StopGraceSeconds,
 		registration.State, registration.ConnectionState, registration.EnrollmentState, registration.ConnectorPhase,
@@ -458,14 +432,13 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 	grant.InstallationID = installation.ID
 	if _, err := tx.ExecContext(ctx, `INSERT INTO appliance_grants(installation_id, revision,
 		system_cpu_millis, system_memory_bytes, system_pids, system_disk_bytes, max_environments,
-		aggregate_cpu_millis, aggregate_memory_bytes, aggregate_pids, aggregate_disk_bytes,
 		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
 		egress_mode, max_egress_mode, max_lease_seconds, disconnect_grace_seconds, dynamic_max_active_leases,
 		dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
 		dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease,
 		dynamic_max_frame_bytes, dynamic_max_connection_bytes, dynamic_connection_deadline_seconds,
 		dynamic_connection_idle_seconds, dynamic_max_use_count, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO resource_reservations(id, owner_kind, owner_id,

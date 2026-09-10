@@ -176,8 +176,9 @@ message ResourceRange {
 }
 
 message CapacityGrant {
+  reserved 2;
+  reserved "aggregate_limits";
   uint32                          max_environments         = 1;
-  agentvmm.host.v1.ResourceLimits aggregate_limits         = 2;
   agentvmm.host.v1.ResourceLimits per_environment_limits   = 3;
   agentvmm.host.v1.EgressMode     max_egress_mode          = 4;
   uint32                          max_lease_seconds        = 5;

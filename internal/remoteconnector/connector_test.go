@@ -216,7 +216,7 @@ func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.H
 	if err := session.Ready(); err != nil {
 		return err
 	}
-	command := &remotev1.ControllerCommand{CommandId: "ensure-1", Sequence: 1, ConnectionEpoch: session.Hello().GetConnectionEpoch(), TargetRevision: 7, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", Generation: 1, DisplayLabel: "remote", ResourcesV2: &hostv1.WorkloadResourcesV2{CpuGuaranteeMillis: 100, CpuMaxMillis: 100, CpuWeight: 100, MemoryHighBytes: 128 << 20, MemoryMaxBytes: 128 << 20, PidMax: 64, WritableQuotaBytes: 256 << 20}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
+	command := &remotev1.ControllerCommand{CommandId: "ensure-1", Sequence: 1, ConnectionEpoch: session.Hello().GetConnectionEpoch(), TargetRevision: 7, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", Generation: 1, DisplayLabel: "remote", ResourcesV2: &hostv1.WorkloadResourcesV2{CpuMaxMillis: 100, MemoryMaxBytes: 128 << 20, PidMax: 64, WritableQuotaBytes: 256 << 20}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
 	commandContext, cancel := context.WithTimeout(stream.Context(), 5*time.Second)
 	defer cancel()
 	transcript, err := session.Dispatch(commandContext, command)
@@ -452,7 +452,7 @@ func TestConnectorFailureStatusIsBoundedAndActionable(t *testing.T) {
 }
 
 func testRegistration(version string) *hostv1.RemoteRegistration {
-	return &hostv1.RemoteRegistration{Id: "registration-a", ProtocolVersion: version, Revision: 7, PoolPolicyRevision: 7, InventoryRevision: 11, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, Pool: &hostv1.RemotePoolPolicy{MaxEnvironments: 4, AggregateLimits: &hostv1.ResourceLimits{}, PerEnvironmentLimits: &hostv1.ResourceLimits{}}, Allocations: []*hostv1.RemoteAllocation{{AllocationId: "allocation-a", State: hostv1.AllocationState_ALLOCATION_STATE_READY}}}
+	return &hostv1.RemoteRegistration{Id: "registration-a", ProtocolVersion: version, Revision: 7, PoolPolicyRevision: 7, InventoryRevision: 11, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, Pool: &hostv1.RemotePoolPolicy{MaxEnvironments: 4, PerEnvironmentLimits: &hostv1.ResourceLimits{}}, Allocations: []*hostv1.RemoteAllocation{{AllocationId: "allocation-a", State: hostv1.AllocationState_ALLOCATION_STATE_READY}}}
 }
 
 func TestObserveRegistrationRequiresHostObservedReadyConnection(t *testing.T) {

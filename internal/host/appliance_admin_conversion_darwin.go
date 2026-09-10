@@ -23,13 +23,13 @@ func applianceOperationResponse(operation store.ApplianceOperation) *appliancev1
 }
 
 func controllerCapacity(controller *Controller) store.ResourceAmount {
-	return store.ResourceAmount{CPUMillis: uint64(controller.remoteCapacity.CPUMillis), MemoryBytes: controller.remoteCapacity.MemoryBytes, PIDs: uint64(controller.remoteCapacity.PIDs), DiskBytes: controller.remoteCapacity.DiskBytes}
+	return store.ResourceAmount{CPUMillis: uint64(controller.systemCapacity.CPUMillis), MemoryBytes: controller.systemCapacity.MemoryBytes, PIDs: uint64(controller.systemCapacity.PIDs), DiskBytes: controller.systemCapacity.DiskBytes}
 }
 
 func grantFromProto(installationID string, revision uint64, value *appliancev1.ApprovedGrant) store.ApplianceGrant {
 	system := amountFromLimits(value.GetSystemResources().GetCeiling())
 	return store.ApplianceGrant{InstallationID: installationID, Revision: revision, System: system,
-		Aggregate: amountFromLimits(value.GetCapacity().GetAggregateLimits()), PerEnvironment: amountFromLimits(value.GetCapacity().GetPerEnvironmentLimits()),
+		PerEnvironment:  amountFromLimits(value.GetCapacity().GetPerEnvironmentLimits()),
 		MaxEnvironments: value.GetCapacity().GetMaxEnvironments(), MaxLeaseSeconds: value.GetCapacity().GetMaxLeaseSeconds(),
 		DisconnectGraceSeconds: value.GetCapacity().GetDisconnectGraceSeconds(), EgressMode: int32(value.GetEgressMode()), MaxEgressMode: int32(value.GetCapacity().GetMaxEgressMode()),
 		DynamicHostLoopback: dynamicGrantFromProto(value.GetDynamicHostLoopback())}
@@ -73,7 +73,7 @@ func amountFromLimits(value *hostv1.ResourceLimits) store.ResourceAmount {
 
 func grantToProto(value store.ApplianceGrant) *appliancev1.ApprovedGrant {
 	return &appliancev1.ApprovedGrant{SystemResources: &appliancev1.ResourceRange{Floor: limitsFromAmount(value.System), Ceiling: limitsFromAmount(value.System)},
-		Capacity:   &appliancev1.CapacityGrant{MaxEnvironments: value.MaxEnvironments, AggregateLimits: limitsFromAmount(value.Aggregate), PerEnvironmentLimits: limitsFromAmount(value.PerEnvironment), MaxEgressMode: hostv1.EgressMode(value.MaxEgressMode), MaxLeaseSeconds: value.MaxLeaseSeconds, DisconnectGraceSeconds: value.DisconnectGraceSeconds},
+		Capacity:   &appliancev1.CapacityGrant{MaxEnvironments: value.MaxEnvironments, PerEnvironmentLimits: limitsFromAmount(value.PerEnvironment), MaxEgressMode: hostv1.EgressMode(value.MaxEgressMode), MaxLeaseSeconds: value.MaxLeaseSeconds, DisconnectGraceSeconds: value.DisconnectGraceSeconds},
 		EgressMode: hostv1.EgressMode(value.EgressMode), Revision: value.Revision,
 		DynamicHostLoopback: dynamicGrantToProto(value.DynamicHostLoopback)}
 }
@@ -98,8 +98,7 @@ func limitsFromAmount(value store.ResourceAmount) *hostv1.ResourceLimits {
 
 func remoteRegistrationFromGrant(id string, installation store.ApplianceInstallation, grant store.ApplianceGrant) store.RemoteRegistration {
 	return store.RemoteRegistration{ID: id, Endpoint: "private.invalid:443", DisplayName: installation.ProductID, ProtocolVersion: remoteconnector.ProtocolVersion,
-		MaxEnvironments: grant.MaxEnvironments, AggregateCPUMillis: uint32(grant.Aggregate.CPUMillis), AggregateMemoryBytes: grant.Aggregate.MemoryBytes,
-		AggregatePIDs: uint32(grant.Aggregate.PIDs), AggregateDiskBytes: grant.Aggregate.DiskBytes,
+		MaxEnvironments: grant.MaxEnvironments,
 		PerEnvCPUMillis: uint32(grant.PerEnvironment.CPUMillis), PerEnvMemoryBytes: grant.PerEnvironment.MemoryBytes,
 		PerEnvPIDs: uint32(grant.PerEnvironment.PIDs), PerEnvDiskBytes: grant.PerEnvironment.DiskBytes,
 		MaxEgressMode: grant.MaxEgressMode, MaxLeaseSeconds: grant.MaxLeaseSeconds, DisconnectGraceSeconds: grant.DisconnectGraceSeconds,

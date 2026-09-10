@@ -26,7 +26,7 @@ func (applianceArtifactVerifier) verify(manifest *appliancev1.ControllerApplianc
 	if manifest.GetDataVolumeBytes() < 1<<30 || manifest.GetDataVolumeBytes() > 64<<30 || manifest.GetSystemResources() == nil ||
 		!limitsPositive(manifest.GetSystemResources().GetFloor()) || !limitsPositive(manifest.GetSystemResources().GetCeiling()) ||
 		manifest.GetRequestedCapacity() == nil || manifest.GetRequestedCapacity().GetMaxEnvironments() == 0 ||
-		!limitsPositive(manifest.GetRequestedCapacity().GetAggregateLimits()) || !limitsPositive(manifest.GetRequestedCapacity().GetPerEnvironmentLimits()) {
+		!limitsPositive(manifest.GetRequestedCapacity().GetPerEnvironmentLimits()) {
 		return nil, nil, errors.New("manifest resource declaration is incomplete")
 	}
 	if manifest.GetBootstrapProtocolVersion() == "" || manifest.GetControllerProtocolVersion() == "" ||
@@ -64,7 +64,6 @@ func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, gr
 		return errors.New("approved system resources expand or violate the manifest range")
 	}
 	if approved.GetMaxEnvironments() > requested.GetMaxEnvironments() ||
-		!limitsLTE(approved.GetAggregateLimits(), requested.GetAggregateLimits()) ||
 		!limitsLTE(approved.GetPerEnvironmentLimits(), requested.GetPerEnvironmentLimits()) ||
 		approved.GetMaxEgressMode() > requested.GetMaxEgressMode() || grant.GetEgressMode() > manifest.GetRequestedEgressMode() ||
 		approved.GetMaxLeaseSeconds() > requested.GetMaxLeaseSeconds() ||
@@ -97,31 +96,20 @@ func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, gr
 	return nil
 }
 
-// validateApplianceCapacity keeps a signed grant from advertising a runtime
-// pool that can never fit in this VM.  The system reservation is charged in
-// addition to the aggregate client pool when an allocation is admitted.
+// validateApplianceCapacity keeps a signed grant from advertising resources
+// that can never fit in this VM.
 func validateApplianceCapacity(grant *appliancev1.ApprovedGrant, host store.ResourceAmount) error {
 	if grant == nil || grant.GetSystemResources() == nil || grant.GetSystemResources().GetCeiling() == nil ||
-		grant.GetCapacity() == nil || grant.GetCapacity().GetAggregateLimits() == nil {
+		grant.GetCapacity() == nil || grant.GetCapacity().GetPerEnvironmentLimits() == nil {
 		return errors.New("resource grant is incomplete")
 	}
 	system := grant.GetSystemResources().GetCeiling()
-	aggregate := grant.GetCapacity().GetAggregateLimits()
-	return validateResourceSumWithinHost(
-		system.GetCpuMillis(), aggregate.GetCpuMillis(), host.CPUMillis,
-		system.GetMemoryBytes(), aggregate.GetMemoryBytes(), host.MemoryBytes,
-		uint64(system.GetPids()), uint64(aggregate.GetPids()), host.PIDs,
-		system.GetDiskBytes(), aggregate.GetDiskBytes(), host.DiskBytes,
-	)
-}
-
-func validateResourceSumWithinHost(systemCPU, aggregateCPU uint32, hostCPU uint64, systemMemory, aggregateMemory, hostMemory uint64,
-	systemPIDs, aggregatePIDs, hostPIDs uint64, systemDisk, aggregateDisk, hostDisk uint64) error {
-	if uint64(systemCPU) > hostCPU || uint64(aggregateCPU) > hostCPU-uint64(systemCPU) ||
-		systemMemory > hostMemory || aggregateMemory > hostMemory-systemMemory ||
-		systemPIDs > hostPIDs || aggregatePIDs > hostPIDs-systemPIDs ||
-		systemDisk > hostDisk || aggregateDisk > hostDisk-systemDisk {
-		return errors.New("approved system and aggregate resources exceed VM capacity")
+	perEnvironment := grant.GetCapacity().GetPerEnvironmentLimits()
+	if uint64(system.GetCpuMillis()) > host.CPUMillis || system.GetMemoryBytes() > host.MemoryBytes ||
+		uint64(system.GetPids()) > host.PIDs || system.GetDiskBytes() > host.DiskBytes ||
+		uint64(perEnvironment.GetCpuMillis()) > host.CPUMillis || perEnvironment.GetMemoryBytes() > host.MemoryBytes ||
+		uint64(perEnvironment.GetPids()) > host.PIDs || perEnvironment.GetDiskBytes() > host.DiskBytes {
+		return errors.New("approved resources exceed VM capacity")
 	}
 	return nil
 }

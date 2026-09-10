@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"io"
 	"os"
 	"path/filepath"
@@ -102,7 +103,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		}
 		return nil, err
 	}
-	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
+	unpacked, err := image.IsUnpacked(nsctx, namespaceSnapshotter(namespaceID))
 	if err != nil {
 		return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonicalImage)
 	}
@@ -118,17 +119,22 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		specOptions = append(specOptions, systemOption)
 	}
 	var container containerd.Container
-	err = r.guardOCIPhysicalGrowth(ctx, "container-snapshot\x00"+namespaceID+"\x00"+request.GetContainerId()+"\x00"+canonicalImage, false, func() error {
+	create := func() error {
 		var createErr error
 		container, createErr = r.client.NewContainer(nsctx, runtimeContainerKey(namespaceID, request.GetContainerId()),
-			containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter),
+			containerd.WithImage(image), containerd.WithSnapshotter(namespaceSnapshotter(namespaceID)),
 			atContainerStage("rootfs_snapshot", containerd.WithNewSnapshot(runtimeSnapshotKey(namespaceID, request.GetContainerId()), image)),
 			containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
 			containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10), runtimeOwnerLabel: namespaceID, runtimeExternalIDLabel: request.GetContainerId(), runtimeImageLabel: canonicalImage}),
 			atContainerStage("oci_spec", containerd.WithNewSpec(specOptions...)), atContainerStage("supervisor_spec", withSupervisedProcess()),
 		)
 		return createErr
-	})
+	}
+	if namespaceSnapshotter(namespaceID) == "native" {
+		err = create()
+	} else {
+		err = r.guardOCIPhysicalGrowth(ctx, "container-snapshot\x00"+namespaceID+"\x00"+request.GetContainerId()+"\x00"+canonicalImage, false, create)
+	}
 	if err != nil {
 		return nil, atRuntimeStage("container_record", err)
 	}
@@ -268,7 +274,7 @@ func containerMainProcess(ctx context.Context, container containerd.Container) (
 }
 
 func (r *Runtime) specOptions(namespaceID string, request *vmmdv1.CreateContainerRequest, image containerd.Image) []oci.SpecOpts {
-	options := []oci.SpecOpts{oci.WithDefaultSpec(), oci.WithImageConfig(image), oci.WithCgroup(filepath.Join("/agent-vmm", namespaceID, request.GetContainerId()))}
+	options := []oci.SpecOpts{oci.WithDefaultSpec(), oci.WithImageConfig(image), oci.WithCgroup(filepath.Join(resourcev2.NamespaceCgroup(namespaceID), request.GetContainerId()))}
 	if request.GetEntrypointOverride() != nil || request.GetCommandOverride() != nil {
 		options = append(options, processOverride(image, request.GetEntrypointOverride(), request.GetCommandOverride()))
 	}

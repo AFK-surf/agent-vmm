@@ -39,7 +39,6 @@ import Testing
     let operatorClient = try GRPCHostClient(socketPath: operatorSocket)
     let snapshot = try await operatorClient.snapshot()
     #expect(snapshot.bootID == "transport-fixture")
-    #expect(snapshot.remoteRegistrations.first?.pool.aggregateLimits.cpuMillis == 3_000)
     #expect(snapshot.remoteRegistrations.first?.pool.perEnvironmentLimits.memoryBytes == 1 << 30)
     #expect(snapshot.remoteRegistrations.first?.pool.disconnectGraceSeconds == 45)
     #expect(snapshot.remoteRegistrations.first?.allocations.first?.environmentID == "environment-a")

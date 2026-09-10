@@ -36,14 +36,13 @@ const (
 )
 
 type Builder struct {
-	client       *containerd.Client
-	network      *guestnetwork.Manager
-	semaphore    chan struct{}
-	mu           sync.Mutex
-	active       map[string]int
-	namespace    map[string]*sync.Mutex
-	growthGate   func(context.Context, string, func() error) error
-	metadataGate func(context.Context, func() error) error
+	client     *containerd.Client
+	network    *guestnetwork.Manager
+	semaphore  chan struct{}
+	mu         sync.Mutex
+	active     map[string]int
+	namespace  map[string]*sync.Mutex
+	growthGate func(context.Context, string, func() error) error
 }
 
 type Workspace struct {
@@ -65,15 +64,8 @@ type Workspace struct {
 	activeOnce    sync.Once
 }
 
-func NewBuilder(client *containerd.Client, network *guestnetwork.Manager, growthGate func(context.Context, string, func() error) error, metadataGate func(context.Context, func() error) error) *Builder {
-	return &Builder{client: client, network: network, semaphore: make(chan struct{}, 2), active: make(map[string]int), namespace: make(map[string]*sync.Mutex), growthGate: growthGate, metadataGate: metadataGate}
-}
-
-func (b *Builder) growMetadata(ctx context.Context, operation func() error) error {
-	if b.metadataGate == nil {
-		return errors.New("builder OCI metadata gate is unavailable")
-	}
-	return b.metadataGate(ctx, operation)
+func NewBuilder(client *containerd.Client, network *guestnetwork.Manager, growthGate func(context.Context, string, func() error) error) *Builder {
+	return &Builder{client: client, network: network, semaphore: make(chan struct{}, 2), active: make(map[string]int), namespace: make(map[string]*sync.Mutex), growthGate: growthGate}
 }
 
 func (b *Builder) growOCI(ctx context.Context, identity string, operation func() error) error {
@@ -353,17 +345,17 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 				}
 			}
 		}
-		cleanupErr := w.builder.growMetadata(cleanup, func() error {
+		cleanupErr := func() error {
 			if task != nil {
 				if _, err := task.Delete(cleanup, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
 					return err
 				}
 			}
 			return deleteBuildContainer(namespaceID, container)
-		})
+		}()
 		runErr = errors.Join(runErr, cleanupErr)
 	}()
-	err = w.builder.growMetadata(ctx, func() error {
+	err = func() error {
 		var createErr error
 		container, createErr = w.builder.client.NewContainer(nsctx, containerID,
 			containerd.WithContainerLabels(map[string]string{InternalContainerLabel: "true"}),
@@ -385,7 +377,7 @@ func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, pro
 			return createErr
 		}
 		return task.Start(nsctx)
-	})
+	}()
 	if err != nil {
 		return false, err
 	}

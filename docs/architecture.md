@@ -86,8 +86,18 @@ host-owned registry operations, snapshots, and the bounded endpoint projection.
 
 ## Compatibility Position
 
-The project has no released API or persistent format.
-Compatibility layers and migration engines are out of scope.
+The Host accepts the current database format and performs one bounded schema-18
+to schema-19 conversion before startup. Other database formats fail closed.
+The conversion preserves workload identity, policies, credentials, volumes,
+and product data. It copies each exact allocation generation to its environment.
+It removes the retired workload reservation and aggregate-capacity projections.
+It also removes only obsolete allocation rows from the generic reservation table.
+The signed Host provides an offline conversion from the legacy single-filesystem
+state disk to the control and workload layout. That command attaches the source
+read-only and writes a separate target. The first target boot converts legacy
+namespace quota labels and removes retired receipt labels. It rebuilds disposable
+system container root filesystems with the native snapshotter. The conversion
+preserves system private volumes and all workload container state.
 
 The target design starts with one shared virtual machine, one host controller, and one guest controller.
 It does not use a temporary Docker or Podman backend.
@@ -244,6 +254,26 @@ Persistent workloads use the containerd overlayfs snapshotter and runsc `overlay
 has one immutable committed lower tree; every container gets its own writable upper/work directory and
 runsc sandbox. Containerd owns the only persistent overlay layer.
 
+The encrypted state disk has two filesystems. The 8 GiB control filesystem
+stores containerd metadata, VMMD state, system appliance data, and native
+snapshots. The 56 GiB workload filesystem stores OCI content, overlay
+snapshots, workload volumes, logs, and build temporary files. Fixed mount paths
+keep containerd metadata available when the workload pool is full. A workload
+project quota includes its overlay upper and work directories and its private
+volumes. Shared immutable OCI content counts against the workload filesystem,
+but it does not count against every workload quota.
+
+The Host and Guest split compute capacity into two bounded parent pools. The
+workload pool receives all but one CPU core, 75% of VM memory, and 2,048 PIDs.
+The system appliance pool receives the remaining CPU and memory and 2,048 PIDs.
+The Host admits system grants against the system pool and remote registrations
+against the workload pool. System appliance grants also share a fixed 4 GiB
+budget on the control filesystem. Shared native system images use project 9000
+with a fixed 2 GiB hard limit. The remaining control capacity covers containerd
+metadata, VMMD state, and filesystem overhead. A full workload filesystem cannot
+consume this control reserve, and a system image cannot consume the system
+appliance budget.
+
 A fixed supervisor runs as the sandbox init.
 The user process runs as a retained exec process in the same sandbox.
 This design avoids the shim wait race for a short-lived init process.
@@ -263,12 +293,44 @@ Agent OCI specifications never contain these interfaces:
 Each agent namespace has these resources:
 
 - an immutable namespace ID
-- a cgroup root with CPU, memory, PID, I/O, and disk limits
+- a cgroup root with CPU, memory, and PID limits
+- a project quota for writable disk usage
 - an independent bridge and subnet
 - a policy-aware DNS view
 - containers, volumes, logical image grants, and build caches
 - approved guest-volume grants
 - approved incoming or outgoing grants
+
+VMMD creates sibling `system` and `workload` cgroups under `/agent-vmm` before it accepts requests.
+System appliance namespaces use `/agent-vmm/system/<namespace>`.
+Ordinary namespaces use `/agent-vmm/workload/<namespace>`, including their build sandboxes.
+Container and build processes inherit the namespace boundary.
+Usage reads and namespace cleanup use the same paths.
+
+The workload parent permits 75 percent of kernel-reported Guest RAM and 2,048 PIDs.
+Its CPU ceiling leaves one core for system work, with a minimum workload ceiling of half a core.
+A Guest with 12 GiB usable RAM therefore gives workloads a 9 GiB parent ceiling.
+Kernel-reserved RAM can reduce that ceiling slightly.
+Each namespace retains its individual CPU, memory, and PID ceilings.
+The platform sets CPU weight to 100 and `memory.high` to `max`.
+
+The Host keeps at most 256 stored workload environments and four active
+sandboxes. One start can be in progress at a time. Starting, running, stopping,
+and unresolved instances consume an active slot. A slot becomes available only
+after Guest observation confirms that the task is absent and its cgroup is
+empty. One five-second Host sampler reads the workload parent and each unique
+active namespace. Stored inactive namespaces do not have a timer or periodic
+usage RPC.
+
+The Host gives one current execution identity access to an active sandbox.
+That identity is bound to the allocation lease or local session and the exact
+container instance. A repeated acquire is idempotent. Another identity remains
+busy until the first execution releases access. Safe sleep first closes new
+execution admission with a quiesce command. The matching instance and command
+must then be present on the stop request. Cancellation can reopen admission only
+for that same quiesce command before a stop starts. The quiesce request can
+require a bounded minimum idle duration. The Host rejects the request until the
+active instance has remained idle for that exact duration.
 
 A workspace is a long-lived container.
 Its writable layer can persist while the container exists.
@@ -485,9 +547,13 @@ archive repairs that materialization in place; a different digest or import
 fingerprint remains a conflict and cannot replace the logical grant.
 
 Before containerd starts, VMMD establishes project 9000 and directory
-inheritance on the containerd and import roots. CAS content and overlay lower
-snapshots inherit that project as containerd creates them. The import archive
-owner restores inheritance when startup cleanup has removed the import root.
+inheritance on the workload containerd and import roots and on the control
+filesystem's native snapshot root. CAS content, overlay lower snapshots, and
+native system image snapshots inherit that project as containerd creates them.
+The workload project quota opens only for an admitted import and then returns to
+its metadata allowance. The control project has a fixed 2 GiB hard limit. The
+import archive owner restores inheritance when startup cleanup has removed the
+import root.
 The writable-snapshot owner assigns the workload project to both overlay upper
 and work directories before mounting. Copy-up can then move temporary inodes
 into upper without crossing the project boundary. Startup never recursively
@@ -702,15 +768,23 @@ inventory observation, and destructive cleanup. Each RemoteComputeService transp
 is scoped to its exact registration and cannot see local or other-domain environments. This same-UID split is
 an application least-privilege boundary, not a separate macOS security principal.
 
-The remote observation stream contains bounded health, usage, and inventory
-facts. It does not publish the Guest disk budget. Guest disk accounting remains
-local admission authority and runs only when an operation needs it. A capacity
-rejection returns a typed error with safe fields; it does not create a periodic
-management projection.
+The remote observation stream contains bounded health, active-workload usage,
+and an inventory watermark. Usage is the sum of fresh cached samples for the
+registration's active namespaces. A missing or stale sample makes the complete
+usage result unavailable. The stream does not publish stored-workload disk use
+or the Guest disk budget. Guest disk accounting remains local admission
+authority and runs only when an operation needs it. A capacity rejection
+returns a typed error with safe fields; it does not create a periodic management
+projection.
 
 Release retains allocation data. Destruction requires a fresh plan and an execute
 request matching its revision and volume set. Disconnect starts a bounded grace
 period; expiry or revocation closes the capability and stops remote-owned work.
+Automatic empty-allocation retirement stops after 30 seconds. The allocation
+then remains `RETAINED` with its durable identity and current revision. A
+controller can send `ReleaseAllocation` again with that revision to start a new
+30-second attempt window. The Host does not retry an expired window in the
+background.
 Host startup converts every persisted `LEASED` allocation to fail-closed
 `RETAINED` and advances its policy revision before the RemoteComputeService can
 admit a replacement connector. In-memory leases are never reconstructed.

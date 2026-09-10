@@ -83,38 +83,43 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	}
 	if reusable && !physicalGrowth {
 		var image *vmmdv1.Image
-		err := r.guardOCIMetadataGrowth(ctx, func() error {
+		err := func() error {
 			var importErr error
 			image, importErr = r.importImage(ctx, nil, header, canonical, *reusableTarget, true, false)
 			return importErr
-		})
+		}()
 		if err != nil {
 			return "", "", 0, err
 		}
 		return image.GetReference(), image.GetDigest(), image.GetLogicalBytes(), nil
 	}
-	reservation, err := r.reserveImport(ctx, header, true)
-	if err != nil {
-		return "", "", 0, err
-	}
-	defer reservation.Release()
 	var image *vmmdv1.Image
-	err = r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
-		return r.guardOCIProjectGrowth(transaction, reservation, func() error {
-			if reusableTarget != nil {
-				if _, createErr := r.client.ImageService().Create(namespaceContext(ctx, namespaceID), coreimages.Image{Name: canonical, Target: *reusableTarget}); createErr != nil && !errdefs.IsAlreadyExists(createErr) {
-					return createErr
-				}
+	materialize := func() error {
+		if reusableTarget != nil {
+			if _, createErr := r.client.ImageService().Create(namespaceContext(ctx, namespaceID), coreimages.Image{Name: canonical, Target: *reusableTarget}); createErr != nil && !errdefs.IsAlreadyExists(createErr) {
+				return createErr
 			}
-			var importErr error
-			if reusable {
-				image, importErr = r.importImage(ctx, nil, header, canonical, *manifest, true, false)
-			} else {
-				image, importErr = r.importImage(ctx, archive, header, canonical, *manifest, true, false)
-			}
-			return importErr
+		}
+		var importErr error
+		if reusableTarget != nil {
+			image, importErr = r.importImage(ctx, nil, header, canonical, *reusableTarget, true, false)
+		} else {
+			image, importErr = r.importImage(ctx, archive, header, canonical, *manifest, true, false)
+		}
+		return importErr
+	}
+	if reusableTarget != nil {
+		err = materialize()
+	} else {
+		reservation, reserveErr := r.reserveImport(ctx, header, true)
+		if reserveErr != nil {
+			return "", "", 0, reserveErr
+		}
+		defer reservation.Release()
+		err = r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
+			return r.guardOCIProjectGrowth(transaction, reservation, materialize)
 		})
-	})
+	}
 	if err != nil {
 		return "", "", 0, err
 	}

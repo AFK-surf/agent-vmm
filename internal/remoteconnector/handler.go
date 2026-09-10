@@ -153,8 +153,6 @@ func capacityDimensionFor(err error) remotev1.CapacityDimension {
 	for _, detail := range current.Details() {
 		if info, ok := detail.(*errdetails.ErrorInfo); ok {
 			switch info.GetMetadata()["resource_dimension"] {
-			case "cpu_guarantee":
-				return remotev1.CapacityDimension_CAPACITY_DIMENSION_CPU_GUARANTEE
 			case "cpu_max":
 				return remotev1.CapacityDimension_CAPACITY_DIMENSION_CPU_MAX
 			case "memory":
@@ -165,6 +163,10 @@ func capacityDimensionFor(err error) remotev1.CapacityDimension {
 				return remotev1.CapacityDimension_CAPACITY_DIMENSION_WRITABLE
 			case "storage_headroom":
 				return remotev1.CapacityDimension_CAPACITY_DIMENSION_STORAGE_HEADROOM
+			case "run_slot":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_RUN_SLOT
+			case "memory_pressure":
+				return remotev1.CapacityDimension_CAPACITY_DIMENSION_MEMORY_PRESSURE
 			case "import_slot":
 				return remotev1.CapacityDimension_CAPACITY_DIMENSION_IMPORT_SLOT
 			}
@@ -230,7 +232,7 @@ func reasonFor(err error) remotev1.ErrorReason {
 					return remotev1.ErrorReason_ERROR_REASON_LEASE_CONFLICT
 				case "POLICY_REVISION_CONFLICT":
 					return remotev1.ErrorReason_ERROR_REASON_STALE_REVISION
-				case "POOL_PER_ENVIRONMENT_LIMIT", "POOL_AGGREGATE_LIMIT":
+				case "POOL_PER_ENVIRONMENT_LIMIT":
 					return remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED
 				case "POOL_ENVIRONMENT_LIMIT":
 					return remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT

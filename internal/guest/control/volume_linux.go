@@ -83,7 +83,15 @@ func initializeVolumeDirectory(path string, mode uint32, ownerUID, ownerGID *uin
 }
 
 func cleanupVolumeStaging() error {
-	root := filepath.Join(stateRoot, "volumes")
+	for _, path := range []string{stateRoot, controlRoot} {
+		if err := cleanupVolumeStagingAt(filepath.Join(path, "volumes")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cleanupVolumeStagingAt(root string) error {
 	namespaces, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

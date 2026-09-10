@@ -18,7 +18,10 @@ type observationClientStub struct {
 	observationCalls int
 }
 
-func (client *observationClientStub) GetRemoteState(context.Context, *hostv1.GetRemoteStateRequest, ...grpc.CallOption) (*hostv1.GetRemoteStateResponse, error) {
+func (client *observationClientStub) GetRemoteState(_ context.Context, request *hostv1.GetRemoteStateRequest, _ ...grpc.CallOption) (*hostv1.GetRemoteStateResponse, error) {
+	if !request.GetSummaryOnly() {
+		panic("periodic observation must not load stored allocations")
+	}
 	return client.state, client.stateErr
 }
 

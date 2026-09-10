@@ -47,9 +47,9 @@ func (r *Runtime) DeleteContainer(ctx context.Context, namespaceID, containerID,
 	} else if !errdefs.IsNotFound(err) {
 		return err
 	}
-	if err := r.guardOCIMetadataGrowth(ctx, func() error {
+	if err := func() error {
 		return container.Delete(nsctx, containerd.WithSnapshotCleanup)
-	}); err != nil {
+	}(); err != nil {
 		return err
 	}
 	return os.RemoveAll(filepath.Dir(logPath(namespaceID, containerID, expectedGenerationID)))

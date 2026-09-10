@@ -58,7 +58,7 @@ func (r *Runtime) pullImage(ctx context.Context, namespaceID, imageReference str
 	if err != nil {
 		return "", "", 0, err
 	}
-	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
+	unpacked, err := image.IsUnpacked(nsctx, namespaceSnapshotter(namespaceID))
 	if err != nil {
 		return "", "", 0, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonical)
 	}

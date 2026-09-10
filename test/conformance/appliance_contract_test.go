@@ -57,18 +57,16 @@ type applianceFixture struct {
 		Reserve resources `json:"reserve"`
 	} `json:"host"`
 	Domains []struct {
-		InstallationID        string    `json:"installation_id"`
-		RegistrationID        string    `json:"registration_id"`
-		ArtifactID            string    `json:"artifact_id"`
-		ConnectionEpochs      []uint64  `json:"connection_epochs"`
-		InventoryWatermarks   []uint64  `json:"inventory_watermarks"`
-		SystemNamespace       string    `json:"system_namespace"`
-		SystemContainer       string    `json:"system_container"`
-		SystemVolume          string    `json:"system_volume"`
-		SystemReservation     resources `json:"system_reservation"`
-		AllocationReservation resources `json:"allocation_reservation"`
-		DomainCeiling         resources `json:"domain_ceiling"`
-		Frontend              struct {
+		InstallationID      string    `json:"installation_id"`
+		RegistrationID      string    `json:"registration_id"`
+		ArtifactID          string    `json:"artifact_id"`
+		ConnectionEpochs    []uint64  `json:"connection_epochs"`
+		InventoryWatermarks []uint64  `json:"inventory_watermarks"`
+		SystemNamespace     string    `json:"system_namespace"`
+		SystemContainer     string    `json:"system_container"`
+		SystemVolume        string    `json:"system_volume"`
+		SystemReservation   resources `json:"system_reservation"`
+		Frontend            struct {
 			Name, Transport, Exposure, Endpoint string
 		} `json:"frontend"`
 		BootstrapSocket  string `json:"bootstrap_socket"`
@@ -123,9 +121,6 @@ func TestApplianceContractIdentitiesAndIsolation(t *testing.T) {
 		if domain.BootstrapSocket != "/run/agent-vmm/bootstrap.sock" || domain.ControllerSocket != "/run/agent-vmm/controller.sock" {
 			t.Fatal("private socket contract changed")
 		}
-		if !domain.SystemReservation.add(domain.AllocationReservation).fits(domain.DomainCeiling) {
-			t.Fatalf("domain %q exceeds its ceiling", domain.InstallationID)
-		}
 		for i, watermark := range domain.InventoryWatermarks {
 			if watermark == 0 || i > 0 && watermark <= domain.InventoryWatermarks[i-1] {
 				t.Fatalf("registration watermark is not strictly monotonic: %v", domain.InventoryWatermarks)
@@ -139,14 +134,14 @@ func TestApplianceContractIdentitiesAndIsolation(t *testing.T) {
 	}
 }
 
-func TestApplianceAggregateAdmissionAndBounds(t *testing.T) {
+func TestApplianceSystemReservationAdmissionAndBounds(t *testing.T) {
 	fixture := loadApplianceFixture(t)
 	used := fixture.Host.Reserve
 	for _, domain := range fixture.Domains {
-		used = used.add(domain.SystemReservation).add(domain.AllocationReservation)
+		used = used.add(domain.SystemReservation)
 	}
 	if !used.fits(fixture.Host.resources) {
-		t.Fatalf("aggregate reservation %+v exceeds host %+v", used, fixture.Host.resources)
+		t.Fatalf("system reservations %+v exceed host %+v", used, fixture.Host.resources)
 	}
 	limits := fixture.Limits
 	if limits.ManifestBytes == 0 || limits.BootstrapBytes == 0 || limits.BootstrapFrameBytes > limits.BootstrapTotalBytes || limits.BootstrapBytes > limits.BootstrapTotalBytes || limits.BootstrapConcurrentStreams != 1 || limits.BootstrapUseCount != 1 {

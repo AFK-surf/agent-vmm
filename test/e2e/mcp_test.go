@@ -147,7 +147,7 @@ func installAndActivateBundledMCP(t *testing.T, harness *hostHarness) {
 	}
 	systemFloor := proto.Clone(manifest.GetSystemResources().GetFloor()).(*hostv1.ResourceLimits)
 	grant := &appliancev1.ApprovedGrant{SystemResources: &appliancev1.ResourceRange{Floor: systemFloor, Ceiling: proto.Clone(systemFloor).(*hostv1.ResourceLimits)}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
-		Capacity:  &appliancev1.CapacityGrant{MaxEnvironments: 2, AggregateLimits: limits(800, 1<<30, 512, 512<<20), PerEnvironmentLimits: limits(400, 512<<20, 256, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
+		Capacity:  &appliancev1.CapacityGrant{MaxEnvironments: 2, PerEnvironmentLimits: limits(400, 512<<20, 256, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
 		Frontends: manifest.GetRequestedFrontends(), DynamicHostLoopback: dynamic, Revision: current.GetRevision()}
 	_, err = admin.PlanInstall(context.Background(), &appliancev1.PlanInstallRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-install-plan", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
 	if err != nil {

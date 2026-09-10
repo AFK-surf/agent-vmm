@@ -29,8 +29,8 @@ func main() {
 		SystemResources: &appliancev1.ResourceRange{Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(1000, 512<<20, 256, 2<<30)},
 		DataVolumeBytes: 1 << 30,
 		RequestedCapacity: &appliancev1.CapacityGrant{MaxEnvironments: 16,
-			AggregateLimits: limits(8000, 16<<30, 4096, 64<<30), PerEnvironmentLimits: limits(2000, 4<<30, 1024, 16<<30),
-			MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseSeconds: 3600, DisconnectGraceSeconds: 30},
+			PerEnvironmentLimits: limits(2000, 4<<30, 1024, 16<<30),
+			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseSeconds: 3600, DisconnectGraceSeconds: 30},
 		RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
 		RequestedFrontends: []*appliancev1.ControllerFrontend{
 			{Name: "mcp-http", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP,

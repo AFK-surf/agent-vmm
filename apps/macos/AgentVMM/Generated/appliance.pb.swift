@@ -724,15 +724,6 @@ public nonisolated struct Agentvmm_Appliance_V1_CapacityGrant: Sendable {
 
   public var maxEnvironments: UInt32 = 0
 
-  public var aggregateLimits: Agentvmm_Host_V1_ResourceLimits {
-    get {_aggregateLimits ?? Agentvmm_Host_V1_ResourceLimits()}
-    set {_aggregateLimits = newValue}
-  }
-  /// Returns true if `aggregateLimits` has been explicitly set.
-  public var hasAggregateLimits: Bool {self._aggregateLimits != nil}
-  /// Clears the value of `aggregateLimits`. Subsequent reads from it will return its default value.
-  public mutating func clearAggregateLimits() {self._aggregateLimits = nil}
-
   public var perEnvironmentLimits: Agentvmm_Host_V1_ResourceLimits {
     get {_perEnvironmentLimits ?? Agentvmm_Host_V1_ResourceLimits()}
     set {_perEnvironmentLimits = newValue}
@@ -752,7 +743,6 @@ public nonisolated struct Agentvmm_Appliance_V1_CapacityGrant: Sendable {
 
   public init() {}
 
-  fileprivate var _aggregateLimits: Agentvmm_Host_V1_ResourceLimits? = nil
   fileprivate var _perEnvironmentLimits: Agentvmm_Host_V1_ResourceLimits? = nil
 }
 
@@ -2337,7 +2327,7 @@ nonisolated extension Agentvmm_Appliance_V1_ResourceRange: SwiftProtobuf.Message
 
 nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CapacityGrant"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}max_environments\0\u{3}aggregate_limits\0\u{3}per_environment_limits\0\u{3}max_egress_mode\0\u{3}max_lease_seconds\0\u{3}disconnect_grace_seconds\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}max_environments\0\u{4}\u{2}per_environment_limits\0\u{3}max_egress_mode\0\u{3}max_lease_seconds\0\u{3}disconnect_grace_seconds\0\u{b}aggregate_limits\0\u{c}\u{2}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2346,7 +2336,6 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularUInt32Field(value: &self.maxEnvironments) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._aggregateLimits) }()
       case 3: try { try decoder.decodeSingularMessageField(value: &self._perEnvironmentLimits) }()
       case 4: try { try decoder.decodeSingularEnumField(value: &self.maxEgressMode) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.maxLeaseSeconds) }()
@@ -2364,9 +2353,6 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
     if self.maxEnvironments != 0 {
       try visitor.visitSingularUInt32Field(value: self.maxEnvironments, fieldNumber: 1)
     }
-    try { if let v = self._aggregateLimits {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
     try { if let v = self._perEnvironmentLimits {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
@@ -2384,7 +2370,6 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
 
   public static func ==(lhs: Agentvmm_Appliance_V1_CapacityGrant, rhs: Agentvmm_Appliance_V1_CapacityGrant) -> Bool {
     if lhs.maxEnvironments != rhs.maxEnvironments {return false}
-    if lhs._aggregateLimits != rhs._aggregateLimits {return false}
     if lhs._perEnvironmentLimits != rhs._perEnvironmentLimits {return false}
     if lhs.maxEgressMode != rhs.maxEgressMode {return false}
     if lhs.maxLeaseSeconds != rhs.maxLeaseSeconds {return false}

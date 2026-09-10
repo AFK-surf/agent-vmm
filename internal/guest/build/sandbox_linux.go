@@ -4,6 +4,7 @@ package build
 
 import (
 	"context"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"path/filepath"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -31,7 +32,7 @@ func (w *Workspace) specOptions(image containerd.Image, netNSPath string, limits
 			"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/output/home", "USER=user",
 			"XDG_RUNTIME_DIR=/output", "TMPDIR=/output/tmp", "BUILDKIT_HOST=unix:///output/buildkit/buildkitd.sock",
 			"ROOTLESSKIT=/usr/bin/rootlesskit --net=host", "BUILDKITD_FLAGS=--root=/home/user/.local/share/buildkit/state --oci-worker-snapshotter=native --oci-worker-binary=/usr/bin/buildkit-runc --oci-worker-no-process-sandbox",
-		}), oci.WithProcessCwd("/"), oci.WithUser("1000:1000"), oci.WithCgroup(filepath.Join("/agent-vmm", w.header.GetActorNamespaceId(), "build-"+w.id)),
+		}), oci.WithProcessCwd("/"), oci.WithUser("1000:1000"), oci.WithCgroup(filepath.Join(resourcev2.NamespaceCgroup(w.header.GetActorNamespaceId()), "build-"+w.id)),
 		func(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
 			if spec.Annotations == nil {
 				spec.Annotations = make(map[string]string)

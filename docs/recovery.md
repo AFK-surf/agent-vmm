@@ -70,6 +70,90 @@ The final `SELECT` must match the audited row set before the new Host starts.
 New databases create the non-defaulted, non-null column directly. Agent VMM has
 no legacy schema reader, inferred value, or runtime backfill.
 
+### Host schema 18 to 19 conversion
+
+Schema 19 replaces the workload reservation projection with the allocation
+generation on each remote environment. The conversion keeps registrations,
+environment and namespace identities, allocation identities, policies, leases,
+credentials, volumes, and Guest data. It copies each exact generation from the
+schema-18 reservation row, then removes the obsolete reservation table. The
+table is a Host admission projection. It is not the owner of workload data.
+
+Use this procedure for a schema-18 Host database:
+
+1. Stop the Host and connector launchd jobs. Confirm that no Host process has
+   the database open.
+2. Create a restorable SQLite backup, including any WAL content. Record its
+   digest and the source schema version.
+3. Start the schema-19 Host once. The Host converts the database in one
+   transaction before it starts the VM or accepts controller work.
+4. Confirm that the Host starts and that every remote environment reports its
+   original allocation identity and a nonzero allocation generation.
+5. Keep the backup until the controller has reconciled the bounded environment
+   inventory.
+
+The conversion copies each exact allocation generation to its environment. It
+deletes the retired workload reservation table and obsolete allocation rows.
+It preserves fixed system and runtime reservation rows. It also deletes the
+retired aggregate-capacity columns. The conversion fails closed if a remote
+environment has no exact matching reservation. The transaction rolls back and
+leaves schema 18 unchanged. Stop the rollout if this check fails. Restore the
+pre-cutover database only if the database becomes unreadable. After schema 19
+commits, repair forward. An older Host is not a rollback target.
+
+### Single-filesystem state-disk conversion
+
+The current Guest uses an 8 GiB control filesystem and a second workload
+filesystem. An older `state.raw` contains one ext4 filesystem. Convert it while
+the Host is offline. The conversion reads the old disk through a read-only VZ
+attachment and creates a separate, fully backed target disk. It does not change
+the source disk.
+
+Use this procedure:
+
+1. Stop the Host, data worker, and connector jobs. Confirm that no process owns
+   `host-owner.lock`, `host.sqlite`, or `state.raw`.
+2. Resolve the exact source installation and every product owner whose data is
+   on the disk. Do not convert a shared disk if the approved migration batch
+   excludes any owner on that disk.
+3. Back up `state.raw`, the Host database with its WAL content, keys, and
+   controller credentials. Verify that the backup can be read. Keep at least
+   the source disk size plus 10 GiB free for the fully backed target.
+4. Create an empty instance directory on the same protected volume. Run the
+   signed mainline Host executable as the service user:
+
+   ```sh
+   /path/to/Agent\ VMM\ Host.app/Contents/MacOS/agent-vmm-host \
+     --bundle /path/to/Agent\ VMM\ Host.app/Contents/Resources/Guest \
+     --instance /path/to/state-conversion \
+     --serial-log /path/to/state-conversion/serial.log \
+     --migrate-state-from /path/to/current/instance/state.raw
+   ```
+
+5. Require a zero exit status and the final `state migration complete` record.
+   The command has a 30-minute bound. It preserves all durable workload data.
+   It preserves regular files, sparse extents, hard links, and symbolic links.
+   It also preserves special inodes, ownership, modes, timestamps, xattrs, and project IDs. It
+   discards `lost+found` and the temporary import, bootstrap-reservation, and
+   `/tmp` paths that the old Guest already deletes during startup. It also
+   discards migrated system image records and root filesystem snapshots.
+   The current Host rebuilds those disposable projections with the native
+   snapshotter under the control filesystem's fixed 2 GiB shared-image quota.
+   The conversion preserves system private volumes. System appliance writable
+   quotas remain within the separate 4 GiB control-filesystem budget.
+6. Keep the old disk as the pre-cutover backup. Move the new `state.raw` into
+   the original instance directory, then start the current Host. Confirm every
+   bounded namespace, private volume, provider home, session, container, and
+   allocation identity before accepting new work. The Guest converts legacy
+   workload receipt labels to current namespace quota labels. It removes the
+   retired receipt labels after it validates the converted limits. The Guest
+   restores each namespace quota from those durable labels during recovery.
+7. If conversion or validation fails before the new disk accepts work, stop the
+   Host and restore the unchanged old disk with the old approved mainline
+   release. After new work is accepted, repair forward. Remove the failed target
+   only after its serial log and exact failure are recorded. Remove the old disk
+   backup after the migration batch passes its data and execution checks.
+
 Removal is revision-fenced. A plan first creates a pending-destroy tombstone;
 execute checks the expected revision and domain emptiness, revokes trust and
 leases, deletes the encrypted volume only after explicit confirmation, and
@@ -77,15 +161,14 @@ commits the terminal removal operation atomically.
 
 ## Pre-release and build-identity cleanup
 
-Development and release installations do not share identity or state. Before
-switching build identity, uninstall the current app with `build/host/uninstall.sh
---purge`, then install the newly signed bundle. Purging removes the current Agent
-VMM application-support directory, including appliance secrets, the device-root
-key, controller credentials, encrypted appliance volumes, and VM state. Product
-data must be exported by the product before this step; the host does not migrate
-it.
+Development and release installations do not share identity or state. A purge
+removes the current Agent VMM application-support directory, including
+appliance secrets, the device-root key, controller credentials, encrypted
+appliance volumes, and VM state. Use it only for an explicitly approved
+fresh-identity installation. Use the state-disk conversion above when product
+data or identity must survive.
 
-Older developer installations are unsupported. Remove them once, manually,
+Developer installations older than schema 18 are unsupported. Remove them once, manually,
 while Agent VMM is stopped:
 
 1. Boot out `com.afk-surf.agent-vmm` and
@@ -97,9 +180,9 @@ while Agent VMM is stopped:
 4. Install the current bundle and recreate controller registrations, MCP client
    bindings, and appliance installations from fresh identities.
 
-Do not copy old SQLite databases, credentials, appliance secrets, device-root
-keys, or data volumes into the new installation. Production code does not detect,
-migrate, or read these formats.
+Do not copy unsupported SQLite databases, credentials, appliance secrets,
+device-root keys, or data volumes into the new installation. Production code
+converts only the documented schema-18 format.
 
 ## Host replacement and cleanup runbook
 

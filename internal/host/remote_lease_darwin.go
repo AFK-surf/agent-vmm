@@ -103,9 +103,6 @@ func (controller *Controller) finishLeaseLocked(id string, generation uint64, st
 		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		cleanupErr = controller.stopRemoteWorkload(stopContext, result.environmentID)
 		cancel()
-		if cleanupErr != nil {
-			controller.retryRemoteWorkloadStop(result.environmentID, 1)
-		}
 	}
 	environment, err := controller.store.GetEnvironment(context.Background(), result.environmentID)
 	if err != nil {
@@ -130,7 +127,7 @@ func (controller *Controller) finishLeaseLocked(id string, generation uint64, st
 		}
 	}
 	if cleanupErr != nil {
-		log.Printf("finish remote lease %q: workload stop deferred to existing retry owner: %v", id, cleanupErr)
+		log.Printf("finish remote lease %q: workload stop remains unresolved in the node observation owner: %v", id, cleanupErr)
 	}
 	return &result, nil
 }
@@ -243,20 +240,6 @@ func (controller *Controller) revokeRemoteLeasesLocked(registrationID string) er
 	return errors.Join(failures...)
 }
 
-func (controller *Controller) retryRemoteWorkloadStop(environmentID string, attempt int) {
-	if attempt > 4 {
-		return
-	}
-	time.AfterFunc(time.Duration(attempt)*time.Second, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := controller.stopRemoteWorkload(ctx, environmentID)
-		cancel()
-		if err != nil {
-			controller.retryRemoteWorkloadStop(environmentID, attempt+1)
-		}
-	})
-}
-
 func (controller *Controller) disconnectRemoteLeases(registrationID, instance string, disconnectedAt time.Time, grace time.Duration) {
 	controller.hostFrontends.closeRegistration(registrationID, instance, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
 	controller.mu.Lock()
@@ -301,10 +284,10 @@ func (controller *Controller) stopRemoteWorkload(ctx context.Context, environmen
 	}
 	timeout := registration.StopGraceSeconds
 	for _, container := range containers.GetContainers() {
-		if container.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+		if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_CREATED || container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
 			continue
 		}
-		_, stopErr := client.StopContainer(ctx, &vmmdv1.StopContainerRequest{RequestId: derivedRequestID("remote-stop-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), TimeoutSeconds: &timeout})
+		_, stopErr := controller.stopWorkloadContainerLocked(ctx, client, environment.ID, &vmmdv1.StopContainerRequest{RequestId: derivedRequestID("remote-stop-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), TimeoutSeconds: &timeout})
 		if stopErr != nil {
 			if _, killErr := client.SignalContainer(ctx, &vmmdv1.SignalContainerRequest{RequestId: derivedRequestID("remote-kill-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), Signal: vmmdv1.ProcessSignal_PROCESS_SIGNAL_KILL}); killErr != nil {
 				return errors.Join(stopErr, killErr)

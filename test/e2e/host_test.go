@@ -38,7 +38,6 @@ import (
 
 func TestE2E(t *testing.T) {
 	t.Run("boot", testBoot)
-	t.Run("state_initialization", testStateInitialization)
 
 	harness := startHostWithState(t, 32<<30)
 	harness.start(t)
@@ -103,6 +102,10 @@ func TestE2E(t *testing.T) {
 	})
 }
 
+func TestStateInitializationE2E(t *testing.T) {
+	testStateInitialization(t)
+}
+
 func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	archive, imageDigest := buildExecutableArchive(t, "./cmd/agent-vmm-reference-appliance", "bin/reference-appliance", true)
 	limits := func(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
@@ -114,8 +117,8 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 		ControllerProtocolVersion: "controller-ready-v1", SystemResources: &appliancev1.ResourceRange{
 			Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(400, 256<<20, 128, 1<<30)},
 		DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{MaxEnvironments: 2,
-			AggregateLimits: limits(200, 256<<20, 128, 512<<20), PerEnvironmentLimits: limits(100, 128<<20, 64, 256<<20),
-			MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
+			PerEnvironmentLimits: limits(100, 128<<20, 64, 256<<20),
+			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
 		RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StartupDeadlineSeconds: 60,
 		ProbationSeconds: 1, HealthTimeoutSeconds: 10, MinimumApplianceRuntime: "1"}
 	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
@@ -904,7 +907,7 @@ func testStateInitialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := state.Truncate(8 << 30); err != nil {
+	if err := state.Truncate(16 << 30); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.Close(); err != nil {
@@ -922,18 +925,18 @@ func testStateInitialization(t *testing.T) {
 		t.Fatalf("initialization marker remains: %v", err)
 	}
 	info, err := os.Stat(filepath.Join(harness.instance, "state.raw"))
-	if err != nil || info.Size() != 8<<30 {
+	if err != nil || info.Size() != 16<<30 {
 		t.Fatalf("state disk = %v, %v", info, err)
 	}
 	harness.stop(t, true)
 	for index := range harness.processArgs {
 		if harness.processArgs[index] == "--state-size" && index+1 < len(harness.processArgs) {
-			harness.processArgs[index+1] = fmt.Sprint(16 << 30)
+			harness.processArgs[index+1] = fmt.Sprint(24 << 30)
 		}
 	}
 	harness.crashAndRestartHost(t)
 	afterRestart, err := os.Stat(filepath.Join(harness.instance, "state.raw"))
-	if err != nil || afterRestart.Size() != 8<<30 || !os.SameFile(info, afterRestart) {
+	if err != nil || afterRestart.Size() != 16<<30 || !os.SameFile(info, afterRestart) {
 		t.Fatalf("existing state disk changed under a new-install size: before=%v after=%v err=%v", info, afterRestart, err)
 	}
 	database, err := openE2EDatabase(harness.database)
@@ -948,8 +951,8 @@ func testStateInitialization(t *testing.T) {
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if recordedStateBytes != 8<<30 {
-		t.Fatalf("persisted state bytes = %d, want actual file length %d", recordedStateBytes, int64(8<<30))
+	if recordedStateBytes != 16<<30 {
+		t.Fatalf("persisted state bytes = %d, want actual file length %d", recordedStateBytes, int64(16<<30))
 	}
 	harness.stop(t, true)
 
@@ -1730,7 +1733,7 @@ type hostHarness struct {
 }
 
 func startHost(t *testing.T) *hostHarness {
-	return startHostWithState(t, 8<<30)
+	return startHostWithState(t, 16<<30)
 }
 
 func openE2EDatabase(path string) (*sql.DB, error) {

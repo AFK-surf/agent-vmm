@@ -70,8 +70,13 @@ func TestBuildSandboxPolicy(t *testing.T) {
 	limits := &vmmdv1.NamespaceLimits{CpuMillis: 500, MemoryBytes: 256 << 20, Pids: 64}
 	options := workspace.specOptions(nil, "/run/netns/build", limits)
 	spec := &oci.Spec{Process: &specs.Process{}, Linux: &specs.Linux{Namespaces: []specs.LinuxNamespace{{Type: specs.NetworkNamespace}}}}
-	if err := options[len(options)-1](context.Background(), nil, nil, spec); err != nil {
-		t.Fatal(err)
+	for _, option := range options[2:] {
+		if err := option(context.Background(), nil, nil, spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if spec.Linux.CgroupsPath != "/agent-vmm/workload/actor/build-build" {
+		t.Fatalf("build escaped workload pool: %s", spec.Linux.CgroupsPath)
 	}
 	wantCapabilities := []string{"CAP_SETUID", "CAP_SETGID", "CAP_SETPCAP"}
 	capabilities := spec.Process.Capabilities
@@ -145,26 +150,5 @@ func TestOCIGrowthFailsClosedAndRunsOnlyInsideInjectedGate(t *testing.T) {
 		return nil
 	}); err != nil || !operationRan || gateCalls != 1 {
 		t.Fatalf("gated growth err=%v operationRan=%v gateCalls=%d", err, operationRan, gateCalls)
-	}
-}
-
-func TestOCIMetadataGrowthFailsClosedAndRunsOnlyInsideInjectedGate(t *testing.T) {
-	operationRan := false
-	if err := (&Builder{}).growMetadata(context.Background(), func() error {
-		operationRan = true
-		return nil
-	}); err == nil || operationRan {
-		t.Fatalf("missing metadata gate err=%v operationRan=%v", err, operationRan)
-	}
-	gateCalls := 0
-	builder := &Builder{metadataGate: func(_ context.Context, operation func() error) error {
-		gateCalls++
-		return operation()
-	}}
-	if err := builder.growMetadata(context.Background(), func() error {
-		operationRan = true
-		return nil
-	}); err != nil || !operationRan || gateCalls != 1 {
-		t.Fatalf("gated metadata err=%v operationRan=%v gateCalls=%d", err, operationRan, gateCalls)
 	}
 }

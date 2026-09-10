@@ -165,7 +165,7 @@ func (server *agentServer) StartContainer(ctx context.Context, request *hostv1.C
 		return nil, err
 	}
 	defer connection.Close()
-	response, err := client.StartContainer(ctx, &vmmdv1.StartContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId()})
+	response, err := server.controller.startWorkloadContainer(ctx, client, identity.EnvironmentID, &vmmdv1.StartContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId()})
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,14 @@ func (server *agentServer) StopContainer(ctx context.Context, request *hostv1.St
 		return nil, err
 	}
 	defer connection.Close()
-	response, err := client.StopContainer(ctx, &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds})
+	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
+	defer unlock()
+	if request.GetQuiesceRequestId() != "" {
+		if err := server.controller.validateQuiescedStop(identity, request); err != nil {
+			return nil, err
+		}
+	}
+	response, err := server.controller.stopWorkloadContainerLocked(ctx, client, identity.EnvironmentID, &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds})
 	if err != nil {
 		return nil, err
 	}
@@ -236,9 +243,14 @@ func (server *agentServer) DeleteContainer(ctx context.Context, request *hostv1.
 		return nil, err
 	}
 	defer connection.Close()
+	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
+	defer unlock()
 	if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), ExpectedGenerationId: request.GetExpectedGenerationId()}); err != nil {
 		return nil, err
 	}
+	server.controller.mu.Lock()
+	delete(server.controller.workloadRuns, workloadRunKey(identity.EnvironmentID, request.GetContainerId()))
+	server.controller.mu.Unlock()
 	if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
 		return nil, err
 	}

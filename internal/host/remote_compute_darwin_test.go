@@ -41,14 +41,14 @@ func (client *scopedObservationClientStub) GetNamespaceUsage(_ context.Context, 
 	return &vmmdv1.GetUsageResponse{Usage: &vmmdv1.Usage{MemoryBytes: 10}}, nil
 }
 
-func TestCollectScopedRemoteObservationUsesOneHealthCallAndExactNamespaces(t *testing.T) {
+func TestCollectScopedRemoteObservationUsesCachedUsageWithoutNamespaceFanout(t *testing.T) {
 	client := new(scopedObservationClientStub)
 	observedAt := timestamppb.Now()
-	response, err := collectScopedRemoteObservation(context.Background(), client, []store.Environment{{NamespaceID: "one"}, {NamespaceID: "two"}}, &hostv1.ComponentHealth{Component: "host-egress", State: hostv1.HealthState_HEALTH_STATE_HEALTHY, Reason: "/private/egress", ObservedAt: observedAt}, observedAt)
+	response, err := collectScopedRemoteObservation(context.Background(), client, &hostv1.Usage{MemoryBytes: 20, SampledAt: observedAt}, &hostv1.ComponentHealth{Component: "host-egress", State: hostv1.HealthState_HEALTH_STATE_HEALTHY, Reason: "/private/egress", ObservedAt: observedAt}, observedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.healthCalls != 1 || len(client.usageNamespaces) != 2 || client.usageNamespaces[0] != "one" || client.usageNamespaces[1] != "two" {
+	if client.healthCalls != 1 || len(client.usageNamespaces) != 0 {
 		t.Fatalf("calls: health=%d namespaces=%v", client.healthCalls, client.usageNamespaces)
 	}
 	if response.GetUsage().GetMemoryBytes() != 20 || response.GetUsage().GetStale() {
@@ -106,8 +106,7 @@ func TestPrivateControllerConnectionPersistsWhileWorkloadAdmissionIsClosed(t *te
 		ID: "private-registration", OwnerKind: store.RemoteRegistrationPrivate,
 		InstallationID: "private-installation",
 		Endpoint:       "private", DisplayName: "private", ProtocolVersion: "2",
-		MaxEnvironments: 1, AggregateCPUMillis: 1000, AggregateMemoryBytes: 1 << 30,
-		AggregatePIDs: 128, AggregateDiskBytes: 4 << 30, PerEnvCPUMillis: 1000,
+		MaxEnvironments: 1, PerEnvCPUMillis: 1000,
 		PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
 		State:           int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED),
@@ -144,18 +143,17 @@ func TestPrivateControllerConnectionPersistsWhileWorkloadAdmissionIsClosed(t *te
 	}
 }
 
-func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.T) {
+func TestAllocationAdmissionKeepsFourWorkloadCeilingsIndependent(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
 	registration := store.RemoteRegistration{ID: "registration", MaxEnvironments: 2,
-		AggregateCPUMillis: 2000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 8 << 30,
 		PerEnvCPUMillis: 2000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 8 << 30,
 		MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL)}
-	hostCapacity := resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 6000, MemoryHighBytes: 8 << 30, MemoryMaxBytes: 8 << 30, PIDMax: 1024, WritableQuotaBytes: 24 << 30}
-	base := resourcev2.Contract{CPUGuaranteeMillis: 1000, CPUMaxMillis: 2000, CPUWeight: 100, MemoryHighBytes: 1 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
+	hostCapacity := resourcev2.Contract{CPUMaxMillis: 6000, MemoryMaxBytes: 8 << 30, PIDMax: 1024, WritableQuotaBytes: 24 << 30}
+	base := resourcev2.Contract{CPUMaxMillis: 2000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
 	if err := admitAllocationV2(context.Background(), database, registration, nil, base, hostCapacity, hostv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
 		t.Fatalf("valid independent contract rejected: %v", err)
 	}
@@ -164,7 +162,6 @@ func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.
 		dimension string
 		mutate    func(*resourcev2.Contract)
 	}{
-		{name: "cpu guarantee", dimension: "cpu_guarantee", mutate: func(value *resourcev2.Contract) { value.CPUGuaranteeMillis = 2001 }},
 		{name: "cpu max", dimension: "cpu_max", mutate: func(value *resourcev2.Contract) { value.CPUMaxMillis = 2001 }},
 		{name: "memory", dimension: "memory", mutate: func(value *resourcev2.Contract) { value.MemoryMaxBytes++ }},
 		{name: "pids", dimension: "pids", mutate: func(value *resourcev2.Contract) { value.PIDMax++ }},
@@ -184,25 +181,6 @@ func TestAllocationAdmissionV2KeepsFiveCapacityDimensionsIndependent(t *testing.
 	}
 }
 
-func TestTwelveGiBHostCapacityAdmitsFourProductTemplates(t *testing.T) {
-	capacity := remoteWorkloadCapacity(8, 12<<30, 32<<30)
-	if capacity.MemoryHighBytes != 17<<29 {
-		t.Fatalf("12 GiB VM memory-high capacity = %d, want 8.5 GiB", capacity.MemoryHighBytes)
-	}
-	external := resourcev2.Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 2000, CPUWeight: 5000, MemoryHighBytes: 1536 << 20, MemoryMaxBytes: 2 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
-	meeting := resourcev2.Contract{CPUGuaranteeMillis: 2000, CPUMaxMillis: 3000, CPUWeight: 8000, MemoryHighBytes: 3584 << 20, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 2 << 30}
-	// Codex, Pi, and Claude use the external profile; Meeting has its own max.
-	used := resourcev2.Capacity{}.Add(external).Add(external).Add(external)
-	if err := used.AdmitsShared(meeting, capacity); err != nil {
-		t.Fatalf("four-workload memory-high profile was rejected: %v (capacity=%+v used=%+v)", err, capacity, used)
-	}
-	overBudget := meeting
-	overBudget.MemoryHighBytes += (512 << 20) + 1
-	if err := used.AdmitsShared(overBudget, capacity); err == nil {
-		t.Fatal("memory-high profile above 8.5 GiB was admitted")
-	}
-}
-
 func TestEnvironmentCountLimitIsTerminalPolicyConflictNotDimensionlessCapacity(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
@@ -211,7 +189,7 @@ func TestEnvironmentCountLimitIsTerminalPolicyConflictNotDimensionlessCapacity(t
 	defer database.Close()
 	registration := store.RemoteRegistration{ID: "registration", MaxEnvironments: 1}
 	err = admitAllocationV2(context.Background(), database, registration,
-		[]store.Environment{{ID: "retained"}}, resourcev2.Contract{}, resourcev2.Capacity{}, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)
+		[]store.Environment{{ID: "retained"}}, resourcev2.Contract{}, resourcev2.Contract{}, hostv1.EgressMode_EGRESS_MODE_DENY_ALL)
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("environment slot exhaustion code = %s, want FailedPrecondition: %v", status.Code(err), err)
 	}
@@ -308,7 +286,6 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	ctx := context.Background()
 	registration := store.RemoteRegistration{
 		ID: "registration", Endpoint: "controller.example:443", DisplayName: "controller", ProtocolVersion: "1", MaxEnvironments: 2,
-		AggregateCPUMillis: 2000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 8 << 30,
 		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1,
 		EnrollmentState: 2, ConnectorPhase: 1,
@@ -319,11 +296,11 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if _, err := database.CreateEnvironment(ctx, store.Environment{ID: "local", NamespaceID: "local-namespace", DisplayName: "local", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: store.OwnerLocal}); err != nil {
 		t.Fatal(err)
 	}
-	contract := resourcev2.Contract{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, CPUWeight: 100, MemoryHighBytes: 768 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
-	remote, _, err := database.BeginWorkloadAdmission(ctx,
-		store.Environment{ID: "remote", NamespaceID: "remote-namespace", DisplayName: "remote", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: 1},
-		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "remote", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryHighBytes: 4 << 30, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
+	contract := resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
+	remote, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "remote", NamespaceID: "remote-namespace", DisplayName: "remote", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: 1, AllocationGeneration: 7, CPUMillis: uint32(contract.CPUMaxMillis), MemoryBytes: contract.MemoryMaxBytes, PIDs: uint32(contract.PIDMax), DiskBytes: contract.WritableQuotaBytes},
+
+		resourcev2.Contract{CPUMaxMillis: 4000, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,10 +570,11 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if err != nil || releasedAllocation.GetAllocation().GetState() != hostv1.AllocationState_ALLOCATION_STATE_RETAINED || releasedAllocation.GetAllocation().GetGeneration() != 7 {
 		t.Fatalf("exact generation release=%+v err=%v", releasedAllocation, err)
 	}
-	releaseObligation, err := database.GetWorkloadReservationByEnvironment(ctx, remote.ID)
-	if err != nil || releaseObligation.Phase != store.WorkloadReservationReleaseRequired {
-		t.Fatalf("exact release did not atomically create Guest obligation=%+v err=%v", releaseObligation, err)
+	retained, err := database.GetEnvironment(ctx, remote.ID)
+	if err != nil || retained.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) || retained.AllocationGeneration != 7 {
+		t.Fatalf("release lost retained allocation: %+v err=%v", retained, err)
 	}
+
 	current, err = database.GetEnvironment(ctx, remote.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -604,14 +582,11 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	if _, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation", Duration: durationpb.New(500 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: allocationRevision()}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("retained allocation admitted a lease: %v", err)
 	}
-	expiringEnvironment, _, err := database.BeginWorkloadAdmission(ctx,
-		store.Environment{ID: "remote-expiring", NamespaceID: "remote-expiring-namespace", DisplayName: "expiring", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation-expiring", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
-		store.WorkloadReservation{AllocationID: "allocation-expiring", Generation: 8, RegistrationID: registration.ID, EnvironmentID: "remote-expiring", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 4000, CPUMaxMillis: 4000, MemoryHighBytes: 4 << 30, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
+	expiringEnvironment, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "remote-expiring", NamespaceID: "remote-expiring-namespace", DisplayName: "expiring", EgressMode: 1, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation-expiring", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY), AllocationGeneration: 8, CPUMillis: uint32(contract.CPUMaxMillis), MemoryBytes: contract.MemoryMaxBytes, PIDs: uint32(contract.PIDMax), DiskBytes: contract.WritableQuotaBytes},
+
+		resourcev2.Contract{CPUMaxMillis: 4000, MemoryMaxBytes: 4 << 30, PIDMax: 512, WritableQuotaBytes: 16 << 30})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.CommitGuestReservation(ctx, "allocation-expiring", 8, []byte("expiring-receipt")); err != nil {
 		t.Fatal(err)
 	}
 	expiring, err := client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: registration.ID, AllocationId: "allocation-expiring", Duration: durationpb.New(20 * time.Millisecond), ConnectionInstance: "connection-a", ExpectedPolicyRevision: expiringEnvironment.PolicyRevision})
@@ -622,10 +597,10 @@ func TestRemoteLeaseLifecycleAndInventoryScope(t *testing.T) {
 	for time.Now().Before(deadline) {
 		current, err = database.GetEnvironment(ctx, expiringEnvironment.ID)
 		if err == nil && current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
-			reservation, reservationErr := database.GetWorkloadReservation(ctx, "allocation-expiring", 8)
-			if reservationErr != nil || reservation.Phase != store.WorkloadReservationAdmitted {
-				t.Fatalf("expired lease changed durable allocation reservation: reservation=%+v err=%v", reservation, reservationErr)
+			if current.AllocationGeneration != 8 || current.Resources() != contract {
+				t.Fatalf("expired lease changed durable allocation: %+v", current)
 			}
+
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -642,8 +617,7 @@ func TestDisconnectGraceUsesPersistedDisconnectFence(t *testing.T) {
 	ctx := context.Background()
 	registration := store.RemoteRegistration{
 		ID: "registration", Endpoint: "controller.example:443", DisplayName: "controller", ProtocolVersion: "1",
-		MaxEnvironments: 1, AggregateCPUMillis: 1, AggregateMemoryBytes: 1, AggregatePIDs: 1, AggregateDiskBytes: 1,
-		PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
+		MaxEnvironments: 1, PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
 		MaxLeaseSeconds: 60, DisconnectGraceSeconds: 1, StopGraceSeconds: 1, State: 1,
 		ConnectionState: int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED), EnrollmentState: 2, ConnectorPhase: 1,
 	}
@@ -653,12 +627,11 @@ func TestDisconnectGraceUsesPersistedDisconnectFence(t *testing.T) {
 	if _, err := database.SetRemoteConnection(ctx, registration.ID, "first", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED)); err != nil {
 		t.Fatal(err)
 	}
-	environment, _, err := database.BeginWorkloadAdmission(ctx, store.Environment{
-		ID: "environment", NamespaceID: "namespace", DisplayName: "remote", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1,
-		OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY),
-	}, store.WorkloadReservation{AllocationID: "allocation", Generation: 1, RegistrationID: registration.ID, EnvironmentID: "environment",
-		Resources: resourcev2.Contract{CPUGuaranteeMillis: 1, CPUMaxMillis: 1, CPUWeight: 1, MemoryHighBytes: 1, MemoryMaxBytes: 1, PIDMax: 1, WritableQuotaBytes: 1}},
-		resourcev2.Capacity{CPUGuaranteeMillis: 2, CPUMaxMillis: 2, MemoryHighBytes: 2, MemoryMaxBytes: 2, PIDMax: 2, WritableQuotaBytes: 2})
+	environment, err := database.BeginWorkloadAdmission(ctx, store.Environment{
+		ID: "environment", NamespaceID: "namespace", DisplayName: "remote", EgressMode: 1,
+		OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY), AllocationGeneration: 1, CPUMillis: uint32((resourcev2.Contract{CPUMaxMillis: 1, MemoryMaxBytes: 1, PIDMax: 1, WritableQuotaBytes: 1}).CPUMaxMillis), MemoryBytes: (resourcev2.Contract{CPUMaxMillis: 1, MemoryMaxBytes: 1, PIDMax: 1, WritableQuotaBytes: 1}).MemoryMaxBytes, PIDs: uint32((resourcev2.Contract{CPUMaxMillis: 1, MemoryMaxBytes: 1, PIDMax: 1, WritableQuotaBytes: 1}).PIDMax), DiskBytes: (resourcev2.Contract{CPUMaxMillis: 1, MemoryMaxBytes: 1, PIDMax: 1, WritableQuotaBytes: 1}).WritableQuotaBytes},
+
+		resourcev2.Contract{CPUMaxMillis: 2, MemoryMaxBytes: 2, PIDMax: 2, WritableQuotaBytes: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -712,21 +685,17 @@ func TestConcurrentLeaseExpiryAndExplicitReleaseHaveSingleTerminalOwner(t *testi
 	defer database.Close()
 	ctx := context.Background()
 	registration := store.RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 1,
-		AggregateCPUMillis: 1000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 4 << 30,
 		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}
 	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
 		t.Fatal(err)
 	}
-	contract := resourcev2.Contract{CPUGuaranteeMillis: 250, CPUMaxMillis: 500, CPUWeight: 100, MemoryHighBytes: 512 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
-	environment, _, err := database.BeginWorkloadAdmission(ctx,
-		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
-		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "environment", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+	contract := resourcev2.Contract{CPUMaxMillis: 500, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
+	environment, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY), AllocationGeneration: 7, CPUMillis: uint32((contract).CPUMaxMillis), MemoryBytes: (contract).MemoryMaxBytes, PIDs: uint32((contract).PIDMax), DiskBytes: (contract).WritableQuotaBytes},
+
+		resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.CommitGuestReservation(ctx, "allocation", 7, []byte("receipt")); err != nil {
 		t.Fatal(err)
 	}
 	projection := store.RemoteLeaseProjection{LeaseID: "lease", RegistrationID: registration.ID, AllocationID: "allocation", AllocationGeneration: 7,
@@ -774,15 +743,11 @@ func TestConcurrentLeaseExpiryAndExplicitReleaseHaveSingleTerminalOwner(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err := database.GetWorkloadReservation(ctx, "allocation", 7)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if terminal != hostv1.LeaseState_LEASE_STATE_EXPIRED && terminal != hostv1.LeaseState_LEASE_STATE_RELEASED {
 		t.Fatalf("unexpected terminal winner %s", terminal)
 	}
-	if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || reservation.Phase != store.WorkloadReservationAdmitted {
-		t.Fatalf("lease terminal winner retired allocation: terminal=%s environment=%+v reservation=%+v", terminal, current, reservation)
+	if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || current.AllocationGeneration != 7 {
+		t.Fatalf("lease terminal winner retired allocation: terminal=%s environment=%+v", terminal, current)
 	}
 }
 
@@ -794,22 +759,18 @@ func TestConnectionReplacementRevokesActiveLeaseWithoutAdmissionDeadlock(t *test
 	defer database.Close()
 	ctx := context.Background()
 	registration := store.RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 1,
-		AggregateCPUMillis: 1000, AggregateMemoryBytes: 2 << 30, AggregatePIDs: 256, AggregateDiskBytes: 4 << 30,
 		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 1, State: 1,
 		ConnectionState: int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED), EnrollmentState: 2, ConnectorPhase: 1}
 	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
 		t.Fatal(err)
 	}
-	contract := resourcev2.Contract{CPUGuaranteeMillis: 250, CPUMaxMillis: 500, CPUWeight: 100, MemoryHighBytes: 512 << 20, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
-	environment, _, err := database.BeginWorkloadAdmission(ctx,
-		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY)},
-		store.WorkloadReservation{AllocationID: "allocation", Generation: 7, RegistrationID: registration.ID, EnvironmentID: "environment", Resources: contract},
-		resourcev2.Capacity{CPUGuaranteeMillis: 500, CPUMaxMillis: 1000, MemoryHighBytes: 2 << 30, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+	contract := resourcev2.Contract{CPUMaxMillis: 500, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
+	environment, err := database.BeginWorkloadAdmission(ctx,
+		store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY), AllocationGeneration: 7, CPUMillis: uint32((contract).CPUMaxMillis), MemoryBytes: (contract).MemoryMaxBytes, PIDs: uint32((contract).PIDMax), DiskBytes: (contract).WritableQuotaBytes},
+
+		resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.CommitGuestReservation(ctx, "allocation", 7, []byte("receipt")); err != nil {
 		t.Fatal(err)
 	}
 	environment, err = database.GetEnvironment(ctx, environment.ID)
@@ -852,9 +813,8 @@ func TestConnectionReplacementRevokesActiveLeaseWithoutAdmissionDeadlock(t *test
 		t.Fatal("connection replacement deadlocked while revoking an active lease")
 	}
 	current, err := database.GetEnvironment(ctx, environment.ID)
-	reservation, reservationErr := database.GetWorkloadReservation(ctx, "allocation", 7)
-	if err != nil || reservationErr != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || reservation.Phase != store.WorkloadReservationAdmitted {
-		t.Fatalf("replacement did not revoke only the lease: environment=%+v reservation=%+v err=%v reservationErr=%v", current, reservation, err, reservationErr)
+	if err != nil || current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) || current.AllocationGeneration != 7 {
+		t.Fatalf("replacement did not revoke only the lease: environment=%+v err=%v", current, err)
 	}
 	controller.mu.Lock()
 	active := controller.remoteLeases[lease.GetLease().GetLeaseId()]

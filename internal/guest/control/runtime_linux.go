@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
@@ -24,10 +23,11 @@ import (
 
 const (
 	containerdSocket = "/run/containerd/containerd.sock"
-	containerdRoot   = "/state/containerd"
+	containerdRoot   = "/control/containerd"
+	controlRoot      = "/control"
 	stateRoot        = "/state"
-	runscRuntime     = "io.containerd.runsc.v1"
 	ociProjectID     = uint32(9000)
+	runscRuntime     = "io.containerd.runsc.v1"
 )
 
 type Runtime struct {
@@ -35,6 +35,7 @@ type Runtime struct {
 	network           *guestnetwork.Manager
 	builder           *guestbuild.Builder
 	stateDevice       string
+	controlDevice     string
 	mu                sync.Mutex
 	waiters           map[string][]chan uint32
 	resourceLocks     sync.Map
@@ -57,16 +58,19 @@ func (r *Runtime) lockNamespace(namespaceID string) func() {
 	return lock.Unlock
 }
 
-func NewRuntime(stateDevice string, network *guestnetwork.Manager, startup OCIStartupState) (*Runtime, error) {
+func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager) (*Runtime, error) {
+	if err := initializeResourcePools(); err != nil {
+		return nil, fmt.Errorf("initialize resource pools: %w", err)
+	}
 	client, err := containerd.New(containerdSocket, containerd.WithDefaultRuntime(runscRuntime))
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{client: client, network: network, stateDevice: stateDevice,
+	runtime := &Runtime{client: client, network: network, stateDevice: stateDevice, controlDevice: controlDevice,
 		waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool),
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
 		volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
-	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth, runtime.guardOCIMetadataGrowth)
+	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth)
 	if err := ensureRuntimeContainerdNamespace(context.Background(), client); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("ensure internal runtime namespace: %w", err)
@@ -87,29 +91,15 @@ func NewRuntime(stateDevice string, network *guestnetwork.Manager, startup OCISt
 		client.Close()
 		return nil, fmt.Errorf("clean stale tasks: %w", err)
 	}
+	if err := runtime.completeLegacyStateMigration(context.Background()); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("complete legacy state migration: %w", err)
+	}
 	if err := runtime.rehydrateNetwork(context.Background()); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("rebuild namespace network: %w", err)
 	}
-	settleErr := settleOCIStartupQuota(startup,
-		func() error { return runtime.settleOCIProjectQuota(context.Background()) },
-		func() error { return retryOCIProjectQuota(runtime.tightenOCIProjectQuota, 10, 100*time.Millisecond) })
-	if settleErr != nil {
-		client.Close()
-		return nil, fmt.Errorf("settle OCI startup quota: %w", settleErr)
-	}
 	return runtime, nil
-}
-
-func settleOCIStartupQuota(startup OCIStartupState, settleExisting, tightenFresh func() error) error {
-	// Model: spec/tla/GuestOCIStartup.tla. Existing state can carry scheduled
-	// containerd GC; fresh state cannot and must not wait on an unready scheduler.
-	if startup.Existing {
-		return settleExisting()
-	}
-	// A fresh containerd has no prior records for startup GC. Avoid creating a
-	// synchronous GC barrier before its scheduler has initialized.
-	return tightenFresh()
 }
 
 func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
@@ -125,13 +115,16 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		_, namespace, err := namespaceFromLabels(name, labels)
+		projectID, namespace, err := namespaceFromLabels(name, labels)
 		if err != nil {
 			return err
 		}
-		if err := r.guardOCIMetadataGrowth(ctx, func() error {
+		if err := setProjectQuota(r.namespaceStateDevice(name), projectID, namespace.GetLimits().GetDiskBytes()); err != nil {
+			return fmt.Errorf("restore namespace quota %s: %w", name, err)
+		}
+		if err := func() error {
 			return r.client.NamespaceService().SetLabel(ctx, name, labelPrefix+"egress", fmt.Sprint(int32(vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL)))
-		}); err != nil {
+		}(); err != nil {
 			return err
 		}
 		if err := r.network.EnsureNamespace(name, namespace.GetSubnet(), vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
@@ -160,7 +153,16 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 func (r *Runtime) Close() error { return r.client.Close() }
 
 func syncStateFilesystem() error {
-	root, err := os.Open(stateRoot)
+	for _, path := range []string{stateRoot, controlRoot} {
+		if err := syncFilesystem(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func syncFilesystem(path string) error {
+	root, err := os.Open(path)
 	if err != nil {
 		return err
 	}
@@ -173,19 +175,19 @@ func namespaceContext(ctx context.Context, namespaceID string) context.Context {
 }
 
 func volumePath(namespaceID, volumeID string) string {
-	return filepath.Join(stateRoot, "volumes", namespaceID, volumeID)
+	return filepath.Join(namespaceStateRoot(namespaceID), "volumes", namespaceID, volumeID)
 }
 
 func workspacePath(namespaceID string) string {
-	return filepath.Join(stateRoot, "workspaces", namespaceID)
+	return filepath.Join(namespaceStateRoot(namespaceID), "workspaces", namespaceID)
 }
 
 func logPath(namespaceID, containerID, generationID string) string {
-	return filepath.Join(stateRoot, "logs", namespaceID, containerID, generationID, "records.log")
+	return filepath.Join(namespaceStateRoot(namespaceID), "logs", namespaceID, containerID, generationID, "records.log")
 }
 
 func logMetaPath(namespaceID, containerID, generationID string) string {
-	return filepath.Join(stateRoot, "logs", namespaceID, containerID, generationID, "records.meta")
+	return filepath.Join(namespaceStateRoot(namespaceID), "logs", namespaceID, containerID, generationID, "records.meta")
 }
 
 func (r *Runtime) namespaceExists(ctx context.Context, namespaceID string) error {
@@ -230,4 +232,25 @@ func ensureDirectory(path string, mode os.FileMode) error {
 		return errors.New("state path is not a directory")
 	}
 	return os.Chmod(path, mode)
+}
+
+func namespaceStateRoot(namespaceID string) string {
+	if isSystemNamespace(namespaceID) {
+		return controlRoot
+	}
+	return stateRoot
+}
+
+func (r *Runtime) namespaceStateDevice(namespaceID string) string {
+	if isSystemNamespace(namespaceID) {
+		return r.controlDevice
+	}
+	return r.stateDevice
+}
+
+func namespaceSnapshotter(namespaceID string) string {
+	if isSystemNamespace(namespaceID) {
+		return "native"
+	}
+	return containerSnapshotter
 }

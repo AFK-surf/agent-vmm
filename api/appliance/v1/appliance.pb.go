@@ -1182,7 +1182,6 @@ func (x *ResourceRange) GetCeiling() *v1.ResourceLimits {
 type CapacityGrant struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	MaxEnvironments        uint32                 `protobuf:"varint,1,opt,name=max_environments,json=maxEnvironments,proto3" json:"max_environments,omitempty"`
-	AggregateLimits        *v1.ResourceLimits     `protobuf:"bytes,2,opt,name=aggregate_limits,json=aggregateLimits,proto3" json:"aggregate_limits,omitempty"`
 	PerEnvironmentLimits   *v1.ResourceLimits     `protobuf:"bytes,3,opt,name=per_environment_limits,json=perEnvironmentLimits,proto3" json:"per_environment_limits,omitempty"`
 	MaxEgressMode          v1.EgressMode          `protobuf:"varint,4,opt,name=max_egress_mode,json=maxEgressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"max_egress_mode,omitempty"`
 	MaxLeaseSeconds        uint32                 `protobuf:"varint,5,opt,name=max_lease_seconds,json=maxLeaseSeconds,proto3" json:"max_lease_seconds,omitempty"`
@@ -1226,13 +1225,6 @@ func (x *CapacityGrant) GetMaxEnvironments() uint32 {
 		return x.MaxEnvironments
 	}
 	return 0
-}
-
-func (x *CapacityGrant) GetAggregateLimits() *v1.ResourceLimits {
-	if x != nil {
-		return x.AggregateLimits
-	}
-	return nil
 }
 
 func (x *CapacityGrant) GetPerEnvironmentLimits() *v1.ResourceLimits {
@@ -4032,14 +4024,13 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x11connection_bounds\x18\x06 \x01(\v2#.agentvmm.appliance.v1.StreamBoundsR\x10connectionBounds\"\x83\x01\n" +
 	"\rResourceRange\x126\n" +
 	"\x05floor\x18\x01 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x05floor\x12:\n" +
-	"\aceiling\x18\x02 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\aceiling\"\x8b\x03\n" +
+	"\aceiling\x18\x02 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\aceiling\"\xd6\x02\n" +
 	"\rCapacityGrant\x12)\n" +
-	"\x10max_environments\x18\x01 \x01(\rR\x0fmaxEnvironments\x12K\n" +
-	"\x10aggregate_limits\x18\x02 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x0faggregateLimits\x12V\n" +
+	"\x10max_environments\x18\x01 \x01(\rR\x0fmaxEnvironments\x12V\n" +
 	"\x16per_environment_limits\x18\x03 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x14perEnvironmentLimits\x12D\n" +
 	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressMode\x12*\n" +
 	"\x11max_lease_seconds\x18\x05 \x01(\rR\x0fmaxLeaseSeconds\x128\n" +
-	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSeconds\"\xe1\b\n" +
+	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSecondsJ\x04\b\x02\x10\x03R\x10aggregate_limits\"\xe1\b\n" +
 	"\x1bControllerApplianceManifest\x12)\n" +
 	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12\x1d\n" +
 	"\n" +
@@ -4465,90 +4456,89 @@ var file_appliance_v1_appliance_proto_depIdxs = []int32{
 	13, // 10: agentvmm.appliance.v1.DynamicHostLoopbackGrant.connection_bounds:type_name -> agentvmm.appliance.v1.StreamBounds
 	57, // 11: agentvmm.appliance.v1.ResourceRange.floor:type_name -> agentvmm.host.v1.ResourceLimits
 	57, // 12: agentvmm.appliance.v1.ResourceRange.ceiling:type_name -> agentvmm.host.v1.ResourceLimits
-	57, // 13: agentvmm.appliance.v1.CapacityGrant.aggregate_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	57, // 14: agentvmm.appliance.v1.CapacityGrant.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	58, // 15: agentvmm.appliance.v1.CapacityGrant.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	16, // 16: agentvmm.appliance.v1.ControllerApplianceManifest.system_resources:type_name -> agentvmm.appliance.v1.ResourceRange
-	17, // 17: agentvmm.appliance.v1.ControllerApplianceManifest.requested_capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
-	58, // 18: agentvmm.appliance.v1.ControllerApplianceManifest.requested_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	14, // 19: agentvmm.appliance.v1.ControllerApplianceManifest.requested_frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
-	15, // 20: agentvmm.appliance.v1.ControllerApplianceManifest.requested_dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	16, // 21: agentvmm.appliance.v1.ApprovedGrant.system_resources:type_name -> agentvmm.appliance.v1.ResourceRange
-	17, // 22: agentvmm.appliance.v1.ApprovedGrant.capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
-	58, // 23: agentvmm.appliance.v1.ApprovedGrant.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	14, // 24: agentvmm.appliance.v1.ApprovedGrant.frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
-	15, // 25: agentvmm.appliance.v1.ApprovedGrant.dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	19, // 26: agentvmm.appliance.v1.ApplianceLaunchClaim.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	59, // 27: agentvmm.appliance.v1.ApplianceLaunchClaim.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	60, // 28: agentvmm.appliance.v1.ApplianceManagedTrustBundle.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
-	61, // 29: agentvmm.appliance.v1.ApplianceManagedTrustBundle.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
-	20, // 30: agentvmm.appliance.v1.HostBootstrapFrame.launch_claim:type_name -> agentvmm.appliance.v1.ApplianceLaunchClaim
-	22, // 31: agentvmm.appliance.v1.HostBootstrapFrame.envelope:type_name -> agentvmm.appliance.v1.OpaqueBootstrapEnvelope
-	23, // 32: agentvmm.appliance.v1.ApplianceBootstrapFrame.receipt:type_name -> agentvmm.appliance.v1.BootstrapReceipt
-	24, // 33: agentvmm.appliance.v1.ApplianceBootstrapFrame.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
-	21, // 34: agentvmm.appliance.v1.ApplianceBootstrapFrame.managed_trust:type_name -> agentvmm.appliance.v1.ApplianceManagedTrustBundle
-	0,  // 35: agentvmm.appliance.v1.ApplianceFrontendStatus.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
-	1,  // 36: agentvmm.appliance.v1.ApplianceFrontendStatus.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
-	2,  // 37: agentvmm.appliance.v1.ApplianceStatus.appliance_state:type_name -> agentvmm.appliance.v1.ApplianceState
-	3,  // 38: agentvmm.appliance.v1.ApplianceStatus.channel_state:type_name -> agentvmm.appliance.v1.ControllerChannelState
-	19, // 39: agentvmm.appliance.v1.ApplianceStatus.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	27, // 40: agentvmm.appliance.v1.ApplianceStatus.frontends:type_name -> agentvmm.appliance.v1.ApplianceFrontendStatus
-	24, // 41: agentvmm.appliance.v1.ApplianceStatus.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
-	5,  // 42: agentvmm.appliance.v1.AppliancePlan.kind:type_name -> agentvmm.appliance.v1.AppliancePlanKind
-	29, // 43: agentvmm.appliance.v1.AppliancePlan.impacts:type_name -> agentvmm.appliance.v1.ApplianceImpact
-	6,  // 44: agentvmm.appliance.v1.ApplianceOperation.kind:type_name -> agentvmm.appliance.v1.ApplianceOperationKind
-	4,  // 45: agentvmm.appliance.v1.ApplianceOperation.state:type_name -> agentvmm.appliance.v1.ApplianceOperationState
-	7,  // 46: agentvmm.appliance.v1.ApplianceOperation.phase:type_name -> agentvmm.appliance.v1.ApplianceOperationPhase
-	62, // 47: agentvmm.appliance.v1.ApplianceOperation.started_at:type_name -> google.protobuf.Timestamp
-	62, // 48: agentvmm.appliance.v1.ApplianceOperation.updated_at:type_name -> google.protobuf.Timestamp
-	31, // 49: agentvmm.appliance.v1.ApplianceOperation.error:type_name -> agentvmm.appliance.v1.ApplianceOperationError
-	8,  // 50: agentvmm.appliance.v1.ApplianceOperation.terminal_reason:type_name -> agentvmm.appliance.v1.ApplianceTerminalReason
-	32, // 51: agentvmm.appliance.v1.ApplianceOperationResponse.operation:type_name -> agentvmm.appliance.v1.ApplianceOperation
-	30, // 52: agentvmm.appliance.v1.AppliancePlanResponse.plan:type_name -> agentvmm.appliance.v1.AppliancePlan
-	28, // 53: agentvmm.appliance.v1.ApplianceStatusResponse.status:type_name -> agentvmm.appliance.v1.ApplianceStatus
-	18, // 54: agentvmm.appliance.v1.StageArtifactRequest.manifest:type_name -> agentvmm.appliance.v1.ControllerApplianceManifest
-	19, // 55: agentvmm.appliance.v1.PlanInstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	19, // 56: agentvmm.appliance.v1.InstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	28, // 57: agentvmm.appliance.v1.ListAppliancesResponse.appliances:type_name -> agentvmm.appliance.v1.ApplianceStatus
-	10, // 58: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:input_type -> agentvmm.appliance.v1.BuildArtifactRequest
-	36, // 59: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:input_type -> agentvmm.appliance.v1.StageArtifactRequest
-	37, // 60: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:input_type -> agentvmm.appliance.v1.PlanInstallRequest
-	38, // 61: agentvmm.appliance.v1.ApplianceAdminService.Install:input_type -> agentvmm.appliance.v1.InstallRequest
-	39, // 62: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:input_type -> agentvmm.appliance.v1.PlanActivationRequest
-	40, // 63: agentvmm.appliance.v1.ApplianceAdminService.Activate:input_type -> agentvmm.appliance.v1.ActivateRequest
-	41, // 64: agentvmm.appliance.v1.ApplianceAdminService.List:input_type -> agentvmm.appliance.v1.ListAppliancesRequest
-	43, // 65: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:input_type -> agentvmm.appliance.v1.GetApplianceStatusRequest
-	44, // 66: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:input_type -> agentvmm.appliance.v1.WatchApplianceOperationRequest
-	45, // 67: agentvmm.appliance.v1.ApplianceAdminService.Stop:input_type -> agentvmm.appliance.v1.StopApplianceRequest
-	46, // 68: agentvmm.appliance.v1.ApplianceAdminService.Restart:input_type -> agentvmm.appliance.v1.RestartApplianceRequest
-	47, // 69: agentvmm.appliance.v1.ApplianceAdminService.Revoke:input_type -> agentvmm.appliance.v1.RevokeApplianceRequest
-	48, // 70: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:input_type -> agentvmm.appliance.v1.PlanSealedRepairRequest
-	49, // 71: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:input_type -> agentvmm.appliance.v1.ExecuteSealedRepairRequest
-	50, // 72: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:input_type -> agentvmm.appliance.v1.PlanRemoveRequest
-	51, // 73: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:input_type -> agentvmm.appliance.v1.ExecuteRemoveRequest
-	25, // 74: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:input_type -> agentvmm.appliance.v1.HostBootstrapFrame
-	12, // 75: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:output_type -> agentvmm.appliance.v1.BuildArtifactResponse
-	33, // 76: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 77: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 78: agentvmm.appliance.v1.ApplianceAdminService.Install:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 79: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 80: agentvmm.appliance.v1.ApplianceAdminService.Activate:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	42, // 81: agentvmm.appliance.v1.ApplianceAdminService.List:output_type -> agentvmm.appliance.v1.ListAppliancesResponse
-	35, // 82: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:output_type -> agentvmm.appliance.v1.ApplianceStatusResponse
-	33, // 83: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 84: agentvmm.appliance.v1.ApplianceAdminService.Stop:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 85: agentvmm.appliance.v1.ApplianceAdminService.Restart:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 86: agentvmm.appliance.v1.ApplianceAdminService.Revoke:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 87: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 88: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 89: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 90: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	26, // 91: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:output_type -> agentvmm.appliance.v1.ApplianceBootstrapFrame
-	75, // [75:92] is the sub-list for method output_type
-	58, // [58:75] is the sub-list for method input_type
-	58, // [58:58] is the sub-list for extension type_name
-	58, // [58:58] is the sub-list for extension extendee
-	0,  // [0:58] is the sub-list for field type_name
+	57, // 13: agentvmm.appliance.v1.CapacityGrant.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	58, // 14: agentvmm.appliance.v1.CapacityGrant.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	16, // 15: agentvmm.appliance.v1.ControllerApplianceManifest.system_resources:type_name -> agentvmm.appliance.v1.ResourceRange
+	17, // 16: agentvmm.appliance.v1.ControllerApplianceManifest.requested_capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
+	58, // 17: agentvmm.appliance.v1.ControllerApplianceManifest.requested_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	14, // 18: agentvmm.appliance.v1.ControllerApplianceManifest.requested_frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
+	15, // 19: agentvmm.appliance.v1.ControllerApplianceManifest.requested_dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
+	16, // 20: agentvmm.appliance.v1.ApprovedGrant.system_resources:type_name -> agentvmm.appliance.v1.ResourceRange
+	17, // 21: agentvmm.appliance.v1.ApprovedGrant.capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
+	58, // 22: agentvmm.appliance.v1.ApprovedGrant.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	14, // 23: agentvmm.appliance.v1.ApprovedGrant.frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
+	15, // 24: agentvmm.appliance.v1.ApprovedGrant.dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
+	19, // 25: agentvmm.appliance.v1.ApplianceLaunchClaim.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	59, // 26: agentvmm.appliance.v1.ApplianceLaunchClaim.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	60, // 27: agentvmm.appliance.v1.ApplianceManagedTrustBundle.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
+	61, // 28: agentvmm.appliance.v1.ApplianceManagedTrustBundle.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
+	20, // 29: agentvmm.appliance.v1.HostBootstrapFrame.launch_claim:type_name -> agentvmm.appliance.v1.ApplianceLaunchClaim
+	22, // 30: agentvmm.appliance.v1.HostBootstrapFrame.envelope:type_name -> agentvmm.appliance.v1.OpaqueBootstrapEnvelope
+	23, // 31: agentvmm.appliance.v1.ApplianceBootstrapFrame.receipt:type_name -> agentvmm.appliance.v1.BootstrapReceipt
+	24, // 32: agentvmm.appliance.v1.ApplianceBootstrapFrame.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
+	21, // 33: agentvmm.appliance.v1.ApplianceBootstrapFrame.managed_trust:type_name -> agentvmm.appliance.v1.ApplianceManagedTrustBundle
+	0,  // 34: agentvmm.appliance.v1.ApplianceFrontendStatus.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
+	1,  // 35: agentvmm.appliance.v1.ApplianceFrontendStatus.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
+	2,  // 36: agentvmm.appliance.v1.ApplianceStatus.appliance_state:type_name -> agentvmm.appliance.v1.ApplianceState
+	3,  // 37: agentvmm.appliance.v1.ApplianceStatus.channel_state:type_name -> agentvmm.appliance.v1.ControllerChannelState
+	19, // 38: agentvmm.appliance.v1.ApplianceStatus.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	27, // 39: agentvmm.appliance.v1.ApplianceStatus.frontends:type_name -> agentvmm.appliance.v1.ApplianceFrontendStatus
+	24, // 40: agentvmm.appliance.v1.ApplianceStatus.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
+	5,  // 41: agentvmm.appliance.v1.AppliancePlan.kind:type_name -> agentvmm.appliance.v1.AppliancePlanKind
+	29, // 42: agentvmm.appliance.v1.AppliancePlan.impacts:type_name -> agentvmm.appliance.v1.ApplianceImpact
+	6,  // 43: agentvmm.appliance.v1.ApplianceOperation.kind:type_name -> agentvmm.appliance.v1.ApplianceOperationKind
+	4,  // 44: agentvmm.appliance.v1.ApplianceOperation.state:type_name -> agentvmm.appliance.v1.ApplianceOperationState
+	7,  // 45: agentvmm.appliance.v1.ApplianceOperation.phase:type_name -> agentvmm.appliance.v1.ApplianceOperationPhase
+	62, // 46: agentvmm.appliance.v1.ApplianceOperation.started_at:type_name -> google.protobuf.Timestamp
+	62, // 47: agentvmm.appliance.v1.ApplianceOperation.updated_at:type_name -> google.protobuf.Timestamp
+	31, // 48: agentvmm.appliance.v1.ApplianceOperation.error:type_name -> agentvmm.appliance.v1.ApplianceOperationError
+	8,  // 49: agentvmm.appliance.v1.ApplianceOperation.terminal_reason:type_name -> agentvmm.appliance.v1.ApplianceTerminalReason
+	32, // 50: agentvmm.appliance.v1.ApplianceOperationResponse.operation:type_name -> agentvmm.appliance.v1.ApplianceOperation
+	30, // 51: agentvmm.appliance.v1.AppliancePlanResponse.plan:type_name -> agentvmm.appliance.v1.AppliancePlan
+	28, // 52: agentvmm.appliance.v1.ApplianceStatusResponse.status:type_name -> agentvmm.appliance.v1.ApplianceStatus
+	18, // 53: agentvmm.appliance.v1.StageArtifactRequest.manifest:type_name -> agentvmm.appliance.v1.ControllerApplianceManifest
+	19, // 54: agentvmm.appliance.v1.PlanInstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	19, // 55: agentvmm.appliance.v1.InstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	28, // 56: agentvmm.appliance.v1.ListAppliancesResponse.appliances:type_name -> agentvmm.appliance.v1.ApplianceStatus
+	10, // 57: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:input_type -> agentvmm.appliance.v1.BuildArtifactRequest
+	36, // 58: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:input_type -> agentvmm.appliance.v1.StageArtifactRequest
+	37, // 59: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:input_type -> agentvmm.appliance.v1.PlanInstallRequest
+	38, // 60: agentvmm.appliance.v1.ApplianceAdminService.Install:input_type -> agentvmm.appliance.v1.InstallRequest
+	39, // 61: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:input_type -> agentvmm.appliance.v1.PlanActivationRequest
+	40, // 62: agentvmm.appliance.v1.ApplianceAdminService.Activate:input_type -> agentvmm.appliance.v1.ActivateRequest
+	41, // 63: agentvmm.appliance.v1.ApplianceAdminService.List:input_type -> agentvmm.appliance.v1.ListAppliancesRequest
+	43, // 64: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:input_type -> agentvmm.appliance.v1.GetApplianceStatusRequest
+	44, // 65: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:input_type -> agentvmm.appliance.v1.WatchApplianceOperationRequest
+	45, // 66: agentvmm.appliance.v1.ApplianceAdminService.Stop:input_type -> agentvmm.appliance.v1.StopApplianceRequest
+	46, // 67: agentvmm.appliance.v1.ApplianceAdminService.Restart:input_type -> agentvmm.appliance.v1.RestartApplianceRequest
+	47, // 68: agentvmm.appliance.v1.ApplianceAdminService.Revoke:input_type -> agentvmm.appliance.v1.RevokeApplianceRequest
+	48, // 69: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:input_type -> agentvmm.appliance.v1.PlanSealedRepairRequest
+	49, // 70: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:input_type -> agentvmm.appliance.v1.ExecuteSealedRepairRequest
+	50, // 71: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:input_type -> agentvmm.appliance.v1.PlanRemoveRequest
+	51, // 72: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:input_type -> agentvmm.appliance.v1.ExecuteRemoveRequest
+	25, // 73: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:input_type -> agentvmm.appliance.v1.HostBootstrapFrame
+	12, // 74: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:output_type -> agentvmm.appliance.v1.BuildArtifactResponse
+	33, // 75: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 76: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	33, // 77: agentvmm.appliance.v1.ApplianceAdminService.Install:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 78: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	33, // 79: agentvmm.appliance.v1.ApplianceAdminService.Activate:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	42, // 80: agentvmm.appliance.v1.ApplianceAdminService.List:output_type -> agentvmm.appliance.v1.ListAppliancesResponse
+	35, // 81: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:output_type -> agentvmm.appliance.v1.ApplianceStatusResponse
+	33, // 82: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	33, // 83: agentvmm.appliance.v1.ApplianceAdminService.Stop:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	33, // 84: agentvmm.appliance.v1.ApplianceAdminService.Restart:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	33, // 85: agentvmm.appliance.v1.ApplianceAdminService.Revoke:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 86: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	33, // 87: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 88: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	33, // 89: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	26, // 90: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:output_type -> agentvmm.appliance.v1.ApplianceBootstrapFrame
+	74, // [74:91] is the sub-list for method output_type
+	57, // [57:74] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_appliance_v1_appliance_proto_init() }
