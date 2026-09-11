@@ -7,15 +7,16 @@ CONSTANTS EnforceAtomicAdmission, EnforceExecutionInstanceFence,
 Tasks == {1, 2}
 Instances == {1, 2}
 Executions == {1, 2}
+Holders == {1, 2}
 QuiesceCommands == {1, 2}
 States == {"stopped", "starting", "running", "stopping", "unknown"}
 Capacity == 1
 
-VARIABLES state, instance, execution, executionInstance, admissionOpen,
+VARIABLES state, instance, execution, executionHolders, executionInstance, admissionOpen,
           quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
           lastStoppedExpected
 
-vars == <<state, instance, execution, executionInstance, admissionOpen,
+vars == <<state, instance, execution, executionHolders, executionInstance, admissionOpen,
           quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
           lastStoppedExpected>>
 
@@ -25,6 +26,7 @@ Init ==
   /\ state = [t \in Tasks |-> "stopped"]
   /\ instance = [t \in Tasks |-> 0]
   /\ execution = [t \in Tasks |-> 0]
+  /\ executionHolders = [t \in Tasks |-> {}]
   /\ executionInstance = [t \in Tasks |-> 0]
   /\ admissionOpen = [t \in Tasks |-> FALSE]
   /\ quiesce = [t \in Tasks |-> 0]
@@ -39,7 +41,7 @@ CheckStart(t) ==
   /\ t \notin Active
   /\ Cardinality(Active) < Capacity
   /\ checked' = checked \cup {t}
-  /\ UNCHANGED <<state, instance, execution, executionInstance,
+  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance,
                   admissionOpen, quiesce, pending, lastStoppedTask,
                   lastStoppedInstance, lastStoppedExpected>>
 
@@ -52,7 +54,7 @@ BeginStart(t) ==
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = FALSE]
   /\ pending' = [pending EXCEPT ![t] = "start"]
   /\ checked' = checked \ {t}
-  /\ UNCHANGED <<instance, execution, executionInstance, quiesce,
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, quiesce,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 CommitRunning(t, i) ==
@@ -64,34 +66,39 @@ CommitRunning(t, i) ==
   /\ instance' = [instance EXCEPT ![t] = i]
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = TRUE]
   /\ pending' = [pending EXCEPT ![t] = "none"]
-  /\ UNCHANGED <<execution, executionInstance, quiesce, checked,
+  /\ UNCHANGED <<execution, executionHolders, executionInstance, quiesce, checked,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 LoseStartResponse(t) ==
   /\ state[t] = "starting"
   /\ state' = [state EXCEPT ![t] = "unknown"]
-  /\ UNCHANGED <<instance, execution, executionInstance, admissionOpen,
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, admissionOpen,
                   quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
                   lastStoppedExpected>>
 
-Acquire(t, e, observedInstance) ==
+Acquire(t, e, h, observedInstance) ==
   /\ state[t] = "running"
-  /\ execution[t] = 0
   /\ e \in Executions
+  /\ h \in Holders
+  /\ execution[t] \in {0, e}
+  /\ h \notin executionHolders[t]
   /\ observedInstance \in Instances
   /\ (~EnforceQuiesceFence \/ admissionOpen[t])
   /\ (~EnforceExecutionInstanceFence \/ observedInstance = instance[t])
   /\ execution' = [execution EXCEPT ![t] = e]
+  /\ executionHolders' = [executionHolders EXCEPT ![t] = @ \cup {h}]
   /\ executionInstance' = [executionInstance EXCEPT ![t] = observedInstance]
   /\ UNCHANGED <<state, instance, admissionOpen, quiesce, pending, checked,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
-Release(t, e, observedInstance) ==
+Release(t, e, h, observedInstance) ==
   /\ execution[t] = e
+  /\ h \in executionHolders[t]
   /\ executionInstance[t] = observedInstance
   /\ observedInstance = instance[t]
-  /\ execution' = [execution EXCEPT ![t] = 0]
-  /\ executionInstance' = [executionInstance EXCEPT ![t] = 0]
+  /\ executionHolders' = [executionHolders EXCEPT ![t] = @ \ {h}]
+  /\ execution' = [execution EXCEPT ![t] = IF executionHolders'[t] = {} THEN 0 ELSE @]
+  /\ executionInstance' = [executionInstance EXCEPT ![t] = IF executionHolders'[t] = {} THEN 0 ELSE @]
   /\ UNCHANGED <<state, instance, admissionOpen, quiesce, pending, checked,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
@@ -102,7 +109,7 @@ BeginQuiesce(t, q) ==
   /\ quiesce[t] = 0
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = FALSE]
   /\ quiesce' = [quiesce EXCEPT ![t] = q]
-  /\ UNCHANGED <<state, instance, execution, executionInstance, pending, checked,
+  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance, pending, checked,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 CancelQuiesce(t, q) ==
@@ -111,7 +118,7 @@ CancelQuiesce(t, q) ==
   /\ execution[t] = 0
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = TRUE]
   /\ quiesce' = [quiesce EXCEPT ![t] = 0]
-  /\ UNCHANGED <<state, instance, execution, executionInstance, pending, checked,
+  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance, pending, checked,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 BeginStop(t, q) ==
@@ -125,13 +132,13 @@ BeginStop(t, q) ==
   /\ state' = [state EXCEPT ![t] = "stopping"]
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = FALSE]
   /\ pending' = [pending EXCEPT ![t] = "stop"]
-  /\ UNCHANGED <<instance, execution, executionInstance, quiesce, checked,
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, quiesce, checked,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 LoseStopResponse(t) ==
   /\ state[t] = "stopping"
   /\ state' = [state EXCEPT ![t] = "unknown"]
-  /\ UNCHANGED <<instance, execution, executionInstance, admissionOpen,
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, admissionOpen,
                   quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
                   lastStoppedExpected>>
 
@@ -147,7 +154,7 @@ ObserveStopped(t, observedInstance) ==
   /\ lastStoppedTask' = t
   /\ lastStoppedInstance' = observedInstance
   /\ lastStoppedExpected' = instance[t]
-  /\ UNCHANGED <<instance, execution, executionInstance, checked>>
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, checked>>
 
 ObserveRunning(t, observedInstance) ==
   /\ state[t] = "unknown"
@@ -155,7 +162,7 @@ ObserveRunning(t, observedInstance) ==
   /\ observedInstance = instance[t]
   /\ state' = [state EXCEPT ![t] = "running"]
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = TRUE]
-  /\ UNCHANGED <<instance, execution, executionInstance, quiesce, pending,
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, quiesce, pending,
                   checked, lastStoppedTask, lastStoppedInstance,
                   lastStoppedExpected>>
 
@@ -163,6 +170,7 @@ HostRestart ==
   /\ \E t \in Active:
        /\ state' = [x \in Tasks |-> IF x \in Active THEN "unknown" ELSE state[x]]
        /\ execution' = [x \in Tasks |-> 0]
+       /\ executionHolders' = [x \in Tasks |-> {}]
        /\ executionInstance' = [x \in Tasks |-> 0]
        /\ admissionOpen' = [x \in Tasks |-> FALSE]
        /\ quiesce' = [x \in Tasks |-> 0]
@@ -173,7 +181,7 @@ HostRestart ==
 Next ==
   \/ \E t \in Tasks: CheckStart(t) \/ BeginStart(t) \/ LoseStartResponse(t)
   \/ \E t \in Tasks, i \in Instances: CommitRunning(t, i)
-  \/ \E t \in Tasks, e \in Executions, i \in Instances: Acquire(t, e, i) \/ Release(t, e, i)
+  \/ \E t \in Tasks, e \in Executions, h \in Holders, i \in Instances: Acquire(t, e, h, i) \/ Release(t, e, h, i)
   \/ \E t \in Tasks, q \in QuiesceCommands: BeginQuiesce(t, q) \/ CancelQuiesce(t, q) \/ BeginStop(t, q)
   \/ \E t \in Tasks: LoseStopResponse(t)
   \/ \E t \in Tasks, i \in Instances: ObserveStopped(t, i)
@@ -184,6 +192,7 @@ TypeOK ==
   /\ state \in [Tasks -> States]
   /\ instance \in [Tasks -> Instances \cup {0}]
   /\ execution \in [Tasks -> Executions \cup {0}]
+  /\ executionHolders \in [Tasks -> SUBSET Holders]
   /\ executionInstance \in [Tasks -> Instances \cup {0}]
   /\ admissionOpen \in [Tasks -> BOOLEAN]
   /\ quiesce \in [Tasks -> QuiesceCommands \cup {0}]
@@ -201,6 +210,9 @@ ExecutionRequiresCurrentInstance ==
       /\ state[t] = "running"
       /\ executionInstance[t] = instance[t]
       /\ admissionOpen[t]
+
+ExecutionTracksExactHolders ==
+  \A t \in Tasks: (execution[t] = 0) <=> (executionHolders[t] = {})
 
 QuiesceExcludesExecution ==
   \A t \in Tasks: quiesce[t] # 0 => ~admissionOpen[t] /\ execution[t] = 0

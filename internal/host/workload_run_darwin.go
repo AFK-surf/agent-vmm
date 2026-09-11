@@ -59,20 +59,33 @@ func (controller *Controller) admitWorkloadStart(environmentID, namespaceID, con
 	if current := controller.workloadRuns[key]; current != nil {
 		return nil, pendingWorkloadError(current, now)
 	}
-	if len(controller.workloadRuns) >= maxActiveWorkloads {
-		return nil, workloadCapacityError(resourcev2.CapacityRunSlot)
-	}
-	for _, run := range controller.workloadRuns {
-		if run.starting {
-			return nil, workloadCapacityError(resourcev2.CapacityRunSlot)
-		}
-	}
-	if now.Sub(controller.workloadPressureAt) > 2*workloadSampleInterval || controller.workloadMemoryPressure {
-		return nil, workloadCapacityError(resourcev2.CapacityMemoryPressure)
+	if err := controller.workloadStartCapacityErrorLocked(now); err != nil {
+		return nil, err
 	}
 	run := &workloadRun{environmentID: environmentID, namespaceID: namespaceID, containerID: containerID, starting: true, inFlight: true}
 	controller.workloadRuns[key] = run
 	return run, nil
+}
+
+func (controller *Controller) workloadStartCapacityErrorLocked(now time.Time) error {
+	if len(controller.workloadRuns) >= maxActiveWorkloads {
+		return workloadCapacityError(resourcev2.CapacityRunSlot)
+	}
+	for _, run := range controller.workloadRuns {
+		if run.starting {
+			return workloadCapacityError(resourcev2.CapacityRunSlot)
+		}
+	}
+	if now.Sub(controller.workloadPressureAt) > 2*workloadSampleInterval || controller.workloadMemoryPressure {
+		return workloadCapacityError(resourcev2.CapacityMemoryPressure)
+	}
+	return nil
+}
+
+func (controller *Controller) workloadStartAvailable(now time.Time) bool {
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	return controller.workloadRunsRecovered && controller.workloadStartCapacityErrorLocked(now) == nil
 }
 
 func (controller *Controller) observeWorkloadRunLocked(run *workloadRun, container *vmmdv1.Container, now time.Time) {

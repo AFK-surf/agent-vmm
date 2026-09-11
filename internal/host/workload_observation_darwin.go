@@ -108,11 +108,7 @@ func (controller *Controller) sampleWorkloadRuns(ctx context.Context, client vmm
 	controller.workloadOOMKills = response.GetWorkloadOomKills()
 	runs := make([]*workloadRun, 0, len(controller.workloadRuns))
 	for _, run := range controller.workloadRuns {
-		if run.execution != nil && !run.execution.deadline.IsZero() && !now.Before(run.execution.deadline) && !run.stopping {
-			run.stopping = true
-			run.stopDeadline = now.Add(workloadStopBudget)
-			run.stopRequestID = derivedRequestID("expired-execution-" + run.execution.id)
-		}
+		expireWorkloadExecutionLocked(run, now)
 		if !run.inFlight {
 			runs = append(runs, run)
 		}

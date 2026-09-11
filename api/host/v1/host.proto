@@ -802,6 +802,7 @@ message ExecutionRequest {
   string container_id = 2;
   string expected_instance_id = 3;
   int64 deadline_unix_nano = 4;
+  string holder_id = 5;
 }
 message ExecutionResponse {
   string execution_id = 1;
@@ -1474,6 +1475,7 @@ message GetRemoteStateResponse {
 
 message GetRemoteObservationRequest { string registration_id = 1; }
 message GetRemoteObservationResponse {
+  bool workload_start_available = 4;
   HealthStatus health = 1;
   Usage usage = 2;
   google.protobuf.Timestamp observed_at = 3;

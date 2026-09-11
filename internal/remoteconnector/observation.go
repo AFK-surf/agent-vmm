@@ -102,6 +102,7 @@ func collectObservation(ctx context.Context, client remoteObservationClient, reg
 	result.InventoryObservedUnixMillis = observed.UnixMilli()
 	result.Health = publicHealth(response.GetHealth())
 	result.Usage = publicUsage(response.GetUsage())
+	result.WorkloadStartAvailable = response.GetWorkloadStartAvailable()
 	return result
 }
 

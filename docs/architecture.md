@@ -322,13 +322,21 @@ empty. One five-second Host sampler reads the workload parent and each unique
 active namespace. Stored inactive namespaces do not have a timer or periodic
 usage RPC.
 
+The current remote observation reports whether a Workload start can retry.
+The Host uses the same locked run-slot, start-slot, pressure, and recovery
+checks as start admission. The connector forwards this observation as a
+current fact. It does not grant capacity. Each newer available observation can
+wake a bounded controller queue. The Host checks admission again when the
+start request arrives.
+
 The Host gives one current execution identity access to an active sandbox.
 That identity is bound to the allocation lease or local session and the exact
-container instance. A repeated acquire is idempotent. Another identity remains
-busy until the first execution releases access. The acquire response sets
-`acquired` only when that call created the right. A caller that joins an
-existing identity must not release the right for its owner. Safe sleep first closes new
-execution admission with a quiesce command. The matching instance and command
+container instance. It contains at most 64 holder identities. A repeated
+holder acquire is idempotent. Another execution identity remains busy until
+the last holder releases access. The acquire response sets `acquired` only
+when that call adds the holder. Release removes only the matching holder.
+Safe sleep first closes new execution admission with a quiesce command. The
+matching instance and command
 must then be present on the stop request. Cancellation can reopen admission only
 for that same quiesce command before a stop starts. Repeating the cancellation
 when no quiesce is current is a successful no-op. A different command or a stop

@@ -982,6 +982,7 @@ func (x *HostHello) GetObservation() *RemoteObservationSnapshot {
 
 type RemoteObservationSnapshot struct {
 	state                       protoimpl.MessageState   `protogen:"open.v1"`
+	WorkloadStartAvailable      bool                     `protobuf:"varint,13,opt,name=workload_start_available,json=workloadStartAvailable,proto3" json:"workload_start_available,omitempty"`
 	Sequence                    uint64                   `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	ObservedUnixMillis          int64                    `protobuf:"varint,2,opt,name=observed_unix_millis,json=observedUnixMillis,proto3" json:"observed_unix_millis,omitempty"`
 	ProtocolVersion             string                   `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
@@ -1025,6 +1026,13 @@ func (x *RemoteObservationSnapshot) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RemoteObservationSnapshot.ProtoReflect.Descriptor instead.
 func (*RemoteObservationSnapshot) Descriptor() ([]byte, []int) {
 	return file_remote_v1_remote_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RemoteObservationSnapshot) GetWorkloadStartAvailable() bool {
+	if x != nil {
+		return x.WorkloadStartAvailable
+	}
+	return false
 }
 
 func (x *RemoteObservationSnapshot) GetSequence() uint64 {
@@ -3948,8 +3956,9 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x11required_features\x18\x0e \x03(\tR\x10requiredFeatures\x12Y\n" +
 	"\x14endpoint_observation\x18\x0f \x01(\v2&.agentvmm.trust.v1.EndpointObservationR\x13endpointObservation\x12d\n" +
 	"\x16host_loopback_frontend\x18\x10 \x01(\v2..agentvmm.host.v1.HostLoopbackFrontendCapacityR\x14hostLoopbackFrontend\x12O\n" +
-	"\vobservation\x18\x11 \x01(\v2-.agentvmm.remote.v1.RemoteObservationSnapshotR\vobservation\"\xe8\x04\n" +
-	"\x19RemoteObservationSnapshot\x12\x1a\n" +
+	"\vobservation\x18\x11 \x01(\v2-.agentvmm.remote.v1.RemoteObservationSnapshotR\vobservation\"\xa2\x05\n" +
+	"\x19RemoteObservationSnapshot\x128\n" +
+	"\x18workload_start_available\x18\r \x01(\bR\x16workloadStartAvailable\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x120\n" +
 	"\x14observed_unix_millis\x18\x02 \x01(\x03R\x12observedUnixMillis\x12)\n" +
 	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12(\n" +

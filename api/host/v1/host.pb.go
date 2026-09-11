@@ -8055,6 +8055,7 @@ type ExecutionRequest struct {
 	ContainerId        string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
 	ExpectedInstanceId string                 `protobuf:"bytes,3,opt,name=expected_instance_id,json=expectedInstanceId,proto3" json:"expected_instance_id,omitempty"`
 	DeadlineUnixNano   int64                  `protobuf:"varint,4,opt,name=deadline_unix_nano,json=deadlineUnixNano,proto3" json:"deadline_unix_nano,omitempty"`
+	HolderId           string                 `protobuf:"bytes,5,opt,name=holder_id,json=holderId,proto3" json:"holder_id,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -8115,6 +8116,13 @@ func (x *ExecutionRequest) GetDeadlineUnixNano() int64 {
 		return x.DeadlineUnixNano
 	}
 	return 0
+}
+
+func (x *ExecutionRequest) GetHolderId() string {
+	if x != nil {
+		return x.HolderId
+	}
+	return ""
 }
 
 type ExecutionResponse struct {
@@ -14758,12 +14766,13 @@ func (x *GetRemoteObservationRequest) GetRegistrationId() string {
 }
 
 type GetRemoteObservationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Health        *HealthStatus          `protobuf:"bytes,1,opt,name=health,proto3" json:"health,omitempty"`
-	Usage         *Usage                 `protobuf:"bytes,2,opt,name=usage,proto3" json:"usage,omitempty"`
-	ObservedAt    *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	WorkloadStartAvailable bool                   `protobuf:"varint,4,opt,name=workload_start_available,json=workloadStartAvailable,proto3" json:"workload_start_available,omitempty"`
+	Health                 *HealthStatus          `protobuf:"bytes,1,opt,name=health,proto3" json:"health,omitempty"`
+	Usage                  *Usage                 `protobuf:"bytes,2,opt,name=usage,proto3" json:"usage,omitempty"`
+	ObservedAt             *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *GetRemoteObservationResponse) Reset() {
@@ -14794,6 +14803,13 @@ func (x *GetRemoteObservationResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetRemoteObservationResponse.ProtoReflect.Descriptor instead.
 func (*GetRemoteObservationResponse) Descriptor() ([]byte, []int) {
 	return file_host_v1_host_proto_rawDescGZIP(), []int{198}
+}
+
+func (x *GetRemoteObservationResponse) GetWorkloadStartAvailable() bool {
+	if x != nil {
+		return x.WorkloadStartAvailable
+	}
+	return false
 }
 
 func (x *GetRemoteObservationResponse) GetHealth() *HealthStatus {
@@ -16542,12 +16558,13 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x03 \x01(\rH\x00R\x0etimeoutSeconds\x88\x01\x01\x120\n" +
 	"\x14expected_instance_id\x18\x04 \x01(\tR\x12expectedInstanceId\x12,\n" +
 	"\x12quiesce_request_id\x18\x05 \x01(\tR\x10quiesceRequestIdB\x12\n" +
-	"\x10_timeout_seconds\"\xb8\x01\n" +
+	"\x10_timeout_seconds\"\xd5\x01\n" +
 	"\x10ExecutionRequest\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x120\n" +
 	"\x14expected_instance_id\x18\x03 \x01(\tR\x12expectedInstanceId\x12,\n" +
-	"\x12deadline_unix_nano\x18\x04 \x01(\x03R\x10deadlineUnixNano\"\x86\x01\n" +
+	"\x12deadline_unix_nano\x18\x04 \x01(\x03R\x10deadlineUnixNano\x12\x1b\n" +
+	"\tholder_id\x18\x05 \x01(\tR\bholderId\"\x86\x01\n" +
 	"\x11ExecutionResponse\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x122\n" +
 	"\x15container_instance_id\x18\x02 \x01(\tR\x13containerInstanceId\x12\x1a\n" +
@@ -17087,8 +17104,9 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x16GetRemoteStateResponse\x12H\n" +
 	"\fregistration\x18\x01 \x01(\v2$.agentvmm.host.v1.RemoteRegistrationR\fregistration\"F\n" +
 	"\x1bGetRemoteObservationRequest\x12'\n" +
-	"\x0fregistration_id\x18\x01 \x01(\tR\x0eregistrationId\"\xc2\x01\n" +
-	"\x1cGetRemoteObservationResponse\x126\n" +
+	"\x0fregistration_id\x18\x01 \x01(\tR\x0eregistrationId\"\xfc\x01\n" +
+	"\x1cGetRemoteObservationResponse\x128\n" +
+	"\x18workload_start_available\x18\x04 \x01(\bR\x16workloadStartAvailable\x126\n" +
 	"\x06health\x18\x01 \x01(\v2\x1e.agentvmm.host.v1.HealthStatusR\x06health\x12-\n" +
 	"\x05usage\x18\x02 \x01(\v2\x17.agentvmm.host.v1.UsageR\x05usage\x12;\n" +
 	"\vobserved_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +

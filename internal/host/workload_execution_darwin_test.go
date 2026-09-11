@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -17,6 +18,31 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
+
+func TestAcquireExecutionClosesAdmissionAfterAllHoldersExpire(t *testing.T) {
+	controller := workloadTestController()
+	run, err := controller.admitWorkloadStart("env-a", "a", "main", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.mu.Lock()
+	run.inFlight = false
+	controller.observeWorkloadRunLocked(run, &vmmdv1.Container{Id: "main", InstanceId: "instance-a", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}, time.Now())
+	run.execution = &workloadExecution{id: "input-a", authority: "lease-a", instanceID: "instance-a", holders: make(map[string]time.Time)}
+	for index := range maxExecutionHolders {
+		run.execution.holders[fmt.Sprintf("expired-%d", index)] = time.Now().Add(-time.Minute)
+	}
+	controller.mu.Unlock()
+	controller.remoteLeases = map[string]*remoteLease{"lease-a": {id: "lease-a", environmentID: "env-a", state: hostv1.LeaseState_LEASE_STATE_ACTIVE, expiresAt: time.Now().Add(time.Minute)}}
+	client := executionClient(t, controller, auth.Identity{Role: auth.Agent, SessionID: "session-a", EnvironmentID: "env-a", NamespaceID: "a", LeaseID: "lease-a"})
+	request := &hostv1.ExecutionRequest{ExecutionId: "input-a", HolderId: "current", ContainerId: "main", ExpectedInstanceId: "instance-a", DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()}
+	if acquired, err := client.AcquireExecution(context.Background(), request); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("acquire after expired holder saturation = %+v, %v", acquired, err)
+	}
+	if run.execution != nil || !run.stopping || run.stopRequestID == "" {
+		t.Fatalf("expired execution did not close admission: %+v", run)
+	}
+}
 
 func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	controller := workloadTestController()
@@ -40,7 +66,7 @@ func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	if !acquired.GetAcquired() {
 		t.Fatal("first execution acquisition was not identified as new")
 	}
-	firstDeadline := run.execution.deadline
+	firstDeadline := run.execution.holders["input-a"]
 	execution.DeadlineUnixNano = time.Now().Add(time.Hour).UnixNano()
 	acquired, err = client.AcquireExecution(ctx, execution)
 	if err != nil {
@@ -49,8 +75,22 @@ func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	if acquired.GetAcquired() {
 		t.Fatal("idempotent execution acquisition was identified as new")
 	}
-	if !run.execution.deadline.Equal(firstDeadline) {
+	if !run.execution.holders["input-a"].Equal(firstDeadline) {
 		t.Fatal("idempotent acquire extended execution deadline")
+	}
+	probe := &hostv1.ExecutionRequest{ExecutionId: "input-a", HolderId: "probe", ContainerId: "main", ExpectedInstanceId: "instance-a", DeadlineUnixNano: time.Now().Add(2 * time.Hour).UnixNano()}
+	acquired, err = client.AcquireExecution(ctx, probe)
+	if err != nil || !acquired.GetAcquired() {
+		t.Fatalf("second holder acquisition = %+v, %v", acquired, err)
+	}
+	if !run.execution.holders["probe"].After(firstDeadline) {
+		t.Fatal("second holder did not retain its own deadline")
+	}
+	if _, err := client.ReleaseExecution(ctx, probe); err != nil {
+		t.Fatal(err)
+	}
+	if run.execution == nil || !run.execution.holders["input-a"].Equal(firstDeadline) {
+		t.Fatal("second holder release cleared or changed the original execution")
 	}
 	quiesce := &hostv1.QuiesceContainerRequest{RequestId: "sleep-a", ContainerId: "main", ExpectedInstanceId: "instance-a"}
 	if _, err := client.QuiesceContainer(ctx, quiesce); status.Code(err) != codes.ResourceExhausted {

@@ -112,6 +112,7 @@ func (server *remoteComputeServer) GetRemoteObservation(ctx context.Context, req
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
 	}
+	response.WorkloadStartAvailable = server.controller.workloadStartAvailable(time.Now())
 	return response, nil
 }
 

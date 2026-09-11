@@ -29,6 +29,9 @@ func TestWorkloadStartsSerializeAndStoppedSandboxesReleaseCapacity(t *testing.T)
 		first <- err
 	}()
 	<-entered
+	if controller.workloadStartAvailable(time.Now()) {
+		t.Fatal("in-flight start advertised another start slot")
+	}
 	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-b", workloadStart("b")); capacityDimensionMetadata(err) != "run_slot" {
 		t.Fatalf("parallel start: %v", err)
 	}
@@ -60,6 +63,9 @@ func TestWorkloadStartsSerializeAndStoppedSandboxesReleaseCapacity(t *testing.T)
 	}
 	if err := controller.sampleWorkloadRuns(context.Background(), client); err != nil {
 		t.Fatal(err)
+	}
+	if !controller.workloadStartAvailable(time.Now()) {
+		t.Fatal("confirmed teardown did not advertise released capacity")
 	}
 	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-e", workloadStart("e")); err != nil {
 		t.Fatal(err)

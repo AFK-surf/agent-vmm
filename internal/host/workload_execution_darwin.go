@@ -13,11 +13,47 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+const maxExecutionHolders = 64
+
 type workloadExecution struct {
 	id         string
 	authority  string
 	instanceID string
-	deadline   time.Time
+	holders    map[string]time.Time
+}
+
+func executionHolderID(request *hostv1.ExecutionRequest) string {
+	if request.GetHolderId() != "" {
+		return request.GetHolderId()
+	}
+	return request.GetExecutionId()
+}
+
+func (execution *workloadExecution) pruneExpiredHolders(now time.Time) {
+	for holderID, deadline := range execution.holders {
+		if !deadline.IsZero() && !now.Before(deadline) {
+			delete(execution.holders, holderID)
+		}
+	}
+}
+
+func expireWorkloadExecutionLocked(run *workloadRun, now time.Time) bool {
+	if run.execution == nil {
+		return false
+	}
+	executionID := run.execution.id
+	run.execution.pruneExpiredHolders(now)
+	if len(run.execution.holders) != 0 {
+		return false
+	}
+	run.execution = nil
+	run.idleSince = now
+	if !run.stopping {
+		run.stopping = true
+		run.stopDeadline = now.Add(workloadStopBudget)
+		run.stopRequestID = derivedRequestID("expired-execution-" + executionID)
+	}
+	return true
 }
 
 func executionAuthority(identity auth.Identity) string {
@@ -55,6 +91,10 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 	if request.GetExecutionId() == "" || len(request.GetExecutionId()) > 256 {
 		return nil, invalidField("execution_id", "original execution identity is required")
 	}
+	holderID := executionHolderID(request)
+	if holderID == "" || len(holderID) > 256 {
+		return nil, invalidField("holder_id", "execution holder identity is required")
+	}
 	var deadline time.Time
 	if request.GetDeadlineUnixNano() != 0 {
 		deadline = time.Unix(0, request.GetDeadlineUnixNano())
@@ -70,6 +110,9 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 	if err != nil {
 		return nil, err
 	}
+	if expireWorkloadExecutionLocked(run, time.Now()) {
+		return nil, pendingWorkloadError(run, time.Now())
+	}
 	if run.starting || run.stopping || run.quiescing || run.inFlight {
 		return nil, pendingWorkloadError(run, time.Now())
 	}
@@ -79,8 +122,15 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 		if run.execution.id != request.GetExecutionId() || run.execution.authority != authority || run.execution.instanceID != run.instanceID {
 			return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTION_BUSY", "container", run.containerID, "another execution still owns this workload")
 		}
+		if _, exists := run.execution.holders[holderID]; !exists {
+			if len(run.execution.holders) >= maxExecutionHolders {
+				return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTION_HOLDERS_FULL", "container", run.containerID, "execution holder limit reached")
+			}
+			run.execution.holders[holderID] = deadline
+			acquired = true
+		}
 	} else {
-		run.execution = &workloadExecution{id: request.GetExecutionId(), authority: authority, instanceID: run.instanceID, deadline: deadline}
+		run.execution = &workloadExecution{id: request.GetExecutionId(), authority: authority, instanceID: run.instanceID, holders: map[string]time.Time{holderID: deadline}}
 		run.idleSince = time.Time{}
 		acquired = true
 	}
@@ -104,8 +154,12 @@ func (server *agentServer) ReleaseExecution(ctx context.Context, request *hostv1
 		if run.execution.id != request.GetExecutionId() || run.execution.authority != executionAuthority(identity) || run.execution.instanceID != run.instanceID {
 			return nil, resourceError(codes.Aborted, "STALE_EXECUTION", "container", run.containerID, "execution completion is stale")
 		}
-		run.execution = nil
-		run.idleSince = time.Now()
+		holderID := executionHolderID(request)
+		delete(run.execution.holders, holderID)
+		if len(run.execution.holders) == 0 {
+			run.execution = nil
+			run.idleSince = time.Now()
+		}
 	}
 	return &emptypb.Empty{}, nil
 }
