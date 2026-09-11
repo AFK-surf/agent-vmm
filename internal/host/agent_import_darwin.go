@@ -198,7 +198,7 @@ func downloadImportArchiveWithClient(ctx context.Context, client *http.Client, r
 	buffer := make([]byte, vmmdv1.MaxImportArchiveChunkBytes)
 	var received uint64
 	for {
-		count, readErr := limited.Read(buffer)
+		count, readErr := io.ReadFull(limited, buffer)
 		if count > 0 {
 			received += uint64(count)
 			if received > size {
@@ -208,7 +208,7 @@ func downloadImportArchiveWithClient(ctx context.Context, client *http.Client, r
 				return err
 			}
 		}
-		if errors.Is(readErr, io.EOF) {
+		if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
 			break
 		}
 		if readErr != nil {

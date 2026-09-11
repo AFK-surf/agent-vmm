@@ -111,7 +111,7 @@ func TestDownloadImportArchiveRequiresExactCommittedSize(t *testing.T) {
 		return &http.Response{
 			StatusCode:    http.StatusOK,
 			ContentLength: int64(len(payload)),
-			Body:          io.NopCloser(bytes.NewReader(payload)),
+			Body:          io.NopCloser(&boundedReadReader{reader: bytes.NewReader(payload), max: 16 << 10}),
 		}, nil
 	})}
 	var chunkSizes []int
@@ -124,6 +124,18 @@ func TestDownloadImportArchiveRequiresExactCommittedSize(t *testing.T) {
 	if len(chunkSizes) != 3 || chunkSizes[0] != vmmdv1.MaxImportArchiveChunkBytes || chunkSizes[1] != vmmdv1.MaxImportArchiveChunkBytes || chunkSizes[2] != 1<<20 {
 		t.Fatalf("archive chunk sizes = %v", chunkSizes)
 	}
+}
+
+type boundedReadReader struct {
+	reader io.Reader
+	max    int
+}
+
+func (reader *boundedReadReader) Read(buffer []byte) (int, error) {
+	if len(buffer) > reader.max {
+		buffer = buffer[:reader.max]
+	}
+	return reader.reader.Read(buffer)
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
