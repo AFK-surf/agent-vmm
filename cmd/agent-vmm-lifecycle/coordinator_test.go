@@ -38,20 +38,8 @@ func (mock *coordinatorMock) Init(ctx context.Context, request LifecycleRequest)
 	return mock.step(ctx, LifecycleInit, request)
 }
 
-func (mock *coordinatorMock) ApplianceInstall(ctx context.Context, request LifecycleRequest) error {
-	return mock.step(ctx, LifecycleApplianceInstall, request)
-}
-
-func (mock *coordinatorMock) Bootstrap(ctx context.Context, request LifecycleRequest) error {
-	return mock.step(ctx, LifecycleBootstrap, request)
-}
-
 func (mock *coordinatorMock) Register(ctx context.Context, request LifecycleRequest) error {
 	return mock.step(ctx, LifecycleRegister, request)
-}
-
-func (mock *coordinatorMock) Reconnect(ctx context.Context, request LifecycleRequest) error {
-	return mock.step(ctx, LifecycleReconnect, request)
 }
 
 func (mock *coordinatorMock) Stop(ctx context.Context, request LifecycleRequest) error {
@@ -83,12 +71,12 @@ func newTestCoordinator(t *testing.T, mock *coordinatorMock, operationTimeout, s
 func TestLifecycleCoordinatorInstallRunsBoundedForwardContract(t *testing.T) {
 	mock := &coordinatorMock{facts: LifecycleFacts{RemoteAttached: true}}
 	coordinator := newTestCoordinator(t, mock, time.Second, time.Second)
-	request := LifecycleRequest{RequestID: "request-1", InstallationID: "appliance-1", ExpectedRevision: 7}
+	request := LifecycleRequest{RequestID: "request-1"}
 
 	if err := coordinator.Run(context.Background(), LifecycleInstall, request); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"install", "init", "appliance-install", "bootstrap", "register", "reconnect", "observe"}; !reflect.DeepEqual(mock.calls, want) {
+	if want := []string{"install", "init", "register", "observe"}; !reflect.DeepEqual(mock.calls, want) {
 		t.Fatalf("calls=%v want=%v", mock.calls, want)
 	}
 	for index, observed := range mock.requests {
@@ -100,7 +88,7 @@ func TestLifecycleCoordinatorInstallRunsBoundedForwardContract(t *testing.T) {
 
 func TestLifecycleCoordinatorDoesNotDeriveSalixReadinessFromHealth(t *testing.T) {
 	mock := &coordinatorMock{facts: LifecycleFacts{
-		HostHealthy: true, ApplianceHealthy: true, ControllerActive: true, InventoryComplete: true,
+		HostHealthy:    true,
 		RemoteAttached: false,
 	}}
 	coordinator := newTestCoordinator(t, mock, time.Second, time.Second)
@@ -129,8 +117,7 @@ func TestLifecycleCoordinatorRemoveStopsBeforeRemoving(t *testing.T) {
 
 func TestLifecycleCoordinatorExposesEverySingleStepAction(t *testing.T) {
 	for _, action := range []LifecycleAction{
-		LifecycleInit, LifecycleApplianceInstall, LifecycleBootstrap,
-		LifecycleRegister, LifecycleReconnect, LifecycleStop,
+		LifecycleInit, LifecycleRegister, LifecycleStop,
 	} {
 		t.Run(string(action), func(t *testing.T) {
 			mock := &coordinatorMock{}
@@ -146,7 +133,7 @@ func TestLifecycleCoordinatorExposesEverySingleStepAction(t *testing.T) {
 }
 
 func TestLifecycleCoordinatorBoundsAStuckStep(t *testing.T) {
-	mock := &coordinatorMock{blockAction: LifecycleBootstrap}
+	mock := &coordinatorMock{blockAction: LifecycleRegister}
 	coordinator := newTestCoordinator(t, mock, 200*time.Millisecond, 30*time.Millisecond)
 
 	started := time.Now()
@@ -157,7 +144,7 @@ func TestLifecycleCoordinatorBoundsAStuckStep(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("stuck step exceeded bounded test window: %s", elapsed)
 	}
-	if want := []string{"install", "init", "appliance-install", "bootstrap"}; !reflect.DeepEqual(mock.calls, want) {
+	if want := []string{"install", "init", "register"}; !reflect.DeepEqual(mock.calls, want) {
 		t.Fatalf("calls=%v want=%v", mock.calls, want)
 	}
 }
@@ -187,7 +174,7 @@ func TestLifecycleCoordinatorRejectsMissingAdapter(t *testing.T) {
 		t.Fatal("expected missing adapter error")
 	}
 	adapter := newHelperLifecycleAdapter(testPaths(t.TempDir()), lifecycleAdapterHooks{})
-	if err := adapter.ApplianceInstall(context.Background(), LifecycleRequest{}); !errors.Is(err, ErrCoordinatorAdapterUnavailable) {
+	if err := adapter.Register(context.Background(), LifecycleRequest{}); !errors.Is(err, ErrCoordinatorAdapterUnavailable) {
 		t.Fatalf("error=%v want ErrCoordinatorAdapterUnavailable", err)
 	}
 }

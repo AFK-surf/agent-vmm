@@ -5,6 +5,7 @@ package vmm
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,10 +20,18 @@ type BundledApplianceMaterial struct {
 	ImageDigest string
 }
 
-func (manager *Manager) ReadVerifiedBundledApplianceMaterial() (BundledApplianceMaterial, error) {
+func (manager *Manager) ReadVerifiedBundledApplianceMaterial() (BundledApplianceMaterial, bool, error) {
 	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.GuestManifestDigest)
 	if err != nil {
-		return BundledApplianceMaterial{}, err
+		return BundledApplianceMaterial{}, false, err
+	}
+	_, hasManifest := verified.Manifest.Artifacts["mcp_appliance_manifest"]
+	_, hasDigest := verified.Manifest.Artifacts["mcp_appliance_digest"]
+	if !hasManifest && !hasDigest {
+		return BundledApplianceMaterial{}, false, nil
+	}
+	if !hasManifest || !hasDigest {
+		return BundledApplianceMaterial{}, false, errors.New("bundled appliance material is incomplete")
 	}
 	read := func(name string) ([]byte, error) {
 		artifact, ok := verified.Manifest.Artifacts[name]
@@ -50,11 +59,11 @@ func (manager *Manager) ReadVerifiedBundledApplianceMaterial() (BundledAppliance
 	}
 	manifest, err := read("mcp_appliance_manifest")
 	if err != nil {
-		return BundledApplianceMaterial{}, err
+		return BundledApplianceMaterial{}, false, err
 	}
 	digest, err := read("mcp_appliance_digest")
 	if err != nil {
-		return BundledApplianceMaterial{}, err
+		return BundledApplianceMaterial{}, false, err
 	}
-	return BundledApplianceMaterial{Manifest: manifest, ImageDigest: strings.TrimSpace(string(digest))}, nil
+	return BundledApplianceMaterial{Manifest: manifest, ImageDigest: strings.TrimSpace(string(digest))}, true, nil
 }

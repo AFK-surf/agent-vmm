@@ -131,6 +131,19 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	manifestB.Release = "e2e-b"
 	storeApplianceArchive(t, harness, manifestB, archive)
 	statusB := activateReferenceAppliance(t, client, "e2e-reference-b", manifestB, deadline, secretB)
+	t.Run("workload_after_activation", func(t *testing.T) {
+		runtime := harness.runtime(t)
+		const environment = "appliance-activation-workload"
+		ensureNamespace(t, runtime, environment, 128<<20)
+		importRegistryImage(t, runtime, environment)
+		container := createContainer(t, runtime, environment, "worker", []string{"/bin/sh", "-c", "while :; do sleep 1; done"}, nil)
+		startContainer(t, runtime, environment, container.GetId())
+		if output, code := execContainer(t, runtime, environment, container.GetId(), []string{"/bin/echo", "activation-ready"}); code != 0 || string(output) != "activation-ready\n" {
+			t.Fatalf("workload after appliance activation: output=%q code=%d", output, code)
+		}
+		stopContainer(t, runtime, environment, container.GetId())
+		deleteContainer(t, runtime, environment, container.GetId())
+	})
 	for _, status := range []*appliancev1.ApplianceStatus{statusA, statusB} {
 		if status.GetApplianceState() != appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING || !status.GetHealth().GetHealthy() || status.GetChannelState() != appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE {
 			t.Fatalf("appliance status = %+v", status)
@@ -1006,8 +1019,7 @@ func testContainerLifecycle(t *testing.T, client *productClient) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	startContainer(t, client, "lifecycle", limited.GetContainer().GetId())
-	waitContainer(t, client, "lifecycle", limited.GetContainer().GetId(), 0)
+	startAndWaitContainer(t, client, "lifecycle", limited.GetContainer().GetId(), 0)
 	stream, err := client.Logs(ctx, "lifecycle", &hostv1.LogsRequest{ContainerId: limited.GetContainer().GetId()})
 	if err != nil {
 		t.Fatal(err)
@@ -1049,12 +1061,10 @@ func testNamedVolume(t *testing.T, client *productClient) {
 	mount := []*hostv1.VolumeMount{{VolumeId: "salix-vol-provider-state", Destination: "/workspace"}}
 	env := []string{"HOME=/workspace"}
 	writer := createContainerAsUser(t, client, "volume-owner", "writer", image, "1000:1000", []string{"/bin/provider-state", "write-codex"}, env, mount)
-	startContainer(t, client, "volume-owner", writer.GetId())
-	waitContainer(t, client, "volume-owner", writer.GetId(), 0)
+	startAndWaitContainer(t, client, "volume-owner", writer.GetId(), 0)
 	deleteContainer(t, client, "volume-owner", writer.GetId())
 	reader := createContainerAsUser(t, client, "volume-owner", "reader", image, "1000:1000", []string{"/bin/provider-state", "read-codex"}, env, mount)
-	startContainer(t, client, "volume-owner", reader.GetId())
-	waitContainer(t, client, "volume-owner", reader.GetId(), 0)
+	startAndWaitContainer(t, client, "volume-owner", reader.GetId(), 0)
 	if logs := readLogs(t, client, "volume-owner", reader.GetId()); string(logs) != "authenticated\n" {
 		t.Fatalf("provider readiness = %q", logs)
 	}
@@ -1104,8 +1114,7 @@ func testDiskQuota(t *testing.T, client *productClient) {
 		t.Fatal("write beyond project quota succeeded")
 	}
 	healthy := createContainer(t, client, "healthy", "healthy", []string{"/bin/sh", "-c", "echo unaffected"}, nil)
-	startContainer(t, client, "healthy", healthy.GetId())
-	waitContainer(t, client, "healthy", healthy.GetId(), 0)
+	startAndWaitContainer(t, client, "healthy", healthy.GetId(), 0)
 	if logs := readLogs(t, client, "healthy", healthy.GetId()); !bytes.Contains(logs, []byte("unaffected")) {
 		t.Fatalf("healthy namespace logs = %q", logs)
 	}
@@ -1319,8 +1328,7 @@ func testDockerfileBuild(t *testing.T, client *productClient) {
 		t.Fatalf("second build progress = %q", second.progress)
 	}
 	container := createContainerWithImage(t, client, "dockerfile-build", "result", image, []string{"/bin/result", "--assert-absent", string(secret)})
-	startContainer(t, client, "dockerfile-build", container.GetId())
-	waitContainer(t, client, "dockerfile-build", container.GetId(), 0)
+	startAndWaitContainer(t, client, "dockerfile-build", container.GetId(), 0)
 	if output := readLogs(t, client, "dockerfile-build", container.GetId()); string(output) != "build-ok\n" {
 		t.Fatalf("built image output = %q", output)
 	}
@@ -1335,8 +1343,7 @@ func testDockerfileBuild(t *testing.T, client *productClient) {
 		t.Fatal("changed build retained the old digest")
 	}
 	container = createContainerWithImage(t, client, "dockerfile-build", "rebuilt", image, []string{"/bin/result", "--assert-absent", string(secret)})
-	startContainer(t, client, "dockerfile-build", container.GetId())
-	waitContainer(t, client, "dockerfile-build", container.GetId(), 0)
+	startAndWaitContainer(t, client, "dockerfile-build", container.GetId(), 0)
 	if output := readLogs(t, client, "dockerfile-build", container.GetId()); string(output) != "rebuilt-ok\n" {
 		t.Fatalf("rebuilt image output = %q", output)
 	}
@@ -1815,6 +1822,7 @@ func startHostWithState(t *testing.T, stateBytes uint64) *hostHarness {
 	harness.launchHostProcess(t)
 	t.Cleanup(func() {
 		if t.Failed() {
+			t.Logf("host log tail:\n%s", readFileTail(serial+".host.log", 64<<10))
 			t.Logf("serial log tail:\n%s", readFileTail(serial, 64<<10))
 		}
 	})
@@ -2300,6 +2308,22 @@ func startContainer(t *testing.T, client *productClient, namespaceID, containerI
 	if response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_RUNNING {
 		t.Fatalf("StartContainer() = %+v", response.GetContainer())
 	}
+}
+
+func startAndWaitContainer(t *testing.T, client *productClient, namespaceID, containerID string, expected uint32) uint32 {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	response, err := client.StartContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "start-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000"), ContainerId: containerID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch response.GetContainer().GetState() {
+	case hostv1.ContainerState_CONTAINER_STATE_RUNNING, hostv1.ContainerState_CONTAINER_STATE_UNKNOWN, hostv1.ContainerState_CONTAINER_STATE_STOPPED:
+	default:
+		t.Fatalf("StartContainer() = %+v", response.GetContainer())
+	}
+	return waitContainer(t, client, namespaceID, containerID, expected)
 }
 
 func stopContainer(t *testing.T, client *productClient, namespaceID, containerID string) {

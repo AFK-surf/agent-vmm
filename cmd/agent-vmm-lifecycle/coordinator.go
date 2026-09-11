@@ -24,33 +24,25 @@ var (
 type LifecycleAction string
 
 const (
-	LifecycleInstall          LifecycleAction = "install"
-	LifecycleInit             LifecycleAction = "init"
-	LifecycleApplianceInstall LifecycleAction = "appliance-install"
-	LifecycleBootstrap        LifecycleAction = "bootstrap"
-	LifecycleRegister         LifecycleAction = "register"
-	LifecycleReconnect        LifecycleAction = "reconnect"
-	LifecycleStop             LifecycleAction = "stop"
-	LifecycleRemove           LifecycleAction = "remove"
+	LifecycleInstall  LifecycleAction = "install"
+	LifecycleInit     LifecycleAction = "init"
+	LifecycleRegister LifecycleAction = "register"
+	LifecycleStop     LifecycleAction = "stop"
+	LifecycleRemove   LifecycleAction = "remove"
 )
 
 type LifecycleRequest struct {
 	RequestID                  string
-	InstallationID             string
-	ExpectedRevision           uint64
 	Purge                      bool
 	DisablePersonalMeshPairing bool
 }
 
-// LifecycleFacts are observations from the local operator/appliance boundary.
+// LifecycleFacts are observations from the local operator boundary.
 // RemoteAttached means the exact managed registration is enrolled and its
 // connector is connected. It is not Salix admission or product Node readiness.
 type LifecycleFacts struct {
-	HostHealthy       bool
-	ApplianceHealthy  bool
-	ControllerActive  bool
-	InventoryComplete bool
-	RemoteAttached    bool
+	HostHealthy    bool
+	RemoteAttached bool
 }
 
 // LifecycleAdapter is the provider-neutral seam. Implementations must honor
@@ -60,10 +52,7 @@ type LifecycleFacts struct {
 type LifecycleAdapter interface {
 	Install(context.Context, LifecycleRequest) error
 	Init(context.Context, LifecycleRequest) error
-	ApplianceInstall(context.Context, LifecycleRequest) error
-	Bootstrap(context.Context, LifecycleRequest) error
 	Register(context.Context, LifecycleRequest) error
-	Reconnect(context.Context, LifecycleRequest) error
 	Stop(context.Context, LifecycleRequest) error
 	Remove(context.Context, LifecycleRequest) error
 	Observe(context.Context, LifecycleRequest) (LifecycleFacts, error)
@@ -122,8 +111,7 @@ func (coordinator *LifecycleCoordinator) Run(ctx context.Context, action Lifecyc
 		return err
 	}
 	if !facts.RemoteAttached {
-		return fmt.Errorf("%w: hostHealthy=%t applianceHealthy=%t controllerActive=%t inventoryComplete=%t",
-			ErrCoordinatorNotReady, facts.HostHealthy, facts.ApplianceHealthy, facts.ControllerActive, facts.InventoryComplete)
+		return fmt.Errorf("%w: hostHealthy=%t", ErrCoordinatorNotReady, facts.HostHealthy)
 	}
 	return nil
 }
@@ -146,38 +134,17 @@ func (coordinator *LifecycleCoordinator) steps(action LifecycleAction) ([]coordi
 			step(LifecycleInit, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 				return adapter.Init(ctx, request)
 			}),
-			step(LifecycleApplianceInstall, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
-				return adapter.ApplianceInstall(ctx, request)
-			}),
-			step(LifecycleBootstrap, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
-				return adapter.Bootstrap(ctx, request)
-			}),
 			step(LifecycleRegister, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 				return adapter.Register(ctx, request)
-			}),
-			step(LifecycleReconnect, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
-				return adapter.Reconnect(ctx, request)
 			}),
 		}, true, nil
 	case LifecycleInit:
 		return []coordinatorStep{step(LifecycleInit, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 			return adapter.Init(ctx, request)
 		})}, false, nil
-	case LifecycleApplianceInstall:
-		return []coordinatorStep{step(LifecycleApplianceInstall, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
-			return adapter.ApplianceInstall(ctx, request)
-		})}, false, nil
-	case LifecycleBootstrap:
-		return []coordinatorStep{step(LifecycleBootstrap, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
-			return adapter.Bootstrap(ctx, request)
-		})}, false, nil
 	case LifecycleRegister:
 		return []coordinatorStep{step(LifecycleRegister, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 			return adapter.Register(ctx, request)
-		})}, false, nil
-	case LifecycleReconnect:
-		return []coordinatorStep{step(LifecycleReconnect, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
-			return adapter.Reconnect(ctx, request)
 		})}, false, nil
 	case LifecycleStop:
 		return []coordinatorStep{step(LifecycleStop, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
@@ -232,14 +199,11 @@ type lifecycleObserveFunc func(context.Context, LifecycleRequest) (LifecycleFact
 
 // lifecycleAdapterHooks lets the local helper reuse the already-owned host
 // install/VM/drain/remove operations while a product supplies only the
-// provider-specific appliance and controller calls. A nil appliance hook is a
+// remote enrollment calls. A nil enrollment hook is a
 // deliberate fail-closed result, never an implicit success.
 type lifecycleAdapterHooks struct {
-	ApplianceInstall lifecycleStepFunc
-	Bootstrap        lifecycleStepFunc
-	Register         lifecycleStepFunc
-	Reconnect        lifecycleStepFunc
-	Observe          lifecycleObserveFunc
+	Register lifecycleStepFunc
+	Observe  lifecycleObserveFunc
 }
 
 type helperLifecycleAdapter struct {
@@ -250,7 +214,7 @@ type helperLifecycleAdapter struct {
 }
 
 func newHelperLifecycleAdapter(value paths, hooks lifecycleAdapterHooks) LifecycleAdapter {
-	return &helperLifecycleAdapter{value: value, hooks: hooks, launchctl: launchctlContext, status: readStatusContext}
+	return &helperLifecycleAdapter{value: value, hooks: hooks, launchctl: launchctlContext, status: func(ctx context.Context, value paths) serviceStatus { return readStatusContext(ctx, value) }}
 }
 
 func (adapter *helperLifecycleAdapter) Install(ctx context.Context, request LifecycleRequest) error {
@@ -265,20 +229,8 @@ func (adapter *helperLifecycleAdapter) Init(ctx context.Context, request Lifecyc
 	return ensureVMStartedContext(ctx, adapter.value, request.RequestID)
 }
 
-func (adapter *helperLifecycleAdapter) ApplianceInstall(ctx context.Context, request LifecycleRequest) error {
-	return adapter.runHook(ctx, LifecycleApplianceInstall, adapter.hooks.ApplianceInstall, request)
-}
-
-func (adapter *helperLifecycleAdapter) Bootstrap(ctx context.Context, request LifecycleRequest) error {
-	return adapter.runHook(ctx, LifecycleBootstrap, adapter.hooks.Bootstrap, request)
-}
-
 func (adapter *helperLifecycleAdapter) Register(ctx context.Context, request LifecycleRequest) error {
 	return adapter.runHook(ctx, LifecycleRegister, adapter.hooks.Register, request)
-}
-
-func (adapter *helperLifecycleAdapter) Reconnect(ctx context.Context, request LifecycleRequest) error {
-	return adapter.runHook(ctx, LifecycleReconnect, adapter.hooks.Reconnect, request)
 }
 
 func (adapter *helperLifecycleAdapter) Stop(ctx context.Context, _ LifecycleRequest) error {
@@ -301,11 +253,8 @@ func (adapter *helperLifecycleAdapter) Observe(ctx context.Context, request Life
 		return LifecycleFacts{}, err
 	}
 	return LifecycleFacts{
-		HostHealthy:       status.HostHealthy,
-		ApplianceHealthy:  status.ApplianceHealthy,
-		ControllerActive:  status.ControllerActive,
-		InventoryComplete: status.InventoryComplete,
-		RemoteAttached:    false,
+		HostHealthy:    status.HostHealthy,
+		RemoteAttached: false,
 	}, nil
 }
 

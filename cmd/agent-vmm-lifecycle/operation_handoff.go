@@ -36,12 +36,6 @@ type operationHandoffDescriptor struct {
 	ExpiresAt     string `json:"expires_at"`
 }
 
-type applianceMaterial struct {
-	InstallationID string `json:"installation_id"`
-	ApprovedGrant  string `json:"approved_grant"`
-	BootstrapSeed  string `json:"bootstrap_seed"`
-}
-
 type resourcePolicy struct {
 	CPUMillis   uint32 `json:"cpu_millis"`
 	MemoryBytes uint64 `json:"memory_bytes"`
@@ -71,7 +65,6 @@ type operationHandoffPlan struct {
 	OperationID        string                   `json:"operation_id"`
 	RegistrationID     string                   `json:"registration_id"`
 	ScopeDigest        string                   `json:"scope_digest"`
-	Appliance          applianceMaterial        `json:"appliance"`
 	RemoteEnrollment   remoteEnrollmentMaterial `json:"remote_enrollment"`
 	HostIdentityDigest string                   `json:"host_identity_digest"`
 }
@@ -89,7 +82,6 @@ type completedOperationReceipt struct {
 	Version        int    `json:"version"`
 	OperationID    string `json:"operation_id"`
 	RegistrationID string `json:"registration_id"`
-	InstallationID string `json:"installation_id"`
 }
 
 type operationHandoffHTTPError struct {
@@ -119,7 +111,6 @@ func newProductionLifecycleAdapterForResume(value paths, operationID string) (Li
 }
 
 func productionLifecycleAdapterForResume(value paths, operationID string) (*productionLifecycleAdapter, error) {
-	directory := filepath.Join(value.applicationData, "install-operations", operationID)
 	data, err := readInstallOperationState(value, operationID, "plan.json", lifecycleOperationHandoffMaxBytes)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -135,7 +126,6 @@ func productionLifecycleAdapterForResume(value paths, operationID string) (*prod
 	}
 	adapter := &productionLifecycleAdapter{
 		value:      value,
-		configPath: filepath.Join(directory, "appliance.json"),
 		descriptor: plan.AckDescriptor,
 		material:   &plan.Material,
 	}
@@ -203,7 +193,6 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 		}
 		adapter.material = &plan.Material
 		adapter.descriptor = nil
-		adapter.configPath = filepath.Join(directory, "appliance.json")
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("read durable install plan: %w", err)
@@ -239,7 +228,7 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 		return terminalManagedInstallError(err)
 	}
 	deadlineUnixMillis := time.Now().Add(defaultCoordinatorOperationTimeout).UnixMilli()
-	configPath, err := persistOperationHandoff(adapter.value, directory, material, deadlineUnixMillis, false, adapter.descriptor)
+	_, err = persistOperationHandoff(adapter.value, directory, material, deadlineUnixMillis, false, adapter.descriptor)
 	if err != nil {
 		return err
 	}
@@ -254,7 +243,6 @@ func (adapter *productionLifecycleAdapter) ensureInstallPlan(ctx context.Context
 	}
 	adapter.material = &material
 	adapter.descriptor = nil
-	adapter.configPath = configPath
 	return nil
 }
 
@@ -388,50 +376,11 @@ func persistOperationHandoffOwned(value paths, directory string, material operat
 	if !acknowledged && !validPersistedAckDescriptor(ackDescriptor, material.OperationID) {
 		return "", errors.New("managed install acknowledgement capability is invalid")
 	}
-	grant, err := decodeOperationField("approved_grant", material.Appliance.ApprovedGrant, 1<<20)
-	if err != nil {
-		return "", err
-	}
-	seed, err := decodeOperationField("bootstrap_seed", material.Appliance.BootstrapSeed, 128<<10)
-	if err != nil {
-		return "", err
-	}
-	manifestPath := filepath.Join(directory, "manifest.pb")
-	if exists, err := regularStateFileExistsAt(operationDirectory, "manifest.pb"); err != nil {
-		return "", err
-	} else if exists {
-		if err := handoffExistingStateFileAt(operationDirectory, "manifest.pb", owner); err != nil {
-			return "", err
-		}
-	} else if !exists {
-		manifest, readErr := os.ReadFile(filepath.Join(value.resources, "Guest", "mcp-appliance", "manifest.pb"))
-		if readErr != nil || len(manifest) == 0 || len(manifest) > 4<<20 {
-			return "", errors.New("bundled appliance manifest is unavailable")
-		}
-		if err := atomicWriteStateFileAt(operationDirectory, "manifest.pb", manifest, 0o600, owner); err != nil {
-			return "", err
-		}
-	}
-	artifacts := []struct {
-		name string
-		data []byte
-	}{{"approved-grant.pb", grant}, {"bootstrap-seed.bin", seed}}
-	for _, artifact := range artifacts {
-		if err := atomicWriteStateFileAt(operationDirectory, artifact.name, artifact.data, 0o600, owner); err != nil {
-			return "", err
-		}
-	}
-	config := applianceLifecycleConfig{Version: 1, InstallationID: material.Appliance.InstallationID, ManifestPath: manifestPath, ApprovedGrantPath: filepath.Join(directory, "approved-grant.pb"), BootstrapSeedPath: filepath.Join(directory, "bootstrap-seed.bin")}
-	configBytes, _ := json.Marshal(config)
-	configPath := filepath.Join(directory, "appliance.json")
-	if err := atomicWriteStateFileAt(operationDirectory, "appliance.json", configBytes, 0o600, owner); err != nil {
-		return "", err
-	}
 	planBytes, _ := json.Marshal(persistedInstallOperation{Version: 1, OperationID: material.OperationID, DeadlineUnixMillis: deadlineUnixMillis, Acknowledged: acknowledged, AckDescriptor: ackDescriptor, Material: material})
 	if err := atomicWriteStateFileAt(operationDirectory, "plan.json", planBytes, 0o600, owner); err != nil {
 		return "", err
 	}
-	return configPath, nil
+	return filepath.Join(directory, "plan.json"), nil
 }
 
 func (material operationHandoffPlan) remotePoolPolicy() (*hostv1.RemotePoolPolicy, error) {
@@ -525,7 +474,6 @@ func persistCompletedInstallOwned(value paths, adapter *productionLifecycleAdapt
 		Version:        1,
 		OperationID:    material.OperationID,
 		RegistrationID: material.RegistrationID,
-		InstallationID: material.Appliance.InstallationID,
 	}
 	if !validCompletedInstallReceipt(receipt, material.OperationID) {
 		return errors.New("managed install completion receipt is invalid")
@@ -556,6 +504,5 @@ func completedInstallExists(value paths, operationID string) (bool, error) {
 
 func validCompletedInstallReceipt(receipt completedOperationReceipt, operationID string) bool {
 	return receipt.Version == 1 && receipt.OperationID == operationID &&
-		operationIDPattern.MatchString(operationID) && operationIDPattern.MatchString(receipt.RegistrationID) &&
-		receipt.InstallationID != "" && len(receipt.InstallationID) <= 160
+		operationIDPattern.MatchString(operationID) && operationIDPattern.MatchString(receipt.RegistrationID)
 }

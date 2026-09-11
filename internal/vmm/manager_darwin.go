@@ -214,7 +214,7 @@ func (manager *Manager) start(ctx context.Context) error {
 	startedAt := time.Now()
 	log.Printf("vmm start stage: stage=verify_bundle")
 	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.GuestManifestDigest,
-		"kernel", "initramfs", "rootfs", "mcp_appliance_digest", "mcp_appliance_manifest")
+		"kernel", "initramfs", "rootfs")
 	if err != nil {
 		return fmt.Errorf("verify bundle: %w", err)
 	}

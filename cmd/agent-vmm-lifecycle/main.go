@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"golang.org/x/sys/unix"
@@ -104,10 +103,6 @@ type serviceStatus struct {
 	ConnectorLoaded    bool                `json:"connectorLoaded"`
 	HostReadable       bool                `json:"hostReadable"`
 	HostHealthy        bool                `json:"hostHealthy"`
-	ApplianceInstalled bool                `json:"applianceInstalled"`
-	ApplianceHealthy   bool                `json:"applianceHealthy"`
-	ControllerActive   bool                `json:"controllerActive"`
-	InventoryComplete  bool                `json:"inventoryComplete"`
 	Operation          *lifecycleOperation `json:"operation,omitempty"`
 }
 
@@ -175,7 +170,13 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "status":
-		if err := json.NewEncoder(os.Stdout).Encode(readStatus(resolved)); err != nil {
+		registrationID, err := parseStatusArgs(commandArgs)
+		if err != nil {
+			fatal(err.Error())
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := json.NewEncoder(os.Stdout).Encode(readStatusContext(ctx, resolved, registrationID)); err != nil {
 			fatal("status encoding failed")
 		}
 	case "install-operation-ack":
@@ -461,27 +462,21 @@ func readStatus(value paths) serviceStatus {
 	return readStatusContext(context.Background(), value)
 }
 
-func readStatusContext(ctx context.Context, value paths) serviceStatus {
+func readStatusContext(ctx context.Context, value paths, registrationIDs ...string) serviceStatus {
 	result := serviceStatus{
 		AppInstalled:  directory(value.app),
 		HostInstalled: regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
 		HostLoaded:    launchctlContext(ctx, "print", value.serviceDomain()+"/"+hostLabel) == nil,
 		Operation:     readLifecycleOperation(value),
 	}
-	// Local Host and appliance diagnostics never claim Salix admission or
+	// Local Host and exact connector observations never claim Salix admission or
 	// product Node readiness. Those facts are owned by the server observation.
 	result.ConnectorInstalled = result.HostInstalled
 	if result.HostLoaded {
-		facts, err := readOperatorFactsContext(ctx, filepath.Join(value.applicationData, "operator.sock"))
-		if err == nil {
-			result.HostReadable = true
-			result.HostHealthy = facts.hostHealthy
-			result.ApplianceInstalled = facts.applianceInstalled
-			result.ApplianceHealthy = facts.applianceHealthy
-			result.ControllerActive = facts.controllerActive
-			result.InventoryComplete = facts.inventoryComplete
-			result.ConnectorLoaded = facts.controllerActive
-		}
+		facts, _ := readOperatorFactsContext(ctx, filepath.Join(value.applicationData, "operator.sock"), registrationIDs...)
+		result.HostReadable = facts.hostReadable
+		result.HostHealthy = facts.hostHealthy
+		result.ConnectorLoaded = facts.connectorConnected
 	}
 	return result
 }
@@ -978,11 +973,19 @@ func writeOperation(operation lifecycleOperation) error {
 }
 
 type operatorFacts struct {
+	hostReadable       bool
 	hostHealthy        bool
-	applianceInstalled bool
-	applianceHealthy   bool
-	controllerActive   bool
-	inventoryComplete  bool
+	connectorConnected bool
+}
+
+func parseStatusArgs(args []string) (string, error) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	if len(args) == 2 && args[0] == "--registration-id" && operationIDPattern.MatchString(args[1]) {
+		return args[1], nil
+	}
+	return "", errors.New("status accepts --registration-id ID")
 }
 
 func readOperatorFacts(socket string) (operatorFacts, error) {
@@ -991,7 +994,7 @@ func readOperatorFacts(socket string) (operatorFacts, error) {
 	return readOperatorFactsContext(ctx, socket)
 }
 
-func readOperatorFactsContext(ctx context.Context, socket string) (operatorFacts, error) {
+func readOperatorFactsContext(ctx context.Context, socket string, registrationIDs ...string) (operatorFacts, error) {
 	connection, err := operatorConnection(ctx, socket)
 	if err != nil {
 		return operatorFacts{}, err
@@ -1002,34 +1005,19 @@ func readOperatorFactsContext(ctx context.Context, socket string) (operatorFacts
 	if err != nil {
 		return operatorFacts{}, err
 	}
-	appliances, err := appliancev1.NewApplianceAdminServiceClient(connection).List(ctx, &appliancev1.ListAppliancesRequest{})
-	if err != nil {
-		return operatorFacts{}, err
-	}
 	facts := operatorFacts{
+		hostReadable: true,
 		hostHealthy: snapshot.GetVm().GetState() == hostv1.VMState_VM_STATE_RUNNING &&
 			snapshot.GetHealth().GetState() == hostv1.HealthState_HEALTH_STATE_HEALTHY,
 	}
-	facts = mergeApplianceFacts(facts, appliances.GetAppliances())
-	return facts, nil
-}
-
-// mergeApplianceFacts keeps appliance diagnostics aggregate. It deliberately
-// does not project Salix admission or product Node readiness.
-func mergeApplianceFacts(facts operatorFacts, appliances []*appliancev1.ApplianceStatus) operatorFacts {
-	facts.applianceInstalled = len(appliances) > 0
-	for _, appliance := range appliances {
-		health := appliance.GetHealth()
-		applianceHealthy := appliance.GetApplianceState() == appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING &&
-			health.GetHealthy()
-		controllerActive := appliance.GetChannelState() == appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE &&
-			len(health.GetReadinessNonce()) > 0
-		inventoryComplete := appliance.GetInventoryWatermark() > 0
-		facts.applianceHealthy = facts.applianceHealthy || applianceHealthy
-		facts.controllerActive = facts.controllerActive || controllerActive
-		facts.inventoryComplete = facts.inventoryComplete || inventoryComplete
+	if len(registrationIDs) != 0 && registrationIDs[0] != "" {
+		remote, err := hostv1.NewOperatorServiceClient(connection).GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationIDs[0]})
+		if err != nil {
+			return facts, err
+		}
+		facts.connectorConnected = remote.GetRegistration().GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
 	}
-	return facts
+	return facts, nil
 }
 
 func ensureVMStarted(value paths, requestID string) error {

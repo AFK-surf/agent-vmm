@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strings"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -84,8 +87,12 @@ func sendImportHeader(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv 
 }
 
 func forwardImportArchive(ctx context.Context, raw string, size uint64, send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error)) (*vmmdv1.Image, error) {
+	return forwardImportArchiveWithDownload(ctx, raw, size, send, closeAndRecv, downloadImportArchive)
+}
+
+func forwardImportArchiveWithDownload(ctx context.Context, raw string, size uint64, send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), download func(context.Context, string, uint64, func([]byte) error) error) (*vmmdv1.Image, error) {
 	var completed *vmmdv1.Image
-	err := downloadImportArchive(ctx, raw, size, func(chunk []byte) error {
+	err := download(ctx, raw, size, func(chunk []byte) error {
 		err := send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: chunk}})
 		if !errors.Is(err, io.EOF) {
 			return err
@@ -116,15 +123,66 @@ func validateImportArchiveURL(raw string) error {
 func downloadImportArchive(ctx context.Context, raw string, size uint64, send func([]byte) error) error {
 	ctx, cancel := context.WithTimeout(ctx, importDownloadTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	client, err := importHTTPClient(ctx, raw, net.DefaultResolver, (&net.Dialer{}).DialContext)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve runtime OCI archive: %w", err)
 	}
-	client := &http.Client{
-		Timeout: importDownloadTimeout,
+	return downloadImportArchiveWithClient(ctx, client, raw, size, send)
+}
+
+type importAddressResolver interface {
+	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
+}
+
+func importHTTPClient(ctx context.Context, raw string, resolver importAddressResolver, dialContext func(context.Context, string, string) (net.Conn, error)) (*http.Client, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	hostname := parsed.Hostname()
+	port := parsed.Port()
+	if port == "" {
+		port = "443"
+	}
+	addresses, err := resolver.LookupNetIP(ctx, "ip4", hostname)
+	if err != nil {
+		return nil, err
+	}
+	if len(addresses) == 0 {
+		return nil, errors.New("runtime OCI archive host has no public IPv4 address")
+	}
+	for _, address := range addresses {
+		if !importArchiveAddressAllowed(address) {
+			return nil, errors.New("runtime OCI archive host resolved to a non-public address")
+		}
+	}
+	selected := addresses[0]
+	transport := &http.Transport{
+		Proxy: nil,
+		DialContext: func(dialCtx context.Context, network, requested string) (net.Conn, error) {
+			requestedHost, requestedPort, splitErr := net.SplitHostPort(requested)
+			if splitErr != nil || !strings.EqualFold(strings.TrimSuffix(requestedHost, "."), strings.TrimSuffix(hostname, ".")) || requestedPort != port {
+				return nil, errors.New("runtime OCI archive transport requested an unexpected destination")
+			}
+			return dialContext(dialCtx, "tcp4", net.JoinHostPort(selected.String(), port))
+		},
+	}
+	if base, ok := http.DefaultTransport.(*http.Transport); ok && base.TLSClientConfig != nil {
+		transport.TLSClientConfig = base.TLSClientConfig.Clone()
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   importDownloadTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("runtime OCI download redirects are not allowed")
 		},
+	}, nil
+}
+
+func downloadImportArchiveWithClient(ctx context.Context, client *http.Client, raw string, size uint64, send func([]byte) error) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	if err != nil {
+		return err
 	}
 	response, err := client.Do(request)
 	if err != nil {

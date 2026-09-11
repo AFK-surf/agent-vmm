@@ -136,24 +136,11 @@ func validTestInstallMaterial() operationHandoffPlan {
 	digest := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	return operationHandoffPlan{
 		Version: 1, OperationID: "operation-1", RegistrationID: "registration-1", ScopeDigest: digest,
-		Appliance: applianceMaterial{InstallationID: "installation-1",
-			ApprovedGrant: base64.StdEncoding.EncodeToString([]byte("grant")), BootstrapSeed: base64.StdEncoding.EncodeToString([]byte("seed"))},
 		RemoteEnrollment: remoteEnrollmentMaterial{GatewayEndpoint: "vmm.example.test:7443", PolicyRevision: 1,
 			PoolPolicy: remotePoolMaterial{MaxEnvironments: 1, MaxEgressMode: "deny_all", MaxLeaseSeconds: 60,
 				DisconnectGraceSeconds: 1, StopGraceSeconds: 1,
 				PerEnvironmentLimits: resourcePolicy{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}}},
 		HostIdentityDigest: digest,
-	}
-}
-
-func writeBundledApplianceManifest(t *testing.T, value paths) {
-	t.Helper()
-	manifestPath := filepath.Join(value.resources, "Guest", "mcp-appliance", "manifest.pb")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(manifestPath, []byte("bundled-manifest"), 0o600); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -164,7 +151,6 @@ func TestRootDaemonInstallStateIsServiceUserOwnedAndResumable(t *testing.T) {
 	owner := lifecycleOperationOwnerFor(value, 0, unix.Fchown)
 	material := validTestInstallMaterial()
 	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
-	writeBundledApplianceManifest(t, value)
 	if _, err := persistOperationHandoffOwned(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +161,7 @@ func TestRootDaemonInstallStateIsServiceUserOwnedAndResumable(t *testing.T) {
 	paths := []string{
 		value.applicationData,
 		filepath.Join(value.applicationData, "install-operations"), directory,
-		filepath.Join(directory, "manifest.pb"), filepath.Join(directory, "approved-grant.pb"),
-		filepath.Join(directory, "bootstrap-seed.bin"), filepath.Join(directory, "appliance.json"), filepath.Join(directory, "plan.json"),
+		filepath.Join(directory, "plan.json"),
 		filepath.Join(value.applicationData, "install-completions"), completedInstallPath(value, material.OperationID),
 	}
 	for _, path := range paths {
@@ -211,7 +196,6 @@ func TestManagedInstallStateRejectsSymlinkDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 	material := validTestInstallMaterial()
-	writeBundledApplianceManifest(t, value)
 	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
 	if _, err := persistOperationHandoffOwned(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true, owner); err == nil {
 		t.Fatal("symlinked install operation directory was accepted")
@@ -269,7 +253,6 @@ func TestManagedInstallStateOwnershipFailureDoesNotPublishPlan(t *testing.T) {
 		return os.ErrPermission
 	})
 	material := validTestInstallMaterial()
-	writeBundledApplianceManifest(t, value)
 	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
 	if _, err := persistOperationHandoffOwned(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true, owner); err == nil {
 		t.Fatal("ownership failure published managed install state")
@@ -302,7 +285,6 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeBundledApplianceManifest(t, value)
 	if _, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
@@ -321,29 +303,18 @@ func TestEnsureInstallPlanRetriesDurableAcknowledgementAfterRestart(t *testing.T
 	if plan.DeadlineUnixMillis <= time.Now().UnixMilli() {
 		t.Fatalf("handoff deadline was not preserved for acknowledgement: plan=%d", plan.DeadlineUnixMillis)
 	}
-	applyContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(2*time.Minute))
-	defer cancel()
-	if got := adapter.lifecycleDeadline(applyContext); got == plan.DeadlineUnixMillis || got != deadlineFromContext(applyContext) {
-		t.Fatalf("local apply deadline = %d, handoff=%d context=%d", got, plan.DeadlineUnixMillis, deadlineFromContext(applyContext))
-	}
 	if strings.Contains(string(data), "one-time-secret") || ackCalls.Load() != 1 {
 		t.Fatalf("ack capability cleanup/calls = %q/%d", data, ackCalls.Load())
 	}
 }
 
-func deadlineFromContext(ctx context.Context) int64 {
-	deadline, _ := ctx.Deadline()
-	return deadline.UnixMilli()
-}
-
-func TestAcknowledgedExpiredHandoffResumesWithFreshApplyDeadline(t *testing.T) {
+func TestAcknowledgedExpiredHandoffRemainsResumable(t *testing.T) {
 	value := testPaths(t.TempDir())
 	material := validTestInstallMaterial()
 	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeBundledApplianceManifest(t, value)
 	handoffDeadline := time.Now().Add(-time.Minute).UnixMilli()
 	if _, err := persistOperationHandoff(value, directory, material, handoffDeadline, true); err != nil {
 		t.Fatal(err)
@@ -352,10 +323,8 @@ func TestAcknowledgedExpiredHandoffResumesWithFreshApplyDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expired acknowledged handoff was not resumable: %v", err)
 	}
-	applyContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(2*time.Minute))
-	defer cancel()
-	if got := adapter.lifecycleDeadline(applyContext); got <= time.Now().UnixMilli() || got == handoffDeadline || got != deadlineFromContext(applyContext) {
-		t.Fatalf("resumed apply deadline = %d, expired handoff=%d context=%d", got, handoffDeadline, deadlineFromContext(applyContext))
+	if err := adapter.ensureInstallPlan(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -411,7 +380,6 @@ func TestFailedManagedLifecycleOperationResumesDurableAcknowledgementWithSameIde
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeBundledApplianceManifest(t, value)
 	if _, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +429,6 @@ func TestClosedHandoffMarksTerminalButRetainsPlanUntilFinalized(t *testing.T) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeBundledApplianceManifest(t, value)
 	if _, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), false, &descriptor); err != nil {
 		t.Fatal(err)
 	}

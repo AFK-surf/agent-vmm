@@ -198,19 +198,11 @@ func (r *Runtime) materializeSupervisor(ctx context.Context, namespaceID string,
 	if err != nil {
 		return err
 	}
-	var upper string
-	for _, snapshotMount := range mounts {
-		for _, option := range snapshotMount.Options {
-			if value, ok := strings.CutPrefix(option, "upperdir="); ok {
-				upper = value
-				break
-			}
-		}
+	writableRoot, err := writableSnapshotRoot(mounts)
+	if err != nil {
+		return err
 	}
-	if upper == "" {
-		return errors.New("writable overlay snapshot has no upper directory")
-	}
-	destination, err := securejoin.SecureJoin(upper, supervisorPath)
+	destination, err := securejoin.SecureJoin(writableRoot, supervisorPath)
 	if err != nil {
 		return err
 	}
@@ -255,6 +247,20 @@ func (r *Runtime) materializeSupervisor(ctx context.Context, namespaceID string,
 		return closeErr
 	}
 	return nil
+}
+
+func writableSnapshotRoot(mounts []mount.Mount) (string, error) {
+	for _, snapshotMount := range mounts {
+		if snapshotMount.Type == "bind" && snapshotMount.Source != "" {
+			return snapshotMount.Source, nil
+		}
+		for _, option := range snapshotMount.Options {
+			if value, ok := strings.CutPrefix(option, "upperdir="); ok && value != "" {
+				return value, nil
+			}
+		}
+	}
+	return "", errors.New("writable snapshot has no materialization directory")
 }
 
 func containerMainProcess(ctx context.Context, container containerd.Container) (*specs.Process, error) {

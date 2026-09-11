@@ -16,13 +16,19 @@ func main() {
 	rootFSCompressor := flag.String("rootfs-compressor", "", "SquashFS compressor")
 	rootFSDictionary := flag.Int64("rootfs-dictionary", 0, "SquashFS dictionary bytes")
 	rootFSFilter := flag.String("rootfs-filter", "", "SquashFS executable filter")
+	bundledMCP := flag.Bool("bundled-mcp", false, "include the standalone MCP appliance artifacts")
 	flag.Parse()
 	if *directory == "" || !validRootFS(*rootFSCompressor, *rootFSDictionary, *rootFSFilter) {
 		flag.Usage()
 		os.Exit(2)
 	}
 	artifacts := map[string]bundle.Artifact{}
-	for name, path := range map[string]string{"kernel": "Image", "initramfs": "initramfs.xz", "rootfs": "rootfs.squashfs", "mcp_appliance_digest": "mcp-appliance.digest", "mcp_appliance_manifest": "mcp-appliance/manifest.pb"} {
+	paths := map[string]string{"kernel": "Image", "initramfs": "initramfs.xz", "rootfs": "rootfs.squashfs"}
+	if *bundledMCP {
+		paths["mcp_appliance_digest"] = "mcp-appliance.digest"
+		paths["mcp_appliance_manifest"] = "mcp-appliance/manifest.pb"
+	}
+	for name, path := range paths {
 		info, err := os.Stat(filepath.Join(*directory, path))
 		check(err)
 		artifacts[name] = bundle.Artifact{Path: path, Size: info.Size(), SHA256: fileDigest(filepath.Join(*directory, path))}

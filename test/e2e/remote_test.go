@@ -471,8 +471,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	}
 	testRemoteForward(t, remoteClient, serverContainer.GetId())
 	logged := createContainerWithImage(t, remoteClient, "remote-a", "logged", "agent.local/remote-e2e:latest", []string{"/bin/result"})
-	startContainer(t, remoteClient, "remote-a", logged.GetId())
-	waitContainer(t, remoteClient, "remote-a", logged.GetId(), 0)
+	startAndWaitContainer(t, remoteClient, "remote-a", logged.GetId(), 0)
 	if output := readLogs(t, remoteClient, "remote-a", logged.GetId()); !bytes.Contains(output, []byte("build-ok")) {
 		t.Fatalf("remote logs=%q", output)
 	}

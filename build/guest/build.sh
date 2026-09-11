@@ -14,16 +14,21 @@ command -v cpio >/dev/null 2>&1 || {
   echo 'guest artifact builds require cpio for the initramfs archive' >&2
   exit 1
 }
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  echo 'usage: build.sh OUTPUT_DIRECTORY [BUILD_PROFILE]' >&2
+if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
+  echo 'usage: build.sh OUTPUT_DIRECTORY [BUILD_PROFILE] [BUNDLE_FLAVOR]' >&2
   exit 2
 fi
 
 output=$1
 profile=${2:-development}
+flavor=${3:-standalone}
 case "$profile" in
   development|release) ;;
   *) echo 'build profile must be development or release' >&2; exit 2 ;;
+esac
+case "$flavor" in
+  runtime|standalone) ;;
+  *) echo 'bundle flavor must be runtime or standalone' >&2; exit 2 ;;
 esac
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 work=$(mktemp -d)
@@ -94,16 +99,18 @@ mkdir -p "$root/usr/lib/agent-vmm"
 
 (cd "$repository" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -buildid=' -o "$root/usr/bin/agent-vmmd" ./cmd/agent-vmmd)
 (cd "$repository" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -buildid=' -o "$root/usr/bin/agent-vmm-supervisor" ./cmd/agent-vmm-supervisor)
-mcp_root=$work/mcp-root
-mkdir -p "$mcp_root/usr/bin"
-(cd "$repository" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -buildid=' -o "$mcp_root/usr/bin/agent-vmm-mcp-appliance" ./cmd/agent-vmm-mcp-appliance)
-find "$mcp_root" -exec touch -h -d @0 {} +
-tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/mcp-root.tar" -C "$mcp_root" .
-(cd "$repository" && go run ./build/guest/oci "$work/mcp-root.tar" "$root/usr/lib/agent-vmm/mcp-appliance.oci.tar" /usr/bin/agent-vmm-mcp-appliance)
-tar -xOf "$root/usr/lib/agent-vmm/mcp-appliance.oci.tar" index.json | jq -er '.manifests | select(length == 1) | .[0].digest' >"$root/usr/lib/agent-vmm/mcp-appliance.digest"
-cp "$root/usr/lib/agent-vmm/mcp-appliance.digest" "$bundle/mcp-appliance.digest"
-mkdir -p "$bundle/mcp-appliance"
-(cd "$repository" && go run ./build/appliance/manifest -output "$bundle/mcp-appliance" -image-digest "$(cat "$bundle/mcp-appliance.digest")" -release 1)
+if [ "$flavor" = standalone ]; then
+  mcp_root=$work/mcp-root
+  mkdir -p "$mcp_root/usr/bin"
+  (cd "$repository" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w -buildid=' -o "$mcp_root/usr/bin/agent-vmm-mcp-appliance" ./cmd/agent-vmm-mcp-appliance)
+  find "$mcp_root" -exec touch -h -d @0 {} +
+  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/mcp-root.tar" -C "$mcp_root" .
+  (cd "$repository" && go run ./build/guest/oci "$work/mcp-root.tar" "$root/usr/lib/agent-vmm/mcp-appliance.oci.tar" /usr/bin/agent-vmm-mcp-appliance)
+  tar -xOf "$root/usr/lib/agent-vmm/mcp-appliance.oci.tar" index.json | jq -er '.manifests | select(length == 1) | .[0].digest' >"$root/usr/lib/agent-vmm/mcp-appliance.digest"
+  cp "$root/usr/lib/agent-vmm/mcp-appliance.digest" "$bundle/mcp-appliance.digest"
+  mkdir -p "$bundle/mcp-appliance"
+  (cd "$repository" && go run ./build/appliance/manifest -output "$bundle/mcp-appliance" -image-digest "$(cat "$bundle/mcp-appliance.digest")" -release 1)
+fi
 cp -a "$repository/build/guest/root/." "$root/"
 ln -snf /run/resolv.conf "$root/etc/resolv.conf"
 mkdir -p "$root/control" "$root/state" "$root/var/lib/cni" "$root/opt/containerd" "$root/etc/cni/net.d"
@@ -149,7 +156,11 @@ else
   rootfs_dictionary=1048576
   rootfs_filter=arm64-bcj
 fi
-(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -rootfs-compressor "$rootfs_compressor" -rootfs-dictionary "$rootfs_dictionary" -rootfs-filter "$rootfs_filter")
+bundle_flags=
+if [ "$flavor" = standalone ]; then
+  bundle_flags=-bundled-mcp
+fi
+(cd "$repository" && go run ./build/guest/bundle -directory "$bundle" -rootfs-compressor "$rootfs_compressor" -rootfs-dictionary "$rootfs_dictionary" -rootfs-filter "$rootfs_filter" $bundle_flags)
 
 mkdir -p "$output"
 cp -a "$bundle/." "$output/"

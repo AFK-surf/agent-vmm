@@ -17,9 +17,12 @@ func (controller *Controller) reconcileBundledApplianceArtifact(ctx context.Cont
 	if err != nil || len(installations) == 0 {
 		return err
 	}
-	material, err := controller.manager.ReadVerifiedBundledApplianceMaterial()
+	material, available, err := controller.manager.ReadVerifiedBundledApplianceMaterial()
 	if err != nil {
 		return err
+	}
+	if !available {
+		return nil
 	}
 	return controller.reconcileBundledApplianceArtifactManifest(ctx, installations, material.Manifest, material.ImageDigest)
 }

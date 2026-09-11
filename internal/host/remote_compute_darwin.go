@@ -174,7 +174,7 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 	if request.GetState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED &&
 		registration.ConnectionState == int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) &&
 		registration.ConnectionInstance != "" && registration.ConnectionInstance != request.GetConnectionInstance() {
-		if err := server.controller.revokeRemoteLeasesLocked(registration.ID); err != nil {
+		if err := server.controller.revokeRemoteLeasesLocked(registration.ID, false); err != nil {
 			return nil, resourceError(codes.FailedPrecondition, "REMOTE_LEASE_REVOKE_FAILED", "remote_registration", registration.ID, err.Error())
 		}
 	}
@@ -558,7 +558,7 @@ func (server *remoteComputeServer) ExecuteCleanupAllocation(ctx context.Context,
 	var revokeLease func() error
 	if activeLease {
 		revokeLease = func() error {
-			lease, finishErr := server.controller.finishLeaseLocked(request.GetExpectedLeaseId(), request.GetExpectedLeaseGeneration(), hostv1.LeaseState_LEASE_STATE_REVOKED, true, false, false)
+			lease, finishErr := server.controller.finishLeaseLocked(request.GetExpectedLeaseId(), request.GetExpectedLeaseGeneration(), hostv1.LeaseState_LEASE_STATE_REVOKED, true, true, false)
 			if finishErr != nil {
 				return finishErr
 			}

@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -20,16 +22,16 @@ func TestForwardImportArchiveForwardsGuestFailureAfterHeader(t *testing.T) {
 		_, _ = response.Write([]byte("archive"))
 	}))
 	defer server.Close()
-	previousTransport := http.DefaultTransport
-	http.DefaultTransport = server.Client().Transport
-	defer func() { http.DefaultTransport = previousTransport }()
 	want := errors.New("guest rejected import reservation")
-	_, err := forwardImportArchive(
+	_, err := forwardImportArchiveWithDownload(
 		context.Background(),
 		server.URL,
 		7,
 		func(*vmmdv1.ImportImageRequest) error { return io.EOF },
 		func() (*vmmdv1.Image, error) { return nil, want },
+		func(ctx context.Context, raw string, size uint64, send func([]byte) error) error {
+			return downloadImportArchiveWithClient(ctx, server.Client(), raw, size, send)
+		},
 	)
 	if !errors.Is(err, want) {
 		t.Fatalf("forwardImportArchive error = %v, want %v", err, want)
@@ -89,11 +91,8 @@ func TestDownloadImportArchiveRequiresExactCommittedSize(t *testing.T) {
 		_, _ = response.Write([]byte("archive"))
 	}))
 	defer server.Close()
-	previousTransport := http.DefaultTransport
-	http.DefaultTransport = server.Client().Transport
-	defer func() { http.DefaultTransport = previousTransport }()
 	var received strings.Builder
-	if err := downloadImportArchive(context.Background(), server.URL, 7, func(chunk []byte) error {
+	if err := downloadImportArchiveWithClient(context.Background(), server.Client(), server.URL, 7, func(chunk []byte) error {
 		_, err := received.Write(chunk)
 		return err
 	}); err != nil {
@@ -102,7 +101,49 @@ func TestDownloadImportArchiveRequiresExactCommittedSize(t *testing.T) {
 	if received.String() != "archive" {
 		t.Fatalf("downloaded %q", received.String())
 	}
-	if err := downloadImportArchive(context.Background(), server.URL, 6, func([]byte) error { return nil }); err == nil {
+	if err := downloadImportArchiveWithClient(context.Background(), server.Client(), server.URL, 6, func([]byte) error { return nil }); err == nil {
 		t.Fatal("oversized archive succeeded")
+	}
+}
+
+type fixedImportResolver struct {
+	addresses []netip.Addr
+}
+
+func (resolver fixedImportResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, error) {
+	return resolver.addresses, nil
+}
+
+func TestImportHTTPClientRejectsAnyNonPublicResolutionBeforeDial(t *testing.T) {
+	dialed := false
+	_, err := importHTTPClient(context.Background(), "https://archive.example/image.tar", fixedImportResolver{addresses: []netip.Addr{
+		netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("127.0.0.1"),
+	}}, func(context.Context, string, string) (net.Conn, error) {
+		dialed = true
+		return nil, errors.New("unexpected dial")
+	})
+	if err == nil || dialed {
+		t.Fatalf("non-public DNS result: err=%v dialed=%v", err, dialed)
+	}
+}
+
+func TestImportHTTPClientPinsValidatedAddressAndDisablesProxy(t *testing.T) {
+	var network, destination string
+	client, err := importHTTPClient(context.Background(), "https://archive.example:8443/image.tar", fixedImportResolver{addresses: []netip.Addr{
+		netip.MustParseAddr("93.184.216.34"),
+	}}, func(_ context.Context, gotNetwork, gotDestination string) (net.Conn, error) {
+		network, destination = gotNetwork, gotDestination
+		return nil, errors.New("dial observed")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := client.Transport.(*http.Transport)
+	if transport.Proxy != nil {
+		t.Fatal("runtime OCI transport inherited an HTTP proxy")
+	}
+	_, err = transport.DialContext(context.Background(), "tcp", "archive.example:8443")
+	if err == nil || network != "tcp4" || destination != "93.184.216.34:8443" {
+		t.Fatalf("pinned dial: network=%q destination=%q err=%v", network, destination, err)
 	}
 }

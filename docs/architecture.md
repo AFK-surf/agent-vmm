@@ -197,8 +197,10 @@ active remote leases, and remote connector admission while preserving the
 durable registration, allocation, and state-disk identity. The same Host
 process owns one recovery attempt
 against the existing state disk. It publishes remote admission again only after
-a fresh Guest boot ID, appliance reconciliation, policy replay, and connector
-reconnection. A failed attempt or a second unexpected stop remains failed and
+a fresh Guest boot ID, appliance reconciliation, policy replay, workload
+recovery, and connector reconnection. Appliance activation that starts the VM
+uses the same commit tail. An empty installation list requires no appliance
+secret store or Guest appliance inventory call. A failed attempt or a second unexpected stop remains failed and
 requires operator action; it does not replace the disk or restart macOS.
 
 The host controller uses one local SQLite database for control-plane facts.
@@ -729,6 +731,21 @@ Add storage cleanup, cache cleanup, audit, and failure recovery tests.
 
 The implementation has no raw runtime socket forwarding, native runc path, or duplicate state store.
 
+## Runtime and standalone distribution
+
+The Cue/BFT Host bundle uses `build/guest/build.sh OUTPUT release runtime`.
+The Guest contains the VM runtime, supervisor, and BuildKit.
+The Host package adds the lifecycle helper and data worker. It contains no MCP executable, OCI archive, grant, or bootstrap seed.
+The default `standalone` Guest build includes the optional MCP appliance.
+The macOS standalone app installs that appliance through `ApplianceAdminService`.
+
+Managed installation registers the external controller directly. It does not
+install an appliance or use appliance health as the Cue node readiness signal.
+Standalone appliance lifecycle behavior is unchanged. On a Host that already
+has enabled appliances, existing VM recovery still reconciles those appliances
+from their installed artifact. A runtime bundle omits bundled upgrade material,
+so it does not install or upgrade the standalone MCP appliance.
+
 ## Local MCP and remote compute boundaries
 
 The bundled MCP appliance is the only model-facing entry point. It serves
@@ -863,3 +880,12 @@ authority or persistent route state.
 - [Podman service security](https://docs.podman.io/en/latest/markdown/podman-system-service.1.html#security)
 - [Firecracker design](https://github.com/firecracker-microvm/firecracker/blob/main/docs/design.md)
 - [Firecracker KVM requirements](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md)
+
+### Workload start availability observation
+
+The existing remote observation includes `workload_start_available`. The Host
+uses the same locked run-slot, start-slot, pressure, and recovery predicates
+as start admission. The connector forwards this current observation; it does
+not turn it into a capacity grant. A controller can use each newer available
+observation to wake its bounded capacity queue. The Host rechecks admission
+when the start arrives.

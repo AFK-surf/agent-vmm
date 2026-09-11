@@ -58,15 +58,18 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 }
 
 func (controller *Controller) reconcileObservedAppliancesExcept(ctx context.Context, excludedInstallationID string, requireReady bool) error {
-	if controller.applianceSecrets == nil {
-		return errors.New("appliance protected store is unavailable")
-	}
 	// Model anchor: spec/tla/ApplianceRecoverySelection.tla CaptureHost/ObserveGuest.
 	// Read Host candidates before Guest observations. A newer Host revision must
 	// never be paired with an older missing-instance observation.
 	installations, err := controller.store.ListApplianceInstallations(ctx)
 	if err != nil {
 		return err
+	}
+	if len(installations) == 0 {
+		return nil
+	}
+	if controller.applianceSecrets == nil {
+		return errors.New("appliance protected store is unavailable")
 	}
 	candidates := make(map[string]store.ApplianceInstallation, len(installations))
 	for _, installation := range installations {

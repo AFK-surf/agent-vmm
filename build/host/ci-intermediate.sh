@@ -87,7 +87,7 @@ inspect_archive() {
         { rm -rf "$scratch"; return 1; }
       ;;
     agent-vmm-guest)
-      for artifact in Image initramfs.xz rootfs.squashfs manifest.json mcp-appliance.digest mcp-appliance/manifest.pb; do
+      for artifact in Image initramfs.xz rootfs.squashfs manifest.json; do
         test -s "$extracted/guest-bundle/$artifact" || { rm -rf "$scratch"; return 1; }
       done
       jq -e '.architecture == "arm64"' "$extracted/guest-bundle/manifest.json" >/dev/null || \

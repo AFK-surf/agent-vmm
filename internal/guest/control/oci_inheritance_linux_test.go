@@ -254,3 +254,36 @@ func seedBuildInheritance(t *testing.T) (map[string]uint32, func()) {
 	}
 	return projects, closeWorkspace
 }
+
+func TestWritableSnapshotRootSupportsNativeAndOverlaySnapshots(t *testing.T) {
+	tests := []struct {
+		name   string
+		mounts []mount.Mount
+		want   string
+	}{
+		{
+			name:   "native",
+			mounts: []mount.Mount{{Type: "bind", Source: "/control/native/active"}},
+			want:   "/control/native/active",
+		},
+		{
+			name: "overlay",
+			mounts: []mount.Mount{{
+				Type:    "overlay",
+				Options: []string{"lowerdir=/pool/lower", "upperdir=/pool/upper", "workdir=/pool/work"},
+			}},
+			want: "/pool/upper",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := writableSnapshotRoot(test.mounts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("writableSnapshotRoot()=%q, want %q", got, test.want)
+			}
+		})
+	}
+}

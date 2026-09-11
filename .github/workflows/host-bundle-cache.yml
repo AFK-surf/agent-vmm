@@ -60,11 +60,10 @@ jobs:
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$RUNNER_TEMP/guest-bundle:/bundle" \
             -w /src alpine:latest \
-            sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && git config --global --add safe.directory /src && build/guest/build.sh /bundle'
+            sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && git config --global --add safe.directory /src && build/guest/build.sh /bundle release runtime'
           sudo chown -R "$USER":"$(id -gn)" "$RUNNER_TEMP/guest-bundle"
           cd "$RUNNER_TEMP/guest-bundle"
           jq -e '.architecture == "arm64"' manifest.json >/dev/null
-          jq -r '.artifacts | .mcp_appliance_digest, .mcp_appliance_manifest | "\(.sha256)  \(.path)"' manifest.json | sha256sum -c -
       - name: Publish Guest CI intermediate to R2
         id: publish
         env:

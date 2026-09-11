@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
@@ -1339,42 +1338,8 @@ func TestAtomicWriteReplacesDefinition(t *testing.T) {
 	}
 }
 
-func TestApplianceFactsDoNotCrossContaminateReadiness(t *testing.T) {
-	healthy := &appliancev1.ApplianceStatus{
-		ApplianceState: appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING,
-		Health:         &appliancev1.ApplianceHealth{Healthy: true},
-	}
-	controller := &appliancev1.ApplianceStatus{
-		ChannelState:   appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE,
-		RegistrationId: "registration-b",
-		Health:         &appliancev1.ApplianceHealth{ReadinessNonce: []byte("nonce")},
-	}
-	inventory := &appliancev1.ApplianceStatus{
-		InventoryWatermark: 1,
-		RegistrationId:     "registration-c",
-		Health:             &appliancev1.ApplianceHealth{},
-	}
-
-	facts := mergeApplianceFacts(operatorFacts{}, []*appliancev1.ApplianceStatus{healthy, controller, inventory})
-	if !facts.applianceHealthy || !facts.controllerActive || !facts.inventoryComplete {
-		t.Fatalf("diagnostic facts=%+v", facts)
-	}
+func TestHostHealthDoesNotConfirmManagedInstall(t *testing.T) {
 	if operationConfirmed("install-managed", serviceStatus{HostInstalled: true, HostLoaded: true, HostHealthy: true}) {
 		t.Fatal("managed install recovery was confirmed without exact registration observation")
-	}
-}
-
-func TestApplianceFactsDoNotProjectSalixReadiness(t *testing.T) {
-	appliance := &appliancev1.ApplianceStatus{
-		ApplianceState:     appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING,
-		ChannelState:       appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE,
-		InventoryWatermark: 1,
-		RegistrationId:     "registration-a",
-		Health:             &appliancev1.ApplianceHealth{Healthy: true, ReadinessNonce: []byte("nonce")},
-	}
-
-	facts := mergeApplianceFacts(operatorFacts{}, []*appliancev1.ApplianceStatus{appliance})
-	if !facts.applianceHealthy || !facts.controllerActive || !facts.inventoryComplete {
-		t.Fatalf("appliance diagnostics were not preserved: %+v", facts)
 	}
 }

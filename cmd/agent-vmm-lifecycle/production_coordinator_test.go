@@ -1,132 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
-	"encoding/json"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	"google.golang.org/protobuf/proto"
 )
-
-func TestApplianceReadyRequiresRegistrationAndCurrentControllerFacts(t *testing.T) {
-	base := &appliancev1.ApplianceStatus{
-		RegistrationId:     "registration-1",
-		Enabled:            true,
-		ApplianceState:     appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING,
-		ChannelState:       appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_ACTIVE,
-		InventoryWatermark: 1,
-		Health: &appliancev1.ApplianceHealth{
-			Healthy: true,
-		},
-	}
-
-	if !applianceReady(base) {
-		t.Fatal("complete appliance facts should be ready")
-	}
-
-	checks := []func(*appliancev1.ApplianceStatus){
-		func(status *appliancev1.ApplianceStatus) { status.RegistrationId = "" },
-		func(status *appliancev1.ApplianceStatus) { status.Enabled = false },
-		func(status *appliancev1.ApplianceStatus) {
-			status.ApplianceState = appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED
-		},
-		func(status *appliancev1.ApplianceStatus) {
-			status.ChannelState = appliancev1.ControllerChannelState_CONTROLLER_CHANNEL_STATE_DISCONNECTED
-		},
-		func(status *appliancev1.ApplianceStatus) { status.InventoryWatermark = 0 },
-		func(status *appliancev1.ApplianceStatus) { status.Health.Healthy = false },
-	}
-	for index, check := range checks {
-		status := proto.Clone(base).(*appliancev1.ApplianceStatus)
-		check(status)
-		if applianceReady(status) {
-			t.Fatalf("check %d incorrectly reported ready: %+v", index, status)
-		}
-	}
-}
-
-func TestReadConfigFailsClosedForRelativeArtifactPaths(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "appliance.json")
-	config := map[string]any{
-		"version":             1,
-		"installation_id":     "installation-1",
-		"manifest_path":       "manifest.pb",
-		"approved_grant_path": "/tmp/grant.pb",
-		"bootstrap_seed_path": "/tmp/seed",
-	}
-	data, err := json.Marshal(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	adapter := &productionLifecycleAdapter{configPath: configPath}
-	_, err = adapter.readConfig()
-	if err == nil || !strings.Contains(err.Error(), "manifest_path") {
-		t.Fatalf("relative artifact path was not rejected: %v", err)
-	}
-}
-
-func TestProductionAdapterRequiresPackagedInstallInputs(t *testing.T) {
-	adapter := &productionLifecycleAdapter{}
-	if _, err := adapter.installSpec(); err == nil {
-		t.Fatal("fresh installation must fail closed without signed inputs")
-	}
-}
-
-func TestExistingApplianceMustMatchRequestedArtifact(t *testing.T) {
-	cpu, pids := uint32(1), uint32(1)
-	memory, disk := uint64(1), uint64(1)
-	limits := &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
-	grant := &appliancev1.ApprovedGrant{SystemResources: &appliancev1.ResourceRange{Floor: proto.Clone(limits).(*hostv1.ResourceLimits), Ceiling: proto.Clone(limits).(*hostv1.ResourceLimits)},
-		Capacity: &appliancev1.CapacityGrant{MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL}
-	status := &appliancev1.ApplianceStatus{RegistrationId: "registration-1", ArtifactId: "artifact-1", ApprovedGrant: proto.Clone(grant).(*appliancev1.ApprovedGrant)}
-	if err := validateExistingAppliance(status, "artifact-1", grant); err != nil {
-		t.Fatalf("exact existing artifact was rejected: %v", err)
-	}
-	mismatch := validateExistingAppliance(status, "artifact-2", grant)
-	if mismatch == nil || !strings.Contains(mismatch.Error(), "artifact") {
-		t.Fatalf("mismatched existing artifact was accepted: %v", mismatch)
-	}
-	value := testPaths(t.TempDir())
-	calls := 0
-	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", "operation-artifact-mismatch", func() error {
-		calls++
-		return mismatch
-	})
-	if operationErr == nil || calls != 1 || operation.Retryable || operation.SecretDisposition != secretDispositionDestroyTerminal {
-		t.Fatalf("artifact mismatch did not produce a terminal report: operation=%+v calls=%d err=%v", operation, calls, operationErr)
-	}
-	resumed, resumeErr := runManagedLifecycleOperation(value, "install-managed", "operation-artifact-mismatch", func() error {
-		calls++
-		return nil
-	})
-	if resumeErr == nil || calls != 1 || resumed.SecretDisposition != secretDispositionDestroyTerminal {
-		t.Fatalf("terminal artifact mismatch was replayed or lost: operation=%+v calls=%d err=%v", resumed, calls, resumeErr)
-	}
-	changedGrant := proto.Clone(grant).(*appliancev1.ApprovedGrant)
-	changedGrant.Capacity.MaxEnvironments = 1
-	if err := validateExistingAppliance(status, "artifact-1", changedGrant); err == nil || !strings.Contains(err.Error(), "grant") {
-		t.Fatalf("mismatched existing grant was accepted: %v", err)
-	}
-}
-
-func TestLocalApplyRequestIdentityIncludesFreshDeadline(t *testing.T) {
-	first := lifecycleApplyRequestID("operation-1", "stage", 100)
-	if first != lifecycleApplyRequestID("operation-1", "stage", 100) {
-		t.Fatal("same local apply fence changed request identity")
-	}
-	if first == lifecycleApplyRequestID("operation-1", "stage", 101) {
-		t.Fatal("fresh local apply deadline reused the old request identity")
-	}
-}
 
 func TestPersistInstallMaterialUsesPrivateDurableWorkspace(t *testing.T) {
 	value := testPaths(t.TempDir())
@@ -134,26 +22,24 @@ func TestPersistInstallMaterialUsesPrivateDurableWorkspace(t *testing.T) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	material := operationHandoffPlan{Version: 1, OperationID: "operation-1", Appliance: applianceMaterial{InstallationID: "installation-1",
-		ApprovedGrant: base64.StdEncoding.EncodeToString([]byte("grant")), BootstrapSeed: base64.StdEncoding.EncodeToString([]byte("seed"))}}
-	writeBundledApplianceManifest(t, value)
-	configPath, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true)
+	material := validTestInstallMaterial()
+	planPath, err := persistOperationHandoff(value, directory, material, time.Now().Add(time.Minute).UnixMilli(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if configPath == "" || !strings.HasPrefix(configPath, filepath.Join(value.applicationData, "install-operations", "operation-1")) {
-		t.Fatalf("config path escaped helper-owned operation workspace: %q", configPath)
+	if planPath == "" || !strings.HasPrefix(planPath, filepath.Join(value.applicationData, "install-operations", "operation-1")) {
+		t.Fatalf("plan path escaped helper-owned operation workspace: %q", planPath)
 	}
-	info, err := os.Stat(configPath)
+	info, err := os.Stat(planPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("config mode = %o, want 600", info.Mode().Perm())
+		t.Fatalf("plan mode = %o, want 600", info.Mode().Perm())
 	}
-	manifest, err := os.ReadFile(filepath.Join(directory, "manifest.pb"))
-	if err != nil || string(manifest) != "bundled-manifest" {
-		t.Fatalf("persisted manifest=%q err=%v", manifest, err)
+	entries, err := os.ReadDir(directory)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "plan.json" {
+		t.Fatalf("unexpected operation state: %v %v", entries, err)
 	}
 	plan, err := os.ReadFile(filepath.Join(directory, "plan.json"))
 	if err != nil || strings.Contains(string(plan), `"manifest"`) {
@@ -165,7 +51,103 @@ func TestPersistInstallMaterialUsesPrivateDurableWorkspace(t *testing.T) {
 	if err := cleanupInstallPlan(value, "operation-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(planPath); !os.IsNotExist(err) {
 		t.Fatalf("operation workspace was not removed: %v", err)
 	}
+}
+
+// No ApplianceAdmin service or MCP bundle exists in this fixture.
+func TestManagedInstallAndStatusWithoutStandaloneAppliance(t *testing.T) {
+	root, err := os.MkdirTemp("/tmp", "vmm-managed-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	value := testPaths(root)
+	material := validTestInstallMaterial()
+	material.RemoteEnrollment.EnrollmentToken = base64.StdEncoding.EncodeToString(make([]byte, 32))
+	material.RemoteEnrollment.TrustBundle = base64.StdEncoding.EncodeToString([]byte("fixture CA"))
+	directory := filepath.Join(value.applicationData, "install-operations", material.OperationID)
+	if _, err := persistOperationHandoff(value, directory, material, time.Now().Add(-time.Minute).UnixMilli(), true); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", filepath.Join(value.applicationData, "operator.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	operator := &managedInstallOperator{registrationID: material.RegistrationID}
+	hostv1.RegisterOperatorServiceServer(server, operator)
+	go server.Serve(listener)
+	t.Cleanup(server.Stop)
+	production, err := productionLifecycleAdapterForResume(value, material.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := lifecycleAdapterFor(production).(*helperLifecycleAdapter)
+	adapter.status = func(context.Context, paths) serviceStatus {
+		return serviceStatus{HostInstalled: true, HostLoaded: true, HostReadable: true, HostHealthy: true}
+	}
+	adapter.launchctl = func(context.Context, ...string) error { t.Fatal("healthy Host must not be reinstalled"); return nil }
+	coordinator, err := NewLifecycleCoordinator(adapter, LifecycleCoordinatorConfig{OperationTimeout: time.Second, StepTimeout: time.Second, InitTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.Run(context.Background(), LifecycleInstall, LifecycleRequest{RequestID: "managed-install"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistCompletedInstall(value, production); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupInstallPlan(value, material.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if completed, err := completedInstallExists(value, material.OperationID); err != nil || !completed {
+		t.Fatalf("completion=%t err=%v", completed, err)
+	}
+	for _, id := range []string{"", material.RegistrationID, "other-registration"} {
+		facts, err := readOperatorFactsContext(context.Background(), filepath.Join(value.applicationData, "operator.sock"), id)
+		if (err != nil) != (id == "other-registration") || !facts.hostReadable || !facts.hostHealthy || facts.connectorConnected != (id == material.RegistrationID) {
+			t.Fatalf("id=%q facts=%+v err=%v", id, facts, err)
+		}
+	}
+	operator.mu.Lock()
+	defer operator.mu.Unlock()
+	if operator.applyCalls != 1 || operator.request.GetRegistration().GetRegistrationId() != material.RegistrationID {
+		t.Fatalf("enrollment calls=%d request=%v", operator.applyCalls, operator.request)
+	}
+}
+
+type managedInstallOperator struct {
+	hostv1.UnimplementedOperatorServiceServer
+	mu             sync.Mutex
+	registrationID string
+	applyCalls     int
+	request        *hostv1.ApplyManagedRemoteEnrollmentRequest
+}
+
+func (server *managedInstallOperator) GetVM(context.Context, *hostv1.GetVMRequest) (*hostv1.VMResponse, error) {
+	return &hostv1.VMResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}}, nil
+}
+func (server *managedInstallOperator) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapshotRequest) (*hostv1.GetSystemSnapshotResponse, error) {
+	return &hostv1.GetSystemSnapshotResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}, Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY}}, nil
+}
+func (server *managedInstallOperator) ApplyManagedRemoteEnrollment(_ context.Context, request *hostv1.ApplyManagedRemoteEnrollmentRequest) (*hostv1.RemoteRegistrationResponse, error) {
+	server.mu.Lock()
+	server.applyCalls++
+	server.request = request
+	server.mu.Unlock()
+	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: request.GetRegistration().GetRegistrationId()}}, nil
+}
+func (server *managedInstallOperator) GetRemoteRegistration(_ context.Context, request *hostv1.GetRemoteRegistrationRequest) (*hostv1.RemoteRegistrationResponse, error) {
+	if request.GetRegistrationId() == "other-registration" {
+		return nil, status.Error(codes.NotFound, "registration not found")
+	}
+	state := hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED
+	server.mu.Lock()
+	if request.GetRegistrationId() == server.registrationID && server.applyCalls > 0 {
+		state = hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
+	}
+	server.mu.Unlock()
+	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: request.GetRegistrationId(), EnrollmentState: hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, ConnectionState: state}}, nil
 }

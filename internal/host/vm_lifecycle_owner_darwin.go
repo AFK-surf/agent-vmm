@@ -304,19 +304,11 @@ func (owner *VMLifecycleOwner) activateApplianceOwned(ctx context.Context, insta
 			owner.rollbackRunningVM()
 			return err
 		}
-		if err := controller.reconcilePolicies(ctx); err != nil {
-			owner.rollbackRunningVM()
-			return err
-		}
-		if err := controller.ReconcileExternalConnectors(ctx); err != nil {
-			owner.rollbackRunningVM()
-			return err
-		}
 		vm := owner.manager.Snapshot()
 		generation, _ := owner.admissionToken()
-		if !owner.openAdmission(generation, vm.GetBootId()) {
+		if err := controller.finishRunningVM(ctx, generation, vm.GetBootId()); err != nil {
 			owner.rollbackRunningVM()
-			return errors.New("VM lifecycle is shutting down")
+			return err
 		}
 		return nil
 	}

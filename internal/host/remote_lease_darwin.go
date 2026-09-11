@@ -213,10 +213,38 @@ func (controller *Controller) revokeAllocationLease(ctx context.Context, environ
 func (controller *Controller) revokeRemoteLeases(registrationID string) error {
 	controller.remoteAdmissionMu.Lock()
 	defer controller.remoteAdmissionMu.Unlock()
-	return controller.revokeRemoteLeasesLocked(registrationID)
+	return controller.revokeRemoteLeasesLocked(registrationID, false)
 }
 
-func (controller *Controller) revokeRemoteLeasesLocked(registrationID string) error {
+func (controller *Controller) retireRemoteRegistration(ctx context.Context, registrationID string) error {
+	controller.remoteAdmissionMu.Lock()
+	defer controller.remoteAdmissionMu.Unlock()
+	if err := controller.revokeRemoteLeasesLocked(registrationID, true); err != nil {
+		return err
+	}
+	environments, err := controller.store.ListRemoteEnvironmentsBounded(ctx, registrationID, int(maxRemoteEnvironments)+1)
+	if err != nil {
+		return err
+	}
+	if len(environments) > int(maxRemoteEnvironments) {
+		return errors.New("remote registration allocation inventory exceeds the bounded pool")
+	}
+	for _, environment := range environments {
+		unlockEnvironment := controller.lockEnvironment(environment.ID)
+		current, loadErr := controller.store.GetEnvironment(ctx, environment.ID)
+		if loadErr == nil && current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+			_, loadErr = controller.store.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+		}
+		unlockEnvironment()
+		if loadErr != nil {
+			return loadErr
+		}
+	}
+	controller.wakeAllocationRetirement()
+	return nil
+}
+
+func (controller *Controller) revokeRemoteLeasesLocked(registrationID string, retire bool) error {
 	controller.mu.Lock()
 	leases := make([]remoteLease, 0, len(controller.remoteLeases))
 	for _, lease := range controller.remoteLeases {
@@ -228,7 +256,7 @@ func (controller *Controller) revokeRemoteLeasesLocked(registrationID string) er
 	var failures []error
 	for _, lease := range leases {
 		unlockEnvironment := controller.lockEnvironment(lease.environmentID)
-		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true, false, false)
+		finished, err := controller.finishLeaseLocked(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, true, retire, retire)
 		unlockEnvironment()
 		if finished == nil && err == nil {
 			continue

@@ -5,6 +5,7 @@ package egress
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -14,7 +15,44 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func createTUN() (*os.File, error) {
+type tunDevice struct {
+	file *os.File
+}
+
+func (device *tunDevice) Read(buffer []byte) (int, error) {
+	for {
+		count, err := unix.Read(int(device.file.Fd()), buffer)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			return count, os.NewSyscallError("read", err)
+		}
+		return count, nil
+	}
+}
+
+func (device *tunDevice) Write(packet []byte) (int, error) {
+	for {
+		count, err := unix.Write(int(device.file.Fd()), packet)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil {
+			return count, os.NewSyscallError("write", err)
+		}
+		if count != len(packet) {
+			return count, io.ErrShortWrite
+		}
+		return count, nil
+	}
+}
+
+func (device *tunDevice) Close() error {
+	return device.file.Close()
+}
+
+func createTUN() (io.ReadWriteCloser, error) {
 	if err := ensureTUNDevice(); err != nil {
 		return nil, err
 	}
@@ -32,7 +70,11 @@ func createTUN() (*os.File, error) {
 		file.Close()
 		return nil, err
 	}
-	return file, nil
+	if err := unix.SetNonblock(int(file.Fd()), false); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return &tunDevice{file: file}, nil
 }
 
 func ensureTUNDevice() error {

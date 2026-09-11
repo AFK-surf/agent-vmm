@@ -164,9 +164,12 @@ func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T
 	}
 	outerHash := sha256.Sum256(outer)
 	manager := &Manager{config: Config{BundleDirectory: directory, GuestManifestDigest: hex.EncodeToString(outerHash[:])}}
-	material, err := manager.ReadVerifiedBundledApplianceMaterial()
+	material, available, err := manager.ReadVerifiedBundledApplianceMaterial()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !available {
+		t.Fatal("bundled appliance material was not reported")
 	}
 	if string(material.Manifest) != string(manifestBytes) || material.ImageDigest != lockedDigest {
 		t.Fatalf("material=%+v", material)
@@ -174,8 +177,39 @@ func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T
 	if err := os.WriteFile(filepath.Join(directory, "rootfs.squashfs"), []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.ReadVerifiedBundledApplianceMaterial(); err != nil {
+	if _, _, err := manager.ReadVerifiedBundledApplianceMaterial(); err != nil {
 		t.Fatalf("bundled appliance read reverified unrelated rootfs: %v", err)
+	}
+}
+
+func TestReadVerifiedBundledApplianceMaterialAllowsRuntimeBundle(t *testing.T) {
+	directory := t.TempDir()
+	files := map[string][]byte{
+		"Image":           []byte("kernel"),
+		"initramfs.xz":    []byte("initramfs"),
+		"rootfs.squashfs": []byte("rootfs"),
+	}
+	artifacts := make(map[string]bundle.Artifact)
+	for name, path := range map[string]string{"kernel": "Image", "initramfs": "initramfs.xz", "rootfs": "rootfs.squashfs"} {
+		data := files[path]
+		if err := os.WriteFile(filepath.Join(directory, path), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		hash := sha256.Sum256(data)
+		artifacts[name] = bundle.Artifact{Path: path, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
+	}
+	outer, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Artifacts: artifacts,
+		RootFS: bundle.RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, bundle.ManifestName), outer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outerHash := sha256.Sum256(outer)
+	manager := &Manager{config: Config{BundleDirectory: directory, GuestManifestDigest: hex.EncodeToString(outerHash[:])}}
+	if _, available, err := manager.ReadVerifiedBundledApplianceMaterial(); err != nil || available {
+		t.Fatalf("runtime bundle material available=%t err=%v", available, err)
 	}
 }
 

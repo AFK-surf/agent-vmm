@@ -31,9 +31,13 @@ test -d "$guest"
 for artifact in Image initramfs.xz rootfs.squashfs manifest.json; do
 	test -s "$guest/$artifact"
 done
-for artifact in mcp-appliance.digest mcp-appliance/manifest.pb; do
-	test -s "$guest/$artifact"
-done
+has_mcp_digest=$(jq -r 'has("artifacts") and (.artifacts | has("mcp_appliance_digest"))' "$guest/manifest.json")
+has_mcp_manifest=$(jq -r 'has("artifacts") and (.artifacts | has("mcp_appliance_manifest"))' "$guest/manifest.json")
+test "$has_mcp_digest" = "$has_mcp_manifest"
+if [ "$has_mcp_digest" = true ]; then
+	test -s "$guest/mcp-appliance.digest"
+	test -s "$guest/mcp-appliance/manifest.pb"
+fi
 guest_manifest_digest=$(shasum -a 256 "$guest/manifest.json" | awk '{print $1}')
 if [ "$phase" = all ] && [ "$identity" = "-" ]; then
 	build_profile=test
@@ -46,12 +50,14 @@ mkdir -p "$output"
 rm -rf "$product"
 mkdir -p "$product/Contents/MacOS" "$product/Contents/Helpers" "$product/Contents/Resources/Guest"
 cp "$repo/build/host/Info.plist" "$product/Contents/Info.plist"
-for artifact in Image initramfs.xz rootfs.squashfs manifest.json mcp-appliance.digest; do
+for artifact in Image initramfs.xz rootfs.squashfs manifest.json; do
 	cp "$guest/$artifact" "$product/Contents/Resources/Guest/$artifact"
 done
-mkdir -p "$product/Contents/Resources/Guest/mcp-appliance"
-cp "$guest/mcp-appliance/manifest.pb" "$product/Contents/Resources/Guest/mcp-appliance/manifest.pb"
-
+if [ "$has_mcp_digest" = true ]; then
+	cp "$guest/mcp-appliance.digest" "$product/Contents/Resources/Guest/mcp-appliance.digest"
+	mkdir -p "$product/Contents/Resources/Guest/mcp-appliance"
+	cp "$guest/mcp-appliance/manifest.pb" "$product/Contents/Resources/Guest/mcp-appliance/manifest.pb"
+fi
 if [ -n "$go_tags" ]; then
 	GOOS=darwin GOARCH=arm64 go build -tags="$go_tags" -trimpath -ldflags "-X main.guestManifestDigest=$guest_manifest_digest" -o "$product/Contents/MacOS/agent-vmm-host" "$repo/cmd/agent-vmm-host"
 else

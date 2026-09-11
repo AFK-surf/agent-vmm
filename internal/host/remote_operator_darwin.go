@@ -210,7 +210,7 @@ func (server *operatorServer) BeginRemoteRevocation(ctx context.Context, request
 	server.controller.remoteAdmissionMu.Unlock()
 	if err == nil {
 		server.controller.stopExternalConnector(request.GetRegistrationId())
-		if revokeErr := server.controller.revokeRemoteLeases(request.GetRegistrationId()); revokeErr != nil {
+		if revokeErr := server.controller.retireRemoteRegistration(ctx, request.GetRegistrationId()); revokeErr != nil {
 			return nil, resourceError(codes.FailedPrecondition, "REMOTE_LEASE_REVOKE_FAILED", "remote_registration", request.GetRegistrationId(), revokeErr.Error())
 		}
 		return server.controller.remoteRegistrationResponse(ctx, updated), nil

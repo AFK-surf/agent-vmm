@@ -95,6 +95,52 @@ func TestPrivateControllerMayConnectWhileWorkloadAdmissionIsClosed(t *testing.T)
 	}
 }
 
+func TestRetireRemoteRegistrationRetainsReadyAllocations(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	_, err = database.CreateRemoteRegistration(ctx, store.RemoteRegistration{
+		ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2",
+		MaxEnvironments: 2, PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30,
+		PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1,
+		MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
+		State:           int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED),
+		ConnectionState: int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED),
+		EnrollmentState: int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY), ConnectorPhase: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
+	for _, id := range []string{"one", "two"} {
+		_, err := database.BeginWorkloadAdmission(ctx, store.Environment{
+			ID: id, NamespaceID: id, OwnerKind: store.OwnerRemoteRegistration,
+			RegistrationID: "registration", AllocationID: id, AllocationGeneration: 1,
+			AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY),
+			CPUMillis:       1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30,
+		}, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	controller := &Controller{
+		store: database, remoteLeases: make(map[string]*remoteLease),
+		allocationLeases: make(map[string]string), allocationRetirementWake: make(chan struct{}, 1),
+	}
+	if err := controller.retireRemoteRegistration(ctx, "registration"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"one", "two"} {
+		environment, err := database.GetEnvironment(ctx, id)
+		if err != nil || environment.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+			t.Fatalf("allocation %q = %+v, %v", id, environment, err)
+		}
+	}
+}
+
 func TestPrivateControllerConnectionPersistsWhileWorkloadAdmissionIsClosed(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {

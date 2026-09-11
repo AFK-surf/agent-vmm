@@ -316,7 +316,11 @@ func (controller *Controller) commitRunningVM(ctx context.Context, excludedInsta
 	if err != nil {
 		return err
 	}
-	if err = controller.reconcilePolicies(ctx); err != nil {
+	return controller.finishRunningVM(ctx, generation, bootID)
+}
+
+func (controller *Controller) finishRunningVM(ctx context.Context, generation uint64, bootID string) error {
+	if err := controller.reconcilePolicies(ctx); err != nil {
 		return err
 	}
 	if err := controller.recoverWorkloadRuns(ctx); err != nil {
