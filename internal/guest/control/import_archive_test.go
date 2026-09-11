@@ -32,6 +32,18 @@ type blockingImportWriter struct {
 	writes  int
 }
 
+func TestImportArchiveChunkBoundMatchesStreamContract(t *testing.T) {
+	if !validImportArchiveChunk(make([]byte, vmmdv1.MaxImportArchiveChunkBytes), vmmdv1.MaxImportArchiveChunkBytes) {
+		t.Fatal("maximum stream chunk was rejected")
+	}
+	if validImportArchiveChunk(make([]byte, vmmdv1.MaxImportArchiveChunkBytes+1), vmmdv1.MaxImportArchiveChunkBytes+1) {
+		t.Fatal("oversized stream chunk was accepted")
+	}
+	if validImportArchiveChunk(make([]byte, 2), 1) {
+		t.Fatal("chunk beyond the remaining archive was accepted")
+	}
+}
+
 func (w *blockingImportWriter) Write(data []byte) (int, error) {
 	w.writes++
 	w.once.Do(func() { close(w.entered) })

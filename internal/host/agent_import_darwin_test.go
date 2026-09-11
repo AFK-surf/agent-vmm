@@ -3,6 +3,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -104,6 +105,31 @@ func TestDownloadImportArchiveRequiresExactCommittedSize(t *testing.T) {
 	if err := downloadImportArchiveWithClient(context.Background(), server.Client(), server.URL, 6, func([]byte) error { return nil }); err == nil {
 		t.Fatal("oversized archive succeeded")
 	}
+
+	payload := bytes.Repeat([]byte("a"), 7<<20)
+	largeClient := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			ContentLength: int64(len(payload)),
+			Body:          io.NopCloser(bytes.NewReader(payload)),
+		}, nil
+	})}
+	var chunkSizes []int
+	if err := downloadImportArchiveWithClient(context.Background(), largeClient, "https://archive.example/image.tar", uint64(len(payload)), func(chunk []byte) error {
+		chunkSizes = append(chunkSizes, len(chunk))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(chunkSizes) != 3 || chunkSizes[0] != vmmdv1.MaxImportArchiveChunkBytes || chunkSizes[1] != vmmdv1.MaxImportArchiveChunkBytes || chunkSizes[2] != 1<<20 {
+		t.Fatalf("archive chunk sizes = %v", chunkSizes)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (roundTrip roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
 }
 
 type fixedImportResolver struct {

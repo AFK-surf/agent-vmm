@@ -21,7 +21,6 @@ import (
 
 const (
 	maxImportArchiveBytes = 8 << 30
-	maxImportChunkBytes   = 1 << 20
 	importDownloadTimeout = 10 * time.Minute
 )
 
@@ -196,7 +195,7 @@ func downloadImportArchiveWithClient(ctx context.Context, client *http.Client, r
 		return fmt.Errorf("runtime OCI archive content length = %d, want %d", response.ContentLength, size)
 	}
 	limited := io.LimitReader(response.Body, int64(size)+1)
-	buffer := make([]byte, maxImportChunkBytes)
+	buffer := make([]byte, vmmdv1.MaxImportArchiveChunkBytes)
 	var received uint64
 	for {
 		count, readErr := limited.Read(buffer)

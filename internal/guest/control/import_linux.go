@@ -32,7 +32,6 @@ import (
 
 const (
 	maxImportArchiveBytes  = 8 << 30
-	maxImportChunkBytes    = 1 << 20
 	importRequestLabelBase = "io.afk-surf.agent-vmm.import."
 )
 
@@ -138,7 +137,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 			return rpcError(receiveErr)
 		}
 		chunk, ok := request.GetPayload().(*vmmdv1.ImportImageRequest_ArchiveChunk)
-		if !ok || len(chunk.ArchiveChunk) == 0 || len(chunk.ArchiveChunk) > maxImportChunkBytes || uint64(len(chunk.ArchiveChunk)) > header.GetArchiveSize()-written {
+		if !ok || !validImportArchiveChunk(chunk.ArchiveChunk, header.GetArchiveSize()-written) {
 			return invalid(errors.New("archive chunks must be non-empty, bounded, and within archive_size"))
 		}
 		count, writeErr := writeImportChunk(s.runtime.diskBudget, reservation, io.MultiWriter(archive, hash), chunk.ArchiveChunk)
@@ -175,6 +174,10 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		return rpcError(err)
 	}
 	return stream.SendAndClose(value.(*vmmdv1.Image))
+}
+
+func validImportArchiveChunk(chunk []byte, remaining uint64) bool {
+	return len(chunk) > 0 && len(chunk) <= vmmdv1.MaxImportArchiveChunkBytes && uint64(len(chunk)) <= remaining
 }
 
 // writeImportChunk keeps the sealed check and the physical write in the same
