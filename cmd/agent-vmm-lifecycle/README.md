@@ -128,8 +128,10 @@ The administrator configures the fixed executor once with
 `install|start|stop|remove|status --job host|runner`. It accepts no path,
 label, plist, environment, shell, or numeric identity argument. The executable,
 owner config, and their parents must be root-owned and not group- or
-world-writable. Root writes launchd definitions but does not run the service
-binaries, download releases, read credentials, or modify service-user data.
+world-writable. The fixed Host job disables personal mesh pairing. The managed
+installer sends the same policy to lifecycle install and repair. Root writes
+launchd definitions but does not run the service binaries. Root does not download
+releases, read credentials, or modify service-user data.
 The fixed runner definition retains KeepAlive, file-descriptor limits, HOME,
 the approved PATH, working directory, and log paths. Start is a no-op for a
 running job; it never uses a killing kickstart. Host stop first requires the

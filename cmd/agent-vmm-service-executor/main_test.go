@@ -26,10 +26,20 @@ func TestHostDefinitionMatchesLifecycleCurrentDeclaration(t *testing.T) {
 	}
 	expected := strings.ReplaceAll(string(template), "__HOME__", config.Home)
 	expected = strings.ReplaceAll(expected, "__APP__", "/Users/service-user/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app")
+	expected = strings.Replace(expected, "  </array>", "    <string>--disable-personal-mesh-pairing</string>\n  </array>", 1)
 	expected = strings.Replace(expected, "<string>Interactive</string>", "<string>Background</string>", 1)
 	expected = strings.Replace(expected, "</dict>\n</plist>", "\t<key>UserName</key>\n\t<string>service-user</string>\n\t<key>GroupName</key>\n\t<string>staff</string>\n</dict>\n</plist>", 1)
 	if actual := string(renderPlist(config, job)); actual != expected {
 		t.Fatalf("executor Host definition drifted from lifecycle declaration\nactual:\n%s\nexpected:\n%s", actual, expected)
+	}
+}
+
+func TestHostDefinitionDisablesPersonalMeshPairing(t *testing.T) {
+	config := ownerConfig{User: "service-user", Group: "staff", UID: 501, GID: 20, Home: "/Users/service-user"}
+	job, _ := resolveJob(config, "host")
+	definition := string(renderPlist(config, job))
+	if strings.Count(definition, "<string>--disable-personal-mesh-pairing</string>") != 1 {
+		t.Fatalf("managed Host definition must disable personal mesh pairing: %s", definition)
 	}
 }
 

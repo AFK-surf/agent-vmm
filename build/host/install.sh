@@ -53,6 +53,16 @@ run_as_service_user() {
 	fi
 }
 
+run_lifecycle_with_managed_policy() {
+	lifecycle=$1
+	shift
+	if [ "$effective_service_type" = daemon ]; then
+		run_as_service_user "$lifecycle" "$@" --disable-personal-mesh-pairing
+	else
+		run_as_service_user "$lifecycle" "$@"
+	fi
+}
+
 if [ "$installer_uid" -eq 0 ]; then
 	install -d -o "$service_user" -g "$service_gid" -m 0755 "$app_parent"
 	install -d -o "$service_user" -g "$service_gid" -m 0700 \
@@ -129,7 +139,7 @@ if [ "$already_current" -eq 1 ]; then
 			"$executor" install --job host
 		fi
 	fi
-	run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" repair \
+	run_lifecycle_with_managed_policy "$app/Contents/Helpers/agent-vmm-lifecycle" repair \
 		--service-type "$effective_service_type" --service-user "$service_user" \
 		--request-id "$repair_request_id"
 	observed_status=$(run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" status \
@@ -154,7 +164,7 @@ if [ ! -d "$app" ]; then
 	if [ "$effective_service_type" = daemon ]; then
 		"$executor" install --job host
 	fi
-	run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" install \
+	run_lifecycle_with_managed_policy "$app/Contents/Helpers/agent-vmm-lifecycle" install \
 		--service-type "$effective_service_type" --service-user "$service_user" \
 		--request-id "$install_request_id"
 	exit 0
