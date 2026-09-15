@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,6 +47,22 @@ func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageReq
 		usage = unavailableUsage(err)
 	}
 	response := &vmmdv1.GetUsageResponse{Usage: usage}
+	if openFDs, openFDErr := guestOpenFDs("/proc/sys/fs/file-nr"); openFDErr == nil {
+		response.OpenFds = &openFDs
+	} else {
+		response.OpenFdsUnavailableReason = boundedObservationFailure("Guest file descriptors", openFDErr)
+	}
+	if disk, diskErr := s.runtime.guestDiskSnapshot(ctx); diskErr == nil {
+		response.Disk = &vmmdv1.DiskAccounting{
+			UsedBytes:              disk.UsedBytes,
+			CapacityBytes:          disk.CapacityBytes,
+			ImportReservationBytes: disk.ImportReservationBytes,
+			SystemReserveBytes:     disk.EmergencyBytes,
+			MetadataReserveBytes:   disk.MetadataGrowthBytes,
+		}
+	} else {
+		response.DiskUnavailableReason = boundedObservationFailure("Guest disk", diskErr)
+	}
 	pool, limit, pressure, kills, err := workloadPoolUsage("/sys/fs/cgroup/agent-vmm/workload")
 	if err != nil {
 		response.WorkloadPool = unavailableUsage(err)
@@ -57,6 +75,27 @@ func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageReq
 	return response, nil
 }
 
+func boundedObservationFailure(layer string, failure error) string {
+	message := layer + ": " + failure.Error()
+	if len(message) > 1024 {
+		return message[:1024]
+	}
+	return message
+}
+
+func guestOpenFDs(path string) (uint32, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0, errors.New("Guest file descriptor usage is unavailable")
+	}
+	value, err := strconv.ParseUint(fields[0], 10, 32)
+	return uint32(value), err
+}
+
 func (s *Server) GetVolume(ctx context.Context, request *vmmdv1.GetVolumeRequest) (*vmmdv1.GetVolumeResponse, error) {
 	volume, err := s.runtime.GetVolume(ctx, request.GetActorNamespaceId(), request.GetVolumeId())
 	if err != nil {
@@ -66,7 +105,7 @@ func (s *Server) GetVolume(ctx context.Context, request *vmmdv1.GetVolumeRequest
 }
 
 func (s *Server) ListVolumes(ctx context.Context, request *vmmdv1.ListVolumesRequest) (*vmmdv1.ListVolumesResponse, error) {
-	volumes, err := s.runtime.ListVolumes(ctx, request.GetActorNamespaceId())
+	volumes, err := s.runtime.ListVolumesBounded(ctx, request.GetActorNamespaceId(), request.GetLimit(), request.GetRelatedContainerLimit())
 	if err != nil {
 		return nil, rpcError(err)
 	}
@@ -82,7 +121,7 @@ func (s *Server) GetImage(ctx context.Context, request *vmmdv1.GetImageRequest) 
 }
 
 func (s *Server) ListImages(ctx context.Context, request *vmmdv1.ListImagesRequest) (*vmmdv1.ListImagesResponse, error) {
-	images, err := s.runtime.ListImages(ctx, request.GetActorNamespaceId())
+	images, err := s.runtime.ListImagesBounded(ctx, request.GetActorNamespaceId(), request.GetLimit())
 	if err != nil {
 		return nil, rpcError(err)
 	}

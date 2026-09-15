@@ -126,9 +126,6 @@ func resolveServiceConfig(request serviceRequest) (serviceConfig, error) {
 	if err != nil {
 		return serviceConfig{}, err
 	}
-	if mode == serviceModeDaemon && os.Geteuid() != 0 && configured.Mode != serviceModeDaemon {
-		return serviceConfig{}, errors.New("initial daemon installation requires administrator access")
-	}
 	return serviceConfig{
 		Version: 1, Mode: mode, User: account.Username, Group: group.Name,
 		UID: uid, GID: gid, ReleaseID: releaseID,
@@ -219,13 +216,24 @@ func renderServiceDefinition(value paths, disablePairing bool) ([]byte, error) {
 	return []byte(rendered), nil
 }
 
-func serviceDefinitionCurrent(ctx context.Context, value paths, desired []byte, disablePairing bool, run func(context.Context, ...string) error) bool {
+func serviceDefinitionCurrent(ctx context.Context, value paths, desired []byte, disablePairing bool, run func(context.Context, ...string) error,
+	observe func(context.Context, string) (launchctlServiceFacts, error)) bool {
 	current, err := os.ReadFile(value.hostPlist)
-	if err != nil || string(current) != string(desired) || !definitionAbsent(value.alternateServicePlist()) || run(ctx, "print", value.serviceDomain()+"/"+hostLabel) != nil {
+	if err != nil || string(current) != string(desired) || !definitionAbsent(value.alternateServicePlist()) {
+		return false
+	}
+	service, err := observe(ctx, value.serviceDomain()+"/"+hostLabel)
+	if err != nil || !service.Running || service.PID <= 0 {
 		return false
 	}
 	if alternateErr := run(ctx, "print", value.alternateServiceDomain()+"/"+hostLabel); !errors.Is(alternateErr, errLaunchctlServiceNotFound) {
 		return false
+	}
+	// The fixed root executor owns the system definition and its non-root
+	// identity. Exact plist equality above is the daemon declaration fence;
+	// lifecycle must not require root to write service-user business state.
+	if value.service.Mode == serviceModeDaemon {
+		return true
 	}
 	configured, err := readServiceConfig(value.serviceConfigFile)
 	return err == nil && configured.Mode == value.service.Mode && configured.User == value.service.User && configured.Group == value.service.Group &&

@@ -5385,6 +5385,32 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "GetSystemHealthSummary" metadata.
+        public enum GetSystemHealthSummary: Sendable {
+            /// Request type for "GetSystemHealthSummary".
+            public typealias Input = Agentvmm_Host_V1_GetSystemHealthSummaryRequest
+            /// Response type for "GetSystemHealthSummary".
+            public typealias Output = Agentvmm_Host_V1_GetSystemSnapshotResponse
+            /// Descriptor for "GetSystemHealthSummary".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "GetSystemHealthSummary",
+                type: .unary
+            )
+        }
+        /// Namespace for "GetVMImpactSummary" metadata.
+        public enum GetVMImpactSummary: Sendable {
+            /// Request type for "GetVMImpactSummary".
+            public typealias Input = Agentvmm_Host_V1_GetVMImpactSummaryRequest
+            /// Response type for "GetVMImpactSummary".
+            public typealias Output = Agentvmm_Host_V1_GetVMImpactSummaryResponse
+            /// Descriptor for "GetVMImpactSummary".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "GetVMImpactSummary",
+                type: .unary
+            )
+        }
         /// Namespace for "ListEnvironments" metadata.
         public enum ListEnvironments: Sendable {
             /// Request type for "ListEnvironments".
@@ -6026,6 +6052,8 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             ListAgentSessions.descriptor,
             RevokeAgentSessions.descriptor,
             GetSystemSnapshot.descriptor,
+            GetSystemHealthSummary.descriptor,
+            GetVMImpactSummary.descriptor,
             ListEnvironments.descriptor,
             GetEnvironment.descriptor,
             ListEnvironmentImages.descriptor,
@@ -6376,6 +6404,44 @@ extension Agentvmm_Host_V1_OperatorService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetSystemSnapshotResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetSystemSnapshotResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "GetSystemHealthSummary" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetSystemHealthSummaryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetSystemHealthSummaryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_GetSystemSnapshotResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func getSystemHealthSummary<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetSystemHealthSummaryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetSystemHealthSummaryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetSystemSnapshotResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetSystemSnapshotResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "GetVMImpactSummary" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetVMImpactSummaryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetVMImpactSummaryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_GetVMImpactSummaryResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func getVMImpactSummary<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetVMImpactSummaryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetVMImpactSummaryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetVMImpactSummaryResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetVMImpactSummaryResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "ListEnvironments" method.
@@ -7750,6 +7816,66 @@ extension Agentvmm_Host_V1_OperatorService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_OperatorService.Method.GetSystemSnapshot.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "GetSystemHealthSummary" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetSystemHealthSummaryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetSystemHealthSummaryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_GetSystemSnapshotResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func getSystemHealthSummary<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetSystemHealthSummaryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetSystemHealthSummaryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetSystemSnapshotResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetSystemSnapshotResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.GetSystemHealthSummary.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "GetVMImpactSummary" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetVMImpactSummaryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetVMImpactSummaryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_GetVMImpactSummaryResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func getVMImpactSummary<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetVMImpactSummaryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetVMImpactSummaryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_GetVMImpactSummaryResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetVMImpactSummaryResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.GetVMImpactSummary.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -9571,6 +9697,56 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
+    /// Call the "GetSystemHealthSummary" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_GetSystemHealthSummaryRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getSystemHealthSummary<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetSystemHealthSummaryRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetSystemSnapshotResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.getSystemHealthSummary(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_GetSystemHealthSummaryRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_GetSystemSnapshotResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetVMImpactSummary" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_GetVMImpactSummaryRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getVMImpactSummary<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetVMImpactSummaryRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetVMImpactSummaryResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.getVMImpactSummary(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_GetVMImpactSummaryRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_GetVMImpactSummaryResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "ListEnvironments" method.
     ///
     /// - Parameters:
@@ -11198,6 +11374,64 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             metadata: metadata
         )
         return try await self.getSystemSnapshot(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetSystemHealthSummary" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getSystemHealthSummary<Result>(
+        _ message: Agentvmm_Host_V1_GetSystemHealthSummaryRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetSystemSnapshotResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_GetSystemHealthSummaryRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.getSystemHealthSummary(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetVMImpactSummary" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getVMImpactSummary<Result>(
+        _ message: Agentvmm_Host_V1_GetVMImpactSummaryRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_GetVMImpactSummaryResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_GetVMImpactSummaryRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.getVMImpactSummary(
             request: request,
             options: options,
             onResponse: handleResponse

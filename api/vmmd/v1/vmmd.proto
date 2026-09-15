@@ -324,6 +324,7 @@ message Volume {
   int64           usage_observed_at_unix_nano = 6;
   bool            usage_stale                 = 7;
   string          usage_unavailable_reason    = 8;
+  string          generation_id               = 9;
 }
 
 message CreateVolumeRequest {
@@ -343,6 +344,7 @@ message DeleteVolumeRequest {
   string request_id         = 1;
   string actor_namespace_id = 2;
   string volume_id          = 3;
+  string expected_generation_id = 4;
 }
 
 message DeleteVolumeResponse {}
@@ -358,6 +360,8 @@ message GetVolumeResponse {
 
 message ListVolumesRequest {
   string actor_namespace_id = 1;
+  uint32 limit = 2;
+  uint32 related_container_limit = 3;
 }
 
 message ListVolumesResponse {
@@ -383,6 +387,7 @@ message GetImageResponse {
 
 message ListImagesRequest {
   string actor_namespace_id = 1;
+  uint32 limit = 2;
 }
 
 message ListImagesResponse {
@@ -513,6 +518,7 @@ message InspectContainerResponse {
 
 message ListContainersRequest {
   string actor_namespace_id = 1;
+  uint32 limit = 2;
 }
 
 message ListContainersResponse {
@@ -544,6 +550,23 @@ message GetUsageResponse {
   uint64 workload_memory_limit_bytes = 3;
   double workload_memory_full_avg10 = 4;
   uint64 workload_oom_kills = 5;
+  DiskAccounting disk = 6;
+  optional uint32 open_fds = 7;
+  string open_fds_unavailable_reason = 8;
+  string disk_unavailable_reason = 9;
+}
+
+// The two unavailable-reason fields identify a failed optional measurement.
+// They are bounded owner errors and do not convert an unknown value to zero.
+
+// DiskAccounting reports Guest physical storage and reserved capacity. It does
+// not sum logical image references.
+message DiskAccounting {
+  uint64 used_bytes = 1;
+  uint64 capacity_bytes = 2;
+  uint64 import_reservation_bytes = 3;
+  uint64 system_reserve_bytes = 4;
+  uint64 metadata_reserve_bytes = 5;
 }
 
 enum LogStream {

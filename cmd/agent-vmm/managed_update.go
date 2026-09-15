@@ -1,0 +1,226 @@
+//go:build darwin
+
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
+)
+
+const managedMaxHostArtifactBytes = uint64(4 << 30)
+
+var managedUpdateHTTPClient = &http.Client{Timeout: 10 * time.Minute}
+
+type managedUpdateError struct {
+	stage string
+	err   error
+}
+
+func (failure managedUpdateError) Error() string { return failure.err.Error() }
+func (failure managedUpdateError) Unwrap() error { return failure.err }
+
+func managedUpdateFailure(stage string, err error) error {
+	return managedUpdateError{stage: stage, err: err}
+}
+
+func managedUpdateFailureStage(err error) string {
+	var failure managedUpdateError
+	if errors.As(err, &failure) {
+		return failure.stage
+	}
+	return "validation"
+}
+
+func (runtime managedRuntime) update(ctx context.Context, opts managedOptions) (managedEnvelope, error) {
+	status, err := runtime.lifecycleStatus(ctx, opts)
+	if err != nil {
+		return managedEnvelope{}, err
+	}
+	if err := validateManagedStatusTarget(status); err != nil {
+		return managedEnvelope{}, err
+	}
+	envelope := baseManagedEnvelope("update", runtime.now().UTC(), targetFromStatus(status, opts))
+	envelope.Source = []string{"release_target", "lifecycle"}
+	envelope.Freshness = "current"
+	envelope.State = "preparing"
+	envelope.Stage = "target_selection"
+	envelope.Facts = map[string]any{
+		"request_id":        opts.requestID,
+		"target_release_id": opts.targetRelease,
+		"artifact_sha256":   strings.ToLower(opts.artifactSHA256),
+		"artifact_size":     opts.artifactSize,
+		"stages":            []string{"target_selection", "download", "preparation", "stop", "replace", "recovery", "complete"},
+	}
+	if strings.HasPrefix(stringFact(status, "hostJob"), "system/") {
+		envelope.State = "needs_administrator"
+		envelope.Stage = "target_selection"
+		envelope.Issue = managedIssue{Code: "administrator_update_required", Message: "the daemon Host update requires the administrator installer and fixed service executor", Layer: "service", Retryable: managedBool(true)}
+		envelope.NextAction = []managedNextAction{{Action: "administrator_update", Permission: "administrator"}}
+		return envelope, nil
+	}
+	stagedApp, err := runtime.prepareUpdate(ctx, opts, status)
+	if err != nil {
+		failureStage := managedUpdateFailureStage(err)
+		if failureStage == "validation" {
+			failureStage = "preparation"
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			envelope.State = "cancelled"
+			envelope.Stage = failureStage
+			envelope.Issue = managedIssue{Code: "update_preparation_cancelled", Message: "the update download or preparation was cancelled; the current installation was not changed", Layer: "artifact", Retryable: managedBool(true)}
+			return envelope, nil
+		}
+		return managedEnvelope{}, managedUpdateFailure(failureStage, fmt.Errorf("prepare selected Host release without changing the current installation: %w", err))
+	}
+	if stagedApp == "" {
+		envelope.State = "succeeded"
+		envelope.Stage = "complete"
+		envelope.Facts["already_current"] = true
+		return envelope, nil
+	}
+	envelope.Stage = "preparation"
+	args := []string{"update", "--source-app", stagedApp, "--target-release-id", opts.targetRelease, "--request-id", opts.requestID}
+	args = appendServiceArguments(args, opts)
+	stdout, stderr, runErr := runtime.runHelper(ctx, opts.lifecycle, args)
+	var operation map[string]any
+	decoded := jsonUnmarshalManaged(stdout, &operation) == nil && stringFact(operation, "requestId") == opts.requestID &&
+		stringFact(operation, "kind") == "update" && stringFact(operation, "targetReleaseId") == opts.targetRelease
+	if runErr != nil && !decoded {
+		envelope.State = "unknown_outcome"
+		envelope.Stage = "owner_response_pending"
+		envelope.Partial = true
+		envelope.Issue = managedIssue{Code: "unknown_outcome", Message: "the lifecycle owner may have accepted the update; retry only the same request id and selected release", Layer: "lifecycle", Retryable: managedBool(true)}
+		envelope.NextAction = []managedNextAction{{Action: "retry_same_request_id", Permission: "service_user"}}
+		envelope.Facts["request_id"] = opts.requestID
+		envelope.Facts["prepared_app"] = stagedApp
+		return envelope, nil
+	}
+	if !decoded {
+		return managedEnvelope{}, errors.New("lifecycle returned an unbound update operation")
+	}
+	envelope.State = stringFact(operation, "outcome")
+	envelope.Stage = firstNonEmptyManaged(stringFact(operation, "stage"), "preparation")
+	envelope.OperationRef = map[string]any{"owner": "lifecycle", "id": stringFact(operation, "operationId")}
+	if runErr != nil {
+		envelope.Issue = managedIssue{Code: firstNonEmptyManaged(stringFact(operation, "failureCode"), "update_failed"), Message: boundedManagedText(firstNonEmptyManaged(stringFact(operation, "failureMessage"), string(stderr)), 1024), Layer: "lifecycle", Retryable: managedBool(boolFact(operation, "retryable"))}
+		envelope.NextAction = []managedNextAction{{Action: "retry_same_request_id", Permission: "service_user"}}
+		return envelope, nil
+	}
+	if envelope.State == "succeeded" {
+		if err := runtime.removePrepared(stagedApp); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return managedEnvelope{}, errors.New("retired Host bundle could not be removed after successful update")
+		}
+	}
+	return envelope, nil
+}
+
+func prepareManagedUpdate(ctx context.Context, opts managedOptions, status map[string]any) (string, error) {
+	if opts.artifactSize == 0 || opts.artifactSize > managedMaxHostArtifactBytes {
+		return "", managedUpdateFailure("target_selection", errors.New("Host artifact size is outside the managed update bound"))
+	}
+	parsed, err := url.Parse(opts.artifactURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" {
+		return "", managedUpdateFailure("target_selection", errors.New("Host artifact URL must be exact HTTPS without credentials, query, or fragment"))
+	}
+	targetApp := filepath.Clean(stringFact(status, "serviceApp"))
+	if !filepath.IsAbs(targetApp) || filepath.Base(targetApp) != bundle.HostAppName {
+		return "", managedUpdateFailure("target_selection", errors.New("installed Host app target is invalid"))
+	}
+	stagedApp := filepath.Join(filepath.Dir(targetApp), ".Agent VMM Host."+opts.requestID+".app")
+	if current, currentErr := managedHostReleaseID(targetApp, false); currentErr == nil && current == opts.targetRelease {
+		if _, statErr := os.Lstat(stagedApp); statErr == nil {
+			return stagedApp, nil
+		}
+		return "", nil
+	}
+	if _, statErr := os.Lstat(stagedApp); statErr == nil {
+		if release, releaseErr := managedHostReleaseID(stagedApp, true); releaseErr == nil && release == opts.targetRelease {
+			return stagedApp, nil
+		}
+		return "", managedUpdateFailure("preparation", errors.New("prepared update path already exists with a different release"))
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return "", managedUpdateFailure("preparation", errors.New("prepared update path is not readable"))
+	}
+	archive, err := os.CreateTemp(filepath.Dir(targetApp), ".agent-vmm-update-*.zip")
+	if err != nil {
+		return "", managedUpdateFailure("download", err)
+	}
+	archivePath := archive.Name()
+	defer os.Remove(archivePath)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		archive.Close()
+		return "", managedUpdateFailure("download", err)
+	}
+	request.Header.Set("User-Agent", "agent-vmm-managed-updater/1")
+	response, err := managedUpdateHTTPClient.Do(request)
+	if err != nil {
+		archive.Close()
+		return "", managedUpdateFailure("download", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		archive.Close()
+		return "", managedUpdateFailure("download", fmt.Errorf("Host artifact download returned HTTP %d", response.StatusCode))
+	}
+	if response.ContentLength >= 0 && uint64(response.ContentLength) != opts.artifactSize {
+		response.Body.Close()
+		archive.Close()
+		return "", managedUpdateFailure("download", errors.New("Host artifact Content-Length does not match the selected target"))
+	}
+	hash := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(archive, hash), io.LimitReader(response.Body, int64(opts.artifactSize)+1))
+	closeBodyErr := response.Body.Close()
+	closeArchiveErr := archive.Close()
+	if copyErr != nil || closeBodyErr != nil || closeArchiveErr != nil {
+		return "", managedUpdateFailure("download", errors.New("Host artifact download did not complete"))
+	}
+	if uint64(written) != opts.artifactSize || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), opts.artifactSHA256) {
+		return "", managedUpdateFailure("download", errors.New("Host artifact bytes do not match the selected size and SHA-256"))
+	}
+	extracted, err := os.MkdirTemp(filepath.Dir(targetApp), ".agent-vmm-update-extract-")
+	if err != nil {
+		return "", managedUpdateFailure("preparation", err)
+	}
+	defer os.RemoveAll(extracted)
+	command := exec.CommandContext(ctx, "/usr/bin/ditto", "-x", "-k", archivePath, extracted)
+	if output, extractErr := command.CombinedOutput(); extractErr != nil {
+		return "", managedUpdateFailure("preparation", fmt.Errorf("Host artifact extraction failed: %s", boundedManagedText(string(output), 256)))
+	}
+	extractedApp := filepath.Join(extracted, bundle.HostAppName)
+	if release, releaseErr := managedHostReleaseID(extractedApp, false); releaseErr != nil || release != opts.targetRelease {
+		return "", managedUpdateFailure("preparation", errors.New("Host artifact release inventory does not match the selected target"))
+	}
+	verify := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", extractedApp)
+	if output, verifyErr := verify.CombinedOutput(); verifyErr != nil {
+		return "", managedUpdateFailure("preparation", fmt.Errorf("Host artifact signature verification failed: %s", boundedManagedText(string(output), 256)))
+	}
+	copyCommand := exec.CommandContext(ctx, "/usr/bin/ditto", extractedApp, stagedApp)
+	if output, copyErr := copyCommand.CombinedOutput(); copyErr != nil {
+		_ = os.RemoveAll(stagedApp)
+		return "", managedUpdateFailure("preparation", fmt.Errorf("Host artifact preparation failed: %s", boundedManagedText(string(output), 256)))
+	}
+	if release, releaseErr := managedHostReleaseID(stagedApp, true); releaseErr != nil || release != opts.targetRelease {
+		_ = os.RemoveAll(stagedApp)
+		return "", managedUpdateFailure("preparation", errors.New("prepared Host app does not match the selected target"))
+	}
+	return stagedApp, nil
+}
+
+func managedHostReleaseID(app string, staged bool) (string, error) {
+	return bundle.HostReleaseID(app, staged)
+}

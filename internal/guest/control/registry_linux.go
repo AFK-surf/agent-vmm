@@ -123,5 +123,12 @@ func (r *Runtime) DeleteImage(ctx context.Context, namespaceID, reference, expec
 			return imageError(codes.FailedPrecondition, "IMAGE_IN_USE", "image is used by a container", canonical)
 		}
 	}
-	return r.client.ImageService().Delete(nsctx, canonical, coreimages.SynchronousDelete())
+	if err := r.client.ImageService().Delete(nsctx, canonical, coreimages.SynchronousDelete()); err != nil {
+		return err
+	}
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
+		return err
+	}
+	return inventory.removeImage(namespaceID, canonical)
 }

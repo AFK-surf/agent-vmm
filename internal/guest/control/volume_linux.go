@@ -4,6 +4,8 @@ package control
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -57,7 +59,11 @@ func (r *Runtime) CreateVolume(ctx context.Context, namespaceID, volumeID string
 		return nil, err
 	}
 	r.invalidateVolumeUsage(namespaceID, volumeID)
-	return &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, LimitBytes: namespace.GetLimits().GetDiskBytes()}, nil
+	generationID, err := volumeGenerationID(path)
+	if err != nil {
+		return nil, err
+	}
+	return &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, LimitBytes: namespace.GetLimits().GetDiskBytes(), GenerationId: generationID}, nil
 }
 
 func initializeVolumeDirectory(path string, mode uint32, ownerUID, ownerGID *uint32, assign func(string) error) (result error) {
@@ -65,8 +71,12 @@ func initializeVolumeDirectory(path string, mode uint32, ownerUID, ownerGID *uin
 	if err != nil {
 		return err
 	}
+	markerCreated := false
 	defer func() {
 		_ = os.RemoveAll(staging)
+		if result != nil && markerCreated {
+			_ = os.Remove(volumeGenerationMarkerPath(path))
+		}
 	}()
 	if err := os.Chmod(staging, os.FileMode(mode)); err != nil {
 		return err
@@ -79,7 +89,14 @@ func initializeVolumeDirectory(path string, mode uint32, ownerUID, ownerGID *uin
 	if err := assign(staging); err != nil {
 		return err
 	}
-	return os.Rename(staging, path)
+	if _, err := replaceVolumeGenerationID(path); err != nil {
+		return err
+	}
+	markerCreated = true
+	if err := os.Rename(staging, path); err != nil {
+		return err
+	}
+	return nil
 }
 
 func cleanupVolumeStaging() error {
@@ -118,14 +135,17 @@ func cleanupVolumeStagingAt(root string) error {
 	return nil
 }
 
-func (r *Runtime) DeleteVolume(ctx context.Context, namespaceID, volumeID string) error {
+func (r *Runtime) DeleteVolume(ctx context.Context, namespaceID, volumeID, expectedGenerationID string) error {
 	if err := validateID("actor_namespace_id", namespaceID); err != nil {
 		return err
 	}
 	if err := validateID("volume_id", volumeID); err != nil {
 		return err
 	}
-	unlock := r.lockNamespace(namespaceID)
+	unlock, err := r.lockVolumeGeneration(namespaceID, volumePath(namespaceID, volumeID), expectedGenerationID)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := r.namespaceExists(ctx, namespaceID); err != nil {
 		return err
@@ -144,9 +164,105 @@ func (r *Runtime) DeleteVolume(ctx context.Context, namespaceID, volumeID string
 			}
 		}
 	}
-	if err := os.RemoveAll(volumePath(namespaceID, volumeID)); err != nil {
+	if err := removeVolumeDirectory(volumePath(namespaceID, volumeID)); err != nil {
 		return err
 	}
 	r.invalidateVolumeUsage(namespaceID, volumeID)
+	return nil
+}
+
+func (r *Runtime) lockVolumeGeneration(namespaceID, path, expectedGenerationID string) (func(), error) {
+	unlock := r.lockNamespace(namespaceID)
+	if expectedGenerationID != "" {
+		if err := requireVolumeGeneration(path, expectedGenerationID); err != nil {
+			unlock()
+			return nil, err
+		}
+	}
+	return unlock, nil
+}
+
+func removeVolumeDirectory(path string) error {
+	if err := os.RemoveAll(path); err != nil {
+		return err
+	}
+	if err := os.Remove(volumeGenerationMarkerPath(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func volumeGenerationMarkerPath(path string) string {
+	namespaceID := filepath.Base(filepath.Dir(path))
+	volumeID := filepath.Base(path)
+	state := filepath.Dir(filepath.Dir(filepath.Dir(path)))
+	return filepath.Join(state, "volume-generations", namespaceID, volumeID)
+}
+
+func replaceVolumeGenerationID(path string) (string, error) {
+	marker := volumeGenerationMarkerPath(path)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		return "", err
+	}
+	value, err := newVolumeGenerationID()
+	if err != nil {
+		return "", err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(marker), ".agent-vmm-generation-")
+	if err != nil {
+		return "", err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if _, err := temporary.WriteString(value + "\n"); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(temporaryPath, marker); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func readVolumeGenerationID(marker string) (string, error) {
+	body, err := os.ReadFile(marker)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(body))
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != 16 || len(value) != 32 {
+		return "", errors.New("volume generation marker is invalid")
+	}
+	return value, nil
+}
+
+func newVolumeGenerationID() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func requireVolumeGeneration(path, expectedGenerationID string) error {
+	actualGenerationID, err := volumeGenerationID(path)
+	if err != nil {
+		return err
+	}
+	if actualGenerationID != expectedGenerationID {
+		return failedPrecondition("volume generation changed")
+	}
 	return nil
 }

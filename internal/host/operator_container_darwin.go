@@ -89,6 +89,11 @@ func (server *operatorServer) DeleteContainer(ctx context.Context, request *host
 	if request.GetExpectedGenerationId() == "" {
 		return nil, invalidField("expected_generation_id", "container generation is required")
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	unlock := server.controller.lockEnvironment(request.GetEnvironmentId())
 	defer unlock()
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())

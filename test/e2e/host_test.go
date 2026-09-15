@@ -32,6 +32,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite"
 )
@@ -687,7 +688,7 @@ func TestExternalRegistryUnavailable(t *testing.T) {
 func testCleanupContract(t *testing.T, harness *hostHarness, client *productClient) {
 	ensureNamespace(t, client, "cleanup-source", 64<<20)
 	ensureNamespace(t, client, "cleanup-target", 64<<20)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	beforePolicy, err := client.operator.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: "cleanup-source"})
 	if err != nil {
@@ -747,24 +748,64 @@ func testCleanupContract(t *testing.T, harness *hostHarness, client *productClie
 	if err != nil || reset.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
 		t.Fatalf("reset = %v, %v", reset, err)
 	}
+	var retainedLinkTombstones int
+	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM grants WHERE id='cleanup-link'").Scan(&retainedLinkTombstones); err != nil || retainedLinkTombstones != 0 {
+		t.Fatalf("successful reset retained link tombstones = %d, %v", retainedLinkTombstones, err)
+	}
+	for index := 0; index < 101; index++ {
+		linkID := fmt.Sprintf("cleanup-churn-%03d", index)
+		churn := proto.Clone(link).(*hostv1.NetworkLink)
+		churn.Id = linkID
+		churn.DnsAlias = fmt.Sprintf("cleanup-churn-%03d", index)
+		if err := client.ApplyNetworkLink(ctx, &hostv1.ApplyNetworkLinkRequest{RequestId: linkID + "-apply", Link: churn}); err != nil {
+			t.Fatalf("apply churned link %d: %v", index, err)
+		}
+		if err := client.DeleteNetworkLink(ctx, &hostv1.DeleteNetworkLinkRequest{RequestId: linkID + "-delete", LinkId: linkID}); err != nil {
+			t.Fatalf("delete churned link %d: %v", index, err)
+		}
+	}
+	if _, err := client.operator.PlanResetEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: "cleanup-source"}); err != nil {
+		t.Fatalf("link churn saturated cleanup inventory: %v", err)
+	}
 	if _, err := database.ExecContext(ctx, "UPDATE operations SET state=?, stage='failed', error_reason='TEST_FAILURE' WHERE request_id='cleanup-reset'", int32(hostv1.OperationState_OPERATION_STATE_FAILED)); err != nil {
 		t.Fatal(err)
-	}
-	retried, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-reset", Plan: agentPlan.GetPlan()})
-	if err != nil || retried.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED || retried.GetOperation().GetId() != reset.GetOperation().GetId() {
-		t.Fatalf("cleanup retry = %v, %v", retried, err)
 	}
 	client.forgetSession("cleanup-source")
 	if _, err := client.EnsureEnvironment(ctx, "cleanup-source", "cleanup-reconnect", &hostv1.ResourceLimits{CpuMillis: optional(uint32(1000)), MemoryBytes: optional(uint64(3 << 30)), Pids: optional(uint32(512)), DiskBytes: optional(uint64(64 << 20))}, hostv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := client.CreateVolume(ctx, "cleanup-source", &hostv1.CreateVolumeRequest{RequestId: "cleanup-volume", VolumeId: "retained"}); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-reset", Plan: agentPlan.GetPlan()})
+	if err != nil || retried.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_FAILED || retried.GetOperation().GetId() != reset.GetOperation().GetId() {
+		t.Fatalf("terminal cleanup replay = %v, %v", retried, err)
+	}
+	volumeSession, err := client.session("cleanup-source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := volumeSession.client.GetVolume(ctx, &hostv1.VolumeRequest{VolumeId: "retained"}); err != nil {
+		t.Fatalf("same-request cleanup replay deleted new volume: %v", err)
+	}
 	link.TcpPorts = []uint32{9090}
 	if err := client.ApplyNetworkLink(ctx, &hostv1.ApplyNetworkLinkRequest{RequestId: "cleanup-link-reapply", Link: link}); err != nil {
 		t.Fatalf("stale guest link survived reset: %v", err)
 	}
-	if _, err := client.CreateVolume(ctx, "cleanup-source", &hostv1.CreateVolumeRequest{RequestId: "cleanup-volume", VolumeId: "retained"}); err != nil {
+	incarnationPlan, err := volumeSession.client.PlanResetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := client.DeleteVolume(ctx, "cleanup-source", &hostv1.DeleteVolumeRequest{RequestId: "cleanup-volume-delete", VolumeId: "retained"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateVolume(ctx, "cleanup-source", &hostv1.CreateVolumeRequest{RequestId: "cleanup-volume-recreate", VolumeId: "retained"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := volumeSession.client.RequestReset(ctx, &hostv1.EnvironmentOperationRequest{RequestId: "cleanup-stale-volume-generation", PlanRevision: incarnationPlan.GetPlan().GetRevision()}); status.Code(err) != codes.Aborted {
+		t.Fatalf("same-ID volume recreation stale-plan error = %v", err)
+	}
+	client.forgetSession("cleanup-source")
 	if err := client.RemoveEnvironmentAccess(ctx, "cleanup-source", "cleanup-remove-access"); err != nil {
 		t.Fatal(err)
 	}
@@ -806,20 +847,33 @@ func testCleanupContract(t *testing.T, harness *hostHarness, client *productClie
 	if _, err := database.ExecContext(ctx, "UPDATE operations SET state=?, stage='namespace-deleted', error_reason='TEST_INTERRUPTION' WHERE request_id='cleanup-discard'", int32(hostv1.OperationState_OPERATION_STATE_FAILED)); err != nil {
 		t.Fatal(err)
 	}
-	recovered, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-discard", Plan: plan.GetPlan(), ConfirmedVolumeIds: []string{"retained"}})
-	if err != nil || recovered.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED || recovered.GetOperation().GetId() != discard.GetOperation().GetId() {
-		t.Fatalf("partial discard recovery = %v, %v", recovered, err)
-	}
-	if _, err := database.ExecContext(ctx, `INSERT INTO environments
-		(id, namespace_id, display_name, cpu_millis, memory_bytes, pids, disk_bytes, egress_mode, policy_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, environment.GetId(), environment.GetNamespaceId(), environment.GetDisplayName(),
-		environment.GetLimits().GetCpuMillis(), environment.GetLimits().GetMemoryBytes(), environment.GetLimits().GetPids(), environment.GetLimits().GetDiskBytes(),
-		int32(environment.GetEgressMode()), environment.GetPolicyRevision(), now+1, now+1); err != nil {
+	missingLink := proto.Clone(link).(*hostv1.NetworkLink)
+	missingLink.Id = "cleanup-missing-namespace-link"
+	missingLink.DnsAlias = "cleanup-missing"
+	missingPayload, err := protojson.Marshal(missingLink)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO grants(id, kind, source_namespace_id, target_namespace_id, methods)
+		VALUES (?, 'network-link', ?, ?, ?)`, missingLink.GetId(), environment.GetNamespaceId(), "cleanup-target", string(missingPayload)); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-discard", Plan: plan.GetPlan(), ConfirmedVolumeIds: []string{"retained"}})
+	if err != nil || recovered.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_FAILED || recovered.GetOperation().GetId() != discard.GetOperation().GetId() {
+		t.Fatalf("partial discard terminal replay = %v, %v", recovered, err)
 	}
 	freshPlan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: "cleanup-source"})
 	if err != nil {
 		t.Fatalf("fresh plan after missing namespace = %v", err)
+	}
+	var disclosedMissingLink bool
+	for _, impact := range freshPlan.GetPlan().GetImpacts() {
+		if impact.GetResource().GetKind() == "grant" && impact.GetResource().GetResourceId() == missingLink.GetId() {
+			disclosedMissingLink = true
+		}
+	}
+	if !disclosedMissingLink {
+		t.Fatalf("missing-namespace plan did not disclose cross-namespace link revocation: %+v", freshPlan.GetPlan())
 	}
 	freshRecovery, err := client.operator.ExecuteCleanup(ctx, &hostv1.ExecuteCleanupRequest{RequestId: "cleanup-discard-fresh-recovery", Plan: freshPlan.GetPlan()})
 	if err != nil || freshRecovery.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
@@ -827,6 +881,10 @@ func testCleanupContract(t *testing.T, harness *hostHarness, client *productClie
 	}
 	if _, err := client.operator.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: "cleanup-source"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("partial discard left host environment: %v", err)
+	}
+	var missingLinkTombstones int
+	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM grants WHERE id=?", missingLink.GetId()).Scan(&missingLinkTombstones); err != nil || missingLinkTombstones != 0 {
+		t.Fatalf("missing-namespace discard retained link tombstone = %d, %v", missingLinkTombstones, err)
 	}
 	var failed, succeeded int
 	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit WHERE method='ExecuteCleanup' AND result_code=?", int32(codes.InvalidArgument)).Scan(&failed); err != nil {
@@ -884,7 +942,7 @@ func testBoot(t *testing.T) {
 	if vm.GetState() != hostv1.VMState_VM_STATE_RUNNING || vm.GetBootId() == "" {
 		t.Fatalf("StartVM() = %+v", vm)
 	}
-	if output := readFileTail(harness.serial, 64<<10); !bytes.Contains(output, []byte("guest startup stage=listener")) {
+	if output := readFileTail(harness.serial, 64<<10); !bytes.Contains(output, []byte(`"stage":"listener","state":"succeeded"`)) {
 		t.Fatalf("Guest boot console did not reach Host serial log: %s", output)
 	}
 	if _, err := os.Stat(harness.runtimeSocket); !errors.Is(err, os.ErrNotExist) {
@@ -1929,7 +1987,12 @@ func (harness *hostHarness) start(t *testing.T) *hostv1.VM {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	_, err := harness.client.StartVM(ctx, &hostv1.StartVMRequest{RequestId: fmt.Sprintf("start-%d", time.Now().UnixNano())})
+	summary, err := harness.client.GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
+	if err != nil || summary.GetVm() == nil {
+		t.Fatalf("VM start impact unavailable: summary=%+v err=%v", summary, err)
+	}
+	fence := &hostv1.VMMutationFence{State: summary.GetVm().GetState(), BootId: summary.GetVm().GetBootId(), ObservedWorkloads: summary.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
+	_, err = harness.client.StartVM(ctx, &hostv1.StartVMRequest{RequestId: fmt.Sprintf("start-%d", time.Now().UnixNano()), Fence: fence})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1948,7 +2011,12 @@ func (harness *hostHarness) stop(t *testing.T, force bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, err := harness.client.StopVM(ctx, &hostv1.StopVMRequest{RequestId: fmt.Sprintf("stop-%d", time.Now().UnixNano()), Force: force})
+	summary, err := harness.client.GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
+	if err != nil || summary.GetVm() == nil {
+		t.Fatalf("VM stop impact unavailable: summary=%+v err=%v", summary, err)
+	}
+	fence := &hostv1.VMMutationFence{State: summary.GetVm().GetState(), BootId: summary.GetVm().GetBootId(), ObservedWorkloads: summary.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
+	_, err = harness.client.StopVM(ctx, &hostv1.StopVMRequest{RequestId: fmt.Sprintf("stop-%d", time.Now().UnixNano()), Force: force, Fence: fence})
 	if err != nil {
 		t.Fatal(err)
 	}

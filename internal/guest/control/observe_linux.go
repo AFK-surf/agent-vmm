@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -102,7 +103,11 @@ func (r *Runtime) volumeSnapshot(namespaceID, volumeID string, limit uint64, con
 	if err != nil {
 		return nil, err
 	}
-	volume := &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, CurrentBytes: usage, LimitBytes: limit}
+	generationID, err := volumeGenerationID(volumePath(namespaceID, volumeID))
+	if err != nil {
+		return nil, err
+	}
+	volume := &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, CurrentBytes: usage, LimitBytes: limit, GenerationId: generationID}
 	for _, container := range containers {
 		for _, mount := range container.GetVolumes() {
 			if mount.GetVolumeId() == volumeID {
@@ -197,6 +202,10 @@ func directoryUsage(root string) (uint64, error) {
 }
 
 func (r *Runtime) ListVolumes(ctx context.Context, namespaceID string) ([]*vmmdv1.Volume, error) {
+	return r.ListVolumesBounded(ctx, namespaceID, 0, 0)
+}
+
+func (r *Runtime) ListVolumesBounded(ctx context.Context, namespaceID string, limit, relatedContainerLimit uint32) ([]*vmmdv1.Volume, error) {
 	if err := r.namespaceExists(ctx, namespaceID); err != nil {
 		return nil, err
 	}
@@ -208,21 +217,28 @@ func (r *Runtime) ListVolumes(ctx context.Context, namespaceID string) ([]*vmmdv
 	if err != nil {
 		return nil, err
 	}
-	containers, err := r.ListContainers(ctx, namespaceID)
+	containers, err := r.ListContainersBounded(ctx, namespaceID, relatedContainerLimit)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := directoryEntries(volumePath(namespaceID, ""))
+	entries, err := directoryEntriesBounded(volumePath(namespaceID, ""), limit)
 	if err != nil {
 		return nil, err
 	}
 	result := make([]*vmmdv1.Volume, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
+			if limit > 0 {
+				return nil, errors.New("volume inventory contains an unexpected non-directory entry")
+			}
 			continue
 		}
 		usage := r.cachedOrScheduleVolumeUsage(namespaceID, entry.Name())
-		volume := &vmmdv1.Volume{Id: entry.Name(), NamespaceId: namespaceID, CurrentBytes: usage.bytes, LimitBytes: namespace.GetLimits().GetDiskBytes()}
+		generationID, err := volumeGenerationID(volumePath(namespaceID, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		volume := &vmmdv1.Volume{Id: entry.Name(), NamespaceId: namespaceID, CurrentBytes: usage.bytes, LimitBytes: namespace.GetLimits().GetDiskBytes(), GenerationId: generationID}
 		if usage.observedAt.IsZero() {
 			volume.UsageStale = true
 			volume.UsageUnavailableReason = "volume usage is being sampled"
@@ -242,22 +258,37 @@ func (r *Runtime) ListVolumes(ctx context.Context, namespaceID string) ([]*vmmdv
 			}
 		}
 		result = append(result, volume)
+		if limit > 0 && uint32(len(result)) >= limit {
+			break
+		}
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].GetId() < result[right].GetId() })
 	return result, nil
 }
 
 func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1.Image, error) {
+	return r.ListImagesBounded(ctx, namespaceID, 0)
+}
+
+func (r *Runtime) ListImagesBounded(ctx context.Context, namespaceID string, limit uint32) ([]*vmmdv1.Image, error) {
 	if err := r.namespaceExists(ctx, namespaceID); err != nil {
 		return nil, err
 	}
-	logicalContext := namespaceContext(ctx, namespaceID)
-	images, err := r.client.ListImages(logicalContext)
+	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*vmmdv1.Image, 0, len(images))
-	for _, image := range images {
+	references, err := inventory.imageReferences(namespaceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	logicalContext := namespaceContext(ctx, namespaceID)
+	result := make([]*vmmdv1.Image, 0, len(references))
+	for _, reference := range references {
+		image, err := r.client.GetImage(logicalContext, reference)
+		if err != nil {
+			return nil, fmt.Errorf("load indexed runtime image %s/%s: %w", namespaceID, reference, err)
+		}
 		runtimeImage, err := r.client.GetImage(runtimeContext(ctx), runtimeImageReference(image.Target().Digest))
 		if errdefs.IsNotFound(err) {
 			continue
@@ -289,8 +320,45 @@ func (r *Runtime) ListImages(ctx context.Context, namespaceID string) ([]*vmmdv1
 		}
 		result = append(result, &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata)})
 	}
-	sort.Slice(result, func(left, right int) bool { return result[left].GetReference() < result[right].GetReference() })
 	return result, nil
+}
+
+func directoryEntriesBounded(path string, limit uint32) ([]os.DirEntry, error) {
+	if limit == 0 {
+		return directoryEntries(path)
+	}
+	directory, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer directory.Close()
+	entries, err := directory.ReadDir(int(limit))
+	if errors.Is(err, io.EOF) {
+		err = nil
+	}
+	return entries, err
+}
+
+func volumeGenerationID(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("volume incarnation is unavailable")
+	}
+	value, err := readVolumeGenerationID(volumeGenerationMarkerPath(path))
+	if err == nil {
+		return value, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", errors.New("volume incarnation is unavailable")
+	}
+	return fmt.Sprintf("legacy-%x-%x-%x-%x", uint64(stat.Dev), stat.Ino, stat.Ctim.Sec, stat.Ctim.Nsec), nil
 }
 
 func unmaterializedImage(err error) bool {
@@ -395,14 +463,20 @@ func (r *Runtime) ContainerUsage(ctx context.Context, namespaceID, containerID s
 }
 
 func (r *Runtime) SystemUsage() (*vmmdv1.Usage, error) {
-	return readSystemUsage(filepath.Join("/sys/class/net", netprotocol.TunName, "statistics"), controlRoot)
+	return readSystemUsage(filepath.Join("/sys/class/net", netprotocol.TunName, "statistics"), controlRoot, "/sys/fs/cgroup")
 }
 
-func readSystemUsage(networkPath, controlPath string) (*vmmdv1.Usage, error) {
-	usage, err := readNetworkUsage(networkPath)
+func readSystemUsage(networkPath, controlPath, cgroupPath string) (*vmmdv1.Usage, error) {
+	usage, err := readCgroupUsage(cgroupPath)
 	if err != nil {
 		return nil, err
 	}
+	network, err := readNetworkUsage(networkPath)
+	if err != nil {
+		return nil, err
+	}
+	usage.NetworkRxBytes = network.NetworkRxBytes
+	usage.NetworkTxBytes = network.NetworkTxBytes
 	var filesystem syscall.Statfs_t
 	if err := syscall.Statfs(controlPath, &filesystem); err != nil {
 		return nil, err

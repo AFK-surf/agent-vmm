@@ -130,6 +130,9 @@ func (server *managedInstallOperator) GetVM(context.Context, *hostv1.GetVMReques
 	return &hostv1.VMResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}}, nil
 }
 func (server *managedInstallOperator) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapshotRequest) (*hostv1.GetSystemSnapshotResponse, error) {
+	return nil, status.Error(codes.Internal, "rich snapshot must not be used by managed lifecycle")
+}
+func (server *managedInstallOperator) GetSystemHealthSummary(context.Context, *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemSnapshotResponse, error) {
 	return &hostv1.GetSystemSnapshotResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}, Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY}}, nil
 }
 func (server *managedInstallOperator) ApplyManagedRemoteEnrollment(_ context.Context, request *hostv1.ApplyManagedRemoteEnrollmentRequest) (*hostv1.RemoteRegistrationResponse, error) {

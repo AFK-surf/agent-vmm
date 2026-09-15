@@ -50,6 +50,11 @@ func (server *operatorServer) PrepareAgentIntegration(ctx context.Context, reque
 	if len(environmentID) > 128 {
 		return nil, invalidField("environment_id", "environment ID is too long")
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	unlock := server.controller.lockEnvironment(environmentID)
 	defer unlock()
 	environment, err := server.controller.prepareLocalEnvironment(ctx, environmentID, request.GetDisplayName())

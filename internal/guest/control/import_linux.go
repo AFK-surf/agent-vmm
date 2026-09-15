@@ -333,6 +333,9 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			if err := r.commitLogicalImageRecord(logicalContext, logical, logicalErr, imageReference, existing.Target(), requestLabel, fingerprint); err != nil {
 				return nil, err
 			}
+			if err := r.indexCommittedImage(namespaceID, imageReference); err != nil {
+				return nil, err
+			}
 			return r.getImageForRole(ctx, namespaceID, imageReference, system)
 		}
 		// An image record without a usable snapshot is an interrupted
@@ -400,10 +403,21 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	if err := r.commitLogicalImageRecord(logicalContext, logical, logicalErr, imageReference, materialized.Target(), requestLabel, fingerprint); err != nil {
 		return nil, err
 	}
+	if err := r.indexCommittedImage(namespaceID, imageReference); err != nil {
+		return nil, err
+	}
 	if err := syncStateFilesystem(); err != nil {
 		return nil, fmt.Errorf("persist imported image: %w", err)
 	}
 	return r.getImageForRole(ctx, namespaceID, imageReference, system)
+}
+
+func (r *Runtime) indexCommittedImage(namespaceID, reference string) error {
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
+		return err
+	}
+	return inventory.addImage(namespaceID, reference)
 }
 
 func (r *Runtime) commitLogicalImageRecord(ctx context.Context, current containerd.Image, currentErr error, reference string, target ocispec.Descriptor, requestLabel, fingerprint string) error {

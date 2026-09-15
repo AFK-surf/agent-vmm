@@ -30,6 +30,7 @@ const (
 	hostLabel                   = "com.afk-surf.agent-vmm-host"
 	hostTemplateResource        = hostLabel + ".plist.template"
 	boundedOperationMaxAttempts = 3
+	statusObservationBudget     = 4 * time.Second
 )
 
 type managedInstallDispositionError struct {
@@ -96,14 +97,29 @@ type paths struct {
 }
 
 type serviceStatus struct {
-	AppInstalled       bool                `json:"appInstalled"`
-	HostInstalled      bool                `json:"hostInstalled"`
-	HostLoaded         bool                `json:"hostLoaded"`
-	ConnectorInstalled bool                `json:"connectorInstalled"`
-	ConnectorLoaded    bool                `json:"connectorLoaded"`
-	HostReadable       bool                `json:"hostReadable"`
-	HostHealthy        bool                `json:"hostHealthy"`
-	Operation          *lifecycleOperation `json:"operation,omitempty"`
+	AppInstalled         bool                              `json:"appInstalled"`
+	ServiceApp           string                            `json:"serviceApp"`
+	ServiceUser          string                            `json:"serviceUser"`
+	ServiceUID           int                               `json:"serviceUid"`
+	HostJob              string                            `json:"hostJob"`
+	OperatorSocket       string                            `json:"operatorSocket"`
+	HostInstalled        bool                              `json:"hostInstalled"`
+	HostObserved         bool                              `json:"hostObserved"`
+	HostObservationIssue string                            `json:"hostObservationIssue,omitempty"`
+	HostLoaded           bool                              `json:"hostLoaded"`
+	HostRunning          bool                              `json:"hostRunning"`
+	HostPID              int                               `json:"hostPid,omitempty"`
+	HostLastExitStatus   *int                              `json:"hostLastExitStatus,omitempty"`
+	ConnectorInstalled   bool                              `json:"connectorInstalled"`
+	ConnectorLoaded      bool                              `json:"connectorLoaded"`
+	HostReadable         bool                              `json:"hostReadable"`
+	HostHealthy          bool                              `json:"hostHealthy"`
+	HostResources        *hostv1.LayerResources            `json:"hostResources,omitempty"`
+	GuestResources       *hostv1.LayerResources            `json:"guestResources,omitempty"`
+	SnapshotObservedAt   string                            `json:"snapshotObservedAt,omitempty"`
+	Operation            *lifecycleOperation               `json:"operation,omitempty"`
+	Startup              *startupEvidence                  `json:"startup,omitempty"`
+	Snapshot             *hostv1.GetSystemSnapshotResponse `json:"-"`
 }
 
 // The helper is the shared Cue/BFT local operation boundary. Its durable
@@ -113,15 +129,18 @@ type serviceStatus struct {
 // LifecycleCoordinator; repair remains the narrow host-service repair action.
 
 type lifecycleOperation struct {
-	OperationID    string `json:"operationId"`
-	RequestID      string `json:"requestId"`
-	Kind           string `json:"kind"`
-	Outcome        string `json:"outcome"`
-	Attempt        int    `json:"attempt,omitempty"`
-	FailureStage   string `json:"failureStage,omitempty"`
-	FailureCode    string `json:"failureCode,omitempty"`
-	FailureMessage string `json:"failureMessage,omitempty"`
-	Retryable      bool   `json:"retryable,omitempty"`
+	OperationID          string `json:"operationId"`
+	RequestID            string `json:"requestId"`
+	Kind                 string `json:"kind"`
+	TargetRegistrationID string `json:"targetRegistrationId,omitempty"`
+	TargetReleaseID      string `json:"targetReleaseId,omitempty"`
+	Stage                string `json:"stage,omitempty"`
+	Outcome              string `json:"outcome"`
+	Attempt              int    `json:"attempt,omitempty"`
+	FailureStage         string `json:"failureStage,omitempty"`
+	FailureCode          string `json:"failureCode,omitempty"`
+	FailureMessage       string `json:"failureMessage,omitempty"`
+	Retryable            bool   `json:"retryable,omitempty"`
 	// SecretDisposition is independent from scheduling retryability. Only an
 	// explicitly persisted terminal result or durable completion receipt may
 	// authorize destruction of the managed install plan.
@@ -138,7 +157,7 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|status|install|install-operation-ack|repair|registration-state|drain|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
+		fatal("usage: agent-vmm-lifecycle version --json|status|operation|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
@@ -149,36 +168,53 @@ func main() {
 		}
 		return
 	}
-	if os.Args[1] == "atomic-replace-app" {
-		source, target, err := parseAtomicReplaceAppArgs(os.Args[2:])
-		if err != nil {
-			fatal(err.Error())
-		}
-		if err := atomicReplaceApp(source, target); err != nil {
-			fatal(err.Error())
-		}
-		return
+	if lifecycleMutationCommand(os.Args[1]) && os.Geteuid() == 0 {
+		fatal("lifecycle business mutations must run as the configured non-root service user; use agent-vmm-service-executor only for fixed system jobs")
 	}
 	serviceRequest, commandArgs, err := extractServiceRequest(os.Args[2:])
 	if err != nil {
 		fatal(err.Error())
 	}
 	serviceRequest.action = os.Args[1]
+	if os.Args[1] == "operation" {
+		resolved, err := observationPathsForRequest(serviceRequest)
+		if err != nil {
+			fatal(err.Error())
+		}
+		operationID, err := parseLifecycleOperationArgs(commandArgs)
+		if err != nil {
+			fatal(err.Error())
+		}
+		operation, err := readLifecycleOperationByID(resolved, operationID)
+		if err != nil {
+			fatal(err.Error())
+		}
+		if err := writeOperation(*operation); err != nil {
+			fatal("operation encoding failed")
+		}
+		return
+	}
+	if os.Args[1] == "status" {
+		resolved, err := observationPathsForRequest(serviceRequest)
+		if err != nil {
+			fatal(err.Error())
+		}
+		registrationID, err := parseStatusArgs(commandArgs)
+		if err != nil {
+			fatal(err.Error())
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), statusObservationBudget)
+		defer cancel()
+		if err := json.NewEncoder(os.Stdout).Encode(readStatusContext(ctx, resolved, registrationID)); err != nil {
+			fatal("status encoding failed")
+		}
+		return
+	}
 	resolved, err := lifecyclePaths(serviceRequest)
 	if err != nil {
 		fatal(err.Error())
 	}
 	switch os.Args[1] {
-	case "status":
-		registrationID, err := parseStatusArgs(commandArgs)
-		if err != nil {
-			fatal(err.Error())
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := json.NewEncoder(os.Stdout).Encode(readStatusContext(ctx, resolved, registrationID)); err != nil {
-			fatal("status encoding failed")
-		}
 	case "install-operation-ack":
 		operationID, err := parseInstallOperationAckArgs(commandArgs)
 		if err != nil {
@@ -188,7 +224,7 @@ func main() {
 			fatal("acknowledged install operation could not be cleaned up: " + err.Error())
 		}
 	case "install", "repair":
-		disablePairing, requestID, operationStdin, resumeOperationID := parseInstallArgs(os.Args[1], commandArgs)
+		disablePairing, requestID, operationStdin, resumeOperationID, registrationID := parseInstallArgs(os.Args[1], commandArgs)
 		var descriptor *operationHandoffDescriptor
 		if os.Args[1] == "install" && operationStdin {
 			decoded, decodeErr := decodeOperationHandoffDescriptor(os.Stdin)
@@ -245,6 +281,10 @@ func main() {
 		runOperation := runLifecycleOperation
 		if operationKind == "install-managed" {
 			runOperation = runManagedLifecycleOperation
+		} else if operationKind == "repair" {
+			runOperation = func(value paths, _ string, requestID string, action func() error) (lifecycleOperation, error) {
+				return runRepairLifecycleOperation(value, requestID, registrationID, action)
+			}
 		}
 		operation, operationErr := runOperation(resolved, operationKind, requestID, func() error {
 			if os.Args[1] == "install" {
@@ -274,12 +314,32 @@ func main() {
 				}
 				return persistCompletedInstall(resolved, productionAdapter)
 			}
+			if err := persistRepairStage(resolved, requestID, registrationID, "service"); err != nil {
+				return err
+			}
 			reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_started", RequestID: requestID})
 			if err := repairWithOptions(resolved, launchctl, disablePairing); err != nil {
 				return err
 			}
 			reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_completed", RequestID: requestID})
-			return ensureVMStarted(resolved, requestID)
+			if err := persistRepairStage(resolved, requestID, registrationID, "vm"); err != nil {
+				return err
+			}
+			if err := ensureVMStarted(resolved, requestID); err != nil {
+				return err
+			}
+			if registrationID != "" {
+				if err := persistRepairStage(resolved, requestID, registrationID, "registration"); err != nil {
+					return err
+				}
+				if err := setRemoteRegistrationState(context.Background(), resolved, registrationID, hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, requestID); err != nil {
+					return err
+				}
+				if err := waitRemoteRegistrationConnected(resolved, registrationID); err != nil {
+					return err
+				}
+			}
+			return persistRepairStage(resolved, requestID, registrationID, "complete")
 		})
 		completedOperationID := resumeOperationID
 		if descriptor != nil {
@@ -295,6 +355,17 @@ func main() {
 	case "drain":
 		requestID := requestIDArg(commandArgs)
 		operation, operationErr := runLifecycleOperation(resolved, "drain", requestID, func() error { return drain(resolved) })
+		if err := writeOperation(operation); err != nil {
+			fatal("operation encoding failed")
+		}
+		if operationErr != nil {
+			fatal(operationErr.Error())
+		}
+	case "update":
+		sourceApp, targetReleaseID, requestID := parseUpdateArgs(commandArgs)
+		operation, operationErr := runUpdateLifecycleOperation(resolved, requestID, targetReleaseID, func() error {
+			return updateApplication(resolved, sourceApp, targetReleaseID, requestID)
+		})
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
 		}
@@ -329,6 +400,15 @@ func main() {
 	}
 }
 
+func lifecycleMutationCommand(command string) bool {
+	switch command {
+	case "install", "install-operation-ack", "repair", "registration-state", "drain", "update", "uninstall":
+		return true
+	default:
+		return false
+	}
+}
+
 func lifecycleRequestID(requestID string) string {
 	if requestID != "" {
 		return requestID
@@ -336,26 +416,105 @@ func lifecycleRequestID(requestID string) string {
 	return newOperationID("req")
 }
 
-func parseAtomicReplaceAppArgs(args []string) (string, string, error) {
-	var source, target string
+func parseUpdateArgs(args []string) (sourceApp, targetReleaseID, requestID string) {
 	for len(args) > 0 {
 		if len(args) < 2 {
-			return "", "", errors.New("atomic-replace-app requires --source-app and --target-app")
+			fatal("update requires --source-app, --target-release-id, and --request-id")
 		}
 		switch args[0] {
 		case "--source-app":
-			source = args[1]
-		case "--target-app":
-			target = args[1]
+			sourceApp = args[1]
+		case "--target-release-id":
+			targetReleaseID = args[1]
+		case "--request-id":
+			requestID = args[1]
 		default:
-			return "", "", errors.New("unknown atomic-replace-app argument")
+			fatal("unknown update argument")
 		}
 		args = args[2:]
 	}
-	if source == "" || target == "" || filepath.Dir(source) != filepath.Dir(target) {
-		return "", "", errors.New("atomic app replacement requires sibling source and target bundles")
+	if !filepath.IsAbs(sourceApp) || targetReleaseID == "" || !operationIDPattern.MatchString(targetReleaseID) || requestID == "" || !operationIDPattern.MatchString(requestID) {
+		fatal("update requires a valid --source-app, --target-release-id, and --request-id")
 	}
-	return source, target, nil
+	return sourceApp, targetReleaseID, requestID
+}
+
+func hostBundleReleaseID(app string, staged bool) (string, error) {
+	return bundle.HostReleaseID(app, staged)
+}
+
+func updateApplication(value paths, sourceApp, targetReleaseID, requestID string) error {
+	return updateApplicationWith(value, sourceApp, targetReleaseID, requestID, updateApplicationActions{
+		releaseID: hostBundleReleaseID,
+		drain:     drain,
+		replace:   atomicReplaceApp,
+		repair:    repair,
+		startVM:   ensureVMStarted,
+		remove:    os.RemoveAll,
+	})
+}
+
+type updateApplicationActions struct {
+	releaseID func(string, bool) (string, error)
+	drain     func(paths) error
+	replace   func(string, string) error
+	repair    func(paths) error
+	startVM   func(paths, string) error
+	remove    func(string) error
+}
+
+func updateApplicationWith(value paths, sourceApp, targetReleaseID, requestID string, actions updateApplicationActions) error {
+	if filepath.Dir(sourceApp) != filepath.Dir(value.app) || sourceApp == value.app {
+		return errors.New("prepared update must be a hidden sibling of the installed Host app")
+	}
+	targetRelease, targetErr := actions.releaseID(value.app, false)
+	sourceRelease, sourceErr := actions.releaseID(sourceApp, true)
+	if targetErr == nil && targetRelease == targetReleaseID {
+		if err := persistUpdateStage(value, requestID, targetReleaseID, "recovery"); err != nil {
+			return err
+		}
+		if err := actions.repair(value); err != nil {
+			return fmt.Errorf("restore updated Host service: %w", err)
+		}
+		if err := actions.startVM(value, requestID+"-restore"); err != nil {
+			return fmt.Errorf("restore updated VM: %w", err)
+		}
+		if err := actions.remove(sourceApp); err != nil {
+			return errors.New("retired Host bundle could not be removed")
+		}
+		return persistUpdateStage(value, requestID, targetReleaseID, "complete")
+	}
+	if targetErr != nil {
+		return fmt.Errorf("current Host release is unreadable: %w", targetErr)
+	}
+	if sourceErr != nil || sourceRelease != targetReleaseID {
+		return errors.New("prepared Host release does not match the selected target")
+	}
+	if err := persistUpdateStage(value, requestID, targetReleaseID, "stop"); err != nil {
+		return err
+	}
+	if err := actions.drain(value); err != nil {
+		return fmt.Errorf("stop current Host release: %w", err)
+	}
+	if err := persistUpdateStage(value, requestID, targetReleaseID, "replace"); err != nil {
+		return err
+	}
+	if err := actions.replace(sourceApp, value.app); err != nil {
+		return err
+	}
+	if err := persistUpdateStage(value, requestID, targetReleaseID, "recovery"); err != nil {
+		return err
+	}
+	if err := actions.repair(value); err != nil {
+		return fmt.Errorf("restore updated Host service: %w", err)
+	}
+	if err := actions.startVM(value, requestID+"-restore"); err != nil {
+		return fmt.Errorf("restore updated VM: %w", err)
+	}
+	if err := actions.remove(sourceApp); err != nil {
+		return errors.New("retired Host bundle could not be removed")
+	}
+	return persistUpdateStage(value, requestID, targetReleaseID, "complete")
 }
 
 func atomicReplaceApp(source, target string) error {
@@ -384,6 +543,66 @@ func lifecyclePaths(request serviceRequest) (paths, error) {
 		return paths{}, errors.New("helper location is invalid")
 	}
 	return lifecyclePathsForRequest(request, executable)
+}
+
+func observationPathsForRequest(request serviceRequest) (paths, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return paths{}, errors.New("helper location is unavailable")
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return paths{}, errors.New("helper location is invalid")
+	}
+	config, err := resolveServiceConfig(request)
+	if err != nil {
+		return paths{}, err
+	}
+	account, err := user.Lookup(config.User)
+	if err != nil {
+		return paths{}, errors.New("service user is unavailable")
+	}
+	if request.app != "" && os.Geteuid() != 0 {
+		return paths{}, errors.New("--service-app is restricted to an administrator installer")
+	}
+	return observationPathsForConfig(account.HomeDir, executable, config, request.app)
+}
+
+func observationPathsForConfig(home, executable string, service serviceConfig, targetApp string) (paths, error) {
+	if !filepath.IsAbs(home) || home == string(filepath.Separator) {
+		return paths{}, errors.New("user home directory is invalid")
+	}
+	helpers := filepath.Dir(executable)
+	contents := filepath.Dir(helpers)
+	if filepath.Base(helpers) != "Helpers" || filepath.Base(contents) != "Contents" {
+		return paths{}, errors.New("helper is not inside an Agent VMM application bundle")
+	}
+	sourceApp := filepath.Dir(contents)
+	if filepath.Base(sourceApp) != bundle.HostAppName {
+		return paths{}, fmt.Errorf("application bundle must be %q", bundle.HostAppName)
+	}
+	app := sourceApp
+	if targetApp != "" {
+		if !filepath.IsAbs(targetApp) || filepath.Base(targetApp) != bundle.HostAppName {
+			return paths{}, errors.New("service app must be an absolute Agent VMM Host.app path")
+		}
+		app = targetApp
+	}
+	launchAgents := filepath.Join(home, "Library", "LaunchAgents")
+	agentPlist := filepath.Join(launchAgents, hostLabel+".plist")
+	daemonPlist := filepath.Join("/Library/LaunchDaemons", hostLabel+".plist")
+	hostPlist := agentPlist
+	if service.Mode == serviceModeDaemon {
+		hostPlist = daemonPlist
+	}
+	return paths{
+		home: home, app: app, resources: filepath.Join(sourceApp, "Contents", "Resources"),
+		hostPlist: hostPlist, agentPlist: agentPlist, daemonPlist: daemonPlist, service: service,
+		applicationData:   filepath.Join(home, "Library", "Application Support", "AgentVMM"),
+		logs:              filepath.Join(home, "Library", "Logs", "AgentVMM"),
+		operationFile:     filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		serviceConfigFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "service.json"),
+	}, nil
 }
 
 func lifecyclePathsFor(home, executable string) (paths, error) {
@@ -464,28 +683,53 @@ func readStatus(value paths) serviceStatus {
 
 func readStatusContext(ctx context.Context, value paths, registrationIDs ...string) serviceStatus {
 	result := serviceStatus{
-		AppInstalled:  directory(value.app),
-		HostInstalled: regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
-		HostLoaded:    launchctlContext(ctx, "print", value.serviceDomain()+"/"+hostLabel) == nil,
-		Operation:     readLifecycleOperation(value),
+		AppInstalled:   directory(value.app),
+		ServiceApp:     value.app,
+		ServiceUser:    value.service.User,
+		ServiceUID:     value.service.UID,
+		HostJob:        value.serviceDomain() + "/" + hostLabel,
+		OperatorSocket: filepath.Join(value.applicationData, "operator.sock"),
+		HostInstalled:  regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
+		Operation:      readLifecycleOperation(value),
+	}
+	result.Startup = readStartupEvidence(value, result.Operation)
+	if service, err := launchctlServiceObserver(ctx, value.serviceDomain()+"/"+hostLabel); err == nil {
+		result.HostObserved = true
+		result.HostLoaded = service.Loaded
+		result.HostRunning = service.Running
+		result.HostPID = service.PID
+		result.HostLastExitStatus = service.LastExitStatus
+	} else if errors.Is(err, errLaunchctlServiceNotFound) {
+		result.HostObserved = true
+	} else {
+		result.HostObservationIssue = err.Error()
 	}
 	// Local Host and exact connector observations never claim Salix admission or
 	// product Node readiness. Those facts are owned by the server observation.
 	result.ConnectorInstalled = result.HostInstalled
-	if result.HostLoaded {
+	if result.HostRunning {
 		facts, _ := readOperatorFactsContext(ctx, filepath.Join(value.applicationData, "operator.sock"), registrationIDs...)
 		result.HostReadable = facts.hostReadable
 		result.HostHealthy = facts.hostHealthy
 		result.ConnectorLoaded = facts.connectorConnected
+		result.Snapshot = facts.snapshot
+		if facts.snapshot != nil {
+			result.HostResources = facts.snapshot.GetHostResources()
+			result.GuestResources = facts.snapshot.GetGuestResources()
+			if facts.snapshot.GetCollectedAt() != nil {
+				result.SnapshotObservedAt = facts.snapshot.GetCollectedAt().AsTime().UTC().Format(time.RFC3339Nano)
+			}
+		}
 	}
 	return result
 }
 
-func parseInstallArgs(action string, args []string) (bool, string, bool, string) {
+func parseInstallArgs(action string, args []string) (bool, string, bool, string, string) {
 	disablePairing := false
 	requestID := ""
 	operationStdin := false
 	resumeOperationID := ""
+	registrationID := ""
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
 		case "--disable-personal-mesh-pairing":
@@ -507,15 +751,24 @@ func parseInstallArgs(action string, args []string) (bool, string, bool, string)
 			}
 			index++
 			requestID = args[index]
+		case "--registration-id":
+			if action != "repair" || index+1 >= len(args) {
+				fatal("--registration-id is only valid for repair")
+			}
+			index++
+			registrationID = args[index]
 		default:
-			fatal("install and repair accept --disable-personal-mesh-pairing, --request-id, and install --operation-stdin or --resume-operation")
+			fatal("install and repair accept --disable-personal-mesh-pairing, --request-id, repair --registration-id, and install --operation-stdin or --resume-operation")
 		}
 	}
-	return disablePairing, requestID, operationStdin, resumeOperationID
+	if registrationID != "" && !operationIDPattern.MatchString(registrationID) {
+		fatal("--registration-id is invalid")
+	}
+	return disablePairing, requestID, operationStdin, resumeOperationID, registrationID
 }
 
 func parseRepairArgs(args []string) (bool, string) {
-	disablePairing, requestID, _, _ := parseInstallArgs("repair", args)
+	disablePairing, requestID, _, _, _ := parseInstallArgs("repair", args)
 	return disablePairing, requestID
 }
 
@@ -609,6 +862,42 @@ func setRemoteRegistrationState(ctx context.Context, value paths, registrationID
 	return setRemoteRegistrationStateWith(ctx, registrationID, state, requestID, client.GetRemoteRegistration, client.SetRemoteRegistrationState)
 }
 
+func waitRemoteRegistrationConnected(value paths, registrationID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	connection, err := operatorConnection(ctx, filepath.Join(value.applicationData, "operator.sock"))
+	if err != nil {
+		return errors.New("Agent VMM operator is not readable for registration connection observation")
+	}
+	defer connection.Close()
+	client := hostv1.NewOperatorServiceClient(connection)
+	return waitRemoteRegistrationConnectedWith(ctx, registrationID, client.GetRemoteRegistration, func(ctx context.Context) error {
+		timer := time.NewTimer(250 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	})
+}
+
+func waitRemoteRegistrationConnectedWith(ctx context.Context, registrationID string, get func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error), sleep func(context.Context) error) error {
+	for {
+		response, readErr := get(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
+		if readErr == nil && response.GetRegistration().GetId() == registrationID && response.GetRegistration().GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("managed registration did not reconnect before the repair deadline: %w", context.DeadlineExceeded)
+		}
+		if sleep(ctx) != nil {
+			return fmt.Errorf("managed registration did not reconnect before the repair deadline: %w", context.DeadlineExceeded)
+		}
+	}
+}
+
 func setRemoteRegistrationStateWith(
 	ctx context.Context,
 	registrationID string,
@@ -621,7 +910,7 @@ func setRemoteRegistrationStateWith(
 	if err != nil || current.GetRegistration().GetId() != registrationID {
 		return errors.New("managed registration is not readable")
 	}
-	if current.GetRegistration().GetState() == state {
+	if current.GetRegistration().GetState() == state && !(state == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED && current.GetRegistration().GetConnectionState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
 		return nil
 	}
 	_, err = set(ctx, &hostv1.SetRemoteRegistrationStateRequest{
@@ -637,7 +926,7 @@ func setRemoteRegistrationStateWith(
 }
 
 func runLifecycleOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
-	return runLifecycleOperationWithFailedRetry(value, kind, requestID, false, action)
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", false, action)
 }
 
 // Managed install retries must retain the server operation id as their request
@@ -648,17 +937,48 @@ func runManagedLifecycleOperation(value paths, kind, requestID string, action fu
 	if kind != "install-managed" || requestID == "" {
 		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown", SecretDisposition: secretDispositionRetain}, errors.New("managed install retry requires its stable request identity")
 	}
-	return runLifecycleOperationWithFailedRetry(value, kind, requestID, true, action)
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", true, action)
 }
 
 func runRegistrationStateOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
 	if !strings.HasPrefix(kind, "registration-") || requestID == "" {
 		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}, errors.New("registration state retry requires its stable request identity")
 	}
-	return runLifecycleOperationWithFailedRetry(value, kind, requestID, true, action)
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", true, action)
 }
 
-func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, retryFailed bool, action func() error) (lifecycleOperation, error) {
+func runRepairLifecycleOperation(value paths, requestID, registrationID string, action func() error) (lifecycleOperation, error) {
+	return runLifecycleOperationWithFailedRetry(value, "repair", requestID, registrationID, "", true, action)
+}
+
+func runUpdateLifecycleOperation(value paths, requestID, targetReleaseID string, action func() error) (lifecycleOperation, error) {
+	if targetReleaseID == "" {
+		return lifecycleOperation{RequestID: requestID, Kind: "update", Outcome: "unknown"}, errors.New("update target release is required")
+	}
+	return runLifecycleOperationWithFailedRetry(value, "update", requestID, "", targetReleaseID, true, action)
+}
+
+func persistUpdateStage(value paths, requestID, targetReleaseID, stage string) error {
+	operation := readLifecycleOperation(value)
+	if operation == nil || operation.RequestID != requestID || operation.Kind != "update" || operation.TargetReleaseID != targetReleaseID {
+		return errors.New("lifecycle operation is not owned by this request")
+	}
+	operation.Stage = stage
+	operation.UpdatedAt = time.Now().UnixMilli()
+	return persistOperationOwned(value, *operation, lifecycleOperationOwner(value))
+}
+
+func persistRepairStage(value paths, requestID, registrationID, stage string) error {
+	operation := readLifecycleOperation(value)
+	if operation == nil || operation.RequestID != requestID || operation.Kind != "repair" || operation.TargetRegistrationID != registrationID {
+		return errors.New("repair operation target is not owned by this request")
+	}
+	operation.Stage = stage
+	operation.UpdatedAt = time.Now().UnixMilli()
+	return persistOperationOwned(value, *operation, lifecycleOperationOwner(value))
+}
+
+func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRegistrationID, targetReleaseID string, retryFailed bool, action func() error) (lifecycleOperation, error) {
 	owner := lifecycleOperationOwner(value)
 	release, err := acquireOperationLockOwned(value, owner)
 	if err != nil {
@@ -673,7 +993,11 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		requestID = newOperationID("req")
 	}
 	var operation lifecycleOperation
+	previousFailureStage := ""
 	if previous := readLifecycleOperation(value); previous != nil && previous.RequestID == requestID {
+		if previous.Kind != kind || previous.TargetRegistrationID != targetRegistrationID || previous.TargetReleaseID != targetReleaseID {
+			return *previous, errors.New("operation request identity was reused for a different target")
+		}
 		if kind == "install-managed" && (previous.Kind != kind || previous.OperationID != requestID) {
 			previous.SecretDisposition = secretDispositionRetain
 			return *previous, errors.New("managed install operation identity does not match its durable request")
@@ -682,11 +1006,12 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 			return *previous, nil
 		}
 		if previous.Outcome == "failed" {
+			previousFailureStage = previous.FailureStage
 			if !retryFailed || previous.Kind != kind {
 				return *previous, errors.New("operation already failed; use a new request id after reviewing status")
 			}
 			if !previous.Retryable {
-				return *previous, errors.New("managed install failure requires operator action")
+				return *previous, errors.New("operation failure requires operator action")
 			}
 			if previous.Attempt >= boundedOperationMaxAttempts {
 				previous.Retryable = false
@@ -713,6 +1038,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 				return operation, err
 			}
 		} else if retryFailed && previous.Kind == kind {
+			previousFailureStage = previous.FailureStage
 			if previous.Attempt >= boundedOperationMaxAttempts {
 				previous.Outcome = "failed"
 				previous.Retryable = false
@@ -762,8 +1088,10 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		}
 		operation = lifecycleOperation{
 			OperationID: operationID, RequestID: requestID, Kind: kind,
-			Outcome: "pending",
-			Attempt: 1, StartedAt: now, UpdatedAt: now,
+			TargetRegistrationID: targetRegistrationID,
+			TargetReleaseID:      targetReleaseID,
+			Outcome:              "pending",
+			Attempt:              1, StartedAt: now, UpdatedAt: now,
 		}
 		if kind == "install-managed" {
 			operation.SecretDisposition = secretDispositionRetain
@@ -773,8 +1101,25 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 		}
 	}
 	if err := action(); err != nil {
+		if current := readLifecycleOperation(value); current != nil && current.RequestID == operation.RequestID && current.Kind == operation.Kind && current.TargetRegistrationID == operation.TargetRegistrationID && current.TargetReleaseID == operation.TargetReleaseID {
+			operation = *current
+		}
 		operation.Outcome = "failed"
 		operation.FailureStage, operation.FailureCode, operation.FailureMessage, operation.Retryable = lifecycleFailure(kind, err)
+		if (kind == "repair" || kind == "update") && operation.Stage != "" {
+			operation.FailureStage = operation.Stage
+		}
+		if kind == "update" && operation.Stage != "" {
+			// Once an update has entered the stopped/replacement path, the exact
+			// request and selected release are the only safe forward-repair key.
+			// Expected administrator handoffs advance through distinct stages.
+			// Each stage receives its own bounded retry budget.
+			if operation.Stage != previousFailureStage {
+				operation.Attempt = 1
+			}
+			operation.FailureCode = "update_forward_repair_required"
+			operation.Retryable = true
+		}
 		if kind == "install-managed" {
 			operation.SecretDisposition = managedInstallSecretDisposition(err)
 			// A durable non-retryable result is the local half of the
@@ -791,6 +1136,9 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID string, r
 			return operation, errors.Join(err, persistErr)
 		}
 		return operation, err
+	}
+	if current := readLifecycleOperation(value); current != nil && current.RequestID == operation.RequestID && current.Kind == operation.Kind && current.TargetRegistrationID == operation.TargetRegistrationID && current.TargetReleaseID == operation.TargetReleaseID {
+		operation.Stage = current.Stage
 	}
 	operation.Outcome = "succeeded"
 	if kind == "install-managed" {
@@ -814,7 +1162,7 @@ func lifecycleFailure(kind string, err error) (string, string, string, bool) {
 			stage = strings.TrimSpace(strings.TrimPrefix(message, "lifecycle ")[:end])
 		}
 	}
-	retryClass := kind == "install-managed" || strings.HasPrefix(kind, "registration-")
+	retryClass := kind == "install-managed" || kind == "repair" || kind == "update" || strings.HasPrefix(kind, "registration-")
 	if !retryClass {
 		return stage, "operation_failed", message, false
 	}
@@ -836,7 +1184,10 @@ func lifecycleFailure(kind string, err error) (string, string, string, bool) {
 		strings.Contains(message, "operation handoff acknowledgement failed") {
 		return stage, "upstream_unavailable", message, true
 	}
-	return stage, "install_failed", message, false
+	if kind == "install-managed" {
+		return stage, "install_failed", message, false
+	}
+	return stage, "operation_failed", message, false
 }
 
 func acquireOperationLock(value paths) (func(), error) {
@@ -968,6 +1319,14 @@ func readLifecycleOperation(value paths) *lifecycleOperation {
 	return &operation
 }
 
+func readLifecycleOperationByID(value paths, operationID string) (*lifecycleOperation, error) {
+	operation := readLifecycleOperation(value)
+	if operation == nil || operation.OperationID != operationID {
+		return nil, errors.New("lifecycle operation was not found")
+	}
+	return operation, nil
+}
+
 func writeOperation(operation lifecycleOperation) error {
 	return json.NewEncoder(os.Stdout).Encode(operation)
 }
@@ -976,6 +1335,7 @@ type operatorFacts struct {
 	hostReadable       bool
 	hostHealthy        bool
 	connectorConnected bool
+	snapshot           *hostv1.GetSystemSnapshotResponse
 }
 
 func parseStatusArgs(args []string) (string, error) {
@@ -986,6 +1346,13 @@ func parseStatusArgs(args []string) (string, error) {
 		return args[1], nil
 	}
 	return "", errors.New("status accepts --registration-id ID")
+}
+
+func parseLifecycleOperationArgs(args []string) (string, error) {
+	if len(args) == 2 && args[0] == "--operation-id" && operationIDPattern.MatchString(args[1]) {
+		return args[1], nil
+	}
+	return "", errors.New("operation requires --operation-id ID")
 }
 
 func readOperatorFacts(socket string) (operatorFacts, error) {
@@ -1001,12 +1368,13 @@ func readOperatorFactsContext(ctx context.Context, socket string, registrationID
 	}
 	defer connection.Close()
 
-	snapshot, err := hostv1.NewOperatorServiceClient(connection).GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})
+	snapshot, err := hostv1.NewOperatorServiceClient(connection).GetSystemHealthSummary(ctx, &hostv1.GetSystemHealthSummaryRequest{})
 	if err != nil {
 		return operatorFacts{}, err
 	}
 	facts := operatorFacts{
 		hostReadable: true,
+		snapshot:     snapshot,
 		hostHealthy: snapshot.GetVm().GetState() == hostv1.VMState_VM_STATE_RUNNING &&
 			snapshot.GetHealth().GetState() == hostv1.HealthState_HEALTH_STATE_HEALTHY,
 	}
@@ -1034,8 +1402,8 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 		return errors.New("Agent VMM operator is not readable")
 	}
 	defer connection.Close()
-	reportLifecycleProgress(lifecycleProgress{Event: "operator_connected", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds()})
 	operator := hostv1.NewOperatorServiceClient(connection)
+	connected := false
 	for {
 		vm, err := operator.GetVM(ctx, &hostv1.GetVMRequest{})
 		if err != nil {
@@ -1044,6 +1412,10 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 			}
 			time.Sleep(250 * time.Millisecond)
 			continue
+		}
+		if !connected {
+			reportLifecycleProgress(lifecycleProgress{Event: "operator_connected", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds()})
+			connected = true
 		}
 		if vm.GetVm().GetState() != hostv1.VMState_VM_STATE_RUNNING {
 			reportLifecycleProgress(lifecycleProgress{Event: "vm_start_requested", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds(), VMState: vm.GetVm().GetState().String()})
@@ -1054,7 +1426,7 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 		}
 		lastProgress := time.Time{}
 		for {
-			snapshot, snapshotErr := operator.GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})
+			snapshot, snapshotErr := operator.GetSystemHealthSummary(ctx, &hostv1.GetSystemHealthSummaryRequest{})
 			if snapshotErr == nil && snapshot.GetVm().GetState() == hostv1.VMState_VM_STATE_RUNNING &&
 				snapshot.GetHealth().GetState() == hostv1.HealthState_HEALTH_STATE_HEALTHY {
 				reportLifecycleProgress(lifecycleProgress{Event: "vm_healthy", RequestID: requestID, ElapsedMS: time.Since(startedAt).Milliseconds(), VMState: snapshot.GetVm().GetState().String(), HealthState: snapshot.GetHealth().GetState().String()})
@@ -1078,9 +1450,14 @@ func ensureVMStartedContext(ctx context.Context, value paths, requestID string) 
 }
 
 func startVMWithProgress(ctx context.Context, operator hostv1.OperatorServiceClient, requestID string, startedAt time.Time) error {
+	summary, err := operator.GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
+	if err != nil || summary.GetVm() == nil {
+		return errors.New("Agent VMM whole-VM impact could not be acknowledged before VM start")
+	}
+	fence := vmMutationFence(summary)
 	result := make(chan error, 1)
 	go func() {
-		_, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID})
+		_, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID, Fence: fence})
 		result <- err
 	}()
 	ticker := time.NewTicker(15 * time.Second)
@@ -1120,6 +1497,11 @@ func repairWithOptions(value paths, run func(...string) error, disablePairing bo
 }
 
 func repairWithOptionsContext(ctx context.Context, value paths, run func(context.Context, ...string) error, disablePairing bool) error {
+	return repairWithOptionsContextObserved(ctx, value, run, disablePairing, os.Geteuid(), launchctlServiceObservation)
+}
+
+func repairWithOptionsContextObserved(ctx context.Context, value paths, run func(context.Context, ...string) error, disablePairing bool, euid int,
+	observe func(context.Context, string) (launchctlServiceFacts, error)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -1129,13 +1511,19 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	if !directory(value.app) {
 		return errors.New("Agent VMM application bundle is missing")
 	}
-	if err := validateAlternateDefinitionPermission(value, os.Geteuid()); err != nil {
+	if err := validateAlternateDefinitionPermission(value, euid); err != nil {
 		return err
 	}
-	if value.service.Mode == serviceModeDaemon && os.Geteuid() != 0 {
+	if value.service.Mode == serviceModeDaemon && euid != 0 {
 		desired, renderErr := renderServiceDefinition(value, disablePairing)
-		if renderErr != nil || !serviceDefinitionCurrent(ctx, value, desired, disablePairing, run) {
+		if renderErr != nil || !serviceDefinitionCurrent(ctx, value, desired, disablePairing, run, observe) {
 			return errors.New("installing or updating the Agent VMM daemon requires administrator access")
+		}
+		if err := prepareServiceStateDirectories(value, euid); err != nil {
+			return err
+		}
+		if err := persistServiceConfig(value, disablePairing); err != nil {
+			return errors.New("service configuration could not be persisted")
 		}
 		return nil
 	}
@@ -1146,24 +1534,14 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	if err := os.MkdirAll(filepath.Dir(value.hostPlist), definitionMode); err != nil {
 		return errors.New("launchd service directory could not be created")
 	}
-	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
-		return errors.New("application data directory could not be created")
-	}
-	if err := os.MkdirAll(value.logs, 0o700); err != nil {
-		return errors.New("log directory could not be created")
-	}
-	if os.Geteuid() == 0 {
-		for _, directory := range []string{value.applicationData, value.logs} {
-			if err := os.Chown(directory, value.service.UID, value.service.GID); err != nil {
-				return errors.New("service user directory ownership could not be applied")
-			}
-		}
+	if err := prepareServiceStateDirectories(value, euid); err != nil {
+		return err
 	}
 	desired, err := renderServiceDefinition(value, disablePairing)
 	if err != nil {
 		return err
 	}
-	if serviceDefinitionCurrent(ctx, value, desired, disablePairing, run) {
+	if serviceDefinitionCurrent(ctx, value, desired, disablePairing, run, observe) {
 		return nil
 	}
 	if err := stopHostServiceAt(ctx, run, value.serviceDomain()); err != nil {
@@ -1201,6 +1579,23 @@ func repairWithOptionsContext(ctx context.Context, value paths, run func(context
 	return nil
 }
 
+func prepareServiceStateDirectories(value paths, euid int) error {
+	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
+		return errors.New("application data directory could not be created")
+	}
+	if err := os.MkdirAll(value.logs, 0o700); err != nil {
+		return errors.New("log directory could not be created")
+	}
+	if euid == 0 {
+		for _, directory := range []string{value.applicationData, value.logs} {
+			if err := os.Chown(directory, value.service.UID, value.service.GID); err != nil {
+				return errors.New("service user directory ownership could not be applied")
+			}
+		}
+	}
+	return nil
+}
+
 func addProgramArgument(plist, argument string) string {
 	marker := "</array>"
 	index := strings.Index(plist, marker)
@@ -1226,7 +1621,17 @@ func drainWithContext(ctx context.Context, value paths, run func(context.Context
 		return err
 	}
 	if value.service.Mode == serviceModeDaemon && os.Geteuid() != 0 {
-		return errors.New("stopping the Agent VMM daemon requires administrator access")
+		err := run(ctx, "print", value.serviceDomain()+"/"+hostLabel)
+		if errors.Is(err, errLaunchctlServiceNotFound) {
+			return waitForStateDiskRelease(ctx, filepath.Join(value.applicationData, "instance", "state.raw"))
+		}
+		if err != nil {
+			return fmt.Errorf("host service status could not be read before drain: %w", err)
+		}
+		if err := drainVMForUpdate(ctx, value, newOperationID("service-drain")); err != nil {
+			return err
+		}
+		return errors.New("VM is stopped; administrator must run agent-vmm-service-executor stop --job host")
 	}
 	domains := []string{value.serviceDomain(), value.alternateServiceDomain()}
 	loadedDomains := make(map[string]bool, len(domains))
@@ -1290,6 +1695,7 @@ func stopVMForUpdate(ctx context.Context, value paths, requestID string) error {
 
 type updateVMClient interface {
 	GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.VMResponse, error)
+	GetVMImpactSummary(context.Context, *hostv1.GetVMImpactSummaryRequest, ...grpc.CallOption) (*hostv1.GetVMImpactSummaryResponse, error)
 	StopVM(context.Context, *hostv1.StopVMRequest, ...grpc.CallOption) (*hostv1.OperationResponse, error)
 }
 
@@ -1301,12 +1707,22 @@ func stopVMForUpdateWith(ctx context.Context, client updateVMClient, requestID s
 	if vm.GetVm().GetState() == hostv1.VMState_VM_STATE_STOPPED {
 		return nil
 	}
+	summary, err := client.GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
+	if err != nil || summary.GetVm() == nil {
+		return errors.New("whole-VM impact could not be acknowledged before update")
+	}
+	fence := vmMutationFence(summary)
 	gracefulCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	_, gracefulErr := client.StopVM(gracefulCtx, &hostv1.StopVMRequest{RequestId: requestID + "-graceful"})
+	_, gracefulErr := client.StopVM(gracefulCtx, &hostv1.StopVMRequest{RequestId: requestID + "-graceful", Fence: fence})
 	cancel()
 	if gracefulErr != nil {
 		forceCtx, forceCancel := context.WithTimeout(ctx, 20*time.Second)
-		_, forceErr := client.StopVM(forceCtx, &hostv1.StopVMRequest{RequestId: requestID + "-force", Force: true})
+		latest, latestErr := client.GetVMImpactSummary(forceCtx, &hostv1.GetVMImpactSummaryRequest{})
+		if latestErr != nil || latest.GetVm() == nil {
+			forceCancel()
+			return errors.New("whole-VM impact could not be re-acknowledged before forced stop")
+		}
+		_, forceErr := client.StopVM(forceCtx, &hostv1.StopVMRequest{RequestId: requestID + "-force", Force: true, Fence: vmMutationFence(latest)})
 		forceCancel()
 		if forceErr != nil {
 			return fmt.Errorf("VM did not reach terminal state before update: graceful stop: %v; force stop: %w", gracefulErr, forceErr)
@@ -1317,6 +1733,10 @@ func stopVMForUpdateWith(ctx context.Context, client updateVMClient, requestID s
 		return errors.New("VM stop returned without a terminal stopped state; refusing to bootout the Host")
 	}
 	return nil
+}
+
+func vmMutationFence(summary *hostv1.GetVMImpactSummaryResponse) *hostv1.VMMutationFence {
+	return &hostv1.VMMutationFence{State: summary.GetVm().GetState(), BootId: summary.GetVm().GetBootId(), ObservedWorkloads: summary.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
 }
 
 var launchctlPID = launchctlServicePID

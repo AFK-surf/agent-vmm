@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -83,17 +84,25 @@ func TestReadNetworkUsage(t *testing.T) {
 
 func TestReadSystemUsageIncludesControlFilesystem(t *testing.T) {
 	directory := t.TempDir()
+	for name, value := range map[string]string{
+		"cpu.stat": "usage_usec 12\n", "memory.current": "4096\n", "pids.current": "3\n",
+	} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(directory, "rx_bytes"), []byte("1234\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(directory, "tx_bytes"), []byte("5678\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	usage, err := readSystemUsage(directory, directory)
+	usage, err := readSystemUsage(directory, directory, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if usage.GetNetworkRxBytes() != 1234 || usage.GetNetworkTxBytes() != 5678 || usage.GetDiskBytes() == 0 {
+	if usage.GetNetworkRxBytes() != 1234 || usage.GetNetworkTxBytes() != 5678 || usage.GetDiskBytes() == 0 ||
+		usage.GetMemoryBytes() != 4096 || usage.GetPids() != 3 || usage.GetCpuNanos() != 12_000 {
 		t.Fatalf("system usage = %+v", usage)
 	}
 }
@@ -226,4 +235,88 @@ func waitForVolumeUsage(t *testing.T, runtime *Runtime, key string, expected uin
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("volume usage %q did not become %d", key, expected)
+}
+
+func TestBoundedDirectoryInventoryStopsAtRequestedCount(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := directoryEntriesBounded(root, 3)
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("entries=%d err=%v", len(entries), err)
+	}
+}
+
+func TestBoundedDirectoryInventoryAcceptsFewerEntriesThanRequested(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "only"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := directoryEntriesBounded(root, 3)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "only" {
+		t.Fatalf("entries=%v err=%v", entries, err)
+	}
+}
+
+func TestVolumeGenerationFencesSameNameRecreation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "volumes", "namespace-a", "volume-a")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeVolumeDirectory(path, 0o700, nil, nil, func(string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	first, err := volumeGenerationID(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(first, "legacy-") {
+		t.Fatalf("new volume used legacy generation %q", first)
+	}
+	if err := removeVolumeDirectory(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(volumeGenerationMarkerPath(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted volume retained generation marker: %v", err)
+	}
+	if err := initializeVolumeDirectory(path, 0o700, nil, nil, func(string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	second, err := volumeGenerationID(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("same-name recreation kept generation %q", first)
+	}
+	if err := requireVolumeGeneration(path, first); err == nil {
+		t.Fatal("delete generation fence accepted the recreated volume")
+	}
+	if err := requireVolumeGeneration(path, second); err != nil {
+		t.Fatalf("current volume generation rejected: %v", err)
+	}
+}
+
+func TestExistingVolumeGenerationUsesStableLegacyFallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "volumes", "namespace-a", "volume-a")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first, err := volumeGenerationID(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := volumeGenerationID(path)
+	if err != nil || first == "" || second != first {
+		t.Fatalf("generation = %q then %q, err=%v", first, second, err)
+	}
+	if entries, err := os.ReadDir(path); err != nil || len(entries) != 0 {
+		t.Fatalf("generation metadata leaked into workload volume: entries=%v err=%v", entries, err)
+	}
+	if _, err := os.Stat(volumeGenerationMarkerPath(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy observation wrote generation metadata: %v", err)
+	}
 }

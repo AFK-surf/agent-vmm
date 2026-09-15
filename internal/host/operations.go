@@ -31,18 +31,18 @@ func (controller *Controller) beginOperation(ctx context.Context, kind, environm
 	return operation, !inserted, nil
 }
 
-func (controller *Controller) completeOperation(ctx context.Context, operation *store.Operation, stage string) {
+func (controller *Controller) completeOperation(ctx context.Context, operation *store.Operation, stage string) error {
 	operation.State = int32(hostv1.OperationState_OPERATION_STATE_SUCCEEDED)
 	operation.Stage = stage
 	operation.UpdatedAt = time.Now()
-	_ = controller.store.UpdateOperation(ctx, *operation)
+	return controller.store.UpdateOperation(ctx, *operation)
 }
 
-func (controller *Controller) failOperation(ctx context.Context, operation *store.Operation, reason string, failure error) {
+func (controller *Controller) failOperation(ctx context.Context, operation *store.Operation, reason string, failure error) error {
 	operation.State = int32(hostv1.OperationState_OPERATION_STATE_FAILED)
 	operation.Stage = "failed"
 	operation.ErrorReason = reason
 	operation.ErrorMessage = failure.Error()
 	operation.UpdatedAt = time.Now()
-	_ = controller.store.UpdateOperation(ctx, *operation)
+	return controller.store.UpdateOperation(ctx, *operation)
 }

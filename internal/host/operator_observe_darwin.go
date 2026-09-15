@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -22,8 +24,15 @@ func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.G
 	return server.controller.systemSnapshot(ctx)
 }
 
+func (server *operatorServer) GetSystemHealthSummary(ctx context.Context, _ *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemSnapshotResponse, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	return server.controller.systemHealthSummary(ctx), nil
+}
+
 func (controller *Controller) systemSnapshot(ctx context.Context) (*hostv1.GetSystemSnapshotResponse, error) {
-	response := &hostv1.GetSystemSnapshotResponse{Vm: controller.manager.Snapshot(), CollectedAt: timestamppb.Now()}
+	response := controller.systemHealthSummary(ctx)
 	if registrations, registrationErr := controller.store.ListRemoteRegistrations(ctx); registrationErr == nil {
 		for _, registration := range registrations {
 			response.RemoteRegistrations = append(response.RemoteRegistrations, controller.remoteRegistrationResponse(ctx, registration).GetRegistration())
@@ -38,18 +47,32 @@ func (controller *Controller) systemSnapshot(ctx context.Context) (*hostv1.GetSy
 		response.Environments = append(response.Environments, snapshot)
 		addUsage(response, snapshot.GetUsage())
 	}
+	return response, nil
+}
+
+// systemHealthSummary performs a constant number of Host and Guest owner reads.
+// It deliberately excludes per-environment and per-registration inventory.
+func (controller *Controller) systemHealthSummary(ctx context.Context) *hostv1.GetSystemSnapshotResponse {
+	response := &hostv1.GetSystemSnapshotResponse{
+		Vm: controller.manager.Snapshot(), CollectedAt: timestamppb.Now(),
+		HostResources:  controller.manager.ResourceSnapshot(),
+		GuestResources: &hostv1.LayerResources{UnavailableReason: "guest control is unavailable"},
+	}
 	response.Health = &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_UNAVAILABLE}
 	if response.Vm.GetState() != hostv1.VMState_VM_STATE_RUNNING {
-		return response, nil
+		return response
 	}
 	client, connection, err := controller.guestClient(ctx)
 	if err != nil {
-		return response, nil
+		return response
 	}
 	defer connection.Close()
+	if usage, usageErr := client.GetSystemUsage(ctx, &vmmdv1.GetSystemUsageRequest{}); usageErr == nil {
+		response.GuestResources = guestLayerResources(usage)
+	}
 	health, err := client.ComponentHealth(ctx, &vmmdv1.ComponentHealthRequest{})
 	if err != nil {
-		return response, nil
+		return response
 	}
 	response.Health.State = hostv1.HealthState_HEALTH_STATE_HEALTHY
 	for _, component := range health.GetComponents() {
@@ -64,7 +87,99 @@ func (controller *Controller) systemSnapshot(ctx context.Context) (*hostv1.GetSy
 	if hostEgress.GetState() > response.Health.State {
 		response.Health.State = hostEgress.GetState()
 	}
-	return response, nil
+	return response
+}
+
+func (server *operatorServer) GetVMImpactSummary(ctx context.Context, _ *hostv1.GetVMImpactSummaryRequest) (*hostv1.GetVMImpactSummaryResponse, error) {
+	if _, err := auth.OperatorIdentity(ctx); err != nil {
+		return nil, err
+	}
+	return server.controller.vmImpactSummary(ctx)
+}
+
+func (controller *Controller) vmImpactSummary(ctx context.Context) (*hostv1.GetVMImpactSummaryResponse, error) {
+	controller.inventoryTransition.Lock()
+	defer controller.inventoryTransition.Unlock()
+	return controller.vmImpactSummaryLocked(ctx), nil
+}
+
+func (controller *Controller) vmImpactSummaryLocked(ctx context.Context) *hostv1.GetVMImpactSummaryResponse {
+	const limit = 100
+	response := &hostv1.GetVMImpactSummaryResponse{Vm: controller.manager.Snapshot(), CollectedAt: timestamppb.Now(), Complete: true}
+	appendReference := func(reference *hostv1.ResourceReference) {
+		if len(response.KnownWorkloads) == limit {
+			markImpactSummaryPartial(response, "known workload summary exceeds the 100 item bound", true)
+			return
+		}
+		response.KnownWorkloads = append(response.KnownWorkloads, reference)
+	}
+	environments, err := controller.store.ListEnvironmentsBounded(ctx, limit+1)
+	if err != nil {
+		markImpactSummaryPartial(response, "environment summary is unavailable", false)
+	} else {
+		if len(environments) > limit {
+			environments = environments[:limit]
+			markImpactSummaryPartial(response, "environment summary exceeds the 100 item bound", true)
+		}
+		for _, environment := range environments {
+			generation := environment.PolicyRevision
+			if environment.OwnerKind == store.OwnerRemoteRegistration {
+				generation = environment.AllocationGeneration
+			}
+			appendReference(&hostv1.ResourceReference{Kind: "environment", EnvironmentId: environment.ID, Generation: generation})
+		}
+	}
+	registrations, err := controller.store.ListRemoteRegistrationsBounded(ctx, limit+1)
+	if err != nil {
+		markImpactSummaryPartial(response, "registration summary is unavailable", false)
+	} else {
+		if len(registrations) > limit {
+			registrations = registrations[:limit]
+			markImpactSummaryPartial(response, "registration summary exceeds the 100 item bound", true)
+		}
+		for _, registration := range registrations {
+			appendReference(&hostv1.ResourceReference{Kind: "registration", ResourceId: registration.ID, Generation: registration.InventoryRevision})
+		}
+	}
+	return response
+}
+
+func markImpactSummaryPartial(response *hostv1.GetVMImpactSummaryResponse, issue string, overflow bool) {
+	response.Complete = false
+	response.Overflow = response.Overflow || overflow
+	if response.Issue == "" {
+		response.Issue = issue
+	}
+}
+
+func guestLayerResources(response *vmmdv1.GetUsageResponse) *hostv1.LayerResources {
+	result := &hostv1.LayerResources{}
+	var unavailable []string
+	if usage := response.GetUsage(); usage != nil {
+		if usage.GetUnavailable() {
+			unavailable = append(unavailable, usage.GetUnavailableReason())
+		} else {
+			memory, pids := usage.GetMemoryBytes(), usage.GetPids()
+			result.MemoryBytes, result.Pids = &memory, &pids
+			result.SampledAt = timestamppb.New(time.Unix(0, usage.GetSampledAtUnixNano()))
+		}
+	}
+	result.OpenFds = response.OpenFds
+	for _, reason := range []string{response.GetOpenFdsUnavailableReason(), response.GetDiskUnavailableReason()} {
+		if reason != "" {
+			unavailable = append(unavailable, reason)
+		}
+	}
+	if disk := response.GetDisk(); disk != nil {
+		used, capacity := disk.GetUsedBytes(), disk.GetCapacityBytes()
+		imports, reserve, metadata := disk.GetImportReservationBytes(), disk.GetSystemReserveBytes(), disk.GetMetadataReserveBytes()
+		result.Disk = &hostv1.DiskAccounting{
+			UsedBytes: &used, CapacityBytes: &capacity, ImportReservationBytes: &imports,
+			SystemReserveBytes: &reserve, MetadataReserveBytes: &metadata,
+		}
+	}
+	result.UnavailableReason = strings.Join(unavailable, "; ")
+	return result
 }
 
 func (server *operatorServer) ListEnvironmentImages(ctx context.Context, request *hostv1.ListEnvironmentImagesRequest) (*hostv1.ListImagesResponse, error) {

@@ -5,12 +5,33 @@ package control
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 )
+
+func TestGuestOpenFDsReadsAllocatedCount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file-nr")
+	if err := os.WriteFile(path, []byte("127 0 9223372036854775807\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	count, err := guestOpenFDs(path)
+	if err != nil || count != 127 {
+		t.Fatalf("Guest open FDs = %d, err=%v", count, err)
+	}
+}
+
+func TestObservationFailureIsBoundedAndKeepsItsLayer(t *testing.T) {
+	message := boundedObservationFailure("Guest disk", errors.New(strings.Repeat("x", 2048)))
+	if len(message) != 1024 || !strings.HasPrefix(message, "Guest disk: ") {
+		t.Fatalf("bounded observation failure has length %d: %q", len(message), message)
+	}
+}
 
 func TestStateFilesystemHealthIncludesControlFilesystem(t *testing.T) {
 	var paths []string

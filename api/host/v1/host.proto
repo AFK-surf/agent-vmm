@@ -73,6 +73,8 @@ service OperatorService {
   rpc ListAgentSessions(ListAgentSessionsRequest) returns (ListAgentSessionsResponse);
   rpc RevokeAgentSessions(RevokeAgentSessionsRequest) returns (google.protobuf.Empty);
   rpc GetSystemSnapshot(GetSystemSnapshotRequest) returns (GetSystemSnapshotResponse);
+  rpc GetSystemHealthSummary(GetSystemHealthSummaryRequest) returns (GetSystemSnapshotResponse);
+  rpc GetVMImpactSummary(GetVMImpactSummaryRequest) returns (GetVMImpactSummaryResponse);
   rpc ListEnvironments(ListEnvironmentsRequest) returns (ListEnvironmentsResponse);
   rpc GetEnvironment(GetEnvironmentRequest) returns (GetEnvironmentResponse);
   rpc ListEnvironmentImages(ListEnvironmentImagesRequest) returns (ListImagesResponse);
@@ -493,11 +495,24 @@ message VM {
 
 message StartVMRequest {
   string request_id = 1;
+  // fence is produced by the same Host's VM impact summary. The VM lifecycle
+  // owner validates available owner revisions immediately before mutation.
+  VMMutationFence fence = 2;
 }
 message GetVMRequest {}
 message StopVMRequest {
   string request_id = 1;
   bool force = 2;
+  VMMutationFence fence = 3;
+}
+message VMMutationFence {
+  VMState state = 1;
+  string boot_id = 2;
+  // observed_workloads is bounded evidence, not an exhaustive authorization
+  // list. The whole-VM acknowledgement includes workloads added after this
+  // observation and workloads that are not individually enumerable.
+  repeated ResourceReference observed_workloads = 3;
+  bool whole_vm_impact_acknowledged = 4;
 }
 message VMResponse {
   VM vm = 1;
@@ -1074,6 +1089,9 @@ message Usage {
   string unavailable_reason = 11;
 }
 message GetSystemSnapshotRequest {}
+// GetSystemHealthSummary is a constant-fan-out lifecycle health read. The
+// response omits environment and registration inventory.
+message GetSystemHealthSummaryRequest {}
 message GetSystemSnapshotResponse {
   VM vm = 1;
   HealthStatus health = 2;
@@ -1081,6 +1099,44 @@ message GetSystemSnapshotResponse {
   repeated AgentEnvironment environments = 4;
   google.protobuf.Timestamp collected_at = 5;
   repeated RemoteRegistration remote_registrations = 6;
+  LayerResources host_resources = 7;
+  LayerResources guest_resources = 8;
+}
+message GetVMImpactSummaryRequest {}
+message GetVMImpactSummaryResponse {
+  VM vm = 1;
+  google.protobuf.Timestamp collected_at = 2;
+  // complete covers the bounded Host owner reads used for this summary. It
+  // does not mean that every Guest workload, lease, session, or system
+  // appliance has an individual entry in known_workloads.
+  bool complete = 3;
+  bool overflow = 4;
+  string issue = 5;
+  // known_workloads contains at most 100 Host-owned environment and
+  // registration references. The authorized impact_scope is always whole_vm.
+  repeated ResourceReference known_workloads = 6;
+}
+// DiskAccounting reports independent physical facts. An absent optional value
+// is unknown. Consumers must not derive shared physical usage by adding logical
+// image references.
+message DiskAccounting {
+  optional uint64 used_bytes = 1;
+  optional uint64 committed_bytes = 2;
+  optional uint64 capacity_bytes = 3;
+  optional uint64 import_reservation_bytes = 4;
+  optional uint64 system_reserve_bytes = 5;
+  optional uint64 metadata_reserve_bytes = 6;
+}
+// LayerResources keeps Host-process and Guest-system observations separate.
+// unavailable_reason names facts that the owner could not collect in this
+// sample; it does not supply zero values for them.
+message LayerResources {
+  optional uint64 memory_bytes = 1;
+  optional uint32 pids = 2;
+  optional uint32 open_fds = 3;
+  DiskAccounting disk = 4;
+  string unavailable_reason = 5;
+  google.protobuf.Timestamp sampled_at = 6;
 }
 message WatchEventsRequest {
   uint64 after_sequence = 1;
@@ -1089,6 +1145,8 @@ message ResourceReference {
   string kind = 1;
   string environment_id = 2;
   string resource_id = 3;
+  uint64 generation = 4;
+  string generation_id = 5;
 }
 message RuntimeEvent {
   uint64 sequence = 1;

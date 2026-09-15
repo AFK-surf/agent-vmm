@@ -85,3 +85,5 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
       - name: Test deterministic CI intermediate contract
         run: build/host/ci-intermediate.test.sh
+      - name: Test Host installer resume contract
+        run: build/host/install.test.sh

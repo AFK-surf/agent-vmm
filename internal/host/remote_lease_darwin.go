@@ -80,6 +80,10 @@ func (controller *Controller) finishLease(id string, generation uint64, state ho
 // remoteAdmissionMu and the environment lock, in that order, so short-lived
 // lease revocation cannot race explicit allocation retirement.
 func (controller *Controller) finishLeaseLocked(id string, generation uint64, state hostv1.LeaseState, stop, retire, reconcileTerminal bool) (*remoteLease, error) {
+	return controller.finishLeaseLockedContext(context.Background(), id, generation, state, stop, retire, reconcileTerminal)
+}
+
+func (controller *Controller) finishLeaseLockedContext(ctx context.Context, id string, generation uint64, state hostv1.LeaseState, stop, retire, reconcileTerminal bool) (*remoteLease, error) {
 	controller.mu.Lock()
 	lease := controller.remoteLeases[id]
 	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
@@ -96,15 +100,15 @@ func (controller *Controller) finishLeaseLocked(id string, generation uint64, st
 	// must never leave a usable frontend/session behind.
 	controller.hostFrontends.closeAllocationLease(id, generation, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
 	if result.sessionID != "" {
-		_ = controller.revokeSession(context.Background(), result.sessionID)
+		_ = controller.revokeSession(ctx, result.sessionID)
 	}
 	var cleanupErr error
 	if stop {
-		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stopContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 		cleanupErr = controller.stopRemoteWorkload(stopContext, result.environmentID)
 		cancel()
 	}
-	environment, err := controller.store.GetEnvironment(context.Background(), result.environmentID)
+	environment, err := controller.store.GetEnvironment(ctx, result.environmentID)
 	if err != nil {
 		log.Printf("finish remote lease %q: load allocation: %v", id, err)
 		controller.retryRemoteLeaseProjection(result, targetStateForLease(retire), reconcileTerminal, 1)
@@ -114,14 +118,14 @@ func (controller *Controller) finishLeaseLocked(id string, generation uint64, st
 	if retire {
 		targetState = int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)
 	}
-	projected, err := controller.store.FinishRemoteLeaseProjection(context.Background(), result.registrationID, id, result.environmentID, environment.PolicyRevision, targetState)
+	projected, err := controller.store.FinishRemoteLeaseProjection(ctx, result.registrationID, id, result.environmentID, environment.PolicyRevision, targetState)
 	if err != nil {
 		log.Printf("finish remote lease %q: commit projection: %v", id, err)
 		controller.retryRemoteLeaseProjection(result, targetState, reconcileTerminal, 1)
 		return &result, errors.Join(cleanupErr, err)
 	}
 	if reconcileTerminal {
-		if err := controller.reconcileEnvironment(context.Background(), projected); err != nil {
+		if err := controller.reconcileEnvironment(ctx, projected); err != nil {
 			log.Printf("finish remote lease %q: reconcile exact retirement: %v", id, err)
 			controller.retryRemoteLeaseProjection(result, targetState, true, 1)
 		}

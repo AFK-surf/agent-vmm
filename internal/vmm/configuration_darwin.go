@@ -17,7 +17,7 @@ import (
 
 const hostEmergencyBytes int64 = 10 << 30
 
-func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File, initializing bool) (*vz.VirtualMachineConfiguration, error) {
+func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File, initializing bool, observation startObservation) (*vz.VirtualMachineConfiguration, error) {
 	artifact := verified.Manifest.Artifacts
 	commandLine := "console=hvc0 panic=-1 psi=1"
 	if initializing {
@@ -28,6 +28,9 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 			return nil, errors.New("state migration requires a new target disk")
 		}
 		commandLine += " agent.state_migrate=1"
+	}
+	if kernelArgument(observation.OperationID) {
+		commandLine += " agent.operation_id=" + observation.OperationID
 	}
 	bootloader, err := vz.NewLinuxBootLoader(filepath.Join(verified.Directory, artifact["kernel"].Path), vz.WithInitrd(filepath.Join(verified.Directory, artifact["initramfs"].Path)), vz.WithCommandLine(commandLine))
 	if err != nil {
@@ -89,6 +92,20 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 	}
 	configuration.SetSocketDevicesVirtualMachineConfiguration([]vz.SocketDeviceConfiguration{socket})
 	return configuration, nil
+}
+
+func kernelArgument(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || strings.ContainsRune("._+-", character) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func blockDevice(path string, readOnly bool, identifier string) (*vz.VirtioBlockDeviceConfiguration, error) {

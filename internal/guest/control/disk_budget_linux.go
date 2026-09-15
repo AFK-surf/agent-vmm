@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"io"
 	"math/bits"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"golang.org/x/sys/unix"
 )
+
+const maxImportReservationDirectoryEntries = 64
 
 func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, error) {
 	var stats unix.Statfs_t
@@ -53,12 +56,20 @@ func (r *Runtime) diskAdmissionSnapshot(ctx context.Context, cold bool, transact
 }
 
 func importReservationSummary(directory string) (uint64, uint32, error) {
-	entries, err := os.ReadDir(directory)
+	handle, err := os.Open(directory)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, 0, nil
 	}
 	if err != nil {
 		return 0, 0, err
+	}
+	defer handle.Close()
+	entries, err := handle.ReadDir(maxImportReservationDirectoryEntries + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, 0, err
+	}
+	if len(entries) > maxImportReservationDirectoryEntries {
+		return 0, 0, errors.New("Guest import reservation directory exceeds its observation bound")
 	}
 	var total uint64
 	var count uint32

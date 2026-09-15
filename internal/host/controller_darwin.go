@@ -95,6 +95,7 @@ type Controller struct {
 	sessionActivity          sync.Map
 	remoteAdmissionMu        sync.Mutex
 	projectionMu             sync.Mutex
+	inventoryTransition      sync.RWMutex
 	egress                   *egress.Subsystem
 	sourcePolicyPublisher    func(context.Context, string) error
 	egressCancel             context.CancelFunc
@@ -139,6 +140,71 @@ func (controller *Controller) lockIntegration(id string) func() {
 	lock := value.(*sync.Mutex)
 	lock.Lock()
 	return lock.Unlock
+}
+
+func (controller *Controller) lockInventoryMutation(ctx context.Context) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if controller.inventoryTransition.TryRLock() {
+			if err := ctx.Err(); err != nil {
+				controller.inventoryTransition.RUnlock()
+				return nil, err
+			}
+			return controller.inventoryTransition.RUnlock, nil
+		}
+		if err := waitForControllerLock(ctx); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func (controller *Controller) lockInventoryTransition(ctx context.Context) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if controller.inventoryTransition.TryLock() {
+			if err := ctx.Err(); err != nil {
+				controller.inventoryTransition.Unlock()
+				return nil, err
+			}
+			return controller.inventoryTransition.Unlock, nil
+		}
+		if err := waitForControllerLock(ctx); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func (controller *Controller) lockRemoteAdmission(ctx context.Context) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if controller.remoteAdmissionMu.TryLock() {
+			if err := ctx.Err(); err != nil {
+				controller.remoteAdmissionMu.Unlock()
+				return nil, err
+			}
+			return controller.remoteAdmissionMu.Unlock, nil
+		}
+		if err := waitForControllerLock(ctx); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func waitForControllerLock(ctx context.Context) error {
+	timer := time.NewTimer(10 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func New(config Config) (*Controller, error) {
@@ -512,6 +578,14 @@ func (controller *Controller) ensureLocalEnvironment(ctx context.Context, enviro
 	if _, err := controller.vmLifecycle.Start(ctx); err != nil {
 		return store.Environment{}, err
 	}
+	releaseInventory, err := controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return store.Environment{}, err
+	}
+	defer releaseInventory()
+	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		return store.Environment{}, errors.New("VM stopped before the environment mutation could begin")
+	}
 	controller.projectionMu.Lock()
 	defer controller.projectionMu.Unlock()
 	environment, err := controller.store.GetEnvironment(ctx, environmentID)
@@ -547,6 +621,26 @@ func (controller *Controller) lockEnvironment(environmentID string) func() {
 	lock := value.(*sync.Mutex)
 	lock.Lock()
 	return lock.Unlock
+}
+
+func (controller *Controller) lockEnvironmentContext(ctx context.Context, environmentID string) (func(), error) {
+	value, _ := controller.environmentLocks.LoadOrStore(environmentID, new(sync.Mutex))
+	lock := value.(*sync.Mutex)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if lock.TryLock() {
+			if err := ctx.Err(); err != nil {
+				lock.Unlock()
+				return nil, err
+			}
+			return lock.Unlock, nil
+		}
+		if err := waitForControllerLock(ctx); err != nil {
+			return nil, err
+		}
+	}
 }
 
 func (controller *Controller) reconcileEnvironment(ctx context.Context, environment store.Environment) error {
@@ -623,6 +717,9 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 	for _, grant := range grants {
 		if grant.Kind == "network-link" && grant.Revoked {
 			if _, err := client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: derivedRequestID("delete-" + grant.ID), LinkId: grant.ID}); err != nil {
+				return err
+			}
+			if err := controller.store.CompactRevokedGrant(ctx, grant.ID); err != nil {
 				return err
 			}
 		}

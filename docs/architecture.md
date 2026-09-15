@@ -735,7 +735,14 @@ The implementation has no raw runtime socket forwarding, native runc path, or du
 
 The Cue/BFT Host bundle uses `build/guest/build.sh OUTPUT release runtime`.
 The Guest contains the VM runtime, supervisor, and BuildKit.
-The Host package adds the lifecycle helper and data worker. It contains no MCP executable, OCI archive, grant, or bootstrap seed.
+The Host package adds the managed CLI, lifecycle helper, data worker, and fixed
+service executor. The managed CLI contains only its eight command families.
+The package contains no MCP executable, OCI archive, grant, or bootstrap seed.
+Lifecycle status uses `GetSystemHealthSummary`, a constant-fan-out read with
+one Host observation and at most two Guest health calls. It does not load the
+inventory. Whole-VM confirmation uses the separate bounded
+`GetVMImpactSummary` projection. Rich UI and diagnostic observation continues
+to use `GetSystemSnapshot`.
 The default `standalone` Guest build includes the optional MCP appliance.
 The macOS standalone app installs that appliance through `ApplianceAdminService`.
 

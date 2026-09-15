@@ -2651,9 +2651,22 @@ public nonisolated struct Agentvmm_Host_V1_StartVMRequest: Sendable {
 
   public var requestID: String = String()
 
+  /// fence is produced by the same Host's VM impact summary. The VM lifecycle
+  /// owner validates available owner revisions immediately before mutation.
+  public var fence: Agentvmm_Host_V1_VMMutationFence {
+    get {_fence ?? Agentvmm_Host_V1_VMMutationFence()}
+    set {_fence = newValue}
+  }
+  /// Returns true if `fence` has been explicitly set.
+  public var hasFence: Bool {self._fence != nil}
+  /// Clears the value of `fence`. Subsequent reads from it will return its default value.
+  public mutating func clearFence() {self._fence = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _fence: Agentvmm_Host_V1_VMMutationFence? = nil
 }
 
 public nonisolated struct Agentvmm_Host_V1_GetVMRequest: Sendable {
@@ -2674,6 +2687,38 @@ public nonisolated struct Agentvmm_Host_V1_StopVMRequest: Sendable {
   public var requestID: String = String()
 
   public var force: Bool = false
+
+  public var fence: Agentvmm_Host_V1_VMMutationFence {
+    get {_fence ?? Agentvmm_Host_V1_VMMutationFence()}
+    set {_fence = newValue}
+  }
+  /// Returns true if `fence` has been explicitly set.
+  public var hasFence: Bool {self._fence != nil}
+  /// Clears the value of `fence`. Subsequent reads from it will return its default value.
+  public mutating func clearFence() {self._fence = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _fence: Agentvmm_Host_V1_VMMutationFence? = nil
+}
+
+public nonisolated struct Agentvmm_Host_V1_VMMutationFence: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var state: Agentvmm_Host_V1_VMState = .unspecified
+
+  public var bootID: String = String()
+
+  /// observed_workloads is bounded evidence, not an exhaustive authorization
+  /// list. The whole-VM acknowledgement includes workloads added after this
+  /// observation and workloads that are not individually enumerable.
+  public var observedWorkloads: [Agentvmm_Host_V1_ResourceReference] = []
+
+  public var wholeVmImpactAcknowledged: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4760,6 +4805,18 @@ public nonisolated struct Agentvmm_Host_V1_GetSystemSnapshotRequest: Sendable {
   public init() {}
 }
 
+/// GetSystemHealthSummary is a constant-fan-out lifecycle health read. The
+/// response omits environment and registration inventory.
+public nonisolated struct Agentvmm_Host_V1_GetSystemHealthSummaryRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentvmm_Host_V1_GetSystemSnapshotResponse: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -4811,11 +4868,223 @@ public nonisolated struct Agentvmm_Host_V1_GetSystemSnapshotResponse: @unchecked
     set {_uniqueStorage()._remoteRegistrations = newValue}
   }
 
+  public var hostResources: Agentvmm_Host_V1_LayerResources {
+    get {_storage._hostResources ?? Agentvmm_Host_V1_LayerResources()}
+    set {_uniqueStorage()._hostResources = newValue}
+  }
+  /// Returns true if `hostResources` has been explicitly set.
+  public var hasHostResources: Bool {_storage._hostResources != nil}
+  /// Clears the value of `hostResources`. Subsequent reads from it will return its default value.
+  public mutating func clearHostResources() {_uniqueStorage()._hostResources = nil}
+
+  public var guestResources: Agentvmm_Host_V1_LayerResources {
+    get {_storage._guestResources ?? Agentvmm_Host_V1_LayerResources()}
+    set {_uniqueStorage()._guestResources = newValue}
+  }
+  /// Returns true if `guestResources` has been explicitly set.
+  public var hasGuestResources: Bool {_storage._guestResources != nil}
+  /// Clears the value of `guestResources`. Subsequent reads from it will return its default value.
+  public mutating func clearGuestResources() {_uniqueStorage()._guestResources = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+public nonisolated struct Agentvmm_Host_V1_GetVMImpactSummaryRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_GetVMImpactSummaryResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var vm: Agentvmm_Host_V1_VM {
+    get {_vm ?? Agentvmm_Host_V1_VM()}
+    set {_vm = newValue}
+  }
+  /// Returns true if `vm` has been explicitly set.
+  public var hasVm: Bool {self._vm != nil}
+  /// Clears the value of `vm`. Subsequent reads from it will return its default value.
+  public mutating func clearVm() {self._vm = nil}
+
+  public var collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_collectedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_collectedAt = newValue}
+  }
+  /// Returns true if `collectedAt` has been explicitly set.
+  public var hasCollectedAt: Bool {self._collectedAt != nil}
+  /// Clears the value of `collectedAt`. Subsequent reads from it will return its default value.
+  public mutating func clearCollectedAt() {self._collectedAt = nil}
+
+  /// complete covers the bounded Host owner reads used for this summary. It
+  /// does not mean that every Guest workload, lease, session, or system
+  /// appliance has an individual entry in known_workloads.
+  public var complete: Bool = false
+
+  public var overflow: Bool = false
+
+  public var issue: String = String()
+
+  /// known_workloads contains at most 100 Host-owned environment and
+  /// registration references. The authorized impact_scope is always whole_vm.
+  public var knownWorkloads: [Agentvmm_Host_V1_ResourceReference] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _vm: Agentvmm_Host_V1_VM? = nil
+  fileprivate var _collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+}
+
+/// DiskAccounting reports independent physical facts. An absent optional value
+/// is unknown. Consumers must not derive shared physical usage by adding logical
+/// image references.
+public nonisolated struct Agentvmm_Host_V1_DiskAccounting: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var usedBytes: UInt64 {
+    get {_usedBytes ?? 0}
+    set {_usedBytes = newValue}
+  }
+  /// Returns true if `usedBytes` has been explicitly set.
+  public var hasUsedBytes: Bool {self._usedBytes != nil}
+  /// Clears the value of `usedBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearUsedBytes() {self._usedBytes = nil}
+
+  public var committedBytes: UInt64 {
+    get {_committedBytes ?? 0}
+    set {_committedBytes = newValue}
+  }
+  /// Returns true if `committedBytes` has been explicitly set.
+  public var hasCommittedBytes: Bool {self._committedBytes != nil}
+  /// Clears the value of `committedBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearCommittedBytes() {self._committedBytes = nil}
+
+  public var capacityBytes: UInt64 {
+    get {_capacityBytes ?? 0}
+    set {_capacityBytes = newValue}
+  }
+  /// Returns true if `capacityBytes` has been explicitly set.
+  public var hasCapacityBytes: Bool {self._capacityBytes != nil}
+  /// Clears the value of `capacityBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearCapacityBytes() {self._capacityBytes = nil}
+
+  public var importReservationBytes: UInt64 {
+    get {_importReservationBytes ?? 0}
+    set {_importReservationBytes = newValue}
+  }
+  /// Returns true if `importReservationBytes` has been explicitly set.
+  public var hasImportReservationBytes: Bool {self._importReservationBytes != nil}
+  /// Clears the value of `importReservationBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearImportReservationBytes() {self._importReservationBytes = nil}
+
+  public var systemReserveBytes: UInt64 {
+    get {_systemReserveBytes ?? 0}
+    set {_systemReserveBytes = newValue}
+  }
+  /// Returns true if `systemReserveBytes` has been explicitly set.
+  public var hasSystemReserveBytes: Bool {self._systemReserveBytes != nil}
+  /// Clears the value of `systemReserveBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearSystemReserveBytes() {self._systemReserveBytes = nil}
+
+  public var metadataReserveBytes: UInt64 {
+    get {_metadataReserveBytes ?? 0}
+    set {_metadataReserveBytes = newValue}
+  }
+  /// Returns true if `metadataReserveBytes` has been explicitly set.
+  public var hasMetadataReserveBytes: Bool {self._metadataReserveBytes != nil}
+  /// Clears the value of `metadataReserveBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearMetadataReserveBytes() {self._metadataReserveBytes = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _usedBytes: UInt64? = nil
+  fileprivate var _committedBytes: UInt64? = nil
+  fileprivate var _capacityBytes: UInt64? = nil
+  fileprivate var _importReservationBytes: UInt64? = nil
+  fileprivate var _systemReserveBytes: UInt64? = nil
+  fileprivate var _metadataReserveBytes: UInt64? = nil
+}
+
+/// LayerResources keeps Host-process and Guest-system observations separate.
+/// unavailable_reason names facts that the owner could not collect in this
+/// sample; it does not supply zero values for them.
+public nonisolated struct Agentvmm_Host_V1_LayerResources: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var memoryBytes: UInt64 {
+    get {_memoryBytes ?? 0}
+    set {_memoryBytes = newValue}
+  }
+  /// Returns true if `memoryBytes` has been explicitly set.
+  public var hasMemoryBytes: Bool {self._memoryBytes != nil}
+  /// Clears the value of `memoryBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearMemoryBytes() {self._memoryBytes = nil}
+
+  public var pids: UInt32 {
+    get {_pids ?? 0}
+    set {_pids = newValue}
+  }
+  /// Returns true if `pids` has been explicitly set.
+  public var hasPids: Bool {self._pids != nil}
+  /// Clears the value of `pids`. Subsequent reads from it will return its default value.
+  public mutating func clearPids() {self._pids = nil}
+
+  public var openFds: UInt32 {
+    get {_openFds ?? 0}
+    set {_openFds = newValue}
+  }
+  /// Returns true if `openFds` has been explicitly set.
+  public var hasOpenFds: Bool {self._openFds != nil}
+  /// Clears the value of `openFds`. Subsequent reads from it will return its default value.
+  public mutating func clearOpenFds() {self._openFds = nil}
+
+  public var disk: Agentvmm_Host_V1_DiskAccounting {
+    get {_disk ?? Agentvmm_Host_V1_DiskAccounting()}
+    set {_disk = newValue}
+  }
+  /// Returns true if `disk` has been explicitly set.
+  public var hasDisk: Bool {self._disk != nil}
+  /// Clears the value of `disk`. Subsequent reads from it will return its default value.
+  public mutating func clearDisk() {self._disk = nil}
+
+  public var unavailableReason: String = String()
+
+  public var sampledAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_sampledAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_sampledAt = newValue}
+  }
+  /// Returns true if `sampledAt` has been explicitly set.
+  public var hasSampledAt: Bool {self._sampledAt != nil}
+  /// Clears the value of `sampledAt`. Subsequent reads from it will return its default value.
+  public mutating func clearSampledAt() {self._sampledAt = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _memoryBytes: UInt64? = nil
+  fileprivate var _pids: UInt32? = nil
+  fileprivate var _openFds: UInt32? = nil
+  fileprivate var _disk: Agentvmm_Host_V1_DiskAccounting? = nil
+  fileprivate var _sampledAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
 public nonisolated struct Agentvmm_Host_V1_WatchEventsRequest: Sendable {
@@ -4840,6 +5109,10 @@ public nonisolated struct Agentvmm_Host_V1_ResourceReference: Sendable {
   public var environmentID: String = String()
 
   public var resourceID: String = String()
+
+  public var generation: UInt64 = 0
+
+  public var generationID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4918,35 +5191,34 @@ public nonisolated struct Agentvmm_Host_V1_WatchMetricsRequest: Sendable {
   fileprivate var _interval: SwiftProtobuf.Google_Protobuf_Duration? = nil
 }
 
-public nonisolated struct Agentvmm_Host_V1_MetricsSample: Sendable {
+public nonisolated struct Agentvmm_Host_V1_MetricsSample: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var scope: Agentvmm_Host_V1_ResourceReference {
-    get {_scope ?? Agentvmm_Host_V1_ResourceReference()}
-    set {_scope = newValue}
+    get {_storage._scope ?? Agentvmm_Host_V1_ResourceReference()}
+    set {_uniqueStorage()._scope = newValue}
   }
   /// Returns true if `scope` has been explicitly set.
-  public var hasScope: Bool {self._scope != nil}
+  public var hasScope: Bool {_storage._scope != nil}
   /// Clears the value of `scope`. Subsequent reads from it will return its default value.
-  public mutating func clearScope() {self._scope = nil}
+  public mutating func clearScope() {_uniqueStorage()._scope = nil}
 
   public var usage: Agentvmm_Host_V1_Usage {
-    get {_usage ?? Agentvmm_Host_V1_Usage()}
-    set {_usage = newValue}
+    get {_storage._usage ?? Agentvmm_Host_V1_Usage()}
+    set {_uniqueStorage()._usage = newValue}
   }
   /// Returns true if `usage` has been explicitly set.
-  public var hasUsage: Bool {self._usage != nil}
+  public var hasUsage: Bool {_storage._usage != nil}
   /// Clears the value of `usage`. Subsequent reads from it will return its default value.
-  public mutating func clearUsage() {self._usage = nil}
+  public mutating func clearUsage() {_uniqueStorage()._usage = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _scope: Agentvmm_Host_V1_ResourceReference? = nil
-  fileprivate var _usage: Agentvmm_Host_V1_Usage? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Agentvmm_Host_V1_UpdateEnvironmentPolicyRequest: Sendable {
@@ -9690,7 +9962,7 @@ nonisolated extension Agentvmm_Host_V1_VM: SwiftProtobuf.Message, SwiftProtobuf.
 
 nonisolated extension Agentvmm_Host_V1_StartVMRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StartVMRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}fence\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9699,20 +9971,29 @@ nonisolated extension Agentvmm_Host_V1_StartVMRequest: SwiftProtobuf.Message, Sw
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._fence) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.requestID.isEmpty {
       try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
     }
+    try { if let v = self._fence {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_StartVMRequest, rhs: Agentvmm_Host_V1_StartVMRequest) -> Bool {
     if lhs.requestID != rhs.requestID {return false}
+    if lhs._fence != rhs._fence {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -9739,7 +10020,7 @@ nonisolated extension Agentvmm_Host_V1_GetVMRequest: SwiftProtobuf.Message, Swif
 
 nonisolated extension Agentvmm_Host_V1_StopVMRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StopVMRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}force\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}force\0\u{1}fence\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9749,24 +10030,78 @@ nonisolated extension Agentvmm_Host_V1_StopVMRequest: SwiftProtobuf.Message, Swi
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       case 2: try { try decoder.decodeSingularBoolField(value: &self.force) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._fence) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.requestID.isEmpty {
       try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
     }
     if self.force != false {
       try visitor.visitSingularBoolField(value: self.force, fieldNumber: 2)
     }
+    try { if let v = self._fence {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_StopVMRequest, rhs: Agentvmm_Host_V1_StopVMRequest) -> Bool {
     if lhs.requestID != rhs.requestID {return false}
     if lhs.force != rhs.force {return false}
+    if lhs._fence != rhs._fence {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_VMMutationFence: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".VMMutationFence"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}state\0\u{3}boot_id\0\u{3}observed_workloads\0\u{3}whole_vm_impact_acknowledged\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.state) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.bootID) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.observedWorkloads) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.wholeVmImpactAcknowledged) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.state != .unspecified {
+      try visitor.visitSingularEnumField(value: self.state, fieldNumber: 1)
+    }
+    if !self.bootID.isEmpty {
+      try visitor.visitSingularStringField(value: self.bootID, fieldNumber: 2)
+    }
+    if !self.observedWorkloads.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.observedWorkloads, fieldNumber: 3)
+    }
+    if self.wholeVmImpactAcknowledged != false {
+      try visitor.visitSingularBoolField(value: self.wholeVmImpactAcknowledged, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_VMMutationFence, rhs: Agentvmm_Host_V1_VMMutationFence) -> Bool {
+    if lhs.state != rhs.state {return false}
+    if lhs.bootID != rhs.bootID {return false}
+    if lhs.observedWorkloads != rhs.observedWorkloads {return false}
+    if lhs.wholeVmImpactAcknowledged != rhs.wholeVmImpactAcknowledged {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -13724,9 +14059,28 @@ nonisolated extension Agentvmm_Host_V1_GetSystemSnapshotRequest: SwiftProtobuf.M
   }
 }
 
+nonisolated extension Agentvmm_Host_V1_GetSystemHealthSummaryRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetSystemHealthSummaryRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_GetSystemHealthSummaryRequest, rhs: Agentvmm_Host_V1_GetSystemHealthSummaryRequest) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentvmm_Host_V1_GetSystemSnapshotResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetSystemSnapshotResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}vm\0\u{1}health\0\u{1}usage\0\u{1}environments\0\u{3}collected_at\0\u{3}remote_registrations\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}vm\0\u{1}health\0\u{1}usage\0\u{1}environments\0\u{3}collected_at\0\u{3}remote_registrations\0\u{3}host_resources\0\u{3}guest_resources\0")
 
   fileprivate class _StorageClass {
     var _vm: Agentvmm_Host_V1_VM? = nil
@@ -13735,6 +14089,8 @@ nonisolated extension Agentvmm_Host_V1_GetSystemSnapshotResponse: SwiftProtobuf.
     var _environments: [Agentvmm_Host_V1_AgentEnvironment] = []
     var _collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
     var _remoteRegistrations: [Agentvmm_Host_V1_RemoteRegistration] = []
+    var _hostResources: Agentvmm_Host_V1_LayerResources? = nil
+    var _guestResources: Agentvmm_Host_V1_LayerResources? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -13751,6 +14107,8 @@ nonisolated extension Agentvmm_Host_V1_GetSystemSnapshotResponse: SwiftProtobuf.
       _environments = source._environments
       _collectedAt = source._collectedAt
       _remoteRegistrations = source._remoteRegistrations
+      _hostResources = source._hostResources
+      _guestResources = source._guestResources
     }
   }
 
@@ -13775,6 +14133,8 @@ nonisolated extension Agentvmm_Host_V1_GetSystemSnapshotResponse: SwiftProtobuf.
         case 4: try { try decoder.decodeRepeatedMessageField(value: &_storage._environments) }()
         case 5: try { try decoder.decodeSingularMessageField(value: &_storage._collectedAt) }()
         case 6: try { try decoder.decodeRepeatedMessageField(value: &_storage._remoteRegistrations) }()
+        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._hostResources) }()
+        case 8: try { try decoder.decodeSingularMessageField(value: &_storage._guestResources) }()
         default: break
         }
       }
@@ -13805,6 +14165,12 @@ nonisolated extension Agentvmm_Host_V1_GetSystemSnapshotResponse: SwiftProtobuf.
       if !_storage._remoteRegistrations.isEmpty {
         try visitor.visitRepeatedMessageField(value: _storage._remoteRegistrations, fieldNumber: 6)
       }
+      try { if let v = _storage._hostResources {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+      } }()
+      try { if let v = _storage._guestResources {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -13820,10 +14186,208 @@ nonisolated extension Agentvmm_Host_V1_GetSystemSnapshotResponse: SwiftProtobuf.
         if _storage._environments != rhs_storage._environments {return false}
         if _storage._collectedAt != rhs_storage._collectedAt {return false}
         if _storage._remoteRegistrations != rhs_storage._remoteRegistrations {return false}
+        if _storage._hostResources != rhs_storage._hostResources {return false}
+        if _storage._guestResources != rhs_storage._guestResources {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_GetVMImpactSummaryRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetVMImpactSummaryRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_GetVMImpactSummaryRequest, rhs: Agentvmm_Host_V1_GetVMImpactSummaryRequest) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_GetVMImpactSummaryResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetVMImpactSummaryResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}vm\0\u{3}collected_at\0\u{1}complete\0\u{1}overflow\0\u{1}issue\0\u{3}known_workloads\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._vm) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._collectedAt) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.complete) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.overflow) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.issue) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.knownWorkloads) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._vm {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._collectedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if self.complete != false {
+      try visitor.visitSingularBoolField(value: self.complete, fieldNumber: 3)
+    }
+    if self.overflow != false {
+      try visitor.visitSingularBoolField(value: self.overflow, fieldNumber: 4)
+    }
+    if !self.issue.isEmpty {
+      try visitor.visitSingularStringField(value: self.issue, fieldNumber: 5)
+    }
+    if !self.knownWorkloads.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.knownWorkloads, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_GetVMImpactSummaryResponse, rhs: Agentvmm_Host_V1_GetVMImpactSummaryResponse) -> Bool {
+    if lhs._vm != rhs._vm {return false}
+    if lhs._collectedAt != rhs._collectedAt {return false}
+    if lhs.complete != rhs.complete {return false}
+    if lhs.overflow != rhs.overflow {return false}
+    if lhs.issue != rhs.issue {return false}
+    if lhs.knownWorkloads != rhs.knownWorkloads {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_DiskAccounting: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DiskAccounting"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}used_bytes\0\u{3}committed_bytes\0\u{3}capacity_bytes\0\u{3}import_reservation_bytes\0\u{3}system_reserve_bytes\0\u{3}metadata_reserve_bytes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self._usedBytes) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self._committedBytes) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self._capacityBytes) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self._importReservationBytes) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self._systemReserveBytes) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self._metadataReserveBytes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._usedBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._committedBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._capacityBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._importReservationBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._systemReserveBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 5)
+    } }()
+    try { if let v = self._metadataReserveBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 6)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_DiskAccounting, rhs: Agentvmm_Host_V1_DiskAccounting) -> Bool {
+    if lhs._usedBytes != rhs._usedBytes {return false}
+    if lhs._committedBytes != rhs._committedBytes {return false}
+    if lhs._capacityBytes != rhs._capacityBytes {return false}
+    if lhs._importReservationBytes != rhs._importReservationBytes {return false}
+    if lhs._systemReserveBytes != rhs._systemReserveBytes {return false}
+    if lhs._metadataReserveBytes != rhs._metadataReserveBytes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LayerResources: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LayerResources"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}memory_bytes\0\u{1}pids\0\u{3}open_fds\0\u{1}disk\0\u{3}unavailable_reason\0\u{3}sampled_at\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self._memoryBytes) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self._pids) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self._openFds) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._disk) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.unavailableReason) }()
+      case 6: try { try decoder.decodeSingularMessageField(value: &self._sampledAt) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._memoryBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._pids {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._openFds {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._disk {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
+    if !self.unavailableReason.isEmpty {
+      try visitor.visitSingularStringField(value: self.unavailableReason, fieldNumber: 5)
+    }
+    try { if let v = self._sampledAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LayerResources, rhs: Agentvmm_Host_V1_LayerResources) -> Bool {
+    if lhs._memoryBytes != rhs._memoryBytes {return false}
+    if lhs._pids != rhs._pids {return false}
+    if lhs._openFds != rhs._openFds {return false}
+    if lhs._disk != rhs._disk {return false}
+    if lhs.unavailableReason != rhs.unavailableReason {return false}
+    if lhs._sampledAt != rhs._sampledAt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -13861,7 +14425,7 @@ nonisolated extension Agentvmm_Host_V1_WatchEventsRequest: SwiftProtobuf.Message
 
 nonisolated extension Agentvmm_Host_V1_ResourceReference: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ResourceReference"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{3}environment_id\0\u{3}resource_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{3}environment_id\0\u{3}resource_id\0\u{1}generation\0\u{3}generation_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -13872,6 +14436,8 @@ nonisolated extension Agentvmm_Host_V1_ResourceReference: SwiftProtobuf.Message,
       case 1: try { try decoder.decodeSingularStringField(value: &self.kind) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.environmentID) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.resourceID) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.generationID) }()
       default: break
       }
     }
@@ -13887,6 +14453,12 @@ nonisolated extension Agentvmm_Host_V1_ResourceReference: SwiftProtobuf.Message,
     if !self.resourceID.isEmpty {
       try visitor.visitSingularStringField(value: self.resourceID, fieldNumber: 3)
     }
+    if self.generation != 0 {
+      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 4)
+    }
+    if !self.generationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.generationID, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -13894,6 +14466,8 @@ nonisolated extension Agentvmm_Host_V1_ResourceReference: SwiftProtobuf.Message,
     if lhs.kind != rhs.kind {return false}
     if lhs.environmentID != rhs.environmentID {return false}
     if lhs.resourceID != rhs.resourceID {return false}
+    if lhs.generation != rhs.generation {return false}
+    if lhs.generationID != rhs.generationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -14006,36 +14580,74 @@ nonisolated extension Agentvmm_Host_V1_MetricsSample: SwiftProtobuf.Message, Swi
   public static let protoMessageName: String = _protobuf_package + ".MetricsSample"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}scope\0\u{1}usage\0")
 
+  fileprivate class _StorageClass {
+    var _scope: Agentvmm_Host_V1_ResourceReference? = nil
+    var _usage: Agentvmm_Host_V1_Usage? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _scope = source._scope
+      _usage = source._usage
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._scope) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._usage) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._scope) }()
+        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._usage) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._scope {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._usage {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._scope {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._usage {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+      } }()
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_MetricsSample, rhs: Agentvmm_Host_V1_MetricsSample) -> Bool {
-    if lhs._scope != rhs._scope {return false}
-    if lhs._usage != rhs._usage {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._scope != rhs_storage._scope {return false}
+        if _storage._usage != rhs_storage._usage {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

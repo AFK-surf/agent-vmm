@@ -322,9 +322,14 @@ func (supervisor *applianceSupervisor) replaceStoppedContainer(ctx context.Conte
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return errors.New("an unowned system appliance task is still running")
 	}
-	return func() error {
-		return container.Delete(nsctx, containerd.WithSnapshotCleanup)
-	}()
+	if err := container.Delete(nsctx, containerd.WithSnapshotCleanup); err != nil {
+		return err
+	}
+	inventory, err := supervisor.runtime.requireRuntimeInventory()
+	if err != nil {
+		return err
+	}
+	return inventory.removeContainer(namespaceID, containerID)
 }
 
 func (supervisor *applianceSupervisor) fail(installationID string, err error) *vmmdv1.SystemAppliance {

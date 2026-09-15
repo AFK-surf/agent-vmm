@@ -311,6 +311,11 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 	if err := server.controller.requireRemoteAdmission(); err != nil {
 		return nil, err
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
 	if err := server.controller.requireRemoteAdmission(); err != nil {
@@ -482,8 +487,13 @@ func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, reques
 }
 
 func (server *remoteComputeServer) PlanCleanupAllocation(ctx context.Context, request *hostv1.PlanCleanupAllocationRequest) (*hostv1.AllocationCleanupPlanResponse, error) {
-	server.controller.remoteAdmissionMu.Lock()
-	defer server.controller.remoteAdmissionMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, cleanupPlanReadTimeout)
+	defer cancel()
+	releaseAdmission, err := server.controller.lockRemoteAdmission(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseAdmission()
 	if err := validateCleanupKind(request.GetKind()); err != nil {
 		return nil, err
 	}
@@ -494,7 +504,10 @@ func (server *remoteComputeServer) PlanCleanupAllocation(ctx context.Context, re
 	if err != nil {
 		return nil, err
 	}
-	unlockEnvironment := server.controller.lockEnvironment(environment.ID)
+	unlockEnvironment, err := server.controller.lockEnvironmentContext(ctx, environment.ID)
+	if err != nil {
+		return nil, err
+	}
 	defer unlockEnvironment()
 	plan, err := (&operatorServer{controller: server.controller}).planCleanupWithRemoteOwner(ctx, environment.ID, request.GetKind(), true)
 	if err != nil {
@@ -520,8 +533,18 @@ func allocationCleanupPlan(allocationID string, plan *hostv1.CleanupPlan) *hostv
 }
 
 func (server *remoteComputeServer) ExecuteCleanupAllocation(ctx context.Context, request *hostv1.ExecuteCleanupAllocationRequest) (*hostv1.AllocationResponse, error) {
-	server.controller.remoteAdmissionMu.Lock()
-	defer server.controller.remoteAdmissionMu.Unlock()
+	ctx, cancelAdmission := context.WithTimeout(ctx, cleanupPlanReadTimeout)
+	defer cancelAdmission()
+	releaseInventory, err := server.controller.lockInventoryTransition(ctx)
+	if err != nil {
+		return nil, cleanupAdmissionError(err, request.GetAllocationId())
+	}
+	defer releaseInventory()
+	releaseAdmission, err := server.controller.lockRemoteAdmission(ctx)
+	if err != nil {
+		return nil, cleanupAdmissionError(err, request.GetAllocationId())
+	}
+	defer releaseAdmission()
 	if err := validateCleanupKind(request.GetKind()); err != nil {
 		return nil, err
 	}
@@ -555,10 +578,10 @@ func (server *remoteComputeServer) ExecuteCleanupAllocation(ctx context.Context,
 		Kind:          request.GetKind(),
 		Revision:      request.GetPlanRevision(),
 	}
-	var revokeLease func() error
+	var revokeLease func(context.Context) error
 	if activeLease {
-		revokeLease = func() error {
-			lease, finishErr := server.controller.finishLeaseLocked(request.GetExpectedLeaseId(), request.GetExpectedLeaseGeneration(), hostv1.LeaseState_LEASE_STATE_REVOKED, true, true, false)
+		revokeLease = func(ownerCtx context.Context) error {
+			lease, finishErr := server.controller.finishLeaseLockedContext(ownerCtx, request.GetExpectedLeaseId(), request.GetExpectedLeaseGeneration(), hostv1.LeaseState_LEASE_STATE_REVOKED, true, true, false)
 			if finishErr != nil {
 				return finishErr
 			}
@@ -568,7 +591,7 @@ func (server *remoteComputeServer) ExecuteCleanupAllocation(ctx context.Context,
 			return nil
 		}
 	}
-	operation, err := (&operatorServer{controller: server.controller}).executeCleanupAdmissionLockedWithFence(ctx, requestID, requested, confirmed, "", true, revokeLease)
+	operation, err := (&operatorServer{controller: server.controller}).executeCleanupAdmissionLockedWithFence(ctx, requestID, requested, confirmed, "", false, true, revokeLease)
 	if err != nil {
 		return nil, err
 	}
@@ -576,7 +599,9 @@ func (server *remoteComputeServer) ExecuteCleanupAllocation(ctx context.Context,
 		return nil, resourceError(codes.FailedPrecondition, "CLEANUP_FAILED", "allocation", request.GetAllocationId(), operation.ErrorMessage)
 	}
 	if request.GetKind() == hostv1.CleanupKind_CLEANUP_KIND_RESET {
-		current, err := server.remoteEnvironment(ctx, request.GetRegistrationId(), request.GetAllocationId())
+		responseCtx, cancelResponse := context.WithTimeout(context.Background(), cleanupTerminalTimeout)
+		defer cancelResponse()
+		current, err := server.remoteEnvironment(responseCtx, request.GetRegistrationId(), request.GetAllocationId())
 		if err != nil {
 			return nil, err
 		}
@@ -857,6 +882,20 @@ func (controller *Controller) remoteRegistrationResponse(ctx context.Context, re
 		result.Allocations = append(result.Allocations, controller.remoteAllocation(environment))
 	}
 	return &hostv1.RemoteRegistrationResponse{Registration: result}
+}
+
+func (controller *Controller) remoteRegistrationSnapshot(ctx context.Context, registration store.RemoteRegistration, environments []store.Environment) *hostv1.RemoteRegistration {
+	result := registrationToProto(registration)
+	if registration.OwnerKind == store.RemoteRegistrationPrivate {
+		if grant, err := controller.store.GetApplianceGrant(ctx, registration.InstallationID); err == nil {
+			result.Pool.HostLoopbackFrontend = hostLoopbackCapacityToProto(grant.DynamicHostLoopback)
+		}
+	}
+	result.DomainMetrics = controller.controllerDomainMetrics(registration.ID)
+	for _, environment := range environments {
+		result.Allocations = append(result.Allocations, controller.remoteAllocation(environment))
+	}
+	return result
 }
 
 func hostLoopbackCapacityToProto(value store.HostLoopbackFrontendCapacity) *hostv1.HostLoopbackFrontendCapacity {

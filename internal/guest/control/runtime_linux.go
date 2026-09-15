@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
@@ -47,6 +48,7 @@ type Runtime struct {
 	workspaceSlots    chan struct{}
 	diskBudget        *guestdisk.Budget
 	materializer      *ocimaterializer.Manager
+	inventory         *runtimeInventoryIndex
 	volumeSampler     func(string) (uint64, error)
 	tasks             sync.WaitGroup
 }
@@ -69,7 +71,7 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 	runtime := &Runtime{client: client, network: network, stateDevice: stateDevice, controlDevice: controlDevice,
 		waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool),
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
-		volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
+		inventory: newRuntimeInventoryIndex(), volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
 	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth)
 	if err := ensureRuntimeContainerdNamespace(context.Background(), client); err != nil {
 		client.Close()
@@ -95,6 +97,13 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		client.Close()
 		return nil, fmt.Errorf("complete legacy state migration: %w", err)
 	}
+	rebuildContext, cancelRebuild := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := runtime.rebuildRuntimeInventory(rebuildContext); err != nil {
+		cancelRebuild()
+		client.Close()
+		return nil, fmt.Errorf("rebuild bounded runtime inventory: %w", err)
+	}
+	cancelRebuild()
 	if err := runtime.rehydrateNetwork(context.Background()); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("rebuild namespace network: %w", err)
@@ -130,19 +139,16 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 		if err := r.network.EnsureNamespace(name, namespace.GetSubnet(), vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
 			return err
 		}
-		containers, err := r.client.Containers(runtimeContext(ctx))
+		containerIDs, err := r.inventory.containerIDs(name, 0)
 		if err != nil {
 			return err
 		}
-		for _, container := range containers {
-			labels, err := container.Labels(runtimeContext(ctx))
+		for _, containerID := range containerIDs {
+			_, err := ownedRuntimeContainer(ctx, r.client, name, containerID)
 			if err != nil {
-				return err
+				return fmt.Errorf("load indexed runtime container %s/%s: %w", name, containerID, err)
 			}
-			if labels[runtimeOwnerLabel] != name {
-				continue
-			}
-			if err := r.network.CleanupStaleEndpoint(name, labels[runtimeExternalIDLabel]); err != nil {
+			if err := r.network.CleanupStaleEndpoint(name, containerID); err != nil {
 				return err
 			}
 		}
@@ -178,6 +184,10 @@ func volumePath(namespaceID, volumeID string) string {
 	return filepath.Join(namespaceStateRoot(namespaceID), "volumes", namespaceID, volumeID)
 }
 
+func volumeGenerationPath(namespaceID, volumeID string) string {
+	return filepath.Join(namespaceStateRoot(namespaceID), "volume-generations", namespaceID, volumeID)
+}
+
 func workspacePath(namespaceID string) string {
 	return filepath.Join(namespaceStateRoot(namespaceID), "workspaces", namespaceID)
 }
@@ -198,16 +208,15 @@ func (r *Runtime) namespaceExists(ctx context.Context, namespaceID string) error
 }
 
 func (r *Runtime) namespaceExistsRaw(ctx context.Context, namespaceID string) error {
-	names, err := r.client.NamespaceService().List(ctx)
+	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return err
 	}
-	for _, name := range names {
-		if name == namespaceID {
-			return nil
-		}
+	if !inventory.hasNamespace(namespaceID) {
+		return errdefs.ErrNotFound
 	}
-	return errdefs.ErrNotFound
+	_, err = r.client.NamespaceService().Labels(ctx, namespaceID)
+	return err
 }
 
 func (r *Runtime) namespaceExistsForRole(ctx context.Context, namespaceID string, system bool) error {

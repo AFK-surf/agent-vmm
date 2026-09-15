@@ -32,3 +32,13 @@ func TestContainerdConfigPreservesInheritedOOMScore(t *testing.T) {
 		t.Fatalf("containerd config must preserve the launcher-inherited OOM score:\n%s", contents)
 	}
 }
+
+func TestParseGuestStartupReference(t *testing.T) {
+	reference := parseGuestStartupReference("console=hvc0 agent.operation_id=operation-17 panic=-1")
+	if reference.OperationID != "operation-17" {
+		t.Fatalf("operation ID = %q", reference.OperationID)
+	}
+	if reference := parseGuestStartupReference("console=hvc0 panic=-1"); reference.OperationID != "" {
+		t.Fatalf("unexpected operation ID = %q", reference.OperationID)
+	}
+}

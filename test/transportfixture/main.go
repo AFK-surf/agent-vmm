@@ -48,6 +48,13 @@ func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapsh
 	}, nil
 }
 
+func (operatorServer) GetSystemHealthSummary(context.Context, *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemSnapshotResponse, error) {
+	return &hostv1.GetSystemSnapshotResponse{
+		Vm:     &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING, BootId: "transport-fixture"},
+		Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY},
+	}, nil
+}
+
 func (operatorServer) ListAgentIntegrations(context.Context, *hostv1.ListAgentIntegrationsRequest) (*hostv1.ListAgentIntegrationsResponse, error) {
 	return &hostv1.ListAgentIntegrationsResponse{Integrations: []*hostv1.AgentIntegration{{
 		Id: "integration-a", AdapterId: "codex", DisplayName: "Codex", Scope: hostv1.IntegrationScope_INTEGRATION_SCOPE_USER,

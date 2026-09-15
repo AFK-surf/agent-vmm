@@ -221,7 +221,7 @@ func isMutation(method string) bool {
 	switch name {
 	case "Health", "ComponentHealth", "InspectContainer", "ProbeEgress",
 		"GetEnvironment", "GetContainer", "ListContainers", "WaitContainer", "GetVolume", "ListVolumes", "ListImages", "Logs",
-		"GetVM", "GetSystemSnapshot", "ListEnvironments", "ListEnvironmentImages", "WatchEvents", "WatchMetrics", "GetOperation",
+		"GetVM", "GetSystemSnapshot", "GetSystemHealthSummary", "ListEnvironments", "ListEnvironmentImages", "WatchEvents", "WatchMetrics", "GetOperation",
 		"PlanResetEnvironment", "PlanDiscardEnvironment", "PreviewSupportBundle", "GetDeviceIdentity",
 		"StatWorkspace", "ListWorkspace", "ReadWorkspace", "ArchiveWorkspace",
 		"ListAgentIntegrations", "ListAgentSessions", "GetRemoteRegistration", "ListRemoteRegistrations", "ListPersonalMeshes",

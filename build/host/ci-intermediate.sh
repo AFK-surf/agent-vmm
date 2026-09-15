@@ -83,7 +83,11 @@ inspect_archive() {
         { rm -rf "$scratch"; return 1; }
       test -x "$extracted/Agent VMM Host.app/Contents/Helpers/agent-vmm-lifecycle" || \
         { rm -rf "$scratch"; return 1; }
+      test -x "$extracted/Agent VMM Host.app/Contents/Helpers/agent-vmm" || \
+        { rm -rf "$scratch"; return 1; }
       test -x "$extracted/Agent VMM Host.app/Contents/Helpers/agent-vmm-data" || \
+        { rm -rf "$scratch"; return 1; }
+      test -x "$extracted/Agent VMM Host.app/Contents/Helpers/agent-vmm-service-executor" || \
         { rm -rf "$scratch"; return 1; }
       ;;
     agent-vmm-guest)

@@ -53,21 +53,44 @@ func newVMLifecycleOwner(controller *Controller, manager *vmm.Manager) *VMLifecy
 func (owner *VMLifecycleOwner) execute(ctx context.Context, operation vmLifecycleOperation, run func() vmLifecycleResult) vmLifecycleResult {
 	startedAt := time.Now()
 	log.Printf("vm lifecycle operation waiting: operation=%s", operation)
-	if err := owner.lockOperation(ctx); err != nil {
+	release, err := owner.acquire(ctx, operation)
+	if err != nil {
 		log.Printf("vm lifecycle operation lock failed: operation=%s elapsed=%s error=%v", operation, time.Since(startedAt).Round(time.Millisecond), err)
 		return vmLifecycleResult{err: err}
 	}
-	defer owner.operationMu.Unlock()
+	defer release()
 	log.Printf("vm lifecycle operation acquired: operation=%s elapsed=%s", operation, time.Since(startedAt).Round(time.Millisecond))
+	result := run()
+	log.Printf("vm lifecycle operation completed: operation=%s elapsed=%s error=%v", operation, time.Since(startedAt).Round(time.Millisecond), result.err)
+	return result
+}
+
+// acquire gives an operator mutation exclusive ownership before it writes a
+// durable receipt. Once acquired, cancellation cannot strand accepted work
+// behind another lifecycle owner.
+func (owner *VMLifecycleOwner) acquire(ctx context.Context, operation vmLifecycleOperation) (func(), error) {
+	if err := owner.lockOperation(ctx); err != nil {
+		return nil, err
+	}
 	owner.stateMu.Lock()
 	closing := owner.closing
 	owner.stateMu.Unlock()
 	if closing && operation != vmLifecycleShutdown {
-		return vmLifecycleResult{err: errors.New("VM lifecycle is shutting down")}
+		owner.operationMu.Unlock()
+		return nil, errors.New("VM lifecycle is shutting down")
 	}
-	result := run()
-	log.Printf("vm lifecycle operation completed: operation=%s elapsed=%s error=%v", operation, time.Since(startedAt).Round(time.Millisecond), result.err)
-	return result
+	if owner.controller != nil {
+		releaseInventory, err := owner.controller.lockInventoryTransition(ctx)
+		if err != nil {
+			owner.operationMu.Unlock()
+			return nil, err
+		}
+		return func() {
+			releaseInventory()
+			owner.operationMu.Unlock()
+		}, nil
+	}
+	return owner.operationMu.Unlock, nil
 }
 
 func (operation vmLifecycleOperation) String() string {
@@ -152,49 +175,85 @@ func (owner *VMLifecycleOwner) commit(ctx context.Context, excludedInstallationI
 }
 
 func (owner *VMLifecycleOwner) Start(ctx context.Context) (*hostv1.VM, error) {
+	return owner.start(ctx, nil)
+}
+
+func (owner *VMLifecycleOwner) StartFenced(ctx context.Context, validate func() error) (*hostv1.VM, error) {
+	return owner.start(ctx, validate)
+}
+
+func (owner *VMLifecycleOwner) start(ctx context.Context, validate func() error) (*hostv1.VM, error) {
 	result := owner.execute(ctx, vmLifecycleStart, func() vmLifecycleResult {
-		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && owner.admitsRemoteWork() {
-			return vmLifecycleResult{vm: owner.manager.Snapshot()}
-		}
-		log.Printf("vm lifecycle start stage: stage=prepare_transition")
-		owner.controller.prepareVMTransition(ctx)
-		owner.controller.stopEgress()
-		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-			err := owner.commit(ctx, "")
-			if err != nil {
-				owner.rollbackRunningVM()
+		if validate != nil {
+			if err := validate(); err != nil {
+				return vmLifecycleResult{err: err}
 			}
-			return vmLifecycleResult{vm: owner.manager.Snapshot(), err: err}
 		}
-		log.Printf("vm lifecycle start stage: stage=configure_appliance_blocks")
-		if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
-			return vmLifecycleResult{err: err}
-		}
-		log.Printf("vm lifecycle start stage: stage=vz_start")
-		vm, err := owner.manager.Start(ctx)
-		if err == nil {
-			log.Printf("vm lifecycle start stage: stage=commit")
-			err = owner.commit(ctx, "")
-		}
-		if err != nil {
-			owner.rollbackRunningVM()
-		}
-		return vmLifecycleResult{vm: vm, err: err}
+		err := owner.startOwned(ctx)
+		return vmLifecycleResult{vm: owner.manager.Snapshot(), err: err}
 	})
 	return result.vm, result.err
 }
 
-func (owner *VMLifecycleOwner) Stop(ctx context.Context, force bool) (*hostv1.VM, error) {
-	result := owner.execute(ctx, vmLifecycleStop, func() vmLifecycleResult {
-		owner.controller.prepareVMTransition(ctx)
-		owner.controller.stopEgress()
-		vm, err := owner.manager.Stop(ctx, force)
-		if err != nil && owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
-			err = errors.Join(err, owner.commit(context.Background(), ""))
+func (owner *VMLifecycleOwner) startOwned(ctx context.Context) error {
+	if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && owner.admitsRemoteWork() {
+		return nil
+	}
+	log.Printf("vm lifecycle start stage: stage=prepare_transition")
+	owner.controller.prepareVMTransition(ctx)
+	owner.controller.stopEgress()
+	if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+		err := owner.commit(ctx, "")
+		if err != nil {
+			owner.rollbackRunningVM()
 		}
-		return vmLifecycleResult{vm: vm, err: err}
+		return err
+	}
+	log.Printf("vm lifecycle start stage: stage=configure_appliance_blocks")
+	if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
+		return err
+	}
+	log.Printf("vm lifecycle start stage: stage=vz_start")
+	_, err := owner.manager.Start(ctx)
+	if err == nil {
+		log.Printf("vm lifecycle start stage: stage=commit")
+		err = owner.commit(ctx, "")
+	}
+	if err != nil {
+		owner.rollbackRunningVM()
+	}
+	return err
+}
+
+func (owner *VMLifecycleOwner) Stop(ctx context.Context, force bool) (*hostv1.VM, error) {
+	return owner.stop(ctx, force, nil)
+}
+
+func (owner *VMLifecycleOwner) StopFenced(ctx context.Context, force bool, validate func() error) (*hostv1.VM, error) {
+	return owner.stop(ctx, force, validate)
+}
+
+func (owner *VMLifecycleOwner) stop(ctx context.Context, force bool, validate func() error) (*hostv1.VM, error) {
+	result := owner.execute(ctx, vmLifecycleStop, func() vmLifecycleResult {
+		if validate != nil {
+			if err := validate(); err != nil {
+				return vmLifecycleResult{err: err}
+			}
+		}
+		err := owner.stopOwned(ctx, force)
+		return vmLifecycleResult{vm: owner.manager.Snapshot(), err: err}
 	})
 	return result.vm, result.err
+}
+
+func (owner *VMLifecycleOwner) stopOwned(ctx context.Context, force bool) error {
+	owner.controller.prepareVMTransition(ctx)
+	owner.controller.stopEgress()
+	_, err := owner.manager.Stop(ctx, force)
+	if err != nil && owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+		err = errors.Join(err, owner.commit(context.Background(), ""))
+	}
+	return err
 }
 
 func (owner *VMLifecycleOwner) RecoverAsync(previousBootID string) {
@@ -360,6 +419,10 @@ func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {
 		return err
 	}
 	defer owner.operationMu.Unlock()
+	if owner.controller != nil {
+		owner.controller.inventoryTransition.Lock()
+		defer owner.controller.inventoryTransition.Unlock()
+	}
 	owner.stateMu.Lock()
 	if owner.closing {
 		done := owner.shutdownDone

@@ -59,6 +59,11 @@ func (controller *Controller) reconcileAllocationRetirements(ctx context.Context
 func (controller *Controller) retireEmptyAllocation(ctx context.Context, candidate store.Environment) error {
 	ctx, cancel := context.WithDeadline(ctx, candidate.UpdatedAt.Add(allocationRetirementBudget))
 	defer cancel()
+	releaseInventory, err := controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseInventory()
 	unlock := controller.lockEnvironment(candidate.ID)
 	defer unlock()
 	environment, err := controller.store.GetEnvironment(ctx, candidate.ID)

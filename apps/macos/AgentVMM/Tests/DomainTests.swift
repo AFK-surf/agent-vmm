@@ -72,6 +72,26 @@ import Foundation
     #expect(hostErrorMessage(error) == "Agent VMM is temporarily unavailable. Try again.")
 }
 
+@Test func vmMutationFenceAcknowledgesWholeVMDespitePartialSummary() throws {
+    var summary = Agentvmm_Host_V1_GetVMImpactSummaryResponse()
+    summary.complete = false
+    summary.overflow = true
+    summary.issue = "known workload summary exceeded the bound"
+    summary.vm.state = .running
+    summary.vm.bootID = "boot-a"
+    var known = Agentvmm_Host_V1_ResourceReference()
+    known.kind = "environment"
+    known.environmentID = "env-a"
+    known.generation = 7
+    summary.knownWorkloads = [known]
+
+    let fence = try GRPCHostClient.vmMutationFence(summary)
+    #expect(fence.state == .running)
+    #expect(fence.bootID == "boot-a")
+    #expect(fence.observedWorkloads == [known])
+    #expect(fence.wholeVmImpactAcknowledged)
+}
+
 @Test func environmentUsesAgentLanguage() {
     let environment = AgentEnvironmentModel(
         id: "a", name: "Research", namespaceID: "hidden", health: .healthy, usage: nil, workloads: [], volumes: [],

@@ -24,6 +24,11 @@ func (server *operatorServer) ApplyNetworkLink(ctx context.Context, request *hos
 	if request.GetRequestId() == "" || request.GetLink().GetId() == "" {
 		return nil, invalidField("request_id/link", "request ID and network link are required")
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	source, err := server.controller.store.GetEnvironment(ctx, request.GetLink().GetSourceEnvironmentId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "SOURCE_ENVIRONMENT_NOT_FOUND", "environment", request.GetLink().GetSourceEnvironmentId(), "source environment does not exist")
@@ -67,6 +72,11 @@ func (server *operatorServer) DeleteNetworkLink(ctx context.Context, request *ho
 	if request.GetRequestId() == "" || request.GetLinkId() == "" {
 		return nil, invalidField("request_id/link_id", "request and link IDs are required")
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	grant, err := server.controller.store.GetGrant(ctx, request.GetLinkId())
 	if errors.Is(err, sql.ErrNoRows) || err == nil && grant.Kind != "network-link" {
 		return nil, resourceError(codes.NotFound, "NETWORK_LINK_NOT_FOUND", "network-link", request.GetLinkId(), "network link does not exist")
@@ -84,6 +94,9 @@ func (server *operatorServer) DeleteNetworkLink(ctx context.Context, request *ho
 	}
 	defer connection.Close()
 	if _, err := client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: request.GetRequestId(), LinkId: request.GetLinkId()}); err != nil {
+		return nil, err
+	}
+	if err := server.controller.store.CompactRevokedGrant(ctx, request.GetLinkId()); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil

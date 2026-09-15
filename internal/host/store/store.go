@@ -233,6 +233,28 @@ func (store *Store) ListEnvironments(ctx context.Context) ([]Environment, error)
 	return result, rows.Err()
 }
 
+func (store *Store) ListEnvironmentsBounded(ctx context.Context, limit int) ([]Environment, error) {
+	if limit <= 0 {
+		return nil, errors.New("environment limit must be positive")
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
+		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments ORDER BY display_name, id LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Environment
+	for rows.Next() {
+		environment, scanErr := scanEnvironment(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, environment)
+	}
+	return result, rows.Err()
+}
+
 func (store *Store) UpdatePolicy(ctx context.Context, id string, expectedRevision uint64, limits Environment) (Environment, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE environments SET cpu_millis=?, memory_bytes=?, pids=?, disk_bytes=?,
 		egress_mode=?, policy_revision=policy_revision+1, updated_at=? WHERE id=? AND owner_kind=? AND policy_revision=?`,
@@ -439,6 +461,56 @@ func (store *Store) ActiveGrants(ctx context.Context) ([]Grant, error) {
 	return grants, rows.Err()
 }
 
+// ActiveGrantsForNamespace returns at most limit+1 grants so callers can reject
+// an inventory that exceeds their admitted work bound without scanning every
+// grant in the Host database.
+func (store *Store) ActiveGrantsForNamespace(ctx context.Context, namespaceID string, limit int) ([]Grant, error) {
+	if limit < 0 {
+		return nil, errors.New("grant result limit must not be negative")
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT id, kind, source_namespace_id, target_namespace_id, methods
+		FROM grants WHERE revoked_at IS NULL AND (source_namespace_id=? OR target_namespace_id=?)
+		ORDER BY id LIMIT ?`, namespaceID, namespaceID, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	grants := make([]Grant, 0, min(limit+1, 16))
+	for rows.Next() {
+		var grant Grant
+		if err := rows.Scan(&grant.ID, &grant.Kind, &grant.SourceNamespaceID, &grant.TargetNamespaceID, &grant.Payload); err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return grants, rows.Err()
+}
+
+// GrantsForNamespace returns active grants and tombstones within the same
+// bounded owner scope. Cleanup uses tombstones to remove Guest policy that may
+// remain after a Host-side revocation was persisted.
+func (store *Store) GrantsForNamespace(ctx context.Context, namespaceID string, limit int) ([]Grant, error) {
+	if limit < 0 {
+		return nil, errors.New("grant result limit must not be negative")
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT id, kind, source_namespace_id, target_namespace_id, methods, revoked_at IS NOT NULL
+		FROM grants WHERE source_namespace_id=? OR target_namespace_id=?
+		ORDER BY id LIMIT ?`, namespaceID, namespaceID, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	grants := make([]Grant, 0, min(limit+1, 16))
+	for rows.Next() {
+		var grant Grant
+		if err := rows.Scan(&grant.ID, &grant.Kind, &grant.SourceNamespaceID, &grant.TargetNamespaceID, &grant.Payload, &grant.Revoked); err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return grants, rows.Err()
+}
+
 func (store *Store) AllGrants(ctx context.Context) ([]Grant, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT id, kind, source_namespace_id, target_namespace_id, methods, revoked_at IS NOT NULL
 		FROM grants ORDER BY id`)
@@ -482,6 +554,13 @@ func (store *Store) RevokeGrants(ctx context.Context, namespaceID string) error 
 	return err
 }
 
+// CompactRevokedGrant removes a reconciliation tombstone only after the Guest
+// has confirmed the corresponding desired-state deletion.
+func (store *Store) CompactRevokedGrant(ctx context.Context, id string) error {
+	_, err := store.db.ExecContext(ctx, `DELETE FROM grants WHERE id=? AND revoked_at IS NOT NULL`, id)
+	return err
+}
+
 func (store *Store) PutVolumeOwner(ctx context.Context, volumeID, namespaceID string) error {
 	_, err := store.db.ExecContext(ctx, `INSERT INTO volume_policies(volume_id, owner_namespace_id) VALUES (?, ?)
 		ON CONFLICT(owner_namespace_id, volume_id) DO UPDATE SET revision=volume_policies.revision+1`, volumeID, namespaceID)
@@ -507,8 +586,13 @@ func (store *Store) HasVolumePolicy(ctx context.Context, volumeID, namespaceID s
 }
 
 func (store *Store) PutOperation(ctx context.Context, operation Operation) (Operation, bool, error) {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Operation{}, false, err
+	}
+	defer tx.Rollback()
 	now := time.Now()
-	result, err := store.db.ExecContext(ctx, `INSERT INTO operations
+	result, err := tx.ExecContext(ctx, `INSERT INTO operations
 		(id, kind, environment_id, state, stage, request_id, error_reason, error_message, output_path, started_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(request_id) DO NOTHING`, operation.ID, operation.Kind, operation.EnvironmentID, operation.State,
@@ -520,8 +604,15 @@ func (store *Store) PutOperation(ctx context.Context, operation Operation) (Oper
 	if err != nil {
 		return Operation{}, false, err
 	}
-	stored, err := store.OperationByRequestID(ctx, operation.RequestID)
-	return stored, inserted == 1, err
+	stored, err := scanOperation(tx.QueryRowContext(ctx, `SELECT id, kind, environment_id, state, stage,
+		request_id, error_reason, error_message, output_path, started_at, updated_at FROM operations WHERE request_id=?`, operation.RequestID))
+	if err != nil {
+		return Operation{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Operation{}, false, err
+	}
+	return stored, inserted == 1, nil
 }
 
 func (store *Store) OperationByRequestID(ctx context.Context, requestID string) (Operation, error) {

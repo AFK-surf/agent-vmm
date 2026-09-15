@@ -107,6 +107,16 @@ func (server *agentServer) DeleteImage(ctx context.Context, request *hostv1.Dele
 	if request.GetRequestId() == "" || request.GetReference() == "" || request.GetExpectedGenerationId() == "" || request.GetExpectedDigest() == "" {
 		return nil, invalidField("request_id/reference/expected_generation_id/expected_digest", "image identity and request ID are required")
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
+	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
+	defer unlock()
+	if err := server.validateAgentInventoryTarget(ctx, identity.EnvironmentID, identity.NamespaceID); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -122,11 +132,30 @@ func (server *agentServer) DeleteImage(ctx context.Context, request *hostv1.Dele
 	return &emptypb.Empty{}, nil
 }
 
+func (server *agentServer) validateAgentInventoryTarget(ctx context.Context, environmentID, namespaceID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	environment, err := server.controller.store.GetEnvironment(ctx, environmentID)
+	if err != nil {
+		return resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", environmentID, "agent environment does not exist")
+	}
+	if environment.NamespaceID != namespaceID {
+		return resourceError(codes.Aborted, "ENVIRONMENT_TARGET_CHANGED", "environment", environmentID, "agent environment namespace changed; reconnect and retry")
+	}
+	return nil
+}
+
 func (server *agentServer) CreateContainer(ctx context.Context, request *hostv1.CreateContainerRequest) (*hostv1.ContainerResponse, error) {
 	identity, err := auth.AgentIdentity(ctx)
 	if err != nil {
 		return nil, err
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -235,6 +264,11 @@ func (server *agentServer) DeleteContainer(ctx context.Context, request *hostv1.
 	if err != nil {
 		return nil, err
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	if request.GetExpectedGenerationId() == "" {
 		return nil, invalidField("expected_generation_id", "container generation is required")
 	}
@@ -349,6 +383,11 @@ func (server *agentServer) CreateVolume(ctx context.Context, request *hostv1.Cre
 	if err != nil {
 		return nil, err
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -370,6 +409,11 @@ func (server *agentServer) DeleteVolume(ctx context.Context, request *hostv1.Del
 	if err != nil {
 		return nil, err
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err

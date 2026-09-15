@@ -138,24 +138,41 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if err != nil {
 		return nil, atRuntimeStage("container_record", err)
 	}
-	if err := r.assignSnapshotProject(nsctx, namespaceID, container); err != nil {
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
 		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		return nil, atRuntimeStage("container_inventory", err)
+	}
+	if err := inventory.addContainer(namespaceID, request.GetContainerId()); err != nil {
+		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		return nil, atRuntimeStage("container_inventory", err)
+	}
+	if err := r.assignSnapshotProject(nsctx, namespaceID, container); err != nil {
+		r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
 		return nil, atRuntimeStage("snapshot_quota", err)
 	}
 	if err := r.materializeSupervisor(nsctx, namespaceID, container); err != nil {
-		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
 		return nil, atRuntimeStage("supervisor_materialization", err)
 	}
 	current, err := r.inspectContainer(nsctx, namespaceID, container)
 	if err != nil {
-		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
 		return nil, atRuntimeStage("container_projection", err)
 	}
 	if err := ensureDirectory(filepath.Dir(logPath(namespaceID, request.GetContainerId(), current.GetGenerationId())), 0o700); err != nil {
-		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
 		return nil, atRuntimeStage("container_log_state", err)
 	}
 	return current, nil
+}
+
+func (r *Runtime) rollbackNewContainer(ctx context.Context, namespaceID, containerID string, container containerd.Container) {
+	if err := container.Delete(ctx, containerd.WithSnapshotCleanup); err == nil {
+		if inventory, inventoryErr := r.requireRuntimeInventory(); inventoryErr == nil {
+			_ = inventory.removeContainer(namespaceID, containerID)
+		}
+	}
 }
 
 func atContainerStage(stage string, option containerd.NewContainerOpts) containerd.NewContainerOpts {

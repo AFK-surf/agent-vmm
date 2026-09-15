@@ -9,7 +9,7 @@ revision="${AGENT_VMM_TEST_REVISION:-$(git -C "$repo" rev-parse HEAD)}"
 app="$scratch/input/Agent VMM Host.app"
 resources="$app/Contents/Resources"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$resources"
-for executable in "$app/Contents/MacOS/agent-vmm-host" "$app/Contents/Helpers/agent-vmm-lifecycle" "$app/Contents/Helpers/agent-vmm-data"; do
+for executable in "$app/Contents/MacOS/agent-vmm-host" "$app/Contents/Helpers/agent-vmm" "$app/Contents/Helpers/agent-vmm-lifecycle" "$app/Contents/Helpers/agent-vmm-data" "$app/Contents/Helpers/agent-vmm-service-executor"; do
   printf '#!/bin/sh\nexit 0\n' > "$executable"
   chmod +x "$executable"
 done

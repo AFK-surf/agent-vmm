@@ -4,11 +4,15 @@ package vmm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,14 +24,55 @@ import (
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
 	VMMDPort          = 4050
 	hostMemoryReserve = 4 << 30
+	maxSerialLogBytes = 1 << 20
 )
 
+type startObservationKey struct{}
+
+type startObservation struct {
+	OperationID string `json:"operation_id,omitempty"`
+	RequestID   string `json:"request_id,omitempty"`
+}
+
+type startProgress struct {
+	OperationID string `json:"operation_id,omitempty"`
+	RequestID   string `json:"request_id,omitempty"`
+	Stage       string `json:"stage"`
+	State       string `json:"state"`
+	Error       string `json:"error,omitempty"`
+}
+
+func WithStartObservation(ctx context.Context, operationID, requestID string) context.Context {
+	return context.WithValue(ctx, startObservationKey{}, startObservation{OperationID: operationID, RequestID: requestID})
+}
+
+func startObservationFromContext(ctx context.Context) startObservation {
+	value, _ := ctx.Value(startObservationKey{}).(startObservation)
+	return value
+}
+
+func reportStartProgress(ctx context.Context, stage, state string, err error) {
+	observation := startObservationFromContext(ctx)
+	record := startProgress{OperationID: observation.OperationID, RequestID: observation.RequestID, Stage: stage, State: state}
+	if err != nil {
+		record.Error = err.Error()
+		if len(record.Error) > 4096 {
+			record.Error = record.Error[:4096]
+		}
+	}
+	if data, marshalErr := json.Marshal(record); marshalErr == nil {
+		log.Printf("vmm_start=%s", data)
+	}
+}
+
 var physicalMemoryBytes = func() (uint64, error) { return unix.SysctlUint64("hw.memsize") }
+var processMemoryBytes = currentProcessMemoryBytes
 
 type Config struct {
 	BundleDirectory     string
@@ -126,6 +171,47 @@ func (manager *Manager) Snapshot() *hostv1.VM {
 	return manager.snapshotLocked()
 }
 
+// ResourceSnapshot reports facts owned by the Host process and its state disk.
+// Missing measurements stay absent and carry a bounded reason.
+func (manager *Manager) ResourceSnapshot() *hostv1.LayerResources {
+	pids := uint32(1)
+	result := &hostv1.LayerResources{Pids: &pids, SampledAt: timestamppb.Now()}
+	var unavailable []string
+	if memory, err := processMemoryBytes(); err == nil {
+		result.MemoryBytes = &memory
+	} else {
+		unavailable = append(unavailable, err.Error())
+	}
+	if entries, err := os.ReadDir("/dev/fd"); err == nil && len(entries) <= int(^uint32(0)) {
+		count := uint32(len(entries))
+		result.OpenFds = &count
+	} else {
+		unavailable = append(unavailable, "host file descriptors")
+	}
+	statePath := filepath.Join(manager.config.InstanceDirectory, "state.raw")
+	if info, err := os.Stat(statePath); err == nil && info.Mode().IsRegular() {
+		used, allocatedErr := allocatedBytes(info)
+		if allocatedErr == nil {
+			committed := uint64(info.Size())
+			reserve := uint64(hostEmergencyBytes)
+			result.Disk = &hostv1.DiskAccounting{UsedBytes: &used, CommittedBytes: &committed, SystemReserveBytes: &reserve}
+			var filesystem unix.Statfs_t
+			if statErr := unix.Statfs(filepath.Dir(statePath), &filesystem); statErr == nil && filesystem.Bsize > 0 {
+				capacity := filesystem.Blocks * uint64(filesystem.Bsize)
+				result.Disk.CapacityBytes = &capacity
+			} else {
+				unavailable = append(unavailable, "host filesystem capacity")
+			}
+		} else {
+			unavailable = append(unavailable, "host state disk allocation")
+		}
+	} else {
+		unavailable = append(unavailable, "host state disk")
+	}
+	result.UnavailableReason = strings.Join(unavailable, ", ")
+	return result
+}
+
 // HasMachineAttachment reports whether Virtualization.framework may still own
 // the state disk. FAILED is not terminal for Host shutdown while this is true.
 func (manager *Manager) HasMachineAttachment() bool {
@@ -210,49 +296,68 @@ func (manager *Manager) Start(ctx context.Context) (*hostv1.VM, error) {
 	return result, nil
 }
 
-func (manager *Manager) start(ctx context.Context) error {
-	startedAt := time.Now()
-	log.Printf("vmm start stage: stage=verify_bundle")
+func (manager *Manager) start(ctx context.Context) (resultErr error) {
+	stage := "verify_bundle"
+	defer func() {
+		if resultErr != nil {
+			reportStartProgress(ctx, stage, "failed", resultErr)
+		}
+	}()
+	reportStartProgress(ctx, stage, "started", nil)
 	verified, err := bundle.Verify(manager.config.BundleDirectory, manager.config.GuestManifestDigest,
 		"kernel", "initramfs", "rootfs")
 	if err != nil {
 		return fmt.Errorf("verify bundle: %w", err)
 	}
+	reportStartProgress(ctx, stage, "succeeded", nil)
 	if err := os.MkdirAll(manager.config.InstanceDirectory, 0o700); err != nil {
 		return err
 	}
-	log.Printf("vmm start stage: stage=prepare_state")
+	stage = "prepare_state"
+	reportStartProgress(ctx, stage, "started", nil)
 	initializing, err := prepareState(manager.config.InstanceDirectory, manager.config.StateBytes)
 	if err != nil {
+		return err
+	}
+	reportStartProgress(ctx, stage, "succeeded", nil)
+	if err := rotateSerialLog(manager.config.SerialLog); err != nil {
 		return err
 	}
 	serial, err := os.OpenFile(manager.config.SerialLog, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
-	log.Printf("vmm start stage: stage=build_configuration initializing=%t", initializing)
-	configuration, err := manager.configuration(verified, serial, initializing)
+	stage = "build_configuration"
+	reportStartProgress(ctx, stage, "started", nil)
+	configuration, err := manager.configuration(verified, serial, initializing, startObservationFromContext(ctx))
 	if err != nil {
 		serial.Close()
 		return err
 	}
-	log.Printf("vmm start stage: stage=validate_configuration")
+	reportStartProgress(ctx, stage, "succeeded", nil)
+	stage = "validate_configuration"
+	reportStartProgress(ctx, stage, "started", nil)
 	valid, err := configuration.Validate()
 	if !valid || err != nil {
 		serial.Close()
 		return fmt.Errorf("validate VM configuration: valid=%t: %w", valid, err)
 	}
-	log.Printf("vmm start stage: stage=create_machine")
+	reportStartProgress(ctx, stage, "succeeded", nil)
+	stage = "create_machine"
+	reportStartProgress(ctx, stage, "started", nil)
 	machine, err := vz.NewVirtualMachine(configuration)
 	if err != nil {
 		serial.Close()
 		return err
 	}
-	log.Printf("vmm start stage: stage=start_machine elapsed=%s", time.Since(startedAt).Round(time.Millisecond))
+	reportStartProgress(ctx, stage, "succeeded", nil)
+	stage = "start_machine"
+	reportStartProgress(ctx, stage, "started", nil)
 	if err := machine.Start(); err != nil {
 		serial.Close()
 		return err
 	}
+	reportStartProgress(ctx, stage, "succeeded", nil)
 	started := false
 	defer func() {
 		if started {
@@ -274,11 +379,12 @@ func (manager *Manager) start(ctx context.Context) error {
 		}
 		manager.mu.Unlock()
 	}()
-	log.Printf("vmm start stage: stage=wait_running state=%v elapsed=%s", machine.State(), time.Since(startedAt).Round(time.Millisecond))
+	stage = "wait_running"
+	reportStartProgress(ctx, stage, "started", nil)
 	if err := waitState(ctx, machine, vz.VirtualMachineStateRunning); err != nil {
 		return err
 	}
-	log.Printf("vmm start stage: stage=running elapsed=%s", time.Since(startedAt).Round(time.Millisecond))
+	reportStartProgress(ctx, stage, "succeeded", nil)
 	manager.mu.Lock()
 	manager.closeEgressLocked()
 	manager.machine = machine
@@ -287,7 +393,8 @@ func (manager *Manager) start(ctx context.Context) error {
 	manager.bootID = ""
 	manager.mu.Unlock()
 
-	log.Printf("vmm start stage: stage=wait_guest_health")
+	stage = "wait_guest_health"
+	reportStartProgress(ctx, stage, "started", nil)
 	health, err := manager.waitHealth(ctx)
 	if err != nil {
 		return err
@@ -298,7 +405,7 @@ func (manager *Manager) start(ctx context.Context) error {
 	manager.mu.Lock()
 	manager.bootID = health.GetBootId()
 	manager.mu.Unlock()
-	log.Printf("vmm start stage: stage=guest_healthy elapsed=%s", time.Since(startedAt).Round(time.Millisecond))
+	reportStartProgress(ctx, stage, "succeeded", nil)
 	if initializing {
 		if !health.GetStateInitialized() {
 			return errors.New("guest did not initialize state disk")
@@ -310,6 +417,54 @@ func (manager *Manager) start(ctx context.Context) error {
 	started = true
 	go manager.observe(machine, serial)
 	return nil
+}
+
+func rotateSerialLog(path string) error {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return err
+	}
+	if info.Size() <= maxSerialLogBytes {
+		return nil
+	}
+	input, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	if _, err := input.Seek(-maxSerialLogBytes, 2); err != nil {
+		return err
+	}
+	previous := path + ".previous"
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".serial-*.log")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(input, maxSerialLogBytes))
+	if readErr != nil {
+		temporary.Close()
+		return readErr
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, previous); err != nil {
+		return err
+	}
+	return os.Truncate(path, 0)
 }
 
 func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error) {

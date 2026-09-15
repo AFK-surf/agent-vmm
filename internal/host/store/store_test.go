@@ -790,6 +790,23 @@ func TestOperationRequestIDDeduplication(t *testing.T) {
 	}
 }
 
+func TestCanceledOperationInsertDoesNotCreateAcceptanceRecord(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err = store.PutOperation(ctx, Operation{ID: "operation-a", Kind: "cleanup", EnvironmentID: "environment-a", State: 1, Stage: "started", RequestID: "request-a"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled operation insert err=%v", err)
+	}
+	if _, err := store.OperationByRequestID(context.Background(), "request-a"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("canceled operation created an acceptance record: %v", err)
+	}
+}
+
 func TestOpenMarksRunningOperationsInterrupted(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.sqlite")
 	first, err := Open(path)
@@ -836,6 +853,66 @@ func TestRevokedGrantRemainsAsReconciliationTombstone(t *testing.T) {
 	grants, err := store.AllGrants(ctx)
 	if err != nil || len(grants) != 1 || !grants[0].Revoked {
 		t.Fatalf("grant tombstones = %v, %v", grants, err)
+	}
+	if err := store.CompactRevokedGrant(ctx, "link-a"); err != nil {
+		t.Fatal(err)
+	}
+	if grants, err := store.AllGrants(ctx); err != nil || len(grants) != 0 {
+		t.Fatalf("compacted grant tombstones = %v, %v", grants, err)
+	}
+}
+
+func TestActiveGrantsForNamespaceIsScopedAndReturnsOneOverflowRecord(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	for _, grant := range []Grant{
+		{ID: "a", Kind: "network-link", SourceNamespaceID: "selected", TargetNamespaceID: "other", Payload: "{}"},
+		{ID: "b", Kind: "network-link", SourceNamespaceID: "other", TargetNamespaceID: "selected", Payload: "{}"},
+		{ID: "c", Kind: "network-link", SourceNamespaceID: "selected", TargetNamespaceID: "other-2", Payload: "{}"},
+		{ID: "unrelated", Kind: "network-link", SourceNamespaceID: "other", TargetNamespaceID: "other-2", Payload: "{}"},
+	} {
+		if err := database.PutGrant(ctx, grant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	grants, err := database.ActiveGrantsForNamespace(ctx, "selected", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grants) != 2 || grants[0].ID != "a" || grants[1].ID != "b" {
+		t.Fatalf("bounded grants=%+v", grants)
+	}
+}
+
+func TestGrantsForNamespaceIncludesScopedTombstonesAndReturnsOneOverflowRecord(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	for _, grant := range []Grant{
+		{ID: "active", Kind: "network-link", SourceNamespaceID: "selected", TargetNamespaceID: "other", Payload: "{}"},
+		{ID: "revoked", Kind: "network-link", SourceNamespaceID: "other", TargetNamespaceID: "selected", Payload: "{}"},
+		{ID: "unrelated", Kind: "network-link", SourceNamespaceID: "other", TargetNamespaceID: "other-2", Payload: "{}"},
+	} {
+		if err := database.PutGrant(ctx, grant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.RevokeGrant(ctx, "revoked"); err != nil {
+		t.Fatal(err)
+	}
+	grants, err := database.GrantsForNamespace(ctx, "selected", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grants) != 2 || grants[0].ID != "active" || grants[0].Revoked || grants[1].ID != "revoked" || !grants[1].Revoked {
+		t.Fatalf("bounded grants=%+v", grants)
 	}
 }
 

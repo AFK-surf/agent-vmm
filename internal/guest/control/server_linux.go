@@ -156,7 +156,7 @@ func (s *Server) CreateVolume(ctx context.Context, request *vmmdv1.CreateVolumeR
 
 func (s *Server) DeleteVolume(ctx context.Context, request *vmmdv1.DeleteVolumeRequest) (*vmmdv1.DeleteVolumeResponse, error) {
 	value, err := s.mutate(ctx, "delete-volume", request, func() (any, error) {
-		return &vmmdv1.DeleteVolumeResponse{}, s.runtime.DeleteVolume(ctx, request.GetActorNamespaceId(), request.GetVolumeId())
+		return &vmmdv1.DeleteVolumeResponse{}, s.runtime.DeleteVolume(ctx, request.GetActorNamespaceId(), request.GetVolumeId(), request.GetExpectedGenerationId())
 	})
 	if err != nil {
 		return nil, rpcError(err)
@@ -236,7 +236,7 @@ func (s *Server) InspectContainer(ctx context.Context, request *vmmdv1.InspectCo
 }
 
 func (s *Server) ListContainers(ctx context.Context, request *vmmdv1.ListContainersRequest) (*vmmdv1.ListContainersResponse, error) {
-	containers, err := s.runtime.ListContainers(ctx, request.GetActorNamespaceId())
+	containers, err := s.runtime.ListContainersBounded(ctx, request.GetActorNamespaceId(), request.GetLimit())
 	if err != nil {
 		return nil, rpcError(err)
 	}

@@ -15,8 +15,13 @@ func TestGuestStartupConsoleFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	result := make(chan error, 1)
+	summary, err := harness.client.GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
+	if err != nil || summary.GetVm() == nil {
+		t.Fatalf("VM start impact unavailable: summary=%+v err=%v", summary, err)
+	}
+	fence := &hostv1.VMMutationFence{State: summary.GetVm().GetState(), BootId: summary.GetVm().GetBootId(), ObservedWorkloads: summary.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
 	go func() {
-		_, err := harness.client.StartVM(ctx, &hostv1.StartVMRequest{RequestId: "console-capacity-failure"})
+		_, err := harness.client.StartVM(ctx, &hostv1.StartVMRequest{RequestId: "console-capacity-failure", Fence: fence})
 		result <- err
 	}()
 	ticker := time.NewTicker(100 * time.Millisecond)

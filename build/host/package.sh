@@ -23,8 +23,10 @@ if [ "$phase" = sign ]; then
 	test "$identity" != "-"
 	test -n "${NOTARYTOOL_PROFILE:-}"
 	test -x "$product/Contents/MacOS/agent-vmm-host"
+	test -x "$product/Contents/Helpers/agent-vmm"
 	test -x "$product/Contents/Helpers/agent-vmm-lifecycle"
 	test -x "$product/Contents/Helpers/agent-vmm-data"
+	test -x "$product/Contents/Helpers/agent-vmm-service-executor"
 	host="$product/Contents/MacOS/agent-vmm-host"
 else
 test -d "$guest"
@@ -100,6 +102,17 @@ esac
 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-X main.releaseID=$release_id" -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
 printf '%s\n' "$("$product/Contents/Helpers/agent-vmm-lifecycle" version --json)" |
 	jq -e --arg release_id "$release_id" '.version == $release_id and .release_id == $release_id' >/dev/null
+GOOS=darwin GOARCH=arm64 go build -tags=managedonly -trimpath -o "$product/Contents/Helpers/agent-vmm" "$repo/cmd/agent-vmm"
+for command in inspect diagnose logs operation repair update vm cleanup; do
+	"$product/Contents/Helpers/agent-vmm" "$command" --help >/dev/null
+done
+if "$product/Contents/Helpers/agent-vmm" appliance status >/dev/null 2>&1; then
+	echo "managed Agent VMM CLI exposed standalone appliance commands" >&2
+	exit 1
+else
+	test "$?" -eq 2
+fi
+GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-service-executor" "$repo/cmd/agent-vmm-service-executor"
 CARGO_TARGET_DIR="$derived/rust" cargo build --locked --release --target aarch64-apple-darwin --manifest-path "$repo/data/agent-vmm-data/Cargo.toml"
 cp "$derived/rust/aarch64-apple-darwin/release/agent-vmm-data" "$product/Contents/Helpers/agent-vmm-data"
 cp "$repo/LICENSE" "$product/Contents/Resources/LICENSE"
@@ -120,7 +133,7 @@ jq -n \
 		bundle_identifier: $bundle_identifier,
 		layout: {
 			main_executable: "Contents/MacOS/agent-vmm-host",
-			helpers: ["Contents/Helpers/agent-vmm-data", "Contents/Helpers/agent-vmm-lifecycle"],
+			helpers: ["Contents/Helpers/agent-vmm", "Contents/Helpers/agent-vmm-data", "Contents/Helpers/agent-vmm-lifecycle", "Contents/Helpers/agent-vmm-service-executor"],
 			guest: "Contents/Resources/Guest",
 			launchd_template: "Contents/Resources/com.afk-surf.agent-vmm-host.plist.template",
 			build_info: "Contents/Resources/host-build-info.json",
@@ -140,7 +153,6 @@ test "$(/usr/bin/plutil -extract LSBackgroundOnly raw -o - "$product/Contents/In
 test ! -e "$product/Contents/MacOS/AgentVMM"
 test ! -e "$product/Contents/MacOS/agent-vmm"
 test ! -e "$product/Contents/Helpers/agent-vmm-host"
-test ! -e "$product/Contents/Helpers/agent-vmm"
 test ! -e "$product/Contents/Resources/SwiftUI"
 
 if [ "$phase" = assemble ]; then
@@ -149,6 +161,8 @@ fi
 codesign --force --sign "$identity" --options runtime --entitlements "$repo/build/host/vz.entitlements.plist" "$product/Contents/MacOS/agent-vmm-host"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-lifecycle"
 codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-data"
+codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm"
+codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-service-executor"
 codesign --force --sign "$identity" --options runtime --preserve-metadata=entitlements "$product"
 codesign --verify --deep --strict --verbose=2 "$product"
 host_entitlements="$output/agent-vmm-host-entitlements.plist"

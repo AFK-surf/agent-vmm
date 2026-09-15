@@ -58,7 +58,7 @@ func (adapter *productionLifecycleAdapter) observe(ctx context.Context, request 
 	}
 	defer connection.Close()
 	client := hostv1.NewOperatorServiceClient(connection)
-	snapshot, err := client.GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})
+	snapshot, err := client.GetSystemHealthSummary(ctx, &hostv1.GetSystemHealthSummaryRequest{})
 	if err != nil {
 		return LifecycleFacts{}, err
 	}

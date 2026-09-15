@@ -1746,6 +1746,8 @@ const (
 	OperatorService_ListAgentSessions_FullMethodName                  = "/agentvmm.host.v1.OperatorService/ListAgentSessions"
 	OperatorService_RevokeAgentSessions_FullMethodName                = "/agentvmm.host.v1.OperatorService/RevokeAgentSessions"
 	OperatorService_GetSystemSnapshot_FullMethodName                  = "/agentvmm.host.v1.OperatorService/GetSystemSnapshot"
+	OperatorService_GetSystemHealthSummary_FullMethodName             = "/agentvmm.host.v1.OperatorService/GetSystemHealthSummary"
+	OperatorService_GetVMImpactSummary_FullMethodName                 = "/agentvmm.host.v1.OperatorService/GetVMImpactSummary"
 	OperatorService_ListEnvironments_FullMethodName                   = "/agentvmm.host.v1.OperatorService/ListEnvironments"
 	OperatorService_GetEnvironment_FullMethodName                     = "/agentvmm.host.v1.OperatorService/GetEnvironment"
 	OperatorService_ListEnvironmentImages_FullMethodName              = "/agentvmm.host.v1.OperatorService/ListEnvironmentImages"
@@ -1815,6 +1817,8 @@ type OperatorServiceClient interface {
 	ListAgentSessions(ctx context.Context, in *ListAgentSessionsRequest, opts ...grpc.CallOption) (*ListAgentSessionsResponse, error)
 	RevokeAgentSessions(ctx context.Context, in *RevokeAgentSessionsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetSystemSnapshot(ctx context.Context, in *GetSystemSnapshotRequest, opts ...grpc.CallOption) (*GetSystemSnapshotResponse, error)
+	GetSystemHealthSummary(ctx context.Context, in *GetSystemHealthSummaryRequest, opts ...grpc.CallOption) (*GetSystemSnapshotResponse, error)
+	GetVMImpactSummary(ctx context.Context, in *GetVMImpactSummaryRequest, opts ...grpc.CallOption) (*GetVMImpactSummaryResponse, error)
 	ListEnvironments(ctx context.Context, in *ListEnvironmentsRequest, opts ...grpc.CallOption) (*ListEnvironmentsResponse, error)
 	GetEnvironment(ctx context.Context, in *GetEnvironmentRequest, opts ...grpc.CallOption) (*GetEnvironmentResponse, error)
 	ListEnvironmentImages(ctx context.Context, in *ListEnvironmentImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
@@ -2017,6 +2021,26 @@ func (c *operatorServiceClient) GetSystemSnapshot(ctx context.Context, in *GetSy
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetSystemSnapshotResponse)
 	err := c.cc.Invoke(ctx, OperatorService_GetSystemSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) GetSystemHealthSummary(ctx context.Context, in *GetSystemHealthSummaryRequest, opts ...grpc.CallOption) (*GetSystemSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSystemSnapshotResponse)
+	err := c.cc.Invoke(ctx, OperatorService_GetSystemHealthSummary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) GetVMImpactSummary(ctx context.Context, in *GetVMImpactSummaryRequest, opts ...grpc.CallOption) (*GetVMImpactSummaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVMImpactSummaryResponse)
+	err := c.cc.Invoke(ctx, OperatorService_GetVMImpactSummary_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2549,6 +2573,8 @@ type OperatorServiceServer interface {
 	ListAgentSessions(context.Context, *ListAgentSessionsRequest) (*ListAgentSessionsResponse, error)
 	RevokeAgentSessions(context.Context, *RevokeAgentSessionsRequest) (*emptypb.Empty, error)
 	GetSystemSnapshot(context.Context, *GetSystemSnapshotRequest) (*GetSystemSnapshotResponse, error)
+	GetSystemHealthSummary(context.Context, *GetSystemHealthSummaryRequest) (*GetSystemSnapshotResponse, error)
+	GetVMImpactSummary(context.Context, *GetVMImpactSummaryRequest) (*GetVMImpactSummaryResponse, error)
 	ListEnvironments(context.Context, *ListEnvironmentsRequest) (*ListEnvironmentsResponse, error)
 	GetEnvironment(context.Context, *GetEnvironmentRequest) (*GetEnvironmentResponse, error)
 	ListEnvironmentImages(context.Context, *ListEnvironmentImagesRequest) (*ListImagesResponse, error)
@@ -2651,6 +2677,12 @@ func (UnimplementedOperatorServiceServer) RevokeAgentSessions(context.Context, *
 }
 func (UnimplementedOperatorServiceServer) GetSystemSnapshot(context.Context, *GetSystemSnapshotRequest) (*GetSystemSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSystemSnapshot not implemented")
+}
+func (UnimplementedOperatorServiceServer) GetSystemHealthSummary(context.Context, *GetSystemHealthSummaryRequest) (*GetSystemSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSystemHealthSummary not implemented")
+}
+func (UnimplementedOperatorServiceServer) GetVMImpactSummary(context.Context, *GetVMImpactSummaryRequest) (*GetVMImpactSummaryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetVMImpactSummary not implemented")
 }
 func (UnimplementedOperatorServiceServer) ListEnvironments(context.Context, *ListEnvironmentsRequest) (*ListEnvironmentsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListEnvironments not implemented")
@@ -3083,6 +3115,42 @@ func _OperatorService_GetSystemSnapshot_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OperatorServiceServer).GetSystemSnapshot(ctx, req.(*GetSystemSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_GetSystemHealthSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSystemHealthSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).GetSystemHealthSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_GetSystemHealthSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).GetSystemHealthSummary(ctx, req.(*GetSystemHealthSummaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_GetVMImpactSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVMImpactSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).GetVMImpactSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_GetVMImpactSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).GetVMImpactSummary(ctx, req.(*GetVMImpactSummaryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3996,6 +4064,14 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSystemSnapshot",
 			Handler:    _OperatorService_GetSystemSnapshot_Handler,
+		},
+		{
+			MethodName: "GetSystemHealthSummary",
+			Handler:    _OperatorService_GetSystemHealthSummary_Handler,
+		},
+		{
+			MethodName: "GetVMImpactSummary",
+			Handler:    _OperatorService_GetVMImpactSummary_Handler,
 		},
 		{
 			MethodName: "ListEnvironments",

@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !managedonly
 
 package main
 
@@ -28,6 +28,9 @@ import (
 const maxContextBytes = 256 << 20
 
 func main() {
+	if len(os.Args) >= 2 && isManagedCommand(os.Args[1]) {
+		os.Exit(runManagedCLI(os.Args[1:], os.Stdout, os.Stderr, managedRuntime{}))
+	}
 	if len(os.Args) >= 3 && os.Args[1] == "appliance" && os.Args[2] == "build" {
 		build(os.Args[3:])
 		return
@@ -36,11 +39,7 @@ func main() {
 		applianceStatus(os.Args[3:])
 		return
 	}
-	if len(os.Args) >= 3 && os.Args[1] == "vm" && (os.Args[2] == "start" || os.Args[2] == "status") {
-		vmCommand(os.Args[2], os.Args[3:])
-		return
-	}
-	fmt.Fprintln(os.Stderr, "usage: agent-vmm appliance build ... | agent-vmm appliance status [--operator-socket PATH] | agent-vmm vm start [--operator-socket PATH]")
+	fmt.Fprintln(os.Stderr, managedUsage)
 	os.Exit(2)
 }
 
@@ -64,29 +63,6 @@ func applianceStatus(arguments []string) {
 			fmt.Printf("  frontend=%s endpoint=%s available=%t\n", frontend.GetName(), frontend.GetEndpoint(), frontend.GetAvailable())
 		}
 	}
-}
-
-func vmCommand(command string, arguments []string) {
-	flags := flag.NewFlagSet("vm "+command, flag.ExitOnError)
-	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
-	flags.Parse(arguments)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	connection, err := grpc.NewClient("passthrough:///agent-vmm", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", *socket)
-	}))
-	check(err)
-	defer connection.Close()
-	client := hostv1.NewOperatorServiceClient(connection)
-	if command == "status" {
-		response, err := client.GetVM(ctx, &hostv1.GetVMRequest{})
-		check(err)
-		fmt.Printf("state=%s error=%s boot_id=%s\n", response.GetVm().GetState(), response.GetVm().GetError(), response.GetVm().GetBootId())
-		return
-	}
-	response, err := client.StartVM(ctx, &hostv1.StartVMRequest{RequestId: randomID()})
-	check(err)
-	fmt.Println(response.GetOperation().GetId())
 }
 
 func build(arguments []string) {

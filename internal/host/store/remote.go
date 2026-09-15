@@ -370,6 +370,26 @@ func (store *Store) ListRemoteRegistrations(ctx context.Context) ([]RemoteRegist
 	return registrations, rows.Err()
 }
 
+func (store *Store) ListRemoteRegistrationsBounded(ctx context.Context, limit int) ([]RemoteRegistration, error) {
+	if limit <= 0 {
+		return nil, errors.New("remote registration limit must be positive")
+	}
+	rows, err := store.db.QueryContext(ctx, remoteRegistrationSelect+" ORDER BY created_at, id LIMIT ?", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var registrations []RemoteRegistration
+	for rows.Next() {
+		registration, scanErr := scanRemoteRegistration(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		registrations = append(registrations, registration)
+	}
+	return registrations, rows.Err()
+}
+
 func (store *Store) UpdateRemotePool(ctx context.Context, registration RemoteRegistration, expectedRevision uint64) (RemoteRegistration, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET
 		max_environments=?, per_env_cpu_millis=?, per_env_memory_bytes=?, per_env_pids=?, per_env_disk_bytes=?, max_egress_mode=?,

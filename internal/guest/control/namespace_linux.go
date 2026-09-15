@@ -61,6 +61,13 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	}
 	var labels map[string]string
 	if exists {
+		inventory, inventoryErr := r.requireRuntimeInventory()
+		if inventoryErr != nil {
+			return nil, inventoryErr
+		}
+		if !inventory.hasNamespace(request.GetNamespaceId()) {
+			return nil, fmt.Errorf("runtime inventory namespace %q is not indexed", request.GetNamespaceId())
+		}
 		labels, err = store.Labels(ctx, request.GetNamespaceId())
 		if err != nil {
 			return nil, err
@@ -104,12 +111,17 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 			if err := func() error { return store.Create(ctx, request.GetNamespaceId(), labels) }(); err != nil {
 				return err
 			}
+			inventory, inventoryErr := r.requireRuntimeInventory()
+			if inventoryErr != nil {
+				return inventoryErr
+			}
+			inventory.ensureNamespace(request.GetNamespaceId())
 		}
 		projectID, namespace, err := namespaceFromLabels(request.GetNamespaceId(), labels)
 		if err != nil {
 			return err
 		}
-		for _, directory := range []string{volumePath(request.GetNamespaceId(), ""), workspacePath(request.GetNamespaceId()),
+		for _, directory := range []string{volumePath(request.GetNamespaceId(), ""), volumeGenerationPath(request.GetNamespaceId(), ""), workspacePath(request.GetNamespaceId()),
 			namespaceStateRoot(request.GetNamespaceId()) + "/logs/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-cache/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-tmp/" + request.GetNamespaceId()} {
 			if err := ensureDirectory(directory, 0o700); err != nil {
 				return err
@@ -170,7 +182,14 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 		}
 	}
 	if !exists {
-		return nil
+		inventory, inventoryErr := r.requireRuntimeInventory()
+		if inventoryErr != nil {
+			return inventoryErr
+		}
+		if !inventory.hasNamespace(namespaceID) {
+			return nil
+		}
+		return inventory.removeNamespace(namespaceID)
 	}
 
 	nsctx := namespaceContext(ctx, namespaceID)
@@ -181,7 +200,11 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	if err != nil {
 		return err
 	}
-	images, err := r.client.ListImages(nsctx)
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
+		return err
+	}
+	imageReferences, err := inventory.imageReferences(namespaceID, 0)
 	if err != nil {
 		return err
 	}
@@ -204,8 +227,11 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 			return err
 		}
 	}
-	for _, image := range images {
-		if err := r.client.ImageService().Delete(nsctx, image.Name(), coreimages.SynchronousDelete()); err != nil {
+	for _, reference := range imageReferences {
+		if err := r.client.ImageService().Delete(nsctx, reference, coreimages.SynchronousDelete()); err != nil {
+			return err
+		}
+		if err := inventory.removeImage(namespaceID, reference); err != nil {
 			return err
 		}
 	}
@@ -232,7 +258,7 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	if err := r.client.NamespaceService().Delete(ctx, namespaceID); err != nil {
 		return err
 	}
-	return nil
+	return inventory.removeNamespace(namespaceID)
 }
 func validateNamespaceLimits(limits *vmmdv1.NamespaceLimits) error {
 	if limits == nil || limits.GetCpuMillis() == 0 || limits.GetMemoryBytes() < 16<<20 || limits.GetPids() == 0 || limits.GetDiskBytes() == 0 {

@@ -46,6 +46,16 @@ func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportI
 	if request, err := stream.Recv(); !errors.Is(err, io.EOF) || request != nil {
 		return invalidField("archive", "runtime OCI bytes must be fetched from archive_url")
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(stream.Context())
+	if err != nil {
+		return err
+	}
+	defer releaseInventory()
+	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
+	defer unlock()
+	if err := server.validateAgentInventoryTarget(stream.Context(), identity.EnvironmentID, identity.NamespaceID); err != nil {
+		return err
+	}
 	client, connection, err := server.controller.guestClient(stream.Context())
 	if err != nil {
 		return err

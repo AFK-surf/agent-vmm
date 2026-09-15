@@ -210,43 +210,58 @@ processes instead.
 
 ### Standard cleanup workflow
 
+The formal Host bundle contains the managed CLI and fixed service executor.
+See the authoritative [command availability table](../cmd/agent-vmm-lifecycle/README.md#command-availability).
 Use this workflow for every replacement or cleanup. Keep one operation record
-with the resolved values; do not rely on shell history or an assumed service
+with the resolved values. Do not rely on shell history or an assumed service
 user.
 
-1. **Inventory.** Record the target host, launchd domain and label, service
-   user, installed application path and release ID, Host PID, VZ PIDs, selected
-   `state.raw`, registration ID, and the bounded workload/allocation IDs. Count
-   obsolete registrations and workloads before deciding to remove any of them.
+1. **Inventory.** Run installed `agent-vmm inspect --json` with the explicit
+   service type, service user, and registration ID. Record the exact launchd
+   job, installed application, Host PID, VZ PIDs, selected `state.raw`,
+   registration ID, and bounded workload or allocation IDs from their current
+   owners. Count obsolete records before removal.
 2. **Classify.** Select exactly one row from the decision table above. A bundle
    update is state preserving by default. Fewer than 20 obsolete records that
    do not block reconciliation are not a reason to purge or edit data.
-3. **Quiesce.** Use the existing lifecycle helper's `drain` with the resolved
-   service type and user. It requests StopVM, boots out the exact launchd job,
-   waits for the Host process, and waits for state-disk release. If drain fails,
-   preserve the installed bundle and investigate that failure before replacing
-   files. Do not reboot macOS or kill processes by Virtualization XPC name.
-4. **Clean or replace.** Remove only the objects authorized by the selected
-   path. For a normal update, atomically replace the complete Host application
-   and retain the existing database, keys, registration, and `state.raw`. For a
-   destructive reinstall, use the purge helper and do not retain a second disk.
+3. **Preview.** For reset or discard, run `agent-vmm cleanup preview` for one
+   environment. The Host owner reads for at most 30 seconds and admits at most
+   100 exact grants, containers, volumes, images, and environment records.
+   VMMD uses its startup-rebuilt owner index for bounded container and image
+   lookup, and it uses a bounded directory read for volumes. Record the plan
+   revision and every volume confirmation. An oversized inventory is an
+   actionable failure, not partial authorization.
+4. **Update or clean.** For a normal login-agent update, run `agent-vmm update`
+   with the exact release ID, HTTPS URL, SHA-256, byte size, and request ID. For
+   cleanup, run `agent-vmm cleanup execute` with the preview revision, the same
+   environment and kind, the exact volume set, and irreversible confirmation
+   when required. The owner re-reads references and generations before it
+   mutates. Image imports and network-link changes join the same inventory
+   fence. Cleanup can reach its 30-second timeout while an earlier image import
+   finishes; wait for that original result, then preview again. A changed plan
+   fails closed. A terminal cleanup request only
+   replays its stored result. If partial cleanup needs another attempt, preview
+   the remaining exact objects and use a new request ID. For a destructive
+   reinstall, use the purge helper and do not retain a second disk.
 5. **Start once.** Bootstrap the exact launchd job. Do not repeatedly unload and
    reload it while investigating the first failure; preserve the first Host,
    Guest, and controller error and diagnose from that state.
-6. **Validate from the bottom up.** Verify one Host generation, the selected
+6. **Diagnose once.** Use installed `agent-vmm diagnose`, scoped `logs`, and
+   `operation get|follow` for the exact owner operation. Preserve the first
+   Host, Guest, and controller error.
+7. **Validate from the bottom up.** Verify one Host generation, the selected
    fully-backed disk, Guest readiness, registration connectivity, allocation
    readiness, runtime image/version, authentication projection, then one real
    runtime session. A healthy registration alone is not completion evidence.
-7. **Converge control-plane state.** For a control-plane cleanup or destructive
+8. **Converge control-plane state.** For a control-plane cleanup or destructive
    reinstall, retire the recorded old workloads and registrations through their
    lifecycle owners. Never delete live rows directly. Create fresh identities
    only after the old identities are terminal or explicitly shown not to block
    reconciliation. A state-preserving Host update needs no control-plane
    cleanup unless the preflight independently selected that path.
-8. **Remove residue.** After runtime validation, delete the previous app,
-   obsolete disk, downloaded archive and parts, extracted bundle, temporary
-   credentials, debug binaries, and hot-patch objects. Keep the active app and
-   exactly one active state disk.
+9. **Remove residue.** After runtime validation, remove only residue that is not
+   retained by an incomplete lifecycle operation. A successful update removes
+   its retired app. Keep the active app and exactly one active state disk.
 
 Use this compact operation record in an issue, deployment log, or scratch file
 outside the repository. Do not put credentials in it.
@@ -276,36 +291,55 @@ application is normally under the resolved service user's home directory:
 Treat this path as a pattern, not as target discovery. Read the loaded launchd
 job and confirm the resolved user, home directory, and executable before use.
 
+A system job does not pass a plist or program path to a privileged script. The
+administrator installer copies the formally released
+`agent-vmm-service-executor` to `/Library/PrivilegedHelperTools` and records the
+non-root owner:
+
+```sh
+sudo /Library/PrivilegedHelperTools/agent-vmm-service-executor \
+  configure --service-user <service-user>
+```
+
+The executor accepts only `--job host` or `--job runner` with the fixed
+`install`, `start`, `stop`, `remove`, and `status` actions. For example, use
+`sudo .../agent-vmm-service-executor start --job host` after inspect reports
+the `service_start` administrator action. It rejects custom labels, paths,
+templates, environments, shells, and identities. Run lifecycle repair again
+as the service user with the same request ID after the job starts. Root must
+not run lifecycle mutations, the Host, downloads, providers, or credential and
+data operations.
+
 For a state-preserving update:
 
-1. Download or copy the complete content-addressed Host bundle. Prefer the R2
-   CI intermediate for large bundles. Do not assemble a release from loose
-   files on the target.
-2. Verify that the application contains its Guest bundle and helpers. The Host
-   executable must be linked with the SHA-256 of that exact Guest
-   `manifest.json`; plain `go build ./cmd/agent-vmm-host` is not a valid Host
-   replacement.
-3. Run lifecycle `drain` before replacing the application. Wait for both the
-   Host process and its Virtualization XPC process to exit. A VZ
-   process can be reparented to PID 1 and shown with user `launchctl`, so a
-   cleanup check filtered only by the service UID is insufficient. Identify a
-   survivor by its executable and open Guest/state files. Force termination
-   only after the bounded graceful stop fails.
-4. Replace the application without exposing a partial bundle to launchd, then
-   restore service-user ownership. Keep at most one previous application until
-   the new Host reaches ready; remove it and the downloaded archive after
-   validation. Never retain a second state disk as an application rollback
-   artifact.
-5. Use the release signature in production. A staging hot patch may be ad-hoc
-   signed only when that exception is intended. Sign the main executable with
-   `com.apple.security.virtualization`, sign nested code, then verify the whole
-   application with `codesign --verify --deep --strict`. Inspect the final main
-   executable entitlement: signing the outer application after replacing a
-   nested binary can otherwise remove or invalidate it.
-6. Load the launchd job once. Confirm that exactly one Host owns the operator
-   socket and state disk, the VM reaches ready, and the registration reconnects.
-   Exercise an existing allocation and runtime session before deleting the
-   previous application.
+1. Select the complete content-addressed Host bundle by release ID, exact HTTPS
+   URL, SHA-256, and byte size. Do not assemble a release from loose files on
+   the target.
+2. Run the managed updater as the non-root service user. It downloads for at
+   most 10 minutes, enforces a 4 GiB artifact limit, verifies the exact size,
+   digest, release inventory, complete Host layout, and code signature, then
+   prepares one hidden sibling. Preparation or cancellation failure does not
+   stop or replace the current Host.
+3. The lifecycle owner records `stop`, drains the VM, confirms Host and VZ exit,
+   then records `replace` and atomically exchanges the complete applications.
+   The database, keys, registration, workload volumes, and `state.raw` stay in
+   place.
+4. For a daemon, use the administrator installer. Lifecycle stops the VM before
+   the fixed executor stops the Host job. Retry the same lifecycle request to
+   replace the application. This retry first confirms that the job is absent
+   and the exact state-disk owner has exited; it does not call the stopped Host.
+   The fixed executor then installs the Host job from its protected path. Retry
+   the same request once more as the service user to complete recovery. Root
+   does not run lifecycle, Host, VM, download,
+   credential, or user-data work.
+5. After replacement, repair only forward. The retained sibling is the previous
+   application, but it is not a runnable rollback target after incompatible
+   state can change. Keep it until the same request observes the new service and
+   VM as healthy. The owner removes it only after completion. Never retain a
+   second state disk as application recovery material.
+6. Confirm that exactly one Host owns the operator socket and state disk, the VM
+   reaches ready, and the registration reconnects. Exercise an existing
+   allocation and runtime session before declaring convergence.
 
 Formatting an ext4 filesystem may discard or deallocate blocks from a sparse
 backing file. The LaunchDaemon startup check restores the required fully-backed
@@ -339,10 +373,15 @@ snapshot and both directory projects before planning a bounded repair; do not
 reassign lower layers or traverse all snapshots as a startup fallback.
 
 The Host serial file receives Guest output through VZ's output-only file
-attachment. VMMD logs the bootstrap, OCI storage, containerd, recovery, and
-listener stages, including a bounded first error. A listener reset by itself
-does not identify filesystem damage or a provider-auth failure; read that first
-Guest error before choosing a recovery operation.
+attachment. VMMD logs the start and successful completion of bootstrap, OCI
+storage, containerd, recovery, and listener stages. A failed stage includes a
+bounded error and the existing Host operation ID. The lifecycle helper reads a
+bounded tail from the current serial log and one rotated segment. A listener
+reset by itself does not identify filesystem damage or a provider-auth failure.
+Use only a confirmed Guest error to select a recovery operation. A last
+successful stage is progress evidence, not a root cause. If the Host log does
+not map the lifecycle request to a Host VM-start operation, an older Guest
+record is not evidence for the current request.
 
 The initramfs loads `virtio_rng` for the Host's configured entropy device.
 Without this module, containerd's synchronous random lease-ID generation can
@@ -390,9 +429,9 @@ to agree on the current boot and container instance before reporting completion.
 Targeted cleanup is the default response to an interrupted update. Resolve an
 exact path or PID before removing anything.
 
-- Remove downloaded archives and staging application directories after the
-  installed bundle is ready. Large archives should travel through the R2 CI
-  intermediate namespace; small diagnostics may be copied directly.
+- Remove downloaded archives and unowned staging directories after the
+  installed bundle is ready. Do not remove the prepared path named by a pending
+  or failed update operation; retry that same request first.
 - Keep only the current application and, until readiness is proven, one
   previous application. Delete the previous application immediately after the
   new bundle passes the readiness and runtime-session checks.

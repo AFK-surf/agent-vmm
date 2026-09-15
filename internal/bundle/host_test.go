@@ -13,6 +13,24 @@ func TestValidateHostAppAcceptsFixedRuntimeLayout(t *testing.T) {
 	}
 }
 
+func TestHostReleaseIDUsesOneValidatedCurrentAndStagedInventory(t *testing.T) {
+	current := hostFixture(t)
+	if release, err := HostReleaseID(current, false); err != nil || release != "release-test" {
+		t.Fatalf("current release=%q err=%v", release, err)
+	}
+	staged := filepath.Join(filepath.Dir(current), ".Agent VMM Host.update-1.app")
+	if err := os.Rename(current, staged); err != nil {
+		t.Fatal(err)
+	}
+	if release, err := HostReleaseID(staged, true); err != nil || release != "release-test" {
+		t.Fatalf("staged release=%q err=%v", release, err)
+	}
+	writeHostFile(t, filepath.Join(staged, filepath.FromSlash(HostInventoryRelativePath)), `{"schema_version":1,"component":"other","release_id":"release-test"}`, 0o644)
+	if _, err := HostReleaseID(staged, true); err == nil {
+		t.Fatal("mismatched inventory component was accepted")
+	}
+}
+
 func TestHostBuildMetadataSourcesMatchContract(t *testing.T) {
 	if err := validateInfoPlist(filepath.Join("..", "..", "build", "host", "Info.plist")); err != nil {
 		t.Fatal(err)
@@ -30,7 +48,7 @@ func TestValidateHostAppRejectsUIAndDebugPayload(t *testing.T) {
 		{
 			name: "debug executable",
 			mutate: func(directory string) {
-				writeHostFile(t, filepath.Join(directory, "Contents", "Helpers", "agent-vmm"), "debug", 0o755)
+				writeHostFile(t, filepath.Join(directory, "Contents", "Helpers", "agent-vmm-debug"), "debug", 0o755)
 			},
 		},
 		{
@@ -74,17 +92,20 @@ func hostFixture(t *testing.T) string {
 		}
 	}
 	writeHostFile(t, filepath.Join(directory, "Contents", "Info.plist"), hostInfoPlist, 0o644)
-	for _, relative := range []string{HostExecutableRelativePath, HostDataHelperRelativePath, HostLifecycleHelperRelativePath} {
+	for _, relative := range []string{HostExecutableRelativePath, HostDataHelperRelativePath, HostLifecycleHelperRelativePath, HostManagedCLIRelativePath, HostServiceExecutorRelativePath} {
 		writeHostFile(t, filepath.Join(directory, filepath.FromSlash(relative)), "executable", 0o755)
 	}
 	for _, relative := range []string{
 		HostLaunchdTemplateRelativePath,
 		HostBuildInfoRelativePath,
+		HostInventoryRelativePath,
 		HostLicenseRelativePath,
 	} {
 		value := "metadata"
 		if relative == HostLaunchdTemplateRelativePath {
 			value = hostLaunchdTemplate
+		} else if relative == HostInventoryRelativePath {
+			value = `{"schema_version":1,"component":"agent-vmm-host-runtime","release_id":"release-test"}`
 		}
 		writeHostFile(t, filepath.Join(directory, filepath.FromSlash(relative)), value, 0o644)
 	}

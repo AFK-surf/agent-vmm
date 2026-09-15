@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -194,8 +195,24 @@ func TestCurrentDaemonCanBeObservedWithoutReload(t *testing.T) {
 		t.Fatalf("unexpected launchctl target: %v", arguments)
 		return nil
 	}
-	if !serviceDefinitionCurrent(context.Background(), value, desired, false, loaded) {
+	running := func(context.Context, string) (launchctlServiceFacts, error) {
+		return launchctlServiceFacts{Loaded: true, Running: true, PID: 42}, nil
+	}
+	if !serviceDefinitionCurrent(context.Background(), value, desired, false, loaded, running) {
 		t.Fatal("exact running daemon was not treated as current")
+	}
+	if err := os.Remove(value.serviceConfigFile); err != nil {
+		t.Fatal(err)
+	}
+	if !serviceDefinitionCurrent(context.Background(), value, desired, false, loaded, running) {
+		t.Fatal("fixed executor daemon incorrectly required service-user config")
+	}
+	stopped := func(context.Context, string) (launchctlServiceFacts, error) {
+		status := 1
+		return launchctlServiceFacts{Loaded: true, LastExitStatus: &status}, nil
+	}
+	if serviceDefinitionCurrent(context.Background(), value, desired, false, loaded, stopped) {
+		t.Fatal("loaded but exited daemon was treated as current")
 	}
 	if err := os.MkdirAll(filepath.Dir(value.agentPlist), 0o700); err != nil {
 		t.Fatal(err)
@@ -203,8 +220,82 @@ func TestCurrentDaemonCanBeObservedWithoutReload(t *testing.T) {
 	if err := os.WriteFile(value.agentPlist, []byte("stale alternate"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if serviceDefinitionCurrent(context.Background(), value, desired, false, loaded) {
+	if serviceDefinitionCurrent(context.Background(), value, desired, false, loaded, running) {
 		t.Fatal("current daemon accepted an unloaded alternate definition")
+	}
+}
+
+func TestServiceUserAdoptsOnlyExactRunningAdministratorDaemon(t *testing.T) {
+	value := testPaths(t.TempDir())
+	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
+	value.hostPlist = value.daemonPlist
+	if err := os.MkdirAll(value.resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	desired, err := renderServiceDefinition(value, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(value.hostPlist, desired, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(_ context.Context, arguments ...string) error {
+		if arguments[0] == "print" && arguments[1] == "gui/502/"+hostLabel {
+			return errLaunchctlServiceNotFound
+		}
+		t.Fatalf("unexpected launchctl mutation: %v", arguments)
+		return nil
+	}
+	observe := func(context.Context, string) (launchctlServiceFacts, error) {
+		return launchctlServiceFacts{Loaded: true, Running: true, PID: 42}, nil
+	}
+	if err := repairWithOptionsContextObserved(context.Background(), value, run, false, 502, observe); err != nil {
+		t.Fatal(err)
+	}
+	configured, err := readServiceConfig(value.serviceConfigFile)
+	if err != nil || configured.Mode != serviceModeDaemon || configured.UID != 502 {
+		t.Fatalf("service config=%+v err=%v", configured, err)
+	}
+}
+
+func TestServiceUserRejectsStaleAdministratorDaemonWithoutPersistingConfig(t *testing.T) {
+	value := testPaths(t.TempDir())
+	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
+	value.hostPlist = value.daemonPlist
+	if err := os.MkdirAll(value.resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(value.hostPlist, []byte("stale definition"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := repairWithOptionsContextObserved(context.Background(), value, func(context.Context, ...string) error {
+		return errLaunchctlServiceNotFound
+	}, false, 502, func(context.Context, string) (launchctlServiceFacts, error) {
+		return launchctlServiceFacts{Loaded: true, Running: true, PID: 42}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "administrator access") {
+		t.Fatalf("error=%v", err)
+	}
+	if _, statErr := os.Stat(value.serviceConfigFile); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("stale daemon persisted service config: %v", statErr)
 	}
 }
 
@@ -234,7 +325,9 @@ func TestCurrentDefinitionRejectsLoadedAlternateOwner(t *testing.T) {
 	if err := persistServiceConfig(value, false); err != nil {
 		t.Fatal(err)
 	}
-	if serviceDefinitionCurrent(context.Background(), value, desired, false, func(context.Context, ...string) error { return nil }) {
+	if serviceDefinitionCurrent(context.Background(), value, desired, false, func(context.Context, ...string) error { return nil }, func(context.Context, string) (launchctlServiceFacts, error) {
+		return launchctlServiceFacts{Loaded: true, Running: true, PID: 42}, nil
+	}) {
 		t.Fatal("exact selected definition accepted a loaded alternate owner")
 	}
 }

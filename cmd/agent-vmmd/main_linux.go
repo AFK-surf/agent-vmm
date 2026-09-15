@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -34,14 +35,20 @@ func main() {
 	if len(os.Args) == 2 && os.Args[1] == containerdLauncherArg {
 		log.Fatal(execContainerdWithoutQuotaBypass())
 	}
-	log.Printf("guest startup stage=bootstrap")
+	startup := guestStartupReference()
+	reportGuestStartup(startup, "bootstrap", "started", nil)
 	prepared, err := bootstrap.Prepare()
 	if err != nil {
-		log.Fatalf("guest startup stage=bootstrap error=%.4096s", err.Error())
+		reportGuestStartup(startup, "bootstrap", "failed", err)
+		os.Exit(1)
 	}
+	reportGuestStartup(startup, "bootstrap", "succeeded", nil)
+	reportGuestStartup(startup, "oci_storage", "started", nil)
 	if err := control.PrepareOCIStorage(prepared.StateDevice, prepared.ControlDevice); err != nil {
-		log.Fatalf("guest startup stage=oci_storage error=%.4096s", err.Error())
+		reportGuestStartup(startup, "oci_storage", "failed", err)
+		os.Exit(1)
 	}
+	reportGuestStartup(startup, "oci_storage", "succeeded", nil)
 	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
 	if err != nil {
 		log.Fatal(err)
@@ -63,26 +70,32 @@ func main() {
 		log.Fatal(err)
 	}
 	defer networkManager.Close()
-	log.Printf("guest startup stage=containerd")
+	reportGuestStartup(startup, "containerd", "started", nil)
 	containerd, err := startContainerd()
 	if err != nil {
-		log.Fatalf("guest startup stage=containerd error=%.4096s", err.Error())
+		reportGuestStartup(startup, "containerd", "failed", err)
+		os.Exit(1)
 	}
+	reportGuestStartup(startup, "containerd", "succeeded", nil)
 	defer func() {
 		_ = containerd.Process.Signal(syscall.SIGTERM)
 		_ = containerd.Wait()
 	}()
-	log.Printf("guest startup stage=recovery")
+	reportGuestStartup(startup, "recovery", "started", nil)
 	runtime, err := control.NewRuntime(prepared.StateDevice, prepared.ControlDevice, networkManager)
 	if err != nil {
-		log.Fatalf("guest startup stage=recovery error=%.4096s", err.Error())
+		reportGuestStartup(startup, "recovery", "failed", err)
+		os.Exit(1)
 	}
+	reportGuestStartup(startup, "recovery", "succeeded", nil)
 	defer runtime.Close()
-	log.Printf("guest startup stage=listener")
+	reportGuestStartup(startup, "listener", "started", nil)
 	listener, err := vsock.Listen(vmmdPort)
 	if err != nil {
-		log.Fatalf("guest startup stage=listener error=%.4096s", err.Error())
+		reportGuestStartup(startup, "listener", "failed", err)
+		os.Exit(1)
 	}
+	reportGuestStartup(startup, "listener", "succeeded", nil)
 	defer listener.Close()
 	grpcServer := control.NewGRPCServer()
 	service := control.NewServer(runtime, control.HealthState{
@@ -132,6 +145,47 @@ func main() {
 	}()
 	if err := grpcServer.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
+	}
+}
+
+type startupReference struct {
+	OperationID string `json:"operation_id,omitempty"`
+}
+
+type guestStartupProgress struct {
+	OperationID string `json:"operation_id,omitempty"`
+	Stage       string `json:"stage"`
+	State       string `json:"state"`
+	Error       string `json:"error,omitempty"`
+}
+
+func guestStartupReference() startupReference {
+	data, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return startupReference{}
+	}
+	return parseGuestStartupReference(string(data))
+}
+
+func parseGuestStartupReference(commandLine string) startupReference {
+	for _, field := range strings.Fields(commandLine) {
+		if value, ok := strings.CutPrefix(field, "agent.operation_id="); ok {
+			return startupReference{OperationID: value}
+		}
+	}
+	return startupReference{}
+}
+
+func reportGuestStartup(reference startupReference, stage, state string, failure error) {
+	record := guestStartupProgress{OperationID: reference.OperationID, Stage: stage, State: state}
+	if failure != nil {
+		record.Error = failure.Error()
+		if len(record.Error) > 4096 {
+			record.Error = record.Error[:4096]
+		}
+	}
+	if data, err := json.Marshal(record); err == nil {
+		log.Printf("guest_startup=%s", data)
 	}
 }
 

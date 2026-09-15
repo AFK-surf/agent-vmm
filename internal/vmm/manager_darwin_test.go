@@ -33,6 +33,36 @@ func TestNewManagerLeavesHostMemoryReserve(t *testing.T) {
 	}
 }
 
+func TestResourceSnapshotSeparatesHostStateDiskFacts(t *testing.T) {
+	directory := t.TempDir()
+	state := filepath.Join(directory, "state.raw")
+	if err := os.WriteFile(state, make([]byte, 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{config: Config{InstanceDirectory: directory}}
+	resources := manager.ResourceSnapshot()
+	if resources.GetPids() != 1 || resources.MemoryBytes == nil {
+		t.Fatalf("host process resources = %+v", resources)
+	}
+	if resources.OpenFds == nil && !strings.Contains(resources.GetUnavailableReason(), "host file descriptors") {
+		t.Fatalf("unknown file descriptor count has no reason: %+v", resources)
+	}
+	if resources.GetDisk().GetUsedBytes() == 0 || resources.GetDisk().GetCommittedBytes() != 4096 ||
+		resources.GetDisk().GetCapacityBytes() < 4096 || resources.GetDisk().GetSystemReserveBytes() != uint64(hostEmergencyBytes) {
+		t.Fatalf("host disk resources = %+v", resources.GetDisk())
+	}
+}
+
+func TestResourceSnapshotKeepsUnavailableCurrentMemoryAbsent(t *testing.T) {
+	original := processMemoryBytes
+	processMemoryBytes = func() (uint64, error) { return 0, errors.New("current Host process memory is unavailable") }
+	t.Cleanup(func() { processMemoryBytes = original })
+	resources := (&Manager{config: Config{InstanceDirectory: t.TempDir()}}).ResourceSnapshot()
+	if resources.MemoryBytes != nil || !strings.Contains(resources.GetUnavailableReason(), "current Host process memory") {
+		t.Fatalf("unknown current memory was represented as a value: %+v", resources)
+	}
+}
+
 func TestUnexpectedStopHasOneRecoveryOwnerAndFailsClosed(t *testing.T) {
 	machine := new(vz.VirtualMachine)
 	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "boot-one", machine: machine}
@@ -350,12 +380,51 @@ func TestConfigurationHasNoNetworkDevice(t *testing.T) {
 	verified := &bundle.Verified{Directory: directory, Manifest: bundle.Manifest{Artifacts: map[string]bundle.Artifact{
 		"kernel": {Path: "kernel"}, "initramfs": {Path: "initramfs"}, "rootfs": {Path: "rootfs"},
 	}}}
-	configuration, err := manager.configuration(verified, serial, false)
+	configuration, err := manager.configuration(verified, serial, false, startObservation{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if devices := configuration.NetworkDevices(); len(devices) != 0 {
 		t.Fatalf("configuration has %d network devices", len(devices))
+	}
+}
+
+func TestKernelArgumentRejectsUnsafeOperationID(t *testing.T) {
+	for _, value := range []string{"operation-17", "request_1.2+retry"} {
+		if !kernelArgument(value) {
+			t.Fatalf("safe kernel argument %q rejected", value)
+		}
+	}
+	for _, value := range []string{"", "contains space", "line\nbreak", strings.Repeat("a", 129)} {
+		if kernelArgument(value) {
+			t.Fatalf("unsafe kernel argument %q accepted", value)
+		}
+	}
+}
+
+func TestRotateSerialLogRetainsBoundedTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serial.log")
+	prefix := []byte("discarded-prefix")
+	tail := make([]byte, maxSerialLogBytes)
+	for index := range tail {
+		tail[index] = byte(index % 251)
+	}
+	if err := os.WriteFile(path, append(prefix, tail...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rotateSerialLog(path); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := os.ReadFile(path + ".previous")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(previous) != string(tail) {
+		t.Fatalf("previous log retained %d bytes with wrong tail", len(previous))
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() != 0 {
+		t.Fatalf("current log size = %d, err=%v", info.Size(), err)
 	}
 }
 

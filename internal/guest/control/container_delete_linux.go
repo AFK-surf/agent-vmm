@@ -52,5 +52,12 @@ func (r *Runtime) DeleteContainer(ctx context.Context, namespaceID, containerID,
 	}(); err != nil {
 		return err
 	}
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
+		return err
+	}
+	if err := inventory.removeContainer(namespaceID, containerID); err != nil {
+		return err
+	}
 	return os.RemoveAll(filepath.Dir(logPath(namespaceID, containerID, expectedGenerationID)))
 }

@@ -421,33 +421,33 @@ func (r *Runtime) InspectContainer(ctx context.Context, namespaceID, containerID
 }
 
 func (r *Runtime) ListContainers(ctx context.Context, namespaceID string) ([]*vmmdv1.Container, error) {
+	return r.ListContainersBounded(ctx, namespaceID, 0)
+}
+
+func (r *Runtime) ListContainersBounded(ctx context.Context, namespaceID string, limit uint32) ([]*vmmdv1.Container, error) {
 	if err := r.namespaceExists(ctx, namespaceID); err != nil {
 		return nil, err
 	}
-	nsctx := runtimeContext(ctx)
-	containers, err := r.client.Containers(nsctx)
+	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*vmmdv1.Container, 0, len(containers))
-	for _, container := range containers {
-		labels, err := container.Labels(nsctx)
+	containerIDs, err := inventory.containerIDs(namespaceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	nsctx := runtimeContext(ctx)
+	return indexedInventoryLoad(containerIDs, func(containerID string) (*vmmdv1.Container, error) {
+		container, err := ownedRuntimeContainer(ctx, r.client, namespaceID, containerID)
 		if err != nil {
-			return nil, err
-		}
-		if labels[guestbuild.InternalContainerLabel] == "true" {
-			continue
-		}
-		if labels[runtimeOwnerLabel] != namespaceID {
-			continue
+			return nil, fmt.Errorf("load indexed runtime container %s/%s: %w", namespaceID, containerID, err)
 		}
 		item, err := r.inspectContainer(nsctx, namespaceID, container)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("inspect indexed runtime container %s/%s: %w", namespaceID, containerID, err)
 		}
-		result = append(result, item)
-	}
-	return result, nil
+		return item, nil
+	})
 }
 
 func (r *Runtime) loadContainer(ctx context.Context, namespaceID, containerID string) (context.Context, containerd.Container, *vmmdv1.Container, error) {

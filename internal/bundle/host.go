@@ -2,15 +2,19 @@ package bundle
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
+
+var hostReleaseIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
 const (
 	HostAppName                     = "Agent VMM Host.app"
@@ -18,9 +22,12 @@ const (
 	HostExecutableRelativePath      = "Contents/MacOS/agent-vmm-host"
 	HostDataHelperRelativePath      = "Contents/Helpers/agent-vmm-data"
 	HostLifecycleHelperRelativePath = "Contents/Helpers/agent-vmm-lifecycle"
+	HostManagedCLIRelativePath      = "Contents/Helpers/agent-vmm"
+	HostServiceExecutorRelativePath = "Contents/Helpers/agent-vmm-service-executor"
 	HostGuestRelativePath           = "Contents/Resources/Guest"
 	HostLaunchdTemplateRelativePath = "Contents/Resources/com.afk-surf.agent-vmm-host.plist.template"
 	HostBuildInfoRelativePath       = "Contents/Resources/host-build-info.json"
+	HostInventoryRelativePath       = "Contents/Resources/release-inventory.json"
 	HostLicenseRelativePath         = "Contents/Resources/LICENSE"
 )
 
@@ -42,6 +49,53 @@ func ValidateHostApp(directory string) error {
 	if filepath.Base(directory) != HostAppName {
 		return fmt.Errorf("host app must be named %q", HostAppName)
 	}
+	return validateHostAppContents(directory)
+}
+
+// ValidateStagedHostApp accepts only the hidden sibling name used by the
+// managed updater. It applies the same complete runtime-layout validation as
+// ValidateHostApp before the staged bundle can replace the current app.
+func ValidateStagedHostApp(directory string) error {
+	directory, err := filepath.Abs(directory)
+	if err != nil {
+		return err
+	}
+	name := filepath.Base(directory)
+	if !strings.HasPrefix(name, ".Agent VMM Host.") || !strings.HasSuffix(name, ".app") {
+		return errors.New("staged host app name is invalid")
+	}
+	return validateHostAppContents(directory)
+}
+
+// HostReleaseID returns the product release identity from a complete current
+// or staged Host bundle. Callers use one parser for update target selection and
+// cutover recovery.
+func HostReleaseID(directory string, staged bool) (string, error) {
+	var err error
+	if staged {
+		err = ValidateStagedHostApp(directory)
+	} else {
+		err = ValidateHostApp(directory)
+	}
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(HostInventoryRelativePath)))
+	if err != nil || len(data) > 64<<10 {
+		return "", errors.New("host release inventory is unreadable")
+	}
+	var inventory struct {
+		SchemaVersion int    `json:"schema_version"`
+		Component     string `json:"component"`
+		ReleaseID     string `json:"release_id"`
+	}
+	if json.Unmarshal(data, &inventory) != nil || inventory.SchemaVersion != 1 || inventory.Component != "agent-vmm-host-runtime" || !hostReleaseIDPattern.MatchString(inventory.ReleaseID) {
+		return "", errors.New("host release inventory is invalid")
+	}
+	return inventory.ReleaseID, nil
+}
+
+func validateHostAppContents(directory string) error {
 	if err := requireDirectory(filepath.Join(directory, "Contents")); err != nil {
 		return err
 	}
@@ -52,13 +106,14 @@ func ValidateHostApp(directory string) error {
 		HostLifecycleHelperRelativePath,
 		HostLaunchdTemplateRelativePath,
 		HostBuildInfoRelativePath,
+		HostInventoryRelativePath,
 		HostLicenseRelativePath,
 	} {
 		if err := requireRegular(filepath.Join(directory, filepath.FromSlash(relative)), relative, false); err != nil {
 			return err
 		}
 	}
-	for _, relative := range []string{HostExecutableRelativePath, HostDataHelperRelativePath, HostLifecycleHelperRelativePath} {
+	for _, relative := range []string{HostExecutableRelativePath, HostDataHelperRelativePath, HostLifecycleHelperRelativePath, HostManagedCLIRelativePath, HostServiceExecutorRelativePath} {
 		if err := requireRegular(filepath.Join(directory, filepath.FromSlash(relative)), relative, true); err != nil {
 			return err
 		}
@@ -75,7 +130,7 @@ func ValidateHostApp(directory string) error {
 	if err := validateExecutableDirectory(filepath.Join(directory, "Contents", "MacOS"), []string{"agent-vmm-host"}); err != nil {
 		return err
 	}
-	if err := validateExecutableDirectory(filepath.Join(directory, "Contents", "Helpers"), []string{"agent-vmm-data", "agent-vmm-lifecycle"}); err != nil {
+	if err := validateExecutableDirectory(filepath.Join(directory, "Contents", "Helpers"), []string{"agent-vmm", "agent-vmm-data", "agent-vmm-lifecycle", "agent-vmm-service-executor"}); err != nil {
 		return err
 	}
 	if err := validateInfoPlist(filepath.Join(directory, "Contents", "Info.plist")); err != nil {

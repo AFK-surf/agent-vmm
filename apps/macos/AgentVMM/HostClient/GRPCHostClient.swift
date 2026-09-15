@@ -129,15 +129,19 @@ actor GRPCHostClient: HostServing {
     }
 
     func startVM() async throws -> OperationModel {
+        let summary = try await service.getVMImpactSummary(.init())
         var request = Agentvmm_Host_V1_StartVMRequest()
         request.requestID = UUID().uuidString
+        request.fence = try Self.vmMutationFence(summary)
         return operation(try await service.startVM(request).operation)
     }
 
     func stopVM(force: Bool) async throws -> OperationModel {
+        let summary = try await service.getVMImpactSummary(.init())
         var request = Agentvmm_Host_V1_StopVMRequest()
         request.requestID = UUID().uuidString
         request.force = force
+        request.fence = try Self.vmMutationFence(summary)
         return operation(try await service.stopVM(request).operation)
     }
 
@@ -398,6 +402,17 @@ actor GRPCHostClient: HostServing {
 }
 
 extension GRPCHostClient {
+    nonisolated static func vmMutationFence(
+        _ summary: Agentvmm_Host_V1_GetVMImpactSummaryResponse
+    ) throws -> Agentvmm_Host_V1_VMMutationFence {
+        var fence = Agentvmm_Host_V1_VMMutationFence()
+        fence.state = summary.vm.state
+        fence.bootID = summary.vm.bootID
+        fence.observedWorkloads = summary.knownWorkloads
+        fence.wholeVmImpactAcknowledged = true
+        return fence
+    }
+
     nonisolated func remotePool(_ value: RemotePoolSettings) -> Agentvmm_Host_V1_RemotePoolPolicy {
         var pool = Agentvmm_Host_V1_RemotePoolPolicy()
         pool.maxEnvironments = value.maxEnvironments

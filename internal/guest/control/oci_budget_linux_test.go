@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -218,5 +219,22 @@ func TestImportReservationIsPhysicallyBackedAndReleased(t *testing.T) {
 	reservation.Release()
 	if _, err := os.Stat(hold); !os.IsNotExist(err) {
 		t.Fatalf("completed import retained physical hold: %v", err)
+	}
+	reserved, count, err = importReservationSummary(directory)
+	if err != nil || reserved != 0 || count != 0 {
+		t.Fatalf("released reservation summary=%d count=%d err=%v", reserved, count, err)
+	}
+}
+
+func TestImportReservationSummaryRejectsUnboundedDirectory(t *testing.T) {
+	directory := t.TempDir()
+	for index := 0; index <= maxImportReservationDirectoryEntries; index++ {
+		path := filepath.Join(directory, fmt.Sprintf("reservation-%d.hold", index))
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := importReservationSummary(directory); err == nil {
+		t.Fatal("unbounded import reservation directory was accepted")
 	}
 }

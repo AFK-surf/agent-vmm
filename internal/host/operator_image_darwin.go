@@ -19,8 +19,16 @@ func (server *operatorServer) DeleteEnvironmentImage(ctx context.Context, reques
 	if request.GetRequestId() == "" || request.GetEnvironmentId() == "" || request.GetReference() == "" || request.GetExpectedGenerationId() == "" || request.GetExpectedDigest() == "" {
 		return nil, invalidField("request_id/environment_id/reference/expected_generation_id/expected_digest", "environment, image identity, and request ID are required")
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
 	unlock := server.controller.lockEnvironment(request.GetEnvironmentId())
 	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
