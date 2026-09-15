@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -134,6 +135,8 @@ type lifecycleOperation struct {
 	Kind                 string `json:"kind"`
 	TargetRegistrationID string `json:"targetRegistrationId,omitempty"`
 	TargetReleaseID      string `json:"targetReleaseId,omitempty"`
+	TargetArtifactSHA256 string `json:"targetArtifactSha256,omitempty"`
+	TargetArtifactSize   uint64 `json:"targetArtifactSize,omitempty"`
 	Stage                string `json:"stage,omitempty"`
 	Outcome              string `json:"outcome"`
 	Attempt              int    `json:"attempt,omitempty"`
@@ -362,9 +365,23 @@ func main() {
 			fatal(operationErr.Error())
 		}
 	case "update":
-		sourceApp, targetReleaseID, requestID := parseUpdateArgs(commandArgs)
-		operation, operationErr := runUpdateLifecycleOperation(resolved, requestID, targetReleaseID, func() error {
-			return updateApplication(resolved, sourceApp, targetReleaseID, requestID)
+		update := parseUpdateArgs(commandArgs)
+		var preparationFailure *updatePreparationFailureDescriptor
+		if update.preparationFailureStdin {
+			decoded, decodeErr := decodeUpdatePreparationFailure(os.Stdin)
+			if decodeErr != nil {
+				fatal(decodeErr.Error())
+			}
+			preparationFailure = &decoded
+		}
+		operation, operationErr := runUpdateLifecycleOperationForArtifact(resolved, update.requestID, update.targetReleaseID, update.artifactSHA256, update.artifactSize, func() error {
+			if preparationFailure != nil {
+				if err := persistUpdateStage(resolved, update.requestID, update.targetReleaseID, preparationFailure.Stage); err != nil {
+					return err
+				}
+				return updatePreparationError{descriptor: *preparationFailure}
+			}
+			return updateApplication(resolved, update.sourceApp, update.targetReleaseID, update.requestID)
 		})
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
@@ -416,27 +433,110 @@ func lifecycleRequestID(requestID string) string {
 	return newOperationID("req")
 }
 
-func parseUpdateArgs(args []string) (sourceApp, targetReleaseID, requestID string) {
+type lifecycleUpdateArgs struct {
+	sourceApp               string
+	targetReleaseID         string
+	requestID               string
+	artifactSHA256          string
+	artifactSize            uint64
+	preparationFailureStdin bool
+}
+
+type updatePreparationFailureDescriptor struct {
+	Version   int    `json:"version"`
+	Stage     string `json:"stage"`
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
+}
+
+type updatePreparationError struct {
+	descriptor updatePreparationFailureDescriptor
+}
+
+func (failure updatePreparationError) Error() string { return failure.descriptor.Message }
+
+func parseUpdateArgs(args []string) lifecycleUpdateArgs {
+	var result lifecycleUpdateArgs
 	for len(args) > 0 {
-		if len(args) < 2 {
-			fatal("update requires --source-app, --target-release-id, and --request-id")
-		}
 		switch args[0] {
+		case "--preparation-failure-stdin":
+			result.preparationFailureStdin = true
+			args = args[1:]
+			continue
 		case "--source-app":
-			sourceApp = args[1]
+			if len(args) < 2 {
+				fatal("--source-app requires a value")
+			}
+			result.sourceApp = args[1]
 		case "--target-release-id":
-			targetReleaseID = args[1]
+			if len(args) < 2 {
+				fatal("--target-release-id requires a value")
+			}
+			result.targetReleaseID = args[1]
 		case "--request-id":
-			requestID = args[1]
+			if len(args) < 2 {
+				fatal("--request-id requires a value")
+			}
+			result.requestID = args[1]
+		case "--artifact-sha256":
+			if len(args) < 2 {
+				fatal("--artifact-sha256 requires a value")
+			}
+			result.artifactSHA256 = strings.ToLower(args[1])
+		case "--artifact-size":
+			if len(args) < 2 {
+				fatal("--artifact-size requires a value")
+			}
+			parsed, err := strconv.ParseUint(args[1], 10, 64)
+			if err != nil || parsed == 0 {
+				fatal("update artifact size is invalid")
+			}
+			result.artifactSize = parsed
 		default:
 			fatal("unknown update argument")
 		}
 		args = args[2:]
 	}
-	if !filepath.IsAbs(sourceApp) || targetReleaseID == "" || !operationIDPattern.MatchString(targetReleaseID) || requestID == "" || !operationIDPattern.MatchString(requestID) {
-		fatal("update requires a valid --source-app, --target-release-id, and --request-id")
+	if result.targetReleaseID == "" || !operationIDPattern.MatchString(result.targetReleaseID) || result.requestID == "" || !operationIDPattern.MatchString(result.requestID) {
+		fatal("update requires a valid --target-release-id and --request-id")
 	}
-	return sourceApp, targetReleaseID, requestID
+	if result.preparationFailureStdin == (result.sourceApp != "") {
+		fatal("update requires exactly one of --source-app or --preparation-failure-stdin")
+	}
+	if result.sourceApp != "" && !filepath.IsAbs(result.sourceApp) {
+		fatal("update requires an absolute --source-app")
+	}
+	if (result.artifactSHA256 == "") != (result.artifactSize == 0) {
+		fatal("update artifact SHA-256 and size must be supplied together")
+	}
+	if result.artifactSHA256 != "" {
+		decoded, err := hex.DecodeString(result.artifactSHA256)
+		if err != nil || len(decoded) != 32 {
+			fatal("update artifact SHA-256 is invalid")
+		}
+	}
+	if result.preparationFailureStdin && result.artifactSHA256 == "" {
+		fatal("update preparation failure requires artifact SHA-256 and size")
+	}
+	return result
+}
+
+func decodeUpdatePreparationFailure(input io.Reader) (updatePreparationFailureDescriptor, error) {
+	var result updatePreparationFailureDescriptor
+	decoder := json.NewDecoder(io.LimitReader(input, 4097))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return result, errors.New("update preparation failure is invalid")
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return result, errors.New("update preparation failure has trailing data")
+	}
+	if result.Version != 1 || result.Stage != "target_selection" && result.Stage != "download" && result.Stage != "preparation" ||
+		!operationIDPattern.MatchString(result.Code) || strings.TrimSpace(result.Message) == "" || len(result.Message) > 512 || strings.ContainsAny(result.Message, "\r\n") {
+		return result, errors.New("update preparation failure fields are invalid")
+	}
+	return result, nil
 }
 
 func hostBundleReleaseID(app string, staged bool) (string, error) {
@@ -926,7 +1026,7 @@ func setRemoteRegistrationStateWith(
 }
 
 func runLifecycleOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
-	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", false, action)
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", "", 0, false, action)
 }
 
 // Managed install retries must retain the server operation id as their request
@@ -937,25 +1037,29 @@ func runManagedLifecycleOperation(value paths, kind, requestID string, action fu
 	if kind != "install-managed" || requestID == "" {
 		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown", SecretDisposition: secretDispositionRetain}, errors.New("managed install retry requires its stable request identity")
 	}
-	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", true, action)
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", "", 0, true, action)
 }
 
 func runRegistrationStateOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
 	if !strings.HasPrefix(kind, "registration-") || requestID == "" {
 		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}, errors.New("registration state retry requires its stable request identity")
 	}
-	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", true, action)
+	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", "", 0, true, action)
 }
 
 func runRepairLifecycleOperation(value paths, requestID, registrationID string, action func() error) (lifecycleOperation, error) {
-	return runLifecycleOperationWithFailedRetry(value, "repair", requestID, registrationID, "", true, action)
+	return runLifecycleOperationWithFailedRetry(value, "repair", requestID, registrationID, "", "", 0, true, action)
 }
 
 func runUpdateLifecycleOperation(value paths, requestID, targetReleaseID string, action func() error) (lifecycleOperation, error) {
+	return runUpdateLifecycleOperationForArtifact(value, requestID, targetReleaseID, "", 0, action)
+}
+
+func runUpdateLifecycleOperationForArtifact(value paths, requestID, targetReleaseID, artifactSHA256 string, artifactSize uint64, action func() error) (lifecycleOperation, error) {
 	if targetReleaseID == "" {
 		return lifecycleOperation{RequestID: requestID, Kind: "update", Outcome: "unknown"}, errors.New("update target release is required")
 	}
-	return runLifecycleOperationWithFailedRetry(value, "update", requestID, "", targetReleaseID, true, action)
+	return runLifecycleOperationWithFailedRetry(value, "update", requestID, "", targetReleaseID, artifactSHA256, artifactSize, true, action)
 }
 
 func persistUpdateStage(value paths, requestID, targetReleaseID, stage string) error {
@@ -978,7 +1082,7 @@ func persistRepairStage(value paths, requestID, registrationID, stage string) er
 	return persistOperationOwned(value, *operation, lifecycleOperationOwner(value))
 }
 
-func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRegistrationID, targetReleaseID string, retryFailed bool, action func() error) (lifecycleOperation, error) {
+func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRegistrationID, targetReleaseID, targetArtifactSHA256 string, targetArtifactSize uint64, retryFailed bool, action func() error) (lifecycleOperation, error) {
 	owner := lifecycleOperationOwner(value)
 	release, err := acquireOperationLockOwned(value, owner)
 	if err != nil {
@@ -995,7 +1099,8 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 	var operation lifecycleOperation
 	previousFailureStage := ""
 	if previous := readLifecycleOperation(value); previous != nil && previous.RequestID == requestID {
-		if previous.Kind != kind || previous.TargetRegistrationID != targetRegistrationID || previous.TargetReleaseID != targetReleaseID {
+		if previous.Kind != kind || previous.TargetRegistrationID != targetRegistrationID || previous.TargetReleaseID != targetReleaseID ||
+			previous.TargetArtifactSHA256 != targetArtifactSHA256 || previous.TargetArtifactSize != targetArtifactSize {
 			return *previous, errors.New("operation request identity was reused for a different target")
 		}
 		if kind == "install-managed" && (previous.Kind != kind || previous.OperationID != requestID) {
@@ -1090,6 +1195,8 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 			OperationID: operationID, RequestID: requestID, Kind: kind,
 			TargetRegistrationID: targetRegistrationID,
 			TargetReleaseID:      targetReleaseID,
+			TargetArtifactSHA256: targetArtifactSHA256,
+			TargetArtifactSize:   targetArtifactSize,
 			Outcome:              "pending",
 			Attempt:              1, StartedAt: now, UpdatedAt: now,
 		}
@@ -1101,7 +1208,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 		}
 	}
 	if err := action(); err != nil {
-		if current := readLifecycleOperation(value); current != nil && current.RequestID == operation.RequestID && current.Kind == operation.Kind && current.TargetRegistrationID == operation.TargetRegistrationID && current.TargetReleaseID == operation.TargetReleaseID {
+		if current := readLifecycleOperation(value); current != nil && current.RequestID == operation.RequestID && current.Kind == operation.Kind && current.TargetRegistrationID == operation.TargetRegistrationID && current.TargetReleaseID == operation.TargetReleaseID && current.TargetArtifactSHA256 == operation.TargetArtifactSHA256 && current.TargetArtifactSize == operation.TargetArtifactSize {
 			operation = *current
 		}
 		operation.Outcome = "failed"
@@ -1109,7 +1216,13 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 		if (kind == "repair" || kind == "update") && operation.Stage != "" {
 			operation.FailureStage = operation.Stage
 		}
-		if kind == "update" && operation.Stage != "" {
+		var preparationFailure updatePreparationError
+		if errors.As(err, &preparationFailure) {
+			operation.FailureStage = preparationFailure.descriptor.Stage
+			operation.FailureCode = preparationFailure.descriptor.Code
+			operation.FailureMessage = preparationFailure.descriptor.Message
+			operation.Retryable = preparationFailure.descriptor.Retryable
+		} else if kind == "update" && (operation.Stage == "stop" || operation.Stage == "replace" || operation.Stage == "recovery" || operation.Stage == "complete") {
 			// Once an update has entered the stopped/replacement path, the exact
 			// request and selected release are the only safe forward-repair key.
 			// Expected administrator handoffs advance through distinct stages.
@@ -1119,6 +1232,11 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 			}
 			operation.FailureCode = "update_forward_repair_required"
 			operation.Retryable = true
+		}
+		if kind == "update" && operation.Retryable && operation.Attempt >= boundedOperationMaxAttempts {
+			operation.Retryable = false
+			operation.FailureCode = "update_retry_limit_reached"
+			operation.FailureMessage = "The update reached its retry limit. Review the failed stage before taking explicit action."
 		}
 		if kind == "install-managed" {
 			operation.SecretDisposition = managedInstallSecretDisposition(err)
@@ -1137,7 +1255,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 		}
 		return operation, err
 	}
-	if current := readLifecycleOperation(value); current != nil && current.RequestID == operation.RequestID && current.Kind == operation.Kind && current.TargetRegistrationID == operation.TargetRegistrationID && current.TargetReleaseID == operation.TargetReleaseID {
+	if current := readLifecycleOperation(value); current != nil && current.RequestID == operation.RequestID && current.Kind == operation.Kind && current.TargetRegistrationID == operation.TargetRegistrationID && current.TargetReleaseID == operation.TargetReleaseID && current.TargetArtifactSHA256 == operation.TargetArtifactSHA256 && current.TargetArtifactSize == operation.TargetArtifactSize {
 		operation.Stage = current.Stage
 	}
 	operation.Outcome = "succeeded"

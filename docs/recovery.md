@@ -318,8 +318,12 @@ For a state-preserving update:
 2. Run the managed updater as the non-root service user. It downloads for at
    most 10 minutes, enforces a 4 GiB artifact limit, verifies the exact size,
    digest, release inventory, complete Host layout, and code signature, then
-   prepares one hidden sibling. Preparation or cancellation failure does not
-   stop or replace the current Host.
+   prepares one hidden sibling. The lifecycle record binds the request to the
+   release, digest, and size. A retryable preparation failure reports a
+   30-second retry time. Retry the same request no more than three times at one
+   failed lifecycle stage.
+   Preparation or cancellation failure does not stop or replace the current
+   Host.
 3. The lifecycle owner records `stop`, drains the VM, confirms Host and VZ exit,
    then records `replace` and atomically exchanges the complete applications.
    The database, keys, registration, workload volumes, and `state.raw` stay in
@@ -340,6 +344,12 @@ For a state-preserving update:
 6. Confirm that exactly one Host owns the operator socket and state disk, the VM
    reaches ready, and the registration reconnects. Exercise an existing
    allocation and runtime session before declaring convergence.
+
+Running the administrator installer again for the same release repairs the
+fixed daemon job when necessary. It then runs lifecycle repair as the service
+user and requires installed, loaded, readable, and healthy Host status. A
+failed first install therefore keeps a deterministic same-release recovery
+path.
 
 Formatting an ext4 filesystem may discard or deallocate blocks from a sparse
 backing file. The LaunchDaemon startup check restores the required fully-backed

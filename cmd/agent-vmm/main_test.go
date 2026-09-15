@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -943,10 +945,21 @@ func TestManagedUpdateKeepsPreparationSeparateFromReplacement(t *testing.T) {
 		prepareUpdate: func(context.Context, managedOptions, map[string]any) (string, error) {
 			return "", errors.New("archive is incomplete")
 		},
+		runHelperInput: func(_ context.Context, _ string, args []string, input []byte) ([]byte, []byte, error) {
+			helperCalls++
+			recorded := []byte(`{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + strings.Repeat("a", 64) + `","targetArtifactSize":1024,"stage":"preparation","outcome":"failed","attempt":1,"failureStage":"preparation","failureCode":"update_preparation_failed","failureMessage":"archive is incomplete","retryable":false,"updatedAt":1789372800000}`)
+			if args[0] == "operation" {
+				return recorded, nil, nil
+			}
+			if !strings.Contains(strings.Join(args, " "), "update --preparation-failure-stdin") || !strings.Contains(string(input), `"retryable":false`) {
+				t.Fatalf("preparation failure was not recorded: args=%v input=%s", args, input)
+			}
+			return recorded, nil, errors.New("exit status 1")
+		},
 	}
 	var stdout, stderr bytes.Buffer
 	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", strings.Repeat("a", 64), "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 1 || helperCalls != 1 || !strings.Contains(stderr.String(), "without changing the current installation") || !strings.Contains(stderr.String(), `"stage":"preparation"`) {
+	if exit != 0 || helperCalls != 3 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"disposition":"terminal_action_required"`) || !strings.Contains(stdout.String(), `"stage":"preparation"`) {
 		t.Fatalf("exit=%d helperCalls=%d stdout=%s stderr=%s", exit, helperCalls, stdout.String(), stderr.String())
 	}
 }
@@ -954,7 +967,7 @@ func TestManagedUpdateKeepsPreparationSeparateFromReplacement(t *testing.T) {
 func TestManagedUpdateCancellationReportsUnchangedCurrentInstallation(t *testing.T) {
 	helperCalls := 0
 	runtime := managedRuntime{
-		now: time.Now,
+		now: func() time.Time { return time.UnixMilli(1789372800000) },
 		runHelper: func(_ context.Context, _ string, args []string) ([]byte, []byte, error) {
 			helperCalls++
 			if args[0] != "status" {
@@ -968,11 +981,49 @@ func TestManagedUpdateCancellationReportsUnchangedCurrentInstallation(t *testing
 			}
 			return "", managedUpdateFailure("download", context.Canceled)
 		},
+		runHelperInput: func(_ context.Context, _ string, args []string, input []byte) ([]byte, []byte, error) {
+			helperCalls++
+			recorded := []byte(`{"operationId":"operation-cancel","requestId":"update-cancel","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + strings.Repeat("d", 64) + `","targetArtifactSize":1024,"stage":"download","outcome":"failed","attempt":1,"failureStage":"download","failureCode":"update_preparation_cancelled","failureMessage":"the update download or preparation was cancelled; the current installation was not changed","retryable":true,"updatedAt":1789372800000}`)
+			if args[0] == "operation" {
+				return recorded, nil, nil
+			}
+			if !strings.Contains(strings.Join(args, " "), "--preparation-failure-stdin") || !strings.Contains(string(input), `"retryable":true`) {
+				t.Fatalf("cancelled preparation was not recorded: args=%v input=%s", args, input)
+			}
+			return recorded, nil, errors.New("exit status 1")
+		},
 	}
 	var stdout, stderr bytes.Buffer
 	exit := runManagedCLI([]string{"update", "--request-id", "update-cancel", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", strings.Repeat("d", 64), "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 0 || helperCalls != 1 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"state":"cancelled"`) || !strings.Contains(stdout.String(), `"stage":"download"`) || !strings.Contains(stdout.String(), "current installation was not changed") {
+	if exit != 0 || helperCalls != 3 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"state":"retry_wait"`) || !strings.Contains(stdout.String(), `"disposition":"retry_same_request_at"`) || !strings.Contains(stdout.String(), "current installation was not changed") {
 		t.Fatalf("exit=%d helperCalls=%d stdout=%s stderr=%s", exit, helperCalls, stdout.String(), stderr.String())
+	}
+}
+
+func TestManagedUpdateDoesNotInferDurabilityFromFailedHelperOutput(t *testing.T) {
+	digest := strings.Repeat("f", 64)
+	runtime := managedRuntime{
+		now: time.Now,
+		runHelper: func(_ context.Context, _ string, args []string) ([]byte, []byte, error) {
+			if args[0] != "status" {
+				t.Fatalf("unexpected helper call: %v", args)
+			}
+			return []byte(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host"}`), nil, nil
+		},
+		prepareUpdate: func(context.Context, managedOptions, map[string]any) (string, error) {
+			return "", managedRetryableUpdateFailure("download", errors.New("network unavailable"))
+		},
+		runHelperInput: func(_ context.Context, _ string, args []string, _ []byte) ([]byte, []byte, error) {
+			if args[0] == "operation" {
+				return []byte(`{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + digest + `","targetArtifactSize":1024,"stage":"download","outcome":"pending","attempt":1,"updatedAt":1789372799999}`), nil, nil
+			}
+			return []byte(`{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + digest + `","targetArtifactSize":1024,"stage":"download","outcome":"failed","attempt":1,"failureStage":"download","failureCode":"update_download_unavailable","failureMessage":"network unavailable","retryable":true,"updatedAt":1789372800000}`), nil, errors.New("persistence failed")
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", digest, "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
+	if exit != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"disposition":"terminal_action_required"`) || !strings.Contains(stdout.String(), "update_failure_record_unknown") {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
 
@@ -988,10 +1039,10 @@ func TestManagedUpdateUsesStableOwnerOperationAndLongBudget(t *testing.T) {
 			if args[0] == "status" {
 				return []byte(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host"}`), nil, nil
 			}
-			if strings.Join(args, " ") != "update --source-app "+prepared+" --target-release-id release-2 --request-id update-1" {
+			if strings.Join(args, " ") != "update --source-app "+prepared+" --target-release-id release-2 --request-id update-1 --artifact-sha256 "+strings.Repeat("b", 64)+" --artifact-size 1024" {
 				t.Fatalf("update args=%v", args)
 			}
-			return []byte(`{"operationId":"operation-2","requestId":"update-1","kind":"update","targetReleaseId":"release-2","stage":"complete","outcome":"succeeded"}`), nil, nil
+			return []byte(`{"operationId":"operation-2","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + strings.Repeat("b", 64) + `","targetArtifactSize":1024,"stage":"complete","outcome":"succeeded"}`), nil, nil
 		},
 		prepareUpdate: func(context.Context, managedOptions, map[string]any) (string, error) { return prepared, nil },
 		removePrepared: func(path string) error {
@@ -1001,7 +1052,7 @@ func TestManagedUpdateUsesStableOwnerOperationAndLongBudget(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", strings.Repeat("b", 64), "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 0 || removed != prepared || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"stage":"complete"`) || !strings.Contains(stdout.String(), `"id":"operation-2"`) {
+	if exit != 0 || removed != prepared || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"stage":"complete"`) || !strings.Contains(stdout.String(), `"disposition":"continue_normal_work"`) || !strings.Contains(stdout.String(), `"id":"operation-2"`) {
 		t.Fatalf("exit=%d removed=%q stdout=%s stderr=%s", exit, removed, stdout.String(), stderr.String())
 	}
 }
@@ -1041,7 +1092,74 @@ func TestManagedDaemonUpdateRequiresAdministratorBeforeDownload(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", strings.Repeat("c", 64), "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 0 || prepared || !strings.Contains(stdout.String(), `"state":"needs_administrator"`) || !strings.Contains(stdout.String(), "administrator_update_required") {
+	if exit != 0 || prepared || !strings.Contains(stdout.String(), `"state":"needs_administrator"`) || !strings.Contains(stdout.String(), `"disposition":"administrator_action_required"`) || !strings.Contains(stdout.String(), "administrator_update_required") {
 		t.Fatalf("exit=%d prepared=%t stdout=%s stderr=%s", exit, prepared, stdout.String(), stderr.String())
+	}
+}
+
+func TestManagedUpdatePreflightHonorsDurableRetryCooldown(t *testing.T) {
+	now := time.UnixMilli(1789372800000)
+	prepared := false
+	digest := strings.Repeat("a", 64)
+	runtime := managedRuntime{
+		now: func() time.Time { return now },
+		runHelper: func(context.Context, string, []string) ([]byte, []byte, error) {
+			return []byte(fmt.Sprintf(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host","operation":{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"%s","targetArtifactSize":1024,"stage":"download","outcome":"failed","attempt":1,"failureStage":"download","failureCode":"update_download_unavailable","failureMessage":"network unavailable","retryable":true,"updatedAt":%d}}`, digest, now.Add(-10*time.Second).UnixMilli())), nil, nil
+		},
+		prepareUpdate: func(context.Context, managedOptions, map[string]any) (string, error) {
+			prepared = true
+			return "", nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", digest, "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
+	if exit != 0 || prepared || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"state":"retry_wait"`) || !strings.Contains(stdout.String(), `"retry_at":"`) {
+		t.Fatalf("exit=%d prepared=%t stdout=%s stderr=%s", exit, prepared, stdout.String(), stderr.String())
+	}
+}
+
+func TestManagedUpdatePreflightStopsAtDurableRetryLimit(t *testing.T) {
+	now := time.UnixMilli(1789372800000)
+	prepared := false
+	digest := strings.Repeat("b", 64)
+	runtime := managedRuntime{
+		now: func() time.Time { return now },
+		runHelper: func(context.Context, string, []string) ([]byte, []byte, error) {
+			return []byte(fmt.Sprintf(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host","operation":{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"%s","targetArtifactSize":1024,"stage":"download","outcome":"failed","attempt":3,"failureStage":"download","failureCode":"update_retry_limit_reached","failureMessage":"retry limit reached","retryable":false,"updatedAt":%d}}`, digest, now.Add(-time.Minute).UnixMilli())), nil, nil
+		},
+		prepareUpdate: func(context.Context, managedOptions, map[string]any) (string, error) {
+			prepared = true
+			return "", nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", digest, "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
+	if exit != 0 || prepared || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"disposition":"terminal_action_required"`) || !strings.Contains(stdout.String(), `"max_attempts":3`) {
+		t.Fatalf("exit=%d prepared=%t stdout=%s stderr=%s", exit, prepared, stdout.String(), stderr.String())
+	}
+}
+
+func TestManagedUpdateClassifiesOnlyTransientDownloadFailuresForRetry(t *testing.T) {
+	originalClient := managedUpdateHTTPClient
+	t.Cleanup(func() { managedUpdateHTTPClient = originalClient })
+	root := t.TempDir()
+	status := map[string]any{"serviceApp": filepath.Join(root, "Agent VMM Host.app")}
+	opts := managedOptions{artifactSize: 1, artifactSHA256: strings.Repeat("a", 64), requestID: "update-1", targetRelease: "release-2"}
+	for _, test := range []struct {
+		name      string
+		status    int
+		retryable bool
+	}{{name: "server unavailable", status: http.StatusServiceUnavailable, retryable: true}, {name: "missing artifact", status: http.StatusNotFound, retryable: false}} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(test.status) }))
+			defer server.Close()
+			managedUpdateHTTPClient = server.Client()
+			opts.artifactURL = server.URL
+			_, err := prepareManagedUpdate(context.Background(), opts, status)
+			var failure managedUpdateError
+			if !errors.As(err, &failure) || failure.stage != "download" || failure.retryable != test.retryable {
+				t.Fatalf("failure=%+v err=%v", failure, err)
+			}
+		})
 	}
 }

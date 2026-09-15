@@ -79,6 +79,7 @@ else
 fi
 release_key=$(printf '%s' "$target_release_id" | shasum -a 256 | awk '{print $1}')
 install_request_id="local-host-install-$release_key"
+repair_request_id="local-host-repair-$release_key"
 update_request_id="local-host-update-$release_key"
 staged_app="$app_parent/.Agent VMM Host.$release_key.app"
 created_staged=0
@@ -121,8 +122,27 @@ if [ -n "$trusted_stage" ]; then
 fi
 
 if [ "$already_current" -eq 1 ]; then
-	run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" status \
-		--service-type "$effective_service_type" --service-user "$service_user"
+	if [ "$effective_service_type" = daemon ]; then
+		if "$executor" status --job host >/dev/null 2>&1; then
+			"$executor" start --job host
+		else
+			"$executor" install --job host
+		fi
+	fi
+	run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" repair \
+		--service-type "$effective_service_type" --service-user "$service_user" \
+		--request-id "$repair_request_id"
+	observed_status=$(run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" status \
+		--service-type "$effective_service_type" --service-user "$service_user")
+	printf '%s\n' "$observed_status"
+	printf '%s\n' "$observed_status" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+required = ("hostInstalled", "hostLoaded", "hostReadable", "hostHealthy")
+missing = [name for name in required if value.get(name) is not True]
+if missing:
+    raise SystemExit("Agent VMM Host is not ready after repair: " + ", ".join(missing))
+'
 	trap - EXIT HUP INT TERM
 	exit 0
 fi

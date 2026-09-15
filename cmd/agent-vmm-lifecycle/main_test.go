@@ -1276,6 +1276,71 @@ func TestUpdateSameRequestRejectsDifferentSelectedRelease(t *testing.T) {
 	}
 }
 
+func TestUpdateSameRequestRejectsDifferentSelectedArtifact(t *testing.T) {
+	value := testPaths(t.TempDir())
+	first, err := runUpdateLifecycleOperationForArtifact(value, "update-stable", "release-a", strings.Repeat("a", 64), 1024, func() error {
+		return updatePreparationError{descriptor: updatePreparationFailureDescriptor{Version: 1, Stage: "download", Code: "update_download_unavailable", Message: "network unavailable", Retryable: true}}
+	})
+	if err == nil || first.TargetArtifactSHA256 != strings.Repeat("a", 64) || first.TargetArtifactSize != 1024 {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	called := false
+	second, err := runUpdateLifecycleOperationForArtifact(value, "update-stable", "release-a", strings.Repeat("b", 64), 1024, func() error {
+		called = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "different target") || called || second.TargetArtifactSHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("second=%+v err=%v called=%t", second, err, called)
+	}
+}
+
+func TestUpdatePreparationFailureRetriesAreDurablyBounded(t *testing.T) {
+	value := testPaths(t.TempDir())
+	digest := strings.Repeat("c", 64)
+	run := func() (lifecycleOperation, error) {
+		return runUpdateLifecycleOperationForArtifact(value, "update-retry", "release-a", digest, 2048, func() error {
+			return updatePreparationError{descriptor: updatePreparationFailureDescriptor{Version: 1, Stage: "download", Code: "update_download_unavailable", Message: "network unavailable", Retryable: true}}
+		})
+	}
+	for attempt := 1; attempt <= boundedOperationMaxAttempts; attempt++ {
+		operation, err := run()
+		if err == nil || operation.Attempt != attempt || operation.TargetArtifactSHA256 != digest || operation.TargetArtifactSize != 2048 {
+			t.Fatalf("attempt=%d operation=%+v err=%v", attempt, operation, err)
+		}
+		if attempt < boundedOperationMaxAttempts && !operation.Retryable {
+			t.Fatalf("attempt %d became terminal early: %+v", attempt, operation)
+		}
+		if attempt == boundedOperationMaxAttempts && (operation.Retryable || operation.FailureCode != "update_retry_limit_reached") {
+			t.Fatalf("final attempt was not terminal: %+v", operation)
+		}
+	}
+	called := false
+	operation, err := runUpdateLifecycleOperationForArtifact(value, "update-retry", "release-a", digest, 2048, func() error {
+		called = true
+		return nil
+	})
+	if err == nil || called || operation.Attempt != boundedOperationMaxAttempts || operation.Retryable {
+		t.Fatalf("terminal replay operation=%+v err=%v called=%t", operation, err, called)
+	}
+}
+
+func TestDecodeUpdatePreparationFailureRejectsUnboundedOrUnknownInput(t *testing.T) {
+	valid := `{"version":1,"stage":"download","code":"update_download_unavailable","message":"network unavailable","retryable":true}`
+	decoded, err := decodeUpdatePreparationFailure(strings.NewReader(valid))
+	if err != nil || decoded.Stage != "download" || !decoded.Retryable {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	for _, input := range []string{
+		`{"version":1,"stage":"download","code":"update_download_unavailable","message":"network unavailable","retryable":true,"extra":true}`,
+		valid + `{}`,
+		`{"version":1,"stage":"stop","code":"update_failed","message":"invalid stage","retryable":true}`,
+	} {
+		if _, err := decodeUpdatePreparationFailure(strings.NewReader(input)); err == nil {
+			t.Fatalf("invalid descriptor accepted: %s", input)
+		}
+	}
+}
+
 func TestUpdateRejectsMismatchedPreparedTargetBeforeDrain(t *testing.T) {
 	value := testPaths(t.TempDir())
 	source := filepath.Join(filepath.Dir(value.app), ".Agent VMM Host.prepared.app")

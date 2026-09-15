@@ -33,11 +33,19 @@ const (
 	managedDiagnoseBytes    = 2 << 20
 	managedDefaultListLimit = 50
 	managedMaxListLimit     = 100
+	managedUpdateRetryDelay = 30 * time.Second
+
+	managedDispositionContinueNormalWork     = "continue_normal_work"
+	managedDispositionExclusiveTransition    = "exclusive_transition_in_progress"
+	managedDispositionRetrySameRequestAt     = "retry_same_request_at"
+	managedDispositionAdministratorAction    = "administrator_action_required"
+	managedDispositionTerminalActionRequired = "terminal_action_required"
 )
 
 type managedRuntime struct {
 	now              func() time.Time
 	runHelper        func(context.Context, string, []string) ([]byte, []byte, error)
+	runHelperInput   func(context.Context, string, []string, []byte) ([]byte, []byte, error)
 	getOperation     func(context.Context, string, string) (*hostv1.Operation, error)
 	getEnvironment   func(context.Context, string, string) (*hostv1.AgentEnvironment, error)
 	getRegistration  func(context.Context, string, string) (*hostv1.RemoteRegistration, error)
@@ -108,6 +116,7 @@ type managedEnvelope struct {
 	Freshness    string              `json:"freshness"`
 	State        string              `json:"state"`
 	Stage        string              `json:"stage"`
+	Disposition  string              `json:"disposition,omitempty"`
 	Issue        any                 `json:"issue"`
 	OperationRef any                 `json:"operation_ref"`
 	NextAction   []managedNextAction `json:"next_action"`
@@ -344,6 +353,9 @@ func (runtime *managedRuntime) defaults() {
 	}
 	if runtime.runHelper == nil {
 		runtime.runHelper = runManagedHelper
+	}
+	if runtime.runHelperInput == nil {
+		runtime.runHelperInput = runManagedHelperInput
 	}
 	if runtime.getOperation == nil {
 		runtime.getOperation = getManagedOperation

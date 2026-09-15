@@ -96,6 +96,23 @@ func TestStartDoesNotRestartRunningJob(t *testing.T) {
 	}
 }
 
+func TestStartKickstartsLoadedStoppedJob(t *testing.T) {
+	oldObserve, oldRun := observeLaunchctl, runLaunchctl
+	defer func() { observeLaunchctl, runLaunchctl = oldObserve, oldRun }()
+	observeLaunchctl = func(string) (bool, bool, int, error) { return true, false, 0, nil }
+	var arguments []string
+	runLaunchctl = func(args ...string) error {
+		arguments = append([]string(nil), args...)
+		return nil
+	}
+	if err := startJob(fixedJob{label: hostLabel}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(arguments, " ") != "kickstart system/"+hostLabel {
+		t.Fatalf("arguments=%v", arguments)
+	}
+}
+
 func TestHostStopRequiresReleasedStateDiskBeforeBootout(t *testing.T) {
 	oldObserve, oldRun, oldBusy := observeLaunchctl, runLaunchctl, stateDiskBusy
 	defer func() { observeLaunchctl, runLaunchctl, stateDiskBusy = oldObserve, oldRun, oldBusy }()

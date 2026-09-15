@@ -358,9 +358,16 @@ func appendServiceArguments(args []string, opts managedOptions) []string {
 }
 
 func runManagedHelper(ctx context.Context, path string, arguments []string) ([]byte, []byte, error) {
+	return runManagedHelperInput(ctx, path, arguments, nil)
+}
+
+func runManagedHelperInput(ctx context.Context, path string, arguments []string, input []byte) ([]byte, []byte, error) {
 	command := exec.CommandContext(ctx, path, arguments...)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
+	if input != nil {
+		command.Stdin = bytes.NewReader(input)
+	}
 	err := command.Run()
 	return stdout.Bytes(), stderr.Bytes(), err
 }

@@ -61,14 +61,19 @@ lifecycle lock is available, an orphaned running receipt becomes interrupted
 and requires VM inspection plus a new request ID.
 
 `update` selects one exact HTTPS artifact by release ID, SHA-256, and byte
-size. Its 20-minute budget includes a 10-minute download budget. Download,
+size. Its 20-minute budget includes a 10-minute download budget. The lifecycle
+owner binds these values to the request before it records download or
+preparation failure. A retryable failure has a 30-second cooldown. The same
+request can make at most three attempts at one failed lifecycle stage. A target
+conflict or exhausted stage retry budget requires administrator action.
+
+The result includes one disposition: continue normal work, pause for an
+exclusive transition, retry the same request at the reported time, request an
+administrator action, or require a terminal operator decision. Download,
 extraction, signature, or cancellation failures do not replace the installed
-bundle. Errors identify target selection, download, or preparation before the
-lifecycle stages start. The lifecycle owner stores the target release with the
-request and records stop, replace, recovery, and completion.
-After replacement, retry the same request and release to repair forward. Do
-not start an old binary against the updated state. A daemon update returns an
-administrator action before download.
+bundle. After replacement, retry the same request and exact artifact to repair
+forward. Do not start an old binary against the updated state. A daemon update
+requests the administrator installer before download.
 
 `cleanup preview|execute` delegates to the existing Host cleanup owner. The
 Guest rebuilds an in-memory owner index from containerd before VMMD starts. A
