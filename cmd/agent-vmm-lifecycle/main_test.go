@@ -64,11 +64,11 @@ func TestObservationPathsDoNotRequireCompleteBundle(t *testing.T) {
 }
 
 func TestParseLaunchctlServiceObservationSeparatesLoadedFromRunning(t *testing.T) {
-	running, err := parseLaunchctlServiceObservation([]byte(fmt.Sprintf("state = running\npid = %d\nlast exit code = 0\n", os.Getpid())))
+	running, err := parseLaunchctlServiceObservation([]byte(fmt.Sprintf("state = running\npid = %d\nlast exit code = 0\nresource coalition = {\n\tstate = active\n}\n", os.Getpid())))
 	if err != nil || !running.Loaded || !running.Running || running.PID != os.Getpid() {
 		t.Fatalf("running facts = %+v, err=%v", running, err)
 	}
-	exited, err := parseLaunchctlServiceObservation([]byte("state = exited\nlast exit status = 78\n"))
+	exited, err := parseLaunchctlServiceObservation([]byte("state = exited\nlast exit status = 78\nresource coalition = {\n\tstate = active\n}\n"))
 	if err != nil || !exited.Loaded || exited.Running || exited.PID != 0 || exited.LastExitStatus == nil || *exited.LastExitStatus != 78 {
 		t.Fatalf("exited facts = %+v, err=%v", exited, err)
 	}

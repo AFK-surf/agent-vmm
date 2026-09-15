@@ -42,8 +42,10 @@ func parseLaunchctlServiceObservation(output []byte) (launchctlServiceFacts, err
 		key, raw = strings.TrimSpace(key), strings.TrimSpace(raw)
 		switch key {
 		case "state":
-			stateSeen = true
-			result.Running = raw == "running"
+			if !stateSeen {
+				stateSeen = true
+				result.Running = raw == "running"
+			}
 		case "pid":
 			pid, err := strconv.Atoi(raw)
 			if err != nil || pid <= 0 {
