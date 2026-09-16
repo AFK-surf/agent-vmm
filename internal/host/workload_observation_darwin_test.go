@@ -94,3 +94,116 @@ func observationTestEnvironment(id, registrationID string) store.Environment {
 	return store.Environment{ID: id, NamespaceID: id, DisplayName: id, OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registrationID, AllocationID: id,
 		CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}
 }
+
+func TestWorkloadPressureRequiresSustainedWatermarksAndLocalOOM(t *testing.T) {
+	controller := workloadTestController()
+	now := time.Now()
+	sample := func(memory uint64, psi float64, oom uint64) {
+		t.Helper()
+		controller.observeWorkloadPressureLocked(&vmmdv1.GetUsageResponse{
+			WorkloadPool: &vmmdv1.Usage{MemoryBytes: memory}, WorkloadMemoryLimitBytes: 1000,
+			WorkloadMemoryFullAvg10: psi, WorkloadOomEvents: oom,
+		}, now)
+	}
+	for range 2 {
+		sample(950, 0, 0)
+	}
+	if controller.workloadMemoryPressure {
+		t.Fatal("transient high water entered pressure")
+	}
+	sample(850, 0, 0)
+	for range 2 {
+		sample(100, 11, 0)
+	}
+	if controller.workloadMemoryPressure {
+		t.Fatal("interrupted high-water streak was retained")
+	}
+	sample(100, 11, 0)
+	if !controller.workloadMemoryPressure {
+		t.Fatal("sustained PSI did not enter pressure")
+	}
+	for range 2 {
+		sample(700, 0, 0)
+	}
+	if !controller.workloadMemoryPressure {
+		t.Fatal("pressure ended before three low samples")
+	}
+	sample(700, 0, 0)
+	if controller.workloadMemoryPressure {
+		t.Fatal("sustained low water did not exit pressure")
+	}
+	sample(100, 0, 1)
+	if !controller.workloadMemoryPressure {
+		t.Fatal("local OOM did not immediately enter pressure")
+	}
+	for range 3 {
+		sample(100, 0, 1)
+	}
+	if controller.workloadMemoryPressure {
+		t.Fatal("unchanged OOM counter kept pressure active")
+	}
+}
+
+func TestWorkloadPressureSelectsOneOldestIdleTenantAndExpiresWithoutReplacement(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	controller := workloadTestController()
+	controller.store = database
+	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container), pool: &vmmdv1.GetUsageResponse{
+		WorkloadPool: &vmmdv1.Usage{MemoryBytes: 950}, WorkloadMemoryLimitBytes: 1000,
+	}}
+	for index, id := range []string{"a", "b"} {
+		registration := "registration-" + id
+		if _, err := database.CreateRemoteRegistration(ctx, observationTestRegistration(registration)); err != nil {
+			t.Fatal(err)
+		}
+		environment := observationTestEnvironment("environment-"+id, registration)
+		if _, err := database.CreateEnvironment(ctx, environment); err != nil {
+			t.Fatal(err)
+		}
+		run := &workloadRun{environmentID: environment.ID, namespaceID: environment.NamespaceID, containerID: "main", instanceID: "instance-" + id, idleSince: time.Now().Add(-time.Duration(3-index) * time.Minute)}
+		controller.workloadRuns[workloadRunKey(run.environmentID, run.containerID)] = run
+		guest.states[environment.NamespaceID] = &vmmdv1.Container{Id: "main", InstanceId: run.instanceID, State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}
+	}
+	client := workloadGuestClient(t, guest)
+	for range 2 {
+		if err := controller.sampleWorkloadRuns(ctx, client); err != nil {
+			t.Fatal(err)
+		}
+		if controller.workloadReclaim != nil {
+			t.Fatal("candidate without sustained pressure")
+		}
+	}
+	if err := controller.sampleWorkloadRuns(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	candidate := controller.workloadReclaim
+	if candidate == nil || candidate.value.GetRegistrationId() != "registration-a" || candidate.value.GetContainerInstanceId() != "instance-a" {
+		t.Fatalf("oldest idle selection: %+v", candidate)
+	}
+	candidate.run.quiescing = true
+	candidate.run.quiesceRequestID = "quiet"
+	candidate.value.ExpiresUnixMillis = time.Now().Add(-time.Second).UnixMilli()
+	if err := controller.sampleWorkloadRuns(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if controller.workloadReclaim != nil || candidate.run.quiescing {
+		t.Fatal("expired candidate retained stop authority or was immediately replaced")
+	}
+	if err := controller.sampleWorkloadRuns(ctx, client); err != nil || controller.workloadReclaim == nil {
+		t.Fatalf("next fresh sample must select an idle candidate: %v", err)
+	}
+	guest.mu.Lock()
+	guest.usageUnavailable = true
+	guest.mu.Unlock()
+	if err := controller.sampleWorkloadRuns(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if controller.workloadReclaim != nil {
+		t.Fatal("unavailable usage retained or replaced a reclaim candidate")
+	}
+}

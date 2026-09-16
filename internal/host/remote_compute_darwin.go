@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -112,7 +113,17 @@ func (server *remoteComputeServer) GetRemoteObservation(ctx context.Context, req
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "host observation is unavailable")
 	}
-	response.WorkloadStartAvailable = server.controller.workloadStartAvailable(time.Now())
+	server.controller.mu.Lock()
+	if candidate := server.controller.workloadReclaim; candidate != nil {
+		run := candidate.run
+		now := time.Now()
+		if now.UnixMilli() >= candidate.value.GetExpiresUnixMillis() || now.Sub(server.controller.workloadPressureAt) > 2*workloadSampleInterval || run.execution != nil || run.stopping || run.instanceID != candidate.value.GetContainerInstanceId() {
+			server.controller.clearWorkloadReclaimLocked("deadline_expired")
+		} else if candidate.value.GetRegistrationId() == registration.ID {
+			response.ReclaimCandidate = proto.Clone(candidate.value).(*hostv1.WorkloadReclaimCandidate)
+		}
+	}
+	server.controller.mu.Unlock()
 	return response, nil
 }
 

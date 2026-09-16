@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -18,7 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestWorkloadStartsSerializeAndStoppedSandboxesReleaseCapacity(t *testing.T) {
+func TestIndependentWorkloadStartsOverlapAndUnknownStopsKeepInstanceFence(t *testing.T) {
 	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container), entered: make(chan struct{}), release: make(chan struct{})}
 	client := workloadGuestClient(t, guest)
 	controller := workloadTestController()
@@ -29,26 +30,14 @@ func TestWorkloadStartsSerializeAndStoppedSandboxesReleaseCapacity(t *testing.T)
 		first <- err
 	}()
 	<-entered
-	if controller.workloadStartAvailable(time.Now()) {
-		t.Fatal("in-flight start advertised another start slot")
-	}
-	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-b", workloadStart("b")); capacityDimensionMetadata(err) != "run_slot" {
-		t.Fatalf("parallel start: %v", err)
-	}
+	_, secondErr := controller.startWorkloadContainer(context.Background(), client, "env-b", workloadStart("b"))
 	close(guest.release)
 	if err := <-first; err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"b", "c", "d"} {
-		if _, err := controller.startWorkloadContainer(context.Background(), client, "env-"+id, workloadStart(id)); err != nil {
-			t.Fatal(err)
-		}
+	if secondErr != nil {
+		t.Fatalf("independent start: %v", secondErr)
 	}
-	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-e", workloadStart("e")); capacityDimensionMetadata(err) != "run_slot" {
-		t.Fatalf("fifth start: %v", err)
-	}
-	// The stop commits at the Guest, but its reply is lost. No slot is released
-	// until the ordinary node observation confirms task teardown.
 	guest.mu.Lock()
 	guest.loseStop = true
 	guest.mu.Unlock()
@@ -58,22 +47,22 @@ func TestWorkloadStartsSerializeAndStoppedSandboxesReleaseCapacity(t *testing.T)
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("lost stop reply: %v", err)
 	}
-	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-e", workloadStart("e")); capacityDimensionMetadata(err) != "run_slot" {
-		t.Fatalf("unknown stop released slot: %v", err)
+	if _, err := controller.admitWorkloadStart("env-a", "a", "main", time.Now()); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("unknown stop lost lifecycle fence: %v", err)
+	}
+	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-c", workloadStart("c")); err != nil {
+		t.Fatalf("unknown stop blocked unrelated workload: %v", err)
 	}
 	if err := controller.sampleWorkloadRuns(context.Background(), client); err != nil {
 		t.Fatal(err)
 	}
-	if !controller.workloadStartAvailable(time.Now()) {
-		t.Fatal("confirmed teardown did not advertise released capacity")
-	}
-	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-e", workloadStart("e")); err != nil {
+	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-a", workloadStart("a")); err != nil {
 		t.Fatal(err)
 	}
 	guest.mu.Lock()
 	defer guest.mu.Unlock()
-	if guest.maxStarting != 1 {
-		t.Fatalf("concurrent Guest starts=%d", guest.maxStarting)
+	if guest.maxStarting < 2 {
+		t.Fatalf("independent starts did not overlap: %d", guest.maxStarting)
 	}
 }
 
@@ -119,19 +108,38 @@ func TestConfirmedAbsentContainersReleaseAllRunSlots(t *testing.T) {
 	}
 }
 
-func TestWorkloadMemoryPressureBlocksNewStartsButPreservesRunningInstance(t *testing.T) {
+func TestPressureAndStaleSamplesDoNotBlockWorkloadStarts(t *testing.T) {
+	for _, pressure := range []bool{false, true} {
+		guest := &workloadGuest{states: make(map[string]*vmmdv1.Container)}
+		client := workloadGuestClient(t, guest)
+		controller := workloadTestController()
+		controller.workloadPressureAt = time.Time{}
+		controller.workloadMemoryPressure = pressure
+		for _, id := range []string{"a", "b"} {
+			if _, err := controller.startWorkloadContainer(context.Background(), client, "env-"+id, workloadStart(id)); err != nil {
+				t.Fatalf("pressure=%v start=%s: %v", pressure, id, err)
+			}
+		}
+	}
+}
+
+func TestSixIdleWorkloadsRemainRunnable(t *testing.T) {
 	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container)}
 	client := workloadGuestClient(t, guest)
 	controller := workloadTestController()
-	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-a", workloadStart("a")); err != nil {
+	for _, id := range []string{"a", "b", "c", "d", "e", "f"} {
+		if _, err := controller.startWorkloadContainer(context.Background(), client, "env-"+id, workloadStart(id)); err != nil {
+			t.Fatalf("start idle workload %s: %v", id, err)
+		}
+	}
+	if err := controller.sampleWorkloadRuns(context.Background(), client); err != nil {
 		t.Fatal(err)
 	}
-	controller.workloadMemoryPressure = true
-	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-b", workloadStart("b")); capacityDimensionMetadata(err) != "memory_pressure" {
-		t.Fatalf("pressure admission: %v", err)
-	}
-	if _, err := controller.startWorkloadContainer(context.Background(), client, "env-a", workloadStart("a")); err != nil {
-		t.Fatalf("existing instance: %v", err)
+	for _, id := range []string{"a", "b", "c", "d", "e", "f"} {
+		response, err := controller.startWorkloadContainer(context.Background(), client, "env-"+id, workloadStart(id))
+		if err != nil || response.GetContainer().GetInstanceId() != "instance-"+id {
+			t.Fatalf("idle workload %s lost its running instance: %v, %v", id, response, err)
+		}
 	}
 }
 
@@ -159,17 +167,40 @@ func workloadGuestClient(t *testing.T, guest *workloadGuest) vmmdv1.VMMDServiceC
 
 type workloadGuest struct {
 	vmmdv1.UnimplementedVMMDServiceServer
-	mu                    sync.Mutex
-	states                map[string]*vmmdv1.Container
-	entered, release      chan struct{}
-	starting, maxStarting int
-	loseStop              bool
-	notFound              map[string]bool
+	mu                        sync.Mutex
+	states                    map[string]*vmmdv1.Container
+	entered, release          chan struct{}
+	starting, maxStarting     int
+	loseStop                  bool
+	usageUnavailable          bool
+	notFound                  map[string]bool
+	pool                      *vmmdv1.GetUsageResponse
+	inspectHits               map[string]int
+	inspectDelay              time.Duration
+	inspecting, maxInspecting int
 }
 
-func (g *workloadGuest) InspectContainer(_ context.Context, r *vmmdv1.InspectContainerRequest) (*vmmdv1.InspectContainerResponse, error) {
+func (g *workloadGuest) InspectContainer(ctx context.Context, r *vmmdv1.InspectContainerRequest) (*vmmdv1.InspectContainerResponse, error) {
+	g.mu.Lock()
+	if g.inspectHits != nil {
+		g.inspectHits[r.GetActorNamespaceId()]++
+	}
+	g.inspecting++
+	g.maxInspecting = max(g.maxInspecting, g.inspecting)
+	delay := g.inspectDelay
+	g.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+		}
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.inspecting--
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if g.notFound[r.GetActorNamespaceId()] {
 		return nil, status.Error(codes.NotFound, "container was deleted")
 	}
@@ -212,8 +243,43 @@ func (g *workloadGuest) StopContainer(_ context.Context, r *vmmdv1.StopContainer
 	return &vmmdv1.StopContainerResponse{Container: c}, nil
 }
 func (g *workloadGuest) GetSystemUsage(context.Context, *vmmdv1.GetSystemUsageRequest) (*vmmdv1.GetUsageResponse, error) {
+	if g.pool != nil {
+		return proto.Clone(g.pool).(*vmmdv1.GetUsageResponse), nil
+	}
 	return &vmmdv1.GetUsageResponse{WorkloadPool: &vmmdv1.Usage{MemoryBytes: 1 << 30}, WorkloadMemoryLimitBytes: 9 << 30}, nil
 }
 func (g *workloadGuest) GetNamespaceUsage(context.Context, *vmmdv1.GetNamespaceUsageRequest) (*vmmdv1.GetUsageResponse, error) {
-	return &vmmdv1.GetUsageResponse{Usage: &vmmdv1.Usage{}}, nil
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.usageUnavailable {
+		return nil, status.Error(codes.Unavailable, "usage unavailable")
+	}
+	return &vmmdv1.GetUsageResponse{Usage: &vmmdv1.Usage{SampledAtUnixNano: time.Now().UnixNano()}}, nil
+}
+
+func TestWorkloadSamplingBoundsRPCFanoutAndAdvancesCursor(t *testing.T) {
+	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container), inspectHits: make(map[string]int), inspectDelay: 5 * time.Millisecond}
+	controller := workloadTestController()
+	for index := range 40 {
+		id := fmt.Sprintf("env-%02d", index)
+		run := &workloadRun{environmentID: id, namespaceID: id, containerID: "main", instanceID: "instance-" + id}
+		controller.workloadRuns[workloadRunKey(id, "main")] = run
+		guest.states[id] = &vmmdv1.Container{Id: "main", InstanceId: run.instanceID, State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}
+	}
+	client := workloadGuestClient(t, guest)
+	for round := range 3 {
+		if err := controller.sampleWorkloadRuns(context.Background(), client); err != nil {
+			t.Fatal(err)
+		}
+		guest.mu.Lock()
+		total := 0
+		for _, hits := range guest.inspectHits {
+			total += hits
+		}
+		covered, peak := len(guest.inspectHits), guest.maxInspecting
+		guest.mu.Unlock()
+		if total != (round+1)*16 || peak > 4 || covered != min((round+1)*16, 40) {
+			t.Fatalf("round=%d RPCs=%d peak=%d covered=%d", round, total, peak, covered)
+		}
+	}
 }

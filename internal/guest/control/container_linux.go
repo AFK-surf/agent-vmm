@@ -110,7 +110,7 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	if err != nil {
 		return nil, err
 	}
-	if err := func() error { return container.Update(nsctx, withNetworkNamespace(endpoint.NetNSPath)) }(); err != nil {
+	if err := func() error { return container.Update(nsctx, withRuntimePlacement(namespaceID, endpoint.NetNSPath)) }(); err != nil {
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func deleteTask(ctx context.Context, task containerd.Task) error {
 	}
 }
 
-func withNetworkNamespace(path string) containerd.UpdateContainerOpts {
+func withRuntimePlacement(namespaceID, path string) containerd.UpdateContainerOpts {
 	return func(_ context.Context, _ *containerd.Client, container *containers.Container) error {
 		value, err := typeurl.UnmarshalAny(container.Spec)
 		if err != nil {
@@ -269,6 +269,19 @@ func withNetworkNamespace(path string) containerd.UpdateContainerOpts {
 		spec := value.(*specs.Spec)
 		if spec.Linux == nil {
 			spec.Linux = &specs.Linux{}
+		}
+		if !strings.HasPrefix(namespaceID, "system.") {
+			if spec.Linux.Resources == nil {
+				spec.Linux.Resources = &specs.LinuxResources{}
+			}
+			resources := spec.Linux.Resources
+			resources.CPU, resources.Memory = nil, nil
+			if resources.Unified == nil {
+				resources.Unified = make(map[string]string)
+			}
+			for key, value := range containerResources(namespaceID, nil).Unified {
+				resources.Unified[key] = value
+			}
 		}
 		filtered := spec.Linux.Namespaces[:0]
 		for _, namespace := range spec.Linux.Namespaces {

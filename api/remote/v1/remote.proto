@@ -79,7 +79,9 @@ message HostHello {
 }
 
 message RemoteObservationSnapshot {
-  bool workload_start_available = 13;
+  agentvmm.host.v1.WorkloadReclaimCandidate reclaim_candidate = 14;
+  reserved 13;
+  reserved "workload_start_available";
   uint64 sequence = 1;
   int64 observed_unix_millis = 2;
   string protocol_version = 3;
@@ -293,8 +295,8 @@ enum CapacityDimension {
   CAPACITY_DIMENSION_WRITABLE = 5;
   CAPACITY_DIMENSION_STORAGE_HEADROOM = 6;
   CAPACITY_DIMENSION_IMPORT_SLOT = 7;
-  CAPACITY_DIMENSION_RUN_SLOT = 8;
-  CAPACITY_DIMENSION_MEMORY_PRESSURE = 9;
+  reserved 8, 9;
+  reserved "CAPACITY_DIMENSION_RUN_SLOT", "CAPACITY_DIMENSION_MEMORY_PRESSURE";
 }
 
 enum CommandAckDisposition {

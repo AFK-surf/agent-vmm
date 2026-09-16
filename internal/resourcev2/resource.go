@@ -16,8 +16,6 @@ const (
 	CapacityWritable        CapacityDimension = "writable"
 	CapacityStorageHeadroom CapacityDimension = "storage_headroom"
 	CapacityImportSlot      CapacityDimension = "import_slot"
-	CapacityRunSlot         CapacityDimension = "run_slot"
-	CapacityMemoryPressure  CapacityDimension = "memory_pressure"
 )
 
 type CapacityError struct {
@@ -43,22 +41,15 @@ type Contract struct {
 	WritableQuotaBytes uint64
 }
 
-func (contract Contract) Validate(nodeCPUCapacity uint64) error {
-	if contract.CPUMaxMillis == 0 || contract.MemoryMaxBytes < 16<<20 || contract.PIDMax == 0 || contract.WritableQuotaBytes == 0 {
-		return errors.New("workload resource limits are outside the supported range")
-	}
-	if contract.CPUMaxMillis > nodeCPUCapacity {
-		return errors.New("cpu max exceeds node capacity")
+func (contract Contract) Validate(_ uint64) error {
+	if contract.PIDMax == 0 || contract.WritableQuotaBytes == 0 {
+		return errors.New("workload PID and writable limits must be positive")
 	}
 	return nil
 }
 
 func (contract Contract) Fits(limit Contract) error {
 	switch {
-	case contract.CPUMaxMillis > limit.CPUMaxMillis:
-		return &CapacityError{Dimension: CapacityCPUMax}
-	case contract.MemoryMaxBytes > limit.MemoryMaxBytes:
-		return &CapacityError{Dimension: CapacityMemory}
 	case contract.PIDMax > limit.PIDMax:
 		return &CapacityError{Dimension: CapacityPIDs}
 	case contract.WritableQuotaBytes > limit.WritableQuotaBytes:
@@ -71,9 +62,9 @@ func (contract Contract) Fits(limit Contract) error {
 func (contract Contract) CgroupValues() map[string]string {
 	return map[string]string{
 		"cpu.weight":  "100",
-		"cpu.max":     strconv.FormatUint(contract.CPUMaxMillis*100, 10) + " 100000",
+		"cpu.max":     "max 100000",
 		"memory.high": "max",
-		"memory.max":  strconv.FormatUint(contract.MemoryMaxBytes, 10),
+		"memory.max":  "max",
 		"pids.max":    strconv.FormatUint(contract.PIDMax, 10),
 	}
 }

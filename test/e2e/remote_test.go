@@ -10,11 +10,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -501,7 +504,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	}
 }
 
-func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
+func testSixRemoteDomains(t *testing.T, harness *hostHarness) {
 	type domain struct {
 		controller   *isolatedDomainController
 		registration string
@@ -513,7 +516,7 @@ func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	pool := &hostv1.RemotePoolPolicy{MaxEnvironments: 1, PerEnvironmentLimits: remoteLimits(100, 128<<20, 64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseDuration: durationpb.New(5 * time.Minute), DisconnectGrace: durationpb.New(5 * time.Second), StopGrace: durationpb.New(time.Second)}
-	domains := make([]domain, 0, 3)
+	domains := make([]domain, 0, 6)
 	defer func() {
 		for _, current := range domains {
 			if current.connection != nil {
@@ -523,10 +526,10 @@ func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
 			current.stopServer()
 		}
 	}()
-	for index := range 3 {
+	for index := range 6 {
 		controller := &isolatedDomainController{session: make(chan net.Conn, 1), finish: make(chan struct{}), cleaned: make(chan struct{})}
 		endpoint, roots, stopServer := startRemoteController(t, controller)
-		requestID := "three-domain-" + strconv.Itoa(index)
+		requestID := "six-domain-" + strconv.Itoa(index)
 		registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, RegistrationId: "registration-" + requestID, Endpoint: endpoint, DisplayName: requestID, ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
 		if err != nil {
 			t.Fatal(err)
@@ -544,13 +547,13 @@ func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
 		domains = append(domains, domain{controller: controller, registration: controller.registrationID, stop: stop, done: done, stopServer: stopServer})
 	}
 
-	environmentIDs := make(map[string]struct{}, 3)
+	environmentIDs := make(map[string]struct{}, 6)
 	for index := range domains {
 		var raw net.Conn
 		select {
 		case raw = <-domains[index].controller.session:
 		case <-ctx.Done():
-			t.Fatal("three-domain runtime session did not open")
+			t.Fatal("six-domain runtime session did not open")
 		}
 		connection, err := grpc.NewClient("passthrough:///isolated-runtime", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return raw, nil }))
 		if err != nil {
@@ -590,7 +593,7 @@ func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
 			break
 		}
 		if time.Now().After(metricsDeadline) {
-			t.Fatal("three-domain transport metrics did not settle")
+			t.Fatal("six-domain transport metrics did not settle")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -598,11 +601,11 @@ func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	revoking, err := harness.client.BeginRemoteRevocation(ctx, &hostv1.BeginRemoteRevocationRequest{RequestId: "revoke-three-domain-zero", RegistrationId: domains[0].registration, ExpectedRevision: revokedBefore.GetRegistration().GetRevision()})
+	revoking, err := harness.client.BeginRemoteRevocation(ctx, &hostv1.BeginRemoteRevocationRequest{RequestId: "revoke-six-domain-zero", RegistrationId: domains[0].registration, ExpectedRevision: revokedBefore.GetRegistration().GetRevision()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	revoked, err := harness.client.CompleteRemoteRevocation(ctx, &hostv1.CompleteRemoteRevocationRequest{RequestId: "complete-revoke-three-domain-zero", RegistrationId: domains[0].registration, ExpectedRevision: revoking.GetRegistration().GetRevision()})
+	revoked, err := harness.client.CompleteRemoteRevocation(ctx, &hostv1.CompleteRemoteRevocationRequest{RequestId: "complete-revoke-six-domain-zero", RegistrationId: domains[0].registration, ExpectedRevision: revoking.GetRegistration().GetRevision()})
 	if err != nil || revoked.GetRegistration().GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED || len(revoked.GetRegistration().GetAllocations()) != 1 || revoked.GetRegistration().GetAllocations()[0].GetState() != hostv1.AllocationState_ALLOCATION_STATE_RETAINED {
 		t.Fatalf("revoked domain projection=%+v err=%v", revoked, err)
 	}
@@ -637,13 +640,13 @@ func testThreeRemoteDomains(t *testing.T, harness *hostHarness) {
 		select {
 		case <-current.controller.cleaned:
 		case <-ctx.Done():
-			t.Fatal("three-domain cleanup did not finish")
+			t.Fatal("six-domain cleanup did not finish")
 		}
 		current.stop()
 		select {
 		case <-current.done:
 		case <-time.After(5 * time.Second):
-			t.Fatal("three-domain connector did not stop")
+			t.Fatal("six-domain connector did not stop")
 		}
 	}
 }
@@ -721,4 +724,95 @@ func startRemoteController(t *testing.T, service remotev1.RemoteControllerServic
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(certPEM)
 	return net.JoinHostPort("localhost", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)), roots, func() { server.Stop(); listener.Close() }
+}
+
+// TestCuePressureBridgeE2E is driven by Cue's opt-in Salix integration test.
+// All registrations and VM state belong to that fixture, never a saved host.
+func TestCuePressureBridgeE2E(t *testing.T) {
+	configPath := os.Getenv("CUE_VMM_E2E_CONFIG")
+	if configPath == "" {
+		t.Skip("set CUE_VMM_E2E_CONFIG from the Cue pressure integration test")
+	}
+	var fixture struct {
+		Endpoint      string `json:"remote_endpoint"`
+		CA            string `json:"ca_file"`
+		Archive       string `json:"archive_path"`
+		Registrations []struct {
+			ID         string `json:"id"`
+			Credential []byte `json:"credential"`
+		} `json:"registrations"`
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Registrations) != 6 {
+		t.Fatal("pressure fixture requires exactly six isolated registrations")
+	}
+	roots := x509.NewCertPool()
+	raw, err = os.ReadFile(fixture.CA)
+	if err != nil || !roots.AppendCertsFromPEM(raw) {
+		t.Fatal("invalid fixture CA")
+	}
+	harness := startHostWithState(t, 32<<30)
+	harness.start(t)
+	t.Cleanup(func() { harness.stop(t, true) })
+	t.Cleanup(func() {
+		for suffix, name := range map[string]string{"": "guest.log", ".host.log": "host-runtime.log"} {
+			if err := os.WriteFile(filepath.Join(filepath.Dir(configPath), name), readFileTail(harness.serial+suffix, 256<<10), 0600); err != nil {
+				t.Errorf("preserve pressure fixture diagnostics: %v", err)
+			}
+		}
+	})
+	archiveName := "import-cue-pressure.tar"
+	source, err := os.Open(fixture.Archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := os.Create(filepath.Join(harness.runtimeClient.archiveDirectory, archiveName))
+	if err != nil {
+		source.Close()
+		t.Fatal(err)
+	}
+	_, copyErr := io.Copy(destination, source)
+	if err := errors.Join(copyErr, source.Close(), destination.Close()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	failures := make(chan error, 6)
+	for _, registration := range fixture.Registrations {
+		pool := &hostv1.RemotePoolPolicy{MaxEnvironments: 1, PerEnvironmentLimits: remoteLimits(100, 64<<20, 512, 3<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, MaxLeaseDuration: durationpb.New(time.Hour), DisconnectGrace: durationpb.New(30 * time.Second), StopGrace: durationpb.New(time.Second)}
+		started, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: registration.ID + "-begin", RegistrationId: registration.ID, Endpoint: fixture.Endpoint, DisplayName: "Cue pressure fixture", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: registration.ID + "-complete", RegistrationId: registration.ID, ExpectedRevision: started.GetRegistration().GetRevision()}); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			failures <- remoteconnector.Run(ctx, remoteconnector.Config{Endpoint: fixture.Endpoint, EndpointIdentity: "localhost", RegistrationID: registration.ID, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: &e2eCredentialStore{value: registration.Credential}, TLSRoots: roots})
+		}()
+	}
+	ready, _ := json.Marshal(map[string]string{"archive_url": harness.runtimeClient.archiveURL + "/" + archiveName, "serial_log": harness.serial})
+	if err := os.WriteFile(configPath+".host-ready", ready, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-failures:
+			t.Fatalf("fixture remote connector exited: %v", err)
+		case <-ctx.Done():
+			t.Fatal("Cue pressure fixture exceeded 15 minutes")
+		case <-ticker.C:
+			if _, err := os.Stat(configPath + ".stop"); err == nil {
+				return
+			}
+		}
+	}
 }

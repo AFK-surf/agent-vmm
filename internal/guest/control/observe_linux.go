@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -581,22 +582,29 @@ func usageFailureReason(err error) string {
 	return "usage could not be collected"
 }
 
-func workloadPoolUsage(path string) (*vmmdv1.Usage, uint64, float64, uint64, error) {
+func workloadPoolUsage(path string) (*vmmdv1.Usage, uint64, float64, uint64, uint64, error) {
 	usage, err := readCgroupUsage(path)
 	if err != nil {
-		return nil, 0, 0, 0, fmt.Errorf("workload pool usage: %w", err)
+		return nil, 0, 0, 0, 0, fmt.Errorf("workload pool usage: %w", err)
 	}
 	limit, err := uintFile(filepath.Join(path, "memory.max"))
 	if err != nil {
-		return nil, 0, 0, 0, fmt.Errorf("workload pool memory limit: %w", err)
+		return nil, 0, 0, 0, 0, fmt.Errorf("workload pool memory limit: %w", err)
 	}
-	events, err := keyValueFile(filepath.Join(path, "memory.events"))
+	// memory.current includes runsc's shmem/file charges. The breakdown is
+	// diagnostic only: subtracting file memory would hide sandbox pressure.
+	stats, statErr := keyValueFile(filepath.Join(path, "memory.stat"))
+	if limit > 0 && float64(usage.MemoryBytes)/float64(limit) >= .9 {
+		log.Printf("workload memory pressure: current=%d limit=%d anon=%d file=%d shmem=%d stat_error=%v",
+			usage.MemoryBytes, limit, stats["anon"], stats["file"], stats["shmem"], statErr)
+	}
+	events, err := keyValueFile(filepath.Join(path, "memory.events.local"))
 	if err != nil {
-		return nil, 0, 0, 0, fmt.Errorf("workload pool memory events: %w", err)
+		return nil, 0, 0, 0, 0, fmt.Errorf("workload pool memory events: %w", err)
 	}
 	data, err := os.ReadFile(filepath.Join(path, "memory.pressure"))
 	if err != nil {
-		return nil, 0, 0, 0, fmt.Errorf("workload pool memory pressure: %w", err)
+		return nil, 0, 0, 0, 0, fmt.Errorf("workload pool memory pressure: %w", err)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
@@ -606,9 +614,9 @@ func workloadPoolUsage(path string) (*vmmdv1.Usage, uint64, float64, uint64, err
 		for _, field := range fields[1:] {
 			if value, ok := strings.CutPrefix(field, "avg10="); ok {
 				pressure, err := strconv.ParseFloat(value, 64)
-				return usage, limit, pressure, events["oom_kill"], err
+				return usage, limit, pressure, events["oom_kill"], events["oom"], err
 			}
 		}
 	}
-	return nil, 0, 0, 0, errors.New("workload memory pressure is unavailable")
+	return nil, 0, 0, 0, 0, errors.New("workload memory pressure is unavailable")
 }

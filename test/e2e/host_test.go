@@ -46,7 +46,7 @@ func TestE2E(t *testing.T) {
 	client := harness.runtime(t)
 	t.Run("session_auth_and_revocation", func(t *testing.T) { testSessionAuthAndRevocation(t, harness, client) })
 	t.Run("remote_workflow", func(t *testing.T) { testRemoteWorkflow(t, harness) })
-	t.Run("three_remote_domains", func(t *testing.T) { testThreeRemoteDomains(t, harness) })
+	t.Run("six_remote_domains", func(t *testing.T) { testSixRemoteDomains(t, harness) })
 	t.Run("mcp_workflow", func(t *testing.T) { testMCPWorkflow(t, harness) })
 	t.Run("workspace_file_workflow", func(t *testing.T) { testWorkspaceFileWorkflow(t, client) })
 	t.Run("image_record_lifecycle", func(t *testing.T) { testImageRecordLifecycle(t, client) })
@@ -101,6 +101,53 @@ func TestE2E(t *testing.T) {
 		t.Cleanup(func() { isolated.stop(t, true) })
 		testPGVectorImageAndVolume(t, isolated.runtime(t))
 	})
+}
+
+func TestSixResidentWorkloadsE2E(t *testing.T) {
+	harness := startHostWithState(t, 32<<30)
+	harness.start(t)
+	t.Cleanup(func() { harness.stop(t, true) })
+	client := harness.runtime(t)
+	for index := range 6 {
+		namespace := fmt.Sprintf("resident-%d", index)
+		if _, err := client.EnsureEnvironment(context.Background(), namespace, "shared-"+namespace,
+			&hostv1.ResourceLimits{CpuMillis: optional(uint32(100)), MemoryBytes: optional(uint64(64 << 20)), Pids: optional(uint32(512)), DiskBytes: optional(uint64(256 << 20))}, hostv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
+			t.Fatal(err)
+		}
+		importRegistryImage(t, client, namespace)
+		container := createContainer(t, client, namespace, "worker", idleProcess(), nil)
+		startContainer(t, client, namespace, container.GetId())
+	}
+	if output, code := execContainer(t, client, "resident-0", "worker", []string{"awk", `BEGIN { s="x"; for (i=0;i<27;i++) s=s s; print length(s) }`}); code != 0 || string(output) != "134217728\n" {
+		t.Fatalf("workload could not exceed former 64 MiB template limit: %q, exit %d", output, code)
+	}
+	// Idle beyond the reclaim threshold without pressure must retain all instances.
+	time.Sleep(65 * time.Second)
+	for index := range 6 {
+		namespace := fmt.Sprintf("resident-%d", index)
+		if output, code := execContainer(t, client, namespace, "worker", []string{"sh", "-c", "echo durable > /root/resident; sync; cat /root/resident"}); code != 0 || string(output) != "durable\n" {
+			t.Fatalf("resident workload %d: %q, exit %d", index, output, code)
+		}
+	}
+	harness.stop(t, false)
+	harness.start(t)
+	client = harness.runtime(t)
+	for index := range 6 {
+		namespace := fmt.Sprintf("resident-%d", index)
+		startContainer(t, client, namespace, "worker")
+		if output, code := execContainer(t, client, namespace, "worker", []string{"cat", "/root/resident"}); code != 0 || string(output) != "durable\n" {
+			t.Fatalf("restarted workload %d lost durable files: %q, exit %d", index, output, code)
+		}
+	}
+	harness.crashAndRestartHost(t)
+	client = harness.runtime(t)
+	for index := range 6 {
+		namespace := fmt.Sprintf("resident-%d", index)
+		startContainer(t, client, namespace, "worker")
+		if output, code := execContainer(t, client, namespace, "worker", []string{"cat", "/root/resident"}); code != 0 || string(output) != "durable\n" {
+			t.Fatalf("host recovery workload %d lost durable files: %q, exit %d", index, output, code)
+		}
+	}
 }
 
 func TestStateInitializationE2E(t *testing.T) {

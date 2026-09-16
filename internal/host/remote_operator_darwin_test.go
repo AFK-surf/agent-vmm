@@ -41,7 +41,11 @@ func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) 
 	}
 	managed.Pool.MaxEnvironments = 1
 	*managed.Pool.PerEnvironmentLimits.CpuMillis = cpu + 1
+	if _, err := registrationFromPool(managed.Pool, capacity); err != nil {
+		t.Fatalf("CPU template value constrained shared capacity: %v", err)
+	}
+	*managed.Pool.PerEnvironmentLimits.Pids = pids + 1
 	if _, err := registrationFromPool(managed.Pool, capacity); err == nil {
-		t.Fatal("per-environment limit above host capacity was accepted")
+		t.Fatal("PID limit above host capacity was accepted")
 	}
 }

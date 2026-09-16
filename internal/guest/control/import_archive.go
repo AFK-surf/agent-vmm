@@ -39,7 +39,7 @@ func validateImportHeader(header *vmmdv1.ImportImageHeader, maxArchiveBytes uint
 		return "", "", errors.New("complete bounded linux/arm64 OCI import metadata is required")
 	}
 	if header.GetSystemImport() {
-		if validateSystemNamespace(header.GetActorNamespaceId()) != nil || validateNamespaceLimits(header.GetSystemLimits()) != nil || header.GetSystemEgressMode() == vmmdv1.EgressMode_EGRESS_MODE_UNSPECIFIED {
+		if validateSystemNamespace(header.GetActorNamespaceId()) != nil || validateNamespaceLimits(header.GetSystemLimits(), true) != nil || header.GetSystemEgressMode() == vmmdv1.EgressMode_EGRESS_MODE_UNSPECIFIED {
 			return "", "", errors.New("system image import identity is invalid")
 		}
 	} else if validateID("actor_namespace_id", header.GetActorNamespaceId()) != nil {

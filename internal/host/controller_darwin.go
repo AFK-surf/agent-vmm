@@ -90,6 +90,11 @@ type Controller struct {
 	workloadPressureAt       time.Time
 	workloadMemoryPressure   bool
 	workloadOOMKills         uint64
+	workloadOOMEvents        uint64
+	workloadPressureHigh     int
+	workloadPressureLow      int
+	workloadSampleCursor     string
+	workloadReclaim          *workloadReclaimCandidate
 	environmentLocks         sync.Map
 	integrationLocks         sync.Map
 	sessionActivity          sync.Map

@@ -69,7 +69,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if err != nil {
 		return nil, err
 	}
-	if err := validateResourceLimits(request.GetLimits(), namespace.GetLimits()); err != nil {
+	if err := validateResourceLimits(namespaceID, request.GetLimits(), namespace.GetLimits()); err != nil {
 		return nil, err
 	}
 	for _, mount := range request.GetVolumes() {
@@ -323,7 +323,7 @@ func (r *Runtime) specOptions(namespaceID string, request *vmmdv1.CreateContaine
 		if spec.Linux == nil {
 			spec.Linux = &specs.Linux{}
 		}
-		spec.Linux.Resources = containerResources(request.GetLimits())
+		spec.Linux.Resources = containerResources(namespaceID, request.GetLimits())
 		for _, mount := range request.GetVolumes() {
 			mode := "rw"
 			if mount.GetReadOnly() {
@@ -374,16 +374,20 @@ func processArguments(imageEntrypoint, imageCommand []string, entrypointOverride
 	return append(entrypoint, command...)
 }
 
-func containerResources(limits *vmmdv1.ResourceLimits) *specs.LinuxResources {
+func containerResources(namespaceID string, limits *vmmdv1.ResourceLimits) *specs.LinuxResources {
 	resources := &specs.LinuxResources{}
+	system := strings.HasPrefix(namespaceID, "system.")
+	if !system {
+		resources.Unified = map[string]string{"cpu.max": "max 100000", "cpu.weight": "100", "memory.max": "max", "memory.high": "max"}
+	}
 	if limits == nil {
 		return resources
 	}
-	if limits.CpuMillis != nil {
+	if system && limits.CpuMillis != nil {
 		period, quota := uint64(100000), int64(limits.GetCpuMillis())*100
 		resources.CPU = &specs.LinuxCPU{Period: &period, Quota: &quota}
 	}
-	if limits.MemoryBytes != nil {
+	if system && limits.MemoryBytes != nil {
 		value := int64(limits.GetMemoryBytes())
 		resources.Memory = &specs.LinuxMemory{Limit: &value}
 	}

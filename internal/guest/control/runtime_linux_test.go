@@ -241,7 +241,7 @@ func TestFixedSpecPolicy(t *testing.T) {
 	if spec.Annotations[runscContainerType] != runscSandbox {
 		t.Fatalf("runsc container type = %q", spec.Annotations[runscContainerType])
 	}
-	if spec.Linux.Resources.CPU == nil || *spec.Linux.Resources.CPU.Quota != 50000 || spec.Linux.Resources.Memory == nil || *spec.Linux.Resources.Memory.Limit != int64(memory) || spec.Linux.Resources.Pids == nil || *spec.Linux.Resources.Pids.Limit != int64(pids) {
+	if spec.Linux.Resources.CPU != nil || spec.Linux.Resources.Memory != nil || spec.Linux.Resources.Unified["memory.max"] != "max" || spec.Linux.Resources.Unified["cpu.max"] != "max 100000" || spec.Linux.Resources.Pids == nil || *spec.Linux.Resources.Pids.Limit != int64(pids) {
 		t.Fatalf("resource policy mismatch: %+v", spec.Linux.Resources)
 	}
 	want := []specs.Mount{

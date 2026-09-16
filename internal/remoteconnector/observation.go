@@ -102,7 +102,9 @@ func collectObservation(ctx context.Context, client remoteObservationClient, reg
 	result.InventoryObservedUnixMillis = observed.UnixMilli()
 	result.Health = publicHealth(response.GetHealth())
 	result.Usage = publicUsage(response.GetUsage())
-	result.WorkloadStartAvailable = response.GetWorkloadStartAvailable()
+	if candidate := response.GetReclaimCandidate(); candidate != nil && candidate.GetRegistrationId() == registration.GetId() {
+		result.ReclaimCandidate = proto.Clone(candidate).(*hostv1.WorkloadReclaimCandidate)
+	}
 	return result
 }
 

@@ -5421,6 +5421,7 @@ type GetUsageResponse struct {
 	WorkloadMemoryLimitBytes uint64                 `protobuf:"varint,3,opt,name=workload_memory_limit_bytes,json=workloadMemoryLimitBytes,proto3" json:"workload_memory_limit_bytes,omitempty"`
 	WorkloadMemoryFullAvg10  float64                `protobuf:"fixed64,4,opt,name=workload_memory_full_avg10,json=workloadMemoryFullAvg10,proto3" json:"workload_memory_full_avg10,omitempty"`
 	WorkloadOomKills         uint64                 `protobuf:"varint,5,opt,name=workload_oom_kills,json=workloadOomKills,proto3" json:"workload_oom_kills,omitempty"`
+	WorkloadOomEvents        uint64                 `protobuf:"varint,10,opt,name=workload_oom_events,json=workloadOomEvents,proto3" json:"workload_oom_events,omitempty"`
 	Disk                     *DiskAccounting        `protobuf:"bytes,6,opt,name=disk,proto3" json:"disk,omitempty"`
 	OpenFds                  *uint32                `protobuf:"varint,7,opt,name=open_fds,json=openFds,proto3,oneof" json:"open_fds,omitempty"`
 	OpenFdsUnavailableReason string                 `protobuf:"bytes,8,opt,name=open_fds_unavailable_reason,json=openFdsUnavailableReason,proto3" json:"open_fds_unavailable_reason,omitempty"`
@@ -5490,6 +5491,13 @@ func (x *GetUsageResponse) GetWorkloadMemoryFullAvg10() float64 {
 func (x *GetUsageResponse) GetWorkloadOomKills() uint64 {
 	if x != nil {
 		return x.WorkloadOomKills
+	}
+	return 0
+}
+
+func (x *GetUsageResponse) GetWorkloadOomEvents() uint64 {
+	if x != nil {
+		return x.WorkloadOomEvents
 	}
 	return 0
 }
@@ -8903,13 +8911,15 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x12unavailable_reason\x18\t \x01(\tR\x11unavailableReason\x12(\n" +
 	"\x10network_rx_bytes\x18\n" +
 	" \x01(\x04R\x0enetworkRxBytes\x12(\n" +
-	"\x10network_tx_bytes\x18\v \x01(\x04R\x0enetworkTxBytes\"\x83\x04\n" +
+	"\x10network_tx_bytes\x18\v \x01(\x04R\x0enetworkTxBytes\"\xb3\x04\n" +
 	"\x10GetUsageResponse\x12-\n" +
 	"\x05usage\x18\x01 \x01(\v2\x17.agentvmm.vmmd.v1.UsageR\x05usage\x12<\n" +
 	"\rworkload_pool\x18\x02 \x01(\v2\x17.agentvmm.vmmd.v1.UsageR\fworkloadPool\x12=\n" +
 	"\x1bworkload_memory_limit_bytes\x18\x03 \x01(\x04R\x18workloadMemoryLimitBytes\x12;\n" +
 	"\x1aworkload_memory_full_avg10\x18\x04 \x01(\x01R\x17workloadMemoryFullAvg10\x12,\n" +
-	"\x12workload_oom_kills\x18\x05 \x01(\x04R\x10workloadOomKills\x124\n" +
+	"\x12workload_oom_kills\x18\x05 \x01(\x04R\x10workloadOomKills\x12.\n" +
+	"\x13workload_oom_events\x18\n" +
+	" \x01(\x04R\x11workloadOomEvents\x124\n" +
 	"\x04disk\x18\x06 \x01(\v2 .agentvmm.vmmd.v1.DiskAccountingR\x04disk\x12\x1e\n" +
 	"\bopen_fds\x18\a \x01(\rH\x00R\aopenFds\x88\x01\x01\x12=\n" +
 	"\x1bopen_fds_unavailable_reason\x18\b \x01(\tR\x18openFdsUnavailableReason\x126\n" +

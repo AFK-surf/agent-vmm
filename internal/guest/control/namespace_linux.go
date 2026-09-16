@@ -38,7 +38,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	if identityErr != nil {
 		return nil, identityErr
 	}
-	if err := validateNamespaceLimits(request.GetLimits()); err != nil {
+	if err := validateNamespaceLimits(request.GetLimits(), system); err != nil {
 		return nil, err
 	}
 	if request.GetEgressMode() == vmmdv1.EgressMode_EGRESS_MODE_UNSPECIFIED {
@@ -260,8 +260,8 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	}
 	return inventory.removeNamespace(namespaceID)
 }
-func validateNamespaceLimits(limits *vmmdv1.NamespaceLimits) error {
-	if limits == nil || limits.GetCpuMillis() == 0 || limits.GetMemoryBytes() < 16<<20 || limits.GetPids() == 0 || limits.GetDiskBytes() == 0 {
+func validateNamespaceLimits(limits *vmmdv1.NamespaceLimits, system bool) error {
+	if limits == nil || limits.GetPids() == 0 || limits.GetDiskBytes() == 0 || system && (limits.GetCpuMillis() == 0 || limits.GetMemoryBytes() < 16<<20) {
 		return errors.New("positive cpu, memory, pids, and disk limits are required")
 	}
 	return nil

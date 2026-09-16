@@ -19,8 +19,6 @@ func TestCapacityDimensionIsForwardedFromHostAdmissionAuthority(t *testing.T) {
 		"pids":             remotev1.CapacityDimension_CAPACITY_DIMENSION_PIDS,
 		"writable":         remotev1.CapacityDimension_CAPACITY_DIMENSION_WRITABLE,
 		"storage_headroom": remotev1.CapacityDimension_CAPACITY_DIMENSION_STORAGE_HEADROOM,
-		"run_slot":         remotev1.CapacityDimension_CAPACITY_DIMENSION_RUN_SLOT,
-		"memory_pressure":  remotev1.CapacityDimension_CAPACITY_DIMENSION_MEMORY_PRESSURE,
 		"import_slot":      remotev1.CapacityDimension_CAPACITY_DIMENSION_IMPORT_SLOT,
 	} {
 		value := status.New(codes.ResourceExhausted, "capacity exhausted")

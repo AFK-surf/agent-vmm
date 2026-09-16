@@ -16,6 +16,7 @@ type observationClientStub struct {
 	state            *hostv1.GetRemoteStateResponse
 	stateErr         error
 	observationCalls int
+	candidate        *hostv1.WorkloadReclaimCandidate
 }
 
 func (client *observationClientStub) GetRemoteState(_ context.Context, request *hostv1.GetRemoteStateRequest, _ ...grpc.CallOption) (*hostv1.GetRemoteStateResponse, error) {
@@ -27,7 +28,7 @@ func (client *observationClientStub) GetRemoteState(_ context.Context, request *
 
 func (client *observationClientStub) GetRemoteObservation(context.Context, *hostv1.GetRemoteObservationRequest, ...grpc.CallOption) (*hostv1.GetRemoteObservationResponse, error) {
 	client.observationCalls++
-	return &hostv1.GetRemoteObservationResponse{ObservedAt: timestamppb.Now()}, nil
+	return &hostv1.GetRemoteObservationResponse{ObservedAt: timestamppb.Now(), ReclaimCandidate: client.candidate}, nil
 }
 
 func TestPublicObservationUsesFiniteHealthAndDropsNativeReasons(t *testing.T) {
@@ -66,5 +67,19 @@ func TestCurrentObservationDoesNotRefreshCachedInventoryWhenStateReadFails(t *te
 	}
 	if client.observationCalls != 0 {
 		t.Fatalf("GetRemoteObservation calls = %d, want 0", client.observationCalls)
+	}
+}
+
+func TestObservationReclaimCandidateDoesNotCrossRegistration(t *testing.T) {
+	for _, owner := range []string{"registration-a", "registration-b"} {
+		client := &observationClientStub{candidate: &hostv1.WorkloadReclaimCandidate{RegistrationId: owner, AllocationId: "allocation", ContainerId: "worker", ContainerInstanceId: "instance", ExpiresUnixMillis: time.Now().Add(time.Second).UnixMilli()}}
+		observation := collectObservation(context.Background(), client, &hostv1.RemoteRegistration{Id: "registration-a"}, 1)
+		if owner == "registration-a" {
+			if observation.GetReclaimCandidate().GetContainerInstanceId() != "instance" {
+				t.Fatal("scoped candidate lost exact instance")
+			}
+		} else if observation.GetReclaimCandidate() != nil {
+			t.Fatal("another registration received reclaim authority")
+		}
 	}
 }

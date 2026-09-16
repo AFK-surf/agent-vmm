@@ -6537,15 +6537,39 @@ public nonisolated struct Agentvmm_Host_V1_GetRemoteObservationRequest: Sendable
   public init() {}
 }
 
+public nonisolated struct Agentvmm_Host_V1_WorkloadReclaimCandidate: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var registrationID: String = String()
+
+  public var allocationID: String = String()
+
+  public var containerID: String = String()
+
+  public var containerInstanceID: String = String()
+
+  public var expiresUnixMillis: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentvmm_Host_V1_GetRemoteObservationResponse: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var workloadStartAvailable: Bool {
-    get {_storage._workloadStartAvailable}
-    set {_uniqueStorage()._workloadStartAvailable = newValue}
+  public var reclaimCandidate: Agentvmm_Host_V1_WorkloadReclaimCandidate {
+    get {_storage._reclaimCandidate ?? Agentvmm_Host_V1_WorkloadReclaimCandidate()}
+    set {_uniqueStorage()._reclaimCandidate = newValue}
   }
+  /// Returns true if `reclaimCandidate` has been explicitly set.
+  public var hasReclaimCandidate: Bool {_storage._reclaimCandidate != nil}
+  /// Clears the value of `reclaimCandidate`. Subsequent reads from it will return its default value.
+  public mutating func clearReclaimCandidate() {_uniqueStorage()._reclaimCandidate = nil}
 
   public var health: Agentvmm_Host_V1_HealthStatus {
     get {_storage._health ?? Agentvmm_Host_V1_HealthStatus()}
@@ -17174,12 +17198,62 @@ nonisolated extension Agentvmm_Host_V1_GetRemoteObservationRequest: SwiftProtobu
   }
 }
 
+nonisolated extension Agentvmm_Host_V1_WorkloadReclaimCandidate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".WorkloadReclaimCandidate"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}allocation_id\0\u{3}container_id\0\u{3}container_instance_id\0\u{3}expires_unix_millis\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.containerInstanceID) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.expiresUnixMillis) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.registrationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 1)
+    }
+    if !self.allocationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 2)
+    }
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 3)
+    }
+    if !self.containerInstanceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerInstanceID, fieldNumber: 4)
+    }
+    if self.expiresUnixMillis != 0 {
+      try visitor.visitSingularInt64Field(value: self.expiresUnixMillis, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_WorkloadReclaimCandidate, rhs: Agentvmm_Host_V1_WorkloadReclaimCandidate) -> Bool {
+    if lhs.registrationID != rhs.registrationID {return false}
+    if lhs.allocationID != rhs.allocationID {return false}
+    if lhs.containerID != rhs.containerID {return false}
+    if lhs.containerInstanceID != rhs.containerInstanceID {return false}
+    if lhs.expiresUnixMillis != rhs.expiresUnixMillis {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentvmm_Host_V1_GetRemoteObservationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetRemoteObservationResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}health\0\u{1}usage\0\u{3}observed_at\0\u{3}workload_start_available\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}health\0\u{1}usage\0\u{3}observed_at\0\u{4}\u{2}reclaim_candidate\0\u{b}workload_start_available\0\u{c}\u{4}\u{1}")
 
   fileprivate class _StorageClass {
-    var _workloadStartAvailable: Bool = false
+    var _reclaimCandidate: Agentvmm_Host_V1_WorkloadReclaimCandidate? = nil
     var _health: Agentvmm_Host_V1_HealthStatus? = nil
     var _usage: Agentvmm_Host_V1_Usage? = nil
     var _observedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
@@ -17193,7 +17267,7 @@ nonisolated extension Agentvmm_Host_V1_GetRemoteObservationResponse: SwiftProtob
     private init() {}
 
     init(copying source: _StorageClass) {
-      _workloadStartAvailable = source._workloadStartAvailable
+      _reclaimCandidate = source._reclaimCandidate
       _health = source._health
       _usage = source._usage
       _observedAt = source._observedAt
@@ -17218,7 +17292,7 @@ nonisolated extension Agentvmm_Host_V1_GetRemoteObservationResponse: SwiftProtob
         case 1: try { try decoder.decodeSingularMessageField(value: &_storage._health) }()
         case 2: try { try decoder.decodeSingularMessageField(value: &_storage._usage) }()
         case 3: try { try decoder.decodeSingularMessageField(value: &_storage._observedAt) }()
-        case 4: try { try decoder.decodeSingularBoolField(value: &_storage._workloadStartAvailable) }()
+        case 5: try { try decoder.decodeSingularMessageField(value: &_storage._reclaimCandidate) }()
         default: break
         }
       }
@@ -17240,9 +17314,9 @@ nonisolated extension Agentvmm_Host_V1_GetRemoteObservationResponse: SwiftProtob
       try { if let v = _storage._observedAt {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
       } }()
-      if _storage._workloadStartAvailable != false {
-        try visitor.visitSingularBoolField(value: _storage._workloadStartAvailable, fieldNumber: 4)
-      }
+      try { if let v = _storage._reclaimCandidate {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -17252,7 +17326,7 @@ nonisolated extension Agentvmm_Host_V1_GetRemoteObservationResponse: SwiftProtob
       let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
         let rhs_storage = _args.1
-        if _storage._workloadStartAvailable != rhs_storage._workloadStartAvailable {return false}
+        if _storage._reclaimCandidate != rhs_storage._reclaimCandidate {return false}
         if _storage._health != rhs_storage._health {return false}
         if _storage._usage != rhs_storage._usage {return false}
         if _storage._observedAt != rhs_storage._observedAt {return false}

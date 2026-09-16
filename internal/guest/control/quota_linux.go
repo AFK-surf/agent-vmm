@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestquota "github.com/AFK-surf/agent-vmm/internal/guest/quota"
@@ -59,7 +61,12 @@ func applyResourceCgroupAt(parent, namespaceID string, contract resourcev2.Contr
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err
 	}
-	for name, value := range contract.CgroupValues() {
+	values := contract.CgroupValues()
+	if strings.HasPrefix(namespaceID, "system.") {
+		values["cpu.max"] = strconv.FormatUint(contract.CPUMaxMillis*100, 10) + " 100000"
+		values["memory.max"] = strconv.FormatUint(contract.MemoryMaxBytes, 10)
+	}
+	for name, value := range values {
 		if err := os.WriteFile(filepath.Join(path, name), []byte(value), 0o644); err != nil {
 			return fmt.Errorf("write cgroup %s: %w", name, err)
 		}
@@ -79,7 +86,7 @@ func initializeResourcePools() error {
 	return initializeResourcePoolsAt("/sys/fs/cgroup", uint64(runtime.NumCPU())*1000, memory.Totalram*uint64(memory.Unit))
 }
 
-func initializeResourcePoolsAt(parent string, cpuMillis, memoryBytes uint64) error {
+func initializeResourcePoolsAt(parent string, _ uint64, memoryBytes uint64) error {
 	root := filepath.Join(parent, "agent-vmm")
 	if err := enableControllers(parent); err != nil {
 		return err
@@ -99,10 +106,10 @@ func initializeResourcePoolsAt(parent string, cpuMillis, memoryBytes uint64) err
 			return err
 		}
 	}
-	workload := resourcev2.Contract{CPUMaxMillis: max(uint64(500), cpuMillis-min(cpuMillis, uint64(1000))), MemoryMaxBytes: memoryBytes / 4 * 3, PIDMax: 2048}
-	system := resourcev2.Contract{CPUMaxMillis: cpuMillis - workload.CPUMaxMillis, MemoryMaxBytes: memoryBytes - workload.MemoryMaxBytes, PIDMax: 2048}
-	for pool, contract := range map[string]resourcev2.Contract{"system": system, "workload": workload} {
-		for name, value := range contract.CgroupValues() {
+	for pool, memory := range map[string]uint64{"system": memoryBytes - memoryBytes/4*3, "workload": memoryBytes / 4 * 3} {
+		values := (resourcev2.Contract{PIDMax: 2048}).CgroupValues()
+		values["memory.max"] = strconv.FormatUint(memory, 10)
+		for name, value := range values {
 			if err := os.WriteFile(filepath.Join(root, pool, name), []byte(value), 0o644); err != nil {
 				return fmt.Errorf("write %s pool %s: %w", pool, name, err)
 			}

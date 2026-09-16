@@ -163,10 +163,6 @@ func capacityDimensionFor(err error) remotev1.CapacityDimension {
 				return remotev1.CapacityDimension_CAPACITY_DIMENSION_WRITABLE
 			case "storage_headroom":
 				return remotev1.CapacityDimension_CAPACITY_DIMENSION_STORAGE_HEADROOM
-			case "run_slot":
-				return remotev1.CapacityDimension_CAPACITY_DIMENSION_RUN_SLOT
-			case "memory_pressure":
-				return remotev1.CapacityDimension_CAPACITY_DIMENSION_MEMORY_PRESSURE
 			case "import_slot":
 				return remotev1.CapacityDimension_CAPACITY_DIMENSION_IMPORT_SLOT
 			}

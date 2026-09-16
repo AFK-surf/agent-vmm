@@ -63,7 +63,7 @@ func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageReq
 	} else {
 		response.DiskUnavailableReason = boundedObservationFailure("Guest disk", diskErr)
 	}
-	pool, limit, pressure, kills, err := workloadPoolUsage("/sys/fs/cgroup/agent-vmm/workload")
+	pool, limit, pressure, kills, oom, err := workloadPoolUsage("/sys/fs/cgroup/agent-vmm/workload")
 	if err != nil {
 		response.WorkloadPool = unavailableUsage(err)
 	} else {
@@ -71,6 +71,7 @@ func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageReq
 		response.WorkloadMemoryLimitBytes = limit
 		response.WorkloadMemoryFullAvg10 = pressure
 		response.WorkloadOomKills = kills
+		response.WorkloadOomEvents = oom
 	}
 	return response, nil
 }

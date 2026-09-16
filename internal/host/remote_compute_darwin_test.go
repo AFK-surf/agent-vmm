@@ -189,7 +189,7 @@ func TestPrivateControllerConnectionPersistsWhileWorkloadAdmissionIsClosed(t *te
 	}
 }
 
-func TestAllocationAdmissionKeepsFourWorkloadCeilingsIndependent(t *testing.T) {
+func TestAllocationAdmissionSharesCPUAndMemoryButKeepsPIDAndDiskLimits(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestAllocationAdmissionKeepsFourWorkloadCeilingsIndependent(t *testing.T) {
 		PerEnvCPUMillis: 2000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 8 << 30,
 		MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL)}
 	hostCapacity := resourcev2.Contract{CPUMaxMillis: 6000, MemoryMaxBytes: 8 << 30, PIDMax: 1024, WritableQuotaBytes: 24 << 30}
-	base := resourcev2.Contract{CPUMaxMillis: 2000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
+	base := resourcev2.Contract{CPUMaxMillis: 16000, MemoryMaxBytes: 64 << 30, PIDMax: 256, WritableQuotaBytes: 8 << 30}
 	if err := admitAllocationV2(context.Background(), database, registration, nil, base, hostCapacity, hostv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
 		t.Fatalf("valid independent contract rejected: %v", err)
 	}
@@ -208,8 +208,6 @@ func TestAllocationAdmissionKeepsFourWorkloadCeilingsIndependent(t *testing.T) {
 		dimension string
 		mutate    func(*resourcev2.Contract)
 	}{
-		{name: "cpu max", dimension: "cpu_max", mutate: func(value *resourcev2.Contract) { value.CPUMaxMillis = 2001 }},
-		{name: "memory", dimension: "memory", mutate: func(value *resourcev2.Contract) { value.MemoryMaxBytes++ }},
 		{name: "pids", dimension: "pids", mutate: func(value *resourcev2.Contract) { value.PIDMax++ }},
 		{name: "writable", dimension: "writable", mutate: func(value *resourcev2.Contract) { value.WritableQuotaBytes++ }},
 	} {

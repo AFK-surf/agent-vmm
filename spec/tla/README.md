@@ -14,8 +14,7 @@ form an artificial Cartesian product:
   lower snapshot.
 - `ManagedCredentialReplacement.tla` owns same-policy-revision managed
   credential idempotence and the expiry fence for a newly signed payload.
-- `WorkloadRunLifecycle.tla` owns the Host active-sandbox bound, atomic start
-  admission, container-instance execution fence, quiesce fence, response loss,
+- `WorkloadRunLifecycle.tla` owns the Host same-workload lifecycle exclusion, container-instance execution fence, quiesce fence, response loss,
   exact stop observation, and fail-closed Host restart.
 - `OCIContentLifecycle.tla` owns the single global import slot, transient peak
   reservation, timeout/crash, the one shared content/lower-snapshot fact per

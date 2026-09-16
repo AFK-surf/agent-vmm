@@ -335,8 +335,7 @@ func registrationFromPool(pool *hostv1.RemotePoolPolicy, capacity store.Environm
 	if pool.GetMaxEnvironments() == 0 || pool.GetMaxEnvironments() > maxRemoteEnvironments || validatePolicy(perEnvironment, pool.GetMaxEgressMode()) != nil {
 		return store.RemoteRegistration{}, invalidField("pool", "remote pool limits are invalid")
 	}
-	if perEnvironment.GetCpuMillis() > capacity.CPUMillis || perEnvironment.GetMemoryBytes() > capacity.MemoryBytes ||
-		perEnvironment.GetPids() > capacity.PIDs || perEnvironment.GetDiskBytes() > capacity.DiskBytes {
+	if perEnvironment.GetPids() > capacity.PIDs || perEnvironment.GetDiskBytes() > capacity.DiskBytes {
 		return store.RemoteRegistration{}, invalidField("per_environment_limits", "per-environment limit exceeds configured VM capacity")
 	}
 	lease := pool.GetMaxLeaseDuration().AsDuration()

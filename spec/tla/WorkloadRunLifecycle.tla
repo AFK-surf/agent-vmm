@@ -1,7 +1,7 @@
 ------------------------- MODULE WorkloadRunLifecycle ------------------------
 EXTENDS Naturals, FiniteSets
 
-CONSTANTS EnforceAtomicAdmission, EnforceExecutionInstanceFence,
+CONSTANTS EnforceLifecycleFence, EnforceExecutionInstanceFence,
           EnforceQuiesceFence, EnforceStopInstanceFence
 
 Tasks == {1, 2}
@@ -10,14 +10,13 @@ Executions == {1, 2}
 Holders == {1, 2}
 QuiesceCommands == {1, 2}
 States == {"stopped", "starting", "running", "stopping", "unknown"}
-Capacity == 1
 
 VARIABLES state, instance, execution, executionHolders, executionInstance, admissionOpen,
-          quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
+          quiesce, pending, lastStoppedTask, lastStoppedInstance,
           lastStoppedExpected
 
 vars == <<state, instance, execution, executionHolders, executionInstance, admissionOpen,
-          quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
+          quiesce, pending, lastStoppedTask, lastStoppedInstance,
           lastStoppedExpected>>
 
 Active == {t \in Tasks : state[t] # "stopped"}
@@ -31,29 +30,15 @@ Init ==
   /\ admissionOpen = [t \in Tasks |-> FALSE]
   /\ quiesce = [t \in Tasks |-> 0]
   /\ pending = [t \in Tasks |-> "none"]
-  /\ checked = {}
   /\ lastStoppedTask = 0
   /\ lastStoppedInstance = 0
   /\ lastStoppedExpected = 0
 
-CheckStart(t) ==
-  /\ ~EnforceAtomicAdmission
-  /\ t \notin Active
-  /\ Cardinality(Active) < Capacity
-  /\ checked' = checked \cup {t}
-  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance,
-                  admissionOpen, quiesce, pending, lastStoppedTask,
-                  lastStoppedInstance, lastStoppedExpected>>
-
 BeginStart(t) ==
-  /\ state[t] = "stopped"
-  /\ IF EnforceAtomicAdmission
-        THEN Cardinality(Active) < Capacity
-        ELSE t \in checked
+  /\ (~EnforceLifecycleFence \/ state[t] = "stopped")
   /\ state' = [state EXCEPT ![t] = "starting"]
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = FALSE]
   /\ pending' = [pending EXCEPT ![t] = "start"]
-  /\ checked' = checked \ {t}
   /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, quiesce,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
@@ -66,14 +51,14 @@ CommitRunning(t, i) ==
   /\ instance' = [instance EXCEPT ![t] = i]
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = TRUE]
   /\ pending' = [pending EXCEPT ![t] = "none"]
-  /\ UNCHANGED <<execution, executionHolders, executionInstance, quiesce, checked,
+  /\ UNCHANGED <<execution, executionHolders, executionInstance, quiesce,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 LoseStartResponse(t) ==
   /\ state[t] = "starting"
   /\ state' = [state EXCEPT ![t] = "unknown"]
   /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, admissionOpen,
-                  quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
+                  quiesce, pending, lastStoppedTask, lastStoppedInstance,
                   lastStoppedExpected>>
 
 Acquire(t, e, h, observedInstance) ==
@@ -88,7 +73,7 @@ Acquire(t, e, h, observedInstance) ==
   /\ execution' = [execution EXCEPT ![t] = e]
   /\ executionHolders' = [executionHolders EXCEPT ![t] = @ \cup {h}]
   /\ executionInstance' = [executionInstance EXCEPT ![t] = observedInstance]
-  /\ UNCHANGED <<state, instance, admissionOpen, quiesce, pending, checked,
+  /\ UNCHANGED <<state, instance, admissionOpen, quiesce, pending,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 Release(t, e, h, observedInstance) ==
@@ -99,7 +84,7 @@ Release(t, e, h, observedInstance) ==
   /\ executionHolders' = [executionHolders EXCEPT ![t] = @ \ {h}]
   /\ execution' = [execution EXCEPT ![t] = IF executionHolders'[t] = {} THEN 0 ELSE @]
   /\ executionInstance' = [executionInstance EXCEPT ![t] = IF executionHolders'[t] = {} THEN 0 ELSE @]
-  /\ UNCHANGED <<state, instance, admissionOpen, quiesce, pending, checked,
+  /\ UNCHANGED <<state, instance, admissionOpen, quiesce, pending,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 BeginQuiesce(t, q) ==
@@ -109,7 +94,7 @@ BeginQuiesce(t, q) ==
   /\ quiesce[t] = 0
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = FALSE]
   /\ quiesce' = [quiesce EXCEPT ![t] = q]
-  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance, pending, checked,
+  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance, pending,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 CancelQuiesce(t, q) ==
@@ -118,7 +103,7 @@ CancelQuiesce(t, q) ==
   /\ execution[t] = 0
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = TRUE]
   /\ quiesce' = [quiesce EXCEPT ![t] = 0]
-  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance, pending, checked,
+  /\ UNCHANGED <<state, instance, execution, executionHolders, executionInstance, pending,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 BeginStop(t, q) ==
@@ -132,14 +117,14 @@ BeginStop(t, q) ==
   /\ state' = [state EXCEPT ![t] = "stopping"]
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = FALSE]
   /\ pending' = [pending EXCEPT ![t] = "stop"]
-  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, quiesce, checked,
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, quiesce,
                   lastStoppedTask, lastStoppedInstance, lastStoppedExpected>>
 
 LoseStopResponse(t) ==
   /\ state[t] = "stopping"
   /\ state' = [state EXCEPT ![t] = "unknown"]
   /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, admissionOpen,
-                  quiesce, pending, checked, lastStoppedTask, lastStoppedInstance,
+                  quiesce, pending, lastStoppedTask, lastStoppedInstance,
                   lastStoppedExpected>>
 
 ObserveStopped(t, observedInstance) ==
@@ -154,7 +139,7 @@ ObserveStopped(t, observedInstance) ==
   /\ lastStoppedTask' = t
   /\ lastStoppedInstance' = observedInstance
   /\ lastStoppedExpected' = instance[t]
-  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, checked>>
+  /\ UNCHANGED <<instance, execution, executionHolders, executionInstance>>
 
 ObserveRunning(t, observedInstance) ==
   /\ state[t] = "unknown"
@@ -163,7 +148,7 @@ ObserveRunning(t, observedInstance) ==
   /\ state' = [state EXCEPT ![t] = "running"]
   /\ admissionOpen' = [admissionOpen EXCEPT ![t] = TRUE]
   /\ UNCHANGED <<instance, execution, executionHolders, executionInstance, quiesce, pending,
-                  checked, lastStoppedTask, lastStoppedInstance,
+                  lastStoppedTask, lastStoppedInstance,
                   lastStoppedExpected>>
 
 HostRestart ==
@@ -175,11 +160,11 @@ HostRestart ==
        /\ admissionOpen' = [x \in Tasks |-> FALSE]
        /\ quiesce' = [x \in Tasks |-> 0]
        /\ pending' = [x \in Tasks |-> IF x \in Active THEN "none" ELSE pending[x]]
-       /\ UNCHANGED <<instance, checked, lastStoppedTask,
+       /\ UNCHANGED <<instance, lastStoppedTask,
                        lastStoppedInstance, lastStoppedExpected>>
 
 Next ==
-  \/ \E t \in Tasks: CheckStart(t) \/ BeginStart(t) \/ LoseStartResponse(t)
+  \/ \E t \in Tasks: BeginStart(t) \/ LoseStartResponse(t)
   \/ \E t \in Tasks, i \in Instances: CommitRunning(t, i)
   \/ \E t \in Tasks, e \in Executions, h \in Holders, i \in Instances: Acquire(t, e, h, i) \/ Release(t, e, h, i)
   \/ \E t \in Tasks, q \in QuiesceCommands: BeginQuiesce(t, q) \/ CancelQuiesce(t, q) \/ BeginStop(t, q)
@@ -197,12 +182,9 @@ TypeOK ==
   /\ admissionOpen \in [Tasks -> BOOLEAN]
   /\ quiesce \in [Tasks -> QuiesceCommands \cup {0}]
   /\ pending \in [Tasks -> {"none", "start", "stop"}]
-  /\ checked \subseteq Tasks
   /\ lastStoppedTask \in Tasks \cup {0}
   /\ lastStoppedInstance \in Instances \cup {0}
   /\ lastStoppedExpected \in Instances \cup {0}
-
-ActiveBound == Cardinality(Active) <= Capacity
 
 ExecutionRequiresCurrentInstance ==
   \A t \in Tasks:
@@ -219,9 +201,6 @@ QuiesceExcludesExecution ==
 
 ExactStopObservation ==
   lastStoppedTask = 0 \/ lastStoppedInstance = lastStoppedExpected
-
-RestartPreservesActiveSlots ==
-  Cardinality(Active) <= Capacity
 
 Spec == Init /\ [][Next]_vars
 =============================================================================

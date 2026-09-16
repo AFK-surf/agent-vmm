@@ -7,20 +7,17 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"google.golang.org/grpc/codes"
 )
 
 const (
-	maxActiveWorkloads     = 4
 	workloadStartBudget    = 120 * time.Second
 	workloadStopBudget     = 30 * time.Second
 	workloadSampleInterval = 5 * time.Second
 )
 
-// Controller.mu owns admission; the environment lock serializes its commands.
-// Unknown starts retain their slot through the original RPC deadline, even if
-// an observation reaches the Guest before the cancelled start request does.
+// The environment lock serializes lifecycle commands. An unknown start retains
+// its fence until the original deadline so an early observation cannot reopen it.
 type workloadRun struct {
 	environmentID       string
 	namespaceID         string
@@ -44,11 +41,6 @@ func workloadRunKey(environmentID, containerID string) string {
 	return environmentID + "\x00" + containerID
 }
 
-func workloadCapacityError(dimension resourcev2.CapacityDimension) error {
-	return resourceErrorWithMetadata(codes.ResourceExhausted, "RESOURCE_CAPACITY_EXHAUSTED", "workload_pool", string(dimension),
-		"workload is waiting for node capacity", map[string]string{"resource_dimension": string(dimension)})
-}
-
 func (controller *Controller) admitWorkloadStart(environmentID, namespaceID, containerID string, now time.Time) (*workloadRun, error) {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
@@ -59,33 +51,9 @@ func (controller *Controller) admitWorkloadStart(environmentID, namespaceID, con
 	if current := controller.workloadRuns[key]; current != nil {
 		return nil, pendingWorkloadError(current, now)
 	}
-	if err := controller.workloadStartCapacityErrorLocked(now); err != nil {
-		return nil, err
-	}
 	run := &workloadRun{environmentID: environmentID, namespaceID: namespaceID, containerID: containerID, starting: true, inFlight: true}
 	controller.workloadRuns[key] = run
 	return run, nil
-}
-
-func (controller *Controller) workloadStartCapacityErrorLocked(now time.Time) error {
-	if len(controller.workloadRuns) >= maxActiveWorkloads {
-		return workloadCapacityError(resourcev2.CapacityRunSlot)
-	}
-	for _, run := range controller.workloadRuns {
-		if run.starting {
-			return workloadCapacityError(resourcev2.CapacityRunSlot)
-		}
-	}
-	if now.Sub(controller.workloadPressureAt) > 2*workloadSampleInterval || controller.workloadMemoryPressure {
-		return workloadCapacityError(resourcev2.CapacityMemoryPressure)
-	}
-	return nil
-}
-
-func (controller *Controller) workloadStartAvailable(now time.Time) bool {
-	controller.mu.Lock()
-	defer controller.mu.Unlock()
-	return controller.workloadRunsRecovered && controller.workloadStartCapacityErrorLocked(now) == nil
 }
 
 func (controller *Controller) observeWorkloadRunLocked(run *workloadRun, container *vmmdv1.Container, now time.Time) {
@@ -99,6 +67,9 @@ func (controller *Controller) observeWorkloadRunLocked(run *workloadRun, contain
 	switch container.GetState() {
 	case vmmdv1.ContainerState_CONTAINER_STATE_RUNNING:
 		if run.instanceID != container.GetInstanceId() {
+			if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
+				controller.clearWorkloadReclaimLocked("instance_changed")
+			}
 			run.idleSince = now
 		}
 		run.instanceID = container.GetInstanceId()
@@ -107,6 +78,9 @@ func (controller *Controller) observeWorkloadRunLocked(run *workloadRun, contain
 	case vmmdv1.ContainerState_CONTAINER_STATE_CREATED, vmmdv1.ContainerState_CONTAINER_STATE_STOPPED:
 		if now.Before(run.uncertainStartUntil) {
 			return
+		}
+		if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
+			controller.clearWorkloadReclaimLocked("instance_stopped")
 		}
 		delete(controller.workloadRuns, key)
 	}
@@ -180,5 +154,5 @@ func pendingWorkloadError(run *workloadRun, now time.Time) error {
 	if (run.stopping || run.quiescing) && !run.stopDeadline.IsZero() && !now.Before(run.stopDeadline) || run.starting && !run.uncertainStartUntil.IsZero() && !now.Before(run.uncertainStartUntil) {
 		return resourceError(codes.FailedPrecondition, "WORKLOAD_STOP_UNRESOLVED", "container", run.containerID, "sandbox state remains unknown after the recovery budget; inspect or stop the existing instance before retrying")
 	}
-	return workloadCapacityError(resourcev2.CapacityRunSlot)
+	return resourceError(codes.FailedPrecondition, "LIFECYCLE_CONFLICT", "container", run.containerID, "workload lifecycle operation is still in progress")
 }

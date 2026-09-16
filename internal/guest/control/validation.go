@@ -45,14 +45,14 @@ func validateDestination(value string) error {
 	return nil
 }
 
-func validateResourceLimits(limits *vmmdv1.ResourceLimits, namespace *vmmdv1.NamespaceLimits) error {
+func validateResourceLimits(namespaceID string, limits *vmmdv1.ResourceLimits, namespace *vmmdv1.NamespaceLimits) error {
 	if limits == nil {
 		return nil
 	}
-	if limits.CpuMillis != nil && (limits.GetCpuMillis() == 0 || limits.GetCpuMillis() > namespace.GetCpuMillis()) {
+	if isSystemNamespace(namespaceID) && limits.CpuMillis != nil && (limits.GetCpuMillis() == 0 || limits.GetCpuMillis() > namespace.GetCpuMillis()) {
 		return errors.New("container CPU limit must be positive and no greater than its namespace")
 	}
-	if limits.MemoryBytes != nil && (limits.GetMemoryBytes() == 0 || limits.GetMemoryBytes() > namespace.GetMemoryBytes()) {
+	if isSystemNamespace(namespaceID) && limits.MemoryBytes != nil && (limits.GetMemoryBytes() == 0 || limits.GetMemoryBytes() > namespace.GetMemoryBytes()) {
 		return errors.New("container memory limit must be positive and no greater than its namespace")
 	}
 	if limits.Pids != nil && (limits.GetPids() == 0 || limits.GetPids() > namespace.GetPids()) {

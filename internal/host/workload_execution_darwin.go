@@ -110,6 +110,9 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 	if err != nil {
 		return nil, err
 	}
+	if server.controller.workloadReclaim != nil && server.controller.workloadReclaim.run == run && !run.stopping && !run.quiescing {
+		server.controller.clearWorkloadReclaimLocked("demand")
+	}
 	if expireWorkloadExecutionLocked(run, time.Now()) {
 		return nil, pendingWorkloadError(run, time.Now())
 	}
@@ -189,6 +192,9 @@ func (server *agentServer) QuiesceContainer(ctx context.Context, request *hostv1
 		if run.stopping || (run.quiescing && run.quiesceRequestID != request.GetRequestId()) {
 			return nil, resourceError(codes.Aborted, "STALE_QUIESCE", "container", run.containerID, "quiesce command is no longer current")
 		}
+		if server.controller.workloadReclaim != nil && server.controller.workloadReclaim.run == run {
+			server.controller.clearWorkloadReclaimLocked("consumer_cancelled")
+		}
 		if run.quiescing {
 			run.quiescing = false
 			run.quiesceRequestID = ""
@@ -207,6 +213,11 @@ func (server *agentServer) QuiesceContainer(ctx context.Context, request *hostv1
 			return nil, resourceErrorWithMetadata(codes.ResourceExhausted, "WORKLOAD_NOT_IDLE", "container", run.containerID,
 				"workload has not completed its minimum idle period", map[string]string{"retry_after_seconds": fmt.Sprintf("%d", int64(remaining.Round(time.Second)/time.Second))})
 		}
+		if request.GetMinimumIdleSeconds() > 0 {
+			if err := server.controller.validateWorkloadReclaimLocked(run, time.Now()); err != nil {
+				return nil, err
+			}
+		}
 		if run.starting || run.stopping || run.inFlight || run.quiescing && run.quiesceRequestID != request.GetRequestId() {
 			return nil, pendingWorkloadError(run, time.Now())
 		}
@@ -214,9 +225,19 @@ func (server *agentServer) QuiesceContainer(ctx context.Context, request *hostv1
 			return nil, pendingWorkloadError(run, time.Now())
 		}
 		if !run.quiescing {
+			if request.GetMinimumIdleSeconds() == 0 {
+				if candidate := server.controller.workloadReclaim; candidate != nil && candidate.run == run {
+					server.controller.clearWorkloadReclaimLocked("explicit_repair")
+				}
+			}
 			run.quiescing = true
 			run.quiesceRequestID = request.GetRequestId()
 			run.stopDeadline = time.Now().Add(workloadStopBudget)
+			if candidate := server.controller.workloadReclaim; candidate != nil && candidate.run == run {
+				if deadline := time.UnixMilli(candidate.value.GetExpiresUnixMillis()); deadline.Before(run.stopDeadline) {
+					run.stopDeadline = deadline
+				}
+			}
 		}
 	}
 	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: run.containerID, InstanceId: run.instanceID, State: hostv1.ContainerState_CONTAINER_STATE_RUNNING}}, nil
@@ -234,6 +255,21 @@ func (controller *Controller) validateQuiescedStop(identity auth.Identity, reque
 	}
 	if !time.Now().Before(run.stopDeadline) {
 		return pendingWorkloadError(run, time.Now())
+	}
+	if candidate := controller.workloadReclaim; candidate != nil && candidate.run == run {
+		return controller.validateWorkloadReclaimLocked(run, time.Now())
+	}
+	return nil
+}
+
+func (controller *Controller) validateWorkloadReclaimLocked(run *workloadRun, now time.Time) error {
+	candidate := controller.workloadReclaim
+	sampled := time.Unix(0, run.usage.GetSampledAtUnixNano())
+	if candidate == nil || candidate.run != run || candidate.value.GetContainerInstanceId() != run.instanceID ||
+		now.UnixMilli() >= candidate.value.GetExpiresUnixMillis() || !controller.workloadMemoryPressure ||
+		now.Sub(controller.workloadPressureAt) > 2*workloadSampleInterval || run.usage == nil || run.usage.GetUnavailable() ||
+		sampled.After(now) || now.Sub(sampled) > 2*workloadSampleInterval {
+		return resourceError(codes.Aborted, "RECLAIM_CANDIDATE_EXPIRED", "container", run.containerID, "current pressure reclaim candidate and fresh instance observation are required")
 	}
 	return nil
 }

@@ -550,6 +550,7 @@ message GetUsageResponse {
   uint64 workload_memory_limit_bytes = 3;
   double workload_memory_full_avg10 = 4;
   uint64 workload_oom_kills = 5;
+  uint64 workload_oom_events = 10;
   DiskAccounting disk = 6;
   optional uint32 open_fds = 7;
   string open_fds_unavailable_reason = 8;

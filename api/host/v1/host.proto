@@ -1532,8 +1532,18 @@ message GetRemoteStateResponse {
 }
 
 message GetRemoteObservationRequest { string registration_id = 1; }
+message WorkloadReclaimCandidate {
+  string registration_id = 1;
+  string allocation_id = 2;
+  string container_id = 3;
+  string container_instance_id = 4;
+  int64 expires_unix_millis = 5;
+}
+
 message GetRemoteObservationResponse {
-  bool workload_start_available = 4;
+  WorkloadReclaimCandidate reclaim_candidate = 5;
+  reserved 4;
+  reserved "workload_start_available";
   HealthStatus health = 1;
   Usage usage = 2;
   google.protobuf.Timestamp observed_at = 3;

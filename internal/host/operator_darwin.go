@@ -342,10 +342,10 @@ func requireLocalOperatorEnvironment(environment store.Environment) error {
 }
 
 func validatePolicy(limits *hostv1.ResourceLimits, egress hostv1.EgressMode) error {
-	if limits == nil || limits.CpuMillis == nil || limits.MemoryBytes == nil || limits.Pids == nil || limits.DiskBytes == nil {
-		return invalidField("limits", "cpu, memory, pids, and disk limits must all be present")
+	if limits == nil || limits.Pids == nil || limits.DiskBytes == nil {
+		return invalidField("limits", "pids and disk limits must be present")
 	}
-	if limits.GetCpuMillis() == 0 || limits.GetCpuMillis() > 1_000_000 || limits.GetMemoryBytes() < 16<<20 || limits.GetMemoryBytes() > 1<<40 || limits.GetPids() == 0 || limits.GetPids() > 1<<20 || limits.GetDiskBytes() == 0 || limits.GetDiskBytes() > 1<<50 {
+	if limits.GetPids() == 0 || limits.GetPids() > 1<<20 || limits.GetDiskBytes() == 0 || limits.GetDiskBytes() > 1<<50 {
 		return invalidField("limits", "policy limits are outside supported bounds")
 	}
 	if egress != hostv1.EgressMode_EGRESS_MODE_DENY_ALL && egress != hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET {

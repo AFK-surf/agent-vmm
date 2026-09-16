@@ -266,8 +266,9 @@ volumes. Shared immutable OCI content counts against the workload filesystem,
 but it does not count against every workload quota.
 
 The Host and Guest split compute capacity into two bounded parent pools. The
-workload pool receives all but one CPU core, 75% of VM memory, and 2,048 PIDs.
-The system appliance pool receives the remaining CPU and memory and 2,048 PIDs.
+workload pool receives 75% of VM memory and 2,048 PIDs.
+The system appliance pool receives 25% of memory and 2,048 PIDs.
+Both parent pools share CPU with weight 100 and no CPU quota.
 The Host admits system grants against the system pool and remote registrations
 against the workload pool. System appliance grants also share a fixed 4 GiB
 budget on the control filesystem. Shared native system images use project 9000
@@ -295,7 +296,7 @@ Agent OCI specifications never contain these interfaces:
 Each agent namespace has these resources:
 
 - an immutable namespace ID
-- a cgroup root with CPU, memory, and PID limits
+- a cgroup root with a PID limit and shared CPU and memory
 - a project quota for writable disk usage
 - an independent bridge and subnet
 - a policy-aware DNS view
@@ -310,26 +311,38 @@ Container and build processes inherit the namespace boundary.
 Usage reads and namespace cleanup use the same paths.
 
 The workload parent permits 75 percent of kernel-reported Guest RAM and 2,048 PIDs.
-Its CPU ceiling leaves one core for system work, with a minimum workload ceiling of half a core.
-A Guest with 12 GiB usable RAM therefore gives workloads a 9 GiB parent ceiling.
+A Guest with 12 GiB usable RAM gives workloads a 9 GiB parent ceiling.
 Kernel-reserved RAM can reduce that ceiling slightly.
-Each namespace retains its individual CPU, memory, and PID ceilings.
-The platform sets CPU weight to 100 and `memory.high` to `max`.
+Equal CPU weights apply between workload namespaces. Containers within a namespace share its allocation.
+Ordinary namespaces and containers have unlimited `cpu.max`, `memory.max`, and
+`memory.high`, with CPU weight 100. PID and writable disk limits remain.
+System appliance namespaces retain their own CPU and memory limits.
 
-The Host keeps at most 256 stored workload environments and four active
-sandboxes. One start can be in progress at a time. Starting, running, stopping,
-and unresolved instances consume an active slot. A slot becomes available only
-after Guest observation confirms that the task is absent and its cgroup is
-empty. One five-second Host sampler reads the workload parent and each unique
-active namespace. Stored inactive namespaces do not have a timer or periodic
-usage RPC.
+The Host keeps at most 256 stored workload environments. CPU and memory
+samples do not prevent starts. The same workload still serializes lifecycle
+commands. Conflicting start, stop, or quiesce returns `LIFECYCLE_CONFLICT`.
 
-The current remote observation reports whether a Workload start can retry.
-The Host uses the same locked run-slot, start-slot, pressure, and recovery
-checks as start admission. The connector forwards this observation as a
-current fact. It does not grant capacity. Each newer available observation can
-wake a bounded controller queue. The Host checks admission again when the
-start request arrives.
+Every five seconds, the Host samples parent memory and up to 16 active
+instances, with four concurrent RPC workers and a five-second total deadline.
+A stable cursor advances past failed samples. Coverage time grows with the
+number of active containers, which can exceed the environment count.
+The current reclaim candidate receives priority. Unknown or stale samples
+cannot authorize reclaim.
+
+Three samples at 90% parent memory or 10% full PSI enter pressure.
+A parent-local OOM increment enters pressure immediately. Child OOM events do
+not trigger parent reclaim. Three samples below 80% memory and 1% full PSI
+leave pressure. Memory includes file and shmem charges. The Guest logs their
+breakdown at high memory usage and never subtracts them from charged memory.
+
+Under pressure, the Host selects one oldest idle instance, idle for at least
+60 seconds. Only its registration receives the allocation and instance identity.
+Demand, instance changes, unavailable samples, or a 30-second deadline cancel
+the candidate. Expiry prevents replacement in the same sample round.
+The controller must settle its business obligations before quiesce and stop.
+A positive minimum idle period requires a current reclaim candidate. Zero-idle
+quiesce remains available for bootstrap repair and other explicit lifecycle stops.
+No eligible idle instance means no voluntary reclaim. Kernel OOM remains possible.
 
 The Host gives one current execution identity access to an active sandbox.
 That identity is bound to the allocation lease or local session and the exact
@@ -887,12 +900,3 @@ authority or persistent route state.
 - [Podman service security](https://docs.podman.io/en/latest/markdown/podman-system-service.1.html#security)
 - [Firecracker design](https://github.com/firecracker-microvm/firecracker/blob/main/docs/design.md)
 - [Firecracker KVM requirements](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md)
-
-### Workload start availability observation
-
-The existing remote observation includes `workload_start_available`. The Host
-uses the same locked run-slot, start-slot, pressure, and recovery predicates
-as start admission. The connector forwards this current observation; it does
-not turn it into a capacity grant. A controller can use each newer available
-observation to wake its bounded capacity queue. The Host rechecks admission
-when the start arrives.

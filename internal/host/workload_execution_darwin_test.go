@@ -36,7 +36,7 @@ func TestAcquireExecutionClosesAdmissionAfterAllHoldersExpire(t *testing.T) {
 	controller.remoteLeases = map[string]*remoteLease{"lease-a": {id: "lease-a", environmentID: "env-a", state: hostv1.LeaseState_LEASE_STATE_ACTIVE, expiresAt: time.Now().Add(time.Minute)}}
 	client := executionClient(t, controller, auth.Identity{Role: auth.Agent, SessionID: "session-a", EnvironmentID: "env-a", NamespaceID: "a", LeaseID: "lease-a"})
 	request := &hostv1.ExecutionRequest{ExecutionId: "input-a", HolderId: "current", ContainerId: "main", ExpectedInstanceId: "instance-a", DeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()}
-	if acquired, err := client.AcquireExecution(context.Background(), request); status.Code(err) != codes.ResourceExhausted {
+	if acquired, err := client.AcquireExecution(context.Background(), request); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("acquire after expired holder saturation = %+v, %v", acquired, err)
 	}
 	if run.execution != nil || !run.stopping || run.stopRequestID == "" {
@@ -115,12 +115,15 @@ func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	}
 	controller.mu.Lock()
 	run.idleSince = time.Now().Add(-time.Minute)
+	run.usage = &vmmdv1.Usage{SampledAtUnixNano: time.Now().UnixNano()}
+	controller.workloadMemoryPressure = true
+	controller.workloadReclaim = &workloadReclaimCandidate{run: run, value: &hostv1.WorkloadReclaimCandidate{ContainerInstanceId: run.instanceID, ExpiresUnixMillis: time.Now().Add(workloadStopBudget).UnixMilli()}}
 	controller.mu.Unlock()
 	if _, err := client.QuiesceContainer(ctx, quiesce); err != nil {
 		t.Fatal(err)
 	}
 	next := &hostv1.ExecutionRequest{ExecutionId: "input-b", ContainerId: "main", ExpectedInstanceId: "instance-a"}
-	if _, err := client.AcquireExecution(ctx, next); status.Code(err) != codes.ResourceExhausted {
+	if _, err := client.AcquireExecution(ctx, next); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("execution entered closing sandbox: %v", err)
 	}
 	staleCancel := &hostv1.QuiesceContainerRequest{
@@ -138,6 +141,21 @@ func TestExecutionOwnershipFencesQuiesceAndLateCompletion(t *testing.T) {
 	}
 	quiesce.Cancel = true
 	if _, err := client.QuiesceContainer(ctx, quiesce); err != nil {
+		t.Fatal(err)
+	}
+	controller.mu.Lock()
+	controller.workloadMemoryPressure = false
+	controller.workloadReclaim = &workloadReclaimCandidate{run: run, value: &hostv1.WorkloadReclaimCandidate{ContainerInstanceId: run.instanceID, ExpiresUnixMillis: time.Now().Add(-time.Second).UnixMilli()}}
+	controller.mu.Unlock()
+	repair := &hostv1.QuiesceContainerRequest{RequestId: "bootstrap-repair", ContainerId: "main", ExpectedInstanceId: "instance-a"}
+	if _, err := client.QuiesceContainer(ctx, repair); err != nil {
+		t.Fatalf("explicit bootstrap repair required resource pressure: %v", err)
+	}
+	if err := controller.validateQuiescedStop(identity, &hostv1.StopContainerRequest{ContainerId: "main", ExpectedInstanceId: "instance-a", QuiesceRequestId: repair.RequestId}); err != nil {
+		t.Fatalf("explicit repair could not stop its fenced instance: %v", err)
+	}
+	repair.Cancel = true
+	if _, err := client.QuiesceContainer(ctx, repair); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.AcquireExecution(ctx, next); err != nil {
