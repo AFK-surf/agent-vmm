@@ -25,7 +25,7 @@ const operationHandoffDescriptorMaxBytes = 4096
 const operationHandoffExchangePath = "/v1/compute/agent-vmm/install-operations/exchange"
 
 var operationIDPattern = regexp.MustCompile(`\A[A-Za-z0-9_-]{1,128}\z`)
-var installHTTPClient = &http.Client{Timeout: 20 * time.Second}
+var installHTTPClient = newInstallHTTPClient()
 var errManagedInstallPlanUnavailable = errors.New("managed install plan is unavailable")
 
 type operationHandoffDescriptor struct {
@@ -145,8 +145,7 @@ func decodeOperationHandoffDescriptor(input io.Reader) (operationHandoffDescript
 	}
 	parsed, err := url.Parse(descriptor.ExchangeURL)
 	if descriptor.Version != 1 || !operationIDPattern.MatchString(descriptor.OperationID) || descriptor.OneTimeSecret == "" || len(descriptor.OneTimeSecret) > 128 ||
-		err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
-		parsed.Path != operationHandoffExchangePath {
+		err != nil || !validOperationHandoffURL(parsed) {
 		return descriptor, errors.New("install descriptor is invalid")
 	}
 	expiresAt, err := time.Parse(time.RFC3339, descriptor.ExpiresAt)
@@ -259,8 +258,7 @@ func validPersistedAckDescriptor(descriptor *operationHandoffDescriptor, operati
 		return false
 	}
 	parsed, err := url.Parse(descriptor.ExchangeURL)
-	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil &&
-		parsed.RawQuery == "" && parsed.Fragment == "" && parsed.Path == operationHandoffExchangePath
+	return err == nil && validOperationHandoffURL(parsed)
 }
 
 func validPersistedAcknowledgement(plan persistedInstallOperation, operationID string) bool {

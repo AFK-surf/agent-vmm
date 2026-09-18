@@ -38,6 +38,14 @@ the installed release or registration credentials.
 5. Apply the exact remote registration and wait for `READY` and `CONNECTED`.
 6. Observe the same registration and persist the completion receipt.
 
+Registration exchange and acknowledgement require HTTPS for remote endpoints.
+Local development can use HTTP only with `localhost`, `127.0.0.1`, or `[::1]`.
+Local HTTP bypasses proxies. The client dials `localhost` as `127.0.0.1` without DNS.
+An IPv6-only local service must use `[::1]` explicitly.
+Exchange and acknowledgement never follow redirects.
+The same rule applies to a retained acknowledgement after restart.
+This exception does not change Gateway TLS or its enrollment trust bundle.
+
 The coordinator delegates `install`, `init`, and `register` with bounded
 contexts. `runManagedLifecycleOperation` owns the durable operation record.
 It preserves the plan for acknowledgement recovery and retries. The plan has

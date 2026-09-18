@@ -18,11 +18,24 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestDecodeInstallDescriptorRequiresExactHTTPSExchangeRoute(t *testing.T) {
+func TestDecodeInstallDescriptorRequiresSecureExchangeRoute(t *testing.T) {
 	expiresAt := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
 	valid := `{"version":1,"operation_id":"operation-1","exchange_url":"https://teams.example.test/v1/compute/agent-vmm/install-operations/exchange","one_time_secret":"secret","expires_at":"` + expiresAt + `"}`
 	if _, err := decodeOperationHandoffDescriptor(strings.NewReader(valid)); err != nil {
 		t.Fatalf("valid descriptor rejected: %v", err)
+	}
+	for _, endpoint := range []string{"http://localhost:4000", "http://127.0.0.1:4000", "http://[::1]:4000"} {
+		data := strings.Replace(valid, "https://teams.example.test", endpoint, 1)
+		descriptor, err := decodeOperationHandoffDescriptor(strings.NewReader(data))
+		if err != nil || !validPersistedAckDescriptor(&descriptor, "operation-1") {
+			t.Fatalf("local descriptor cannot resume: %s: %v", endpoint, err)
+		}
+	}
+	for _, endpoint := range []string{"http://teams.example.test", "http://192.168.1.2", "http://localhost.example.test", "http://localhost@remote.example.test", "http://127.0.0.1.nip.io", "http://[::ffff:192.168.1.2]"} {
+		data := strings.Replace(valid, "https://teams.example.test", endpoint, 1)
+		if _, err := decodeOperationHandoffDescriptor(strings.NewReader(data)); err == nil {
+			t.Fatalf("non-loopback HTTP accepted: %s", endpoint)
+		}
 	}
 	wrongRoute := strings.Replace(valid, operationHandoffExchangePath, "/other/exchange", 1)
 	if _, err := decodeOperationHandoffDescriptor(strings.NewReader(wrongRoute)); err == nil {
@@ -52,61 +65,109 @@ func TestManagedInstallExchangeRequestBindsHostIdentity(t *testing.T) {
 }
 
 func TestOperationHandoffExchangeAndAcknowledgementUseOneSecret(t *testing.T) {
+	for _, localHTTP := range []bool{false, true} {
+		name := "HTTPS"
+		if localHTTP {
+			name = "loopback_HTTP"
+		}
+		t.Run(name, func(t *testing.T) {
+
+			previousClient := installHTTPClient
+			t.Cleanup(func() { installHTTPClient = previousClient })
+
+			material := validTestInstallMaterial()
+			var exchangeCalls atomic.Int32
+			var ackCalls atomic.Int32
+			handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Header.Get("Authorization") != "InstallOperation one-time-secret" {
+					http.Error(response, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				switch request.URL.Path {
+				case "/v1/compute/agent-vmm/install-operations/exchange":
+					exchangeCalls.Add(1)
+					_ = json.NewEncoder(response).Encode(material)
+				case "/v1/compute/agent-vmm/install-operations/ack":
+					call := ackCalls.Add(1)
+					if call == 1 {
+						http.Error(response, "retry", http.StatusServiceUnavailable)
+						return
+					}
+					var body struct {
+						OperationID        string `json:"operation_id"`
+						HostIdentityDigest string `json:"host_identity_digest"`
+					}
+					decoder := json.NewDecoder(request.Body)
+					decoder.DisallowUnknownFields()
+					if decoder.Decode(&body) != nil || body.OperationID != material.OperationID ||
+						body.HostIdentityDigest != material.HostIdentityDigest {
+						http.Error(response, "bad acknowledgement", http.StatusBadRequest)
+						return
+					}
+					response.WriteHeader(http.StatusOK)
+				default:
+					http.NotFound(response, request)
+				}
+			})
+			var server *httptest.Server
+			if localHTTP {
+				server = httptest.NewServer(handler)
+			} else {
+				server = httptest.NewTLSServer(handler)
+			}
+			defer server.Close()
+			installHTTPClient = newInstallHTTPClient()
+			if !localHTTP {
+				installHTTPClient.Transport = server.Client().Transport
+			}
+			descriptor := operationHandoffDescriptor{Version: 1, OperationID: material.OperationID,
+				ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-operations/exchange", OneTimeSecret: "one-time-secret",
+				ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
+
+			if localHTTP {
+				descriptor.ExchangeURL = strings.Replace(descriptor.ExchangeURL, "127.0.0.1", "localhost", 1)
+			}
+			raw, _ := json.Marshal(descriptor)
+			if _, err := decodeOperationHandoffDescriptor(bytes.NewReader(raw)); err != nil {
+				t.Fatal(err)
+			}
+			exchanged, err := exchangeOperationHandoff(context.Background(), descriptor, []byte(`{"version":1}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validateOperationHandoff(exchanged, descriptor); err != nil {
+				t.Fatal(err)
+			}
+			if err := acknowledgeOperationHandoff(context.Background(), descriptor, exchanged); err != nil {
+				t.Fatal(err)
+			}
+			if exchangeCalls.Load() != 1 || ackCalls.Load() != 2 {
+				t.Fatalf("calls exchange=%d ack=%d, want 1 and 2", exchangeCalls.Load(), ackCalls.Load())
+			}
+		})
+	}
+}
+
+func TestOperationHandoffDoesNotForwardSecretsThroughRedirects(t *testing.T) {
 	previousClient := installHTTPClient
 	t.Cleanup(func() { installHTTPClient = previousClient })
-
-	material := validTestInstallMaterial()
-	var exchangeCalls atomic.Int32
-	var ackCalls atomic.Int32
-	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "InstallOperation one-time-secret" {
-			http.Error(response, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		switch request.URL.Path {
-		case "/v1/compute/agent-vmm/install-operations/exchange":
-			exchangeCalls.Add(1)
-			_ = json.NewEncoder(response).Encode(material)
-		case "/v1/compute/agent-vmm/install-operations/ack":
-			call := ackCalls.Add(1)
-			if call == 1 {
-				http.Error(response, "retry", http.StatusServiceUnavailable)
-				return
-			}
-			var body struct {
-				OperationID        string `json:"operation_id"`
-				HostIdentityDigest string `json:"host_identity_digest"`
-			}
-			decoder := json.NewDecoder(request.Body)
-			decoder.DisallowUnknownFields()
-			if decoder.Decode(&body) != nil || body.OperationID != material.OperationID ||
-				body.HostIdentityDigest != material.HostIdentityDigest {
-				http.Error(response, "bad acknowledgement", http.StatusBadRequest)
-				return
-			}
-			response.WriteHeader(http.StatusOK)
-		default:
-			http.NotFound(response, request)
-		}
+	installHTTPClient = newInstallHTTPClient()
+	var forwarded atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { forwarded.Add(1); w.WriteHeader(http.StatusOK) }))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
 	}))
-	defer server.Close()
-	installHTTPClient = server.Client()
-	descriptor := operationHandoffDescriptor{Version: 1, OperationID: material.OperationID,
-		ExchangeURL: server.URL + "/v1/compute/agent-vmm/install-operations/exchange", OneTimeSecret: "one-time-secret",
-		ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
-
-	exchanged, err := exchangeOperationHandoff(context.Background(), descriptor, []byte(`{"version":1}`))
-	if err != nil {
-		t.Fatal(err)
+	defer origin.Close()
+	descriptor := operationHandoffDescriptor{ExchangeURL: origin.URL + operationHandoffExchangePath, OneTimeSecret: "secret"}
+	if _, err := exchangeOperationHandoff(context.Background(), descriptor, []byte("{}")); err == nil {
+		t.Fatal("redirect accepted")
 	}
-	if err := validateOperationHandoff(exchanged, descriptor); err != nil {
-		t.Fatal(err)
+	if err := acknowledgeOperationHandoff(context.Background(), descriptor, validTestInstallMaterial()); err == nil {
+		t.Fatal("ack redirect accepted")
 	}
-	if err := acknowledgeOperationHandoff(context.Background(), descriptor, exchanged); err != nil {
-		t.Fatal(err)
-	}
-	if exchangeCalls.Load() != 1 || ackCalls.Load() != 2 {
-		t.Fatalf("calls exchange=%d ack=%d, want 1 and 2", exchangeCalls.Load(), ackCalls.Load())
+	if forwarded.Load() != 0 {
+		t.Fatal("redirect received the installation capability")
 	}
 }
 
