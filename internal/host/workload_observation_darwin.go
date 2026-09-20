@@ -27,6 +27,10 @@ func (controller *Controller) recoverWorkloadRuns(ctx context.Context) error {
 		return err
 	}
 	defer connection.Close()
+	return controller.recoverWorkloadRunsFromGuest(ctx, client)
+}
+
+func (controller *Controller) recoverWorkloadRunsFromGuest(ctx context.Context, client vmmdv1.VMMDServiceClient) error {
 	runs := make(map[string]*workloadRun)
 	cursor, count := "", 0
 	for {
@@ -59,6 +63,7 @@ func (controller *Controller) recoverWorkloadRuns(ctx context.Context) error {
 	controller.mu.Lock()
 	controller.clearWorkloadReclaimLocked("recovery")
 	controller.workloadRuns = runs
+	controller.stoppedWorkloadInstances = make(map[string]string)
 	controller.workloadSampleCursor = ""
 	controller.workloadOOMKills, controller.workloadOOMEvents = 0, 0
 	controller.workloadPressureHigh, controller.workloadPressureLow = 0, 0
@@ -159,7 +164,7 @@ func (controller *Controller) sampleWorkloadRuns(ctx context.Context, client vmm
 		run := candidate.run
 		if !controller.workloadMemoryPressure || now.UnixMilli() >= candidate.value.GetExpiresUnixMillis() ||
 			controller.workloadRuns[workloadRunKey(run.environmentID, run.containerID)] != run ||
-			run.instanceID != candidate.value.GetContainerInstanceId() || run.execution != nil || run.starting || run.stopping {
+			run.instanceID != candidate.value.GetContainerInstanceId() || len(run.executions) != 0 || run.starting || run.stopping {
 			reason := "pressure_or_instance_changed"
 			if now.UnixMilli() >= candidate.value.GetExpiresUnixMillis() {
 				reason = "deadline_expired"
@@ -170,7 +175,7 @@ func (controller *Controller) sampleWorkloadRuns(ctx context.Context, client vmm
 	}
 	keys := make([]string, 0, len(controller.workloadRuns))
 	for key, run := range controller.workloadRuns {
-		expireWorkloadExecutionLocked(run, now)
+		markExpiredExecutionsUnknownLocked(run, now)
 		if !run.inFlight {
 			keys = append(keys, key)
 		}
@@ -220,8 +225,7 @@ func (controller *Controller) sampleWorkloadRuns(ctx context.Context, client vmm
 			controller.observeWorkloadRunLocked(run, observed.GetContainer(), time.Now())
 			run.usage = usage.GetUsage()
 			if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
-				age := time.Since(time.Unix(0, run.usage.GetSampledAtUnixNano()))
-				if run.usage == nil || run.usage.GetUnavailable() || age < 0 || age > 2*workloadSampleInterval {
+				if !workloadUsageFresh(run.usage, time.Now()) {
 					controller.clearWorkloadReclaimLocked("usage_unavailable")
 				}
 			}
@@ -280,12 +284,19 @@ func (controller *Controller) selectWorkloadReclaim(ctx context.Context) {
 }
 
 func workloadReclaimEligible(run *workloadRun, now time.Time) bool {
-	if run.inFlight || run.starting || run.stopping || run.quiescing || run.execution != nil || run.idleSince.IsZero() ||
+	if run.inFlight || run.starting || run.stopping || run.quiescing || len(run.executions) != 0 || run.idleSince.IsZero() ||
 		now.Sub(run.idleSince) < time.Minute || run.usage == nil || run.usage.GetUnavailable() {
 		return false
 	}
-	age := now.Sub(time.Unix(0, run.usage.GetSampledAtUnixNano()))
-	return age >= 0 && age <= 2*workloadSampleInterval
+	return workloadUsageFresh(run.usage, now)
+}
+
+func workloadUsageFresh(usage *vmmdv1.Usage, now time.Time) bool {
+	if usage == nil || usage.GetUnavailable() || usage.GetSampledAtUnixNano() == 0 {
+		return false
+	}
+	age := now.Sub(time.Unix(0, usage.GetSampledAtUnixNano()))
+	return age >= -workloadSampleInterval && age <= 2*workloadSampleInterval
 }
 
 func (controller *Controller) confirmAbsentWorkloadRun(run *workloadRun, now time.Time) {
@@ -328,7 +339,7 @@ func (controller *Controller) remoteWorkloadUsage(ctx context.Context, registrat
 		if value != nil && value.GetSampledAt() != nil {
 			sampleAge = now.Sub(value.GetSampledAt().AsTime())
 		}
-		if value == nil || value.GetStale() || value.GetSampledAt() == nil || sampleAge < 0 || sampleAge > 2*workloadSampleInterval {
+		if value == nil || value.GetStale() || value.GetSampledAt() == nil || sampleAge < -workloadSampleInterval || sampleAge > 2*workloadSampleInterval {
 			fresh = false
 			continue
 		}

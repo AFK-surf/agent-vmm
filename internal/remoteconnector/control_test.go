@@ -88,7 +88,7 @@ func TestCommandTrackerFencesEpochSequenceDeadlineAndGeneration(t *testing.T) {
 		{name: "lease generation", command: func() *remotev1.ControllerCommand {
 			command := testCommand(1, 9, now.Add(time.Minute))
 			command.LeaseGeneration = 3
-			command.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2}}
+			command.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2, ExecutionOwnerId: "runtime:a:1"}}
 			return command
 		}(), reason: remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
 		{name: "cleanup plan revision", command: func() *remotev1.ControllerCommand {
@@ -167,7 +167,7 @@ func TestCommandTrackerTerminalRejectionsConsumeExpectedSequence(t *testing.T) {
 	generation := testCommand(2, 9, now.Add(time.Minute))
 	generation.CommandId = "command-2"
 	generation.LeaseGeneration = 3
-	generation.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2}}
+	generation.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2, ExecutionOwnerId: "runtime:a:1"}}
 	ack, cached = tracker.admit(generation, now)
 	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_STALE_REVISION {
 		t.Fatalf("generation rejection = %+v/%+v", ack, cached)

@@ -34,6 +34,33 @@ It supports Dockerfiles through isolated BuildKit jobs.
 
 ## Scope
 
+### Controller lifecycle and resource direction
+
+Owner direction, 2026-09-19. These requirements supersede the design prescriptions
+below where they conflict. The current implementation has not yet converged.
+
+- Controller loss, upgrade, or an older version must not by itself stop workloads.
+  Fence stale commands and capabilities at their authority boundary.
+  Keep explicit revocation, user stop, and actual VM shutdown separate.
+- System appliances share a measured, bounded resource budget.
+  Do not reserve CPU or memory per appliance or choose a fixed percentage split.
+  Do not impose a workload or appliance count as a substitute for bounded operations.
+  Retain real disk, PID, address-space, and request-size constraints.
+- Appliance install, restart, and maintenance must not require sibling readiness
+  or stop the shared VM merely to attach that appliance's storage.
+  Preserve encrypted data and isolation when changing the storage layout.
+- File-descriptor checks protect one operation against path replacement.
+  They do not define permanent workload, controller, or volume identity.
+  Preserve stale-target deletion protection without deriving volume identity from ctime.
+
+Current gaps include percentage-based pools, appliance reservation admission,
+the 256-environment cap, lease-loss workload stops, and VM-wide appliance recovery.
+These are implementation facts to change, not additional product guarantees.
+Request bounds, pagination, and bounded recovery must replace count-dependent scans.
+This direction does not authorize deleting data or bypassing authorization.
+
+### Supported operations
+
 The system must let multiple agents do these tasks in one guest:
 
 1. Change files and install tools in separate Linux workspaces.
@@ -265,7 +292,7 @@ project quota includes its overlay upper and work directories and its private
 volumes. Shared immutable OCI content counts against the workload filesystem,
 but it does not count against every workload quota.
 
-The Host and Guest split compute capacity into two bounded parent pools. The
+The current Host and Guest split compute capacity into two bounded parent pools. The
 workload pool receives 75% of VM memory and 2,048 PIDs.
 The system appliance pool receives 25% of memory and 2,048 PIDs.
 Both parent pools share CPU with weight 100 and no CPU quota.
@@ -310,7 +337,7 @@ Ordinary namespaces use `/agent-vmm/workload/<namespace>`, including their build
 Container and build processes inherit the namespace boundary.
 Usage reads and namespace cleanup use the same paths.
 
-The workload parent permits 75 percent of kernel-reported Guest RAM and 2,048 PIDs.
+The current workload parent permits 75 percent of kernel-reported Guest RAM and 2,048 PIDs.
 A Guest with 12 GiB usable RAM gives workloads a 9 GiB parent ceiling.
 Kernel-reserved RAM can reduce that ceiling slightly.
 Equal CPU weights apply between workload namespaces. Containers within a namespace share its allocation.
@@ -318,7 +345,8 @@ Ordinary namespaces and containers have unlimited `cpu.max`, `memory.max`, and
 `memory.high`, with CPU weight 100. PID and writable disk limits remain.
 System appliance namespaces retain their own CPU and memory limits.
 
-The Host keeps at most 256 stored workload environments. CPU and memory
+The current Host caps stored workload environments at 256. This implementation
+limit is not a target product cardinality. CPU and memory
 samples do not prevent starts. The same workload still serializes lifecycle
 commands. Conflicting start, stop, or quiesce returns `LIFECYCLE_CONFLICT`.
 
@@ -344,12 +372,17 @@ A positive minimum idle period requires a current reclaim candidate. Zero-idle
 quiesce remains available for bootstrap repair and other explicit lifecycle stops.
 No eligible idle instance means no voluntary reclaim. Kernel OOM remains possible.
 
-The Host gives one current execution identity access to an active sandbox.
-That identity is bound to the allocation lease or local session and the exact
-container instance. It contains at most 64 holder identities. A repeated
-holder acquire is idempotent. Another execution identity remains busy until
-the last holder releases access. The acquire response sets `acquired` only
-when that call adds the holder. Release removes only the matching holder.
+The Host keeps at most 64 execution activities for an active sandbox. Each
+activity binds an execution ID, trusted owner, operation kind, allocation
+authority, and exact container instance. Main execution activities have no
+deadline. Short operations keep the owner deadline. An expired short operation
+becomes unknown and continues to block quiesce until its owner settles it.
+
+An acquire of the same activity is idempotent. A release settles only the exact
+activity on the exact target. It cannot change another activity or a replacement
+instance. `ListExecutions` returns one atomic view with explicit recovering,
+stale, stopped, empty, and present states. A Host restart first stops the real
+instance, then clears its activities. A transport reconnect does not clear them.
 Safe sleep first closes new execution admission with a quiesce command. The
 matching instance and command
 must then be present on the stop request. Cancellation can reopen admission only
@@ -776,7 +809,7 @@ exposes an OperatorService or AgentRuntime credential to a client.
 
 Controller-owned dynamic loopback frontends are a separate public contract for
 long-lived raw TCP forwarding. A ready controller can acquire, renew, or release
-one only for its exact active allocation lease. The host owns the random loopback
+one only for its exact accepted allocation authority. The host owns the random loopback
 listener, consumes a 256-bit capability preface, and relays bounded bytes over a
 typed controller stream; the appliance alone maps the immutable assignment to a
 container instance and `ForwardTCP` target. These listeners are memory-only and
@@ -827,8 +860,11 @@ returns a typed error with safe fields; it does not create a periodic management
 projection.
 
 Release retains allocation data. Destruction requires a fresh plan and an execute
-request matching its revision and volume set. Disconnect starts a bounded grace
-period; expiry or revocation closes the capability and stops remote-owned work.
+request matching its revision and volume set. A control request expiry does not
+remove an accepted allocation or prevent runtime-session recovery. Runtime
+sessions and loopback frontends keep their own finite capability periods.
+Explicit release or revocation closes the affected capabilities. A connection
+replacement fences the old transport without stopping accepted work.
 Automatic empty-allocation retirement stops after 30 seconds. The allocation
 then remains `RETAINED` with its durable identity and current revision. A
 controller can send `ReleaseAllocation` again with that revision to start a new

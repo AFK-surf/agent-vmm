@@ -117,7 +117,7 @@ func (server *remoteComputeServer) GetRemoteObservation(ctx context.Context, req
 	if candidate := server.controller.workloadReclaim; candidate != nil {
 		run := candidate.run
 		now := time.Now()
-		if now.UnixMilli() >= candidate.value.GetExpiresUnixMillis() || now.Sub(server.controller.workloadPressureAt) > 2*workloadSampleInterval || run.execution != nil || run.stopping || run.instanceID != candidate.value.GetContainerInstanceId() {
+		if now.UnixMilli() >= candidate.value.GetExpiresUnixMillis() || now.Sub(server.controller.workloadPressureAt) > 2*workloadSampleInterval || len(run.executions) != 0 || run.stopping || run.instanceID != candidate.value.GetContainerInstanceId() {
 			server.controller.clearWorkloadReclaimLocked("deadline_expired")
 		} else if candidate.value.GetRegistrationId() == registration.ID {
 			response.ReclaimCandidate = proto.Clone(candidate.value).(*hostv1.WorkloadReclaimCandidate)
@@ -185,9 +185,10 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 	if request.GetState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED &&
 		registration.ConnectionState == int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) &&
 		registration.ConnectionInstance != "" && registration.ConnectionInstance != request.GetConnectionInstance() {
-		if err := server.controller.revokeRemoteLeasesLocked(registration.ID, false); err != nil {
-			return nil, resourceError(codes.FailedPrecondition, "REMOTE_LEASE_REVOKE_FAILED", "remote_registration", registration.ID, err.Error())
-		}
+		// A replacement controller connection fences the old transport. It does
+		// not revoke the durable allocation or stop work already accepted by the
+		// Host/Guest owners.
+		server.controller.disconnectRemoteRegistration(registration.ID, registration.ConnectionInstance)
 	}
 	updated, err := server.controller.store.SetRemoteConnection(ctx, registration.ID, request.GetConnectionInstance(), int32(request.GetState()))
 	if err != nil {
@@ -207,7 +208,7 @@ func (server *remoteComputeServer) SetConnectionState(ctx context.Context, reque
 	}
 	if request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
 		delete(server.controller.remoteConnectionEpochs, frontendConnectionKey(registration.ID, request.GetConnectionInstance()))
-		server.controller.disconnectRemoteLeases(updated.ID, request.GetConnectionInstance(), updated.DisconnectedAt, time.Duration(updated.DisconnectGraceSeconds)*time.Second)
+		server.controller.disconnectRemoteRegistration(updated.ID, request.GetConnectionInstance())
 		server.controller.hostFrontends.discardEpoch(registration.ID, request.GetConnectionInstance(), request.GetConnectionEpoch())
 	}
 	return &hostv1.GetRemoteStateResponse{Registration: server.controller.remoteRegistrationResponse(ctx, updated).GetRegistration()}, nil
@@ -698,7 +699,6 @@ func (server *remoteComputeServer) AcquireLease(ctx context.Context, request *ho
 		server.controller.discardUncommittedLease(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED)
 		return nil, err
 	}
-	server.controller.scheduleLease(result.id, result.generation, result.expiresAt)
 	return &hostv1.LeaseResponse{Lease: leaseToProto(&result), AllocationRevision: updated.PolicyRevision}, nil
 }
 
@@ -725,6 +725,10 @@ func (server *remoteComputeServer) RenewLease(ctx context.Context, request *host
 		server.controller.mu.Unlock()
 		return nil, resourceError(codes.FailedPrecondition, "LEASE_REVOKED", "lease", request.GetLeaseId(), "lease is no longer active")
 	}
+	if !remoteLeaseRenewable(lease, time.Now()) {
+		server.controller.mu.Unlock()
+		return nil, resourceError(codes.FailedPrecondition, "LEASE_EXPIRED", "lease", request.GetLeaseId(), "lease cannot be renewed after expiry")
+	}
 	previousExpiry := lease.expiresAt
 	lease.expiresAt = time.Now().Add(duration)
 	result := *lease
@@ -739,7 +743,6 @@ func (server *remoteComputeServer) RenewLease(ctx context.Context, request *host
 		server.controller.mu.Unlock()
 		return nil, err
 	}
-	server.controller.scheduleLease(result.id, result.generation, result.expiresAt)
 	environment, err := server.controller.store.GetEnvironment(ctx, result.environmentID)
 	if err != nil {
 		return nil, err
@@ -787,6 +790,9 @@ func (server *remoteComputeServer) OpenRuntimeSession(ctx context.Context, reque
 	if err := server.controller.requireRemoteAdmission(); err != nil {
 		return nil, err
 	}
+	if request.GetExecutionOwnerId() == "" || len(request.GetExecutionOwnerId()) > 256 {
+		return nil, invalidField("execution_owner_id", "runtime execution owner identity is required")
+	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
 	if err := server.controller.requireRemoteAdmission(); err != nil {
@@ -797,7 +803,7 @@ func (server *remoteComputeServer) OpenRuntimeSession(ctx context.Context, reque
 	}
 	server.controller.mu.Lock()
 	lease := server.controller.remoteLeases[request.GetLeaseId()]
-	if lease == nil || lease.registrationID != request.GetRegistrationId() || lease.allocationID != request.GetAllocationId() || lease.generation != request.GetGeneration() || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE || !time.Now().Before(lease.expiresAt) {
+	if !remoteLeaseActive(lease) || lease.registrationID != request.GetRegistrationId() || lease.allocationID != request.GetAllocationId() || lease.generation != request.GetGeneration() {
 		server.controller.mu.Unlock()
 		return nil, resourceError(codes.FailedPrecondition, "LEASE_REVOKED", "lease", request.GetLeaseId(), "lease cannot open a runtime session")
 	}
@@ -812,26 +818,21 @@ func (server *remoteComputeServer) OpenRuntimeSession(ctx context.Context, reque
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, "remote registration is unavailable")
 	}
-	sessionIdentity := auth.Identity{RegistrationID: registration.ID, AllocationID: request.GetAllocationId(), LeaseID: request.GetLeaseId()}
+	sessionIdentity := auth.Identity{RegistrationID: registration.ID, AllocationID: request.GetAllocationId(), LeaseID: request.GetLeaseId(), ExecutionOwnerID: request.GetExecutionOwnerId()}
 	session, environment, err := server.controller.createSession(ctx, environmentID, "", store.OwnerRemoteRegistration, sessionIdentity)
 	if err != nil {
 		return nil, err
 	}
 	server.controller.mu.Lock()
 	lease = server.controller.remoteLeases[request.GetLeaseId()]
-	if lease == nil || lease.generation != request.GetGeneration() || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
+	if !remoteLeaseActive(lease) || lease.generation != request.GetGeneration() {
 		server.controller.mu.Unlock()
 		_ = server.controller.revokeSession(ctx, session.ID)
 		return nil, resourceError(codes.FailedPrecondition, "LEASE_REVOKED", "lease", request.GetLeaseId(), "lease was revoked while opening the session")
 	}
 	lease.sessionID = session.ID
-	leaseExpiresAt := lease.expiresAt
 	server.controller.mu.Unlock()
-	expiresAt := session.ExpiresAt
-	if leaseExpiresAt.Before(expiresAt) {
-		expiresAt = leaseExpiresAt
-	}
-	return &hostv1.CreateAgentSessionResponse{SessionId: session.ID, SocketPath: session.SocketPath, Environment: sessionEnvironmentFromStore(environment), ExpiresAt: timestamppb.New(expiresAt)}, nil
+	return &hostv1.CreateAgentSessionResponse{SessionId: session.ID, SocketPath: session.SocketPath, Environment: sessionEnvironmentFromStore(environment), ExpiresAt: timestamppb.New(session.ExpiresAt)}, nil
 }
 
 func (server *remoteComputeServer) RevokeRuntimeSession(ctx context.Context, request *hostv1.RevokeRuntimeSessionRequest) (*emptypb.Empty, error) {

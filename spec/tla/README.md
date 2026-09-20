@@ -14,8 +14,11 @@ form an artificial Cartesian product:
   lower snapshot.
 - `ManagedCredentialReplacement.tla` owns same-policy-revision managed
   credential idempotence and the expiry fence for a newly signed payload.
-- `WorkloadRunLifecycle.tla` owns the Host same-workload lifecycle exclusion, container-instance execution fence, quiesce fence, response loss,
-  exact stop observation, and fail-closed Host restart.
+- `WorkloadRunLifecycle.tla` owns same-workload lifecycle exclusion, the bounded
+  flat execution-activity set, exact activity/instance release, quiesce fencing,
+  response loss, exact stop observation, and fail-closed Host restart. Two
+  activity IDs are the bounded abstraction of the production limit of 64; they
+  are independent activities, not holders under one execution.
 - `OCIContentLifecycle.tla` owns the single global import slot, transient peak
   reservation, timeout/crash, the one shared content/lower-snapshot fact per
   digest, active container references, logical namespace grants, pressure
@@ -78,7 +81,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `Disconnect`, `Reconnect`, `GraceExpires`, `NoStaleTimerRevocation` | `internal/host/remote_compute_darwin.go`, `internal/host/remote_lease_darwin.go`, persisted remote registration | disconnect grace timer behavior across reconnect and a newer disconnect |
 | `RetryExactArchive`, `CommitExactArchive`, `CreateRequiresExactMaterial` | guest OCI import, image projection, and container creation | real archive import, forced VM restart, and rootfs creation E2E |
 | `InstallValidReplacement`, `ReplacementRequiresExpired`, `ForgedCredentialNeverStored` | managed trust validation and atomic credential store | expired same-revision replacement and unexpired/forged rejection tests |
-| `BeginStart`, `CommitRunning`, `Acquire`, `Release`, `BeginQuiesce`, `BeginStop`, `ObserveStopped`, `HostRestart` | `internal/host/workload_run_darwin.go`, `internal/host/workload_execution_darwin.go`, `internal/host/workload_observation_darwin.go` | concurrent start, exact holder release, response loss, stale instance, execution/quiesce race, exact stop, and restart recovery tests |
+| `BeginStart`, `CommitRunning`, `Acquire`, `RetryAcquire`, `Release`, `BeginQuiesce`, `BeginStop`, `ObserveStopped`, `HostRestart` | `internal/host/workload_run_darwin.go`, `internal/host/workload_execution_darwin.go`, `internal/host/workload_observation_darwin.go` | concurrent start, two independent activities, idempotent acquire, exact activity release, response loss, stale instance, activity/quiesce race, exact stop, and restart recovery tests |
 | `ReserveImport`, `Commit`, `DeleteRetained`, `GC`, `SingleGlobalImportOwner`, `ReferencedContentNotDeleted` | `internal/guest/control/import_linux.go`, `internal/guest/control/oci_gc_linux.go`, `internal/ocimaterializer` | concurrent digest imports, unsafe concurrent-owner counterexample, and shared-digest release/GC tests |
 | `AdmitQuota`, `ReserveImport`, `RetainRelease`, `CacheGrow`, `DiskInvariant` | `internal/guestdisk`, guest project quota and OCI budget owners | overflow, retained accounting, import reservation, and cache pressure tests |
 | `AuthorizedCommand`, `ExactRegistrationIdentity`, `DomainNonInterference` | host controller transport and command authorization | wrong-identity and cross-domain failure tests |

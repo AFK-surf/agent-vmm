@@ -14,9 +14,9 @@ only when testing the agent-facing Streamable HTTP contract.
 - MCP is Streamable HTTP only. The endpoint is the loopback URL and bearer
   token shown by the host app or host API. Do not start a stdio proxy or a
   separate forwarding daemon.
-- A failed HTTP handshake with `503 MCP runtime unavailable` means the VM,
-  bundled appliance, or its runtime allocation is not ready. Check VM and
-  appliance status before retrying the client.
+- `503 MCP runtime unavailable` describes this MCP frontend. Inspect its VM,
+  appliance, allocation, and exact error. It does not prove sibling workloads
+  stopped or authorize their restart, deletion, or re-enrollment.
 - Every operation is scoped to the authenticated environment. A successful
   connection does not grant access to another environment, device, or mesh.
 
@@ -24,7 +24,7 @@ only when testing the agent-facing Streamable HTTP contract.
 
 1. Pull the image explicitly with `image_pull` when the image is not already
    present.
-2. Create named volumes before creating a container. `volume_create` returns
+2. Create referenced named volumes before creating a container. `volume_create` returns
    the effective environment disk limit in `limit_bytes`; this is an
    environment quota, not an independent per-volume quota.
 3. Use `container_run` for a new container, or `container_start` for a created
@@ -74,6 +74,7 @@ Container `instance_id` identifies one running process generation. It changes
 - Route capabilities, exports, imports, leases, and projections are all
   generation/instance fenced. On a stale-instance or stale-route error, fetch
   current facts and create a new route instead of retrying the old capability.
+  This route fence does not set the lifetime of an independently running workload.
 
 ## Image and sandbox expectations
 
@@ -103,31 +104,27 @@ manifest, signature, and publisher key). It is intended for staging/installing
 into Agent VMM and does not promise publication as a general-purpose Docker
 image.
 
-## Known non-obvious behavior and API candidates
+## Current operation limits
 
 Record these constraints in test plans and do not silently work around them:
 
-- `container_run` deliberately does not wait for service readiness; a future
-  health/probe contract may be more conventional for service-oriented callers.
-- Capability-free execution makes some popular images unusable. A bounded
-  startup diagnostic or an image compatibility declaration would improve the
-  error without weakening isolation.
+- `container_run` reports process launch, not service readiness. Probe the
+  requested service when needed, not every unrelated container or appliance.
 - Same-container concurrent `container_exec` calls can contend with lifecycle
   and container PID/IO budgets. The MCP adapter reserves half of its request
   slots for exec streams so lifecycle and observation calls retain capacity;
-  use sequential exec or separate worker containers when a workload needs
-  high parallelism.
+  inspect the returned limit before retrying. Do not create extra containers
+  or serialize independent work merely because this implementation has slots.
 - PID limits are environment grants, not a per-command setting. They include
   container supervisors, workload processes, and exec processes. A
-  `PID_LIMIT_EXCEEDED` error is a hard quota failure; finish execs or remove
-  containers, then retry instead of assuming the image failed. The bundled
-  MCP manifest requests 1024 PIDs per environment and the default UI grant is
-  512; a host or remote pool may approve a lower grant.
+  `PID_LIMIT_EXCEEDED` error requires checking the actual grant and usage.
+  Stop or remove work only within the user's requested scope. Manifest and UI
+  defaults are not permanent product capacity requirements.
 - `PERMISSION_DENIED` from an import means the requested route crossed the
   controller-domain boundary or its supplied authorization is not current;
   same-device routes can avoid a capability only with the `local` destination
   alias.
-- Always close exec stdin explicitly. Missing EOF can make commands such as
+- Close exec stdin when no further input is needed. Missing EOF can make commands such as
   `sha256sum` wait until the caller timeout; the MCP adapter closes one-shot
   stdin, while raw gRPC callers must send `close_stdin: true`.
 - Multiline environment values are valid. Malformed entries or NUL bytes
@@ -138,7 +135,7 @@ Record these constraints in test plans and do not silently work around them:
   variants are the current common path.
 - A container restart changes its network instance address. Consumers that
   cache peer addresses must resolve the service name again or restart their
-  own client; a dynamic service-discovery contract may be needed later.
+  own client when authorized. This does not require a new discovery service.
 - `container_signal` targets the retained workload process rather than the
   sandbox supervisor. A signal can still race a natural process exit, so read
   the terminal state and exit code instead of inferring it from the request.

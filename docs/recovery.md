@@ -453,14 +453,15 @@ exact path or PID before removing anything.
   logs, or the runbook.
 - A service restart or Host reinstall does not by itself justify deleting Cue
   registrations or workloads. Retire server-side rows only when they are
-  obsolete and either exceed 20 records or prevent authoritative
-  reconciliation. This cleanup does not require purging a healthy Host.
+  obsolete and their owner authorizes the exact destructive scope.
+  Record count alone never authorizes retirement or deletion.
+  This cleanup does not require purging a healthy Host.
 
 Do not kill every process named `com.apple.Virtualization.VirtualMachine` and
-do not require a single VZ process: the main Guest and a system appliance may
-legitimately use separate VZ XPC processes. Match a survivor to the main Guest
-by its open state files and generation; match an appliance through the Host's
-appliance inventory. Give the Host enough time to stop both. A launchd
+do not infer ownership from the number of VZ processes. Appliances run as
+containers in the shared Guest, not as independent appliance VMs.
+Match a survivor to the exact Guest by its open state files and generation.
+Give the Host enough time to stop that Guest. A launchd
 `ExitTimeOut` shorter than the Host's bounded Guest shutdown forces a dirty VM
 stop and can turn a routine update into a slow filesystem recovery. Only after
 that complete graceful interval may the exact stale survivor be terminated.

@@ -19,13 +19,14 @@ const (
 )
 
 type Identity struct {
-	Role           Role
-	SessionID      string
-	EnvironmentID  string
-	NamespaceID    string
-	RegistrationID string
-	AllocationID   string
-	LeaseID        string
+	Role             Role
+	SessionID        string
+	EnvironmentID    string
+	NamespaceID      string
+	RegistrationID   string
+	AllocationID     string
+	LeaseID          string
+	ExecutionOwnerID string
 }
 
 type identityKey struct{}

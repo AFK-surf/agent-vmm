@@ -68,7 +68,7 @@ func newTunnelManager(ctx context.Context, controller remotev1.RemoteControllerS
 }
 
 func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSession) (*remotev1.SessionReady, error) {
-	if request.GetAllocationId() == "" || request.GetLeaseId() == "" || request.GetGeneration() == 0 {
+	if request.GetAllocationId() == "" || request.GetLeaseId() == "" || request.GetGeneration() == 0 || request.GetExecutionOwnerId() == "" || len(request.GetExecutionOwnerId()) > 256 {
 		return nil, fmt.Errorf("session identity is invalid")
 	}
 	manager.mu.Lock()
@@ -81,7 +81,7 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 		return nil, fmt.Errorf("lease already has an active session")
 	}
 	manager.mu.Unlock()
-	opened, err := manager.local.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{RegistrationId: manager.registrationID, ConnectionInstance: manager.connectionInstance, LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), AllocationId: request.GetAllocationId()})
+	opened, err := manager.local.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{RegistrationId: manager.registrationID, ConnectionInstance: manager.connectionInstance, LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), AllocationId: request.GetAllocationId(), ExecutionOwnerId: request.GetExecutionOwnerId()})
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,8 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 		connection.Close()
 		return nil, err
 	}
-	header := &remotev1.SessionHeader{ProtocolVersion: ProtocolVersion, RegistrationId: manager.registrationID, AllocationId: request.GetAllocationId(), LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), TunnelNonce: nonce, FrameBytes: FrameBytes, MaxInFlightBytes: MaxInFlightBytes, ConnectionEpoch: manager.connectionEpoch}
+	expiresUnixMillis := opened.GetExpiresAt().AsTime().UnixMilli()
+	header := &remotev1.SessionHeader{ProtocolVersion: ProtocolVersion, RegistrationId: manager.registrationID, AllocationId: request.GetAllocationId(), LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), TunnelNonce: nonce, FrameBytes: FrameBytes, MaxInFlightBytes: MaxInFlightBytes, ConnectionEpoch: manager.connectionEpoch, ExpiresUnixMillis: expiresUnixMillis}
 	if err := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: header}}); err != nil {
 		cancel()
 		connection.Close()
@@ -129,7 +130,7 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 	manager.mu.Unlock()
 	revokeOpened = false
 	go manager.bridge(active, stream)
-	return &remotev1.SessionReady{AllocationId: request.GetAllocationId(), LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), TunnelNonce: nonce}, nil
+	return &remotev1.SessionReady{AllocationId: request.GetAllocationId(), LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), TunnelNonce: nonce, ExpiresUnixMillis: expiresUnixMillis}, nil
 }
 
 func (manager *tunnelManager) bridge(active *activeTunnel, stream remotev1.RemoteControllerService_ServeSessionClient) {

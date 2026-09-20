@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -13,54 +14,151 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-const maxExecutionHolders = 64
+const maxWorkloadExecutions = 64
 
 type workloadExecution struct {
 	id         string
 	authority  string
+	owner      string
 	instanceID string
-	holders    map[string]time.Time
+	kind       hostv1.ExecutionKind
+	state      hostv1.ExecutionState
+	acquiredAt time.Time
+	deadline   time.Time
 }
 
-func executionHolderID(request *hostv1.ExecutionRequest) string {
-	if request.GetHolderId() != "" {
-		return request.GetHolderId()
+type workloadExecutionToken struct {
+	environmentID string
+	containerID   string
+	instanceID    string
+	executionID   string
+	authority     string
+	owner         string
+}
+
+func validExecutionKind(kind hostv1.ExecutionKind) bool {
+	switch kind {
+	case hostv1.ExecutionKind_EXECUTION_KIND_MAIN_EXECUTION,
+		hostv1.ExecutionKind_EXECUTION_KIND_AUTH_OPERATION,
+		hostv1.ExecutionKind_EXECUTION_KIND_MIGRATION_EXPORT,
+		hostv1.ExecutionKind_EXECUTION_KIND_MIGRATION_IMPORT,
+		hostv1.ExecutionKind_EXECUTION_KIND_EXEC,
+		hostv1.ExecutionKind_EXECUTION_KIND_PROCESS,
+		hostv1.ExecutionKind_EXECUTION_KIND_BUILD:
+		return true
+	default:
+		return false
 	}
-	return request.GetExecutionId()
 }
 
-func (execution *workloadExecution) pruneExpiredHolders(now time.Time) {
-	for holderID, deadline := range execution.holders {
-		if !deadline.IsZero() && !now.Before(deadline) {
-			delete(execution.holders, holderID)
+func markExpiredExecutionsUnknownLocked(run *workloadRun, now time.Time) {
+	for _, execution := range run.executions {
+		if execution.state == hostv1.ExecutionState_EXECUTION_STATE_ACTIVE && !execution.deadline.IsZero() && !now.Before(execution.deadline) {
+			execution.state = hostv1.ExecutionState_EXECUTION_STATE_UNKNOWN
 		}
 	}
 }
 
-func expireWorkloadExecutionLocked(run *workloadRun, now time.Time) bool {
-	if run.execution == nil {
-		return false
+func executionDeadline(request *hostv1.ExecutionRequest, now time.Time) (time.Time, error) {
+	if request.GetKind() == hostv1.ExecutionKind_EXECUTION_KIND_MAIN_EXECUTION {
+		if request.GetDeadlineUnixNano() != 0 {
+			return time.Time{}, invalidField("deadline_unix_nano", "main execution deadline must be zero")
+		}
+		return time.Time{}, nil
 	}
-	executionID := run.execution.id
-	run.execution.pruneExpiredHolders(now)
-	if len(run.execution.holders) != 0 {
-		return false
+	if request.GetDeadlineUnixNano() == 0 {
+		return time.Time{}, invalidField("deadline_unix_nano", "operation deadline is required")
 	}
-	run.execution = nil
-	run.idleSince = now
-	if !run.stopping {
-		run.stopping = true
-		run.stopDeadline = now.Add(workloadStopBudget)
-		run.stopRequestID = derivedRequestID("expired-execution-" + executionID)
+	deadline := time.Unix(0, request.GetDeadlineUnixNano())
+	if !now.Before(deadline) {
+		return time.Time{}, resourceError(codes.DeadlineExceeded, "EXECUTION_DEADLINE_EXCEEDED", "execution", "current", "execution deadline has expired")
 	}
-	return true
+	return deadline, nil
 }
 
 func executionAuthority(identity auth.Identity) string {
-	if identity.LeaseID != "" {
-		return identity.LeaseID
+	// The lease authorizes this request, but it is not the identity of work
+	// that may outlive a control-session or lease rotation. The allocation is
+	// the stable remote owner; local callers fall back to their session.
+	if identity.AllocationID != "" {
+		return identity.AllocationID
 	}
 	return identity.SessionID
+}
+
+func executionOwner(identity auth.Identity) string {
+	if identity.ExecutionOwnerID != "" {
+		return identity.ExecutionOwnerID
+	}
+	return identity.SessionID
+}
+
+func (controller *Controller) acquireStreamExecution(identity auth.Identity, containerID, instanceID, executionID string, kind hostv1.ExecutionKind, deadlineUnixNano int64) (*workloadExecutionToken, error) {
+	if executionID == "" || len(executionID) > 256 {
+		return nil, invalidField("execution_id", "activity identity is required")
+	}
+	if kind != hostv1.ExecutionKind_EXECUTION_KIND_EXEC && kind != hostv1.ExecutionKind_EXECUTION_KIND_PROCESS && kind != hostv1.ExecutionKind_EXECUTION_KIND_BUILD {
+		return nil, invalidField("execution_kind", "stream execution kind is required")
+	}
+	now := time.Now()
+	deadline, err := executionDeadline(&hostv1.ExecutionRequest{Kind: kind, DeadlineUnixNano: deadlineUnixNano}, now)
+	if err != nil {
+		return nil, err
+	}
+	unlock := controller.lockEnvironment(identity.EnvironmentID)
+	defer unlock()
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	run, err := controller.currentWorkloadRunLocked(identity, containerID, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	markExpiredExecutionsUnknownLocked(run, now)
+	if run.starting || run.stopping || run.quiescing || run.inFlight {
+		return nil, pendingWorkloadError(run, now)
+	}
+	authority := executionAuthority(identity)
+	owner := executionOwner(identity)
+	if execution := run.executions[executionID]; execution != nil {
+		if execution.authority != authority || execution.owner != owner || execution.instanceID != run.instanceID || execution.kind != kind {
+			return nil, resourceError(codes.Aborted, "STALE_EXECUTION", "container", run.containerID, "activity identity belongs to another owner or target")
+		}
+		return nil, resourceError(codes.Aborted, "EXECUTION_OUTCOME_UNKNOWN", "execution", executionID, "activity was already accepted; observe its terminal result")
+	}
+	if len(run.executions) >= maxWorkloadExecutions {
+		return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTIONS_FULL", "container", run.containerID, "workload activity limit reached")
+	}
+	if run.executions == nil {
+		run.executions = make(map[string]*workloadExecution)
+	}
+	run.executions[executionID] = &workloadExecution{id: executionID, authority: authority, owner: owner, instanceID: run.instanceID, kind: kind, state: hostv1.ExecutionState_EXECUTION_STATE_ACTIVE, acquiredAt: now, deadline: deadline}
+	run.idleSince = time.Time{}
+	return &workloadExecutionToken{environmentID: identity.EnvironmentID, containerID: run.containerID, instanceID: run.instanceID, executionID: executionID, authority: authority, owner: owner}, nil
+}
+
+// releaseStreamExecution consumes only terminal evidence from the Host-owned
+// guest stream. It intentionally does not require the control lease/session to
+// remain current after the operation was accepted.
+func (controller *Controller) releaseStreamExecution(token *workloadExecutionToken) {
+	if token == nil {
+		return
+	}
+	unlock := controller.lockEnvironment(token.environmentID)
+	defer unlock()
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	run := controller.workloadRuns[workloadRunKey(token.environmentID, token.containerID)]
+	if run == nil || run.instanceID != token.instanceID {
+		return
+	}
+	execution := run.executions[token.executionID]
+	if execution == nil || execution.authority != token.authority || execution.owner != token.owner || execution.instanceID != token.instanceID {
+		return
+	}
+	delete(run.executions, token.executionID)
+	if len(run.executions) == 0 {
+		run.idleSince = time.Now()
+	}
 }
 
 func (controller *Controller) currentWorkloadRunLocked(identity auth.Identity, containerID, instanceID string) (*workloadRun, error) {
@@ -69,12 +167,6 @@ func (controller *Controller) currentWorkloadRunLocked(identity auth.Identity, c
 	}
 	if !controller.workloadRunsRecovered {
 		return nil, retryable("VM_ADMISSION_CLOSED", "workload recovery is incomplete", time.Second)
-	}
-	if identity.LeaseID != "" {
-		lease := controller.remoteLeases[identity.LeaseID]
-		if lease == nil || lease.environmentID != identity.EnvironmentID || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE || !time.Now().Before(lease.expiresAt) {
-			return nil, resourceError(codes.PermissionDenied, "STALE_LEASE", "allocation", identity.AllocationID, "execution lease is no longer current")
-		}
 	}
 	run := controller.workloadRuns[workloadRunKey(identity.EnvironmentID, containerID)]
 	if run == nil || run.instanceID != instanceID {
@@ -89,19 +181,15 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 		return nil, err
 	}
 	if request.GetExecutionId() == "" || len(request.GetExecutionId()) > 256 {
-		return nil, invalidField("execution_id", "original execution identity is required")
+		return nil, invalidField("execution_id", "activity identity is required")
 	}
-	holderID := executionHolderID(request)
-	if holderID == "" || len(holderID) > 256 {
-		return nil, invalidField("holder_id", "execution holder identity is required")
+	if request.GetHolderId() != "" {
+		return nil, invalidField("holder_id", "execution holders are not supported")
 	}
-	var deadline time.Time
-	if request.GetDeadlineUnixNano() != 0 {
-		deadline = time.Unix(0, request.GetDeadlineUnixNano())
-		if !time.Now().Before(deadline) {
-			return nil, resourceError(codes.DeadlineExceeded, "EXECUTION_DEADLINE_EXCEEDED", "execution", "current", "execution deadline has expired")
-		}
+	if !validExecutionKind(request.GetKind()) {
+		return nil, invalidField("kind", "execution kind is required")
 	}
+	now := time.Now()
 	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
 	defer unlock()
 	server.controller.mu.Lock()
@@ -113,31 +201,33 @@ func (server *agentServer) AcquireExecution(ctx context.Context, request *hostv1
 	if server.controller.workloadReclaim != nil && server.controller.workloadReclaim.run == run && !run.stopping && !run.quiescing {
 		server.controller.clearWorkloadReclaimLocked("demand")
 	}
-	if expireWorkloadExecutionLocked(run, time.Now()) {
-		return nil, pendingWorkloadError(run, time.Now())
-	}
+	markExpiredExecutionsUnknownLocked(run, now)
 	if run.starting || run.stopping || run.quiescing || run.inFlight {
 		return nil, pendingWorkloadError(run, time.Now())
 	}
 	authority := executionAuthority(identity)
+	owner := executionOwner(identity)
 	acquired := false
-	if run.execution != nil {
-		if run.execution.id != request.GetExecutionId() || run.execution.authority != authority || run.execution.instanceID != run.instanceID {
-			return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTION_BUSY", "container", run.containerID, "another execution still owns this workload")
-		}
-		if _, exists := run.execution.holders[holderID]; !exists {
-			if len(run.execution.holders) >= maxExecutionHolders {
-				return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTION_HOLDERS_FULL", "container", run.containerID, "execution holder limit reached")
-			}
-			run.execution.holders[holderID] = deadline
-			acquired = true
+	if execution := run.executions[request.GetExecutionId()]; execution != nil {
+		if execution.authority != authority || execution.owner != owner || execution.instanceID != run.instanceID || execution.kind != request.GetKind() {
+			return nil, resourceError(codes.Aborted, "STALE_EXECUTION", "container", run.containerID, "activity identity belongs to another owner or target")
 		}
 	} else {
-		run.execution = &workloadExecution{id: request.GetExecutionId(), authority: authority, instanceID: run.instanceID, holders: map[string]time.Time{holderID: deadline}}
+		deadline, err := executionDeadline(request, now)
+		if err != nil {
+			return nil, err
+		}
+		if len(run.executions) >= maxWorkloadExecutions {
+			return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTIONS_FULL", "container", run.containerID, "workload activity limit reached")
+		}
+		if run.executions == nil {
+			run.executions = make(map[string]*workloadExecution)
+		}
+		run.executions[request.GetExecutionId()] = &workloadExecution{id: request.GetExecutionId(), authority: authority, owner: owner, instanceID: run.instanceID, kind: request.GetKind(), state: hostv1.ExecutionState_EXECUTION_STATE_ACTIVE, acquiredAt: now, deadline: deadline}
 		run.idleSince = time.Time{}
 		acquired = true
 	}
-	return &hostv1.ExecutionResponse{ExecutionId: run.execution.id, ContainerInstanceId: run.instanceID, Acquired: acquired}, nil
+	return &hostv1.ExecutionResponse{ExecutionId: request.GetExecutionId(), ContainerInstanceId: run.instanceID, Acquired: acquired}, nil
 }
 
 func (server *agentServer) ReleaseExecution(ctx context.Context, request *hostv1.ExecutionRequest) (*emptypb.Empty, error) {
@@ -153,18 +243,71 @@ func (server *agentServer) ReleaseExecution(ctx context.Context, request *hostv1
 	if err != nil {
 		return nil, err
 	}
-	if run.execution != nil {
-		if run.execution.id != request.GetExecutionId() || run.execution.authority != executionAuthority(identity) || run.execution.instanceID != run.instanceID {
+	if request.GetHolderId() != "" {
+		return nil, invalidField("holder_id", "execution holders are not supported")
+	}
+	if request.GetExecutionId() == "" {
+		return nil, invalidField("execution_id", "activity identity is required")
+	}
+	if execution := run.executions[request.GetExecutionId()]; execution != nil {
+		if execution.authority != executionAuthority(identity) || execution.owner != executionOwner(identity) || execution.instanceID != run.instanceID {
 			return nil, resourceError(codes.Aborted, "STALE_EXECUTION", "container", run.containerID, "execution completion is stale")
 		}
-		holderID := executionHolderID(request)
-		delete(run.execution.holders, holderID)
-		if len(run.execution.holders) == 0 {
-			run.execution = nil
+		delete(run.executions, request.GetExecutionId())
+		if len(run.executions) == 0 {
 			run.idleSince = time.Now()
 		}
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (server *agentServer) ListExecutions(ctx context.Context, request *hostv1.ListExecutionsRequest) (*hostv1.ListExecutionsResponse, error) {
+	identity, err := auth.AgentIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if request.GetContainerId() == "" || request.GetExpectedInstanceId() == "" {
+		return nil, invalidField("container/instance", "exact container instance is required")
+	}
+	server.controller.mu.Lock()
+	defer server.controller.mu.Unlock()
+	if !server.controller.workloadRunsRecovered {
+		return nil, retryable("VM_ADMISSION_CLOSED", "workload recovery is incomplete", time.Second)
+	}
+	key := workloadRunKey(identity.EnvironmentID, request.GetContainerId())
+	run := server.controller.workloadRuns[key]
+	if run == nil {
+		status := hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_NOT_FOUND
+		if server.controller.stoppedWorkloadInstances[key] == request.GetExpectedInstanceId() {
+			status = hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_STOPPED
+		}
+		return &hostv1.ListExecutionsResponse{Status: status, AllocationAuthority: executionAuthority(identity)}, nil
+	}
+	if run.instanceID != request.GetExpectedInstanceId() {
+		return &hostv1.ListExecutionsResponse{Status: hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_STALE, ContainerInstanceId: run.instanceID, AllocationAuthority: executionAuthority(identity)}, nil
+	}
+	if run.stopping {
+		return &hostv1.ListExecutionsResponse{Status: hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_RECOVERING, ContainerInstanceId: run.instanceID, AllocationAuthority: executionAuthority(identity)}, nil
+	}
+	markExpiredExecutionsUnknownLocked(run, time.Now())
+	if len(run.executions) == 0 {
+		return &hostv1.ListExecutionsResponse{Status: hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_EMPTY, ContainerInstanceId: run.instanceID, AllocationAuthority: executionAuthority(identity)}, nil
+	}
+	ids := make([]string, 0, len(run.executions))
+	for id := range run.executions {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	result := make([]*hostv1.Execution, 0, len(ids))
+	for _, id := range ids {
+		execution := run.executions[id]
+		item := &hostv1.Execution{ExecutionId: execution.id, ContainerInstanceId: execution.instanceID, Kind: execution.kind, State: execution.state, AcquiredUnixNano: execution.acquiredAt.UnixNano(), Owner: execution.owner}
+		if !execution.deadline.IsZero() {
+			item.DeadlineUnixNano = execution.deadline.UnixNano()
+		}
+		result = append(result, item)
+	}
+	return &hostv1.ListExecutionsResponse{Status: hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_PRESENT, ContainerInstanceId: run.instanceID, Executions: result, AllocationAuthority: executionAuthority(identity)}, nil
 }
 
 // The Server asks its Runtime to quiesce only after this closes Host admission.
@@ -201,7 +344,7 @@ func (server *agentServer) QuiesceContainer(ctx context.Context, request *hostv1
 			run.stopDeadline = time.Time{}
 		}
 	} else {
-		if run.execution != nil {
+		if len(run.executions) != 0 {
 			return nil, resourceError(codes.ResourceExhausted, "WORKLOAD_EXECUTION_BUSY", "container", run.containerID, "workload still has an active execution")
 		}
 		minimumIdle := time.Duration(request.GetMinimumIdleSeconds()) * time.Second
@@ -250,7 +393,7 @@ func (controller *Controller) validateQuiescedStop(identity auth.Identity, reque
 	if err != nil {
 		return err
 	}
-	if !run.quiescing || run.quiesceRequestID != request.GetQuiesceRequestId() || run.execution != nil {
+	if !run.quiescing || run.quiesceRequestID != request.GetQuiesceRequestId() || len(run.executions) != 0 {
 		return resourceError(codes.Aborted, "STALE_QUIESCE", "container", run.containerID, "safe stop does not own current execution admission")
 	}
 	if !time.Now().Before(run.stopDeadline) {
@@ -264,11 +407,10 @@ func (controller *Controller) validateQuiescedStop(identity auth.Identity, reque
 
 func (controller *Controller) validateWorkloadReclaimLocked(run *workloadRun, now time.Time) error {
 	candidate := controller.workloadReclaim
-	sampled := time.Unix(0, run.usage.GetSampledAtUnixNano())
 	if candidate == nil || candidate.run != run || candidate.value.GetContainerInstanceId() != run.instanceID ||
 		now.UnixMilli() >= candidate.value.GetExpiresUnixMillis() || !controller.workloadMemoryPressure ||
 		now.Sub(controller.workloadPressureAt) > 2*workloadSampleInterval || run.usage == nil || run.usage.GetUnavailable() ||
-		sampled.After(now) || now.Sub(sampled) > 2*workloadSampleInterval {
+		!workloadUsageFresh(run.usage, now) {
 		return resourceError(codes.Aborted, "RECLAIM_CANDIDATE_EXPIRED", "container", run.containerID, "current pressure reclaim candidate and fresh instance observation are required")
 	}
 	return nil

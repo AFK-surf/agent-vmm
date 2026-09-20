@@ -81,6 +81,7 @@ func remoteRuntimeDenied(method string) bool {
 		hostv1.AgentRuntimeService_StopContainer_FullMethodName,
 		hostv1.AgentRuntimeService_AcquireExecution_FullMethodName,
 		hostv1.AgentRuntimeService_ReleaseExecution_FullMethodName,
+		hostv1.AgentRuntimeService_ListExecutions_FullMethodName,
 		hostv1.AgentRuntimeService_QuiesceContainer_FullMethodName,
 		hostv1.AgentRuntimeService_WaitContainer_FullMethodName,
 		hostv1.AgentRuntimeService_DeleteContainer_FullMethodName,

@@ -2867,12 +2867,13 @@ func (*DrainRegistration) Descriptor() ([]byte, []int) {
 }
 
 type OpenSession struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AllocationId  string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	LeaseId       string                 `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	Generation    uint64                 `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	AllocationId     string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	LeaseId          string                 `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Generation       uint64                 `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
+	ExecutionOwnerId string                 `protobuf:"bytes,4,opt,name=execution_owner_id,json=executionOwnerId,proto3" json:"execution_owner_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *OpenSession) Reset() {
@@ -2924,6 +2925,13 @@ func (x *OpenSession) GetGeneration() uint64 {
 		return x.Generation
 	}
 	return 0
+}
+
+func (x *OpenSession) GetExecutionOwnerId() string {
+	if x != nil {
+		return x.ExecutionOwnerId
+	}
+	return ""
 }
 
 type CommandResult struct {
@@ -3357,13 +3365,14 @@ func (x *CleanupPlan) GetImpacts() []*v11.CleanupImpact {
 }
 
 type SessionReady struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AllocationId  string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	LeaseId       string                 `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	Generation    uint64                 `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
-	TunnelNonce   string                 `protobuf:"bytes,4,opt,name=tunnel_nonce,json=tunnelNonce,proto3" json:"tunnel_nonce,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	AllocationId      string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	LeaseId           string                 `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Generation        uint64                 `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
+	TunnelNonce       string                 `protobuf:"bytes,4,opt,name=tunnel_nonce,json=tunnelNonce,proto3" json:"tunnel_nonce,omitempty"`
+	ExpiresUnixMillis int64                  `protobuf:"varint,5,opt,name=expires_unix_millis,json=expiresUnixMillis,proto3" json:"expires_unix_millis,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SessionReady) Reset() {
@@ -3422,6 +3431,13 @@ func (x *SessionReady) GetTunnelNonce() string {
 		return x.TunnelNonce
 	}
 	return ""
+}
+
+func (x *SessionReady) GetExpiresUnixMillis() int64 {
+	if x != nil {
+		return x.ExpiresUnixMillis
+	}
+	return 0
 }
 
 type HostEvent struct {
@@ -3605,18 +3621,19 @@ func (x *RevokeCredential) GetReason() string {
 }
 
 type SessionHeader struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	ProtocolVersion  string                 `protobuf:"bytes,1,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	RegistrationId   string                 `protobuf:"bytes,2,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
-	AllocationId     string                 `protobuf:"bytes,3,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	LeaseId          string                 `protobuf:"bytes,4,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	Generation       uint64                 `protobuf:"varint,5,opt,name=generation,proto3" json:"generation,omitempty"`
-	TunnelNonce      string                 `protobuf:"bytes,6,opt,name=tunnel_nonce,json=tunnelNonce,proto3" json:"tunnel_nonce,omitempty"`
-	FrameBytes       uint32                 `protobuf:"varint,7,opt,name=frame_bytes,json=frameBytes,proto3" json:"frame_bytes,omitempty"`
-	MaxInFlightBytes uint32                 `protobuf:"varint,8,opt,name=max_in_flight_bytes,json=maxInFlightBytes,proto3" json:"max_in_flight_bytes,omitempty"`
-	ConnectionEpoch  uint64                 `protobuf:"varint,9,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ProtocolVersion   string                 `protobuf:"bytes,1,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	RegistrationId    string                 `protobuf:"bytes,2,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	AllocationId      string                 `protobuf:"bytes,3,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	LeaseId           string                 `protobuf:"bytes,4,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Generation        uint64                 `protobuf:"varint,5,opt,name=generation,proto3" json:"generation,omitempty"`
+	TunnelNonce       string                 `protobuf:"bytes,6,opt,name=tunnel_nonce,json=tunnelNonce,proto3" json:"tunnel_nonce,omitempty"`
+	FrameBytes        uint32                 `protobuf:"varint,7,opt,name=frame_bytes,json=frameBytes,proto3" json:"frame_bytes,omitempty"`
+	MaxInFlightBytes  uint32                 `protobuf:"varint,8,opt,name=max_in_flight_bytes,json=maxInFlightBytes,proto3" json:"max_in_flight_bytes,omitempty"`
+	ConnectionEpoch   uint64                 `protobuf:"varint,9,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
+	ExpiresUnixMillis int64                  `protobuf:"varint,10,opt,name=expires_unix_millis,json=expiresUnixMillis,proto3" json:"expires_unix_millis,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SessionHeader) Reset() {
@@ -3708,6 +3725,13 @@ func (x *SessionHeader) GetMaxInFlightBytes() uint32 {
 func (x *SessionHeader) GetConnectionEpoch() uint64 {
 	if x != nil {
 		return x.ConnectionEpoch
+	}
+	return 0
+}
+
+func (x *SessionHeader) GetExpiresUnixMillis() int64 {
+	if x != nil {
+		return x.ExpiresUnixMillis
 	}
 	return 0
 }
@@ -4121,13 +4145,14 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x02 \x01(\x04R\n" +
 	"generation\"\x13\n" +
-	"\x11DrainRegistration\"m\n" +
+	"\x11DrainRegistration\"\x9b\x01\n" +
 	"\vOpenSession\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x03 \x01(\x04R\n" +
-	"generation\"\x8b\x06\n" +
+	"generation\x12,\n" +
+	"\x12execution_owner_id\x18\x04 \x01(\tR\x10executionOwnerId\"\x8b\x06\n" +
 	"\rCommandResult\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12<\n" +
@@ -4169,14 +4194,15 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\n" +
 	"volume_ids\x18\x03 \x03(\tR\tvolumeIds\x121\n" +
 	"\x04kind\x18\x04 \x01(\x0e2\x1d.agentvmm.host.v1.CleanupKindR\x04kind\x129\n" +
-	"\aimpacts\x18\x05 \x03(\v2\x1f.agentvmm.host.v1.CleanupImpactR\aimpacts\"\x91\x01\n" +
+	"\aimpacts\x18\x05 \x03(\v2\x1f.agentvmm.host.v1.CleanupImpactR\aimpacts\"\xc1\x01\n" +
 	"\fSessionReady\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x03 \x01(\x04R\n" +
 	"generation\x12!\n" +
-	"\ftunnel_nonce\x18\x04 \x01(\tR\vtunnelNonce\"\xef\x01\n" +
+	"\ftunnel_nonce\x18\x04 \x01(\tR\vtunnelNonce\x12.\n" +
+	"\x13expires_unix_millis\x18\x05 \x01(\x03R\x11expiresUnixMillis\"\xef\x01\n" +
 	"\tHostEvent\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12#\n" +
 	"\rallocation_id\x18\x02 \x01(\tR\fallocationId\x12\x19\n" +
@@ -4190,7 +4216,7 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"credential\x18\x01 \x01(\fR\n" +
 	"credential\"*\n" +
 	"\x10RevokeCredential\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xe1\x02\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x91\x03\n" +
 	"\rSessionHeader\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12'\n" +
 	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12#\n" +
@@ -4203,7 +4229,9 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\vframe_bytes\x18\a \x01(\rR\n" +
 	"frameBytes\x12-\n" +
 	"\x13max_in_flight_bytes\x18\b \x01(\rR\x10maxInFlightBytes\x12)\n" +
-	"\x10connection_epoch\x18\t \x01(\x04R\x0fconnectionEpoch\"\x93\x01\n" +
+	"\x10connection_epoch\x18\t \x01(\x04R\x0fconnectionEpoch\x12.\n" +
+	"\x13expires_unix_millis\x18\n" +
+	" \x01(\x03R\x11expiresUnixMillis\"\x93\x01\n" +
 	"\x10HostSessionFrame\x12;\n" +
 	"\x06header\x18\x01 \x01(\v2!.agentvmm.remote.v1.SessionHeaderH\x00R\x06header\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x12!\n" +

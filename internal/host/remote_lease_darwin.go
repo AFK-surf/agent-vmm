@@ -35,29 +35,12 @@ func leaseToProto(lease *remoteLease) *hostv1.RemoteLease {
 	return &hostv1.RemoteLease{LeaseId: lease.id, AllocationId: lease.allocationID, WorkloadRef: lease.workloadRef, Generation: lease.generation, ExpiresAt: timestamppb.New(lease.expiresAt), State: lease.state}
 }
 
-func (controller *Controller) scheduleLease(id string, generation uint64, deadline time.Time) {
-	time.AfterFunc(time.Until(deadline), func() {
-		_, _ = controller.expireLease(id, generation, time.Now())
-	})
+func remoteLeaseActive(lease *remoteLease) bool {
+	return lease != nil && lease.state == hostv1.LeaseState_LEASE_STATE_ACTIVE
 }
 
-// expireLease revalidates the current deadline at the same admission
-// linearization point used by RenewLease. An old timer can never carry a stale
-// pre-lock observation through a successful renewal.
-func (controller *Controller) expireLease(id string, generation uint64, now time.Time) (*remoteLease, error) {
-	controller.remoteAdmissionMu.Lock()
-	defer controller.remoteAdmissionMu.Unlock()
-	controller.mu.Lock()
-	lease := controller.remoteLeases[id]
-	if lease == nil || lease.generation != generation || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE || now.Before(lease.expiresAt) {
-		controller.mu.Unlock()
-		return nil, nil
-	}
-	environmentID := lease.environmentID
-	controller.mu.Unlock()
-	unlockEnvironment := controller.lockEnvironment(environmentID)
-	defer unlockEnvironment()
-	return controller.finishLeaseLocked(id, generation, hostv1.LeaseState_LEASE_STATE_EXPIRED, true, false, false)
+func remoteLeaseRenewable(lease *remoteLease, now time.Time) bool {
+	return remoteLeaseActive(lease) && lease.expiresAt.After(now)
 }
 
 func (controller *Controller) finishLease(id string, generation uint64, state hostv1.LeaseState, stop, retire, reconcileTerminal bool) (*remoteLease, error) {
@@ -272,26 +255,8 @@ func (controller *Controller) revokeRemoteLeasesLocked(registrationID string, re
 	return errors.Join(failures...)
 }
 
-func (controller *Controller) disconnectRemoteLeases(registrationID, instance string, disconnectedAt time.Time, grace time.Duration) {
+func (controller *Controller) disconnectRemoteRegistration(registrationID, instance string) {
 	controller.hostFrontends.closeRegistration(registrationID, instance, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
-	controller.mu.Lock()
-	var sessions []string
-	for _, lease := range controller.remoteLeases {
-		if lease.registrationID == registrationID && lease.sessionID != "" {
-			sessions = append(sessions, lease.sessionID)
-			lease.sessionID = ""
-		}
-	}
-	controller.mu.Unlock()
-	for _, sessionID := range sessions {
-		_ = controller.revokeSession(context.Background(), sessionID)
-	}
-	time.AfterFunc(grace, func() {
-		registration, err := controller.store.GetRemoteRegistration(context.Background(), registrationID)
-		if err == nil && registration.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) && registration.DisconnectedAt.Equal(disconnectedAt) {
-			controller.revokeRemoteLeases(registrationID)
-		}
-	})
 }
 
 func (controller *Controller) stopRemoteWorkload(ctx context.Context, environmentID string) error {

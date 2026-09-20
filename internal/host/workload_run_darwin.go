@@ -14,6 +14,10 @@ const (
 	workloadStartBudget    = 120 * time.Second
 	workloadStopBudget     = 30 * time.Second
 	workloadSampleInterval = 5 * time.Second
+	// Stopped-instance evidence is only a bounded aid for owners that still
+	// have an execution to settle. Omitted evidence is reported as not_found,
+	// never as proof that an instance stopped.
+	maxStoppedWorkloadInstances = 256
 )
 
 // The environment lock serializes lifecycle commands. An unknown start retains
@@ -31,7 +35,7 @@ type workloadRun struct {
 	stopRequestID       string
 	stopAttempt         uint32
 	usage               *vmmdv1.Usage
-	execution           *workloadExecution
+	executions          map[string]*workloadExecution
 	idleSince           time.Time
 	quiescing           bool
 	quiesceRequestID    string
@@ -53,6 +57,7 @@ func (controller *Controller) admitWorkloadStart(environmentID, namespaceID, con
 	}
 	run := &workloadRun{environmentID: environmentID, namespaceID: namespaceID, containerID: containerID, starting: true, inFlight: true}
 	controller.workloadRuns[key] = run
+	delete(controller.stoppedWorkloadInstances, key)
 	return run, nil
 }
 
@@ -79,8 +84,19 @@ func (controller *Controller) observeWorkloadRunLocked(run *workloadRun, contain
 		if now.Before(run.uncertainStartUntil) {
 			return
 		}
+		if run.instanceID != "" && container.GetInstanceId() != run.instanceID {
+			return
+		}
 		if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
 			controller.clearWorkloadReclaimLocked("instance_stopped")
+		}
+		if run.instanceID != "" && len(run.executions) != 0 {
+			if controller.stoppedWorkloadInstances == nil {
+				controller.stoppedWorkloadInstances = make(map[string]string)
+			}
+			if _, present := controller.stoppedWorkloadInstances[key]; present || len(controller.stoppedWorkloadInstances) < maxStoppedWorkloadInstances {
+				controller.stoppedWorkloadInstances[key] = run.instanceID
+			}
 		}
 		delete(controller.workloadRuns, key)
 	}

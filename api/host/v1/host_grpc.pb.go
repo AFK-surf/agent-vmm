@@ -31,6 +31,7 @@ const (
 	AgentRuntimeService_StopContainer_FullMethodName               = "/agentvmm.host.v1.AgentRuntimeService/StopContainer"
 	AgentRuntimeService_AcquireExecution_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/AcquireExecution"
 	AgentRuntimeService_ReleaseExecution_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/ReleaseExecution"
+	AgentRuntimeService_ListExecutions_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/ListExecutions"
 	AgentRuntimeService_QuiesceContainer_FullMethodName            = "/agentvmm.host.v1.AgentRuntimeService/QuiesceContainer"
 	AgentRuntimeService_WaitContainer_FullMethodName               = "/agentvmm.host.v1.AgentRuntimeService/WaitContainer"
 	AgentRuntimeService_DeleteContainer_FullMethodName             = "/agentvmm.host.v1.AgentRuntimeService/DeleteContainer"
@@ -81,6 +82,7 @@ type AgentRuntimeServiceClient interface {
 	StopContainer(ctx context.Context, in *StopContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	AcquireExecution(ctx context.Context, in *ExecutionRequest, opts ...grpc.CallOption) (*ExecutionResponse, error)
 	ReleaseExecution(ctx context.Context, in *ExecutionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ListExecutions(ctx context.Context, in *ListExecutionsRequest, opts ...grpc.CallOption) (*ListExecutionsResponse, error)
 	QuiesceContainer(ctx context.Context, in *QuiesceContainerRequest, opts ...grpc.CallOption) (*ContainerResponse, error)
 	WaitContainer(ctx context.Context, in *ContainerRequest, opts ...grpc.CallOption) (*WaitContainerResponse, error)
 	DeleteContainer(ctx context.Context, in *ContainerMutationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -231,6 +233,16 @@ func (c *agentRuntimeServiceClient) ReleaseExecution(ctx context.Context, in *Ex
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, AgentRuntimeService_ReleaseExecution_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) ListExecutions(ctx context.Context, in *ListExecutionsRequest, opts ...grpc.CallOption) (*ListExecutionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListExecutionsResponse)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_ListExecutions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -633,6 +645,7 @@ type AgentRuntimeServiceServer interface {
 	StopContainer(context.Context, *StopContainerRequest) (*ContainerResponse, error)
 	AcquireExecution(context.Context, *ExecutionRequest) (*ExecutionResponse, error)
 	ReleaseExecution(context.Context, *ExecutionRequest) (*emptypb.Empty, error)
+	ListExecutions(context.Context, *ListExecutionsRequest) (*ListExecutionsResponse, error)
 	QuiesceContainer(context.Context, *QuiesceContainerRequest) (*ContainerResponse, error)
 	WaitContainer(context.Context, *ContainerRequest) (*WaitContainerResponse, error)
 	DeleteContainer(context.Context, *ContainerMutationRequest) (*emptypb.Empty, error)
@@ -706,6 +719,9 @@ func (UnimplementedAgentRuntimeServiceServer) AcquireExecution(context.Context, 
 }
 func (UnimplementedAgentRuntimeServiceServer) ReleaseExecution(context.Context, *ExecutionRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseExecution not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ListExecutions(context.Context, *ListExecutionsRequest) (*ListExecutionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListExecutions not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) QuiesceContainer(context.Context, *QuiesceContainerRequest) (*ContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method QuiesceContainer not implemented")
@@ -988,6 +1004,24 @@ func _AgentRuntimeService_ReleaseExecution_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentRuntimeServiceServer).ReleaseExecution(ctx, req.(*ExecutionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_ListExecutions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListExecutionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).ListExecutions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_ListExecutions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).ListExecutions(ctx, req.(*ListExecutionsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1566,6 +1600,10 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseExecution",
 			Handler:    _AgentRuntimeService_ReleaseExecution_Handler,
+		},
+		{
+			MethodName: "ListExecutions",
+			Handler:    _AgentRuntimeService_ListExecutions_Handler,
 		},
 		{
 			MethodName: "QuiesceContainer",

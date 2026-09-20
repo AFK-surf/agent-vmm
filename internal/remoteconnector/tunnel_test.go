@@ -15,17 +15,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type sessionLocal struct {
 	hostv1.UnimplementedRemoteComputeServiceServer
 	socket    string
 	sessionID string
+	expiresAt time.Time
 	revoked   chan *hostv1.RevokeRuntimeSessionRequest
 }
 
 func (server sessionLocal) OpenRuntimeSession(context.Context, *hostv1.OpenRuntimeSessionRequest) (*hostv1.CreateAgentSessionResponse, error) {
-	return &hostv1.CreateAgentSessionResponse{SocketPath: server.socket, SessionId: server.sessionID}, nil
+	return &hostv1.CreateAgentSessionResponse{SocketPath: server.socket, SessionId: server.sessionID, ExpiresAt: timestamppb.New(server.expiresAt)}, nil
 
 }
 
@@ -36,7 +38,8 @@ func (server sessionLocal) RevokeRuntimeSession(_ context.Context, request *host
 
 type sessionController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
-	received chan string
+	received      chan string
+	headerExpires chan int64
 }
 
 type closingSessionController struct {
@@ -56,6 +59,7 @@ func (server sessionController) ServeSession(stream grpc.BidiStreamingServer[rem
 	if first.GetHeader().GetFrameBytes() != FrameBytes || first.GetHeader().GetMaxInFlightBytes() != MaxInFlightBytes {
 		return io.ErrUnexpectedEOF
 	}
+	server.headerExpires <- first.GetHeader().GetExpiresUnixMillis()
 	frame, err := stream.Recv()
 	if err != nil {
 		return err
@@ -106,20 +110,29 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 		unix.Close()
 	}()
 	revoked := make(chan *hostv1.RevokeRuntimeSessionRequest, 1)
-	localConnection, localCleanup := localSessionClient(t, sessionLocal{socket: socket, sessionID: "private", revoked: revoked})
+	expiresAt := time.Now().Add(5 * time.Minute).Truncate(time.Millisecond)
+	localConnection, localCleanup := localSessionClient(t, sessionLocal{socket: socket, sessionID: "private", expiresAt: expiresAt, revoked: revoked})
 	defer localCleanup()
-	controllerService := sessionController{received: make(chan string, 1)}
+	controllerService := sessionController{received: make(chan string, 1), headerExpires: make(chan int64, 1)}
 	controllerConnection, controllerCleanup := controllerSessionClient(t, controllerService)
 	defer controllerCleanup()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
-	ready, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 1})
+	ready, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 1, ExecutionOwnerId: "runtime:allocation:1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ready.GetTunnelNonce() == "" {
-		t.Fatal("tunnel nonce is empty")
+	if ready.GetTunnelNonce() == "" || ready.GetExpiresUnixMillis() != expiresAt.UnixMilli() {
+		t.Fatalf("session ready=%+v expected expiry=%d", ready, expiresAt.UnixMilli())
+	}
+	select {
+	case got := <-controllerService.headerExpires:
+		if got != expiresAt.UnixMilli() {
+			t.Fatalf("session header expiry=%d want=%d", got, expiresAt.UnixMilli())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("controller did not receive session header")
 	}
 	select {
 	case value := <-controllerService.received:
@@ -172,7 +185,7 @@ func TestTunnelOpenFailureRevokesRuntimeSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	manager := newTunnelManager(ctx, nil, hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
-	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 3}); err == nil {
+	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 3, ExecutionOwnerId: "runtime:allocation:1"}); err == nil {
 		t.Fatal("invalid runtime socket was accepted")
 	}
 	select {
@@ -215,7 +228,7 @@ func TestControllerCloseRevokesRuntimeSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
-	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 5}); err != nil {
+	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 5, ExecutionOwnerId: "runtime:allocation:1"}); err != nil {
 		t.Fatal(err)
 	}
 	select {

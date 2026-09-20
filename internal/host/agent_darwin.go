@@ -19,7 +19,9 @@ import (
 
 type agentServer struct {
 	hostv1.UnimplementedAgentRuntimeServiceServer
-	controller *Controller
+	controller     *Controller
+	openGuestExec  func(context.Context) (vmmdv1.VMMDService_ExecClient, io.Closer, error)
+	openGuestBuild func(context.Context) (vmmdv1.VMMDService_BuildImageClient, io.Closer, error)
 }
 
 func (server *agentServer) GetEnvironment(ctx context.Context, _ *hostv1.GetOwnEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {

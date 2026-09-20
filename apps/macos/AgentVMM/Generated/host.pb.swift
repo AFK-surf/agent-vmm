@@ -625,6 +625,156 @@ public nonisolated enum Agentvmm_Host_V1_ContainerState: SwiftProtobuf.Enum, Swi
 
 }
 
+public nonisolated enum Agentvmm_Host_V1_ExecutionKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case mainExecution // = 1
+  case authOperation // = 2
+  case migrationExport // = 3
+  case migrationImport // = 4
+  case exec // = 5
+  case process // = 6
+  case build // = 7
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .mainExecution
+    case 2: self = .authOperation
+    case 3: self = .migrationExport
+    case 4: self = .migrationImport
+    case 5: self = .exec
+    case 6: self = .process
+    case 7: self = .build
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .mainExecution: return 1
+    case .authOperation: return 2
+    case .migrationExport: return 3
+    case .migrationImport: return 4
+    case .exec: return 5
+    case .process: return 6
+    case .build: return 7
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Agentvmm_Host_V1_ExecutionKind] = [
+    .unspecified,
+    .mainExecution,
+    .authOperation,
+    .migrationExport,
+    .migrationImport,
+    .exec,
+    .process,
+    .build,
+  ]
+
+}
+
+public nonisolated enum Agentvmm_Host_V1_ExecutionState: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case active // = 1
+  case unknown // = 2
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .active
+    case 2: self = .unknown
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .active: return 1
+    case .unknown: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Agentvmm_Host_V1_ExecutionState] = [
+    .unspecified,
+    .active,
+    .unknown,
+  ]
+
+}
+
+public nonisolated enum Agentvmm_Host_V1_ExecutionListStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case recovering // = 1
+  case notFound // = 2
+  case stale // = 3
+  case stopped // = 4
+  case empty // = 5
+  case present // = 6
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .recovering
+    case 2: self = .notFound
+    case 3: self = .stale
+    case 4: self = .stopped
+    case 5: self = .empty
+    case 6: self = .present
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .recovering: return 1
+    case .notFound: return 2
+    case .stale: return 3
+    case .stopped: return 4
+    case .empty: return 5
+    case .present: return 6
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Agentvmm_Host_V1_ExecutionListStatus] = [
+    .unspecified,
+    .recovering,
+    .notFound,
+    .stale,
+    .stopped,
+    .empty,
+    .present,
+  ]
+
+}
+
 public nonisolated enum Agentvmm_Host_V1_LogStream: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unspecified // = 0
@@ -3748,6 +3898,8 @@ public nonisolated struct Agentvmm_Host_V1_ExecutionRequest: Sendable {
 
   public var holderID: String = String()
 
+  public var kind: Agentvmm_Host_V1_ExecutionKind = .unspecified
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3763,6 +3915,62 @@ public nonisolated struct Agentvmm_Host_V1_ExecutionResponse: Sendable {
   public var containerInstanceID: String = String()
 
   public var acquired: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_ListExecutionsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var containerID: String = String()
+
+  public var expectedInstanceID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_Execution: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var executionID: String = String()
+
+  public var containerInstanceID: String = String()
+
+  public var kind: Agentvmm_Host_V1_ExecutionKind = .unspecified
+
+  public var state: Agentvmm_Host_V1_ExecutionState = .unspecified
+
+  public var acquiredUnixNano: Int64 = 0
+
+  public var deadlineUnixNano: Int64 = 0
+
+  public var owner: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_ListExecutionsResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var status: Agentvmm_Host_V1_ExecutionListStatus = .unspecified
+
+  public var containerInstanceID: String = String()
+
+  public var executions: [Agentvmm_Host_V1_Execution] = []
+
+  public var allocationAuthority: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4172,6 +4380,14 @@ public nonisolated struct Agentvmm_Host_V1_ExecStart: Sendable {
   public var rows: UInt32 = 0
 
   public var columns: UInt32 = 0
+
+  public var expectedInstanceID: String = String()
+
+  public var executionID: String = String()
+
+  public var executionKind: Agentvmm_Host_V1_ExecutionKind = .unspecified
+
+  public var executionDeadlineUnixNano: Int64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4584,6 +4800,14 @@ public nonisolated struct Agentvmm_Host_V1_BuildImageHeader: Sendable {
   public var networkMode: Agentvmm_Host_V1_BuildNetworkMode = .unspecified
 
   public var secrets: [Agentvmm_Host_V1_BuildSecret] = []
+
+  public var containerID: String = String()
+
+  public var expectedInstanceID: String = String()
+
+  public var executionID: String = String()
+
+  public var executionDeadlineUnixNano: Int64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -6955,6 +7179,8 @@ public nonisolated struct Agentvmm_Host_V1_OpenRuntimeSessionRequest: Sendable {
 
   public var connectionInstance: String = String()
 
+  public var executionOwnerID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -7038,6 +7264,18 @@ nonisolated extension Agentvmm_Host_V1_AgentSessionState: SwiftProtobuf._ProtoNa
 
 nonisolated extension Agentvmm_Host_V1_ContainerState: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0CONTAINER_STATE_UNSPECIFIED\0\u{1}CONTAINER_STATE_CREATED\0\u{1}CONTAINER_STATE_RUNNING\0\u{1}CONTAINER_STATE_STOPPED\0\u{1}CONTAINER_STATE_UNKNOWN\0")
+}
+
+nonisolated extension Agentvmm_Host_V1_ExecutionKind: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0EXECUTION_KIND_UNSPECIFIED\0\u{1}EXECUTION_KIND_MAIN_EXECUTION\0\u{1}EXECUTION_KIND_AUTH_OPERATION\0\u{1}EXECUTION_KIND_MIGRATION_EXPORT\0\u{1}EXECUTION_KIND_MIGRATION_IMPORT\0\u{1}EXECUTION_KIND_EXEC\0\u{1}EXECUTION_KIND_PROCESS\0\u{1}EXECUTION_KIND_BUILD\0")
+}
+
+nonisolated extension Agentvmm_Host_V1_ExecutionState: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0EXECUTION_STATE_UNSPECIFIED\0\u{1}EXECUTION_STATE_ACTIVE\0\u{1}EXECUTION_STATE_UNKNOWN\0")
+}
+
+nonisolated extension Agentvmm_Host_V1_ExecutionListStatus: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0EXECUTION_LIST_STATUS_UNSPECIFIED\0\u{1}EXECUTION_LIST_STATUS_RECOVERING\0\u{1}EXECUTION_LIST_STATUS_NOT_FOUND\0\u{1}EXECUTION_LIST_STATUS_STALE\0\u{1}EXECUTION_LIST_STATUS_STOPPED\0\u{1}EXECUTION_LIST_STATUS_EMPTY\0\u{1}EXECUTION_LIST_STATUS_PRESENT\0")
 }
 
 nonisolated extension Agentvmm_Host_V1_LogStream: SwiftProtobuf._ProtoNameProviding {
@@ -11930,7 +12168,7 @@ nonisolated extension Agentvmm_Host_V1_StopContainerRequest: SwiftProtobuf.Messa
 
 nonisolated extension Agentvmm_Host_V1_ExecutionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ExecutionRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}execution_id\0\u{3}container_id\0\u{3}expected_instance_id\0\u{3}deadline_unix_nano\0\u{3}holder_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}execution_id\0\u{3}container_id\0\u{3}expected_instance_id\0\u{3}deadline_unix_nano\0\u{3}holder_id\0\u{1}kind\0\u{b}owner_id\0\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -11943,6 +12181,7 @@ nonisolated extension Agentvmm_Host_V1_ExecutionRequest: SwiftProtobuf.Message, 
       case 3: try { try decoder.decodeSingularStringField(value: &self.expectedInstanceID) }()
       case 4: try { try decoder.decodeSingularInt64Field(value: &self.deadlineUnixNano) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.holderID) }()
+      case 6: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
       default: break
       }
     }
@@ -11964,6 +12203,9 @@ nonisolated extension Agentvmm_Host_V1_ExecutionRequest: SwiftProtobuf.Message, 
     if !self.holderID.isEmpty {
       try visitor.visitSingularStringField(value: self.holderID, fieldNumber: 5)
     }
+    if self.kind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -11973,6 +12215,7 @@ nonisolated extension Agentvmm_Host_V1_ExecutionRequest: SwiftProtobuf.Message, 
     if lhs.expectedInstanceID != rhs.expectedInstanceID {return false}
     if lhs.deadlineUnixNano != rhs.deadlineUnixNano {return false}
     if lhs.holderID != rhs.holderID {return false}
+    if lhs.kind != rhs.kind {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -12013,6 +12256,146 @@ nonisolated extension Agentvmm_Host_V1_ExecutionResponse: SwiftProtobuf.Message,
     if lhs.executionID != rhs.executionID {return false}
     if lhs.containerInstanceID != rhs.containerInstanceID {return false}
     if lhs.acquired != rhs.acquired {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_ListExecutionsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListExecutionsRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}container_id\0\u{3}expected_instance_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.expectedInstanceID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 1)
+    }
+    if !self.expectedInstanceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedInstanceID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_ListExecutionsRequest, rhs: Agentvmm_Host_V1_ListExecutionsRequest) -> Bool {
+    if lhs.containerID != rhs.containerID {return false}
+    if lhs.expectedInstanceID != rhs.expectedInstanceID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_Execution: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".Execution"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}execution_id\0\u{3}container_instance_id\0\u{1}kind\0\u{1}state\0\u{3}acquired_unix_nano\0\u{3}deadline_unix_nano\0\u{1}owner\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.executionID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.containerInstanceID) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 4: try { try decoder.decodeSingularEnumField(value: &self.state) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.acquiredUnixNano) }()
+      case 6: try { try decoder.decodeSingularInt64Field(value: &self.deadlineUnixNano) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.owner) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.executionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.executionID, fieldNumber: 1)
+    }
+    if !self.containerInstanceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerInstanceID, fieldNumber: 2)
+    }
+    if self.kind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 3)
+    }
+    if self.state != .unspecified {
+      try visitor.visitSingularEnumField(value: self.state, fieldNumber: 4)
+    }
+    if self.acquiredUnixNano != 0 {
+      try visitor.visitSingularInt64Field(value: self.acquiredUnixNano, fieldNumber: 5)
+    }
+    if self.deadlineUnixNano != 0 {
+      try visitor.visitSingularInt64Field(value: self.deadlineUnixNano, fieldNumber: 6)
+    }
+    if !self.owner.isEmpty {
+      try visitor.visitSingularStringField(value: self.owner, fieldNumber: 7)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_Execution, rhs: Agentvmm_Host_V1_Execution) -> Bool {
+    if lhs.executionID != rhs.executionID {return false}
+    if lhs.containerInstanceID != rhs.containerInstanceID {return false}
+    if lhs.kind != rhs.kind {return false}
+    if lhs.state != rhs.state {return false}
+    if lhs.acquiredUnixNano != rhs.acquiredUnixNano {return false}
+    if lhs.deadlineUnixNano != rhs.deadlineUnixNano {return false}
+    if lhs.owner != rhs.owner {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_ListExecutionsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListExecutionsResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}status\0\u{3}container_instance_id\0\u{1}executions\0\u{3}allocation_authority\0\u{b}host_control_epoch\0\u{c}\u{5}\u{1}")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.status) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.containerInstanceID) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.executions) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.allocationAuthority) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.status != .unspecified {
+      try visitor.visitSingularEnumField(value: self.status, fieldNumber: 1)
+    }
+    if !self.containerInstanceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerInstanceID, fieldNumber: 2)
+    }
+    if !self.executions.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.executions, fieldNumber: 3)
+    }
+    if !self.allocationAuthority.isEmpty {
+      try visitor.visitSingularStringField(value: self.allocationAuthority, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_ListExecutionsResponse, rhs: Agentvmm_Host_V1_ListExecutionsResponse) -> Bool {
+    if lhs.status != rhs.status {return false}
+    if lhs.containerInstanceID != rhs.containerInstanceID {return false}
+    if lhs.executions != rhs.executions {return false}
+    if lhs.allocationAuthority != rhs.allocationAuthority {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -12810,7 +13193,7 @@ nonisolated extension Agentvmm_Host_V1_SignalContainerRequest: SwiftProtobuf.Mes
 
 nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ExecStart"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}container_id\0\u{1}argv\0\u{1}env\0\u{1}workdir\0\u{1}user\0\u{1}tty\0\u{1}rows\0\u{1}columns\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}container_id\0\u{1}argv\0\u{1}env\0\u{1}workdir\0\u{1}user\0\u{1}tty\0\u{1}rows\0\u{1}columns\0\u{3}expected_instance_id\0\u{3}execution_id\0\u{3}execution_kind\0\u{3}execution_deadline_unix_nano\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -12827,6 +13210,10 @@ nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftPr
       case 7: try { try decoder.decodeSingularBoolField(value: &self.tty) }()
       case 8: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
       case 9: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.expectedInstanceID) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self.executionID) }()
+      case 12: try { try decoder.decodeSingularEnumField(value: &self.executionKind) }()
+      case 13: try { try decoder.decodeSingularInt64Field(value: &self.executionDeadlineUnixNano) }()
       default: break
       }
     }
@@ -12864,6 +13251,18 @@ nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftPr
     if self.columns != 0 {
       try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 9)
     }
+    if !self.expectedInstanceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedInstanceID, fieldNumber: 10)
+    }
+    if !self.executionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.executionID, fieldNumber: 11)
+    }
+    if self.executionKind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.executionKind, fieldNumber: 12)
+    }
+    if self.executionDeadlineUnixNano != 0 {
+      try visitor.visitSingularInt64Field(value: self.executionDeadlineUnixNano, fieldNumber: 13)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -12877,6 +13276,10 @@ nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftPr
     if lhs.tty != rhs.tty {return false}
     if lhs.rows != rhs.rows {return false}
     if lhs.columns != rhs.columns {return false}
+    if lhs.expectedInstanceID != rhs.expectedInstanceID {return false}
+    if lhs.executionID != rhs.executionID {return false}
+    if lhs.executionKind != rhs.executionKind {return false}
+    if lhs.executionDeadlineUnixNano != rhs.executionDeadlineUnixNano {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -13578,7 +13981,7 @@ nonisolated extension Agentvmm_Host_V1_BuildSecret: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentvmm_Host_V1_BuildImageHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BuildImageHeader"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}dockerfile_path\0\u{1}image\0\u{1}target\0\u{3}build_args\0\u{3}network_mode\0\u{1}secrets\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}dockerfile_path\0\u{1}image\0\u{1}target\0\u{3}build_args\0\u{3}network_mode\0\u{1}secrets\0\u{3}container_id\0\u{3}expected_instance_id\0\u{3}execution_id\0\u{3}execution_deadline_unix_nano\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -13593,6 +13996,10 @@ nonisolated extension Agentvmm_Host_V1_BuildImageHeader: SwiftProtobuf.Message, 
       case 5: try { try decoder.decodeRepeatedMessageField(value: &self.buildArgs) }()
       case 6: try { try decoder.decodeSingularEnumField(value: &self.networkMode) }()
       case 7: try { try decoder.decodeRepeatedMessageField(value: &self.secrets) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.expectedInstanceID) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.executionID) }()
+      case 11: try { try decoder.decodeSingularInt64Field(value: &self.executionDeadlineUnixNano) }()
       default: break
       }
     }
@@ -13624,6 +14031,18 @@ nonisolated extension Agentvmm_Host_V1_BuildImageHeader: SwiftProtobuf.Message, 
     if !self.secrets.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.secrets, fieldNumber: 7)
     }
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 8)
+    }
+    if !self.expectedInstanceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.expectedInstanceID, fieldNumber: 9)
+    }
+    if !self.executionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.executionID, fieldNumber: 10)
+    }
+    if self.executionDeadlineUnixNano != 0 {
+      try visitor.visitSingularInt64Field(value: self.executionDeadlineUnixNano, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -13635,6 +14054,10 @@ nonisolated extension Agentvmm_Host_V1_BuildImageHeader: SwiftProtobuf.Message, 
     if lhs.buildArgs != rhs.buildArgs {return false}
     if lhs.networkMode != rhs.networkMode {return false}
     if lhs.secrets != rhs.secrets {return false}
+    if lhs.containerID != rhs.containerID {return false}
+    if lhs.expectedInstanceID != rhs.expectedInstanceID {return false}
+    if lhs.executionID != rhs.executionID {return false}
+    if lhs.executionDeadlineUnixNano != rhs.executionDeadlineUnixNano {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -18029,7 +18452,7 @@ nonisolated extension Agentvmm_Host_V1_LeaseResponse: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".OpenRuntimeSessionRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{1}generation\0\u{3}allocation_id\0\u{3}registration_id\0\u{3}connection_instance\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{1}generation\0\u{3}allocation_id\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}execution_owner_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -18042,6 +18465,7 @@ nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.
       case 3: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.executionOwnerID) }()
       default: break
       }
     }
@@ -18063,6 +18487,9 @@ nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.
     if !self.connectionInstance.isEmpty {
       try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 5)
     }
+    if !self.executionOwnerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.executionOwnerID, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -18072,6 +18499,7 @@ nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.
     if lhs.allocationID != rhs.allocationID {return false}
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
+    if lhs.executionOwnerID != rhs.executionOwnerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

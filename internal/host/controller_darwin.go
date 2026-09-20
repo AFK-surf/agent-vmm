@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -87,6 +88,7 @@ type Controller struct {
 	observed                 map[string][]*hostv1.Container
 	workloadRuns             map[string]*workloadRun
 	workloadRunsRecovered    bool
+	stoppedWorkloadInstances map[string]string
 	workloadPressureAt       time.Time
 	workloadMemoryPressure   bool
 	workloadOOMKills         uint64
@@ -532,6 +534,7 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 	identity.RegistrationID = remoteIdentity.RegistrationID
 	identity.AllocationID = remoteIdentity.AllocationID
 	identity.LeaseID = remoteIdentity.LeaseID
+	identity.ExecutionOwnerID = remoteIdentity.ExecutionOwnerID
 	limiter := newRPCRateLimiter(100, 200)
 	tracked := &sessionServer{listener: serving, path: socketPath}
 	statsHandler := &sessionStats{controller: controller, sessionID: sessionID, connections: &tracked.connections}
@@ -882,6 +885,12 @@ func (controller *Controller) forgetContainers(environmentID string) {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
 	delete(controller.observed, environmentID)
+	prefix := environmentID + "\x00"
+	for key := range controller.stoppedWorkloadInstances {
+		if strings.HasPrefix(key, prefix) {
+			delete(controller.stoppedWorkloadInstances, key)
+		}
+	}
 }
 
 func cloneContainers(containers []*hostv1.Container, unknown bool) []*hostv1.Container {

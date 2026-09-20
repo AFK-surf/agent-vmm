@@ -265,6 +265,7 @@ message OpenSession {
   string allocation_id = 1;
   string lease_id = 2;
   uint64 generation = 3;
+  string execution_owner_id = 4;
 }
 
 message CommandResult {
@@ -368,6 +369,7 @@ message SessionReady {
   string lease_id = 2;
   uint64 generation = 3;
   string tunnel_nonce = 4;
+  int64 expires_unix_millis = 5;
 }
 message HostEvent {
   string kind = 1;
@@ -391,6 +393,7 @@ message SessionHeader {
   uint32 frame_bytes = 7;
   uint32 max_in_flight_bytes = 8;
   uint64 connection_epoch = 9;
+  int64 expires_unix_millis = 10;
 }
 message HostSessionFrame {
   oneof payload {

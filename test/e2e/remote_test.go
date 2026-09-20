@@ -142,7 +142,7 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 	}
 	server.connections <- len(leases)
 	for _, lease := range leases {
-		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "open-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: lease.GetAllocationId(), LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "open-" + lease.GetAllocationId(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: lease.GetAllocationId(), LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(), ExecutionOwnerId: "e2e:" + lease.GetAllocationId()}}})
 		if err != nil {
 			return err
 		}
@@ -276,7 +276,7 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 		return status.Errorf(codes.Internal, "acquire failed: %v %s", err, acquired.GetMessage())
 	}
 	lease := acquired.GetLease()
-	opened, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "open-shared", Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "shared", LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+	opened, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "open-shared", Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "shared", LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(), ExecutionOwnerId: "e2e:shared"}}})
 	if err != nil || opened.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "open failed: %v %s", err, opened.GetMessage())
 	}

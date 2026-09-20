@@ -151,6 +151,19 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "ListExecutions" metadata.
+        public enum ListExecutions: Sendable {
+            /// Request type for "ListExecutions".
+            public typealias Input = Agentvmm_Host_V1_ListExecutionsRequest
+            /// Response type for "ListExecutions".
+            public typealias Output = Agentvmm_Host_V1_ListExecutionsResponse
+            /// Descriptor for "ListExecutions".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "ListExecutions",
+                type: .unary
+            )
+        }
         /// Namespace for "QuiesceContainer" metadata.
         public enum QuiesceContainer: Sendable {
             /// Request type for "QuiesceContainer".
@@ -605,6 +618,7 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
             StopContainer.descriptor,
             AcquireExecution.descriptor,
             ReleaseExecution.descriptor,
+            ListExecutions.descriptor,
             QuiesceContainer.descriptor,
             WaitContainer.descriptor,
             DeleteContainer.descriptor,
@@ -846,6 +860,25 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
             deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ListExecutions" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListExecutionsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListExecutionsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListExecutionsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func listExecutions<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListExecutionsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListExecutionsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListExecutionsResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListExecutionsResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "QuiesceContainer" method.
@@ -1802,6 +1835,36 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.ReleaseExecution.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ListExecutions" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListExecutionsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListExecutionsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListExecutionsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func listExecutions<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListExecutionsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListExecutionsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListExecutionsResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListExecutionsResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.ListExecutions.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -3070,6 +3133,31 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
         )
     }
 
+    /// Call the "ListExecutions" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ListExecutionsRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listExecutions<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListExecutionsRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListExecutionsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.listExecutions(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListExecutionsRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ListExecutionsResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "QuiesceContainer" method.
     ///
     /// - Parameters:
@@ -4195,6 +4283,35 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
             metadata: metadata
         )
         return try await self.releaseExecution(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListExecutions" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listExecutions<Result>(
+        _ message: Agentvmm_Host_V1_ListExecutionsRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListExecutionsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ListExecutionsRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.listExecutions(
             request: request,
             options: options,
             onResponse: handleResponse

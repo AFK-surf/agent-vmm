@@ -70,7 +70,7 @@ func TestRemoteWorkloadUsageFailsClosedForIncompleteCache(t *testing.T) {
 	}{
 		{name: "missing sample", pressureAt: now},
 		{name: "stale sample", pressureAt: now, usage: &vmmdv1.Usage{SampledAtUnixNano: now.Add(-3 * workloadSampleInterval).UnixNano()}},
-		{name: "future sample", pressureAt: now, usage: &vmmdv1.Usage{SampledAtUnixNano: now.Add(time.Second).UnixNano()}},
+		{name: "far future sample", pressureAt: now, usage: &vmmdv1.Usage{SampledAtUnixNano: now.Add(2 * workloadSampleInterval).UnixNano()}},
 		{name: "stale pool pressure", pressureAt: now.Add(-3 * workloadSampleInterval), usage: &vmmdv1.Usage{SampledAtUnixNano: now.UnixNano()}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -80,6 +80,10 @@ func TestRemoteWorkloadUsageFailsClosedForIncompleteCache(t *testing.T) {
 				t.Fatalf("usage = %+v", usage)
 			}
 		})
+	}
+	controller := &Controller{store: database, workloadRunsRecovered: true, workloadPressureAt: now, workloadRuns: map[string]*workloadRun{"run": {environmentID: "environment", usage: &vmmdv1.Usage{SampledAtUnixNano: now.Add(time.Second).UnixNano()}}}}
+	if usage := controller.remoteWorkloadUsage(ctx, "registration", timestamppb.New(now)); usage.GetStale() {
+		t.Fatalf("bounded Guest clock skew rejected fresh usage: %+v", usage)
 	}
 }
 

@@ -210,6 +210,15 @@ func (g *workloadGuest) InspectContainer(ctx context.Context, r *vmmdv1.InspectC
 	}
 	return &vmmdv1.InspectContainerResponse{Container: proto.Clone(c).(*vmmdv1.Container)}, nil
 }
+func (g *workloadGuest) ListContainers(_ context.Context, r *vmmdv1.ListContainersRequest) (*vmmdv1.ListContainersResponse, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	container := g.states[r.GetActorNamespaceId()]
+	if container == nil {
+		return &vmmdv1.ListContainersResponse{}, nil
+	}
+	return &vmmdv1.ListContainersResponse{Containers: []*vmmdv1.Container{proto.Clone(container).(*vmmdv1.Container)}}, nil
+}
 func (g *workloadGuest) StartContainer(ctx context.Context, r *vmmdv1.StartContainerRequest) (*vmmdv1.StartContainerResponse, error) {
 	g.mu.Lock()
 	g.starting++
@@ -235,7 +244,11 @@ func (g *workloadGuest) StartContainer(ctx context.Context, r *vmmdv1.StartConta
 func (g *workloadGuest) StopContainer(_ context.Context, r *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	c := &vmmdv1.Container{Id: r.GetContainerId(), State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}
+	instanceID := ""
+	if current := g.states[r.GetActorNamespaceId()]; current != nil {
+		instanceID = current.GetInstanceId()
+	}
+	c := &vmmdv1.Container{Id: r.GetContainerId(), InstanceId: instanceID, State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}
 	g.states[r.GetActorNamespaceId()] = c
 	if g.loseStop {
 		return nil, status.Error(codes.Unavailable, "stop response lost")

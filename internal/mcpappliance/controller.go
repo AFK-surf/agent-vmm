@@ -259,7 +259,7 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 		controller.mu.Unlock()
 	}()
 	ctx, cancel := context.WithTimeout(clientContext, commandTimeout)
-	_, err = controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-open", LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: allocationID, LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
+	_, err = controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-open", LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: allocationID, LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(), ExecutionOwnerId: "appliance:" + allocationID}}})
 	cancel()
 	if err != nil {
 		return nil, err

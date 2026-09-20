@@ -80,7 +80,7 @@ func reconcileReferenceAllocations(ctx context.Context, cursor *referenceCommand
 			return nil, fmt.Errorf("reference lease for %q is unavailable", desired.id)
 		}
 		if _, err := dispatchReferenceCommand(ctx, cursor, "open-"+desired.id, &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{
-			AllocationId: desired.id, LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(),
+			AllocationId: desired.id, LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(), ExecutionOwnerId: "appliance:" + desired.id,
 		}}}); err != nil {
 			return nil, err
 		}

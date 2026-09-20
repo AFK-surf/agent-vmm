@@ -7,7 +7,9 @@ mkdir -p /output/bundle
 cp -a /input/. /output/bundle/
 work=$(mktemp -d /output/root.XXXXXX)
 trap 'rm -rf "$work"' EXIT
-unsquashfs -no-progress -d "$work/root" /input/rootfs.squashfs >/dev/null
+unsquashfs -force -no-progress -d "$work/root" /input/rootfs.squashfs >/dev/null
+test -x /fixture/agent-vmmd
+install -m 0755 /fixture/agent-vmmd "$work/root/usr/bin/agent-vmmd"
 cp /fixture/observe.sh "$work/root/usr/bin/pressure-fixture-observe"
 chmod +x "$work/root/usr/bin/pressure-fixture-observe"
 cat >> "$work/root/etc/init.d/agent-vmmd" <<'EOF'

@@ -21,6 +21,7 @@ service AgentRuntimeService {
   rpc StopContainer(StopContainerRequest) returns (ContainerResponse);
   rpc AcquireExecution(ExecutionRequest) returns (ExecutionResponse);
   rpc ReleaseExecution(ExecutionRequest) returns (google.protobuf.Empty);
+  rpc ListExecutions(ListExecutionsRequest) returns (ListExecutionsResponse);
   rpc QuiesceContainer(QuiesceContainerRequest) returns (ContainerResponse);
   rpc WaitContainer(ContainerRequest) returns (WaitContainerResponse);
   rpc DeleteContainer(ContainerMutationRequest) returns (google.protobuf.Empty);
@@ -818,11 +819,59 @@ message ExecutionRequest {
   string expected_instance_id = 3;
   int64 deadline_unix_nano = 4;
   string holder_id = 5;
+  ExecutionKind kind = 6;
+  reserved 7;
+  reserved "owner_id";
+}
+enum ExecutionKind {
+  EXECUTION_KIND_UNSPECIFIED = 0;
+  EXECUTION_KIND_MAIN_EXECUTION = 1;
+  EXECUTION_KIND_AUTH_OPERATION = 2;
+  EXECUTION_KIND_MIGRATION_EXPORT = 3;
+  EXECUTION_KIND_MIGRATION_IMPORT = 4;
+  EXECUTION_KIND_EXEC = 5;
+  EXECUTION_KIND_PROCESS = 6;
+  EXECUTION_KIND_BUILD = 7;
+}
+enum ExecutionState {
+  EXECUTION_STATE_UNSPECIFIED = 0;
+  EXECUTION_STATE_ACTIVE = 1;
+  EXECUTION_STATE_UNKNOWN = 2;
 }
 message ExecutionResponse {
   string execution_id = 1;
   string container_instance_id = 2;
   bool acquired = 3;
+}
+message ListExecutionsRequest {
+  string container_id = 1;
+  string expected_instance_id = 2;
+}
+enum ExecutionListStatus {
+  EXECUTION_LIST_STATUS_UNSPECIFIED = 0;
+  EXECUTION_LIST_STATUS_RECOVERING = 1;
+  EXECUTION_LIST_STATUS_NOT_FOUND = 2;
+  EXECUTION_LIST_STATUS_STALE = 3;
+  EXECUTION_LIST_STATUS_STOPPED = 4;
+  EXECUTION_LIST_STATUS_EMPTY = 5;
+  EXECUTION_LIST_STATUS_PRESENT = 6;
+}
+message Execution {
+  string execution_id = 1;
+  string container_instance_id = 2;
+  ExecutionKind kind = 3;
+  ExecutionState state = 4;
+  int64 acquired_unix_nano = 5;
+  int64 deadline_unix_nano = 6;
+  string owner = 7;
+}
+message ListExecutionsResponse {
+  reserved 5;
+  reserved "host_control_epoch";
+  ExecutionListStatus status = 1;
+  string container_instance_id = 2;
+  repeated Execution executions = 3;
+  string allocation_authority = 4;
 }
 message QuiesceContainerRequest {
   string request_id = 1;
@@ -942,6 +991,10 @@ message ExecStart {
   bool tty = 7;
   uint32 rows = 8;
   uint32 columns = 9;
+  string expected_instance_id = 10;
+  string execution_id = 11;
+  ExecutionKind execution_kind = 12;
+  int64 execution_deadline_unix_nano = 13;
 }
 message ExecResize {
   uint32 rows = 1;
@@ -1031,6 +1084,10 @@ message BuildImageHeader {
   repeated BuildArgument build_args = 5;
   BuildNetworkMode network_mode = 6;
   repeated BuildSecret secrets = 7;
+  string container_id = 8;
+  string expected_instance_id = 9;
+  string execution_id = 10;
+  int64 execution_deadline_unix_nano = 11;
 }
 message BuildContextChunk {
   bytes data = 1;
@@ -1657,6 +1714,7 @@ message OpenRuntimeSessionRequest {
   string allocation_id = 3;
   string registration_id = 4;
   string connection_instance = 5;
+  string execution_owner_id = 6;
 }
 
 message RevokeRuntimeSessionRequest {

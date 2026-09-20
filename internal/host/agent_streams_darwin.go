@@ -3,11 +3,14 @@
 package host
 
 import (
+	"context"
 	"io"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) error {
@@ -15,18 +18,45 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 	if err != nil {
 		return err
 	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	first, err := stream.Recv()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
-	guest, err := client.Exec(stream.Context())
+	if first.GetStart() == nil {
+		return status.Error(codes.InvalidArgument, "first exec event must be start")
+	}
+	start := first.GetStart()
+	right, err := server.controller.acquireStreamExecution(
+		identity,
+		start.GetContainerId(),
+		start.GetExpectedInstanceId(),
+		start.GetExecutionId(),
+		start.GetExecutionKind(),
+		start.GetExecutionDeadlineUnixNano(),
+	)
 	if err != nil {
+		return err
+	}
+	// Once the start has been accepted for forwarding, losing the controller
+	// stream makes the outcome unknown; it is not evidence that the native
+	// process exited. Keep the guest stream alive until it produces terminal
+	// evidence so the durable execution right continues to protect the work.
+	guestContext := context.WithoutCancel(stream.Context())
+	guest, connection, err := server.guestExec(guestContext)
+	if err != nil {
+		server.controller.releaseStreamExecution(right)
+		return err
+	}
+	defer connection.Close()
+	if err := guest.Send(execRequestToGuest(first, identity.NamespaceID)); err != nil {
+		// Send failure is not rejection evidence: the Guest can accept and start
+		// the child before the response path fails. Retain the right as unknown
+		// until terminal Guest evidence or an exact instance stop settles it.
 		return err
 	}
 	receiveError := make(chan error, 1)
 	go func() {
-		stdinClosed := false
+		stdinClosed := first.GetCloseStdin()
 		for {
 			request, err := stream.Recv()
 			if err == io.EOF {
@@ -52,16 +82,27 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 			}
 		}
 	}()
+	controllerAttached := true
 	for {
 		response, err := guest.Recv()
 		if err == io.EOF {
-			return streamReceiveResult(receiveError)
+			if controllerAttached {
+				return streamReceiveResult(receiveError)
+			}
+			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(execResponseFromGuest(response)); err != nil {
-			return err
+		if controllerAttached {
+			if err := stream.Send(execResponseFromGuest(response)); err != nil {
+				controllerAttached = false
+				_ = guest.CloseSend()
+			}
+		}
+		if _, terminal := response.GetEvent().(*vmmdv1.ExecResponse_ExitCode); terminal {
+			server.controller.releaseStreamExecution(right)
+			right = nil
 		}
 	}
 }
@@ -85,6 +126,22 @@ func execRequestToGuest(request *hostv1.ExecRequest, namespaceID string) *vmmdv1
 		result.Event = &vmmdv1.ExecRequest_Signal{Signal: vmmdv1.ProcessSignal(event.Signal)}
 	}
 	return result
+}
+
+func (server *agentServer) guestExec(ctx context.Context) (vmmdv1.VMMDService_ExecClient, io.Closer, error) {
+	if server.openGuestExec != nil {
+		return server.openGuestExec(ctx)
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	guest, err := client.Exec(ctx)
+	if err != nil {
+		connection.Close()
+		return nil, nil, err
+	}
+	return guest, connection, nil
 }
 
 func execResponseFromGuest(response *vmmdv1.ExecResponse) *hostv1.ExecResponse {
@@ -167,13 +224,35 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 	if err != nil {
 		return err
 	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	first, err := stream.Recv()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
-	guest, err := client.BuildImage(stream.Context())
+	header := first.GetHeader()
+	if header == nil {
+		return status.Error(codes.InvalidArgument, "first build event must be header")
+	}
+	right, err := server.controller.acquireStreamExecution(
+		identity,
+		header.GetContainerId(),
+		header.GetExpectedInstanceId(),
+		header.GetExecutionId(),
+		hostv1.ExecutionKind_EXECUTION_KIND_BUILD,
+		header.GetExecutionDeadlineUnixNano(),
+	)
 	if err != nil {
+		return err
+	}
+	guestContext := context.WithoutCancel(stream.Context())
+	guest, connection, err := server.guestBuild(guestContext)
+	if err != nil {
+		server.controller.releaseStreamExecution(right)
+		return err
+	}
+	defer connection.Close()
+	if err := guest.Send(buildRequestToGuest(first, identity.NamespaceID)); err != nil {
+		// The Guest can accept the build before the stream reports this error.
+		// Keep the right so quiesce remains closed while the result is unknown.
 		return err
 	}
 	receiveError := make(chan error, 1)
@@ -194,10 +273,14 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 			}
 		}
 	}()
+	controllerAttached := true
 	for {
 		response, err := guest.Recv()
 		if err == io.EOF {
-			return streamReceiveResult(receiveError)
+			if controllerAttached {
+				return streamReceiveResult(receiveError)
+			}
+			return nil
 		}
 		if err != nil {
 			return err
@@ -209,10 +292,33 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 		case *vmmdv1.BuildImageResponse_Result:
 			converted.Event = &hostv1.BuildImageResponse_Result{Result: &hostv1.BuildImageResult{Image: event.Result.GetImage(), Digest: event.Result.GetDigest()}}
 		}
-		if err := stream.Send(converted); err != nil {
-			return err
+		if controllerAttached {
+			if err := stream.Send(converted); err != nil {
+				controllerAttached = false
+				_ = guest.CloseSend()
+			}
+		}
+		if response.GetResult() != nil {
+			server.controller.releaseStreamExecution(right)
+			right = nil
 		}
 	}
+}
+
+func (server *agentServer) guestBuild(ctx context.Context) (vmmdv1.VMMDService_BuildImageClient, io.Closer, error) {
+	if server.openGuestBuild != nil {
+		return server.openGuestBuild(ctx)
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	guest, err := client.BuildImage(ctx)
+	if err != nil {
+		connection.Close()
+		return nil, nil, err
+	}
+	return guest, connection, nil
 }
 
 func buildRequestToGuest(request *hostv1.BuildImageRequest, namespaceID string) *vmmdv1.BuildImageRequest {

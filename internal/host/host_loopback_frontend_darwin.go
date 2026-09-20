@@ -290,7 +290,7 @@ func (server *remoteComputeServer) AcquireHostLoopbackFrontend(ctx context.Conte
 	server.controller.mu.Lock()
 	allocationLease := server.controller.remoteLeases[request.GetAllocationLeaseId()]
 	valid := allocationLease != nil && allocationLease.registrationID == registration.ID && allocationLease.allocationID == request.GetAllocationId() &&
-		allocationLease.generation == request.GetAllocationLeaseGeneration() && allocationLease.state == hostv1.LeaseState_LEASE_STATE_ACTIVE && time.Now().Before(allocationLease.expiresAt)
+		allocationLease.generation == request.GetAllocationLeaseGeneration() && remoteLeaseActive(allocationLease)
 	server.controller.mu.Unlock()
 	if !valid {
 		return nil, resourceError(codes.FailedPrecondition, "LEASE_REVOKED", "lease", request.GetAllocationLeaseId(), "allocation lease is not active")
@@ -367,7 +367,7 @@ func (server *remoteComputeServer) RenewHostLoopbackFrontend(ctx context.Context
 	server.controller.mu.Lock()
 	allocationLease := server.controller.remoteLeases[request.GetAllocationLeaseId()]
 	valid := allocationLease != nil && allocationLease.registrationID == lease.proto.GetRegistrationId() && allocationLease.allocationID == lease.proto.GetAllocationId() &&
-		allocationLease.generation == request.GetAllocationLeaseGeneration() && allocationLease.state == hostv1.LeaseState_LEASE_STATE_ACTIVE && time.Now().Before(allocationLease.expiresAt)
+		allocationLease.generation == request.GetAllocationLeaseGeneration() && remoteLeaseActive(allocationLease)
 	server.controller.mu.Unlock()
 	if !valid {
 		server.controller.hostFrontends.mu.Unlock()
