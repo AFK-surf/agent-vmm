@@ -5,10 +5,8 @@ form an artificial Cartesian product:
 
 - `ControllerAllocationLifecycle.tla` owns one controller's ready
   acknowledgement, inventory watermark, epoch, command fence, allocation,
-  lease, reconnect capability, revoke, and the atomic admission decision.
-- `RemoteLeaseDisconnectGrace.tla` owns the persisted disconnect fence used by
-  delayed lease revocation across reconnect and a later disconnect, and proves
-  that revocation preserves the durable allocation and reservation.
+  runtime session, revoke, and the atomic admission decision. A disconnect
+  closes the command session but preserves the durable allocation.
 - `OCIImageMaterialization.tla` owns exact-digest archive re-import after a
   logical image grant survives without its shared content or persistent overlay
   lower snapshot.
@@ -35,7 +33,7 @@ form an artificial Cartesian product:
 
 `WorkloadRunLifecycle` and `ControllerAllocationLifecycle` remain orthogonal.
 The former owns process slots and execution admission. The latter owns the
-controller epoch, revision, lease, and command ordering fences. OCI identity and
+controller epoch, revision, allocation, session, and command ordering fences. OCI identity and
 physical disk arithmetic stay in their own narrow models.
 
 - `ApplianceActivationLifecycle.tla` owns one installation's coupled bundled
@@ -56,7 +54,7 @@ physical disk arithmetic stay in their own narrow models.
   `TestRepairRetainsConfiguredPairingRestriction`.
   `HostVMRestartRecovery.tla` owns the one-shot post-install VM resume and the
   single-owner recovery after an unexpected VM stop. Recovery revokes admission
-  and active lease capabilities before restart, requires a fresh boot with policies and connectors restored, and
+  and active sessions before restart, requires a fresh boot with policies and connectors restored, and
   fails closed after its only attempt. Host shutdown is mutually exclusive with
   that owner. `RecoverySuccess` abstracts only the admission commit: the
   Go owner performs boot, policy replay, and connector restoration as ordered
@@ -77,8 +75,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 
 | Model action or invariant | Production owner after its implementation phase | Fault or conformance test |
 | --- | --- | --- |
-| `ControllerReady`, `Allocate`, `InventoryMutation`, `DeleteAllocation`, `OpenSession` | `internal/remoteconnector`, `internal/host/remote_compute_darwin.go`, host lease/session manager | ready/fence, admission, reconnect, capability replacement, inventory mutation, and leased-delete tests |
-| `Disconnect`, `Reconnect`, `GraceExpires`, `NoStaleTimerRevocation` | `internal/host/remote_compute_darwin.go`, `internal/host/remote_lease_darwin.go`, persisted remote registration | disconnect grace timer behavior across reconnect and a newer disconnect |
+| `ControllerReady`, `Allocate`, `InventoryMutation`, `DeleteAllocation`, `OpenSession`, `Disconnect` | `internal/remoteconnector`, `internal/host/remote_compute_darwin.go`, and the Host session manager | ready fences, admission, reconnect, session replacement, inventory mutation, and allocation release tests |
 | `RetryExactArchive`, `CommitExactArchive`, `CreateRequiresExactMaterial` | guest OCI import, image projection, and container creation | real archive import, forced VM restart, and rootfs creation E2E |
 | `InstallValidReplacement`, `ReplacementRequiresExpired`, `ForgedCredentialNeverStored` | managed trust validation and atomic credential store | expired same-revision replacement and unexpired/forged rejection tests |
 | `BeginStart`, `CommitRunning`, `Acquire`, `RetryAcquire`, `Release`, `BeginQuiesce`, `BeginStop`, `ObserveStopped`, `HostRestart` | `internal/host/workload_run_darwin.go`, `internal/host/workload_execution_darwin.go`, `internal/host/workload_observation_darwin.go` | concurrent start, two independent activities, idempotent acquire, exact activity release, response loss, stale instance, activity/quiesce race, exact stop, and restart recovery tests |
@@ -92,7 +89,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `PlanRemove`, `ExecuteRemove`, `RemoveRevisionExact` | `internal/host/appliance_admin_remove_darwin.go`, `internal/host/store/appliance_operation.go` | pending-destroy tombstone and revision-fence tests |
 | `CrossDomainRemove`, `InstallationNonInterference` | appliance admin authorization | cross-domain remove tests |
 | `Seal`, `RecoverSealed`, `SealedRecoveryIsBounded` | appliance supervisor and appliance admin operations | key loss, corruption, schema, and bounded repair tests |
-| `HostVMRestartRecovery.ResumeSuccess`, `UnexpectedStop`, `RecoverySuccess`, `RecoveryCommit`, `RecoveryFailure`, `BeginShutdown`, `GuestQuiesceSuccess`, `VZTerminal`, `ReleaseDisk`, `ExitHost`, `NoFreshVMStart`, `RecoveryRevokesAdmission`, `RecoveryClearsLease`, `HostExitRequiresDiskRelease` | `cmd/agent-vmm-host.shutdown`, `internal/vmm.Manager.Stop`, `internal/vmm.Manager.observeStateChanges`, `internal/vmm.Manager.terminalTransition`, `internal/host.VMLifecycleOwner.Shutdown` | startup state-disk guard, lease and admission revocation, one shutdown-exclusive lifecycle owner, guest quiesce before clean stop, VZ terminal completion before disk release and host exit, fresh boot, closed-notification fail-closed behavior, and terminal failure tests |
+| `HostVMRestartRecovery.ResumeSuccess`, `UnexpectedStop`, `RecoverySuccess`, `RecoveryCommit`, `RecoveryFailure`, `BeginShutdown`, `GuestQuiesceSuccess`, `VZTerminal`, `ReleaseDisk`, `ExitHost`, `NoFreshVMStart`, `RecoveryRevokesAdmission`, `RecoveryClearsSession`, `HostExitRequiresDiskRelease` | `cmd/agent-vmm-host.shutdown`, `internal/vmm.Manager.Stop`, `internal/vmm.Manager.observeStateChanges`, `internal/vmm.Manager.terminalTransition`, `internal/host.VMLifecycleOwner.Shutdown` | startup state-disk guard, session and admission revocation, one shutdown-exclusive lifecycle owner, guest quiesce before clean stop, VZ terminal completion before disk release and host exit, fresh boot, closed-notification fail-closed behavior, and terminal failure tests |
 
 Consumer repositories may refine these actions, but they must not redefine host inventory, epoch, or lifecycle ownership.
 
@@ -147,7 +144,7 @@ successful build can replace a tag; ordinary archive import still rejects a
 conflicting digest. The model claims no build progress under failure or restart.
 
 `ApplianceRecoverySelection` refines only missing-instance selection shared by
-foreground VM recovery and the background appliance reconciler. Host candidates
+explicit lifecycle activation and the background appliance reconciler. Host candidates
 precede Guest observations; `SelectRecovery` maps the installation revision
 check in `recoverApplianceRuntime`, and `Launch` retains the second check in
 `startApplianceLocked`. The existing installation owner spans preparation and

@@ -113,7 +113,7 @@ func (runtime managedRuntime) resolveScope(ctx context.Context, status map[strin
 		if opts.workloadID != "" {
 			var matched *hostv1.RemoteAllocation
 			for _, allocation := range registration.GetAllocations() {
-				if allocation.GetLease().GetWorkloadRef() != opts.workloadID {
+				if allocation.GetAllocationId() != opts.workloadID {
 					continue
 				}
 				if matched != nil {
@@ -129,7 +129,7 @@ func (runtime managedRuntime) resolveScope(ctx context.Context, status map[strin
 			}
 			result["allocation_id"] = matched.GetAllocationId()
 			result["allocation_generation"] = matched.GetGeneration()
-			result["lease_state"] = strings.ToLower(strings.TrimPrefix(matched.GetLease().GetState().String(), "LEASE_STATE_"))
+			result["allocation_state"] = strings.ToLower(strings.TrimPrefix(matched.GetState().String(), "ALLOCATION_STATE_"))
 		}
 	}
 	return result, nil

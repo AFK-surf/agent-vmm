@@ -67,7 +67,7 @@ func TestNamespaceRetirementResponseLossAndRestartPreserveIdentity(t *testing.T)
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, err = database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 1, PerEnvCPUMillis: 2000, PerEnvMemoryBytes: 4 << 30, PerEnvPIDs: 512, PerEnvDiskBytes: 8 << 30, MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
+	_, err = database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", PerEnvPIDs: 512, PerEnvDiskBytes: 8 << 30, MaxEgressMode: 1, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

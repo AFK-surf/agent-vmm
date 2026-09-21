@@ -452,7 +452,7 @@ func TestConnectorFailureStatusIsBoundedAndActionable(t *testing.T) {
 }
 
 func testRegistration(version string) *hostv1.RemoteRegistration {
-	return &hostv1.RemoteRegistration{Id: "registration-a", ProtocolVersion: version, Revision: 7, PoolPolicyRevision: 7, InventoryRevision: 11, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, Pool: &hostv1.RemotePoolPolicy{MaxEnvironments: 4, PerEnvironmentLimits: &hostv1.ResourceLimits{}}, Allocations: []*hostv1.RemoteAllocation{{AllocationId: "allocation-a", State: hostv1.AllocationState_ALLOCATION_STATE_READY}}}
+	return &hostv1.RemoteRegistration{Id: "registration-a", ProtocolVersion: version, Revision: 7, PoolPolicyRevision: 7, InventoryRevision: 11, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: &hostv1.ResourceLimits{}}, Allocations: []*hostv1.RemoteAllocation{{AllocationId: "allocation-a", State: hostv1.AllocationState_ALLOCATION_STATE_READY}}}
 }
 
 func TestObserveRegistrationRequiresHostObservedReadyConnection(t *testing.T) {

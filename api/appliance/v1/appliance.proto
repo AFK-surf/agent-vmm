@@ -170,24 +170,16 @@ message DynamicHostLoopbackGrant {
   StreamBounds connection_bounds                    = 6;
 }
 
-message ResourceRange {
-  agentvmm.host.v1.ResourceLimits floor   = 1;
-  agentvmm.host.v1.ResourceLimits ceiling = 2;
-}
-
 message CapacityGrant {
-  reserved 2;
-  reserved "aggregate_limits";
-  uint32                          max_environments         = 1;
+  reserved 1, 2, 5, 6;
+  reserved "max_environments", "aggregate_limits", "max_lease_seconds", "disconnect_grace_seconds";
   agentvmm.host.v1.ResourceLimits per_environment_limits   = 3;
   agentvmm.host.v1.EgressMode     max_egress_mode          = 4;
-  uint32                          max_lease_seconds        = 5;
-  uint32                          disconnect_grace_seconds = 6;
 }
 
 message ControllerApplianceManifest {
-  reserved 3;
-  reserved "publisher_key_id";
+  reserved 3, 10, 18;
+  reserved "publisher_key_id", "system_resources", "minimum_appliance_runtime";
   string                      contract_version                = 1;
   string                      product_id                      = 2;
   string                      release                         = 4;
@@ -196,7 +188,6 @@ message ControllerApplianceManifest {
   string                      platform                        = 7;
   string                      bootstrap_protocol_version      = 8;
   string                      controller_protocol_version     = 9;
-  ResourceRange               system_resources                = 10;
   uint64                      data_volume_bytes               = 11;
   CapacityGrant               requested_capacity              = 12;
   agentvmm.host.v1.EgressMode requested_egress_mode           = 13;
@@ -204,17 +195,19 @@ message ControllerApplianceManifest {
   uint32                      startup_deadline_seconds        = 15;
   uint32                      probation_seconds               = 16;
   uint32                      health_timeout_seconds          = 17;
-  string                      minimum_appliance_runtime       = 18;
   DynamicHostLoopbackGrant    requested_dynamic_host_loopback = 19;
+  agentvmm.host.v1.ResourceLimits system_limits               = 20;
 }
 
 message ApprovedGrant {
-  ResourceRange               system_resources      = 1;
+  reserved 1;
+  reserved "system_resources";
   CapacityGrant               capacity              = 2;
   agentvmm.host.v1.EgressMode egress_mode           = 3;
   repeated ControllerFrontend frontends             = 4;
   uint64                      revision              = 5;
   DynamicHostLoopbackGrant    dynamic_host_loopback = 6;
+  agentvmm.host.v1.ResourceLimits system_limits      = 7;
 }
 
 message ApplianceLaunchClaim {

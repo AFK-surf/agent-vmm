@@ -88,6 +88,14 @@ func (store *Store) ListRunningApplianceOperations(ctx context.Context) ([]Appli
 	return store.listApplianceOperations(ctx, " WHERE state=1 ORDER BY created_at, id")
 }
 
+func (store *Store) HasRunningApplianceOperation(ctx context.Context, installationID string) (bool, error) {
+	var exists bool
+	err := store.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM appliance_operations WHERE installation_id=? AND state=1
+	)`, installationID).Scan(&exists)
+	return exists, err
+}
+
 func (store *Store) ListPendingApplianceRemovals(ctx context.Context) ([]ApplianceOperation, error) {
 	return store.listApplianceOperations(ctx, " WHERE state=1 AND operation_phase=4 ORDER BY created_at, id")
 }
@@ -240,12 +248,6 @@ func (store *Store) CommitApplianceRemove(ctx context.Context, remove ApplianceR
 	}
 	if blockers != 0 {
 		return ApplianceOperation{}, ErrApplianceDomainNotEmpty
-	}
-	if remove.ReservationID != "" {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM resource_reservations WHERE id=? AND owner_kind=? AND owner_id=?`,
-			remove.ReservationID, ReservationOwnerAppliance, remove.InstallationID); err != nil {
-			return ApplianceOperation{}, err
-		}
 	}
 	var authorityID string
 	if err := tx.QueryRowContext(ctx, `SELECT authority_id FROM appliance_trust_authorities WHERE installation_id=?`, remove.InstallationID).Scan(&authorityID); err != nil && !errors.Is(err, sql.ErrNoRows) {

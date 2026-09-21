@@ -53,11 +53,10 @@ below where they conflict. The current implementation has not yet converged.
   They do not define permanent workload, controller, or volume identity.
   Preserve stale-target deletion protection without deriving volume identity from ctime.
 
-Current gaps include percentage-based pools, appliance reservation admission,
-the 256-environment cap, lease-loss workload stops, and VM-wide appliance recovery.
-These are implementation facts to change, not additional product guarantees.
-Request bounds, pagination, and bounded recovery must replace count-dependent scans.
-This direction does not authorize deleting data or bypassing authorization.
+The Guest stores each appliance data image on the shared control filesystem.
+It mounts the image through loop and LUKS before it starts the appliance.
+The Host attaches an old image only for its one-time schema-23 conversion.
+These rules do not authorize data deletion or an authorization bypass.
 
 ### Supported operations
 
@@ -113,12 +112,14 @@ host-owned registry operations, snapshots, and the bounded endpoint projection.
 
 ## Compatibility Position
 
-The Host accepts the current database format and performs one bounded schema-18
-to schema-19 conversion before startup. Other database formats fail closed.
-The conversion preserves workload identity, policies, credentials, volumes,
-and product data. It copies each exact allocation generation to its environment.
-It removes the retired workload reservation and aggregate-capacity projections.
-It also removes only obsolete allocation rows from the generic reservation table.
+The Host accepts schema 23. It converts schema 18 through 22 to schema 23 in one
+transaction before startup. Other database formats fail closed. The conversion
+preserves workload identity, policies, credentials, volumes, artifact manifests,
+and product data. For schema 18, it copies each exact allocation generation to
+its environment. It removes retired reservation, aggregate-capacity, and artifact
+trust projections. Schema 23 records the appliance volume location. Existing
+rows start in the Host block layout. New installations start in the Guest image
+layout.
 The signed Host provides an offline conversion from the legacy single-filesystem
 state disk to the control and workload layout. That command attaches the source
 read-only and writes a separate target. The first target boot converts legacy
@@ -220,15 +221,14 @@ The host controller has these responsibilities:
 The packaged Host defaults the VM to 12 GiB and refuses a configuration that
 leaves less than 4 GiB of physical memory to macOS. If Virtualization.framework
 unexpectedly stops a running VM, the Host first revokes sessions, capabilities,
-active remote leases, and remote connector admission while preserving the
+and remote connector admission while preserving the
 durable registration, allocation, and state-disk identity. The same Host
-process owns one recovery attempt
-against the existing state disk. It publishes remote admission again only after
-a fresh Guest boot ID, appliance reconciliation, policy replay, workload
-recovery, and connector reconnection. Appliance activation that starts the VM
-uses the same commit tail. An empty installation list requires no appliance
-secret store or Guest appliance inventory call. A failed attempt or a second unexpected stop remains failed and
-requires operator action; it does not replace the disk or restart macOS.
+process owns one recovery attempt against the existing state disk. It publishes
+remote admission after a fresh Guest boot ID, policy replay, workload recovery,
+and connector reconnection. Appliance reconciliation continues independently.
+One failed appliance does not close VM admission or stop a sibling appliance.
+A failed VM attempt or a second unexpected stop requires operator action. It
+does not replace the disk or restart macOS.
 
 The host controller uses one local SQLite database for control-plane facts.
 It does not copy container runtime state or volume contents into this database.
@@ -242,7 +242,7 @@ separate credentials and membership state.
 
 Environment ownership is explicit and persistent. A local environment has no registration or allocation identity. A remote environment belongs to one registration and one controller-scoped allocation ID; its host environment ID and guest namespace ID are generated locally and are never returned to the controller.
 
-The operator socket and the remote-compute socket are separate `0600` Unix sockets. The remote-compute service exposes only remote inventory, allocation admission, lease lifecycle, cleanup plan/execute, connection state, and filtered runtime session creation. It cannot manage the VM or local environments. This is an application least-privilege boundary under the same macOS UID, not an OS sandbox.
+The operator socket and the remote-compute socket are separate `0600` Unix sockets. The remote-compute service exposes remote inventory, allocation admission, frontend lease management, cleanup plan/execute, connection state, and filtered runtime session creation. It cannot manage the VM or local environments. This is an application least-privilege boundary under the same macOS UID, not an OS sandbox.
 
 The Virtualization.framework configuration contains these devices:
 
@@ -251,6 +251,11 @@ The Virtualization.framework configuration contains these devices:
 - no host-directory sharing device; workspace bytes live on the encrypted guest state disk
 - one virtio-vsock device for control, byte streams, and the dedicated egress packet session
 - entropy and memory balloon devices
+
+New appliance installations do not add a block device. During the schema-23
+conversion, the Host can attach an old appliance image for one boot. The Guest
+copies it to the control filesystem and verifies its LUKS identity before the
+Host commits the new location. The Host then removes the old image.
 
 ### `agent-vmmd`
 
@@ -292,17 +297,19 @@ project quota includes its overlay upper and work directories and its private
 volumes. Shared immutable OCI content counts against the workload filesystem,
 but it does not count against every workload quota.
 
-The current Host and Guest split compute capacity into two bounded parent pools. The
-workload pool receives 75% of VM memory and 2,048 PIDs.
-The system appliance pool receives 25% of memory and 2,048 PIDs.
-Both parent pools share CPU with weight 100 and no CPU quota.
-The Host admits system grants against the system pool and remote registrations
-against the workload pool. System appliance grants also share a fixed 4 GiB
-budget on the control filesystem. Shared native system images use project 9000
-with a fixed 2 GiB hard limit. The remaining control capacity covers containerd
-metadata, VMMD state, and filesystem overhead. A full workload filesystem cannot
-consume this control reserve, and a system image cannot consume the system
-appliance budget.
+The system and workload parent cgroups share Guest CPU and memory. They use CPU
+weight 100 and no CPU or memory quota. The Host does not reserve compute capacity
+for an installation. System appliance grants retain PID and disk limits.
+Shared native system images use project 9000 with a fixed 2 GiB hard limit.
+The remaining control capacity covers containerd metadata, VMMD state, and
+filesystem overhead. A full workload filesystem cannot consume this control
+reserve.
+
+Each appliance data volume is a sparse image under the control filesystem.
+VMMD attaches it to a loop device and opens it with the installation key. The
+appliance container receives only the mounted data directory. It receives no
+block device or Host capability. Appliance stop and removal close only that
+mount and do not stop the shared VM.
 
 A fixed supervisor runs as the sandbox init.
 The user process runs as a retained exec process in the same sandbox.
@@ -337,16 +344,13 @@ Ordinary namespaces use `/agent-vmm/workload/<namespace>`, including their build
 Container and build processes inherit the namespace boundary.
 Usage reads and namespace cleanup use the same paths.
 
-The current workload parent permits 75 percent of kernel-reported Guest RAM and 2,048 PIDs.
-A Guest with 12 GiB usable RAM gives workloads a 9 GiB parent ceiling.
-Kernel-reserved RAM can reduce that ceiling slightly.
+The workload and system parents can use the Guest memory ceiling. Each parent
+retains a 2,048 PID limit.
 Equal CPU weights apply between workload namespaces. Containers within a namespace share its allocation.
 Ordinary namespaces and containers have unlimited `cpu.max`, `memory.max`, and
 `memory.high`, with CPU weight 100. PID and writable disk limits remain.
-System appliance namespaces retain their own CPU and memory limits.
-
-The current Host caps stored workload environments at 256. This implementation
-limit is not a target product cardinality. CPU and memory
+System appliance namespaces also share CPU and memory. Their PID and disk limits
+remain. The Host does not cap the total stored workload count. CPU and memory
 samples do not prevent starts. The same workload still serializes lifecycle
 commands. Conflicting start, stop, or quiesce returns `LIFECYCLE_CONFLICT`.
 
@@ -795,15 +799,15 @@ The macOS standalone app installs that appliance through `ApplianceAdminService`
 Managed installation registers the external controller directly. It does not
 install an appliance or use appliance health as the Cue node readiness signal.
 Standalone appliance lifecycle behavior is unchanged. On a Host that already
-has enabled appliances, existing VM recovery still reconciles those appliances
-from their installed artifact. A runtime bundle omits bundled upgrade material,
+has enabled appliances, the bounded background reconciler restores missing
+instances from their installed artifact after the VM starts. A runtime bundle omits bundled upgrade material,
 so it does not install or upgrade the standalone MCP appliance.
 
 ## Local MCP and remote compute boundaries
 
 The bundled MCP appliance is the only model-facing entry point. It serves
 Streamable HTTP on a host-loopback frontend and owns the MCP schema, opaque
-client bindings, allocations, leases, runtime sessions, result bounds, and
+client bindings, allocations, runtime sessions, result bounds, and
 cleanup policy. The host app only publishes the current endpoint and never
 exposes an OperatorService or AgentRuntime credential to a client.
 
@@ -813,7 +817,7 @@ one only for its exact accepted allocation authority. The host owns the random l
 listener, consumes a 256-bit capability preface, and relays bounded bytes over a
 typed controller stream; the appliance alone maps the immutable assignment to a
 container instance and `ForwardTCP` target. These listeners are memory-only and
-close immediately on connection-epoch replacement, allocation lease/session
+close immediately on connection-epoch replacement, allocation/session
 revoke, controller disconnect, appliance stop, VM shutdown, or generation change.
 They do not use fixed frontend endpoint files and the host never receives a
 container ID or target port.
@@ -824,9 +828,9 @@ supervision needed to publish that channel; no separate connector or stdio proxy
 is installed.
 
 Every control connection has a nonzero unpredictable epoch and a fresh ordered
-command sequence. The initial full inventory carries an inventory watermark and
-the complete required feature set. A command binds its ID, sequence, connection
-epoch, deadline, target revision, and lease generation. The connector emits an
+command sequence. The initial bounded inventory carries an inventory watermark
+and the required feature set. A command binds its ID, sequence, connection
+epoch, deadline, and target revision. The connector emits an
 admission ACK, execution-started/finished evidence, and then a terminal result.
 Receiving the exact next sequence consumes that issued slot even when deadline
 or operation-fence validation returns a terminal rejection; stale epochs and
@@ -870,12 +874,12 @@ then remains `RETAINED` with its durable identity and current revision. A
 controller can send `ReleaseAllocation` again with that revision to start a new
 30-second attempt window. The Host does not retry an expired window in the
 background.
-Host startup converts every persisted `LEASED` allocation to fail-closed
-`RETAINED` and advances its policy revision before the RemoteComputeService can
-admit a replacement connector. In-memory leases are never reconstructed.
+Host startup converts a legacy `LEASED` allocation to `READY`. The durable
+allocation generation remains the control fence. The current connection remains
+the command fence.
 The connector does not implement Salix device/group/task/router concepts: an
 external controller adapter maps those concepts to the public provider-neutral
-registration/allocation/lease protocol.
+registration/allocation/session protocol.
 
 ## Workspace and service projections
 

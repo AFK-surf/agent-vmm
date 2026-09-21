@@ -124,35 +124,23 @@ message RemoteObservationUsage {
 }
 
 message Capacity {
-  reserved 2;
-  reserved "aggregate_limits";
-  uint32 max_environments = 1;
+  reserved 1, 2, 5, 6;
+  reserved "max_environments", "aggregate_limits", "max_lease_seconds", "disconnect_grace_seconds";
   agentvmm.host.v1.ResourceLimits per_environment_limits = 3;
   agentvmm.host.v1.EgressMode max_egress_mode = 4;
-  uint32 max_lease_seconds = 5;
-  uint32 disconnect_grace_seconds = 6;
 }
 
 message Allocation {
+  reserved 7;
+  reserved "lease";
   string allocation_id = 1;
   string display_label = 2;
   agentvmm.host.v1.ResourceLimits limits = 3;
   agentvmm.host.v1.EgressMode egress_mode = 4;
   uint64 revision = 5;
   agentvmm.host.v1.AllocationState state = 6;
-  Lease lease = 7;
   uint64 generation = 8;
   agentvmm.host.v1.WorkloadResourcesV2 resources_v2 = 9;
-}
-
-message Lease {
-  string lease_id = 1;
-  string allocation_id = 2;
-  string workload_ref = 3;
-  uint64 generation = 4;
-  int64 expires_unix_millis = 5;
-  agentvmm.host.v1.LeaseState state = 6;
-  uint64 allocation_revision = 7;
 }
 
 message HostHealth {
@@ -178,21 +166,20 @@ message ControllerReady {
 }
 
 message ControllerCommand {
+  reserved 14, 15, 16;
+  reserved "lease_generation", "acquire_lease", "renew_lease", "release_lease";
   string command_id = 1;
   uint64 sequence = 2;
   uint64 connection_epoch = 3;
   int64 deadline_unix_millis = 4;
   uint64 target_revision = 5;
-  uint64 lease_generation = 6;
+  uint64 target_generation = 6;
   uint64 acknowledged_host_sequence = 7;
   oneof command {
     EnsureAllocation ensure_allocation = 10;
     ReleaseAllocation release_allocation = 11;
     PlanCleanupAllocation plan_cleanup_allocation = 12;
     ExecuteCleanupAllocation execute_cleanup_allocation = 13;
-    AcquireLease acquire_lease = 14;
-    RenewLease renew_lease = 15;
-    ReleaseLease release_lease = 16;
     DrainRegistration drain_registration = 17;
     OpenSession open_session = 18;
     AcquireHostLoopbackFrontend acquire_host_loopback_frontend = 19;
@@ -202,17 +189,18 @@ message ControllerCommand {
 }
 
 message AcquireHostLoopbackFrontend {
+  reserved 2;
+  reserved "allocation_lease_id";
   string allocation_id = 1;
-  string allocation_lease_id = 2;
-  uint64 allocation_lease_generation = 3;
+  uint64 allocation_generation = 3;
   string assignment_id = 4;
   uint32 duration_seconds = 5;
 }
 message RenewHostLoopbackFrontend {
+  reserved 3, 4;
+  reserved "allocation_lease_id", "allocation_lease_generation";
   string frontend_lease_id = 1;
   uint64 generation = 2;
-  string allocation_lease_id = 3;
-  uint64 allocation_lease_generation = 4;
   uint32 duration_seconds = 5;
 }
 message ReleaseHostLoopbackFrontend {
@@ -239,43 +227,31 @@ message PlanCleanupAllocation {
   agentvmm.host.v1.CleanupKind kind = 2;
 }
 message ExecuteCleanupAllocation {
+  reserved 5, 6;
+  reserved "expected_lease_id", "expected_lease_generation";
   string allocation_id = 1;
   uint64 plan_revision = 2;
   repeated string confirmed_volume_ids = 3;
   agentvmm.host.v1.CleanupKind kind = 4;
-  string expected_lease_id = 5;
-  uint64 expected_lease_generation = 6;
-}
-message AcquireLease {
-  string allocation_id = 1;
-  uint32 duration_seconds = 2;
-  string workload_ref = 3;
-}
-message RenewLease {
-  string lease_id = 1;
-  uint64 generation = 2;
-  uint32 duration_seconds = 3;
-}
-message ReleaseLease {
-  string lease_id = 1;
-  uint64 generation = 2;
 }
 message DrainRegistration {}
 message OpenSession {
+  reserved 2;
+  reserved "lease_id";
   string allocation_id = 1;
-  string lease_id = 2;
-  uint64 generation = 3;
+  uint64 allocation_generation = 3;
   string execution_owner_id = 4;
 }
 
 message CommandResult {
+  reserved 6;
+  reserved "lease";
   string command_id = 1;
   CommandOutcome outcome = 2;
   ErrorReason reason = 3;
   string message = 4;
   oneof result {
     Allocation allocation = 5;
-    Lease lease = 6;
     CleanupPlan cleanup_plan = 7;
     SessionReady session_ready = 8;
     agentvmm.host.v1.HostLoopbackFrontendLease host_loopback_frontend_lease = 12;
@@ -338,6 +314,8 @@ enum CommandOutcome {
 }
 
 enum ErrorReason {
+  reserved 8, 9;
+  reserved "ERROR_REASON_LEASE_CONFLICT", "ERROR_REASON_LEASE_REVOKED";
   ERROR_REASON_UNSPECIFIED = 0;
   ERROR_REASON_INVALID_ARGUMENT = 1;
   ERROR_REASON_UNAUTHENTICATED = 2;
@@ -346,8 +324,6 @@ enum ErrorReason {
   ERROR_REASON_POLICY_CONFLICT = 5;
   ERROR_REASON_CAPACITY_EXHAUSTED = 6;
   ERROR_REASON_ALLOCATION_NOT_FOUND = 7;
-  ERROR_REASON_LEASE_CONFLICT = 8;
-  ERROR_REASON_LEASE_REVOKED = 9;
   ERROR_REASON_STALE_REVISION = 10;
   ERROR_REASON_UNAVAILABLE = 11;
   ERROR_REASON_INTERNAL = 12;
@@ -365,16 +341,18 @@ message CleanupPlan {
   repeated agentvmm.host.v1.CleanupImpact impacts = 5;
 }
 message SessionReady {
+  reserved 2;
+  reserved "lease_id";
   string allocation_id = 1;
-  string lease_id = 2;
-  uint64 generation = 3;
+  uint64 allocation_generation = 3;
   string tunnel_nonce = 4;
   int64 expires_unix_millis = 5;
 }
 message HostEvent {
+  reserved 3;
+  reserved "lease_id";
   string kind = 1;
   string allocation_id = 2;
-  string lease_id = 3;
   string status = 4;
   uint64 sequence = 5;
   uint64 connection_epoch = 6;
@@ -384,11 +362,12 @@ message RotateCredential { bytes credential = 1; }
 message RevokeCredential { string reason = 1; }
 
 message SessionHeader {
+  reserved 4;
+  reserved "lease_id";
   string protocol_version = 1;
   string registration_id = 2;
   string allocation_id = 3;
-  string lease_id = 4;
-  uint64 generation = 5;
+  uint64 allocation_generation = 5;
   string tunnel_nonce = 6;
   uint32 frame_bytes = 7;
   uint32 max_in_flight_bytes = 8;

@@ -13068,45 +13068,6 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
                 type: .unary
             )
         }
-        /// Namespace for "AcquireLease" metadata.
-        public enum AcquireLease: Sendable {
-            /// Request type for "AcquireLease".
-            public typealias Input = Agentvmm_Host_V1_AcquireLeaseRequest
-            /// Response type for "AcquireLease".
-            public typealias Output = Agentvmm_Host_V1_LeaseResponse
-            /// Descriptor for "AcquireLease".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
-                method: "AcquireLease",
-                type: .unary
-            )
-        }
-        /// Namespace for "RenewLease" metadata.
-        public enum RenewLease: Sendable {
-            /// Request type for "RenewLease".
-            public typealias Input = Agentvmm_Host_V1_RenewLeaseRequest
-            /// Response type for "RenewLease".
-            public typealias Output = Agentvmm_Host_V1_LeaseResponse
-            /// Descriptor for "RenewLease".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
-                method: "RenewLease",
-                type: .unary
-            )
-        }
-        /// Namespace for "ReleaseLease" metadata.
-        public enum ReleaseLease: Sendable {
-            /// Request type for "ReleaseLease".
-            public typealias Input = Agentvmm_Host_V1_ReleaseLeaseRequest
-            /// Response type for "ReleaseLease".
-            public typealias Output = Agentvmm_Host_V1_LeaseResponse
-            /// Descriptor for "ReleaseLease".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
-                method: "ReleaseLease",
-                type: .unary
-            )
-        }
         /// Namespace for "OpenRuntimeSession" metadata.
         public enum OpenRuntimeSession: Sendable {
             /// Request type for "OpenRuntimeSession".
@@ -13196,9 +13157,6 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
             ReleaseAllocation.descriptor,
             PlanCleanupAllocation.descriptor,
             ExecuteCleanupAllocation.descriptor,
-            AcquireLease.descriptor,
-            RenewLease.descriptor,
-            ReleaseLease.descriptor,
             OpenRuntimeSession.descriptor,
             RevokeRuntimeSession.descriptor,
             AcquireHostLoopbackFrontend.descriptor,
@@ -13393,63 +13351,6 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
-        /// Call the "AcquireLease" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_AcquireLeaseRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_AcquireLeaseRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LeaseResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func acquireLease<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireLeaseRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_AcquireLeaseRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LeaseResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
-        /// Call the "RenewLease" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_RenewLeaseRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_RenewLeaseRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LeaseResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func renewLease<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewLeaseRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RenewLeaseRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LeaseResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
-        /// Call the "ReleaseLease" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_ReleaseLeaseRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_ReleaseLeaseRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LeaseResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func releaseLease<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseLeaseRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ReleaseLeaseRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LeaseResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "OpenRuntimeSession" method.
@@ -13846,96 +13747,6 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.ExecuteCleanupAllocation.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
-        /// Call the "AcquireLease" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_AcquireLeaseRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_AcquireLeaseRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LeaseResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func acquireLease<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireLeaseRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_AcquireLeaseRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LeaseResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.AcquireLease.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
-        /// Call the "RenewLease" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_RenewLeaseRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_RenewLeaseRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LeaseResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func renewLease<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewLeaseRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RenewLeaseRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LeaseResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.RenewLease.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
-        /// Call the "ReleaseLease" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_ReleaseLeaseRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_ReleaseLeaseRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LeaseResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func releaseLease<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseLeaseRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ReleaseLeaseRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LeaseResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.ReleaseLease.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -14351,81 +14162,6 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
         )
     }
 
-    /// Call the "AcquireLease" method.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_AcquireLeaseRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func acquireLease<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireLeaseRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.acquireLease(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_AcquireLeaseRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_LeaseResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "RenewLease" method.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_RenewLeaseRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func renewLease<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewLeaseRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.renewLease(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RenewLeaseRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_LeaseResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "ReleaseLease" method.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_ReleaseLeaseRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func releaseLease<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseLeaseRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.releaseLease(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ReleaseLeaseRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_LeaseResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
     /// Call the "OpenRuntimeSession" method.
     ///
     /// - Parameters:
@@ -14833,93 +14569,6 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
             metadata: metadata
         )
         return try await self.executeCleanupAllocation(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "AcquireLease" method.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func acquireLease<Result>(
-        _ message: Agentvmm_Host_V1_AcquireLeaseRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_AcquireLeaseRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.acquireLease(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "RenewLease" method.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func renewLease<Result>(
-        _ message: Agentvmm_Host_V1_RenewLeaseRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_RenewLeaseRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.renewLease(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "ReleaseLease" method.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func releaseLease<Result>(
-        _ message: Agentvmm_Host_V1_ReleaseLeaseRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LeaseResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseLeaseRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.releaseLease(
             request: request,
             options: options,
             onResponse: handleResponse

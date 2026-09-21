@@ -42,7 +42,7 @@ func (server *applianceAdminServer) GetStatus(ctx context.Context, request *appl
 	if err != nil {
 		return nil, err
 	}
-	return &appliancev1.ApplianceStatusResponse{Status: server.applianceStatus(ctx, installation, server.controller.systemApplianceProjection(ctx)[installation.ID])}, nil
+	return &appliancev1.ApplianceStatusResponse{Status: server.applianceStatus(ctx, installation, server.controller.systemAppliance(ctx, installation.ID))}, nil
 }
 
 func (server *applianceAdminServer) WatchOperation(request *appliancev1.WatchApplianceOperationRequest, stream grpc.ServerStreamingServer[appliancev1.ApplianceOperationResponse]) error {

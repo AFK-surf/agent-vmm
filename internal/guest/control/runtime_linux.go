@@ -32,25 +32,27 @@ const (
 )
 
 type Runtime struct {
-	client            *containerd.Client
-	network           *guestnetwork.Manager
-	builder           *guestbuild.Builder
-	stateDevice       string
-	controlDevice     string
-	mu                sync.Mutex
-	waiters           map[string][]chan uint32
-	resourceLocks     sync.Map
-	volumeUsageMu     sync.Mutex
-	volumeUsage       map[string]volumeUsageEntry
-	volumeSampling    map[string]bool
-	volumeGeneration  map[string]uint64
-	volumeSampleSlots chan struct{}
-	workspaceSlots    chan struct{}
-	diskBudget        *guestdisk.Budget
-	materializer      *ocimaterializer.Manager
-	inventory         *runtimeInventoryIndex
-	volumeSampler     func(string) (uint64, error)
-	tasks             sync.WaitGroup
+	client               *containerd.Client
+	network              *guestnetwork.Manager
+	builder              *guestbuild.Builder
+	stateDevice          string
+	controlDevice        string
+	mu                   sync.Mutex
+	waiters              map[string][]chan uint32
+	resourceLocks        sync.Map
+	volumeUsageMu        sync.Mutex
+	volumeUsage          map[string]volumeUsageEntry
+	volumeSampling       map[string]bool
+	volumeGeneration     map[string]uint64
+	volumeSampleSlots    chan struct{}
+	workspaceSlots       chan struct{}
+	diskBudget           *guestdisk.Budget
+	materializer         *ocimaterializer.Manager
+	inventory            *runtimeInventoryIndex
+	gcMu                 sync.Mutex
+	gcRuntimeImageCursor string
+	volumeSampler        func(string) (uint64, error)
+	tasks                sync.WaitGroup
 }
 
 func (r *Runtime) lockNamespace(namespaceID string) func() {

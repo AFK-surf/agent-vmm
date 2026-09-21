@@ -33,11 +33,11 @@ func (store *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if version != 0 && version != 18 && version != schemaVersion {
+	if version != 0 && version != 18 && version != 19 && version != 20 && version != 21 && version != 22 && version != schemaVersion {
 		return fmt.Errorf("host database schema %d requires offline conversion. Preserve the existing database", version)
 	}
 	if version == 0 {
-		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV19} {
+		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV19, migrateV20, migrateV21, migrateV22, migrateV23} {
 			if err := migration(tx); err != nil {
 				return err
 			}
@@ -47,6 +47,64 @@ func (store *Store) migrate(ctx context.Context) error {
 		}
 	} else if version == 18 {
 		if err := migrateV18ToV19(tx); err != nil {
+			return err
+		}
+		if err := migrateV20(tx); err != nil {
+			return err
+		}
+		if err := migrateV21(tx); err != nil {
+			return err
+		}
+		if err := migrateV22(tx); err != nil {
+			return err
+		}
+		if err := migrateV23(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
+			return err
+		}
+	} else if version == 19 {
+		if err := migrateV20(tx); err != nil {
+			return err
+		}
+		if err := migrateV21(tx); err != nil {
+			return err
+		}
+		if err := migrateV22(tx); err != nil {
+			return err
+		}
+		if err := migrateV23(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
+			return err
+		}
+	} else if version == 20 {
+		if err := migrateV21(tx); err != nil {
+			return err
+		}
+		if err := migrateV22(tx); err != nil {
+			return err
+		}
+		if err := migrateV23(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
+			return err
+		}
+	} else if version == 21 {
+		if err := migrateV22(tx); err != nil {
+			return err
+		}
+		if err := migrateV23(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
+			return err
+		}
+	} else if version == 22 {
+		if err := migrateV23(tx); err != nil {
 			return err
 		}
 		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
@@ -69,6 +127,73 @@ func (store *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("host database contains foreign key violations after schema migration")
 	}
 	return rows.Err()
+}
+
+func migrateV23(tx *sql.Tx) error {
+	if _, err := tx.Exec(`ALTER TABLE appliance_volumes ADD COLUMN layout INTEGER NOT NULL DEFAULT 1 CHECK(layout IN (1, 2))`); err != nil {
+		return fmt.Errorf("add appliance volume layout: %w", err)
+	}
+	return nil
+}
+
+func migrateV22(tx *sql.Tx) error {
+	if _, err := tx.Exec(`DROP TABLE resource_reservations`); err != nil {
+		return fmt.Errorf("remove compute reservation projection: %w", err)
+	}
+	for _, column := range []string{"max_environments", "per_env_cpu_millis", "per_env_memory_bytes"} {
+		if _, err := tx.Exec(`ALTER TABLE remote_registrations DROP COLUMN ` + column); err != nil {
+			return fmt.Errorf("remove remote compute projection %s: %w", column, err)
+		}
+	}
+	for _, column := range []string{"system_cpu_millis", "system_memory_bytes", "max_environments", "per_env_cpu_millis", "per_env_memory_bytes"} {
+		if _, err := tx.Exec(`ALTER TABLE appliance_grants DROP COLUMN ` + column); err != nil {
+			return fmt.Errorf("remove appliance compute projection %s: %w", column, err)
+		}
+	}
+	return nil
+}
+
+func migrateV21(tx *sql.Tx) error {
+	if _, err := tx.Exec(`UPDATE environments SET allocation_state=1, policy_revision=policy_revision+1,
+		updated_at=? WHERE owner_kind=2 AND allocation_state=2`, time.Now().UnixNano()); err != nil {
+		return fmt.Errorf("restore leased allocations to durable ownership: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE remote_lease_projections`); err != nil {
+		return fmt.Errorf("remove allocation lease projections: %w", err)
+	}
+	for _, column := range []string{"max_lease_seconds", "disconnect_grace_seconds"} {
+		if _, err := tx.Exec(`ALTER TABLE remote_registrations DROP COLUMN ` + column); err != nil {
+			return fmt.Errorf("remove remote allocation lease policy %s: %w", column, err)
+		}
+		if _, err := tx.Exec(`ALTER TABLE appliance_grants DROP COLUMN ` + column); err != nil {
+			return fmt.Errorf("remove appliance allocation lease policy %s: %w", column, err)
+		}
+	}
+	return nil
+}
+
+func migrateV20(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE appliance_artifacts_v20 (
+		artifact_id TEXT PRIMARY KEY, canonical_hash BLOB NOT NULL UNIQUE,
+		image_digest TEXT NOT NULL, image_reference TEXT NOT NULL, platform TEXT NOT NULL,
+		product_id TEXT NOT NULL, release TEXT NOT NULL, manifest BLOB NOT NULL,
+		created_at INTEGER NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("create artifact table without trust projection: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO appliance_artifacts_v20(
+		artifact_id, canonical_hash, image_digest, image_reference, platform, product_id, release, manifest, created_at)
+		SELECT artifact_id, canonical_hash, image_digest, image_reference, platform, product_id, release, manifest, created_at
+		FROM appliance_artifacts`); err != nil {
+		return fmt.Errorf("preserve appliance artifacts: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE appliance_artifacts`); err != nil {
+		return fmt.Errorf("replace artifact table: %w", err)
+	}
+	if _, err := tx.Exec(`ALTER TABLE appliance_artifacts_v20 RENAME TO appliance_artifacts`); err != nil {
+		return fmt.Errorf("activate artifact table without trust projection: %w", err)
+	}
+	return nil
 }
 
 func migrateV19(tx *sql.Tx) error {

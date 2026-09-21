@@ -31,11 +31,14 @@ func LoadTLSRoots(path string) (*x509.CertPool, error) {
 }
 
 const (
-	ProtocolVersion         = "2"
-	HostAPIVersion          = "host.v1"
-	ConnectorRelease        = "0.1.0"
-	MaxControlBytes         = 1 << 20
-	MaxInventoryItems       = 64
+	ProtocolVersion  = "2"
+	HostAPIVersion   = "host.v1"
+	ConnectorRelease = "0.1.0"
+	MaxControlBytes  = 1 << 20
+	// MaxActiveInventoryItems bounds one connection snapshot. It is not a
+	// registration-wide allocation limit; exact command results carry facts for
+	// allocations outside this snapshot.
+	MaxActiveInventoryItems = 64
 	MaxLabelBytes           = 256
 	MaxCredentialBytes      = 4096
 	FrameBytes              = 32 << 10

@@ -165,9 +165,6 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 	if registration.GetId() != config.RegistrationID || registration.GetProtocolVersion() != ProtocolVersion || registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
 		return false, fmt.Errorf("%w: local registration identity or version", errConnectorConfiguration)
 	}
-	if len(registration.GetAllocations()) > MaxInventoryItems {
-		return false, fmt.Errorf("%w: remote inventory limit", errConnectorConfiguration)
-	}
 	instance, err := randomInstance()
 	if err != nil {
 		return false, err
@@ -246,9 +243,8 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 		defer cancel()
 		_, _ = local.client.SetConnectionState(disconnectContext, &hostv1.SetConnectionStateRequest{RegistrationId: config.RegistrationID, ConnectionInstance: instance, ConnectionEpoch: epoch, State: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED})
 	}
-	// Replacing a connected instance can revoke its leases and advance the
-	// authoritative inventory revision. Do not admit commands or frontends
-	// against the snapshot acknowledged by ControllerReady if that happened.
+	// Do not admit commands or frontends if the local connection fence changed
+	// after the bounded snapshot acknowledged by ControllerReady.
 	connectedRegistration := connectedState.GetRegistration()
 	if connectedRegistration == nil {
 		abortConnectedState()

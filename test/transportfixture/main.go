@@ -32,17 +32,15 @@ func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapsh
 			ConnectionState: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
 			EnrollmentState: hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY,
 			Pool: &hostv1.RemotePoolPolicy{
-				MaxEnvironments:      3,
 				PerEnvironmentLimits: fixtureLimits(1000, 1<<30, 256, 4<<30),
 				MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
-				MaxLeaseDuration:     durationpb.New(45 * time.Minute), DisconnectGrace: durationpb.New(45 * time.Second), StopGrace: durationpb.New(12 * time.Second),
+				StopGrace:            durationpb.New(12 * time.Second),
 			},
 			ConnectorStatus: &hostv1.ConnectorStatus{Phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, ConnectorRelease: "fixture-1", ObservedAt: timestamppb.New(now), LastConnectedAt: timestamppb.New(now)},
 			Allocations: []*hostv1.RemoteAllocation{{
 				AllocationId: "allocation-a", EnvironmentId: "environment-a", DisplayLabel: "Build",
 				Limits: fixtureLimits(500, 512<<20, 64, 2<<30), EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
-				Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_LEASED,
-				Lease: &hostv1.RemoteLease{LeaseId: "lease-a", AllocationId: "allocation-a", WorkloadRef: "job-a", Generation: 2, ExpiresAt: timestamppb.New(now.Add(time.Minute)), State: hostv1.LeaseState_LEASE_STATE_ACTIVE},
+				Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_READY, Generation: 2,
 			}},
 		}},
 	}, nil

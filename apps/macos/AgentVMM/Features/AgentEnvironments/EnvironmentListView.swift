@@ -148,9 +148,6 @@ struct EnvironmentListView: View {
             guard let allocation = remoteAllocation(for: environment), allocation.state == "Retained" else {
                 return "Release this allocation from Remote Controller before deleting it."
             }
-            if allocation.lease?.state == .active {
-                return "Release the active remote lease first."
-            }
         }
         if environment.workloads.contains(where: { $0.state == .running }) {
             return "Stop running workspaces and services first."

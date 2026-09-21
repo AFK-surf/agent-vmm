@@ -274,7 +274,7 @@ func ValidateHello(hello *remotev1.HostHello, registrationID string) error {
 		return errors.New("remote observation feature was not negotiated")
 	}
 	if len(hello.GetInventory()) > 64 {
-		return errors.New("remote inventory exceeds limit")
+		return errors.New("remote inventory snapshot exceeds message limit")
 	}
 	seen := make(map[string]struct{}, len(hello.GetInventory()))
 	for _, allocation := range hello.GetInventory() {

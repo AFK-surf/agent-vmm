@@ -173,11 +173,13 @@ type workloadGuest struct {
 	starting, maxStarting     int
 	loseStop                  bool
 	usageUnavailable          bool
+	systemUsageErr            error
 	notFound                  map[string]bool
 	pool                      *vmmdv1.GetUsageResponse
 	inspectHits               map[string]int
 	inspectDelay              time.Duration
 	inspecting, maxInspecting int
+	stopHits                  int
 }
 
 func (g *workloadGuest) InspectContainer(ctx context.Context, r *vmmdv1.InspectContainerRequest) (*vmmdv1.InspectContainerResponse, error) {
@@ -244,6 +246,7 @@ func (g *workloadGuest) StartContainer(ctx context.Context, r *vmmdv1.StartConta
 func (g *workloadGuest) StopContainer(_ context.Context, r *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.stopHits++
 	instanceID := ""
 	if current := g.states[r.GetActorNamespaceId()]; current != nil {
 		instanceID = current.GetInstanceId()
@@ -256,10 +259,43 @@ func (g *workloadGuest) StopContainer(_ context.Context, r *vmmdv1.StopContainer
 	return &vmmdv1.StopContainerResponse{Container: c}, nil
 }
 func (g *workloadGuest) GetSystemUsage(context.Context, *vmmdv1.GetSystemUsageRequest) (*vmmdv1.GetUsageResponse, error) {
+	if g.systemUsageErr != nil {
+		return nil, g.systemUsageErr
+	}
 	if g.pool != nil {
 		return proto.Clone(g.pool).(*vmmdv1.GetUsageResponse), nil
 	}
 	return &vmmdv1.GetUsageResponse{WorkloadPool: &vmmdv1.Usage{MemoryBytes: 1 << 30}, WorkloadMemoryLimitBytes: 9 << 30}, nil
+}
+
+func TestWorkloadSamplingStillInspectsAndRetriesStopWhenPressureIsUnavailable(t *testing.T) {
+	guest := &workloadGuest{
+		states:         make(map[string]*vmmdv1.Container),
+		inspectHits:    make(map[string]int),
+		systemUsageErr: status.Error(codes.Unavailable, "pressure unavailable"),
+	}
+	controller := workloadTestController()
+	run := &workloadRun{
+		environmentID: "env-a", namespaceID: "a", containerID: "main", instanceID: "instance-a",
+		stopping: true, stopDeadline: time.Now().Add(time.Minute), stopRequestID: "stop-a",
+	}
+	controller.mu.Lock()
+	controller.setWorkloadRunLocked(workloadRunKey(run.environmentID, run.containerID), run)
+	controller.mu.Unlock()
+	guest.states[run.namespaceID] = &vmmdv1.Container{
+		Id: run.containerID, InstanceId: run.instanceID, State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING,
+	}
+
+	err := controller.sampleWorkloadRuns(context.Background(), workloadGuestClient(t, guest))
+	if err == nil {
+		t.Fatal("missing pressure sample was reported as available")
+	}
+	guest.mu.Lock()
+	inspectHits, stopHits := guest.inspectHits[run.namespaceID], guest.stopHits
+	guest.mu.Unlock()
+	if inspectHits != 1 || stopHits != 1 {
+		t.Fatalf("pressure failure skipped exact work: inspect=%d stop=%d", inspectHits, stopHits)
+	}
 }
 func (g *workloadGuest) GetNamespaceUsage(context.Context, *vmmdv1.GetNamespaceUsageRequest) (*vmmdv1.GetUsageResponse, error) {
 	g.mu.Lock()

@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"strings"
 	"sync"
@@ -151,7 +152,7 @@ func auditRPC(controller *Controller, ctx context.Context, fullMethod string, re
 	if identity.Role == auth.Agent {
 		actor = identity.SessionID
 		if identity.RegistrationID != "" {
-			actor = "remote:" + identity.RegistrationID + ":" + identity.LeaseID
+			actor = fmt.Sprintf("remote:%s:%s:%d", identity.RegistrationID, identity.AllocationID, identity.AllocationGeneration)
 			target = identity.AllocationID
 		}
 	}

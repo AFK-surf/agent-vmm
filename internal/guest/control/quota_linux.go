@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
-	"strings"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestquota "github.com/AFK-surf/agent-vmm/internal/guest/quota"
@@ -62,10 +60,6 @@ func applyResourceCgroupAt(parent, namespaceID string, contract resourcev2.Contr
 		return err
 	}
 	values := contract.CgroupValues()
-	if strings.HasPrefix(namespaceID, "system.") {
-		values["cpu.max"] = strconv.FormatUint(contract.CPUMaxMillis*100, 10) + " 100000"
-		values["memory.max"] = strconv.FormatUint(contract.MemoryMaxBytes, 10)
-	}
 	for name, value := range values {
 		if err := os.WriteFile(filepath.Join(path, name), []byte(value), 0o644); err != nil {
 			return fmt.Errorf("write cgroup %s: %w", name, err)
@@ -106,9 +100,8 @@ func initializeResourcePoolsAt(parent string, _ uint64, memoryBytes uint64) erro
 			return err
 		}
 	}
-	for pool, memory := range map[string]uint64{"system": memoryBytes - memoryBytes/4*3, "workload": memoryBytes / 4 * 3} {
-		values := (resourcev2.Contract{PIDMax: 2048}).CgroupValues()
-		values["memory.max"] = strconv.FormatUint(memory, 10)
+	for _, pool := range []string{"system", "workload"} {
+		values := map[string]string{"cpu.weight": "100", "cpu.max": "max 100000", "memory.high": "max", "memory.max": fmt.Sprintf("%d", memoryBytes), "pids.max": "max"}
 		for name, value := range values {
 			if err := os.WriteFile(filepath.Join(root, pool, name), []byte(value), 0o644); err != nil {
 				return fmt.Errorf("write %s pool %s: %w", pool, name, err)

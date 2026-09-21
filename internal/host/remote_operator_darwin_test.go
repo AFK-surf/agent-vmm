@@ -16,16 +16,14 @@ func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) 
 	managed := &hostv1.BeginRemoteEnrollmentRequest{
 		RegistrationId: "registration-1", Endpoint: "gateway.example.test:7443", DisplayName: "Managed",
 		ProtocolVersion: "1", TrustBundle: []byte("trust"), ScopeDigest: "scope", SourcePolicyRevision: 7,
-		Pool: &hostv1.RemotePoolPolicy{MaxEnvironments: 1,
+		Pool: &hostv1.RemotePoolPolicy{
 			PerEnvironmentLimits: &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk},
-			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseDuration: durationpb.New(time.Minute),
-			DisconnectGrace: durationpb.New(time.Second), StopGrace: durationpb.New(time.Second)},
+			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)},
 	}
 	stored := store.RemoteRegistration{ID: managed.RegistrationId, Endpoint: managed.Endpoint, DisplayName: managed.DisplayName,
 		ProtocolVersion: managed.ProtocolVersion, TrustBundle: append([]byte(nil), managed.TrustBundle...), ScopeDigest: managed.ScopeDigest,
-		SourcePolicyRevision: managed.SourcePolicyRevision, MaxEnvironments: 1, PerEnvCPUMillis: cpu, PerEnvMemoryBytes: memory, PerEnvPIDs: pids,
-		PerEnvDiskBytes: disk, MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL), MaxLeaseSeconds: 60,
-		DisconnectGraceSeconds: 1, StopGraceSeconds: 1}
+		SourcePolicyRevision: managed.SourcePolicyRevision, PerEnvPIDs: pids,
+		PerEnvDiskBytes: disk, MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL), StopGraceSeconds: 1}
 	capacity := store.Environment{CPUMillis: cpu, MemoryBytes: memory, PIDs: pids, DiskBytes: disk}
 
 	if matches, err := managedRegistrationMatches(managed, stored, capacity); err != nil || !matches {
@@ -35,11 +33,6 @@ func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) 
 	if matches, err := managedRegistrationMatches(managed, stored, capacity); err != nil || matches {
 		t.Fatalf("trust drift was accepted: matches=%v err=%v", matches, err)
 	}
-	managed.Pool.MaxEnvironments = maxRemoteEnvironments + 1
-	if _, err := registrationFromPool(managed.Pool, capacity); err == nil {
-		t.Fatal("remote pool above the end-to-end environment bound was accepted")
-	}
-	managed.Pool.MaxEnvironments = 1
 	*managed.Pool.PerEnvironmentLimits.CpuMillis = cpu + 1
 	if _, err := registrationFromPool(managed.Pool, capacity); err != nil {
 		t.Fatalf("CPU template value constrained shared capacity: %v", err)

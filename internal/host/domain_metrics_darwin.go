@@ -95,12 +95,8 @@ func (controller *Controller) controllerDomainMetrics(registrationID string) *ho
 	controller.domainMetricsMu.Unlock()
 
 	controller.mu.Lock()
-	for _, lease := range controller.remoteLeases {
-		if lease.registrationID != registrationID || lease.state != hostv1.LeaseState_LEASE_STATE_ACTIVE {
-			continue
-		}
-		result.ActiveLeases++
-		if lease.sessionID != "" {
+	for _, session := range controller.sessions {
+		if session.registrationID == registrationID {
 			result.ActiveSessions++
 		}
 	}

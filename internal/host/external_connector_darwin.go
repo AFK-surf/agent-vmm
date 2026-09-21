@@ -36,16 +36,21 @@ func (controller *Controller) StartExternalConnectors(ctx context.Context) error
 // the VM has been stopped and started without replacing the Host lifetime
 // context with the bounded Operator RPC context.
 func (controller *Controller) ReconcileExternalConnectors(ctx context.Context) error {
-	registrations, err := controller.store.ListRemoteRegistrations(ctx)
-	if err != nil {
-		return err
-	}
-	for _, registration := range registrations {
-		if externalRegistrationDesired(registration) {
-			controller.ensureExternalConnector(registration.ID)
+	for cursor := ""; ; {
+		registrations, err := controller.store.ListRemoteRegistrationPage(ctx, cursor, 32)
+		if err != nil {
+			return err
+		}
+		if len(registrations) == 0 {
+			return nil
+		}
+		for _, registration := range registrations {
+			cursor = registration.ID
+			if externalRegistrationDesired(registration) {
+				controller.ensureExternalConnector(registration.ID)
+			}
 		}
 	}
-	return nil
 }
 
 func externalRegistrationDesired(registration store.RemoteRegistration) bool {

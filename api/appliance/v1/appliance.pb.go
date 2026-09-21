@@ -1127,72 +1127,17 @@ func (x *DynamicHostLoopbackGrant) GetConnectionBounds() *StreamBounds {
 	return nil
 }
 
-type ResourceRange struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Floor         *v1.ResourceLimits     `protobuf:"bytes,1,opt,name=floor,proto3" json:"floor,omitempty"`
-	Ceiling       *v1.ResourceLimits     `protobuf:"bytes,2,opt,name=ceiling,proto3" json:"ceiling,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ResourceRange) Reset() {
-	*x = ResourceRange{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResourceRange) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResourceRange) ProtoMessage() {}
-
-func (x *ResourceRange) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResourceRange.ProtoReflect.Descriptor instead.
-func (*ResourceRange) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *ResourceRange) GetFloor() *v1.ResourceLimits {
-	if x != nil {
-		return x.Floor
-	}
-	return nil
-}
-
-func (x *ResourceRange) GetCeiling() *v1.ResourceLimits {
-	if x != nil {
-		return x.Ceiling
-	}
-	return nil
-}
-
 type CapacityGrant struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	MaxEnvironments        uint32                 `protobuf:"varint,1,opt,name=max_environments,json=maxEnvironments,proto3" json:"max_environments,omitempty"`
-	PerEnvironmentLimits   *v1.ResourceLimits     `protobuf:"bytes,3,opt,name=per_environment_limits,json=perEnvironmentLimits,proto3" json:"per_environment_limits,omitempty"`
-	MaxEgressMode          v1.EgressMode          `protobuf:"varint,4,opt,name=max_egress_mode,json=maxEgressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"max_egress_mode,omitempty"`
-	MaxLeaseSeconds        uint32                 `protobuf:"varint,5,opt,name=max_lease_seconds,json=maxLeaseSeconds,proto3" json:"max_lease_seconds,omitempty"`
-	DisconnectGraceSeconds uint32                 `protobuf:"varint,6,opt,name=disconnect_grace_seconds,json=disconnectGraceSeconds,proto3" json:"disconnect_grace_seconds,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	PerEnvironmentLimits *v1.ResourceLimits     `protobuf:"bytes,3,opt,name=per_environment_limits,json=perEnvironmentLimits,proto3" json:"per_environment_limits,omitempty"`
+	MaxEgressMode        v1.EgressMode          `protobuf:"varint,4,opt,name=max_egress_mode,json=maxEgressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"max_egress_mode,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *CapacityGrant) Reset() {
 	*x = CapacityGrant{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[8]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1204,7 +1149,7 @@ func (x *CapacityGrant) String() string {
 func (*CapacityGrant) ProtoMessage() {}
 
 func (x *CapacityGrant) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[8]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1217,14 +1162,7 @@ func (x *CapacityGrant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapacityGrant.ProtoReflect.Descriptor instead.
 func (*CapacityGrant) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *CapacityGrant) GetMaxEnvironments() uint32 {
-	if x != nil {
-		return x.MaxEnvironments
-	}
-	return 0
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CapacityGrant) GetPerEnvironmentLimits() *v1.ResourceLimits {
@@ -1241,20 +1179,6 @@ func (x *CapacityGrant) GetMaxEgressMode() v1.EgressMode {
 	return v1.EgressMode(0)
 }
 
-func (x *CapacityGrant) GetMaxLeaseSeconds() uint32 {
-	if x != nil {
-		return x.MaxLeaseSeconds
-	}
-	return 0
-}
-
-func (x *CapacityGrant) GetDisconnectGraceSeconds() uint32 {
-	if x != nil {
-		return x.DisconnectGraceSeconds
-	}
-	return 0
-}
-
 type ControllerApplianceManifest struct {
 	state                        protoimpl.MessageState    `protogen:"open.v1"`
 	ContractVersion              string                    `protobuf:"bytes,1,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
@@ -1265,7 +1189,6 @@ type ControllerApplianceManifest struct {
 	Platform                     string                    `protobuf:"bytes,7,opt,name=platform,proto3" json:"platform,omitempty"`
 	BootstrapProtocolVersion     string                    `protobuf:"bytes,8,opt,name=bootstrap_protocol_version,json=bootstrapProtocolVersion,proto3" json:"bootstrap_protocol_version,omitempty"`
 	ControllerProtocolVersion    string                    `protobuf:"bytes,9,opt,name=controller_protocol_version,json=controllerProtocolVersion,proto3" json:"controller_protocol_version,omitempty"`
-	SystemResources              *ResourceRange            `protobuf:"bytes,10,opt,name=system_resources,json=systemResources,proto3" json:"system_resources,omitempty"`
 	DataVolumeBytes              uint64                    `protobuf:"varint,11,opt,name=data_volume_bytes,json=dataVolumeBytes,proto3" json:"data_volume_bytes,omitempty"`
 	RequestedCapacity            *CapacityGrant            `protobuf:"bytes,12,opt,name=requested_capacity,json=requestedCapacity,proto3" json:"requested_capacity,omitempty"`
 	RequestedEgressMode          v1.EgressMode             `protobuf:"varint,13,opt,name=requested_egress_mode,json=requestedEgressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"requested_egress_mode,omitempty"`
@@ -1273,15 +1196,15 @@ type ControllerApplianceManifest struct {
 	StartupDeadlineSeconds       uint32                    `protobuf:"varint,15,opt,name=startup_deadline_seconds,json=startupDeadlineSeconds,proto3" json:"startup_deadline_seconds,omitempty"`
 	ProbationSeconds             uint32                    `protobuf:"varint,16,opt,name=probation_seconds,json=probationSeconds,proto3" json:"probation_seconds,omitempty"`
 	HealthTimeoutSeconds         uint32                    `protobuf:"varint,17,opt,name=health_timeout_seconds,json=healthTimeoutSeconds,proto3" json:"health_timeout_seconds,omitempty"`
-	MinimumApplianceRuntime      string                    `protobuf:"bytes,18,opt,name=minimum_appliance_runtime,json=minimumApplianceRuntime,proto3" json:"minimum_appliance_runtime,omitempty"`
 	RequestedDynamicHostLoopback *DynamicHostLoopbackGrant `protobuf:"bytes,19,opt,name=requested_dynamic_host_loopback,json=requestedDynamicHostLoopback,proto3" json:"requested_dynamic_host_loopback,omitempty"`
+	SystemLimits                 *v1.ResourceLimits        `protobuf:"bytes,20,opt,name=system_limits,json=systemLimits,proto3" json:"system_limits,omitempty"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *ControllerApplianceManifest) Reset() {
 	*x = ControllerApplianceManifest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1293,7 +1216,7 @@ func (x *ControllerApplianceManifest) String() string {
 func (*ControllerApplianceManifest) ProtoMessage() {}
 
 func (x *ControllerApplianceManifest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1306,7 +1229,7 @@ func (x *ControllerApplianceManifest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControllerApplianceManifest.ProtoReflect.Descriptor instead.
 func (*ControllerApplianceManifest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{9}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ControllerApplianceManifest) GetContractVersion() string {
@@ -1365,13 +1288,6 @@ func (x *ControllerApplianceManifest) GetControllerProtocolVersion() string {
 	return ""
 }
 
-func (x *ControllerApplianceManifest) GetSystemResources() *ResourceRange {
-	if x != nil {
-		return x.SystemResources
-	}
-	return nil
-}
-
 func (x *ControllerApplianceManifest) GetDataVolumeBytes() uint64 {
 	if x != nil {
 		return x.DataVolumeBytes
@@ -1421,13 +1337,6 @@ func (x *ControllerApplianceManifest) GetHealthTimeoutSeconds() uint32 {
 	return 0
 }
 
-func (x *ControllerApplianceManifest) GetMinimumApplianceRuntime() string {
-	if x != nil {
-		return x.MinimumApplianceRuntime
-	}
-	return ""
-}
-
 func (x *ControllerApplianceManifest) GetRequestedDynamicHostLoopback() *DynamicHostLoopbackGrant {
 	if x != nil {
 		return x.RequestedDynamicHostLoopback
@@ -1435,21 +1344,28 @@ func (x *ControllerApplianceManifest) GetRequestedDynamicHostLoopback() *Dynamic
 	return nil
 }
 
+func (x *ControllerApplianceManifest) GetSystemLimits() *v1.ResourceLimits {
+	if x != nil {
+		return x.SystemLimits
+	}
+	return nil
+}
+
 type ApprovedGrant struct {
 	state               protoimpl.MessageState    `protogen:"open.v1"`
-	SystemResources     *ResourceRange            `protobuf:"bytes,1,opt,name=system_resources,json=systemResources,proto3" json:"system_resources,omitempty"`
 	Capacity            *CapacityGrant            `protobuf:"bytes,2,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	EgressMode          v1.EgressMode             `protobuf:"varint,3,opt,name=egress_mode,json=egressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"egress_mode,omitempty"`
 	Frontends           []*ControllerFrontend     `protobuf:"bytes,4,rep,name=frontends,proto3" json:"frontends,omitempty"`
 	Revision            uint64                    `protobuf:"varint,5,opt,name=revision,proto3" json:"revision,omitempty"`
 	DynamicHostLoopback *DynamicHostLoopbackGrant `protobuf:"bytes,6,opt,name=dynamic_host_loopback,json=dynamicHostLoopback,proto3" json:"dynamic_host_loopback,omitempty"`
+	SystemLimits        *v1.ResourceLimits        `protobuf:"bytes,7,opt,name=system_limits,json=systemLimits,proto3" json:"system_limits,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ApprovedGrant) Reset() {
 	*x = ApprovedGrant{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1461,7 +1377,7 @@ func (x *ApprovedGrant) String() string {
 func (*ApprovedGrant) ProtoMessage() {}
 
 func (x *ApprovedGrant) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1474,14 +1390,7 @@ func (x *ApprovedGrant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovedGrant.ProtoReflect.Descriptor instead.
 func (*ApprovedGrant) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *ApprovedGrant) GetSystemResources() *ResourceRange {
-	if x != nil {
-		return x.SystemResources
-	}
-	return nil
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ApprovedGrant) GetCapacity() *CapacityGrant {
@@ -1519,6 +1428,13 @@ func (x *ApprovedGrant) GetDynamicHostLoopback() *DynamicHostLoopbackGrant {
 	return nil
 }
 
+func (x *ApprovedGrant) GetSystemLimits() *v1.ResourceLimits {
+	if x != nil {
+		return x.SystemLimits
+	}
+	return nil
+}
+
 type ApplianceLaunchClaim struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	InstallationId      string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
@@ -1542,7 +1458,7 @@ type ApplianceLaunchClaim struct {
 
 func (x *ApplianceLaunchClaim) Reset() {
 	*x = ApplianceLaunchClaim{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1554,7 +1470,7 @@ func (x *ApplianceLaunchClaim) String() string {
 func (*ApplianceLaunchClaim) ProtoMessage() {}
 
 func (x *ApplianceLaunchClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1567,7 +1483,7 @@ func (x *ApplianceLaunchClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceLaunchClaim.ProtoReflect.Descriptor instead.
 func (*ApplianceLaunchClaim) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{11}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ApplianceLaunchClaim) GetInstallationId() string {
@@ -1691,7 +1607,7 @@ type ApplianceManagedTrustBundle struct {
 
 func (x *ApplianceManagedTrustBundle) Reset() {
 	*x = ApplianceManagedTrustBundle{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1703,7 +1619,7 @@ func (x *ApplianceManagedTrustBundle) String() string {
 func (*ApplianceManagedTrustBundle) ProtoMessage() {}
 
 func (x *ApplianceManagedTrustBundle) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1716,7 +1632,7 @@ func (x *ApplianceManagedTrustBundle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceManagedTrustBundle.ProtoReflect.Descriptor instead.
 func (*ApplianceManagedTrustBundle) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{12}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ApplianceManagedTrustBundle) GetInstallationId() string {
@@ -1788,7 +1704,7 @@ type OpaqueBootstrapEnvelope struct {
 
 func (x *OpaqueBootstrapEnvelope) Reset() {
 	*x = OpaqueBootstrapEnvelope{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1800,7 +1716,7 @@ func (x *OpaqueBootstrapEnvelope) String() string {
 func (*OpaqueBootstrapEnvelope) ProtoMessage() {}
 
 func (x *OpaqueBootstrapEnvelope) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1813,7 +1729,7 @@ func (x *OpaqueBootstrapEnvelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpaqueBootstrapEnvelope.ProtoReflect.Descriptor instead.
 func (*OpaqueBootstrapEnvelope) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{13}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *OpaqueBootstrapEnvelope) GetInstallationId() string {
@@ -1862,7 +1778,7 @@ type BootstrapReceipt struct {
 
 func (x *BootstrapReceipt) Reset() {
 	*x = BootstrapReceipt{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1874,7 +1790,7 @@ func (x *BootstrapReceipt) String() string {
 func (*BootstrapReceipt) ProtoMessage() {}
 
 func (x *BootstrapReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1887,7 +1803,7 @@ func (x *BootstrapReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootstrapReceipt.ProtoReflect.Descriptor instead.
 func (*BootstrapReceipt) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{14}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BootstrapReceipt) GetInstallationId() string {
@@ -1927,7 +1843,7 @@ type ApplianceHealth struct {
 
 func (x *ApplianceHealth) Reset() {
 	*x = ApplianceHealth{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1939,7 +1855,7 @@ func (x *ApplianceHealth) String() string {
 func (*ApplianceHealth) ProtoMessage() {}
 
 func (x *ApplianceHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1952,7 +1868,7 @@ func (x *ApplianceHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceHealth.ProtoReflect.Descriptor instead.
 func (*ApplianceHealth) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{15}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ApplianceHealth) GetInstallationId() string {
@@ -2025,7 +1941,7 @@ type HostBootstrapFrame struct {
 
 func (x *HostBootstrapFrame) Reset() {
 	*x = HostBootstrapFrame{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2037,7 +1953,7 @@ func (x *HostBootstrapFrame) String() string {
 func (*HostBootstrapFrame) ProtoMessage() {}
 
 func (x *HostBootstrapFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2050,7 +1966,7 @@ func (x *HostBootstrapFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostBootstrapFrame.ProtoReflect.Descriptor instead.
 func (*HostBootstrapFrame) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{16}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *HostBootstrapFrame) GetPayload() isHostBootstrapFrame_Payload {
@@ -2124,7 +2040,7 @@ type ApplianceBootstrapFrame struct {
 
 func (x *ApplianceBootstrapFrame) Reset() {
 	*x = ApplianceBootstrapFrame{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2136,7 +2052,7 @@ func (x *ApplianceBootstrapFrame) String() string {
 func (*ApplianceBootstrapFrame) ProtoMessage() {}
 
 func (x *ApplianceBootstrapFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2149,7 +2065,7 @@ func (x *ApplianceBootstrapFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceBootstrapFrame.ProtoReflect.Descriptor instead.
 func (*ApplianceBootstrapFrame) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{17}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ApplianceBootstrapFrame) GetPayload() isApplianceBootstrapFrame_Payload {
@@ -2237,7 +2153,7 @@ type ApplianceFrontendStatus struct {
 
 func (x *ApplianceFrontendStatus) Reset() {
 	*x = ApplianceFrontendStatus{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2249,7 +2165,7 @@ func (x *ApplianceFrontendStatus) String() string {
 func (*ApplianceFrontendStatus) ProtoMessage() {}
 
 func (x *ApplianceFrontendStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2262,7 +2178,7 @@ func (x *ApplianceFrontendStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceFrontendStatus.ProtoReflect.Descriptor instead.
 func (*ApplianceFrontendStatus) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{18}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ApplianceFrontendStatus) GetName() string {
@@ -2329,7 +2245,7 @@ type ApplianceStatus struct {
 
 func (x *ApplianceStatus) Reset() {
 	*x = ApplianceStatus{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2341,7 +2257,7 @@ func (x *ApplianceStatus) String() string {
 func (*ApplianceStatus) ProtoMessage() {}
 
 func (x *ApplianceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2354,7 +2270,7 @@ func (x *ApplianceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceStatus.ProtoReflect.Descriptor instead.
 func (*ApplianceStatus) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{19}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ApplianceStatus) GetInstallationId() string {
@@ -2468,7 +2384,7 @@ type ApplianceImpact struct {
 
 func (x *ApplianceImpact) Reset() {
 	*x = ApplianceImpact{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2480,7 +2396,7 @@ func (x *ApplianceImpact) String() string {
 func (*ApplianceImpact) ProtoMessage() {}
 
 func (x *ApplianceImpact) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2493,7 +2409,7 @@ func (x *ApplianceImpact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceImpact.ProtoReflect.Descriptor instead.
 func (*ApplianceImpact) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{20}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ApplianceImpact) GetResourceType() string {
@@ -2544,7 +2460,7 @@ type AppliancePlan struct {
 
 func (x *AppliancePlan) Reset() {
 	*x = AppliancePlan{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2556,7 +2472,7 @@ func (x *AppliancePlan) String() string {
 func (*AppliancePlan) ProtoMessage() {}
 
 func (x *AppliancePlan) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2569,7 +2485,7 @@ func (x *AppliancePlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppliancePlan.ProtoReflect.Descriptor instead.
 func (*AppliancePlan) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{21}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AppliancePlan) GetInstallationId() string {
@@ -2617,7 +2533,7 @@ type ApplianceOperationError struct {
 
 func (x *ApplianceOperationError) Reset() {
 	*x = ApplianceOperationError{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2629,7 +2545,7 @@ func (x *ApplianceOperationError) String() string {
 func (*ApplianceOperationError) ProtoMessage() {}
 
 func (x *ApplianceOperationError) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2642,7 +2558,7 @@ func (x *ApplianceOperationError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceOperationError.ProtoReflect.Descriptor instead.
 func (*ApplianceOperationError) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{22}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ApplianceOperationError) GetReason() string {
@@ -2679,7 +2595,7 @@ type ApplianceOperation struct {
 
 func (x *ApplianceOperation) Reset() {
 	*x = ApplianceOperation{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2691,7 +2607,7 @@ func (x *ApplianceOperation) String() string {
 func (*ApplianceOperation) ProtoMessage() {}
 
 func (x *ApplianceOperation) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2704,7 +2620,7 @@ func (x *ApplianceOperation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceOperation.ProtoReflect.Descriptor instead.
 func (*ApplianceOperation) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{23}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ApplianceOperation) GetOperationId() string {
@@ -2801,7 +2717,7 @@ type ApplianceOperationResponse struct {
 
 func (x *ApplianceOperationResponse) Reset() {
 	*x = ApplianceOperationResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2813,7 +2729,7 @@ func (x *ApplianceOperationResponse) String() string {
 func (*ApplianceOperationResponse) ProtoMessage() {}
 
 func (x *ApplianceOperationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2826,7 +2742,7 @@ func (x *ApplianceOperationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceOperationResponse.ProtoReflect.Descriptor instead.
 func (*ApplianceOperationResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{24}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ApplianceOperationResponse) GetOperation() *ApplianceOperation {
@@ -2852,7 +2768,7 @@ type AppliancePlanResponse struct {
 
 func (x *AppliancePlanResponse) Reset() {
 	*x = AppliancePlanResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2864,7 +2780,7 @@ func (x *AppliancePlanResponse) String() string {
 func (*AppliancePlanResponse) ProtoMessage() {}
 
 func (x *AppliancePlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2877,7 +2793,7 @@ func (x *AppliancePlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppliancePlanResponse.ProtoReflect.Descriptor instead.
 func (*AppliancePlanResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{25}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *AppliancePlanResponse) GetPlan() *AppliancePlan {
@@ -2896,7 +2812,7 @@ type ApplianceStatusResponse struct {
 
 func (x *ApplianceStatusResponse) Reset() {
 	*x = ApplianceStatusResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2908,7 +2824,7 @@ func (x *ApplianceStatusResponse) String() string {
 func (*ApplianceStatusResponse) ProtoMessage() {}
 
 func (x *ApplianceStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2921,7 +2837,7 @@ func (x *ApplianceStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceStatusResponse.ProtoReflect.Descriptor instead.
 func (*ApplianceStatusResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{26}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ApplianceStatusResponse) GetStatus() *ApplianceStatus {
@@ -2942,7 +2858,7 @@ type StageArtifactRequest struct {
 
 func (x *StageArtifactRequest) Reset() {
 	*x = StageArtifactRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2954,7 +2870,7 @@ func (x *StageArtifactRequest) String() string {
 func (*StageArtifactRequest) ProtoMessage() {}
 
 func (x *StageArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2967,7 +2883,7 @@ func (x *StageArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageArtifactRequest.ProtoReflect.Descriptor instead.
 func (*StageArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{27}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *StageArtifactRequest) GetRequestId() string {
@@ -3005,7 +2921,7 @@ type PlanInstallRequest struct {
 
 func (x *PlanInstallRequest) Reset() {
 	*x = PlanInstallRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3017,7 +2933,7 @@ func (x *PlanInstallRequest) String() string {
 func (*PlanInstallRequest) ProtoMessage() {}
 
 func (x *PlanInstallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3030,7 +2946,7 @@ func (x *PlanInstallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanInstallRequest.ProtoReflect.Descriptor instead.
 func (*PlanInstallRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{28}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *PlanInstallRequest) GetInstallationId() string {
@@ -3090,7 +3006,7 @@ type InstallRequest struct {
 
 func (x *InstallRequest) Reset() {
 	*x = InstallRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3102,7 +3018,7 @@ func (x *InstallRequest) String() string {
 func (*InstallRequest) ProtoMessage() {}
 
 func (x *InstallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3115,7 +3031,7 @@ func (x *InstallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallRequest.ProtoReflect.Descriptor instead.
 func (*InstallRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{29}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *InstallRequest) GetInstallationId() string {
@@ -3179,7 +3095,7 @@ type PlanActivationRequest struct {
 
 func (x *PlanActivationRequest) Reset() {
 	*x = PlanActivationRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3191,7 +3107,7 @@ func (x *PlanActivationRequest) String() string {
 func (*PlanActivationRequest) ProtoMessage() {}
 
 func (x *PlanActivationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3204,7 +3120,7 @@ func (x *PlanActivationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanActivationRequest.ProtoReflect.Descriptor instead.
 func (*PlanActivationRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{30}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *PlanActivationRequest) GetInstallationId() string {
@@ -3247,7 +3163,7 @@ type ActivateRequest struct {
 
 func (x *ActivateRequest) Reset() {
 	*x = ActivateRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3259,7 +3175,7 @@ func (x *ActivateRequest) String() string {
 func (*ActivateRequest) ProtoMessage() {}
 
 func (x *ActivateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3272,7 +3188,7 @@ func (x *ActivateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivateRequest.ProtoReflect.Descriptor instead.
 func (*ActivateRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{31}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ActivateRequest) GetInstallationId() string {
@@ -3311,7 +3227,7 @@ type ListAppliancesRequest struct {
 
 func (x *ListAppliancesRequest) Reset() {
 	*x = ListAppliancesRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3323,7 +3239,7 @@ func (x *ListAppliancesRequest) String() string {
 func (*ListAppliancesRequest) ProtoMessage() {}
 
 func (x *ListAppliancesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3336,7 +3252,7 @@ func (x *ListAppliancesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAppliancesRequest.ProtoReflect.Descriptor instead.
 func (*ListAppliancesRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{32}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{31}
 }
 
 type ListAppliancesResponse struct {
@@ -3348,7 +3264,7 @@ type ListAppliancesResponse struct {
 
 func (x *ListAppliancesResponse) Reset() {
 	*x = ListAppliancesResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3360,7 +3276,7 @@ func (x *ListAppliancesResponse) String() string {
 func (*ListAppliancesResponse) ProtoMessage() {}
 
 func (x *ListAppliancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3373,7 +3289,7 @@ func (x *ListAppliancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAppliancesResponse.ProtoReflect.Descriptor instead.
 func (*ListAppliancesResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{33}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListAppliancesResponse) GetAppliances() []*ApplianceStatus {
@@ -3392,7 +3308,7 @@ type GetApplianceStatusRequest struct {
 
 func (x *GetApplianceStatusRequest) Reset() {
 	*x = GetApplianceStatusRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3404,7 +3320,7 @@ func (x *GetApplianceStatusRequest) String() string {
 func (*GetApplianceStatusRequest) ProtoMessage() {}
 
 func (x *GetApplianceStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3417,7 +3333,7 @@ func (x *GetApplianceStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApplianceStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetApplianceStatusRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{34}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *GetApplianceStatusRequest) GetInstallationId() string {
@@ -3437,7 +3353,7 @@ type WatchApplianceOperationRequest struct {
 
 func (x *WatchApplianceOperationRequest) Reset() {
 	*x = WatchApplianceOperationRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3449,7 +3365,7 @@ func (x *WatchApplianceOperationRequest) String() string {
 func (*WatchApplianceOperationRequest) ProtoMessage() {}
 
 func (x *WatchApplianceOperationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3462,7 +3378,7 @@ func (x *WatchApplianceOperationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchApplianceOperationRequest.ProtoReflect.Descriptor instead.
 func (*WatchApplianceOperationRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{35}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *WatchApplianceOperationRequest) GetInstallationId() string {
@@ -3491,7 +3407,7 @@ type StopApplianceRequest struct {
 
 func (x *StopApplianceRequest) Reset() {
 	*x = StopApplianceRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3503,7 +3419,7 @@ func (x *StopApplianceRequest) String() string {
 func (*StopApplianceRequest) ProtoMessage() {}
 
 func (x *StopApplianceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3516,7 +3432,7 @@ func (x *StopApplianceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopApplianceRequest.ProtoReflect.Descriptor instead.
 func (*StopApplianceRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{36}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *StopApplianceRequest) GetInstallationId() string {
@@ -3559,7 +3475,7 @@ type RestartApplianceRequest struct {
 
 func (x *RestartApplianceRequest) Reset() {
 	*x = RestartApplianceRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3571,7 +3487,7 @@ func (x *RestartApplianceRequest) String() string {
 func (*RestartApplianceRequest) ProtoMessage() {}
 
 func (x *RestartApplianceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3584,7 +3500,7 @@ func (x *RestartApplianceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartApplianceRequest.ProtoReflect.Descriptor instead.
 func (*RestartApplianceRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{37}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *RestartApplianceRequest) GetInstallationId() string {
@@ -3627,7 +3543,7 @@ type RevokeApplianceRequest struct {
 
 func (x *RevokeApplianceRequest) Reset() {
 	*x = RevokeApplianceRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3639,7 +3555,7 @@ func (x *RevokeApplianceRequest) String() string {
 func (*RevokeApplianceRequest) ProtoMessage() {}
 
 func (x *RevokeApplianceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3652,7 +3568,7 @@ func (x *RevokeApplianceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeApplianceRequest.ProtoReflect.Descriptor instead.
 func (*RevokeApplianceRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{38}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RevokeApplianceRequest) GetInstallationId() string {
@@ -3695,7 +3611,7 @@ type PlanSealedRepairRequest struct {
 
 func (x *PlanSealedRepairRequest) Reset() {
 	*x = PlanSealedRepairRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3707,7 +3623,7 @@ func (x *PlanSealedRepairRequest) String() string {
 func (*PlanSealedRepairRequest) ProtoMessage() {}
 
 func (x *PlanSealedRepairRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3720,7 +3636,7 @@ func (x *PlanSealedRepairRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanSealedRepairRequest.ProtoReflect.Descriptor instead.
 func (*PlanSealedRepairRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{39}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *PlanSealedRepairRequest) GetInstallationId() string {
@@ -3766,7 +3682,7 @@ type ExecuteSealedRepairRequest struct {
 
 func (x *ExecuteSealedRepairRequest) Reset() {
 	*x = ExecuteSealedRepairRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3778,7 +3694,7 @@ func (x *ExecuteSealedRepairRequest) String() string {
 func (*ExecuteSealedRepairRequest) ProtoMessage() {}
 
 func (x *ExecuteSealedRepairRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3791,7 +3707,7 @@ func (x *ExecuteSealedRepairRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteSealedRepairRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteSealedRepairRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{40}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ExecuteSealedRepairRequest) GetInstallationId() string {
@@ -3841,7 +3757,7 @@ type PlanRemoveRequest struct {
 
 func (x *PlanRemoveRequest) Reset() {
 	*x = PlanRemoveRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3853,7 +3769,7 @@ func (x *PlanRemoveRequest) String() string {
 func (*PlanRemoveRequest) ProtoMessage() {}
 
 func (x *PlanRemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3866,7 +3782,7 @@ func (x *PlanRemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanRemoveRequest.ProtoReflect.Descriptor instead.
 func (*PlanRemoveRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{41}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *PlanRemoveRequest) GetInstallationId() string {
@@ -3910,7 +3826,7 @@ type ExecuteRemoveRequest struct {
 
 func (x *ExecuteRemoveRequest) Reset() {
 	*x = ExecuteRemoveRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[42]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3922,7 +3838,7 @@ func (x *ExecuteRemoveRequest) String() string {
 func (*ExecuteRemoveRequest) ProtoMessage() {}
 
 func (x *ExecuteRemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[42]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3935,7 +3851,7 @@ func (x *ExecuteRemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteRemoveRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteRemoveRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{42}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ExecuteRemoveRequest) GetInstallationId() string {
@@ -4021,16 +3937,10 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x11max_lease_seconds\x18\x03 \x01(\rR\x0fmaxLeaseSeconds\x12<\n" +
 	"\x1amax_concurrent_connections\x18\x04 \x01(\rR\x18maxConcurrentConnections\x12N\n" +
 	"$max_concurrent_connections_per_lease\x18\x05 \x01(\rR maxConcurrentConnectionsPerLease\x12P\n" +
-	"\x11connection_bounds\x18\x06 \x01(\v2#.agentvmm.appliance.v1.StreamBoundsR\x10connectionBounds\"\x83\x01\n" +
-	"\rResourceRange\x126\n" +
-	"\x05floor\x18\x01 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x05floor\x12:\n" +
-	"\aceiling\x18\x02 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\aceiling\"\xd6\x02\n" +
-	"\rCapacityGrant\x12)\n" +
-	"\x10max_environments\x18\x01 \x01(\rR\x0fmaxEnvironments\x12V\n" +
+	"\x11connection_bounds\x18\x06 \x01(\v2#.agentvmm.appliance.v1.StreamBoundsR\x10connectionBounds\"\x96\x02\n" +
+	"\rCapacityGrant\x12V\n" +
 	"\x16per_environment_limits\x18\x03 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x14perEnvironmentLimits\x12D\n" +
-	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressMode\x12*\n" +
-	"\x11max_lease_seconds\x18\x05 \x01(\rR\x0fmaxLeaseSeconds\x128\n" +
-	"\x18disconnect_grace_seconds\x18\x06 \x01(\rR\x16disconnectGraceSecondsJ\x04\b\x02\x10\x03R\x10aggregate_limits\"\xe1\b\n" +
+	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressModeJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x10max_environmentsR\x10aggregate_limitsR\x11max_lease_secondsR\x18disconnect_grace_seconds\"\xd4\b\n" +
 	"\x1bControllerApplianceManifest\x12)\n" +
 	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12\x1d\n" +
 	"\n" +
@@ -4040,26 +3950,25 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x15image_manifest_digest\x18\x06 \x01(\tR\x13imageManifestDigest\x12\x1a\n" +
 	"\bplatform\x18\a \x01(\tR\bplatform\x12<\n" +
 	"\x1abootstrap_protocol_version\x18\b \x01(\tR\x18bootstrapProtocolVersion\x12>\n" +
-	"\x1bcontroller_protocol_version\x18\t \x01(\tR\x19controllerProtocolVersion\x12O\n" +
-	"\x10system_resources\x18\n" +
-	" \x01(\v2$.agentvmm.appliance.v1.ResourceRangeR\x0fsystemResources\x12*\n" +
+	"\x1bcontroller_protocol_version\x18\t \x01(\tR\x19controllerProtocolVersion\x12*\n" +
 	"\x11data_volume_bytes\x18\v \x01(\x04R\x0fdataVolumeBytes\x12S\n" +
 	"\x12requested_capacity\x18\f \x01(\v2$.agentvmm.appliance.v1.CapacityGrantR\x11requestedCapacity\x12P\n" +
 	"\x15requested_egress_mode\x18\r \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\x13requestedEgressMode\x12Z\n" +
 	"\x13requested_frontends\x18\x0e \x03(\v2).agentvmm.appliance.v1.ControllerFrontendR\x12requestedFrontends\x128\n" +
 	"\x18startup_deadline_seconds\x18\x0f \x01(\rR\x16startupDeadlineSeconds\x12+\n" +
 	"\x11probation_seconds\x18\x10 \x01(\rR\x10probationSeconds\x124\n" +
-	"\x16health_timeout_seconds\x18\x11 \x01(\rR\x14healthTimeoutSeconds\x12:\n" +
-	"\x19minimum_appliance_runtime\x18\x12 \x01(\tR\x17minimumApplianceRuntime\x12v\n" +
-	"\x1frequested_dynamic_host_loopback\x18\x13 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x1crequestedDynamicHostLoopbackJ\x04\b\x03\x10\x04R\x10publisher_key_id\"\xab\x03\n" +
-	"\rApprovedGrant\x12O\n" +
-	"\x10system_resources\x18\x01 \x01(\v2$.agentvmm.appliance.v1.ResourceRangeR\x0fsystemResources\x12@\n" +
+	"\x16health_timeout_seconds\x18\x11 \x01(\rR\x14healthTimeoutSeconds\x12v\n" +
+	"\x1frequested_dynamic_host_loopback\x18\x13 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x1crequestedDynamicHostLoopback\x12E\n" +
+	"\rsystem_limits\x18\x14 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\fsystemLimitsJ\x04\b\x03\x10\x04J\x04\b\n" +
+	"\x10\vJ\x04\b\x12\x10\x13R\x10publisher_key_idR\x10system_resourcesR\x19minimum_appliance_runtime\"\xb9\x03\n" +
+	"\rApprovedGrant\x12@\n" +
 	"\bcapacity\x18\x02 \x01(\v2$.agentvmm.appliance.v1.CapacityGrantR\bcapacity\x12=\n" +
 	"\vegress_mode\x18\x03 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\n" +
 	"egressMode\x12G\n" +
 	"\tfrontends\x18\x04 \x03(\v2).agentvmm.appliance.v1.ControllerFrontendR\tfrontends\x12\x1a\n" +
 	"\brevision\x18\x05 \x01(\x04R\brevision\x12c\n" +
-	"\x15dynamic_host_loopback\x18\x06 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x13dynamicHostLoopback\"\xb5\x05\n" +
+	"\x15dynamic_host_loopback\x18\x06 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x13dynamicHostLoopback\x12E\n" +
+	"\rsystem_limits\x18\a \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\fsystemLimitsJ\x04\b\x01\x10\x02R\x10system_resources\"\xb5\x05\n" +
 	"\x14ApplianceLaunchClaim\x12'\n" +
 	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1f\n" +
 	"\vartifact_id\x18\x02 \x01(\tR\n" +
@@ -4376,7 +4285,7 @@ func file_appliance_v1_appliance_proto_rawDescGZIP() []byte {
 }
 
 var file_appliance_v1_appliance_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_appliance_v1_appliance_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_appliance_v1_appliance_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_appliance_v1_appliance_proto_goTypes = []any{
 	(FrontendTransport)(0),                 // 0: agentvmm.appliance.v1.FrontendTransport
 	(FrontendExposure)(0),                  // 1: agentvmm.appliance.v1.FrontendExposure
@@ -4394,151 +4303,148 @@ var file_appliance_v1_appliance_proto_goTypes = []any{
 	(*StreamBounds)(nil),                   // 13: agentvmm.appliance.v1.StreamBounds
 	(*ControllerFrontend)(nil),             // 14: agentvmm.appliance.v1.ControllerFrontend
 	(*DynamicHostLoopbackGrant)(nil),       // 15: agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	(*ResourceRange)(nil),                  // 16: agentvmm.appliance.v1.ResourceRange
-	(*CapacityGrant)(nil),                  // 17: agentvmm.appliance.v1.CapacityGrant
-	(*ControllerApplianceManifest)(nil),    // 18: agentvmm.appliance.v1.ControllerApplianceManifest
-	(*ApprovedGrant)(nil),                  // 19: agentvmm.appliance.v1.ApprovedGrant
-	(*ApplianceLaunchClaim)(nil),           // 20: agentvmm.appliance.v1.ApplianceLaunchClaim
-	(*ApplianceManagedTrustBundle)(nil),    // 21: agentvmm.appliance.v1.ApplianceManagedTrustBundle
-	(*OpaqueBootstrapEnvelope)(nil),        // 22: agentvmm.appliance.v1.OpaqueBootstrapEnvelope
-	(*BootstrapReceipt)(nil),               // 23: agentvmm.appliance.v1.BootstrapReceipt
-	(*ApplianceHealth)(nil),                // 24: agentvmm.appliance.v1.ApplianceHealth
-	(*HostBootstrapFrame)(nil),             // 25: agentvmm.appliance.v1.HostBootstrapFrame
-	(*ApplianceBootstrapFrame)(nil),        // 26: agentvmm.appliance.v1.ApplianceBootstrapFrame
-	(*ApplianceFrontendStatus)(nil),        // 27: agentvmm.appliance.v1.ApplianceFrontendStatus
-	(*ApplianceStatus)(nil),                // 28: agentvmm.appliance.v1.ApplianceStatus
-	(*ApplianceImpact)(nil),                // 29: agentvmm.appliance.v1.ApplianceImpact
-	(*AppliancePlan)(nil),                  // 30: agentvmm.appliance.v1.AppliancePlan
-	(*ApplianceOperationError)(nil),        // 31: agentvmm.appliance.v1.ApplianceOperationError
-	(*ApplianceOperation)(nil),             // 32: agentvmm.appliance.v1.ApplianceOperation
-	(*ApplianceOperationResponse)(nil),     // 33: agentvmm.appliance.v1.ApplianceOperationResponse
-	(*AppliancePlanResponse)(nil),          // 34: agentvmm.appliance.v1.AppliancePlanResponse
-	(*ApplianceStatusResponse)(nil),        // 35: agentvmm.appliance.v1.ApplianceStatusResponse
-	(*StageArtifactRequest)(nil),           // 36: agentvmm.appliance.v1.StageArtifactRequest
-	(*PlanInstallRequest)(nil),             // 37: agentvmm.appliance.v1.PlanInstallRequest
-	(*InstallRequest)(nil),                 // 38: agentvmm.appliance.v1.InstallRequest
-	(*PlanActivationRequest)(nil),          // 39: agentvmm.appliance.v1.PlanActivationRequest
-	(*ActivateRequest)(nil),                // 40: agentvmm.appliance.v1.ActivateRequest
-	(*ListAppliancesRequest)(nil),          // 41: agentvmm.appliance.v1.ListAppliancesRequest
-	(*ListAppliancesResponse)(nil),         // 42: agentvmm.appliance.v1.ListAppliancesResponse
-	(*GetApplianceStatusRequest)(nil),      // 43: agentvmm.appliance.v1.GetApplianceStatusRequest
-	(*WatchApplianceOperationRequest)(nil), // 44: agentvmm.appliance.v1.WatchApplianceOperationRequest
-	(*StopApplianceRequest)(nil),           // 45: agentvmm.appliance.v1.StopApplianceRequest
-	(*RestartApplianceRequest)(nil),        // 46: agentvmm.appliance.v1.RestartApplianceRequest
-	(*RevokeApplianceRequest)(nil),         // 47: agentvmm.appliance.v1.RevokeApplianceRequest
-	(*PlanSealedRepairRequest)(nil),        // 48: agentvmm.appliance.v1.PlanSealedRepairRequest
-	(*ExecuteSealedRepairRequest)(nil),     // 49: agentvmm.appliance.v1.ExecuteSealedRepairRequest
-	(*PlanRemoveRequest)(nil),              // 50: agentvmm.appliance.v1.PlanRemoveRequest
-	(*ExecuteRemoveRequest)(nil),           // 51: agentvmm.appliance.v1.ExecuteRemoveRequest
-	(*v1.BuildArgument)(nil),               // 52: agentvmm.host.v1.BuildArgument
-	(v1.BuildNetworkMode)(0),               // 53: agentvmm.host.v1.BuildNetworkMode
-	(*v1.BuildSecret)(nil),                 // 54: agentvmm.host.v1.BuildSecret
-	(*v1.BuildContextChunk)(nil),           // 55: agentvmm.host.v1.BuildContextChunk
-	(*v1.BuildSecretChunk)(nil),            // 56: agentvmm.host.v1.BuildSecretChunk
-	(*v1.ResourceLimits)(nil),              // 57: agentvmm.host.v1.ResourceLimits
-	(v1.EgressMode)(0),                     // 58: agentvmm.host.v1.EgressMode
-	(*v11.DeviceIdentity)(nil),             // 59: agentvmm.trust.v1.DeviceIdentity
-	(*v11.TrustAnchor)(nil),                // 60: agentvmm.trust.v1.TrustAnchor
-	(*v11.MembershipCredential)(nil),       // 61: agentvmm.trust.v1.MembershipCredential
-	(*timestamppb.Timestamp)(nil),          // 62: google.protobuf.Timestamp
+	(*CapacityGrant)(nil),                  // 16: agentvmm.appliance.v1.CapacityGrant
+	(*ControllerApplianceManifest)(nil),    // 17: agentvmm.appliance.v1.ControllerApplianceManifest
+	(*ApprovedGrant)(nil),                  // 18: agentvmm.appliance.v1.ApprovedGrant
+	(*ApplianceLaunchClaim)(nil),           // 19: agentvmm.appliance.v1.ApplianceLaunchClaim
+	(*ApplianceManagedTrustBundle)(nil),    // 20: agentvmm.appliance.v1.ApplianceManagedTrustBundle
+	(*OpaqueBootstrapEnvelope)(nil),        // 21: agentvmm.appliance.v1.OpaqueBootstrapEnvelope
+	(*BootstrapReceipt)(nil),               // 22: agentvmm.appliance.v1.BootstrapReceipt
+	(*ApplianceHealth)(nil),                // 23: agentvmm.appliance.v1.ApplianceHealth
+	(*HostBootstrapFrame)(nil),             // 24: agentvmm.appliance.v1.HostBootstrapFrame
+	(*ApplianceBootstrapFrame)(nil),        // 25: agentvmm.appliance.v1.ApplianceBootstrapFrame
+	(*ApplianceFrontendStatus)(nil),        // 26: agentvmm.appliance.v1.ApplianceFrontendStatus
+	(*ApplianceStatus)(nil),                // 27: agentvmm.appliance.v1.ApplianceStatus
+	(*ApplianceImpact)(nil),                // 28: agentvmm.appliance.v1.ApplianceImpact
+	(*AppliancePlan)(nil),                  // 29: agentvmm.appliance.v1.AppliancePlan
+	(*ApplianceOperationError)(nil),        // 30: agentvmm.appliance.v1.ApplianceOperationError
+	(*ApplianceOperation)(nil),             // 31: agentvmm.appliance.v1.ApplianceOperation
+	(*ApplianceOperationResponse)(nil),     // 32: agentvmm.appliance.v1.ApplianceOperationResponse
+	(*AppliancePlanResponse)(nil),          // 33: agentvmm.appliance.v1.AppliancePlanResponse
+	(*ApplianceStatusResponse)(nil),        // 34: agentvmm.appliance.v1.ApplianceStatusResponse
+	(*StageArtifactRequest)(nil),           // 35: agentvmm.appliance.v1.StageArtifactRequest
+	(*PlanInstallRequest)(nil),             // 36: agentvmm.appliance.v1.PlanInstallRequest
+	(*InstallRequest)(nil),                 // 37: agentvmm.appliance.v1.InstallRequest
+	(*PlanActivationRequest)(nil),          // 38: agentvmm.appliance.v1.PlanActivationRequest
+	(*ActivateRequest)(nil),                // 39: agentvmm.appliance.v1.ActivateRequest
+	(*ListAppliancesRequest)(nil),          // 40: agentvmm.appliance.v1.ListAppliancesRequest
+	(*ListAppliancesResponse)(nil),         // 41: agentvmm.appliance.v1.ListAppliancesResponse
+	(*GetApplianceStatusRequest)(nil),      // 42: agentvmm.appliance.v1.GetApplianceStatusRequest
+	(*WatchApplianceOperationRequest)(nil), // 43: agentvmm.appliance.v1.WatchApplianceOperationRequest
+	(*StopApplianceRequest)(nil),           // 44: agentvmm.appliance.v1.StopApplianceRequest
+	(*RestartApplianceRequest)(nil),        // 45: agentvmm.appliance.v1.RestartApplianceRequest
+	(*RevokeApplianceRequest)(nil),         // 46: agentvmm.appliance.v1.RevokeApplianceRequest
+	(*PlanSealedRepairRequest)(nil),        // 47: agentvmm.appliance.v1.PlanSealedRepairRequest
+	(*ExecuteSealedRepairRequest)(nil),     // 48: agentvmm.appliance.v1.ExecuteSealedRepairRequest
+	(*PlanRemoveRequest)(nil),              // 49: agentvmm.appliance.v1.PlanRemoveRequest
+	(*ExecuteRemoveRequest)(nil),           // 50: agentvmm.appliance.v1.ExecuteRemoveRequest
+	(*v1.BuildArgument)(nil),               // 51: agentvmm.host.v1.BuildArgument
+	(v1.BuildNetworkMode)(0),               // 52: agentvmm.host.v1.BuildNetworkMode
+	(*v1.BuildSecret)(nil),                 // 53: agentvmm.host.v1.BuildSecret
+	(*v1.BuildContextChunk)(nil),           // 54: agentvmm.host.v1.BuildContextChunk
+	(*v1.BuildSecretChunk)(nil),            // 55: agentvmm.host.v1.BuildSecretChunk
+	(*v1.ResourceLimits)(nil),              // 56: agentvmm.host.v1.ResourceLimits
+	(v1.EgressMode)(0),                     // 57: agentvmm.host.v1.EgressMode
+	(*v11.DeviceIdentity)(nil),             // 58: agentvmm.trust.v1.DeviceIdentity
+	(*v11.TrustAnchor)(nil),                // 59: agentvmm.trust.v1.TrustAnchor
+	(*v11.MembershipCredential)(nil),       // 60: agentvmm.trust.v1.MembershipCredential
+	(*timestamppb.Timestamp)(nil),          // 61: google.protobuf.Timestamp
 }
 var file_appliance_v1_appliance_proto_depIdxs = []int32{
-	52, // 0: agentvmm.appliance.v1.BuildArtifactHeader.build_args:type_name -> agentvmm.host.v1.BuildArgument
-	53, // 1: agentvmm.appliance.v1.BuildArtifactHeader.network_mode:type_name -> agentvmm.host.v1.BuildNetworkMode
-	54, // 2: agentvmm.appliance.v1.BuildArtifactHeader.secrets:type_name -> agentvmm.host.v1.BuildSecret
+	51, // 0: agentvmm.appliance.v1.BuildArtifactHeader.build_args:type_name -> agentvmm.host.v1.BuildArgument
+	52, // 1: agentvmm.appliance.v1.BuildArtifactHeader.network_mode:type_name -> agentvmm.host.v1.BuildNetworkMode
+	53, // 2: agentvmm.appliance.v1.BuildArtifactHeader.secrets:type_name -> agentvmm.host.v1.BuildSecret
 	9,  // 3: agentvmm.appliance.v1.BuildArtifactRequest.header:type_name -> agentvmm.appliance.v1.BuildArtifactHeader
-	55, // 4: agentvmm.appliance.v1.BuildArtifactRequest.context:type_name -> agentvmm.host.v1.BuildContextChunk
-	56, // 5: agentvmm.appliance.v1.BuildArtifactRequest.secret:type_name -> agentvmm.host.v1.BuildSecretChunk
+	54, // 4: agentvmm.appliance.v1.BuildArtifactRequest.context:type_name -> agentvmm.host.v1.BuildContextChunk
+	55, // 5: agentvmm.appliance.v1.BuildArtifactRequest.secret:type_name -> agentvmm.host.v1.BuildSecretChunk
 	11, // 6: agentvmm.appliance.v1.BuildArtifactResponse.result:type_name -> agentvmm.appliance.v1.BuildArtifactResult
 	0,  // 7: agentvmm.appliance.v1.ControllerFrontend.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
 	1,  // 8: agentvmm.appliance.v1.ControllerFrontend.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
 	13, // 9: agentvmm.appliance.v1.ControllerFrontend.bounds:type_name -> agentvmm.appliance.v1.StreamBounds
 	13, // 10: agentvmm.appliance.v1.DynamicHostLoopbackGrant.connection_bounds:type_name -> agentvmm.appliance.v1.StreamBounds
-	57, // 11: agentvmm.appliance.v1.ResourceRange.floor:type_name -> agentvmm.host.v1.ResourceLimits
-	57, // 12: agentvmm.appliance.v1.ResourceRange.ceiling:type_name -> agentvmm.host.v1.ResourceLimits
-	57, // 13: agentvmm.appliance.v1.CapacityGrant.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	58, // 14: agentvmm.appliance.v1.CapacityGrant.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	16, // 15: agentvmm.appliance.v1.ControllerApplianceManifest.system_resources:type_name -> agentvmm.appliance.v1.ResourceRange
-	17, // 16: agentvmm.appliance.v1.ControllerApplianceManifest.requested_capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
-	58, // 17: agentvmm.appliance.v1.ControllerApplianceManifest.requested_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	14, // 18: agentvmm.appliance.v1.ControllerApplianceManifest.requested_frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
-	15, // 19: agentvmm.appliance.v1.ControllerApplianceManifest.requested_dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	16, // 20: agentvmm.appliance.v1.ApprovedGrant.system_resources:type_name -> agentvmm.appliance.v1.ResourceRange
-	17, // 21: agentvmm.appliance.v1.ApprovedGrant.capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
-	58, // 22: agentvmm.appliance.v1.ApprovedGrant.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	14, // 23: agentvmm.appliance.v1.ApprovedGrant.frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
-	15, // 24: agentvmm.appliance.v1.ApprovedGrant.dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	19, // 25: agentvmm.appliance.v1.ApplianceLaunchClaim.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	59, // 26: agentvmm.appliance.v1.ApplianceLaunchClaim.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	60, // 27: agentvmm.appliance.v1.ApplianceManagedTrustBundle.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
-	61, // 28: agentvmm.appliance.v1.ApplianceManagedTrustBundle.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
-	20, // 29: agentvmm.appliance.v1.HostBootstrapFrame.launch_claim:type_name -> agentvmm.appliance.v1.ApplianceLaunchClaim
-	22, // 30: agentvmm.appliance.v1.HostBootstrapFrame.envelope:type_name -> agentvmm.appliance.v1.OpaqueBootstrapEnvelope
-	23, // 31: agentvmm.appliance.v1.ApplianceBootstrapFrame.receipt:type_name -> agentvmm.appliance.v1.BootstrapReceipt
-	24, // 32: agentvmm.appliance.v1.ApplianceBootstrapFrame.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
-	21, // 33: agentvmm.appliance.v1.ApplianceBootstrapFrame.managed_trust:type_name -> agentvmm.appliance.v1.ApplianceManagedTrustBundle
-	0,  // 34: agentvmm.appliance.v1.ApplianceFrontendStatus.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
-	1,  // 35: agentvmm.appliance.v1.ApplianceFrontendStatus.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
-	2,  // 36: agentvmm.appliance.v1.ApplianceStatus.appliance_state:type_name -> agentvmm.appliance.v1.ApplianceState
-	3,  // 37: agentvmm.appliance.v1.ApplianceStatus.channel_state:type_name -> agentvmm.appliance.v1.ControllerChannelState
-	19, // 38: agentvmm.appliance.v1.ApplianceStatus.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	27, // 39: agentvmm.appliance.v1.ApplianceStatus.frontends:type_name -> agentvmm.appliance.v1.ApplianceFrontendStatus
-	24, // 40: agentvmm.appliance.v1.ApplianceStatus.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
-	5,  // 41: agentvmm.appliance.v1.AppliancePlan.kind:type_name -> agentvmm.appliance.v1.AppliancePlanKind
-	29, // 42: agentvmm.appliance.v1.AppliancePlan.impacts:type_name -> agentvmm.appliance.v1.ApplianceImpact
-	6,  // 43: agentvmm.appliance.v1.ApplianceOperation.kind:type_name -> agentvmm.appliance.v1.ApplianceOperationKind
-	4,  // 44: agentvmm.appliance.v1.ApplianceOperation.state:type_name -> agentvmm.appliance.v1.ApplianceOperationState
-	7,  // 45: agentvmm.appliance.v1.ApplianceOperation.phase:type_name -> agentvmm.appliance.v1.ApplianceOperationPhase
-	62, // 46: agentvmm.appliance.v1.ApplianceOperation.started_at:type_name -> google.protobuf.Timestamp
-	62, // 47: agentvmm.appliance.v1.ApplianceOperation.updated_at:type_name -> google.protobuf.Timestamp
-	31, // 48: agentvmm.appliance.v1.ApplianceOperation.error:type_name -> agentvmm.appliance.v1.ApplianceOperationError
-	8,  // 49: agentvmm.appliance.v1.ApplianceOperation.terminal_reason:type_name -> agentvmm.appliance.v1.ApplianceTerminalReason
-	32, // 50: agentvmm.appliance.v1.ApplianceOperationResponse.operation:type_name -> agentvmm.appliance.v1.ApplianceOperation
-	30, // 51: agentvmm.appliance.v1.AppliancePlanResponse.plan:type_name -> agentvmm.appliance.v1.AppliancePlan
-	28, // 52: agentvmm.appliance.v1.ApplianceStatusResponse.status:type_name -> agentvmm.appliance.v1.ApplianceStatus
-	18, // 53: agentvmm.appliance.v1.StageArtifactRequest.manifest:type_name -> agentvmm.appliance.v1.ControllerApplianceManifest
-	19, // 54: agentvmm.appliance.v1.PlanInstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	19, // 55: agentvmm.appliance.v1.InstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	28, // 56: agentvmm.appliance.v1.ListAppliancesResponse.appliances:type_name -> agentvmm.appliance.v1.ApplianceStatus
-	10, // 57: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:input_type -> agentvmm.appliance.v1.BuildArtifactRequest
-	36, // 58: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:input_type -> agentvmm.appliance.v1.StageArtifactRequest
-	37, // 59: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:input_type -> agentvmm.appliance.v1.PlanInstallRequest
-	38, // 60: agentvmm.appliance.v1.ApplianceAdminService.Install:input_type -> agentvmm.appliance.v1.InstallRequest
-	39, // 61: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:input_type -> agentvmm.appliance.v1.PlanActivationRequest
-	40, // 62: agentvmm.appliance.v1.ApplianceAdminService.Activate:input_type -> agentvmm.appliance.v1.ActivateRequest
-	41, // 63: agentvmm.appliance.v1.ApplianceAdminService.List:input_type -> agentvmm.appliance.v1.ListAppliancesRequest
-	43, // 64: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:input_type -> agentvmm.appliance.v1.GetApplianceStatusRequest
-	44, // 65: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:input_type -> agentvmm.appliance.v1.WatchApplianceOperationRequest
-	45, // 66: agentvmm.appliance.v1.ApplianceAdminService.Stop:input_type -> agentvmm.appliance.v1.StopApplianceRequest
-	46, // 67: agentvmm.appliance.v1.ApplianceAdminService.Restart:input_type -> agentvmm.appliance.v1.RestartApplianceRequest
-	47, // 68: agentvmm.appliance.v1.ApplianceAdminService.Revoke:input_type -> agentvmm.appliance.v1.RevokeApplianceRequest
-	48, // 69: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:input_type -> agentvmm.appliance.v1.PlanSealedRepairRequest
-	49, // 70: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:input_type -> agentvmm.appliance.v1.ExecuteSealedRepairRequest
-	50, // 71: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:input_type -> agentvmm.appliance.v1.PlanRemoveRequest
-	51, // 72: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:input_type -> agentvmm.appliance.v1.ExecuteRemoveRequest
-	25, // 73: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:input_type -> agentvmm.appliance.v1.HostBootstrapFrame
-	12, // 74: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:output_type -> agentvmm.appliance.v1.BuildArtifactResponse
-	33, // 75: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 76: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 77: agentvmm.appliance.v1.ApplianceAdminService.Install:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 78: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 79: agentvmm.appliance.v1.ApplianceAdminService.Activate:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	42, // 80: agentvmm.appliance.v1.ApplianceAdminService.List:output_type -> agentvmm.appliance.v1.ListAppliancesResponse
-	35, // 81: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:output_type -> agentvmm.appliance.v1.ApplianceStatusResponse
-	33, // 82: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 83: agentvmm.appliance.v1.ApplianceAdminService.Stop:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 84: agentvmm.appliance.v1.ApplianceAdminService.Restart:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 85: agentvmm.appliance.v1.ApplianceAdminService.Revoke:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 86: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 87: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	34, // 88: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	33, // 89: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	26, // 90: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:output_type -> agentvmm.appliance.v1.ApplianceBootstrapFrame
-	74, // [74:91] is the sub-list for method output_type
-	57, // [57:74] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	56, // 11: agentvmm.appliance.v1.CapacityGrant.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	57, // 12: agentvmm.appliance.v1.CapacityGrant.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	16, // 13: agentvmm.appliance.v1.ControllerApplianceManifest.requested_capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
+	57, // 14: agentvmm.appliance.v1.ControllerApplianceManifest.requested_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	14, // 15: agentvmm.appliance.v1.ControllerApplianceManifest.requested_frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
+	15, // 16: agentvmm.appliance.v1.ControllerApplianceManifest.requested_dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
+	56, // 17: agentvmm.appliance.v1.ControllerApplianceManifest.system_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	16, // 18: agentvmm.appliance.v1.ApprovedGrant.capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
+	57, // 19: agentvmm.appliance.v1.ApprovedGrant.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	14, // 20: agentvmm.appliance.v1.ApprovedGrant.frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
+	15, // 21: agentvmm.appliance.v1.ApprovedGrant.dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
+	56, // 22: agentvmm.appliance.v1.ApprovedGrant.system_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	18, // 23: agentvmm.appliance.v1.ApplianceLaunchClaim.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	58, // 24: agentvmm.appliance.v1.ApplianceLaunchClaim.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	59, // 25: agentvmm.appliance.v1.ApplianceManagedTrustBundle.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
+	60, // 26: agentvmm.appliance.v1.ApplianceManagedTrustBundle.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
+	19, // 27: agentvmm.appliance.v1.HostBootstrapFrame.launch_claim:type_name -> agentvmm.appliance.v1.ApplianceLaunchClaim
+	21, // 28: agentvmm.appliance.v1.HostBootstrapFrame.envelope:type_name -> agentvmm.appliance.v1.OpaqueBootstrapEnvelope
+	22, // 29: agentvmm.appliance.v1.ApplianceBootstrapFrame.receipt:type_name -> agentvmm.appliance.v1.BootstrapReceipt
+	23, // 30: agentvmm.appliance.v1.ApplianceBootstrapFrame.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
+	20, // 31: agentvmm.appliance.v1.ApplianceBootstrapFrame.managed_trust:type_name -> agentvmm.appliance.v1.ApplianceManagedTrustBundle
+	0,  // 32: agentvmm.appliance.v1.ApplianceFrontendStatus.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
+	1,  // 33: agentvmm.appliance.v1.ApplianceFrontendStatus.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
+	2,  // 34: agentvmm.appliance.v1.ApplianceStatus.appliance_state:type_name -> agentvmm.appliance.v1.ApplianceState
+	3,  // 35: agentvmm.appliance.v1.ApplianceStatus.channel_state:type_name -> agentvmm.appliance.v1.ControllerChannelState
+	18, // 36: agentvmm.appliance.v1.ApplianceStatus.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	26, // 37: agentvmm.appliance.v1.ApplianceStatus.frontends:type_name -> agentvmm.appliance.v1.ApplianceFrontendStatus
+	23, // 38: agentvmm.appliance.v1.ApplianceStatus.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
+	5,  // 39: agentvmm.appliance.v1.AppliancePlan.kind:type_name -> agentvmm.appliance.v1.AppliancePlanKind
+	28, // 40: agentvmm.appliance.v1.AppliancePlan.impacts:type_name -> agentvmm.appliance.v1.ApplianceImpact
+	6,  // 41: agentvmm.appliance.v1.ApplianceOperation.kind:type_name -> agentvmm.appliance.v1.ApplianceOperationKind
+	4,  // 42: agentvmm.appliance.v1.ApplianceOperation.state:type_name -> agentvmm.appliance.v1.ApplianceOperationState
+	7,  // 43: agentvmm.appliance.v1.ApplianceOperation.phase:type_name -> agentvmm.appliance.v1.ApplianceOperationPhase
+	61, // 44: agentvmm.appliance.v1.ApplianceOperation.started_at:type_name -> google.protobuf.Timestamp
+	61, // 45: agentvmm.appliance.v1.ApplianceOperation.updated_at:type_name -> google.protobuf.Timestamp
+	30, // 46: agentvmm.appliance.v1.ApplianceOperation.error:type_name -> agentvmm.appliance.v1.ApplianceOperationError
+	8,  // 47: agentvmm.appliance.v1.ApplianceOperation.terminal_reason:type_name -> agentvmm.appliance.v1.ApplianceTerminalReason
+	31, // 48: agentvmm.appliance.v1.ApplianceOperationResponse.operation:type_name -> agentvmm.appliance.v1.ApplianceOperation
+	29, // 49: agentvmm.appliance.v1.AppliancePlanResponse.plan:type_name -> agentvmm.appliance.v1.AppliancePlan
+	27, // 50: agentvmm.appliance.v1.ApplianceStatusResponse.status:type_name -> agentvmm.appliance.v1.ApplianceStatus
+	17, // 51: agentvmm.appliance.v1.StageArtifactRequest.manifest:type_name -> agentvmm.appliance.v1.ControllerApplianceManifest
+	18, // 52: agentvmm.appliance.v1.PlanInstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	18, // 53: agentvmm.appliance.v1.InstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	27, // 54: agentvmm.appliance.v1.ListAppliancesResponse.appliances:type_name -> agentvmm.appliance.v1.ApplianceStatus
+	10, // 55: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:input_type -> agentvmm.appliance.v1.BuildArtifactRequest
+	35, // 56: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:input_type -> agentvmm.appliance.v1.StageArtifactRequest
+	36, // 57: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:input_type -> agentvmm.appliance.v1.PlanInstallRequest
+	37, // 58: agentvmm.appliance.v1.ApplianceAdminService.Install:input_type -> agentvmm.appliance.v1.InstallRequest
+	38, // 59: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:input_type -> agentvmm.appliance.v1.PlanActivationRequest
+	39, // 60: agentvmm.appliance.v1.ApplianceAdminService.Activate:input_type -> agentvmm.appliance.v1.ActivateRequest
+	40, // 61: agentvmm.appliance.v1.ApplianceAdminService.List:input_type -> agentvmm.appliance.v1.ListAppliancesRequest
+	42, // 62: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:input_type -> agentvmm.appliance.v1.GetApplianceStatusRequest
+	43, // 63: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:input_type -> agentvmm.appliance.v1.WatchApplianceOperationRequest
+	44, // 64: agentvmm.appliance.v1.ApplianceAdminService.Stop:input_type -> agentvmm.appliance.v1.StopApplianceRequest
+	45, // 65: agentvmm.appliance.v1.ApplianceAdminService.Restart:input_type -> agentvmm.appliance.v1.RestartApplianceRequest
+	46, // 66: agentvmm.appliance.v1.ApplianceAdminService.Revoke:input_type -> agentvmm.appliance.v1.RevokeApplianceRequest
+	47, // 67: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:input_type -> agentvmm.appliance.v1.PlanSealedRepairRequest
+	48, // 68: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:input_type -> agentvmm.appliance.v1.ExecuteSealedRepairRequest
+	49, // 69: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:input_type -> agentvmm.appliance.v1.PlanRemoveRequest
+	50, // 70: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:input_type -> agentvmm.appliance.v1.ExecuteRemoveRequest
+	24, // 71: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:input_type -> agentvmm.appliance.v1.HostBootstrapFrame
+	12, // 72: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:output_type -> agentvmm.appliance.v1.BuildArtifactResponse
+	32, // 73: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	33, // 74: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	32, // 75: agentvmm.appliance.v1.ApplianceAdminService.Install:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	33, // 76: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	32, // 77: agentvmm.appliance.v1.ApplianceAdminService.Activate:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	41, // 78: agentvmm.appliance.v1.ApplianceAdminService.List:output_type -> agentvmm.appliance.v1.ListAppliancesResponse
+	34, // 79: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:output_type -> agentvmm.appliance.v1.ApplianceStatusResponse
+	32, // 80: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	32, // 81: agentvmm.appliance.v1.ApplianceAdminService.Stop:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	32, // 82: agentvmm.appliance.v1.ApplianceAdminService.Restart:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	32, // 83: agentvmm.appliance.v1.ApplianceAdminService.Revoke:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	33, // 84: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	32, // 85: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	33, // 86: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	32, // 87: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	25, // 88: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:output_type -> agentvmm.appliance.v1.ApplianceBootstrapFrame
+	72, // [72:89] is the sub-list for method output_type
+	55, // [55:72] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_appliance_v1_appliance_proto_init() }
@@ -4557,12 +4463,12 @@ func file_appliance_v1_appliance_proto_init() {
 		(*BuildArtifactResponse_ArchiveChunk)(nil),
 		(*BuildArtifactResponse_Result)(nil),
 	}
-	file_appliance_v1_appliance_proto_msgTypes[16].OneofWrappers = []any{
+	file_appliance_v1_appliance_proto_msgTypes[15].OneofWrappers = []any{
 		(*HostBootstrapFrame_LaunchClaim)(nil),
 		(*HostBootstrapFrame_Envelope)(nil),
 		(*HostBootstrapFrame_CloseWrite)(nil),
 	}
-	file_appliance_v1_appliance_proto_msgTypes[17].OneofWrappers = []any{
+	file_appliance_v1_appliance_proto_msgTypes[16].OneofWrappers = []any{
 		(*ApplianceBootstrapFrame_Receipt)(nil),
 		(*ApplianceBootstrapFrame_Health)(nil),
 		(*ApplianceBootstrapFrame_CloseWrite)(nil),
@@ -4574,7 +4480,7 @@ func file_appliance_v1_appliance_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_appliance_v1_appliance_proto_rawDesc), len(file_appliance_v1_appliance_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   43,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

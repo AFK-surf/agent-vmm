@@ -63,10 +63,13 @@ func (controller *Controller) markSessionActivity(sessionID string) {
 }
 
 type sessionServer struct {
-	server      *grpc.Server
-	listener    net.Listener
-	path        string
-	connections atomic.Uint32
+	server               *grpc.Server
+	listener             net.Listener
+	path                 string
+	registrationID       string
+	allocationID         string
+	allocationGeneration uint64
+	connections          atomic.Uint32
 }
 
 type sessionStats struct {

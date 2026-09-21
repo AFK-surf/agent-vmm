@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestOpenConvertsV18AllocationGenerationAndDropsObsoleteLedger(t *testing.T) {
+func TestOpenConvertsV18AllocationGenerationAndDropsReservationLedgers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.db")
 	database := createV18Database(t, path, true)
 	if err := database.Close(); err != nil {
@@ -41,29 +41,11 @@ func TestOpenConvertsV18AllocationGenerationAndDropsObsoleteLedger(t *testing.T)
 	if obsolete != 0 {
 		t.Fatal("obsolete workload reservation ledger still exists")
 	}
-	rows, err := opened.db.Query(`SELECT id FROM resource_reservations ORDER BY id`)
-	if err != nil {
+	if err := opened.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='resource_reservations'`).Scan(&obsolete); err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	var reservations []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			t.Fatal(err)
-		}
-		reservations = append(reservations, id)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(reservations, ",") != "runtime,system" {
-		t.Fatalf("resource reservations=%v want preserved system and runtime rows", reservations)
-	}
-	if _, err := opened.db.Exec(`INSERT INTO resource_reservations(
-		id,owner_kind,owner_id,resource_kind,resource_id,cpu_millis,memory_bytes,pids,disk_bytes,retained,created_at)
-		VALUES('allocation',2,'registration-1',3,'environment-1',1,1,1,1,0,1)`); err == nil {
-		t.Fatal("obsolete allocation reservation kind was accepted")
+	if obsolete != 0 {
+		t.Fatal("compute reservation projection still exists")
 	}
 }
 
@@ -113,6 +95,50 @@ func TestOpenKeepsV18DatabaseIntactWhenAllocationGenerationIsMissing(t *testing.
 	}
 	if newColumn {
 		t.Fatal("failed conversion committed allocation_generation")
+	}
+}
+
+func TestOpenConvertsV19ArtifactsWithoutTrustProjection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := database.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV19} {
+		if err := migration(tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES(19, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO appliance_artifacts(
+		artifact_id, canonical_hash, image_digest, image_reference, platform, product_id, release, verified, manifest, created_at)
+		VALUES('artifact-1', X'01', 'sha256:digest', 'registry/image', 'linux/arm64', 'product', 'release', 0, X'02', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	opened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	artifact, err := opened.GetApplianceArtifact(t.Context(), "artifact-1")
+	if err != nil || artifact.ProductID != "product" || string(artifact.Manifest) != "\x02" {
+		t.Fatalf("artifact was not preserved: artifact=%+v err=%v", artifact, err)
 	}
 }
 

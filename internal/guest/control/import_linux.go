@@ -333,7 +333,7 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			if err := r.commitLogicalImageRecord(logicalContext, logical, logicalErr, imageReference, existing.Target(), requestLabel, fingerprint); err != nil {
 				return nil, err
 			}
-			if err := r.indexCommittedImage(namespaceID, imageReference); err != nil {
+			if err := r.indexCommittedImage(namespaceID, imageReference, existing.Target().Digest.String()); err != nil {
 				return nil, err
 			}
 			return r.getImageForRole(ctx, namespaceID, imageReference, system)
@@ -383,16 +383,25 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 		if _, err := r.client.ImageService().Create(stagingContext, coreimages.Image{Name: runtimeReference, Target: manifest, Labels: labels}); err != nil {
 			return nil, err
 		}
+		inventory, inventoryErr := r.requireRuntimeInventory()
+		if inventoryErr != nil {
+			return nil, inventoryErr
+		}
+		inventory.addRuntimeImage(runtimeReference)
 		createdRecord = true
 		materialized, err = r.client.GetImage(stagingContext, runtimeReference)
 		if err != nil {
 			_ = r.client.ImageService().Delete(stagingContext, runtimeReference, coreimages.SynchronousDelete())
+			inventory.removeRuntimeImage(runtimeReference)
 			return nil, err
 		}
 	}
 	if err := materialized.Unpack(stagingContext, namespaceSnapshotter(namespaceID), containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); err != nil {
 		if createdRecord {
 			_ = r.client.ImageService().Delete(stagingContext, runtimeReference, coreimages.SynchronousDelete())
+			if inventory, inventoryErr := r.requireRuntimeInventory(); inventoryErr == nil {
+				inventory.removeRuntimeImage(runtimeReference)
+			}
 		}
 		log.Printf("OCI import unpack failed for %q: %v", imageReference, err)
 		if ociQuotaExceeded(err) {
@@ -403,7 +412,7 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	if err := r.commitLogicalImageRecord(logicalContext, logical, logicalErr, imageReference, materialized.Target(), requestLabel, fingerprint); err != nil {
 		return nil, err
 	}
-	if err := r.indexCommittedImage(namespaceID, imageReference); err != nil {
+	if err := r.indexCommittedImage(namespaceID, imageReference, materialized.Target().Digest.String()); err != nil {
 		return nil, err
 	}
 	if err := syncStateFilesystem(); err != nil {
@@ -412,12 +421,12 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	return r.getImageForRole(ctx, namespaceID, imageReference, system)
 }
 
-func (r *Runtime) indexCommittedImage(namespaceID, reference string) error {
+func (r *Runtime) indexCommittedImage(namespaceID, reference, targetDigest string) error {
 	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return err
 	}
-	return inventory.addImage(namespaceID, reference)
+	return inventory.addImage(namespaceID, reference, targetDigest)
 }
 
 func (r *Runtime) commitLogicalImageRecord(ctx context.Context, current containerd.Image, currentErr error, reference string, target ocispec.Descriptor, requestLabel, fingerprint string) error {

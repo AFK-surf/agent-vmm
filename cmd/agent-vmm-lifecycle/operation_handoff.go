@@ -37,19 +37,14 @@ type operationHandoffDescriptor struct {
 }
 
 type resourcePolicy struct {
-	CPUMillis   uint32 `json:"cpu_millis"`
-	MemoryBytes uint64 `json:"memory_bytes"`
-	PIDs        uint32 `json:"pids"`
-	DiskBytes   uint64 `json:"disk_bytes"`
+	PIDs      uint32 `json:"pids"`
+	DiskBytes uint64 `json:"disk_bytes"`
 }
 
 type remotePoolMaterial struct {
-	MaxEnvironments        uint32         `json:"max_environments"`
-	PerEnvironmentLimits   resourcePolicy `json:"per_environment_limits"`
-	MaxEgressMode          string         `json:"max_egress_mode"`
-	MaxLeaseSeconds        uint64         `json:"max_lease_seconds"`
-	DisconnectGraceSeconds uint64         `json:"disconnect_grace_seconds"`
-	StopGraceSeconds       uint64         `json:"stop_grace_seconds"`
+	PerEnvironmentLimits resourcePolicy `json:"per_environment_limits"`
+	MaxEgressMode        string         `json:"max_egress_mode"`
+	StopGraceSeconds     uint64         `json:"stop_grace_seconds"`
 }
 
 type remoteEnrollmentMaterial struct {
@@ -345,7 +340,10 @@ func validateOperationHandoff(material operationHandoffPlan, descriptor operatio
 			return fmt.Errorf("install material %s is invalid", name)
 		}
 	}
-	if material.RemoteEnrollment.PolicyRevision == 0 || material.RemoteEnrollment.GatewayEndpoint == "" || material.RemoteEnrollment.PoolPolicy.MaxEnvironments == 0 {
+	pool := material.RemoteEnrollment.PoolPolicy
+	if material.RemoteEnrollment.PolicyRevision == 0 || material.RemoteEnrollment.GatewayEndpoint == "" ||
+		pool.PerEnvironmentLimits.PIDs == 0 || pool.PerEnvironmentLimits.DiskBytes == 0 ||
+		(pool.MaxEgressMode != "deny_all" && pool.MaxEgressMode != "public_internet") || pool.StopGraceSeconds == 0 {
 		return errors.New("install material remote enrollment policy is incomplete")
 	}
 	return nil
@@ -393,10 +391,10 @@ func (material operationHandoffPlan) remotePoolPolicy() (*hostv1.RemotePoolPolic
 		return nil, errors.New("remote pool egress mode is invalid")
 	}
 	limits := func(value resourcePolicy) *hostv1.ResourceLimits {
-		return &hostv1.ResourceLimits{CpuMillis: &value.CPUMillis, MemoryBytes: &value.MemoryBytes, Pids: &value.PIDs, DiskBytes: &value.DiskBytes}
+		return &hostv1.ResourceLimits{Pids: &value.PIDs, DiskBytes: &value.DiskBytes}
 	}
-	return &hostv1.RemotePoolPolicy{MaxEnvironments: policy.MaxEnvironments, PerEnvironmentLimits: limits(policy.PerEnvironmentLimits), MaxEgressMode: egress,
-		MaxLeaseDuration: durationpb.New(time.Duration(policy.MaxLeaseSeconds) * time.Second), DisconnectGrace: durationpb.New(time.Duration(policy.DisconnectGraceSeconds) * time.Second), StopGrace: durationpb.New(time.Duration(policy.StopGraceSeconds) * time.Second)}, nil
+	return &hostv1.RemotePoolPolicy{PerEnvironmentLimits: limits(policy.PerEnvironmentLimits), MaxEgressMode: egress,
+		StopGrace: durationpb.New(time.Duration(policy.StopGraceSeconds) * time.Second)}, nil
 }
 
 func (adapter *productionLifecycleAdapter) applyManagedEnrollment(ctx context.Context, request LifecycleRequest) error {

@@ -130,10 +130,8 @@ func managedRegistrationMatches(managed *hostv1.BeginRemoteEnrollmentRequest, st
 		stored.DisplayName == managed.GetDisplayName() && stored.ProtocolVersion == managed.GetProtocolVersion() &&
 		bytes.Equal(stored.TrustBundle, managed.GetTrustBundle()) && stored.ScopeDigest == managed.GetScopeDigest() &&
 		stored.SourcePolicyRevision == managed.GetSourcePolicyRevision() &&
-		stored.MaxEnvironments == policy.MaxEnvironments && stored.PerEnvCPUMillis == policy.PerEnvCPUMillis &&
-		stored.PerEnvMemoryBytes == policy.PerEnvMemoryBytes && stored.PerEnvPIDs == policy.PerEnvPIDs &&
+		stored.PerEnvPIDs == policy.PerEnvPIDs &&
 		stored.PerEnvDiskBytes == policy.PerEnvDiskBytes && stored.MaxEgressMode == policy.MaxEgressMode &&
-		stored.MaxLeaseSeconds == policy.MaxLeaseSeconds && stored.DisconnectGraceSeconds == policy.DisconnectGraceSeconds &&
 		stored.StopGraceSeconds == policy.StopGraceSeconds, nil
 }
 
@@ -211,7 +209,7 @@ func (server *operatorServer) BeginRemoteRevocation(ctx context.Context, request
 	if err == nil {
 		server.controller.stopExternalConnector(request.GetRegistrationId())
 		if revokeErr := server.controller.retireRemoteRegistration(ctx, request.GetRegistrationId()); revokeErr != nil {
-			return nil, resourceError(codes.FailedPrecondition, "REMOTE_LEASE_REVOKE_FAILED", "remote_registration", request.GetRegistrationId(), revokeErr.Error())
+			return nil, resourceError(codes.FailedPrecondition, "REMOTE_REGISTRATION_RETIRE_FAILED", "remote_registration", request.GetRegistrationId(), revokeErr.Error())
 		}
 		return server.controller.remoteRegistrationResponse(ctx, updated), nil
 	}
@@ -327,28 +325,23 @@ func (server *operatorServer) ListRemoteRegistrations(ctx context.Context, _ *ho
 }
 
 func registrationFromPool(pool *hostv1.RemotePoolPolicy, capacity store.Environment) (store.RemoteRegistration, error) {
-	if pool == nil || pool.GetPerEnvironmentLimits() == nil ||
-		pool.GetMaxLeaseDuration() == nil || pool.GetDisconnectGrace() == nil || pool.GetStopGrace() == nil {
+	if pool == nil || pool.GetPerEnvironmentLimits() == nil || pool.GetStopGrace() == nil {
 		return store.RemoteRegistration{}, invalidField("pool", "complete remote pool policy is required")
 	}
 	perEnvironment := pool.GetPerEnvironmentLimits()
-	if pool.GetMaxEnvironments() == 0 || pool.GetMaxEnvironments() > maxRemoteEnvironments || validatePolicy(perEnvironment, pool.GetMaxEgressMode()) != nil {
+	if validatePolicy(perEnvironment, pool.GetMaxEgressMode()) != nil {
 		return store.RemoteRegistration{}, invalidField("pool", "remote pool limits are invalid")
 	}
 	if perEnvironment.GetPids() > capacity.PIDs || perEnvironment.GetDiskBytes() > capacity.DiskBytes {
 		return store.RemoteRegistration{}, invalidField("per_environment_limits", "per-environment limit exceeds configured VM capacity")
 	}
-	lease := pool.GetMaxLeaseDuration().AsDuration()
-	disconnect := pool.GetDisconnectGrace().AsDuration()
 	stop := pool.GetStopGrace().AsDuration()
-	if lease < time.Minute || lease > 24*time.Hour || disconnect < time.Second || disconnect > 10*time.Minute || stop < time.Second || stop > 5*time.Minute {
-		return store.RemoteRegistration{}, invalidField("pool duration", "lease or grace duration is outside supported bounds")
+	if stop < time.Second || stop > 5*time.Minute {
+		return store.RemoteRegistration{}, invalidField("pool duration", "stop grace duration is outside supported bounds")
 	}
 	return store.RemoteRegistration{
-		MaxEnvironments: pool.GetMaxEnvironments(), PerEnvCPUMillis: perEnvironment.GetCpuMillis(),
-		PerEnvMemoryBytes: perEnvironment.GetMemoryBytes(), PerEnvPIDs: perEnvironment.GetPids(), PerEnvDiskBytes: perEnvironment.GetDiskBytes(),
-		MaxEgressMode: int32(pool.GetMaxEgressMode()), MaxLeaseSeconds: uint32(lease / time.Second),
-		DisconnectGraceSeconds: uint32(disconnect / time.Second), StopGraceSeconds: uint32(stop / time.Second),
+		PerEnvPIDs: perEnvironment.GetPids(), PerEnvDiskBytes: perEnvironment.GetDiskBytes(),
+		MaxEgressMode: int32(pool.GetMaxEgressMode()), StopGraceSeconds: uint32(stop / time.Second),
 	}, nil
 }
 
@@ -376,10 +369,8 @@ func registrationToProto(registration store.RemoteRegistration) *hostv1.RemoteRe
 			DisconnectedAt: timestamppb.New(registration.DisconnectedAt), NextRetryAt: timestamppb.New(registration.NextRetryAt),
 			ReconnectAttempt: registration.ReconnectAttempt, FailureCode: failureCode, FailureMessage: failureMessage},
 		Pool: &hostv1.RemotePoolPolicy{
-			MaxEnvironments:      registration.MaxEnvironments,
-			PerEnvironmentLimits: &hostv1.ResourceLimits{CpuMillis: optional(registration.PerEnvCPUMillis), MemoryBytes: optional(registration.PerEnvMemoryBytes), Pids: optional(registration.PerEnvPIDs), DiskBytes: optional(registration.PerEnvDiskBytes)},
-			MaxEgressMode:        hostv1.EgressMode(registration.MaxEgressMode), MaxLeaseDuration: durationpb.New(time.Duration(registration.MaxLeaseSeconds) * time.Second),
-			DisconnectGrace: durationpb.New(time.Duration(registration.DisconnectGraceSeconds) * time.Second), StopGrace: durationpb.New(time.Duration(registration.StopGraceSeconds) * time.Second),
+			PerEnvironmentLimits: &hostv1.ResourceLimits{Pids: optional(registration.PerEnvPIDs), DiskBytes: optional(registration.PerEnvDiskBytes)},
+			MaxEgressMode:        hostv1.EgressMode(registration.MaxEgressMode), StopGrace: durationpb.New(time.Duration(registration.StopGraceSeconds) * time.Second),
 		},
 	}
 }

@@ -686,43 +686,10 @@ public nonisolated struct Agentvmm_Appliance_V1_DynamicHostLoopbackGrant: Sendab
   fileprivate var _connectionBounds: Agentvmm_Appliance_V1_StreamBounds? = nil
 }
 
-public nonisolated struct Agentvmm_Appliance_V1_ResourceRange: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var floor: Agentvmm_Host_V1_ResourceLimits {
-    get {_floor ?? Agentvmm_Host_V1_ResourceLimits()}
-    set {_floor = newValue}
-  }
-  /// Returns true if `floor` has been explicitly set.
-  public var hasFloor: Bool {self._floor != nil}
-  /// Clears the value of `floor`. Subsequent reads from it will return its default value.
-  public mutating func clearFloor() {self._floor = nil}
-
-  public var ceiling: Agentvmm_Host_V1_ResourceLimits {
-    get {_ceiling ?? Agentvmm_Host_V1_ResourceLimits()}
-    set {_ceiling = newValue}
-  }
-  /// Returns true if `ceiling` has been explicitly set.
-  public var hasCeiling: Bool {self._ceiling != nil}
-  /// Clears the value of `ceiling`. Subsequent reads from it will return its default value.
-  public mutating func clearCeiling() {self._ceiling = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _floor: Agentvmm_Host_V1_ResourceLimits? = nil
-  fileprivate var _ceiling: Agentvmm_Host_V1_ResourceLimits? = nil
-}
-
 public nonisolated struct Agentvmm_Appliance_V1_CapacityGrant: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
-
-  public var maxEnvironments: UInt32 = 0
 
   public var perEnvironmentLimits: Agentvmm_Host_V1_ResourceLimits {
     get {_perEnvironmentLimits ?? Agentvmm_Host_V1_ResourceLimits()}
@@ -734,10 +701,6 @@ public nonisolated struct Agentvmm_Appliance_V1_CapacityGrant: Sendable {
   public mutating func clearPerEnvironmentLimits() {self._perEnvironmentLimits = nil}
 
   public var maxEgressMode: Agentvmm_Host_V1_EgressMode = .unspecified
-
-  public var maxLeaseSeconds: UInt32 = 0
-
-  public var disconnectGraceSeconds: UInt32 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -791,15 +754,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @un
     set {_uniqueStorage()._controllerProtocolVersion = newValue}
   }
 
-  public var systemResources: Agentvmm_Appliance_V1_ResourceRange {
-    get {_storage._systemResources ?? Agentvmm_Appliance_V1_ResourceRange()}
-    set {_uniqueStorage()._systemResources = newValue}
-  }
-  /// Returns true if `systemResources` has been explicitly set.
-  public var hasSystemResources: Bool {_storage._systemResources != nil}
-  /// Clears the value of `systemResources`. Subsequent reads from it will return its default value.
-  public mutating func clearSystemResources() {_uniqueStorage()._systemResources = nil}
-
   public var dataVolumeBytes: UInt64 {
     get {_storage._dataVolumeBytes}
     set {_uniqueStorage()._dataVolumeBytes = newValue}
@@ -839,11 +793,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @un
     set {_uniqueStorage()._healthTimeoutSeconds = newValue}
   }
 
-  public var minimumApplianceRuntime: String {
-    get {_storage._minimumApplianceRuntime}
-    set {_uniqueStorage()._minimumApplianceRuntime = newValue}
-  }
-
   public var requestedDynamicHostLoopback: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant {
     get {_storage._requestedDynamicHostLoopback ?? Agentvmm_Appliance_V1_DynamicHostLoopbackGrant()}
     set {_uniqueStorage()._requestedDynamicHostLoopback = newValue}
@@ -852,6 +801,15 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @un
   public var hasRequestedDynamicHostLoopback: Bool {_storage._requestedDynamicHostLoopback != nil}
   /// Clears the value of `requestedDynamicHostLoopback`. Subsequent reads from it will return its default value.
   public mutating func clearRequestedDynamicHostLoopback() {_uniqueStorage()._requestedDynamicHostLoopback = nil}
+
+  public var systemLimits: Agentvmm_Host_V1_ResourceLimits {
+    get {_storage._systemLimits ?? Agentvmm_Host_V1_ResourceLimits()}
+    set {_uniqueStorage()._systemLimits = newValue}
+  }
+  /// Returns true if `systemLimits` has been explicitly set.
+  public var hasSystemLimits: Bool {_storage._systemLimits != nil}
+  /// Clears the value of `systemLimits`. Subsequent reads from it will return its default value.
+  public mutating func clearSystemLimits() {_uniqueStorage()._systemLimits = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -864,15 +822,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ApprovedGrant: @unchecked Sendab
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
-
-  public var systemResources: Agentvmm_Appliance_V1_ResourceRange {
-    get {_storage._systemResources ?? Agentvmm_Appliance_V1_ResourceRange()}
-    set {_uniqueStorage()._systemResources = newValue}
-  }
-  /// Returns true if `systemResources` has been explicitly set.
-  public var hasSystemResources: Bool {_storage._systemResources != nil}
-  /// Clears the value of `systemResources`. Subsequent reads from it will return its default value.
-  public mutating func clearSystemResources() {_uniqueStorage()._systemResources = nil}
 
   public var capacity: Agentvmm_Appliance_V1_CapacityGrant {
     get {_storage._capacity ?? Agentvmm_Appliance_V1_CapacityGrant()}
@@ -906,6 +855,15 @@ public nonisolated struct Agentvmm_Appliance_V1_ApprovedGrant: @unchecked Sendab
   public var hasDynamicHostLoopback: Bool {_storage._dynamicHostLoopback != nil}
   /// Clears the value of `dynamicHostLoopback`. Subsequent reads from it will return its default value.
   public mutating func clearDynamicHostLoopback() {_uniqueStorage()._dynamicHostLoopback = nil}
+
+  public var systemLimits: Agentvmm_Host_V1_ResourceLimits {
+    get {_storage._systemLimits ?? Agentvmm_Host_V1_ResourceLimits()}
+    set {_uniqueStorage()._systemLimits = newValue}
+  }
+  /// Returns true if `systemLimits` has been explicitly set.
+  public var hasSystemLimits: Bool {_storage._systemLimits != nil}
+  /// Clears the value of `systemLimits`. Subsequent reads from it will return its default value.
+  public mutating func clearSystemLimits() {_uniqueStorage()._systemLimits = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2286,48 +2244,9 @@ nonisolated extension Agentvmm_Appliance_V1_DynamicHostLoopbackGrant: SwiftProto
   }
 }
 
-nonisolated extension Agentvmm_Appliance_V1_ResourceRange: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ResourceRange"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}floor\0\u{1}ceiling\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._floor) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._ceiling) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._floor {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._ceiling {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Appliance_V1_ResourceRange, rhs: Agentvmm_Appliance_V1_ResourceRange) -> Bool {
-    if lhs._floor != rhs._floor {return false}
-    if lhs._ceiling != rhs._ceiling {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CapacityGrant"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}max_environments\0\u{4}\u{2}per_environment_limits\0\u{3}max_egress_mode\0\u{3}max_lease_seconds\0\u{3}disconnect_grace_seconds\0\u{b}aggregate_limits\0\u{c}\u{2}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{3}per_environment_limits\0\u{3}max_egress_mode\0\u{b}max_environments\0\u{b}aggregate_limits\0\u{b}max_lease_seconds\0\u{b}disconnect_grace_seconds\0\u{c}\u{1}\u{1}\u{c}\u{2}\u{1}\u{c}\u{5}\u{1}\u{c}\u{6}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2335,11 +2254,8 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.maxEnvironments) }()
       case 3: try { try decoder.decodeSingularMessageField(value: &self._perEnvironmentLimits) }()
       case 4: try { try decoder.decodeSingularEnumField(value: &self.maxEgressMode) }()
-      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.maxLeaseSeconds) }()
-      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.disconnectGraceSeconds) }()
       default: break
       }
     }
@@ -2350,30 +2266,18 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    if self.maxEnvironments != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxEnvironments, fieldNumber: 1)
-    }
     try { if let v = self._perEnvironmentLimits {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
     if self.maxEgressMode != .unspecified {
       try visitor.visitSingularEnumField(value: self.maxEgressMode, fieldNumber: 4)
     }
-    if self.maxLeaseSeconds != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxLeaseSeconds, fieldNumber: 5)
-    }
-    if self.disconnectGraceSeconds != 0 {
-      try visitor.visitSingularUInt32Field(value: self.disconnectGraceSeconds, fieldNumber: 6)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Appliance_V1_CapacityGrant, rhs: Agentvmm_Appliance_V1_CapacityGrant) -> Bool {
-    if lhs.maxEnvironments != rhs.maxEnvironments {return false}
     if lhs._perEnvironmentLimits != rhs._perEnvironmentLimits {return false}
     if lhs.maxEgressMode != rhs.maxEgressMode {return false}
-    if lhs.maxLeaseSeconds != rhs.maxLeaseSeconds {return false}
-    if lhs.disconnectGraceSeconds != rhs.disconnectGraceSeconds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2381,7 +2285,7 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
 
 nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ControllerApplianceManifest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}contract_version\0\u{3}product_id\0\u{2}\u{2}release\0\u{3}image_reference\0\u{3}image_manifest_digest\0\u{1}platform\0\u{3}bootstrap_protocol_version\0\u{3}controller_protocol_version\0\u{3}system_resources\0\u{3}data_volume_bytes\0\u{3}requested_capacity\0\u{3}requested_egress_mode\0\u{3}requested_frontends\0\u{3}startup_deadline_seconds\0\u{3}probation_seconds\0\u{3}health_timeout_seconds\0\u{3}minimum_appliance_runtime\0\u{3}requested_dynamic_host_loopback\0\u{b}publisher_key_id\0\u{c}\u{3}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}contract_version\0\u{3}product_id\0\u{2}\u{2}release\0\u{3}image_reference\0\u{3}image_manifest_digest\0\u{1}platform\0\u{3}bootstrap_protocol_version\0\u{3}controller_protocol_version\0\u{4}\u{2}data_volume_bytes\0\u{3}requested_capacity\0\u{3}requested_egress_mode\0\u{3}requested_frontends\0\u{3}startup_deadline_seconds\0\u{3}probation_seconds\0\u{3}health_timeout_seconds\0\u{4}\u{2}requested_dynamic_host_loopback\0\u{3}system_limits\0\u{b}publisher_key_id\0\u{b}system_resources\0\u{b}minimum_appliance_runtime\0\u{c}\u{3}\u{1}\u{c}\u{a}\u{1}\u{c}\u{12}\u{1}")
 
   fileprivate class _StorageClass {
     var _contractVersion: String = String()
@@ -2392,7 +2296,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
     var _platform: String = String()
     var _bootstrapProtocolVersion: String = String()
     var _controllerProtocolVersion: String = String()
-    var _systemResources: Agentvmm_Appliance_V1_ResourceRange? = nil
     var _dataVolumeBytes: UInt64 = 0
     var _requestedCapacity: Agentvmm_Appliance_V1_CapacityGrant? = nil
     var _requestedEgressMode: Agentvmm_Host_V1_EgressMode = .unspecified
@@ -2400,8 +2303,8 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
     var _startupDeadlineSeconds: UInt32 = 0
     var _probationSeconds: UInt32 = 0
     var _healthTimeoutSeconds: UInt32 = 0
-    var _minimumApplianceRuntime: String = String()
     var _requestedDynamicHostLoopback: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant? = nil
+    var _systemLimits: Agentvmm_Host_V1_ResourceLimits? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -2420,7 +2323,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       _platform = source._platform
       _bootstrapProtocolVersion = source._bootstrapProtocolVersion
       _controllerProtocolVersion = source._controllerProtocolVersion
-      _systemResources = source._systemResources
       _dataVolumeBytes = source._dataVolumeBytes
       _requestedCapacity = source._requestedCapacity
       _requestedEgressMode = source._requestedEgressMode
@@ -2428,8 +2330,8 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       _startupDeadlineSeconds = source._startupDeadlineSeconds
       _probationSeconds = source._probationSeconds
       _healthTimeoutSeconds = source._healthTimeoutSeconds
-      _minimumApplianceRuntime = source._minimumApplianceRuntime
       _requestedDynamicHostLoopback = source._requestedDynamicHostLoopback
+      _systemLimits = source._systemLimits
     }
   }
 
@@ -2456,7 +2358,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         case 7: try { try decoder.decodeSingularStringField(value: &_storage._platform) }()
         case 8: try { try decoder.decodeSingularStringField(value: &_storage._bootstrapProtocolVersion) }()
         case 9: try { try decoder.decodeSingularStringField(value: &_storage._controllerProtocolVersion) }()
-        case 10: try { try decoder.decodeSingularMessageField(value: &_storage._systemResources) }()
         case 11: try { try decoder.decodeSingularUInt64Field(value: &_storage._dataVolumeBytes) }()
         case 12: try { try decoder.decodeSingularMessageField(value: &_storage._requestedCapacity) }()
         case 13: try { try decoder.decodeSingularEnumField(value: &_storage._requestedEgressMode) }()
@@ -2464,8 +2365,8 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         case 15: try { try decoder.decodeSingularUInt32Field(value: &_storage._startupDeadlineSeconds) }()
         case 16: try { try decoder.decodeSingularUInt32Field(value: &_storage._probationSeconds) }()
         case 17: try { try decoder.decodeSingularUInt32Field(value: &_storage._healthTimeoutSeconds) }()
-        case 18: try { try decoder.decodeSingularStringField(value: &_storage._minimumApplianceRuntime) }()
         case 19: try { try decoder.decodeSingularMessageField(value: &_storage._requestedDynamicHostLoopback) }()
+        case 20: try { try decoder.decodeSingularMessageField(value: &_storage._systemLimits) }()
         default: break
         }
       }
@@ -2502,9 +2403,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       if !_storage._controllerProtocolVersion.isEmpty {
         try visitor.visitSingularStringField(value: _storage._controllerProtocolVersion, fieldNumber: 9)
       }
-      try { if let v = _storage._systemResources {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
-      } }()
       if _storage._dataVolumeBytes != 0 {
         try visitor.visitSingularUInt64Field(value: _storage._dataVolumeBytes, fieldNumber: 11)
       }
@@ -2526,11 +2424,11 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       if _storage._healthTimeoutSeconds != 0 {
         try visitor.visitSingularUInt32Field(value: _storage._healthTimeoutSeconds, fieldNumber: 17)
       }
-      if !_storage._minimumApplianceRuntime.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._minimumApplianceRuntime, fieldNumber: 18)
-      }
       try { if let v = _storage._requestedDynamicHostLoopback {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 19)
+      } }()
+      try { if let v = _storage._systemLimits {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
       } }()
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -2549,7 +2447,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         if _storage._platform != rhs_storage._platform {return false}
         if _storage._bootstrapProtocolVersion != rhs_storage._bootstrapProtocolVersion {return false}
         if _storage._controllerProtocolVersion != rhs_storage._controllerProtocolVersion {return false}
-        if _storage._systemResources != rhs_storage._systemResources {return false}
         if _storage._dataVolumeBytes != rhs_storage._dataVolumeBytes {return false}
         if _storage._requestedCapacity != rhs_storage._requestedCapacity {return false}
         if _storage._requestedEgressMode != rhs_storage._requestedEgressMode {return false}
@@ -2557,8 +2454,8 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         if _storage._startupDeadlineSeconds != rhs_storage._startupDeadlineSeconds {return false}
         if _storage._probationSeconds != rhs_storage._probationSeconds {return false}
         if _storage._healthTimeoutSeconds != rhs_storage._healthTimeoutSeconds {return false}
-        if _storage._minimumApplianceRuntime != rhs_storage._minimumApplianceRuntime {return false}
         if _storage._requestedDynamicHostLoopback != rhs_storage._requestedDynamicHostLoopback {return false}
+        if _storage._systemLimits != rhs_storage._systemLimits {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -2570,15 +2467,15 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
 
 nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApprovedGrant"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}system_resources\0\u{1}capacity\0\u{3}egress_mode\0\u{1}frontends\0\u{1}revision\0\u{3}dynamic_host_loopback\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}capacity\0\u{3}egress_mode\0\u{1}frontends\0\u{1}revision\0\u{3}dynamic_host_loopback\0\u{3}system_limits\0\u{b}system_resources\0\u{c}\u{1}\u{1}")
 
   fileprivate class _StorageClass {
-    var _systemResources: Agentvmm_Appliance_V1_ResourceRange? = nil
     var _capacity: Agentvmm_Appliance_V1_CapacityGrant? = nil
     var _egressMode: Agentvmm_Host_V1_EgressMode = .unspecified
     var _frontends: [Agentvmm_Appliance_V1_ControllerFrontend] = []
     var _revision: UInt64 = 0
     var _dynamicHostLoopback: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant? = nil
+    var _systemLimits: Agentvmm_Host_V1_ResourceLimits? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -2589,12 +2486,12 @@ nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message
     private init() {}
 
     init(copying source: _StorageClass) {
-      _systemResources = source._systemResources
       _capacity = source._capacity
       _egressMode = source._egressMode
       _frontends = source._frontends
       _revision = source._revision
       _dynamicHostLoopback = source._dynamicHostLoopback
+      _systemLimits = source._systemLimits
     }
   }
 
@@ -2613,12 +2510,12 @@ nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message
         // allocates stack space for every case branch when no optimizations are
         // enabled. https://github.com/apple/swift-protobuf/issues/1034
         switch fieldNumber {
-        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._systemResources) }()
         case 2: try { try decoder.decodeSingularMessageField(value: &_storage._capacity) }()
         case 3: try { try decoder.decodeSingularEnumField(value: &_storage._egressMode) }()
         case 4: try { try decoder.decodeRepeatedMessageField(value: &_storage._frontends) }()
         case 5: try { try decoder.decodeSingularUInt64Field(value: &_storage._revision) }()
         case 6: try { try decoder.decodeSingularMessageField(value: &_storage._dynamicHostLoopback) }()
+        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._systemLimits) }()
         default: break
         }
       }
@@ -2631,9 +2528,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message
       // allocates stack space for every if/case branch local when no optimizations
       // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
       // https://github.com/apple/swift-protobuf/issues/1182
-      try { if let v = _storage._systemResources {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-      } }()
       try { if let v = _storage._capacity {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
       } }()
@@ -2649,6 +2543,9 @@ nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message
       try { if let v = _storage._dynamicHostLoopback {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
       } }()
+      try { if let v = _storage._systemLimits {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -2658,12 +2555,12 @@ nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message
       let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
         let rhs_storage = _args.1
-        if _storage._systemResources != rhs_storage._systemResources {return false}
         if _storage._capacity != rhs_storage._capacity {return false}
         if _storage._egressMode != rhs_storage._egressMode {return false}
         if _storage._frontends != rhs_storage._frontends {return false}
         if _storage._revision != rhs_storage._revision {return false}
         if _storage._dynamicHostLoopback != rhs_storage._dynamicHostLoopback {return false}
+        if _storage._systemLimits != rhs_storage._systemLimits {return false}
         return true
       }
       if !storagesAreEqual {return false}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 )
 
@@ -20,7 +21,7 @@ const (
 	vmLifecycleStart vmLifecycleOperation = iota + 1
 	vmLifecycleStop
 	vmLifecycleRecover
-	vmLifecycleApplianceOffline
+	vmLifecycleAppliance
 	vmLifecycleShutdown
 )
 
@@ -101,8 +102,8 @@ func (operation vmLifecycleOperation) String() string {
 		return "stop"
 	case vmLifecycleRecover:
 		return "recover"
-	case vmLifecycleApplianceOffline:
-		return "appliance_offline"
+	case vmLifecycleAppliance:
+		return "appliance"
 	case vmLifecycleShutdown:
 		return "shutdown"
 	default:
@@ -290,10 +291,6 @@ func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID strin
 		log.Printf("vm lifecycle recover stage: stage=prepare_transition")
 		owner.controller.prepareVMTransition(ctx)
 		owner.controller.stopEgress()
-		log.Printf("vm lifecycle recover stage: stage=recover_remote_leases")
-		if err := owner.controller.store.RecoverRemoteLeaseProjections(ctx); err != nil {
-			return vmLifecycleResult{err: err}
-		}
 		log.Printf("vm lifecycle recover stage: stage=configure_appliance_blocks")
 		if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
 			return vmLifecycleResult{err: err}
@@ -317,7 +314,7 @@ func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID strin
 }
 
 func (owner *VMLifecycleOwner) ActivateAppliance(ctx context.Context, installationID string) error {
-	return owner.execute(ctx, vmLifecycleApplianceOffline, func() vmLifecycleResult {
+	return owner.execute(ctx, vmLifecycleAppliance, func() vmLifecycleResult {
 		err := owner.activateApplianceOwned(ctx, installationID)
 		return vmLifecycleResult{err: err}
 	}).err
@@ -325,12 +322,16 @@ func (owner *VMLifecycleOwner) ActivateAppliance(ctx context.Context, installati
 
 func (owner *VMLifecycleOwner) activateApplianceOwned(ctx context.Context, installationID string) error {
 	controller := owner.controller
-	if controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && !controller.manager.HasApplianceBlock(installationID) {
-		controller.prepareVMTransition(ctx)
-		controller.stopEgress()
-		if _, err := owner.manager.Stop(ctx, false); err != nil {
-			return err
-		}
+	volume, err := controller.store.GetApplianceVolume(ctx, installationID)
+	if err != nil {
+		return err
+	}
+	legacyConversion := volume.Layout == store.ApplianceVolumeLayoutHostBlock
+	if volume.Layout != store.ApplianceVolumeLayoutHostBlock && volume.Layout != store.ApplianceVolumeLayoutGuestImage {
+		return errors.New("appliance data volume layout is invalid")
+	}
+	if controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && legacyConversion && !controller.manager.HasApplianceBlock(installationID) {
+		return errors.New("legacy appliance data conversion requires the next shared VM restart")
 	}
 	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
 		if err := controller.configureApplianceBlocks(ctx); err != nil {
@@ -359,10 +360,6 @@ func (owner *VMLifecycleOwner) activateApplianceOwned(ctx context.Context, insta
 			return err
 		}
 		connection.Close()
-		if err := controller.reconcileAppliancesExcept(ctx, installationID); err != nil {
-			owner.rollbackRunningVM()
-			return err
-		}
 		vm := owner.manager.Snapshot()
 		generation, _ := owner.admissionToken()
 		if err := controller.finishRunningVM(ctx, generation, vm.GetBootId()); err != nil {
@@ -381,34 +378,6 @@ func (owner *VMLifecycleOwner) activateApplianceOwned(ctx context.Context, insta
 	}
 	defer connection.Close()
 	return controller.startAppliance(ctx, client, installation)
-}
-
-func (owner *VMLifecycleOwner) WithApplianceDataOffline(ctx context.Context, excludedInstallationID string, mutate func() error) error {
-	return owner.execute(ctx, vmLifecycleApplianceOffline, func() vmLifecycleResult {
-		wasRunning := owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING
-		if wasRunning {
-			owner.controller.prepareVMTransition(ctx)
-			owner.controller.stopEgress()
-			if _, err := owner.manager.Stop(ctx, false); err != nil {
-				return vmLifecycleResult{err: err}
-			}
-		}
-		mutationErr := mutate()
-		if !wasRunning {
-			return vmLifecycleResult{err: mutationErr}
-		}
-		err := owner.controller.configureApplianceBlocks(ctx)
-		if err == nil {
-			_, err = owner.manager.Start(ctx)
-		}
-		if err == nil {
-			err = owner.commit(ctx, excludedInstallationID)
-		}
-		if err != nil {
-			owner.rollbackRunningVM()
-		}
-		return vmLifecycleResult{err: errors.Join(mutationErr, err)}
-	}).err
 }
 
 func (owner *VMLifecycleOwner) Shutdown(ctx context.Context) error {

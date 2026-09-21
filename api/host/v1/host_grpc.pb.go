@@ -4322,9 +4322,6 @@ const (
 	RemoteComputeService_ReleaseAllocation_FullMethodName           = "/agentvmm.host.v1.RemoteComputeService/ReleaseAllocation"
 	RemoteComputeService_PlanCleanupAllocation_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/PlanCleanupAllocation"
 	RemoteComputeService_ExecuteCleanupAllocation_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/ExecuteCleanupAllocation"
-	RemoteComputeService_AcquireLease_FullMethodName                = "/agentvmm.host.v1.RemoteComputeService/AcquireLease"
-	RemoteComputeService_RenewLease_FullMethodName                  = "/agentvmm.host.v1.RemoteComputeService/RenewLease"
-	RemoteComputeService_ReleaseLease_FullMethodName                = "/agentvmm.host.v1.RemoteComputeService/ReleaseLease"
 	RemoteComputeService_OpenRuntimeSession_FullMethodName          = "/agentvmm.host.v1.RemoteComputeService/OpenRuntimeSession"
 	RemoteComputeService_RevokeRuntimeSession_FullMethodName        = "/agentvmm.host.v1.RemoteComputeService/RevokeRuntimeSession"
 	RemoteComputeService_AcquireHostLoopbackFrontend_FullMethodName = "/agentvmm.host.v1.RemoteComputeService/AcquireHostLoopbackFrontend"
@@ -4346,9 +4343,6 @@ type RemoteComputeServiceClient interface {
 	ReleaseAllocation(ctx context.Context, in *ReleaseAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	PlanCleanupAllocation(ctx context.Context, in *PlanCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error)
 	ExecuteCleanupAllocation(ctx context.Context, in *ExecuteCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
-	AcquireLease(ctx context.Context, in *AcquireLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
-	RenewLease(ctx context.Context, in *RenewLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
-	ReleaseLease(ctx context.Context, in *ReleaseLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error)
 	OpenRuntimeSession(ctx context.Context, in *OpenRuntimeSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error)
 	RevokeRuntimeSession(ctx context.Context, in *RevokeRuntimeSessionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	AcquireHostLoopbackFrontend(ctx context.Context, in *AcquireHostLoopbackFrontendRequest, opts ...grpc.CallOption) (*HostLoopbackFrontendLease, error)
@@ -4455,36 +4449,6 @@ func (c *remoteComputeServiceClient) ExecuteCleanupAllocation(ctx context.Contex
 	return out, nil
 }
 
-func (c *remoteComputeServiceClient) AcquireLease(ctx context.Context, in *AcquireLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(LeaseResponse)
-	err := c.cc.Invoke(ctx, RemoteComputeService_AcquireLease_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *remoteComputeServiceClient) RenewLease(ctx context.Context, in *RenewLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(LeaseResponse)
-	err := c.cc.Invoke(ctx, RemoteComputeService_RenewLease_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *remoteComputeServiceClient) ReleaseLease(ctx context.Context, in *ReleaseLeaseRequest, opts ...grpc.CallOption) (*LeaseResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(LeaseResponse)
-	err := c.cc.Invoke(ctx, RemoteComputeService_ReleaseLease_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *remoteComputeServiceClient) OpenRuntimeSession(ctx context.Context, in *OpenRuntimeSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateAgentSessionResponse)
@@ -4561,9 +4525,6 @@ type RemoteComputeServiceServer interface {
 	ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error)
 	PlanCleanupAllocation(context.Context, *PlanCleanupAllocationRequest) (*AllocationCleanupPlanResponse, error)
 	ExecuteCleanupAllocation(context.Context, *ExecuteCleanupAllocationRequest) (*AllocationResponse, error)
-	AcquireLease(context.Context, *AcquireLeaseRequest) (*LeaseResponse, error)
-	RenewLease(context.Context, *RenewLeaseRequest) (*LeaseResponse, error)
-	ReleaseLease(context.Context, *ReleaseLeaseRequest) (*LeaseResponse, error)
 	OpenRuntimeSession(context.Context, *OpenRuntimeSessionRequest) (*CreateAgentSessionResponse, error)
 	RevokeRuntimeSession(context.Context, *RevokeRuntimeSessionRequest) (*emptypb.Empty, error)
 	AcquireHostLoopbackFrontend(context.Context, *AcquireHostLoopbackFrontendRequest) (*HostLoopbackFrontendLease, error)
@@ -4606,15 +4567,6 @@ func (UnimplementedRemoteComputeServiceServer) PlanCleanupAllocation(context.Con
 }
 func (UnimplementedRemoteComputeServiceServer) ExecuteCleanupAllocation(context.Context, *ExecuteCleanupAllocationRequest) (*AllocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExecuteCleanupAllocation not implemented")
-}
-func (UnimplementedRemoteComputeServiceServer) AcquireLease(context.Context, *AcquireLeaseRequest) (*LeaseResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method AcquireLease not implemented")
-}
-func (UnimplementedRemoteComputeServiceServer) RenewLease(context.Context, *RenewLeaseRequest) (*LeaseResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method RenewLease not implemented")
-}
-func (UnimplementedRemoteComputeServiceServer) ReleaseLease(context.Context, *ReleaseLeaseRequest) (*LeaseResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ReleaseLease not implemented")
 }
 func (UnimplementedRemoteComputeServiceServer) OpenRuntimeSession(context.Context, *OpenRuntimeSessionRequest) (*CreateAgentSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OpenRuntimeSession not implemented")
@@ -4817,60 +4769,6 @@ func _RemoteComputeService_ExecuteCleanupAllocation_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RemoteComputeService_AcquireLease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AcquireLeaseRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RemoteComputeServiceServer).AcquireLease(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RemoteComputeService_AcquireLease_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RemoteComputeServiceServer).AcquireLease(ctx, req.(*AcquireLeaseRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RemoteComputeService_RenewLease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RenewLeaseRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RemoteComputeServiceServer).RenewLease(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RemoteComputeService_RenewLease_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RemoteComputeServiceServer).RenewLease(ctx, req.(*RenewLeaseRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RemoteComputeService_ReleaseLease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReleaseLeaseRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RemoteComputeServiceServer).ReleaseLease(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RemoteComputeService_ReleaseLease_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RemoteComputeServiceServer).ReleaseLease(ctx, req.(*ReleaseLeaseRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _RemoteComputeService_OpenRuntimeSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(OpenRuntimeSessionRequest)
 	if err := dec(in); err != nil {
@@ -5010,18 +4908,6 @@ var RemoteComputeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExecuteCleanupAllocation",
 			Handler:    _RemoteComputeService_ExecuteCleanupAllocation_Handler,
-		},
-		{
-			MethodName: "AcquireLease",
-			Handler:    _RemoteComputeService_AcquireLease_Handler,
-		},
-		{
-			MethodName: "RenewLease",
-			Handler:    _RemoteComputeService_RenewLease_Handler,
-		},
-		{
-			MethodName: "ReleaseLease",
-			Handler:    _RemoteComputeService_ReleaseLease_Handler,
 		},
 		{
 			MethodName: "OpenRuntimeSession",

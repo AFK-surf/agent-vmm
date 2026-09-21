@@ -24,6 +24,7 @@ const (
 // its fence until the original deadline so an early observation cannot reopen it.
 type workloadRun struct {
 	environmentID       string
+	registrationID      string
 	namespaceID         string
 	containerID         string
 	instanceID          string
@@ -45,7 +46,84 @@ func workloadRunKey(environmentID, containerID string) string {
 	return environmentID + "\x00" + containerID
 }
 
-func (controller *Controller) admitWorkloadStart(environmentID, namespaceID, containerID string, now time.Time) (*workloadRun, error) {
+func (controller *Controller) resetWorkloadRunsLocked(runs map[string]*workloadRun) {
+	controller.workloadRuns = runs
+	controller.workloadRunOrder = controller.workloadRunOrder[:0]
+	controller.workloadRunIndex = make(map[string]int, len(runs))
+	for key := range runs {
+		controller.workloadRunIndex[key] = len(controller.workloadRunOrder)
+		controller.workloadRunOrder = append(controller.workloadRunOrder, key)
+	}
+	controller.workloadSampleOffset = 0
+}
+
+func (controller *Controller) setWorkloadRunLocked(key string, run *workloadRun) {
+	if controller.workloadRuns == nil {
+		controller.workloadRuns = make(map[string]*workloadRun)
+	}
+	if controller.workloadRunIndex == nil {
+		controller.workloadRunIndex = make(map[string]int)
+	}
+	if _, exists := controller.workloadRuns[key]; !exists {
+		controller.workloadRunIndex[key] = len(controller.workloadRunOrder)
+		controller.workloadRunOrder = append(controller.workloadRunOrder, key)
+	}
+	controller.workloadRuns[key] = run
+}
+
+func (controller *Controller) deleteWorkloadRunLocked(key string) {
+	if _, exists := controller.workloadRuns[key]; !exists {
+		return
+	}
+	delete(controller.workloadRuns, key)
+	index, indexed := controller.workloadRunIndex[key]
+	if !indexed || index >= len(controller.workloadRunOrder) {
+		controller.resetWorkloadRunsLocked(controller.workloadRuns)
+		return
+	}
+	last := len(controller.workloadRunOrder) - 1
+	lastKey := controller.workloadRunOrder[last]
+	controller.workloadRunOrder[index] = lastKey
+	controller.workloadRunOrder = controller.workloadRunOrder[:last]
+	delete(controller.workloadRunIndex, key)
+	if index < last {
+		controller.workloadRunIndex[lastKey] = index
+	}
+	if len(controller.workloadRunOrder) == 0 {
+		controller.workloadSampleOffset = 0
+	} else if controller.workloadSampleOffset >= len(controller.workloadRunOrder) {
+		controller.workloadSampleOffset %= len(controller.workloadRunOrder)
+	}
+}
+
+func (controller *Controller) workloadRunPageLocked(limit int, now time.Time) []*workloadRun {
+	if len(controller.workloadRunOrder) != len(controller.workloadRuns) {
+		controller.resetWorkloadRunsLocked(controller.workloadRuns)
+	}
+	count := len(controller.workloadRunOrder)
+	if count == 0 {
+		return nil
+	}
+	runs := make([]*workloadRun, 0, min(limit, count))
+	for scanned := 0; scanned < count && scanned < limit; scanned++ {
+		if controller.workloadSampleOffset >= len(controller.workloadRunOrder) {
+			controller.workloadSampleOffset = 0
+		}
+		key := controller.workloadRunOrder[controller.workloadSampleOffset]
+		controller.workloadSampleOffset++
+		run := controller.workloadRuns[key]
+		if run == nil {
+			continue
+		}
+		markExpiredExecutionsUnknownLocked(run, now)
+		if !run.inFlight && (controller.workloadReclaim == nil || controller.workloadReclaim.run != run) {
+			runs = append(runs, run)
+		}
+	}
+	return runs
+}
+
+func (controller *Controller) admitWorkloadStart(environmentID, namespaceID, containerID string, now time.Time, registrationID ...string) (*workloadRun, error) {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
 	if !controller.workloadRunsRecovered {
@@ -55,8 +133,12 @@ func (controller *Controller) admitWorkloadStart(environmentID, namespaceID, con
 	if current := controller.workloadRuns[key]; current != nil {
 		return nil, pendingWorkloadError(current, now)
 	}
-	run := &workloadRun{environmentID: environmentID, namespaceID: namespaceID, containerID: containerID, starting: true, inFlight: true}
-	controller.workloadRuns[key] = run
+	owner := ""
+	if len(registrationID) != 0 {
+		owner = registrationID[0]
+	}
+	run := &workloadRun{environmentID: environmentID, registrationID: owner, namespaceID: namespaceID, containerID: containerID, starting: true, inFlight: true}
+	controller.setWorkloadRunLocked(key, run)
 	delete(controller.stoppedWorkloadInstances, key)
 	return run, nil
 }
@@ -98,11 +180,11 @@ func (controller *Controller) observeWorkloadRunLocked(run *workloadRun, contain
 				controller.stoppedWorkloadInstances[key] = run.instanceID
 			}
 		}
-		delete(controller.workloadRuns, key)
+		controller.deleteWorkloadRunLocked(key)
 	}
 }
 
-func (controller *Controller) startWorkloadContainer(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StartContainerRequest) (*vmmdv1.StartContainerResponse, error) {
+func (controller *Controller) startWorkloadContainer(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StartContainerRequest, registrationID ...string) (*vmmdv1.StartContainerResponse, error) {
 	unlock := controller.lockEnvironment(environmentID)
 	defer unlock()
 	ctx, cancel := context.WithTimeout(ctx, workloadStartBudget)
@@ -122,7 +204,7 @@ func (controller *Controller) startWorkloadContainer(ctx context.Context, client
 		controller.observeWorkloadRunLocked(current, observed.GetContainer(), time.Now())
 	}
 	controller.mu.Unlock()
-	run, err := controller.admitWorkloadStart(environmentID, request.GetActorNamespaceId(), request.GetContainerId(), time.Now())
+	run, err := controller.admitWorkloadStart(environmentID, request.GetActorNamespaceId(), request.GetContainerId(), time.Now(), registrationID...)
 	if err != nil {
 		return nil, err
 	}

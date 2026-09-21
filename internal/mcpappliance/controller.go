@@ -56,9 +56,8 @@ type commandResponse struct {
 }
 
 type sessionKey struct {
-	allocationID string
-	leaseID      string
-	generation   uint64
+	allocationID         string
+	allocationGeneration uint64
 }
 
 func NewController(identity *Identity, stateDirectory string, logger *slog.Logger) *Controller {
@@ -179,7 +178,7 @@ func (controller *Controller) ServeSession(stream grpc.BidiStreamingServer[remot
 	if err != nil {
 		return err
 	}
-	key := sessionKey{allocationID: header.GetAllocationId(), leaseID: header.GetLeaseId(), generation: header.GetGeneration()}
+	key := sessionKey{allocationID: header.GetAllocationId(), allocationGeneration: header.GetAllocationGeneration()}
 	controller.mu.Lock()
 	waiter := controller.waiters[key]
 	if waiter != nil {
@@ -208,7 +207,7 @@ type clientRuntime struct {
 	controller        *Controller
 	clientID          string
 	allocationID      string
-	lease             *remotev1.Lease
+	allocation        *remotev1.Allocation
 	context           context.Context
 	cancel            context.CancelFunc
 	runtimeConnection controllerremote.SessionConnection
@@ -225,9 +224,8 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 	previous := controller.runtimes[allocationID]
 	controller.mu.Unlock()
 	if previous != nil {
-		// A binding identifies one current MCP capability.  Close the previous
-		// runtime synchronously before acquiring its replacement lease so a
-		// crashed/reconnected proxy cannot consume the per-allocation lease cap.
+		// A binding identifies one current MCP capability. Close the previous
+		// runtime session before opening its replacement.
 		previous.Close()
 		<-previous.done
 	}
@@ -235,7 +233,7 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 	if err != nil {
 		return nil, err
 	}
-	lease, live, err := controller.allocate(parent, clientID, allocationID)
+	allocation, live, err := controller.allocate(parent, clientID, allocationID)
 	if err != nil {
 		return nil, err
 	}
@@ -244,11 +242,9 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 	defer func() {
 		if failed {
 			cancelClient()
-			controller.release(clientID, allocationID, lease)
 		}
 	}()
-	go controller.renewAllocationLease(clientContext, live, clientID, lease, cancelClient)
-	key := sessionKey{allocationID: allocationID, leaseID: lease.GetLeaseId(), generation: lease.GetGeneration()}
+	key := sessionKey{allocationID: allocationID, allocationGeneration: allocation.GetGeneration()}
 	waiter := make(chan controllerremote.SessionConnection, 1)
 	controller.mu.Lock()
 	controller.waiters[key] = waiter
@@ -259,7 +255,7 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 		controller.mu.Unlock()
 	}()
 	ctx, cancel := context.WithTimeout(clientContext, commandTimeout)
-	_, err = controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-open", LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: allocationID, LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(), ExecutionOwnerId: "appliance:" + allocationID}}})
+	_, err = controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-open", Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: allocationID, AllocationGeneration: allocation.GetGeneration(), ExecutionOwnerId: "appliance:" + allocationID}}})
 	cancel()
 	if err != nil {
 		return nil, err
@@ -279,9 +275,9 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 		runtimeConnection.Close()
 		return nil, err
 	}
-	cleanup := &clientCleanupOwner{controller: controller, live: live, clientID: clientID, allocationID: allocationID, lease: lease}
+	cleanup := &clientCleanupOwner{controller: controller, live: live, clientID: clientID, allocationID: allocationID, allocationGeneration: allocation.GetGeneration()}
 	adapter := mcpserver.New(hostv1.NewAgentRuntimeServiceClient(grpcConnection), cleanup, controller.logger)
-	client := &clientRuntime{controller: controller, clientID: clientID, allocationID: allocationID, lease: lease, context: clientContext, cancel: cancelClient, runtimeConnection: runtimeConnection, grpcConnection: grpcConnection, adapter: adapter, cleanup: cleanup, live: live, done: make(chan struct{})}
+	client := &clientRuntime{controller: controller, clientID: clientID, allocationID: allocationID, allocation: allocation, context: clientContext, cancel: cancelClient, runtimeConnection: runtimeConnection, grpcConnection: grpcConnection, adapter: adapter, cleanup: cleanup, live: live, done: make(chan struct{})}
 	controller.mu.Lock()
 	if controller.runtimes == nil {
 		controller.runtimes = make(map[string]*clientRuntime)
@@ -310,12 +306,22 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 func (client *clientRuntime) Close() {
 	client.closeOnce.Do(func() {
 		client.adapter.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		_, err := client.controller.dispatchOn(ctx, client.live, &remotev1.ControllerCommand{
+			CommandId:      client.clientID + "-release",
+			TargetRevision: client.allocation.GetRevision(),
+			Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{
+				AllocationId: client.allocationID, ExpectedRevision: client.allocation.GetRevision(),
+				ExpectedGeneration: client.allocation.GetGeneration(),
+			}},
+		})
+		cancel()
+		if err != nil {
+			client.controller.logger.Warn("release MCP allocation", "allocation", client.allocationID, "error", err)
+		}
 		client.cancel()
 		client.grpcConnection.Close()
 		client.runtimeConnection.Close()
-		if !client.cleanup.completedSuccessfully() {
-			client.controller.release(client.clientID, client.allocationID, client.lease)
-		}
 		client.controller.mu.Lock()
 		if client.controller.runtimes[client.allocationID] == client {
 			delete(client.controller.runtimes, client.allocationID)
@@ -325,7 +331,7 @@ func (client *clientRuntime) Close() {
 	})
 }
 
-func (controller *Controller) allocate(parent context.Context, clientID, allocationID string) (*remotev1.Lease, *controlConnection, error) {
+func (controller *Controller) allocate(parent context.Context, clientID, allocationID string) (*remotev1.Allocation, *controlConnection, error) {
 	controller.mu.Lock()
 	live := controller.live
 	controller.mu.Unlock()
@@ -345,66 +351,11 @@ func (controller *Controller) allocate(parent context.Context, clientID, allocat
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel = context.WithTimeout(parent, commandTimeout)
-	acquired, err := controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-acquire", TargetRevision: ensured.GetAllocation().GetRevision(), Command: &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: allocationID, DurationSeconds: boundedLeaseSeconds(hello.GetCapacity().GetMaxLeaseSeconds()), WorkloadRef: "bundled-mcp"}}})
-	cancel()
-	if err != nil {
-		return nil, nil, err
+	allocation := ensured.GetAllocation()
+	if allocation == nil || allocation.GetAllocationId() != allocationID || allocation.GetGeneration() == 0 || allocation.GetRevision() == 0 {
+		return nil, nil, errors.New("allocation result is incomplete")
 	}
-	lease := acquired.GetLease()
-	if lease == nil || lease.GetAllocationId() != allocationID || lease.GetLeaseId() == "" || lease.GetGeneration() == 0 || lease.GetExpiresUnixMillis() <= time.Now().UnixMilli() {
-		return nil, nil, errors.New("lease result is incomplete")
-	}
-	return lease, live, nil
-}
-
-func (controller *Controller) renewAllocationLease(ctx context.Context, live *controlConnection, clientID string, lease *remotev1.Lease, stop context.CancelFunc) {
-	expiresAt := time.UnixMilli(lease.GetExpiresUnixMillis())
-	duration := boundedLeaseSeconds(live.hello.GetCapacity().GetMaxLeaseSeconds())
-	sequence := uint64(0)
-	for {
-		wait := max(time.Until(expiresAt)/3, time.Second)
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-live.done:
-			timer.Stop()
-			stop()
-			return
-		case <-timer.C:
-		}
-		sequence++
-		commandContext, cancel := context.WithTimeout(ctx, commandTimeout)
-		result, err := controller.dispatchOn(commandContext, live, &remotev1.ControllerCommand{CommandId: fmt.Sprintf("%s-renew-%d", clientID, sequence), LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_RenewLease{RenewLease: &remotev1.RenewLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration(), DurationSeconds: duration}}})
-		cancel()
-		renewed := result.GetLease()
-		if err != nil || renewed.GetLeaseId() != lease.GetLeaseId() || renewed.GetGeneration() != lease.GetGeneration() || renewed.GetExpiresUnixMillis() <= time.Now().UnixMilli() {
-			if err == nil {
-				err = errors.New("renewed lease result is incomplete")
-			}
-			controller.logger.Warn("renew MCP lease", "allocation", lease.GetAllocationId(), "error", err)
-			stop()
-			return
-		}
-		expiresAt = time.UnixMilli(renewed.GetExpiresUnixMillis())
-	}
-}
-
-func (controller *Controller) release(clientID, allocationID string, lease *remotev1.Lease) {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-	released, err := controller.dispatch(ctx, &remotev1.ControllerCommand{CommandId: clientID + "-release-lease", LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
-	if err != nil {
-		controller.logger.Warn("release MCP lease", "allocation", allocationID, "error", err)
-		return
-	}
-	revision := released.GetLease().GetAllocationRevision()
-	_, err = controller.dispatch(ctx, &remotev1.ControllerCommand{CommandId: clientID + "-retain", TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: allocationID, ExpectedRevision: revision, ExpectedGeneration: 1}}})
-	if err != nil {
-		controller.logger.Warn("retain MCP allocation", "allocation", allocationID, "error", err)
-	}
+	return allocation, live, nil
 }
 
 func runtimeClientConnection(connection net.Conn) (*grpc.ClientConn, error) {
@@ -417,11 +368,4 @@ func runtimeClientConnection(connection net.Conn) (*grpc.ClientConn, error) {
 		}
 		return result, nil
 	}))
-}
-
-func boundedLeaseSeconds(maximum uint32) uint32 {
-	if maximum == 0 || maximum > 300 {
-		return 300
-	}
-	return maximum
 }

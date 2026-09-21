@@ -20,17 +20,11 @@ import (
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
-
-func (controller *Controller) reconcileAppliances(ctx context.Context) error {
-	return controller.reconcileAppliancesExcept(ctx, "")
-}
-
-func (controller *Controller) reconcileAppliancesExcept(ctx context.Context, excludedInstallationID string) error {
-	return controller.reconcileObservedAppliancesExcept(ctx, excludedInstallationID, true)
-}
 
 func (controller *Controller) systemApplianceProjection(ctx context.Context) map[string]*vmmdv1.SystemAppliance {
 	result := make(map[string]*vmmdv1.SystemAppliance)
@@ -42,16 +36,58 @@ func (controller *Controller) systemApplianceProjection(ctx context.Context) map
 		return result
 	}
 	defer connection.Close()
-	response, err := client.ListSystemAppliances(ctx, &vmmdv1.ListSystemAppliancesRequest{})
+	projection, err := listSystemAppliances(ctx, client)
 	if err != nil {
 		return result
 	}
-	for _, appliance := range response.GetAppliances() {
-		if installationID := appliance.GetIdentity().GetInstallationId(); installationID != "" {
-			result[installationID] = appliance
+	return projection
+}
+
+func listSystemAppliances(ctx context.Context, client vmmdv1.VMMDServiceClient) (map[string]*vmmdv1.SystemAppliance, error) {
+	result := make(map[string]*vmmdv1.SystemAppliance)
+	after := ""
+	for {
+		response, err := client.ListSystemAppliances(ctx, &vmmdv1.ListSystemAppliancesRequest{AfterInstallationId: after, Limit: 32})
+		if err != nil {
+			return nil, err
+		}
+		for _, appliance := range response.GetAppliances() {
+			if installationID := appliance.GetIdentity().GetInstallationId(); installationID != "" {
+				result[installationID] = appliance
+			}
+		}
+		after = response.GetNextCursor()
+		if after == "" {
+			return result, nil
 		}
 	}
-	return result
+}
+
+func getSystemAppliance(ctx context.Context, client vmmdv1.VMMDServiceClient, installationID string) (*vmmdv1.SystemAppliance, error) {
+	response, err := client.GetSystemAppliance(ctx, &vmmdv1.GetSystemApplianceRequest{InstallationId: installationID})
+	if status.Code(err) == codes.NotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return response.GetAppliance(), nil
+}
+
+func (controller *Controller) systemAppliance(ctx context.Context, installationID string) *vmmdv1.SystemAppliance {
+	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+		return nil
+	}
+	client, connection, err := controller.guestClient(ctx)
+	if err != nil {
+		return nil
+	}
+	defer connection.Close()
+	appliance, err := getSystemAppliance(ctx, client, installationID)
+	if err != nil {
+		return nil
+	}
+	return appliance
 }
 
 func (controller *Controller) activateAppliance(ctx context.Context, installationID string) error {
@@ -67,7 +103,7 @@ func (controller *Controller) stopAppliance(ctx context.Context, installationID 
 	controller.clearApplianceHealth(installationID)
 	controller.stopPrivateControllerRoute(installationID)
 	if installation.RegistrationID != "" {
-		if err := controller.revokeRemoteLeases(installation.RegistrationID); err != nil {
+		if err := controller.invalidateRemoteController(ctx, installation.RegistrationID); err != nil {
 			return err
 		}
 	}
@@ -79,18 +115,15 @@ func (controller *Controller) stopAppliance(ctx context.Context, installationID 
 		return err
 	}
 	defer connection.Close()
-	list, err := client.ListSystemAppliances(ctx, &vmmdv1.ListSystemAppliancesRequest{})
+	appliance, err := getSystemAppliance(ctx, client, installationID)
 	if err != nil {
 		return err
 	}
-	for _, appliance := range list.GetAppliances() {
-		if appliance.GetIdentity().GetInstallationId() != installationID {
-			continue
-		}
-		_, err := client.StopSystemAppliance(ctx, &vmmdv1.StopSystemApplianceRequest{RequestId: derivedRequestID("stop-system-" + installationID + "-" + appliance.GetIdentity().GetContainerInstanceId()), Identity: appliance.GetIdentity(), TimeoutSeconds: 10})
-		return err
+	if appliance == nil {
+		return nil
 	}
-	return nil
+	_, err = client.StopSystemAppliance(ctx, &vmmdv1.StopSystemApplianceRequest{RequestId: derivedRequestID("stop-system-" + installationID + "-" + appliance.GetIdentity().GetContainerInstanceId()), Identity: appliance.GetIdentity(), TimeoutSeconds: 10})
+	return err
 }
 
 func (controller *Controller) startAppliance(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation) error {
@@ -113,8 +146,8 @@ func (controller *Controller) startApplianceLocked(ctx context.Context, client v
 	}
 	installation = current
 	artifact, err := controller.store.GetApplianceArtifact(ctx, installation.ArtifactID)
-	if err != nil || !artifact.Verified {
-		return controller.sealAppliance(ctx, installation, "VERIFIED_ARTIFACT_UNAVAILABLE")
+	if err != nil {
+		return controller.sealAppliance(ctx, installation, "ARTIFACT_UNAVAILABLE")
 	}
 	grant, err := controller.store.GetApplianceGrant(ctx, installation.ID)
 	if err != nil {
@@ -179,10 +212,6 @@ func (controller *Controller) startApplianceLocked(ctx context.Context, client v
 }
 
 func (controller *Controller) startApplianceInstance(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation, artifact store.ApplianceArtifact, grant store.ApplianceGrant, volume store.ApplianceVolume, configRevision uint64) (*vmmdv1.SystemApplianceIdentity, error) {
-	block, err := controller.prepareApplianceBlock(ctx, installation)
-	if err != nil {
-		return nil, fmt.Errorf("prepare appliance data volume: %w", err)
-	}
 	key, err := controller.applianceSecrets.EnsureVolumeKey(ctx, installation.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load appliance volume key: %w", err)
@@ -192,14 +221,26 @@ func (controller *Controller) startApplianceInstance(ctx context.Context, client
 	if _, err := rand.Read(bootNonce); err != nil {
 		return nil, err
 	}
+	legacyDeviceIdentifier := ""
+	switch volume.Layout {
+	case store.ApplianceVolumeLayoutHostBlock:
+		if !controller.manager.HasApplianceBlock(installation.ID) {
+			return nil, errors.New("legacy appliance data image is not attached for conversion")
+		}
+		legacyDeviceIdentifier = applianceDeviceIdentifier(volume.VolumeID)
+	case store.ApplianceVolumeLayoutGuestImage:
+	default:
+		return nil, errors.New("appliance data volume layout is invalid")
+	}
 	identity := &vmmdv1.SystemApplianceIdentity{InstallationId: installation.ID,
 		BootId: controller.manager.Snapshot().GetBootId(), NamespaceId: systemNamespaceID(installation.ID),
 		ContainerId: systemContainerID(), ImageManifestDigest: artifact.ImageDigest, BootNonce: bootNonce}
 	response, err := client.EnsureSystemAppliance(ctx, &vmmdv1.EnsureSystemApplianceRequest{RequestId: derivedRequestID(fmt.Sprintf("system-%s-%s-%d", installation.ID, identity.GetBootId(), configRevision)), Identity: identity,
-		ImageReference: artifact.ImageReference, DataDeviceIdentifier: block.DeviceIdentifier, DataVolumeId: volume.VolumeID,
-		DataVolumeIdentity: volume.Identity, DataVolumeKey: append([]byte(nil), key...), InitializeDataVolume: block.Initializing,
-		Limits:     &vmmdv1.NamespaceLimits{CpuMillis: uint32(grant.System.CPUMillis), MemoryBytes: grant.System.MemoryBytes, Pids: uint32(grant.System.PIDs), DiskBytes: grant.System.DiskBytes},
-		EgressMode: vmmdv1.EgressMode(grant.EgressMode), ConfigRevision: configRevision})
+		ImageReference: artifact.ImageReference, LegacyDataDeviceIdentifier: legacyDeviceIdentifier, DataVolumeId: volume.VolumeID,
+		DataVolumeIdentity: volume.Identity, DataVolumeKey: append([]byte(nil), key...),
+		DataVolumeBytes: installation.DataVolumeBytes,
+		Limits:          &vmmdv1.NamespaceLimits{Pids: uint32(grant.System.PIDs), DiskBytes: grant.System.DiskBytes},
+		EgressMode:      vmmdv1.EgressMode(grant.EgressMode), ConfigRevision: configRevision})
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +251,7 @@ func (controller *Controller) startApplianceInstance(ctx context.Context, client
 	if response.GetAppliance().GetState() != vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING || identity.GetContainerInstanceId() == "" {
 		return nil, errors.New("guest did not start the exact system appliance")
 	}
-	if err := controller.finishApplianceBlock(block); err != nil {
+	if err := controller.finishApplianceBlockConversion(ctx, volume); err != nil {
 		return nil, errors.Join(err, controller.stopStartedAppliance(ctx, client, identity))
 	}
 	return identity, nil

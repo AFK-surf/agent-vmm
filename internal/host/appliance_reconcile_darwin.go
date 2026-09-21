@@ -17,7 +17,9 @@ import (
 )
 
 func (controller *Controller) applianceReconcileLoop(ctx context.Context) {
-	delay := 100 * time.Millisecond
+	const fallbackDelay = 5 * time.Second
+	delay := fallbackDelay
+	cursor := ""
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	for {
@@ -26,16 +28,17 @@ func (controller *Controller) applianceReconcileLoop(ctx context.Context) {
 			return
 		case <-timer.C:
 			if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
-				delay = 100 * time.Millisecond
+				delay = fallbackDelay
 				timer.Reset(delay)
 				continue
 			}
-			err := controller.reconcileObservedAppliances(ctx)
+			next, err := controller.reconcileObservedAppliancePage(ctx, cursor)
 			if err != nil {
 				log.Printf("reconcile observed appliances: %v", err)
 				delay = nextApplianceReconcileDelay(delay)
 			} else {
-				delay = 100 * time.Millisecond
+				cursor = next
+				delay = fallbackDelay
 			}
 			timer.Reset(delay)
 		}
@@ -44,11 +47,11 @@ func (controller *Controller) applianceReconcileLoop(ctx context.Context) {
 
 func nextApplianceReconcileDelay(current time.Duration) time.Duration {
 	next := current * 2
-	if next < 100*time.Millisecond {
-		return 100 * time.Millisecond
-	}
-	if next > 5*time.Second {
+	if next < 5*time.Second {
 		return 5 * time.Second
+	}
+	if next > time.Minute {
+		return time.Minute
 	}
 	return next
 }
@@ -57,17 +60,48 @@ func (controller *Controller) reconcileObservedAppliances(ctx context.Context) e
 	return controller.reconcileObservedAppliancesExcept(ctx, "", false)
 }
 
+func (controller *Controller) reconcileObservedAppliancePage(ctx context.Context, after string) (string, error) {
+	installations, err := controller.store.ListApplianceInstallationPage(ctx, after, 32)
+	if err != nil {
+		return after, err
+	}
+	if len(installations) == 0 {
+		if after == "" {
+			return "", nil
+		}
+		installations, err = controller.store.ListApplianceInstallationPage(ctx, "", 32)
+		if err != nil || len(installations) == 0 {
+			return "", err
+		}
+	}
+	if err := controller.reconcileObservedApplianceCandidates(ctx, installations, "", false); err != nil {
+		return after, err
+	}
+	return installations[len(installations)-1].ID, nil
+}
+
 func (controller *Controller) reconcileObservedAppliancesExcept(ctx context.Context, excludedInstallationID string, requireReady bool) error {
 	// Model anchor: spec/tla/ApplianceRecoverySelection.tla CaptureHost/ObserveGuest.
 	// Read Host candidates before Guest observations. A newer Host revision must
 	// never be paired with an older missing-instance observation.
-	installations, err := controller.store.ListApplianceInstallations(ctx)
-	if err != nil {
-		return err
+	after := ""
+	var result error
+	for {
+		installations, err := controller.store.ListApplianceInstallationPage(ctx, after, 32)
+		if err != nil {
+			return errors.Join(result, err)
+		}
+		if len(installations) == 0 {
+			return result
+		}
+		if err := controller.reconcileObservedApplianceCandidates(ctx, installations, excludedInstallationID, requireReady); err != nil {
+			result = errors.Join(result, err)
+		}
+		after = installations[len(installations)-1].ID
 	}
-	if len(installations) == 0 {
-		return nil
-	}
+}
+
+func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.Context, installations []store.ApplianceInstallation, excludedInstallationID string, requireReady bool) error {
 	if controller.applianceSecrets == nil {
 		return errors.New("appliance protected store is unavailable")
 	}
@@ -80,26 +114,36 @@ func (controller *Controller) reconcileObservedAppliancesExcept(ctx context.Cont
 		return err
 	}
 	defer connection.Close()
-	response, err := client.ListSystemAppliances(ctx, &vmmdv1.ListSystemAppliancesRequest{})
-	if err != nil {
-		return err
+	active := make(map[string]bool, len(installations))
+	for _, installation := range installations {
+		running, err := controller.store.HasRunningApplianceOperation(ctx, installation.ID)
+		if err != nil {
+			return err
+		}
+		active[installation.ID] = running
 	}
-	runningOperations, err := controller.store.ListRunningApplianceOperations(ctx)
-	if err != nil {
-		return err
-	}
-	active := make(map[string]bool, len(runningOperations))
-	for _, operation := range runningOperations {
-		active[operation.InstallationID] = true
-	}
-	observed := make(map[string]bool, len(response.GetAppliances()))
+	observed := make(map[string]bool, len(installations))
+	runtimes := make([]*vmmdv1.SystemAppliance, 0, len(installations))
 	var result error
-	for _, runtime := range response.GetAppliances() {
+	for _, installation := range installations {
+		if installation.ID == excludedInstallationID {
+			continue
+		}
+		runtime, err := getSystemAppliance(ctx, client, installation.ID)
+		if err != nil {
+			result = errors.Join(result, fmt.Errorf("observe appliance %s: %w", installation.ID, err))
+			continue
+		}
+		if runtime != nil {
+			observed[installation.ID] = true
+			runtimes = append(runtimes, runtime)
+		}
+	}
+	for _, runtime := range runtimes {
 		installationID := runtime.GetIdentity().GetInstallationId()
 		if installationID == "" || installationID == excludedInstallationID {
 			continue
 		}
-		observed[installationID] = true
 		installation, exists := candidates[installationID]
 		if !exists {
 			continue
@@ -248,7 +292,7 @@ func (controller *Controller) prepareApplianceRecoveryLocked(ctx context.Context
 	controller.stopApplianceFrontends(current.ID)
 	controller.clearApplianceHealth(current.ID)
 	controller.stopPrivateControllerRoute(current.ID)
-	if err := controller.revokeRemoteLeases(current.RegistrationID); err != nil {
+	if err := controller.invalidateRemoteController(ctx, current.RegistrationID); err != nil {
 		return store.ApplianceInstallation{}, false, err
 	}
 	if current.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED) && current.CurrentBootID == "" && current.CurrentContainerInstance == "" {
@@ -276,7 +320,7 @@ func (controller *Controller) invalidateApplianceRuntime(ctx context.Context, in
 	controller.clearApplianceHealth(installation.ID)
 	controller.stopPrivateControllerRoute(installation.ID)
 	if installation.RegistrationID != "" {
-		if err := controller.revokeRemoteLeases(installation.RegistrationID); err != nil {
+		if err := controller.invalidateRemoteController(ctx, installation.RegistrationID); err != nil {
 			return err
 		}
 	}
@@ -307,7 +351,7 @@ func (controller *Controller) adoptObservedAppliance(ctx context.Context, client
 	controller.clearApplianceHealth(installation.ID)
 	controller.stopPrivateControllerRoute(installation.ID)
 	if installation.RegistrationID != "" {
-		if err := controller.revokeRemoteLeases(installation.RegistrationID); err != nil {
+		if err := controller.invalidateRemoteController(ctx, installation.RegistrationID); err != nil {
 			return err
 		}
 	}
@@ -435,8 +479,8 @@ func (controller *Controller) revokeFailedAppliancePublication(ctx context.Conte
 	controller.clearApplianceHealth(installationID)
 	controller.stopPrivateControllerRoute(installationID)
 	if installation, err := controller.store.GetApplianceInstallation(ctx, installationID); err == nil && installation.RegistrationID != "" {
-		if err := controller.revokeRemoteLeases(installation.RegistrationID); err != nil {
-			log.Printf("revoke failed-publication leases %s: %v", installationID, err)
+		if err := controller.invalidateRemoteController(ctx, installation.RegistrationID); err != nil {
+			log.Printf("invalidate failed-publication controller %s: %v", installationID, err)
 		}
 	}
 	if err := controller.revokeApplianceTrustAuthority(ctx, installationID); err != nil && !errors.Is(err, sql.ErrNoRows) {

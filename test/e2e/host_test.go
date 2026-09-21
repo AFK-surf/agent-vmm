@@ -162,13 +162,12 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: "reference",
 		Release: "e2e", ImageReference: "agent-vmm.local/reference@" + imageDigest,
 		ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1",
-		ControllerProtocolVersion: "controller-ready-v1", SystemResources: &appliancev1.ResourceRange{
-			Floor: limits(200, 128<<20, 64, 1<<30), Ceiling: limits(400, 256<<20, 128, 1<<30)},
-		DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{MaxEnvironments: 2,
+		ControllerProtocolVersion: "controller-ready-v1",
+		DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{
 			PerEnvironmentLimits: limits(100, 128<<20, 64, 256<<20),
-			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
+			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL},
 		RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StartupDeadlineSeconds: 60,
-		ProbationSeconds: 1, HealthTimeoutSeconds: 10, MinimumApplianceRuntime: "1"}
+		ProbationSeconds: 1, HealthTimeoutSeconds: 10}
 	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
 	client := appliancev1.NewApplianceAdminServiceClient(harness.connection)
 	secretA := []byte("appliance-bootstrap-secret-a-4d57af9b")
@@ -276,7 +275,7 @@ func activateReferenceAppliance(t *testing.T, client appliancev1.ApplianceAdminS
 	}
 	artifactID := stage.GetArtifactId()
 	current := applianceStatus(t, client, installationID)
-	grant := &appliancev1.ApprovedGrant{SystemResources: manifest.GetSystemResources(), Capacity: manifest.GetRequestedCapacity(), EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, Revision: current.GetRevision()}
+	grant := &appliancev1.ApprovedGrant{Capacity: manifest.GetRequestedCapacity(), EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, Revision: current.GetRevision()}
 	_, err = client.PlanInstall(context.Background(), &appliancev1.PlanInstallRequest{InstallationId: installationID, RequestId: prefix + "-install-plan", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
 	if err != nil {
 		t.Fatal(err)

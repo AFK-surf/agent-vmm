@@ -326,9 +326,9 @@ func TestMultipleRemoteRegistrations(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 	registration := RemoteRegistration{
-		ID: "one", Endpoint: "controller.example:443", DisplayName: "one", ProtocolVersion: "1", MaxEnvironments: 2,
-		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
-		MaxEgressMode: 1, MaxLeaseSeconds: 3600, DisconnectGraceSeconds: 30, StopGraceSeconds: 10, State: 1, ConnectionState: 1,
+		ID: "one", Endpoint: "controller.example:443", DisplayName: "one", ProtocolVersion: "1",
+		PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, StopGraceSeconds: 10, State: 1, ConnectionState: 1,
 		EnrollmentState: 2, ConnectorPhase: 1,
 	}
 	created, err := store.CreateRemoteRegistration(ctx, registration)
@@ -349,6 +349,14 @@ func TestMultipleRemoteRegistrations(t *testing.T) {
 	if err != nil || len(registrations) != 3 {
 		t.Fatalf("registrations=%+v err=%v", registrations, err)
 	}
+	page, err := store.ListRemoteRegistrationPage(ctx, "", 2)
+	if err != nil || len(page) != 2 || page[0].ID != "one" || page[1].ID != "private" {
+		t.Fatalf("first registration page=%+v err=%v", page, err)
+	}
+	page, err = store.ListRemoteRegistrationPage(ctx, page[1].ID, 2)
+	if err != nil || len(page) != 1 || page[0].ID != "two" {
+		t.Fatalf("second registration page=%+v err=%v", page, err)
+	}
 	registration.ID = "invalid-private"
 	registration.InstallationID = ""
 	if _, err := store.CreateRemoteRegistration(ctx, registration); err == nil {
@@ -356,7 +364,7 @@ func TestMultipleRemoteRegistrations(t *testing.T) {
 	}
 }
 
-func TestListRemoteEnvironmentsBoundedScopesAndExposesOverflow(t *testing.T) {
+func TestListRemoteActiveEnvironmentsBoundedScopesAndExposesOverflow(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -364,9 +372,9 @@ func TestListRemoteEnvironmentsBoundedScopesAndExposesOverflow(t *testing.T) {
 	defer database.Close()
 	ctx := context.Background()
 	registration := RemoteRegistration{
-		ID: "one", Endpoint: "controller.example:443", ProtocolVersion: "1", MaxEnvironments: 64,
-		PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1,
-		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 1, StopGraceSeconds: 1,
+		ID: "one", Endpoint: "controller.example:443", ProtocolVersion: "1",
+		PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		MaxEgressMode: 1, StopGraceSeconds: 1,
 		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
 	}
 	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
@@ -379,25 +387,28 @@ func TestListRemoteEnvironmentsBoundedScopesAndExposesOverflow(t *testing.T) {
 	if _, err := database.CreateEnvironment(ctx, Environment{ID: "local", NamespaceID: "local", OwnerKind: OwnerLocal, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: "other", NamespaceID: "other", OwnerKind: OwnerRemoteRegistration, RegistrationID: "two", AllocationID: "other", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "other", NamespaceID: "other", OwnerKind: OwnerRemoteRegistration, RegistrationID: "two", AllocationID: "other", AllocationState: 1, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 		t.Fatal(err)
 	}
 	for index := 0; index < 65; index++ {
 		id := fmt.Sprintf("one-%02d", index)
-		if _, err := database.CreateEnvironment(ctx, Environment{ID: id, NamespaceID: id, OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: id, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+		if _, err := database.CreateEnvironment(ctx, Environment{ID: id, NamespaceID: id, OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: id, AllocationState: 1, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	environments, err := database.ListRemoteEnvironmentsBounded(ctx, "one", 65)
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "retained", NamespaceID: "retained", OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: "retained", AllocationState: 4, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+		t.Fatal(err)
+	}
+	environments, err := database.ListRemoteActiveEnvironmentsBounded(ctx, "one", 65)
 	if err != nil || len(environments) != 65 {
 		t.Fatalf("bounded environments=%d err=%v, want overflow sentinel of 65", len(environments), err)
 	}
 	for _, environment := range environments {
-		if environment.RegistrationID != "one" || environment.OwnerKind != OwnerRemoteRegistration {
+		if environment.RegistrationID != "one" || environment.OwnerKind != OwnerRemoteRegistration || environment.AllocationID == "retained" {
 			t.Fatalf("bounded query crossed registration scope: %+v", environment)
 		}
 	}
-	if _, err := database.ListRemoteEnvironmentsBounded(ctx, "one", 0); err == nil {
+	if _, err := database.ListRemoteActiveEnvironmentsBounded(ctx, "one", 0); err == nil {
 		t.Fatal("non-positive query bound was accepted")
 	}
 }
@@ -646,8 +657,8 @@ func TestRemoteEnrollmentTransitionsAreRevisionAndStateFenced(t *testing.T) {
 	ctx := context.Background()
 	pending, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{
 		ID: "registration", Endpoint: "controller.example:443", DisplayName: "controller", ProtocolVersion: "1",
-		MaxEnvironments: 2, PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
-		MaxEgressMode: 1, MaxLeaseSeconds: 3600, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
+		PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, StopGraceSeconds: 10,
 		State: 1, ConnectionState: 1, EnrollmentState: 1, ConnectorPhase: 2, EnrollmentRequestID: "begin-registration",
 	})
 	if err != nil {
@@ -697,9 +708,9 @@ func TestConnectorStatusRejectsStaleInstances(t *testing.T) {
 	defer database.Close()
 	ctx := context.Background()
 	registration, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{
-		ID: "registration", Endpoint: "controller.example:443", ProtocolVersion: "1", MaxEnvironments: 1,
-		PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1,
-		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
+		ID: "registration", Endpoint: "controller.example:443", ProtocolVersion: "1",
+		PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		MaxEgressMode: 1, StopGraceSeconds: 10,
 		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
 	})
 	if err != nil {
@@ -735,9 +746,9 @@ func TestRemotePoolPolicyRevisionIsIndependentFromLifecycleRevision(t *testing.T
 	defer database.Close()
 	ctx := context.Background()
 	registration, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{
-		ID: "policy-revision", Endpoint: "controller.example:443", ProtocolVersion: "1", MaxEnvironments: 1,
-		PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1,
-		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
+		ID: "policy-revision", Endpoint: "controller.example:443", ProtocolVersion: "1",
+		PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		MaxEgressMode: 1, StopGraceSeconds: 10,
 		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
 	})
 	if err != nil {
@@ -754,7 +765,7 @@ func TestRemotePoolPolicyRevisionIsIndependentFromLifecycleRevision(t *testing.T
 		t.Fatalf("lifecycle transition changed the wrong revision: before=%+v after=%+v", registration, draining)
 	}
 	updated := draining
-	updated.MaxEnvironments = 2
+	updated.PerEnvPIDs = 2
 	updated, err = database.UpdateRemotePool(ctx, updated, draining.Revision)
 	if err != nil {
 		t.Fatal(err)
@@ -1004,7 +1015,6 @@ func TestDiscardEnvironmentRequiresRetainedRemoteAllocation(t *testing.T) {
 	ctx := context.Background()
 	states := []hostv1.AllocationState{
 		hostv1.AllocationState_ALLOCATION_STATE_READY,
-		hostv1.AllocationState_ALLOCATION_STATE_LEASED,
 		hostv1.AllocationState_ALLOCATION_STATE_DRAINING,
 	}
 	for index, state := range states {
@@ -1040,7 +1050,7 @@ func TestDiscardEnvironmentRequiresRetainedRemoteAllocation(t *testing.T) {
 	}
 }
 
-func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
+func TestOpenPreservesRetainedRemoteAllocation(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "host.db")
 	database, err := Open(path)
@@ -1048,9 +1058,9 @@ func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 1,
-		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
-		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}); err != nil {
+	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2",
+		PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}); err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
@@ -1063,8 +1073,7 @@ func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
 		database.Close()
 		t.Fatal(err)
 	}
-	created, err = database.AcquireRemoteLeaseProjection(ctx, RemoteLeaseProjection{LeaseID: "lease", RegistrationID: "registration", AllocationID: "allocation", AllocationGeneration: 7,
-		EnvironmentID: created.ID, WorkloadRef: "task", Generation: 1, ExpiresAt: time.Now().Add(time.Minute), State: int32(hostv1.LeaseState_LEASE_STATE_ACTIVE)}, created.PolicyRevision)
+	created, err = database.SetAllocationState(ctx, created.ID, created.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
@@ -1085,8 +1094,8 @@ func TestOpenNormalizesPersistedRemoteLeaseBeforeReturning(t *testing.T) {
 	if recovered.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
 		t.Fatalf("allocation state after restart = %s", hostv1.AllocationState(recovered.AllocationState))
 	}
-	if recovered.PolicyRevision != created.PolicyRevision+1 {
-		t.Fatalf("policy revision after restart = %d, want %d", recovered.PolicyRevision, created.PolicyRevision+1)
+	if recovered.PolicyRevision != created.PolicyRevision {
+		t.Fatalf("policy revision after restart = %d, want %d", recovered.PolicyRevision, created.PolicyRevision)
 	}
 	if recovered.AllocationGeneration != 7 || recovered.Resources() != contract {
 		t.Fatalf("restart changed durable allocation: %+v", recovered)

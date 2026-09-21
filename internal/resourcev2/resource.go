@@ -32,8 +32,6 @@ func ExhaustedDimension(err error) CapacityDimension {
 	return ""
 }
 
-const MaxStoredWorkloads = 256
-
 type Contract struct {
 	CPUMaxMillis       uint64
 	MemoryMaxBytes     uint64

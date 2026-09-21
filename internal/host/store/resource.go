@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -11,23 +10,14 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 )
 
-var ErrStoredWorkloadLimit = errors.New("stored workload limit reached. Discard an unused environment before allocating another")
-
-// BeginWorkloadAdmission atomically bounds stored environments. Resource maxima
-// limit each environment and do not reserve the sum of their possible usage.
+// BeginWorkloadAdmission validates one environment against the shared workload
+// boundary. Stored environment count is not a resource reservation.
 func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Environment, capacity resourcev2.Contract) (Environment, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Environment{}, err
 	}
 	defer tx.Rollback()
-	var storedCount int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM environments WHERE owner_kind=?", OwnerRemoteRegistration).Scan(&storedCount); err != nil {
-		return Environment{}, err
-	}
-	if storedCount >= resourcev2.MaxStoredWorkloads {
-		return Environment{}, ErrStoredWorkloadLimit
-	}
 	if err := environment.Resources().Fits(capacity); err != nil {
 		return Environment{}, fmt.Errorf("%w: %w", ErrResourceCapacityExceeded, err)
 	}
@@ -47,7 +37,7 @@ func (environment Environment) Resources() resourcev2.Contract {
 
 func (store *Store) CommitNamespaceProjection(ctx context.Context, environment Environment) error {
 	result, err := store.db.ExecContext(ctx, `UPDATE environments SET allocation_state=CASE WHEN allocation_state=? THEN ? ELSE allocation_state END
- WHERE id=? AND allocation_generation=? AND allocation_state IN (?,?,?)`, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), int32(hostv1.AllocationState_ALLOCATION_STATE_READY), environment.ID, environment.AllocationGeneration, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), int32(hostv1.AllocationState_ALLOCATION_STATE_READY), int32(hostv1.AllocationState_ALLOCATION_STATE_LEASED))
+	WHERE id=? AND allocation_generation=? AND allocation_state IN (?,?)`, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), int32(hostv1.AllocationState_ALLOCATION_STATE_READY), environment.ID, environment.AllocationGeneration, int32(hostv1.AllocationState_ALLOCATION_STATE_DRAINING), int32(hostv1.AllocationState_ALLOCATION_STATE_READY))
 	if err != nil {
 		return err
 	}
@@ -97,33 +87,6 @@ func (store *Store) RequeueAllocationRetirement(ctx context.Context, id string, 
 		return Environment{}, errors.New("allocation retirement fence conflict")
 	}
 	return store.GetEnvironment(ctx, id)
-}
-
-func sumReservations(ctx context.Context, tx *sql.Tx, ownerID string, ownerKind int32) (ResourceAmount, error) {
-	query := `SELECT COALESCE(SUM(cpu_millis), 0), COALESCE(SUM(memory_bytes), 0),
-		COALESCE(SUM(pids), 0), COALESCE(SUM(disk_bytes), 0) FROM resource_reservations`
-	var args []any
-	if ownerID != "" {
-		query += " WHERE owner_kind=? AND owner_id=?"
-		args = []any{ownerKind, ownerID}
-	}
-	var amount ResourceAmount
-	err := tx.QueryRowContext(ctx, query, args...).Scan(&amount.CPUMillis, &amount.MemoryBytes, &amount.PIDs, &amount.DiskBytes)
-	return amount, err
-}
-
-func (store *Store) ReleaseResources(ctx context.Context, id string) error {
-	result, err := store.db.ExecContext(ctx, `DELETE FROM resource_reservations WHERE id=?`, id)
-	if err != nil {
-		return err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return err
-		}
-		return sql.ErrNoRows
-	}
-	return nil
 }
 
 func (store *Store) ListWorkloadEnvironmentPage(ctx context.Context, after string, limit int) ([]Environment, error) {

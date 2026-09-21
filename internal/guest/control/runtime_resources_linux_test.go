@@ -6,8 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	digest "github.com/opencontainers/go-digest"
 )
+
+func TestNamespaceLimitsRequireOnlyPIDAndDiskIsolation(t *testing.T) {
+	limits := &vmmdv1.NamespaceLimits{Pids: 512, DiskBytes: 2 << 30}
+	if err := validateNamespaceLimits(limits); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateNamespaceLimits(&vmmdv1.NamespaceLimits{DiskBytes: 2 << 30}); err == nil {
+		t.Fatal("namespace without a PID limit was accepted")
+	}
+	if err := validateNamespaceLimits(&vmmdv1.NamespaceLimits{Pids: 512}); err == nil {
+		t.Fatal("system namespace without a disk limit was accepted")
+	}
+}
 
 func TestRuntimeResourceKeysFenceLogicalNamespaces(t *testing.T) {
 	first := runtimeContainerKey("workload-a", "runtime")

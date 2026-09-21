@@ -383,14 +383,6 @@ func containerResources(namespaceID string, limits *vmmdv1.ResourceLimits) *spec
 	if limits == nil {
 		return resources
 	}
-	if system && limits.CpuMillis != nil {
-		period, quota := uint64(100000), int64(limits.GetCpuMillis())*100
-		resources.CPU = &specs.LinuxCPU{Period: &period, Quota: &quota}
-	}
-	if system && limits.MemoryBytes != nil {
-		value := int64(limits.GetMemoryBytes())
-		resources.Memory = &specs.LinuxMemory{Limit: &value}
-	}
 	if limits.Pids != nil {
 		value := int64(limits.GetPids())
 		resources.Pids = &specs.LinuxPids{Limit: &value}

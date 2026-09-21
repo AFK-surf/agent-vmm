@@ -355,11 +355,7 @@ func volumeGenerationID(path string) (string, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return "", errors.New("volume incarnation is unavailable")
-	}
-	return fmt.Sprintf("legacy-%x-%x-%x-%x", uint64(stat.Dev), stat.Ino, stat.Ctim.Sec, stat.Ctim.Nsec), nil
+	return backfillVolumeGenerationID(path, info)
 }
 
 func unmaterializedImage(err error) bool {

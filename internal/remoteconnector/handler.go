@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -67,36 +66,12 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		request := value.ExecuteCleanupAllocation
 		volumes := append([]string(nil), request.GetConfirmedVolumeIds()...)
 		sort.Strings(volumes)
-		response, err = handler.client.ExecuteCleanupAllocation(ctx, &hostv1.ExecuteCleanupAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: request.GetAllocationId(), Kind: request.GetKind(), PlanRevision: request.GetPlanRevision(), ConfirmedVolumeIds: volumes, ExpectedLeaseId: request.GetExpectedLeaseId(), ExpectedLeaseGeneration: request.GetExpectedLeaseGeneration()})
+		response, err = handler.client.ExecuteCleanupAllocation(ctx, &hostv1.ExecuteCleanupAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: request.GetAllocationId(), Kind: request.GetKind(), PlanRevision: request.GetPlanRevision(), ConfirmedVolumeIds: volumes})
 		if err == nil {
 			if handler.tunnels != nil {
 				handler.tunnels.CloseAllocation(request.GetAllocationId())
 			}
 			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
-		}
-	case *remotev1.ControllerCommand_AcquireLease:
-		request := value.AcquireLease
-		var response *hostv1.LeaseResponse
-		response, err = handler.client.AcquireLease(ctx, &hostv1.AcquireLeaseRequest{RegistrationId: handler.registrationID, AllocationId: request.GetAllocationId(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second), WorkloadRef: boundedLabel(request.GetWorkloadRef()), ConnectionInstance: handler.connectionInstance, ExpectedPolicyRevision: command.GetTargetRevision()})
-		if err == nil {
-			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease(), response.GetAllocationRevision())}
-		}
-	case *remotev1.ControllerCommand_RenewLease:
-		request := value.RenewLease
-		var response *hostv1.LeaseResponse
-		response, err = handler.client.RenewLease(ctx, &hostv1.RenewLeaseRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, LeaseId: request.GetLeaseId(), Generation: request.GetGeneration(), Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second)})
-		if err == nil {
-			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease(), response.GetAllocationRevision())}
-		}
-	case *remotev1.ControllerCommand_ReleaseLease:
-		request := value.ReleaseLease
-		var response *hostv1.LeaseResponse
-		response, err = handler.client.ReleaseLease(ctx, &hostv1.ReleaseLeaseRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, LeaseId: request.GetLeaseId(), Generation: request.GetGeneration()})
-		if err == nil {
-			if handler.tunnels != nil {
-				handler.tunnels.CloseLease(request.GetLeaseId())
-			}
-			result.Result = &remotev1.CommandResult_Lease{Lease: leaseToRemote(response.GetLease(), response.GetAllocationRevision())}
 		}
 	case *remotev1.ControllerCommand_DrainRegistration:
 		_, err = handler.client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING})
@@ -114,8 +89,8 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		request := value.AcquireHostLoopbackFrontend
 		var response *hostv1.HostLoopbackFrontendLease
 		response, err = handler.client.AcquireHostLoopbackFrontend(ctx, &hostv1.AcquireHostLoopbackFrontendRequest{RegistrationId: handler.registrationID,
-			ConnectionInstance: handler.connectionInstance, ConnectionEpoch: handler.connectionEpoch, AllocationId: request.GetAllocationId(), AllocationLeaseId: request.GetAllocationLeaseId(),
-			AllocationLeaseGeneration: request.GetAllocationLeaseGeneration(), TargetRevision: command.GetTargetRevision(), AssignmentId: request.GetAssignmentId(),
+			ConnectionInstance: handler.connectionInstance, ConnectionEpoch: handler.connectionEpoch, AllocationId: request.GetAllocationId(),
+			AllocationGeneration: request.GetAllocationGeneration(), TargetRevision: command.GetTargetRevision(), AssignmentId: request.GetAssignmentId(),
 			Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second)})
 		if err == nil {
 			result.Result = &remotev1.CommandResult_HostLoopbackFrontendLease{HostLoopbackFrontendLease: response}
@@ -125,7 +100,6 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		var response *hostv1.HostLoopbackFrontendLease
 		response, err = handler.client.RenewHostLoopbackFrontend(ctx, &hostv1.RenewHostLoopbackFrontendRequest{RegistrationId: handler.registrationID,
 			ConnectionInstance: handler.connectionInstance, ConnectionEpoch: handler.connectionEpoch, FrontendLeaseId: request.GetFrontendLeaseId(), Generation: request.GetGeneration(),
-			AllocationLeaseId: request.GetAllocationLeaseId(), AllocationLeaseGeneration: request.GetAllocationLeaseGeneration(),
 			Duration: durationpb.New(time.Duration(request.GetDurationSeconds()) * time.Second)})
 		if err == nil {
 			result.Result = &remotev1.CommandResult_HostLoopbackFrontendLease{HostLoopbackFrontendLease: response}
@@ -188,17 +162,6 @@ func cloneCleanupImpacts(values []*hostv1.CleanupImpact) []*hostv1.CleanupImpact
 
 func safeErrorMessage(err error) string {
 	switch reasonFor(err) {
-	case remotev1.ErrorReason_ERROR_REASON_LEASE_REVOKED:
-		message := status.Convert(err).Message()
-		if strings.Contains(message, "while opening") {
-			return "lease changed while opening the session"
-		}
-		if strings.Contains(message, "cannot open") {
-			return "lease cannot open a runtime session"
-		}
-		return "lease is no longer active"
-	case remotev1.ErrorReason_ERROR_REASON_LEASE_CONFLICT:
-		return "allocation already has an active lease"
 	case remotev1.ErrorReason_ERROR_REASON_STALE_REVISION:
 		return "revision is stale"
 	case remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED:
@@ -222,10 +185,6 @@ func reasonFor(err error) remotev1.ErrorReason {
 		for _, detail := range current.Details() {
 			if info, ok := detail.(*errdetails.ErrorInfo); ok {
 				switch info.GetReason() {
-				case "LEASE_REVOKED":
-					return remotev1.ErrorReason_ERROR_REASON_LEASE_REVOKED
-				case "ACTIVE_LEASE_EXISTS":
-					return remotev1.ErrorReason_ERROR_REASON_LEASE_CONFLICT
 				case "POLICY_REVISION_CONFLICT":
 					return remotev1.ErrorReason_ERROR_REASON_STALE_REVISION
 				case "POOL_PER_ENVIRONMENT_LIMIT":
@@ -246,7 +205,7 @@ func reasonFor(err error) remotev1.ErrorReason {
 	case codes.NotFound:
 		return remotev1.ErrorReason_ERROR_REASON_ALLOCATION_NOT_FOUND
 	case codes.AlreadyExists:
-		return remotev1.ErrorReason_ERROR_REASON_LEASE_CONFLICT
+		return remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT
 	case codes.ResourceExhausted:
 		return remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED
 	case codes.Aborted:

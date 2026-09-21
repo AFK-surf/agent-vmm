@@ -122,7 +122,7 @@ func observationBase(registration *hostv1.RemoteRegistration, sequence uint64, o
 		Sequence: sequence, ObservedUnixMillis: observed.UnixMilli(), ProtocolVersion: ProtocolVersion,
 		HostApiVersion: HostAPIVersion, ConnectorRelease: ConnectorRelease,
 		SupportedFeatures:           append([]string(nil), protocolFeatures...),
-		Capacity:                    &remotev1.Capacity{MaxEnvironments: pool.GetMaxEnvironments(), PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode(), MaxLeaseSeconds: seconds(pool.GetMaxLeaseDuration()), DisconnectGraceSeconds: seconds(pool.GetDisconnectGrace())},
+		Capacity:                    &remotev1.Capacity{PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode()},
 		InventoryWatermark:          registration.GetInventoryRevision(),
 		InventoryObservedUnixMillis: observed.UnixMilli(),
 	}

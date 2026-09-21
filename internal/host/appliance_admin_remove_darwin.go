@@ -225,17 +225,12 @@ func (server *applianceAdminServer) resumeApplianceRemove(ctx context.Context, o
 	if err := server.controller.stopAppliance(ctx, installation.ID); err != nil {
 		return nil, err
 	}
-	var committed store.ApplianceOperation
-	err = server.controller.withApplianceDataOfflineExcept(ctx, installation.ID, func() error {
-		if err := server.controller.removeApplianceAssets(ctx, installation.ID, installation.EncryptedVolumeID); err != nil {
-			return err
-		}
-		var commitErr error
-		committed, commitErr = server.controller.store.CommitApplianceRemove(ctx, store.ApplianceRemove{
-			InstallationID: installation.ID, RegistrationID: installation.RegistrationID,
-			ReservationID: "system-" + installation.ID, OperationID: operation.ID,
-			CommitRevision: installation.Revision, Receipt: []byte("removed:" + operation.ID)})
-		return commitErr
-	})
+	if err := server.controller.removeApplianceData(ctx, installation); err != nil {
+		return nil, err
+	}
+	committed, err := server.controller.store.CommitApplianceRemove(ctx, store.ApplianceRemove{
+		InstallationID: installation.ID, RegistrationID: installation.RegistrationID,
+		OperationID:    operation.ID,
+		CommitRevision: installation.Revision, Receipt: []byte("removed:" + operation.ID)})
 	return applianceOperationResponse(committed), err
 }

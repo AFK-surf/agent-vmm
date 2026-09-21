@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 19
+const schemaVersion = 23
 
 const (
 	auditRetention  = 30 * 24 * time.Hour
@@ -119,10 +119,6 @@ func Open(path string) (*Store, error) {
 		int32(hostv1.OperationState_OPERATION_STATE_INTERRUPTED), time.Now().UnixNano(), int32(hostv1.OperationState_OPERATION_STATE_RUNNING)); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("recover interrupted operations: %w", err)
-	}
-	if err := result.RecoverRemoteLeaseProjections(context.Background()); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("recover remote lease projections: %w", err)
 	}
 	if _, err := db.Exec(`UPDATE sessions SET revoked_at=?, terminal_reason='SIDECAR_RESTARTED'
 		WHERE revoked_at IS NULL AND closed_at IS NULL`, time.Now().UnixNano()); err != nil {

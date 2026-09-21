@@ -33,14 +33,14 @@ func (*scriptedSessionStream) Context() context.Context { return context.Backgro
 func TestAcceptSessionReturnsBoundedNetConn(t *testing.T) {
 	t.Parallel()
 	stream := &scriptedSessionStream{received: []*remotev1.HostSessionFrame{
-		{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration-1", AllocationId: "allocation-1", LeaseId: "lease-1", Generation: 2, ConnectionEpoch: 19}}},
+		{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration-1", AllocationId: "allocation-1", AllocationGeneration: 2, ConnectionEpoch: 19}}},
 		{Payload: &remotev1.HostSessionFrame_Data{Data: []byte("from-host")}},
 	}}
 	header, connection, err := controllerremote.AcceptSession(stream, "registration-1", 19)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if header.GetLeaseId() != "lease-1" {
+	if header.GetAllocationGeneration() != 2 {
 		t.Fatalf("header = %+v", header)
 	}
 	buffer := make([]byte, 16)

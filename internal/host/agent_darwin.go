@@ -196,7 +196,7 @@ func (server *agentServer) StartContainer(ctx context.Context, request *hostv1.C
 		return nil, err
 	}
 	defer connection.Close()
-	response, err := server.controller.startWorkloadContainer(ctx, client, identity.EnvironmentID, &vmmdv1.StartContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId()})
+	response, err := server.controller.startWorkloadContainer(ctx, client, identity.EnvironmentID, &vmmdv1.StartContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId()}, identity.RegistrationID)
 	if err != nil {
 		return nil, err
 	}

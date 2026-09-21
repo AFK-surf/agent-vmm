@@ -28,7 +28,7 @@ func AcceptSession(stream SessionStream, registrationID string, connectionEpoch 
 		return nil, nil, err
 	}
 	header := first.GetHeader()
-	if header == nil || header.GetRegistrationId() != registrationID || header.GetConnectionEpoch() != connectionEpoch || header.GetAllocationId() == "" || header.GetLeaseId() == "" || header.GetGeneration() == 0 {
+	if header == nil || header.GetRegistrationId() != registrationID || header.GetConnectionEpoch() != connectionEpoch || header.GetAllocationId() == "" || header.GetAllocationGeneration() == 0 {
 		return nil, nil, errors.New("invalid remote session header")
 	}
 	return header, &sessionConn{stream: stream, closed: make(chan struct{})}, nil

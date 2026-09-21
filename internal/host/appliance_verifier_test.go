@@ -30,7 +30,8 @@ func TestApplianceArtifactVerifierRejectsIdentityAndCapabilityChanges(t *testing
 		}(), grant: grant},
 		{name: "capacity expansion", manifest: manifest, grant: func() *appliancev1.ApprovedGrant {
 			value := proto.Clone(grant).(*appliancev1.ApprovedGrant)
-			value.Capacity.MaxEnvironments++
+			pids := value.Capacity.PerEnvironmentLimits.GetPids() + 1
+			value.Capacity.PerEnvironmentLimits.Pids = &pids
 			return value
 		}()},
 		{name: "frontend expansion", manifest: manifest, grant: func() *appliancev1.ApprovedGrant {
@@ -58,20 +59,20 @@ func TestApplianceArtifactVerifierRejectsIdentityAndCapabilityChanges(t *testing
 	}
 }
 
-func TestValidateApplianceCapacityRejectsIndividualLimitsAboveHost(t *testing.T) {
+func TestValidateApplianceIsolationLimitsRejectsValuesAboveHost(t *testing.T) {
 	grant := verifierGrant()
-	grant.SystemResources.Ceiling = verifierLimits(2)
+	grant.SystemLimits = verifierLimits(2)
 	grant.Capacity.PerEnvironmentLimits = verifierLimits(3)
-	if err := validateApplianceCapacity(grant, store.ResourceAmount{CPUMillis: 3, MemoryBytes: 3, PIDs: 3, DiskBytes: 3}); err != nil {
+	if err := validateApplianceIsolationLimits(grant, store.ResourceAmount{PIDs: 3, DiskBytes: 3}); err != nil {
 		t.Fatalf("grant that fits host rejected: %v", err)
 	}
-	if err := validateApplianceCapacity(grant, store.ResourceAmount{CPUMillis: 2, MemoryBytes: 3, PIDs: 3, DiskBytes: 3}); err == nil {
-		t.Fatal("per-environment CPU above host capacity was accepted")
+	if err := validateApplianceIsolationLimits(grant, store.ResourceAmount{PIDs: 2, DiskBytes: 3}); err == nil {
+		t.Fatal("per-environment PID limit above host capacity was accepted")
 	}
 	grant.Capacity.PerEnvironmentLimits = verifierLimits(1)
-	grant.SystemResources.Ceiling = verifierLimits(4)
-	if err := validateApplianceCapacity(grant, store.ResourceAmount{CPUMillis: 3, MemoryBytes: 3, PIDs: 3, DiskBytes: 3}); err == nil {
-		t.Fatal("system CPU above host capacity was accepted")
+	grant.SystemLimits = verifierLimits(4)
+	if err := validateApplianceIsolationLimits(grant, store.ResourceAmount{PIDs: 3, DiskBytes: 3}); err == nil {
+		t.Fatal("system PID limit above host capacity was accepted")
 	}
 }
 
@@ -81,9 +82,8 @@ func verifierManifest() *appliancev1.ControllerApplianceManifest {
 		ImageReference: "registry.example/product", ImageManifestDigest: "sha256:" + strings.Repeat("0", 64), Platform: "linux/arm64",
 		BootstrapProtocolVersion: "1", ControllerProtocolVersion: "1", DataVolumeBytes: 1 << 30,
 		StartupDeadlineSeconds: 30, ProbationSeconds: 1, HealthTimeoutSeconds: 10,
-		MinimumApplianceRuntime:      "1",
-		SystemResources:              &appliancev1.ResourceRange{Floor: verifierLimits(1), Ceiling: verifierLimits(4)},
-		RequestedCapacity:            &appliancev1.CapacityGrant{MaxEnvironments: 2, PerEnvironmentLimits: verifierLimits(2), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 10},
+		SystemLimits:                 verifierLimits(4),
+		RequestedCapacity:            &appliancev1.CapacityGrant{PerEnvironmentLimits: verifierLimits(2), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL},
 		RequestedEgressMode:          hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
 		RequestedFrontends:           []*appliancev1.ControllerFrontend{{Name: "control", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_BYTE_STREAM, Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1024, MaxTotalBytes: 4096, DeadlineSeconds: 10, IdleSeconds: 5, MaxConcurrentStreams: 2, MaxUseCount: 4}}},
 		RequestedDynamicHostLoopback: verifierDynamicGrant(4),
@@ -92,8 +92,8 @@ func verifierManifest() *appliancev1.ControllerApplianceManifest {
 
 func verifierGrant() *appliancev1.ApprovedGrant {
 	return &appliancev1.ApprovedGrant{
-		SystemResources:     &appliancev1.ResourceRange{Floor: verifierLimits(1), Ceiling: verifierLimits(3)},
-		Capacity:            &appliancev1.CapacityGrant{MaxEnvironments: 2, PerEnvironmentLimits: verifierLimits(2), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 10},
+		SystemLimits:        verifierLimits(3),
+		Capacity:            &appliancev1.CapacityGrant{PerEnvironmentLimits: verifierLimits(2), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL},
 		EgressMode:          hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
 		Frontends:           []*appliancev1.ControllerFrontend{{Name: "control", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_BYTE_STREAM, Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1024, MaxTotalBytes: 4096, DeadlineSeconds: 10, IdleSeconds: 5, MaxConcurrentStreams: 2, MaxUseCount: 4}}},
 		DynamicHostLoopback: verifierDynamicGrant(3),
@@ -107,7 +107,6 @@ func verifierDynamicGrant(maxLeases uint32) *appliancev1.DynamicHostLoopbackGran
 }
 
 func verifierLimits(value uint64) *hostv1.ResourceLimits {
-	cpu, pids := uint32(value), uint32(value)
-	memory, disk := value, value
-	return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
+	pids, disk := uint32(value), value
+	return &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk}
 }

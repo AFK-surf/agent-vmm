@@ -7,13 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
 	"sync"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -32,7 +30,7 @@ func (controller *Controller) recoverWorkloadRuns(ctx context.Context) error {
 
 func (controller *Controller) recoverWorkloadRunsFromGuest(ctx context.Context, client vmmdv1.VMMDServiceClient) error {
 	runs := make(map[string]*workloadRun)
-	cursor, count := "", 0
+	cursor := ""
 	for {
 		page, err := controller.store.ListWorkloadEnvironmentPage(ctx, cursor, 32)
 		if err != nil {
@@ -42,10 +40,6 @@ func (controller *Controller) recoverWorkloadRunsFromGuest(ctx context.Context, 
 			break
 		}
 		for _, environment := range page {
-			count++
-			if count > resourcev2.MaxStoredWorkloads {
-				return errors.New("workload recovery exceeds 256 stored environments; resolve excess inventory before admission")
-			}
 			response, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
 			if err != nil {
 				return err
@@ -54,7 +48,7 @@ func (controller *Controller) recoverWorkloadRunsFromGuest(ctx context.Context, 
 				if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_CREATED || container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
 					continue
 				}
-				run := &workloadRun{environmentID: environment.ID, namespaceID: environment.NamespaceID, containerID: container.GetId(), instanceID: container.GetInstanceId(), stopping: true, stopDeadline: time.Now().Add(workloadStopBudget), stopRequestID: derivedRequestID("recover-stop-" + environment.ID + "-" + container.GetId() + "-" + container.GetInstanceId())}
+				run := &workloadRun{environmentID: environment.ID, registrationID: environment.RegistrationID, namespaceID: environment.NamespaceID, containerID: container.GetId(), instanceID: container.GetInstanceId(), stopping: true, stopDeadline: time.Now().Add(workloadStopBudget), stopRequestID: derivedRequestID("recover-stop-" + environment.ID + "-" + container.GetId() + "-" + container.GetInstanceId())}
 				runs[workloadRunKey(environment.ID, container.GetId())] = run
 			}
 			cursor = environment.ID
@@ -62,9 +56,8 @@ func (controller *Controller) recoverWorkloadRunsFromGuest(ctx context.Context, 
 	}
 	controller.mu.Lock()
 	controller.clearWorkloadReclaimLocked("recovery")
-	controller.workloadRuns = runs
+	controller.resetWorkloadRunsLocked(runs)
 	controller.stoppedWorkloadInstances = make(map[string]string)
-	controller.workloadSampleCursor = ""
 	controller.workloadOOMKills, controller.workloadOOMEvents = 0, 0
 	controller.workloadPressureHigh, controller.workloadPressureLow = 0, 0
 	controller.workloadMemoryPressure = false
@@ -146,18 +139,20 @@ func (controller *Controller) observeWorkloadPressureLocked(response *vmmdv1.Get
 func (controller *Controller) sampleWorkloadRuns(ctx context.Context, client vmmdv1.VMMDServiceClient) error {
 	ctx, cancel := context.WithTimeout(ctx, workloadSampleInterval)
 	defer cancel()
-	response, err := client.GetSystemUsage(ctx, &vmmdv1.GetSystemUsageRequest{})
-	pool := response.GetWorkloadPool()
-	if err != nil || pool == nil || pool.GetUnavailable() || response.GetWorkloadMemoryLimitBytes() == 0 {
+	response, usageErr := client.GetSystemUsage(ctx, &vmmdv1.GetSystemUsageRequest{})
+	pressureAvailable := usageErr == nil && response.GetWorkloadPool() != nil &&
+		!response.GetWorkloadPool().GetUnavailable() && response.GetWorkloadMemoryLimitBytes() != 0
+	if !pressureAvailable {
 		controller.mu.Lock()
 		controller.workloadPressureHigh, controller.workloadPressureLow = 0, 0
 		controller.clearWorkloadReclaimLocked("pool_unavailable")
 		controller.mu.Unlock()
-		return errors.New("workload pool pressure is unavailable")
 	}
 	controller.mu.Lock()
 	now := time.Now()
-	controller.observeWorkloadPressureLocked(response, now)
+	if pressureAvailable {
+		controller.observeWorkloadPressureLocked(response, now)
+	}
 	skipSelection := false
 	hadCandidate := controller.workloadReclaim != nil
 	if candidate := controller.workloadReclaim; candidate != nil {
@@ -173,27 +168,11 @@ func (controller *Controller) sampleWorkloadRuns(ctx context.Context, client vmm
 			skipSelection = true
 		}
 	}
-	keys := make([]string, 0, len(controller.workloadRuns))
-	for key, run := range controller.workloadRuns {
-		markExpiredExecutionsUnknownLocked(run, now)
-		if !run.inFlight {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
 	runs := make([]*workloadRun, 0, 16)
 	if candidate := controller.workloadReclaim; candidate != nil {
 		runs = append(runs, candidate.run)
 	}
-	start := sort.SearchStrings(keys, controller.workloadSampleCursor)
-	for scanned := 0; scanned < len(keys) && len(runs) < 16; scanned++ {
-		key := keys[(start+scanned)%len(keys)]
-		controller.workloadSampleCursor = key + "\x00"
-		run := controller.workloadRuns[key]
-		if controller.workloadReclaim == nil || controller.workloadReclaim.run != run {
-			runs = append(runs, run)
-		}
-	}
+	runs = append(runs, controller.workloadRunPageLocked(16-len(runs), now)...)
 	controller.mu.Unlock()
 	workers := make(chan struct{}, 4)
 	var pending sync.WaitGroup
@@ -240,18 +219,24 @@ func (controller *Controller) sampleWorkloadRuns(ctx context.Context, client vmm
 	controller.mu.Lock()
 	skipSelection = skipSelection || hadCandidate && controller.workloadReclaim == nil
 	controller.mu.Unlock()
-	if !skipSelection && ctx.Err() == nil {
-		controller.selectWorkloadReclaim(ctx)
+	if pressureAvailable && !skipSelection && ctx.Err() == nil {
+		controller.selectWorkloadReclaim(ctx, runs)
 	}
-	return ctx.Err()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if !pressureAvailable {
+		return errors.New("workload pool pressure is unavailable")
+	}
+	return nil
 }
 
-func (controller *Controller) selectWorkloadReclaim(ctx context.Context) {
+func (controller *Controller) selectWorkloadReclaim(ctx context.Context, sampled []*workloadRun) {
 	controller.mu.Lock()
 	now := time.Now()
 	var oldest *workloadRun
 	if controller.workloadMemoryPressure && controller.workloadReclaim == nil {
-		for _, run := range controller.workloadRuns {
+		for _, run := range sampled {
 			if !workloadReclaimEligible(run, now) {
 				continue
 			}
@@ -312,29 +297,23 @@ func (controller *Controller) confirmAbsentWorkloadRun(run *workloadRun, now tim
 	if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
 		controller.clearWorkloadReclaimLocked("instance_absent")
 	}
-	delete(controller.workloadRuns, key)
+	controller.deleteWorkloadRunLocked(key)
 }
 
 // Only active namespaces contribute usage. Stored environments are not polled.
-func (controller *Controller) remoteWorkloadUsage(ctx context.Context, registrationID string, observedAt *timestamppb.Timestamp) *hostv1.Usage {
+func (controller *Controller) remoteWorkloadUsage(_ context.Context, registrationID string, observedAt *timestamppb.Timestamp) *hostv1.Usage {
 	now := time.Now()
 	controller.mu.Lock()
 	byEnvironment := make(map[string]*hostv1.Usage, len(controller.workloadRuns))
 	for _, run := range controller.workloadRuns {
-		byEnvironment[run.environmentID] = usageFromGuest(run.usage)
+		if run.registrationID == registrationID {
+			byEnvironment[run.environmentID] = usageFromGuest(run.usage)
+		}
 	}
 	fresh := controller.workloadRunsRecovered && now.Sub(controller.workloadPressureAt) >= 0 && now.Sub(controller.workloadPressureAt) <= 2*workloadSampleInterval
 	controller.mu.Unlock()
 	usage := &hostv1.Usage{SampledAt: observedAt}
-	environments, err := controller.store.ListRemoteEnvironmentsBounded(ctx, registrationID, resourcev2.MaxStoredWorkloads)
-	if err != nil {
-		fresh = false
-	}
-	for _, environment := range environments {
-		value, active := byEnvironment[environment.ID]
-		if !active {
-			continue
-		}
+	for _, value := range byEnvironment {
 		sampleAge := time.Duration(0)
 		if value != nil && value.GetSampledAt() != nil {
 			sampleAge = now.Sub(value.GetSampledAt().AsTime())

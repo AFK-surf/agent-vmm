@@ -198,9 +198,8 @@ func validTestInstallMaterial() operationHandoffPlan {
 	return operationHandoffPlan{
 		Version: 1, OperationID: "operation-1", RegistrationID: "registration-1", ScopeDigest: digest,
 		RemoteEnrollment: remoteEnrollmentMaterial{GatewayEndpoint: "vmm.example.test:7443", PolicyRevision: 1,
-			PoolPolicy: remotePoolMaterial{MaxEnvironments: 1, MaxEgressMode: "deny_all", MaxLeaseSeconds: 60,
-				DisconnectGraceSeconds: 1, StopGraceSeconds: 1,
-				PerEnvironmentLimits: resourcePolicy{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}}},
+			PoolPolicy: remotePoolMaterial{MaxEgressMode: "deny_all", StopGraceSeconds: 1,
+				PerEnvironmentLimits: resourcePolicy{PIDs: 1, DiskBytes: 1}}},
 		HostIdentityDigest: digest,
 	}
 }

@@ -87,6 +87,8 @@ type Controller struct {
 	sessions                 map[string]*sessionServer
 	observed                 map[string][]*hostv1.Container
 	workloadRuns             map[string]*workloadRun
+	workloadRunOrder         []string
+	workloadRunIndex         map[string]int
 	workloadRunsRecovered    bool
 	stoppedWorkloadInstances map[string]string
 	workloadPressureAt       time.Time
@@ -95,7 +97,7 @@ type Controller struct {
 	workloadOOMEvents        uint64
 	workloadPressureHigh     int
 	workloadPressureLow      int
-	workloadSampleCursor     string
+	workloadSampleOffset     int
 	workloadReclaim          *workloadReclaimCandidate
 	environmentLocks         sync.Map
 	integrationLocks         sync.Map
@@ -112,9 +114,6 @@ type Controller struct {
 	remoteCapacity           store.Environment
 	remoteCapacityV2         resourcev2.Contract
 	systemCapacity           store.Environment
-	remoteLeases             map[string]*remoteLease
-	allocationLeases         map[string]string
-	remoteLeaseGeneration    atomic.Uint64
 	hostFrontendGeneration   atomic.Uint64
 	hostFrontends            *hostLoopbackFrontendManager
 	remoteConnectionEpochs   map[string]uint64
@@ -278,14 +277,16 @@ func New(config Config) (*Controller, error) {
 		serviceTunnelSocket: config.ServiceTunnelSocket, meshControlSocket: config.MeshControlSocket, instanceDirectory: config.InstanceDirectory,
 		applianceSecrets: applianceSecrets, trustKeyProvider: config.TrustKeyProvider, sessions: make(map[string]*sessionServer), observed: make(map[string][]*hostv1.Container),
 		remoteCredentials: remoteconnector.NewCredentialStore(filepath.Join(supportDirectory, "remote-credentials")),
-		egress:            egress.New(), remoteLeases: make(map[string]*remoteLease), allocationLeases: make(map[string]string),
-		applianceHealth: make(map[string]*appliancev1.ApplianceHealth), pendingApplianceHealth: make(map[string]*appliancev1.ApplianceHealth),
+		egress:            egress.New(),
+		applianceHealth:   make(map[string]*appliancev1.ApplianceHealth), pendingApplianceHealth: make(map[string]*appliancev1.ApplianceHealth),
 		serviceListeners:         make(map[string]*serviceListenerRuntime),
 		pairings:                 make(map[string]*personalMeshPairingRuntime),
 		privateControllers:       make(map[string]*privateControllerRoute),
 		applianceFrontends:       make(map[string]*applianceFrontendRuntime),
 		domainMetrics:            make(map[string]*controllerDomainMetricState),
 		externalConnectors:       make(map[string]*externalConnectorRoute),
+		workloadRuns:             make(map[string]*workloadRun),
+		workloadRunIndex:         make(map[string]int),
 		allocationRetirementWake: make(chan struct{}, 1),
 		remoteCapacity:           environmentFromContract(remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes)),
 		remoteCapacityV2:         remoteWorkloadCapacity(config.CPUCount, config.MemoryBytes, config.StateBytes),
@@ -338,13 +339,12 @@ const unexpectedVMRecoveryTimeout = 10 * time.Minute
 
 func remoteWorkloadCapacity(cpuCount uint, memoryBytes uint64, stateBytes int64) resourcev2.Contract {
 	totalCPU := uint64(cpuCount) * 1000
-	maxCPU := max(uint64(500), totalCPU-min(totalCPU, uint64(1000)))
 	pids := uint64(2048)
 	writable := uint64(8 << 30)
 	if stateBytes > 0 && uint64(stateBytes)/4 < writable {
 		writable = uint64(stateBytes) / 4
 	}
-	return resourcev2.Contract{CPUMaxMillis: maxCPU, MemoryMaxBytes: memoryBytes / 4 * 3, PIDMax: pids, WritableQuotaBytes: writable}
+	return resourcev2.Contract{CPUMaxMillis: totalCPU, MemoryMaxBytes: memoryBytes, PIDMax: pids, WritableQuotaBytes: writable}
 }
 
 func environmentFromContract(capacity resourcev2.Contract) store.Environment {
@@ -354,8 +354,7 @@ func environmentFromContract(capacity resourcev2.Contract) store.Environment {
 
 func systemResourceCapacity(cpuCount uint, memoryBytes uint64) store.Environment {
 	totalCPU := uint64(cpuCount) * 1000
-	workload := remoteWorkloadCapacity(cpuCount, memoryBytes, 0)
-	return store.Environment{CPUMillis: uint32(totalCPU - workload.CPUMaxMillis), MemoryBytes: memoryBytes - workload.MemoryMaxBytes,
+	return store.Environment{CPUMillis: uint32(totalCPU), MemoryBytes: memoryBytes,
 		PIDs: 2048, DiskBytes: guestdisk.ControlSystemBytes}
 }
 
@@ -378,15 +377,6 @@ func (controller *Controller) prepareVMTransition(ctx context.Context) {
 
 func (controller *Controller) commitRunningVM(ctx context.Context, excludedInstallationID string, generation uint64, bootID string) error {
 	if err := controller.startEgress(); err != nil {
-		return err
-	}
-	var err error
-	if excludedInstallationID == "" {
-		err = controller.reconcileAppliances(ctx)
-	} else {
-		err = controller.reconcileAppliancesExcept(ctx, excludedInstallationID)
-	}
-	if err != nil {
 		return err
 	}
 	return controller.finishRunningVM(ctx, generation, bootID)
@@ -421,17 +411,6 @@ func (controller *Controller) invalidateRuntimeCapabilitiesLocked(ctx context.Co
 	controller.clearAllApplianceHealth()
 	controller.stopAllPrivateControllerRoutes()
 	controller.mu.Lock()
-	leases := make([]remoteLease, 0, len(controller.remoteLeases))
-	for _, lease := range controller.remoteLeases {
-		leases = append(leases, *lease)
-	}
-	controller.mu.Unlock()
-	for _, lease := range leases {
-		unlockEnvironment := controller.lockEnvironment(lease.environmentID)
-		_, _ = controller.finishLeaseLocked(lease.id, lease.generation, hostv1.LeaseState_LEASE_STATE_REVOKED, false, false, false)
-		unlockEnvironment()
-	}
-	controller.mu.Lock()
 	sessionIDs := make([]string, 0, len(controller.sessions))
 	for id := range controller.sessions {
 		sessionIDs = append(sessionIDs, id)
@@ -440,13 +419,16 @@ func (controller *Controller) invalidateRuntimeCapabilitiesLocked(ctx context.Co
 	for _, id := range sessionIDs {
 		_ = controller.revokeSession(ctx, id)
 	}
-	registrations, err := controller.store.ListRemoteRegistrations(ctx)
-	if err != nil {
-		return
-	}
-	for _, registration := range registrations {
-		if registration.ConnectionState == int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
-			_, _ = controller.store.SetRemoteConnection(ctx, registration.ID, registration.ConnectionInstance, int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
+	for cursor := ""; ; {
+		registrations, err := controller.store.ListRemoteRegistrationPage(ctx, cursor, 32)
+		if err != nil || len(registrations) == 0 {
+			return
+		}
+		for _, registration := range registrations {
+			cursor = registration.ID
+			if registration.ConnectionState == int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
+				_, _ = controller.store.SetRemoteConnection(ctx, registration.ID, registration.ConnectionInstance, int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
+			}
 		}
 	}
 }
@@ -533,10 +515,11 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 	identity := auth.Identity{Role: auth.Agent, SessionID: sessionID, EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID}
 	identity.RegistrationID = remoteIdentity.RegistrationID
 	identity.AllocationID = remoteIdentity.AllocationID
-	identity.LeaseID = remoteIdentity.LeaseID
+	identity.AllocationGeneration = remoteIdentity.AllocationGeneration
 	identity.ExecutionOwnerID = remoteIdentity.ExecutionOwnerID
 	limiter := newRPCRateLimiter(100, 200)
-	tracked := &sessionServer{listener: serving, path: socketPath}
+	tracked := &sessionServer{listener: serving, path: socketPath, registrationID: remoteIdentity.RegistrationID,
+		allocationID: remoteIdentity.AllocationID, allocationGeneration: remoteIdentity.AllocationGeneration}
 	statsHandler := &sessionStats{controller: controller, sessionID: sessionID, connections: &tracked.connections}
 	server := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMessageBytes),
@@ -550,7 +533,7 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 	hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{controller: controller})
 	origin := int32(hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_LOCAL_INTEGRATION)
 	if ownerKind == store.OwnerRemoteRegistration {
-		origin = int32(hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_REMOTE_LEASE)
+		origin = int32(hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_REMOTE_ALLOCATION)
 	}
 	now := time.Now()
 	session := store.Session{ID: sessionID, IntegrationID: integrationID, EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID,

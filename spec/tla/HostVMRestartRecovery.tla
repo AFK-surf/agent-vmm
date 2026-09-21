@@ -8,12 +8,12 @@ CONSTANTS EnforceInstalledStateGuard, StartSucceeds, RecoverySucceeds
 \* identity and filesystem contents remain ordinary Go configuration concerns.
 VARIABLES installedState, initializingState, hostRunning, vmState, boot,
           operation, phase, capabilitiesValid, policiesReady, connectorsReady,
-          accepting, leaseActive, recoveryUsed, shutdownRequested, actionRequired,
+          accepting, sessionActive, recoveryUsed, shutdownRequested, actionRequired,
           admissionEpoch, commitEpoch, guestQuiesced, vzTerminal, diskReleased
 
 vars == <<installedState, initializingState, hostRunning, vmState, boot,
           operation, phase, capabilitiesValid, policiesReady, connectorsReady,
-          accepting, leaseActive, recoveryUsed, shutdownRequested, actionRequired,
+          accepting, sessionActive, recoveryUsed, shutdownRequested, actionRequired,
           admissionEpoch, commitEpoch, guestQuiesced, vzTerminal, diskReleased>>
 
 Init ==
@@ -22,7 +22,7 @@ Init ==
   /\ hostRunning = FALSE /\ vmState = "stopped" /\ boot = 0
   /\ operation = "none" /\ phase = "idle"
   /\ capabilitiesValid = FALSE /\ policiesReady = FALSE
-  /\ connectorsReady = FALSE /\ accepting = FALSE /\ leaseActive = FALSE
+  /\ connectorsReady = FALSE /\ accepting = FALSE /\ sessionActive = FALSE
   /\ recoveryUsed = FALSE /\ shutdownRequested = FALSE /\ actionRequired = FALSE
   /\ admissionEpoch = 0 /\ commitEpoch = 0
   /\ guestQuiesced = TRUE /\ vzTerminal = TRUE /\ diskReleased = TRUE
@@ -36,7 +36,7 @@ StartHost ==
   /\ phase' = "execute"
   /\ UNCHANGED <<installedState, initializingState, vmState, boot,
                   capabilitiesValid, policiesReady, connectorsReady, accepting,
-                  leaseActive, recoveryUsed, shutdownRequested, actionRequired,
+                  sessionActive, recoveryUsed, shutdownRequested, actionRequired,
                   admissionEpoch, commitEpoch>>
 
 ResumeSuccess ==
@@ -45,7 +45,7 @@ ResumeSuccess ==
   /\ operation' = "none" /\ phase' = "idle"
   /\ capabilitiesValid' = TRUE /\ policiesReady' = TRUE
   /\ connectorsReady' = TRUE /\ accepting' = TRUE
-  /\ UNCHANGED <<installedState, initializingState, hostRunning, leaseActive,
+  /\ UNCHANGED <<installedState, initializingState, hostRunning, sessionActive,
                   recoveryUsed, shutdownRequested, actionRequired, admissionEpoch, commitEpoch,
                   guestQuiesced, vzTerminal, diskReleased>>
 
@@ -55,12 +55,12 @@ ResumeFailure ==
   /\ actionRequired' = TRUE
   /\ UNCHANGED <<installedState, initializingState, hostRunning, boot,
                   capabilitiesValid, policiesReady, connectorsReady, accepting,
-                  leaseActive, recoveryUsed, shutdownRequested, admissionEpoch, commitEpoch,
+                  sessionActive, recoveryUsed, shutdownRequested, admissionEpoch, commitEpoch,
                   guestQuiesced, vzTerminal, diskReleased>>
 
-AcquireLease ==
-  /\ accepting /\ ~leaseActive /\ operation = "none" /\ ~shutdownRequested
-  /\ leaseActive' = TRUE
+OpenSession ==
+  /\ accepting /\ ~sessionActive /\ operation = "none" /\ ~shutdownRequested
+  /\ sessionActive' = TRUE
   /\ UNCHANGED <<installedState, initializingState, hostRunning, vmState, boot,
                   operation, phase, capabilitiesValid, policiesReady,
                   connectorsReady, accepting, recoveryUsed, shutdownRequested,
@@ -72,20 +72,20 @@ UnexpectedStop ==
   /\ vmState' = "stopped" /\ operation' = "recover" /\ phase' = "execute"
   /\ recoveryUsed' = TRUE /\ capabilitiesValid' = FALSE
   /\ policiesReady' = FALSE /\ connectorsReady' = FALSE
-  /\ accepting' = FALSE /\ leaseActive' = FALSE
+  /\ accepting' = FALSE /\ sessionActive' = FALSE
   /\ admissionEpoch' = admissionEpoch + 1
   /\ vzTerminal' = TRUE /\ diskReleased' = TRUE
   /\ UNCHANGED <<installedState, initializingState, hostRunning, boot,
                   shutdownRequested, actionRequired, commitEpoch, guestQuiesced>>
 
 RecoverySuccess ==
-  /\ operation = "recover" /\ phase = "execute" /\ RecoverySucceeds /\ ~leaseActive
+  /\ operation = "recover" /\ phase = "execute" /\ RecoverySucceeds /\ ~sessionActive
   /\ vmState' = "running" /\ boot' = boot + 1 /\ phase' = "commit"
   /\ capabilitiesValid' = TRUE /\ policiesReady' = TRUE /\ connectorsReady' = TRUE
   /\ commitEpoch' = admissionEpoch
   /\ guestQuiesced' = FALSE /\ vzTerminal' = FALSE /\ diskReleased' = FALSE
   /\ UNCHANGED <<installedState, initializingState, hostRunning, operation,
-                  accepting, leaseActive, recoveryUsed, shutdownRequested, actionRequired,
+                  accepting, sessionActive, recoveryUsed, shutdownRequested, actionRequired,
                   admissionEpoch>>
 
 RecoveryCommit ==
@@ -93,7 +93,7 @@ RecoveryCommit ==
   /\ commitEpoch = admissionEpoch
   /\ accepting' = TRUE /\ operation' = "none" /\ phase' = "idle"
   /\ UNCHANGED <<installedState, initializingState, hostRunning, vmState, boot,
-                  capabilitiesValid, policiesReady, connectorsReady, leaseActive,
+                  capabilitiesValid, policiesReady, connectorsReady, sessionActive,
                   recoveryUsed, shutdownRequested, actionRequired, admissionEpoch, commitEpoch,
                   guestQuiesced, vzTerminal, diskReleased>>
 
@@ -101,7 +101,7 @@ TerminalDuringCommit ==
   /\ operation = "recover" /\ phase = "commit"
   /\ vmState' = "failed" /\ operation' = "none" /\ phase' = "idle"
   /\ accepting' = FALSE /\ capabilitiesValid' = FALSE /\ policiesReady' = FALSE
-  /\ connectorsReady' = FALSE /\ leaseActive' = FALSE
+  /\ connectorsReady' = FALSE /\ sessionActive' = FALSE
   /\ admissionEpoch' = admissionEpoch + 1 /\ actionRequired' = TRUE
   /\ UNCHANGED <<installedState, initializingState, hostRunning, boot,
                   recoveryUsed, shutdownRequested, commitEpoch, guestQuiesced,
@@ -113,14 +113,14 @@ RecoveryFailure ==
   /\ actionRequired' = TRUE
   /\ UNCHANGED <<installedState, initializingState, hostRunning, boot,
                   capabilitiesValid, policiesReady, connectorsReady, accepting,
-                  leaseActive, recoveryUsed, shutdownRequested, admissionEpoch, commitEpoch,
+                  sessionActive, recoveryUsed, shutdownRequested, admissionEpoch, commitEpoch,
                   guestQuiesced, vzTerminal, diskReleased>>
 
 BeginShutdown ==
   /\ hostRunning /\ operation = "none"
   /\ operation' = "shutdown" /\ phase' = "quiesce" /\ shutdownRequested' = TRUE
   /\ capabilitiesValid' = FALSE /\ policiesReady' = FALSE
-  /\ connectorsReady' = FALSE /\ accepting' = FALSE /\ leaseActive' = FALSE
+  /\ connectorsReady' = FALSE /\ accepting' = FALSE /\ sessionActive' = FALSE
   /\ admissionEpoch' = admissionEpoch + 1
   /\ UNCHANGED <<installedState, initializingState, hostRunning, vmState, boot,
                   recoveryUsed, actionRequired, commitEpoch, guestQuiesced,
@@ -131,7 +131,7 @@ GuestQuiesceSuccess ==
   /\ guestQuiesced' = TRUE /\ phase' = "terminal"
   /\ UNCHANGED <<installedState, initializingState, hostRunning, vmState, boot,
                   operation, capabilitiesValid, policiesReady, connectorsReady,
-                  accepting, leaseActive, recoveryUsed, shutdownRequested,
+                  accepting, sessionActive, recoveryUsed, shutdownRequested,
                   actionRequired, admissionEpoch, commitEpoch, vzTerminal,
                   diskReleased>>
 
@@ -140,7 +140,7 @@ GuestQuiesceFailure ==
   /\ actionRequired' = TRUE /\ phase' = "terminal"
   /\ UNCHANGED <<installedState, initializingState, hostRunning, vmState, boot,
                   operation, capabilitiesValid, policiesReady, connectorsReady,
-                  accepting, leaseActive, recoveryUsed, shutdownRequested,
+                  accepting, sessionActive, recoveryUsed, shutdownRequested,
                   admissionEpoch, commitEpoch, guestQuiesced, vzTerminal,
                   diskReleased>>
 
@@ -149,7 +149,7 @@ VZTerminal ==
   /\ vmState' = "stopped" /\ vzTerminal' = TRUE /\ phase' = "release"
   /\ UNCHANGED <<installedState, initializingState, hostRunning, boot, operation,
                   capabilitiesValid, policiesReady, connectorsReady, accepting,
-                  leaseActive, recoveryUsed, shutdownRequested, actionRequired,
+                  sessionActive, recoveryUsed, shutdownRequested, actionRequired,
                   admissionEpoch, commitEpoch, guestQuiesced, diskReleased>>
 
 ReleaseDisk ==
@@ -157,7 +157,7 @@ ReleaseDisk ==
   /\ diskReleased' = TRUE /\ phase' = "exit"
   /\ UNCHANGED <<installedState, initializingState, hostRunning, vmState, boot,
                   operation, capabilitiesValid, policiesReady, connectorsReady,
-                  accepting, leaseActive, recoveryUsed, shutdownRequested,
+                  accepting, sessionActive, recoveryUsed, shutdownRequested,
                   actionRequired, admissionEpoch, commitEpoch, guestQuiesced,
                   vzTerminal>>
 
@@ -166,11 +166,11 @@ ExitHost ==
   /\ hostRunning' = FALSE /\ operation' = "none" /\ phase' = "idle"
   /\ UNCHANGED <<installedState, initializingState, vmState, boot,
                   capabilitiesValid, policiesReady, connectorsReady, accepting,
-                  leaseActive, recoveryUsed, shutdownRequested, actionRequired,
+                  sessionActive, recoveryUsed, shutdownRequested, actionRequired,
                   admissionEpoch, commitEpoch, guestQuiesced, vzTerminal,
                   diskReleased>>
 
-Next == StartHost \/ ResumeSuccess \/ ResumeFailure \/ AcquireLease \/
+Next == StartHost \/ ResumeSuccess \/ ResumeFailure \/ OpenSession \/
         UnexpectedStop \/ RecoverySuccess \/ RecoveryCommit \/ TerminalDuringCommit \/ RecoveryFailure \/
         BeginShutdown \/ GuestQuiesceSuccess \/ GuestQuiesceFailure \/
         VZTerminal \/ ReleaseDisk \/ ExitHost
@@ -181,7 +181,7 @@ TypeOK ==
   /\ boot \in Nat /\ operation \in {"none", "start", "recover", "shutdown"}
   /\ phase \in {"idle", "execute", "commit", "quiesce", "terminal", "release", "exit"}
   /\ capabilitiesValid \in BOOLEAN /\ policiesReady \in BOOLEAN
-  /\ connectorsReady \in BOOLEAN /\ accepting \in BOOLEAN /\ leaseActive \in BOOLEAN
+  /\ connectorsReady \in BOOLEAN /\ accepting \in BOOLEAN /\ sessionActive \in BOOLEAN
   /\ recoveryUsed \in BOOLEAN /\ shutdownRequested \in BOOLEAN /\ actionRequired \in BOOLEAN
   /\ admissionEpoch \in Nat /\ commitEpoch \in Nat
   /\ guestQuiesced \in BOOLEAN /\ vzTerminal \in BOOLEAN /\ diskReleased \in BOOLEAN
@@ -189,7 +189,7 @@ TypeOK ==
 NoFreshVMStart == vmState = "running" => installedState /\ ~initializingState
 AcceptingRequiresHealthyRuntime == accepting => vmState = "running" /\ capabilitiesValid /\ policiesReady /\ connectorsReady
 RecoveryRevokesAdmission == operation = "recover" /\ phase = "execute" => ~accepting /\ ~capabilitiesValid
-RecoveryClearsLease == operation = "recover" => ~leaseActive
+RecoveryClearsSession == operation = "recover" => ~sessionActive
 AtMostOneRecoveryOwner == operation = "recover" => recoveryUsed
 ShutdownExcludesRecoveryOwner == shutdownRequested => operation # "recover"
 ExhaustedRecoveryFailsClosed == actionRequired => ~accepting

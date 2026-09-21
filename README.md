@@ -95,8 +95,8 @@ import.
 A new volume gets a random generation marker in a private sibling directory.
 The workload mount does not expose this marker. Volume deletion removes the
 marker, and namespace deletion removes the marker directory. A volume that
-predates this layout uses its filesystem incarnation until the owner recreates
-it and assigns a random generation.
+predates this layout gets a marker when the Guest owner first reads it. File
+metadata changes do not change this generation.
 
 Cleanup waits at most 30 seconds for the inventory, remote, and environment
 locks. This deadline also includes the final plan read. The Host creates the

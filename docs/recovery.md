@@ -1,13 +1,13 @@
 # Appliance recovery
 
-An installation owns one verified artifact and one encrypted data volume. Host
-state records the current boot ID, container instance, bootstrap ID, connection
-epoch, and installation revision. A restart creates a fresh boot/container
-instance and revokes the previous runtime capabilities before publishing the
-replacement.
+An installation owns one canonical artifact manifest and one encrypted data
+volume. Host state records the selected image digest, current boot ID, container
+instance, bootstrap ID, connection epoch, and installation revision. A restart
+creates a fresh boot and container instance. It revokes the previous runtime
+capabilities before it publishes the replacement.
 
 An unexpected Virtualization.framework stop is handled once by the running
-Host process. It revokes remote sessions, active lease capabilities, and
+Host process. It revokes remote sessions, command capabilities, and
 connector admission before using the same `state.raw`, then restores
 appliances, policies, and connectors
 under a fresh Guest boot ID. If that attempt fails, or if the recovered VM stops
@@ -70,36 +70,61 @@ The final `SELECT` must match the audited row set before the new Host starts.
 New databases create the non-defaulted, non-null column directly. Agent VMM has
 no legacy schema reader, inferred value, or runtime backfill.
 
-### Host schema 18 to 19 conversion
+### Host schema 18 through 22 to 23 conversion
 
-Schema 19 replaces the workload reservation projection with the allocation
-generation on each remote environment. The conversion keeps registrations,
-environment and namespace identities, allocation identities, policies, leases,
-credentials, volumes, and Guest data. It copies each exact generation from the
-schema-18 reservation row, then removes the obsolete reservation table. The
-table is a Host admission projection. It is not the owner of workload data.
+Schema 19 moved the allocation generation from the workload reservation to each
+remote environment. Schema 20 removes the artifact trust projection. Schema 21
+removes the allocation lease projection. Schema 22 removes compute reservations
+and per-installation CPU and memory projections. Schema 23 records whether an
+appliance volume uses an old Host block or a Guest image. The
+conversion keeps registrations, environment and namespace identities, allocation
+identities, policies, credentials, artifact manifests, volumes, and Guest data.
+For schema 18, it copies each exact generation before it removes the obsolete
+reservation table. That table is a Host admission projection. It does not own
+workload data.
 
-Use this procedure for a schema-18 Host database:
+Use this procedure for a schema-18 through schema-22 Host database:
 
 1. Stop the Host and connector launchd jobs. Confirm that no Host process has
    the database open.
 2. Create a restorable SQLite backup, including any WAL content. Record its
    digest and the source schema version.
-3. Start the schema-19 Host once. The Host converts the database in one
+3. Start the current schema-23 Host once. The Host converts the database in one
    transaction before it starts the VM or accepts controller work.
 4. Confirm that the Host starts and that every remote environment reports its
    original allocation identity and a nonzero allocation generation.
 5. Keep the backup until the controller has reconciled the bounded environment
    inventory.
 
-The conversion copies each exact allocation generation to its environment. It
-deletes the retired workload reservation table and obsolete allocation rows.
-It preserves fixed system and runtime reservation rows. It also deletes the
-retired aggregate-capacity columns. The conversion fails closed if a remote
-environment has no exact matching reservation. The transaction rolls back and
-leaves schema 18 unchanged. Stop the rollout if this check fails. Restore the
-pre-cutover database only if the database becomes unreadable. After schema 19
-commits, repair forward. An older Host is not a rollback target.
+For schema 18, the conversion copies each exact allocation generation to its
+environment. It deletes obsolete allocation rows. It fails closed when a remote
+environment has no matching legacy reservation. Later steps remove the complete
+reservation table after the generation copy. The conversion preserves
+registrations, allocations, appliance installations, artifacts, volumes, PID
+limits, disk limits, egress rules, and frontend rules. It removes allocation
+leases and CPU or memory reservation fields. The transaction leaves the source
+schema unchanged if a step fails. Stop the rollout if this check fails. Restore
+the pre-cutover database only if the database becomes unreadable. After schema
+23 commits, repair forward. An older Host is not a rollback target.
+
+### Appliance data image conversion
+
+Schema 23 marks an existing appliance volume as a Host block. The next start
+attaches only that old image. The Guest stops the affected appliance writer,
+copies the exact image to the control filesystem, and opens the copy with the
+existing key. A matching LUKS identity and a successful mount verify the copy.
+
+The Host changes the volume location only after the Guest starts the exact
+appliance from the copied image. Before this commit, restart uses the old Host
+image. After this commit, restart uses the Guest image and repairs forward. The
+Host removes the old image after the location commit. A crash before cleanup
+can leave an unreferenced old image. The next stopped-VM configuration removes
+that image only when the durable location already names the Guest image.
+
+A new installation creates its image in the Guest. It does not attach a VZ
+block or restart the shared VM. Removal first stops the exact appliance. VMMD
+then deletes the exact Guest image through the appliance data RPC. The removal
+operation keeps its durable pending state until data and secrets are deleted.
 
 ### Single-filesystem state-disk conversion
 
@@ -182,7 +207,7 @@ while Agent VMM is stopped:
 
 Do not copy unsupported SQLite databases, credentials, appliance secrets,
 device-root keys, or data volumes into the new installation. Production code
-converts only the documented schema-18 format.
+converts only the documented schema 18 through 22 formats.
 
 ## Host replacement and cleanup runbook
 
@@ -508,7 +533,7 @@ one-off shell history as an operational procedure.
 | A newly formatted `state.raw` has fewer allocated blocks than its configured size | ext4 formatting issued discard against the sparse backing file | Current builds format with `nodiscard`; the startup fully-backed check restores allocation before boot. If restoration fails, stop before VM start and repair Host storage. |
 | The Host and VZ process start, but VMMD never publishes health | The failure occurred before a working VMMD listener; a fresh-disk comparison alone does not identify the cause | Preserve the exact disk and first Guest stage/error. Diagnose storage, containerd, and recovery separately. Do not format or replace the disk based only on a timeout. An explicitly approved reinstall must preserve required workload data and identity recovery material before isolating the old installation. |
 | Runtime image import returns a bare `Unknown desc = EOF` after the archive was sent | The Host treated stream EOF during the archive-chunk stage as a transport failure instead of receiving the Guest's final result | Install a Host containing the chunk-stage `CloseAndRecv` fix, then retry the same content-addressed import. Do not recreate the disk or registration for this error. |
-| An identical appliance block configuration fails while the VM is starting or running | A repeated reconciler request reached a non-idempotent state guard | Use a Host that accepts an identical configuration as a no-op; differing block configuration still fails closed and requires the owning lifecycle to stop the VM first. |
+| An old appliance cannot complete its first schema-23 start | The Host image is missing, has the wrong size, or the Guest copy does not match the installation LUKS identity | Preserve both images and the operation state. Repair the exact source or key. Do not create an empty replacement image. |
 
 ### Keeping this runbook current
 

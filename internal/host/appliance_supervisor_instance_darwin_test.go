@@ -45,7 +45,7 @@ func TestBundledApplianceArtifactReplacesFailedInstalledArtifact(t *testing.T) {
 	}
 	oldArtifact, _, err := database.StageApplianceArtifact(ctx, store.ApplianceArtifact{ID: "old-artifact", CanonicalHash: oldHash,
 		ImageDigest: oldManifest.GetImageManifestDigest(), ImageReference: oldManifest.GetImageReference(), Platform: oldManifest.GetPlatform(),
-		ProductID: oldManifest.GetProductId(), Release: oldManifest.GetRelease(), Verified: true, Manifest: oldCanonical},
+		ProductID: oldManifest.GetProductId(), Release: oldManifest.GetRelease(), Manifest: oldCanonical},
 		store.ApplianceOperation{ID: "stage", RequestID: "stage", State: 2, Phase: 5})
 	if err != nil {
 		t.Fatal(err)
@@ -56,12 +56,9 @@ func TestBundledApplianceArtifactReplacesFailedInstalledArtifact(t *testing.T) {
 	installation, _, _, err := database.InstallApplianceDomain(ctx, store.ApplianceInstallation{ID: "agent-vmm-mcp", ProductID: oldArtifact.ProductID,
 		ArtifactID: oldArtifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), Revision: 1,
 		EncryptedVolumeID: "volume", EncryptedVolumeIdentity: "volume-identity", DataVolumeBytes: 1 << 30}, grant,
-		store.ResourceReservation{ID: "reservation", OwnerID: "agent-vmm-mcp", OwnerKind: store.ReservationOwnerAppliance,
-			ResourceID: "system", ResourceKind: store.ReservationResourceSystem, Amount: grant.System},
-		store.ResourceAmount{CPUMillis: 100, MemoryBytes: 100, PIDs: 100, DiskBytes: 100},
-		store.RemoteRegistration{ID: "registration", DisplayName: "private", ProtocolVersion: "1", MaxEnvironments: 2,
-			PerEnvCPUMillis: 2, PerEnvMemoryBytes: 2, PerEnvPIDs: 2, PerEnvDiskBytes: 2, MaxEgressMode: 1,
-			MaxLeaseSeconds: 60, DisconnectGraceSeconds: 10, StopGraceSeconds: 1, State: 1, ConnectionState: 1,
+		store.RemoteRegistration{ID: "registration", DisplayName: "private", ProtocolVersion: "1",
+			PerEnvPIDs: 2, PerEnvDiskBytes: 2, MaxEgressMode: 1,
+			StopGraceSeconds: 1, State: 1, ConnectionState: 1,
 			EnrollmentState: 3, ConnectorPhase: 1, OwnerKind: store.RemoteRegistrationPrivate, InstallationID: "agent-vmm-mcp"},
 		frontendsFromProto(approved.GetFrontends()), store.ApplianceOperation{ID: "install", RequestID: "install", State: 2, Phase: 5})
 	if err != nil {
@@ -159,7 +156,7 @@ func TestApplianceReconcileRejectsStaleObservedInstance(t *testing.T) {
 	ctx := context.Background()
 	artifact, _, err := database.StageApplianceArtifact(ctx, store.ApplianceArtifact{
 		ID: "artifact", CanonicalHash: []byte("canonical"), ImageDigest: "sha256:digest", ImageReference: "registry.example/appliance@sha256:digest",
-		Platform: "linux/arm64", ProductID: "product", Release: "1", Verified: true,
+		Platform: "linux/arm64", ProductID: "product", Release: "1",
 		Manifest: []byte("manifest"),
 	}, store.ApplianceOperation{ID: "stage-operation", RequestID: "stage", State: 2, Phase: 5})
 	if err != nil {
@@ -167,10 +164,8 @@ func TestApplianceReconcileRejectsStaleObservedInstance(t *testing.T) {
 	}
 	if _, _, _, err := database.InstallApplianceDomain(ctx,
 		store.ApplianceInstallation{ID: "installation", ProductID: artifact.ProductID, ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), Revision: 1, EncryptedVolumeID: "volume", EncryptedVolumeIdentity: "volume-identity", DataVolumeBytes: 1 << 20},
-		store.ApplianceGrant{Revision: 1, System: store.ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}, MaxEnvironments: 1, PerEnvironment: store.ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1, MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1},
-		store.ResourceReservation{ID: "reservation", OwnerID: "installation", OwnerKind: store.ReservationOwnerAppliance, ResourceID: "system", ResourceKind: store.ReservationResourceSystem, Amount: store.ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}},
-		store.ResourceAmount{CPUMillis: 2, MemoryBytes: 2, PIDs: 2, DiskBytes: 2},
-		store.RemoteRegistration{ID: "registration", DisplayName: "private", ProtocolVersion: "1", MaxEnvironments: 1, PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1, OwnerKind: store.RemoteRegistrationPrivate, InstallationID: "installation"},
+		store.ApplianceGrant{Revision: 1, System: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, PerEnvironment: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1},
+		store.RemoteRegistration{ID: "registration", DisplayName: "private", ProtocolVersion: "1", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1, OwnerKind: store.RemoteRegistrationPrivate, InstallationID: "installation"},
 		nil, store.ApplianceOperation{ID: "install-operation", RequestID: "install", State: 2, Phase: 5}); err != nil {
 		t.Fatal(err)
 	}
@@ -198,23 +193,20 @@ func TestPrepareMissingApplianceRecoveryAdvancesFenceOnce(t *testing.T) {
 	ctx := context.Background()
 	artifact, _, err := database.StageApplianceArtifact(ctx, store.ApplianceArtifact{
 		ID: "artifact", CanonicalHash: []byte("canonical"), ImageDigest: "sha256:digest", ImageReference: "cue.local/mcp@sha256:digest",
-		Platform: "linux/arm64", ProductID: "product", Release: "1", Verified: true, Manifest: []byte("manifest"),
+		Platform: "linux/arm64", ProductID: "product", Release: "1", Manifest: []byte("manifest"),
 	}, store.ApplianceOperation{ID: "stage", RequestID: "stage", State: 2, Phase: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	amount := store.ResourceAmount{CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1}
+	amount := store.ResourceAmount{PIDs: 1, DiskBytes: 1}
 	installation, _, _, err := database.InstallApplianceDomain(ctx, store.ApplianceInstallation{ID: "installation", ProductID: artifact.ProductID,
 		ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), Revision: 1,
 		EncryptedVolumeID: "volume", EncryptedVolumeIdentity: "volume-identity", DataVolumeBytes: 1 << 30},
-		store.ApplianceGrant{Revision: 1, System: amount, MaxEnvironments: 1, PerEnvironment: amount,
-			EgressMode: 1, MaxEgressMode: 1, MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1},
-		store.ResourceReservation{ID: "reservation", OwnerID: "installation", OwnerKind: store.ReservationOwnerAppliance,
-			ResourceID: "system", ResourceKind: store.ReservationResourceSystem, Amount: amount},
-		store.ResourceAmount{CPUMillis: 2, MemoryBytes: 2, PIDs: 2, DiskBytes: 2},
-		store.RemoteRegistration{ID: "registration", DisplayName: "private", ProtocolVersion: "1", MaxEnvironments: 1,
-			PerEnvCPUMillis: 1, PerEnvMemoryBytes: 1, PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
-			MaxLeaseSeconds: 1, DisconnectGraceSeconds: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1,
+		store.ApplianceGrant{Revision: 1, System: amount, PerEnvironment: amount,
+			EgressMode: 1, MaxEgressMode: 1},
+		store.RemoteRegistration{ID: "registration", DisplayName: "private", ProtocolVersion: "1",
+			PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
+			StopGraceSeconds: 1, State: 1, ConnectionState: 1,
 			EnrollmentState: 3, ConnectorPhase: 1, OwnerKind: store.RemoteRegistrationPrivate, InstallationID: "installation"},
 		nil, store.ApplianceOperation{ID: "install", RequestID: "install", State: 2, Phase: 5})
 	if err != nil {
@@ -229,7 +221,7 @@ func TestPrepareMissingApplianceRecoveryAdvancesFenceOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	support := t.TempDir()
-	controller := &Controller{store: database, supportDirectory: support, applianceHealth: make(map[string]*appliancev1.ApplianceHealth), remoteLeases: make(map[string]*remoteLease)}
+	controller := &Controller{store: database, supportDirectory: support, applianceHealth: make(map[string]*appliancev1.ApplianceHealth), sessions: make(map[string]*sessionServer)}
 	prepared, recover, err := controller.prepareApplianceRecoveryLocked(ctx, installation)
 	if err != nil {
 		t.Fatal(err)

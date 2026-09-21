@@ -145,9 +145,8 @@ func installAndActivateBundledMCP(t *testing.T, harness *hostHarness) {
 		dynamic.MaxConcurrentConnectionsPerLease = min(dynamic.GetMaxConcurrentConnectionsPerLease(), 2)
 		dynamic.ConnectionBounds.MaxConcurrentStreams = dynamic.GetMaxConcurrentConnectionsPerLease()
 	}
-	systemFloor := proto.Clone(manifest.GetSystemResources().GetFloor()).(*hostv1.ResourceLimits)
-	grant := &appliancev1.ApprovedGrant{SystemResources: &appliancev1.ResourceRange{Floor: systemFloor, Ceiling: proto.Clone(systemFloor).(*hostv1.ResourceLimits)}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
-		Capacity:  &appliancev1.CapacityGrant{MaxEnvironments: 2, PerEnvironmentLimits: limits(400, 512<<20, 256, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, MaxLeaseSeconds: 300, DisconnectGraceSeconds: 5},
+	grant := &appliancev1.ApprovedGrant{EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL,
+		Capacity:  &appliancev1.CapacityGrant{PerEnvironmentLimits: limits(400, 512<<20, 256, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL},
 		Frontends: manifest.GetRequestedFrontends(), DynamicHostLoopback: dynamic, Revision: current.GetRevision()}
 	_, err = admin.PlanInstall(context.Background(), &appliancev1.PlanInstallRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-install-plan", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
 	if err != nil {
@@ -198,17 +197,13 @@ func assertMCPAllocationsRetained(t *testing.T, databasePath string) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	var nonRetained, activeLeases int
+	var nonRetained int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM environments e JOIN remote_registrations r ON r.id=e.registration_id
 		WHERE r.installation_id=? AND e.allocation_state!=?`, bundledMCPInstallationID, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED)).Scan(&nonRetained); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.QueryRow(`SELECT COUNT(*) FROM remote_lease_projections l JOIN remote_registrations r ON r.id=l.registration_id
-		WHERE r.installation_id=?`, bundledMCPInstallationID).Scan(&activeLeases); err != nil {
-		t.Fatal(err)
-	}
-	if nonRetained != 0 || activeLeases != 0 {
-		t.Fatalf("disabled MCP allocations: non-retained=%d active-leases=%d", nonRetained, activeLeases)
+	if nonRetained != 0 {
+		t.Fatalf("disabled MCP allocations: non-retained=%d", nonRetained)
 	}
 }
 

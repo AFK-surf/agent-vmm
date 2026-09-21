@@ -374,12 +374,11 @@ func TestManagedInspectResolvesBFTWorkloadThroughExistingOwners(t *testing.T) {
 		getRegistration: func(_ context.Context, socket, id string) (*hostv1.RemoteRegistration, error) {
 			return &hostv1.RemoteRegistration{Id: id, Allocations: []*hostv1.RemoteAllocation{{
 				AllocationId: "allocation-1", EnvironmentId: "environment-1", Generation: 7,
-				Lease: &hostv1.RemoteLease{WorkloadRef: "workload-1", State: hostv1.LeaseState_LEASE_STATE_ACTIVE},
 			}}}, nil
 		},
 	}
 	var stdout, stderr bytes.Buffer
-	exit := runManagedCLI([]string{"inspect", "--json", "--lifecycle-helper", "/tmp/lifecycle", "--registration-id", "registration-1", "--environment-id", "environment-1", "--workload-id", "workload-1"}, &stdout, &stderr, runtime)
+	exit := runManagedCLI([]string{"inspect", "--json", "--lifecycle-helper", "/tmp/lifecycle", "--registration-id", "registration-1", "--environment-id", "environment-1", "--workload-id", "allocation-1"}, &stdout, &stderr, runtime)
 	if exit != 0 || stderr.Len() != 0 {
 		t.Fatalf("exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
@@ -394,7 +393,7 @@ func TestManagedInspectResolvesBFTWorkloadThroughExistingOwners(t *testing.T) {
 
 func TestManagedScopeValidationRejectsAmbiguousOrCrossOwnedTargets(t *testing.T) {
 	status := map[string]any{"hostReadable": true, "operatorSocket": "/tmp/operator.sock"}
-	base := managedOptions{registrationID: "registration-1", workloadID: "workload-1"}
+	base := managedOptions{registrationID: "registration-1", workloadID: "allocation-1"}
 	tests := []struct {
 		name         string
 		opts         managedOptions
@@ -403,8 +402,8 @@ func TestManagedScopeValidationRejectsAmbiguousOrCrossOwnedTargets(t *testing.T)
 	}{
 		{name: "missing workload", opts: base, registration: &hostv1.RemoteRegistration{Id: "registration-1"}},
 		{name: "multiple workload allocations", opts: base, registration: &hostv1.RemoteRegistration{Id: "registration-1", Allocations: []*hostv1.RemoteAllocation{
-			{AllocationId: "allocation-1", Lease: &hostv1.RemoteLease{WorkloadRef: "workload-1"}},
-			{AllocationId: "allocation-2", Lease: &hostv1.RemoteLease{WorkloadRef: "workload-1"}},
+			{AllocationId: "allocation-1"},
+			{AllocationId: "allocation-1"},
 		}}},
 		{name: "allocation bound", opts: base, registration: func() *hostv1.RemoteRegistration {
 			allocations := make([]*hostv1.RemoteAllocation, 101)

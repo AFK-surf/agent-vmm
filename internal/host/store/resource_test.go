@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"path/filepath"
@@ -21,16 +20,16 @@ func newWorkloadStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { database.Close() })
 	ctx := context.Background()
-	_, err = database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", MaxEnvironments: 256,
-		PerEnvCPUMillis: 2000, PerEnvMemoryBytes: 2 << 30, PerEnvPIDs: 512, PerEnvDiskBytes: 4 << 30,
-		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
+	_, err = database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2",
+		PerEnvPIDs: 512, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return database
 }
 
-func TestConcurrentStoredWorkloadsShareLimitsAndStopAt256(t *testing.T) {
+func TestConcurrentStoredWorkloadsShareLimitsAboveOldTotalGate(t *testing.T) {
 	database := newWorkloadStore(t)
 	ctx := context.Background()
 	contract := resourcev2.Contract{CPUMaxMillis: 2000, MemoryMaxBytes: 2 << 30, PIDMax: 512, WritableQuotaBytes: 4 << 30}
@@ -48,22 +47,18 @@ func TestConcurrentStoredWorkloadsShareLimitsAndStopAt256(t *testing.T) {
 	}
 	workers.Wait()
 	close(results)
-	admitted, rejected := 0, 0
+	admitted := 0
 	for err := range results {
-		switch {
-		case err == nil:
-			admitted++
-		case errors.Is(err, ErrStoredWorkloadLimit):
-			rejected++
-		default:
+		if err != nil {
 			t.Fatalf("admission failed: %v", err)
 		}
+		admitted++
 	}
-	if admitted != 256 || rejected != 1 {
-		t.Fatalf("admitted=%d rejected=%d", admitted, rejected)
+	if admitted != 257 {
+		t.Fatalf("admitted=%d", admitted)
 	}
 	environments, err := database.ListRemoteEnvironments(ctx, "registration")
-	if err != nil || len(environments) != 256 {
+	if err != nil || len(environments) != 257 {
 		t.Fatalf("stored=%d err=%v", len(environments), err)
 	}
 }
@@ -88,23 +83,7 @@ func TestNamespaceProjectionCannotReviveTerminalOrReplaceGeneration(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease := RemoteLeaseProjection{LeaseID: "lease", RegistrationID: "registration", AllocationID: "allocation", AllocationGeneration: 6, EnvironmentID: environment.ID, WorkloadRef: "work", Generation: 1, ExpiresAt: time.Now().Add(time.Minute), State: int32(hostv1.LeaseState_LEASE_STATE_ACTIVE)}
-	if _, err := database.AcquireRemoteLeaseProjection(ctx, lease, environment.PolicyRevision); err == nil {
-		t.Fatal("stale allocation acquired lease")
-	}
-	lease.AllocationGeneration = 7
-	leased, err := database.AcquireRemoteLeaseProjection(ctx, lease, environment.PolicyRevision)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := database.CommitNamespaceProjection(ctx, environment); err != nil {
-		t.Fatal(err)
-	}
-	unchanged, err := database.GetEnvironment(ctx, environment.ID)
-	if err != nil || unchanged.AllocationState != leased.AllocationState || unchanged.PolicyRevision != leased.PolicyRevision {
-		t.Fatalf("projection replay replaced lease: %+v err=%v", unchanged, err)
-	}
-	retired, err := database.FinishRemoteLeaseProjection(ctx, "registration", "lease", environment.ID, leased.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	retired, err := database.SetAllocationState(ctx, environment.ID, environment.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
 	if err != nil {
 		t.Fatal(err)
 	}

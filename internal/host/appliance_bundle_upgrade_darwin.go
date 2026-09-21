@@ -80,7 +80,7 @@ func (controller *Controller) reconcileBundledApplianceArtifactManifest(ctx cont
 		installation.State, int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), store.ApplianceArtifact{
 			ID: artifactID, CanonicalHash: canonicalHash, ImageDigest: manifest.GetImageManifestDigest(),
 			ImageReference: manifest.GetImageReference(), Platform: manifest.GetPlatform(), ProductID: manifest.GetProductId(),
-			Release: manifest.GetRelease(), Verified: true, Manifest: canonical,
+			Release: manifest.GetRelease(), Manifest: canonical,
 		})
 	return err
 }

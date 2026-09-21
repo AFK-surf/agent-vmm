@@ -88,31 +88,6 @@ func TestExpiredOperationBecomesUnknownAndStillProtectsWorkload(t *testing.T) {
 	}
 }
 
-func TestExpiredRemoteLeaseKeepsAcceptedExecutionRight(t *testing.T) {
-	controller, run, client := executionTestFixture(t)
-	request := mainExecution("main:accepted-before-lease-expiry")
-	if _, err := client.AcquireExecution(context.Background(), request); err != nil {
-		t.Fatal(err)
-	}
-	controller.mu.Lock()
-	controller.remoteLeases["lease-a"].expiresAt = time.Now().Add(-time.Second)
-	controller.mu.Unlock()
-
-	listed, err := client.ListExecutions(context.Background(), listExecutions())
-	if err != nil || listed.GetStatus() != hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_PRESENT ||
-		len(listed.GetExecutions()) != 1 || listed.GetExecutions()[0].GetExecutionId() != request.GetExecutionId() {
-		t.Fatalf("expired parent lease changed accepted execution: %+v, %v", listed, err)
-	}
-	if run.executions[request.GetExecutionId()] == nil {
-		t.Fatal("expired parent lease removed accepted execution right")
-	}
-	if _, err := client.QuiesceContainer(context.Background(), &hostv1.QuiesceContainerRequest{
-		RequestId: "quiet-after-lease-expiry", ContainerId: "main", ExpectedInstanceId: "instance-a",
-	}); status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("expired parent lease allowed quiet past accepted work: %v", err)
-	}
-}
-
 func TestExecutionCapacityAndLegacyHolderValidation(t *testing.T) {
 	_, run, client := executionTestFixture(t)
 	ctx := context.Background()
@@ -203,7 +178,7 @@ func TestReplacementControlSessionCanSettleSameOwnerUnderSameAuthority(t *testin
 		t.Fatal(err)
 	}
 	intruder := executionClient(t, controller, auth.Identity{
-		Role: auth.Agent, SessionID: "host-control-intruder", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", LeaseID: "lease-a", ExecutionOwnerID: "runtime-instance-b:1",
+		Role: auth.Agent, SessionID: "host-control-intruder", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-b:1",
 	})
 	if _, err := intruder.AcquireExecution(context.Background(), request); status.Code(err) != codes.Aborted {
 		t.Fatalf("different authenticated owner reacquired activity: %v", err)
@@ -212,7 +187,7 @@ func TestReplacementControlSessionCanSettleSameOwnerUnderSameAuthority(t *testin
 		t.Fatalf("different authenticated owner settled activity: %v", err)
 	}
 	replacement := executionClient(t, controller, auth.Identity{
-		Role: auth.Agent, SessionID: "host-control-b", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", LeaseID: "lease-a", ExecutionOwnerID: "runtime-instance-a:1",
+		Role: auth.Agent, SessionID: "host-control-b", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-a:1",
 	})
 	listed, err := replacement.ListExecutions(context.Background(), listExecutions())
 	if err != nil || listed.GetAllocationAuthority() != "allocation-a" || listed.GetExecutions()[0].GetOwner() != "runtime-instance-a:1" {
@@ -226,30 +201,11 @@ func TestReplacementControlSessionCanSettleSameOwnerUnderSameAuthority(t *testin
 	}
 }
 
-func TestReplacementLeaseCanSettleSameAllocationOwner(t *testing.T) {
-	controller, run, firstClient := executionTestFixture(t)
-	request := mainExecution("main:lease-replacement")
-	if _, err := firstClient.AcquireExecution(context.Background(), request); err != nil {
-		t.Fatal(err)
-	}
-	controller.remoteLeases["lease-a"].state = hostv1.LeaseState_LEASE_STATE_REVOKED
-	controller.remoteLeases["lease-b"] = &remoteLease{id: "lease-b", allocationID: "allocation-a", environmentID: "env-a", state: hostv1.LeaseState_LEASE_STATE_ACTIVE, expiresAt: time.Now().Add(time.Minute)}
-	replacement := executionClient(t, controller, auth.Identity{
-		Role: auth.Agent, SessionID: "host-control-b", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", LeaseID: "lease-b", ExecutionOwnerID: "runtime-instance-a:1",
-	})
-	if _, err := replacement.ReleaseExecution(context.Background(), request); err != nil {
-		t.Fatalf("replacement lease could not settle same allocation owner: %v", err)
-	}
-	if len(run.executions) != 0 {
-		t.Fatalf("replacement lease left activity: %+v", run.executions)
-	}
-}
-
 func TestHostStreamOwnsAcceptedChildUntilTerminalEvidence(t *testing.T) {
 	controller, run, _ := executionTestFixture(t)
 	identity := auth.Identity{
 		Role: auth.Agent, SessionID: "host-control-a", EnvironmentID: "env-a", NamespaceID: "a",
-		AllocationID: "allocation-a", LeaseID: "lease-a", ExecutionOwnerID: "runtime-instance-a:1",
+		AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-a:1",
 	}
 	token, err := controller.acquireStreamExecution(
 		identity,
@@ -273,11 +229,8 @@ func TestHostStreamOwnsAcceptedChildUntilTerminalEvidence(t *testing.T) {
 		t.Fatalf("accepted child was replayed: %v", err)
 	}
 
-	// Losing the request authority is not child exit evidence. The Host-owned
-	// token can still settle when the guest later reports the real terminal.
-	controller.remoteLeases["lease-a"].state = hostv1.LeaseState_LEASE_STATE_REVOKED
 	if run.executions["process:child-a"] == nil {
-		t.Fatal("control loss removed an accepted child")
+		t.Fatal("accepted child disappeared before terminal evidence")
 	}
 	controller.releaseStreamExecution(token)
 	if len(run.executions) != 0 {
@@ -498,8 +451,7 @@ func TestHostRestartRecoversRunningInstanceClosedToAdmissionUntilActualStop(t *t
 	if err := controller.recoverWorkloadRunsFromGuest(ctx, guestClient); err != nil {
 		t.Fatal(err)
 	}
-	controller.remoteLeases = map[string]*remoteLease{"lease-a": {id: "lease-a", environmentID: environment.ID, state: hostv1.LeaseState_LEASE_STATE_ACTIVE, expiresAt: time.Now().Add(time.Minute)}}
-	client := executionClient(t, controller, auth.Identity{Role: auth.Agent, SessionID: "control", EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, LeaseID: "lease-a"})
+	client := executionClient(t, controller, auth.Identity{Role: auth.Agent, SessionID: "control", EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, AllocationGeneration: 1})
 	guest.mu.Lock()
 	stopped := guest.states[environment.NamespaceID]
 	guest.mu.Unlock()
@@ -541,8 +493,7 @@ func executionTestFixture(t *testing.T) (*Controller, *workloadRun, hostv1.Agent
 	run.inFlight = false
 	controller.observeWorkloadRunLocked(run, &vmmdv1.Container{Id: "main", InstanceId: "instance-a", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}, time.Now())
 	controller.mu.Unlock()
-	identity := auth.Identity{Role: auth.Agent, SessionID: "host-control-a", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", LeaseID: "lease-a", ExecutionOwnerID: "runtime-instance-a:1"}
-	controller.remoteLeases = map[string]*remoteLease{"lease-a": {id: "lease-a", allocationID: "allocation-a", environmentID: "env-a", state: hostv1.LeaseState_LEASE_STATE_ACTIVE, expiresAt: time.Now().Add(time.Minute)}}
+	identity := auth.Identity{Role: auth.Agent, SessionID: "host-control-a", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-a:1"}
 	return controller, run, executionClient(t, controller, identity)
 }
 
@@ -554,7 +505,7 @@ func executionClientWithServer(t *testing.T, controller *Controller, serverImpl 
 	t.Helper()
 	identity := auth.Identity{
 		Role: auth.Agent, SessionID: "host-control-a", EnvironmentID: "env-a", NamespaceID: "a",
-		AllocationID: "allocation-a", LeaseID: "lease-a", ExecutionOwnerID: "runtime-instance-a:1",
+		AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-a:1",
 	}
 	if serverImpl.controller == nil {
 		serverImpl.controller = controller

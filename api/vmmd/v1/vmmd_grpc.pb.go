@@ -19,54 +19,56 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	VMMDService_Health_FullMethodName                  = "/agentvmm.vmmd.v1.VMMDService/Health"
-	VMMDService_PrepareShutdown_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/PrepareShutdown"
-	VMMDService_EnsureSystemAppliance_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/EnsureSystemAppliance"
-	VMMDService_StopSystemAppliance_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/StopSystemAppliance"
-	VMMDService_ListSystemAppliances_FullMethodName    = "/agentvmm.vmmd.v1.VMMDService/ListSystemAppliances"
-	VMMDService_OpenSystemStream_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/OpenSystemStream"
-	VMMDService_EnsureNamespace_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/EnsureNamespace"
-	VMMDService_DeleteNamespace_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/DeleteNamespace"
-	VMMDService_GetNamespace_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/GetNamespace"
-	VMMDService_ListNamespaces_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/ListNamespaces"
-	VMMDService_GetNamespaceUsage_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/GetNamespaceUsage"
-	VMMDService_GetSystemUsage_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/GetSystemUsage"
-	VMMDService_PullImage_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/PullImage"
-	VMMDService_ImportImage_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/ImportImage"
-	VMMDService_CreateVolume_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/CreateVolume"
-	VMMDService_DeleteVolume_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/DeleteVolume"
-	VMMDService_GetVolume_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/GetVolume"
-	VMMDService_ListVolumes_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/ListVolumes"
-	VMMDService_GetImage_FullMethodName                = "/agentvmm.vmmd.v1.VMMDService/GetImage"
-	VMMDService_ListImages_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/ListImages"
-	VMMDService_DeleteImage_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/DeleteImage"
-	VMMDService_CreateContainer_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/CreateContainer"
-	VMMDService_StartContainer_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/StartContainer"
-	VMMDService_StopContainer_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/StopContainer"
-	VMMDService_WaitContainer_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/WaitContainer"
-	VMMDService_DeleteContainer_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/DeleteContainer"
-	VMMDService_InspectContainer_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/InspectContainer"
-	VMMDService_ListContainers_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/ListContainers"
-	VMMDService_GetContainerUsage_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/GetContainerUsage"
-	VMMDService_Logs_FullMethodName                    = "/agentvmm.vmmd.v1.VMMDService/Logs"
-	VMMDService_Exec_FullMethodName                    = "/agentvmm.vmmd.v1.VMMDService/Exec"
-	VMMDService_SignalContainer_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/SignalContainer"
-	VMMDService_ApplyNetworkLink_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ApplyNetworkLink"
-	VMMDService_DeleteNetworkLink_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/DeleteNetworkLink"
-	VMMDService_ApplyServiceProjection_FullMethodName  = "/agentvmm.vmmd.v1.VMMDService/ApplyServiceProjection"
-	VMMDService_DeleteServiceProjection_FullMethodName = "/agentvmm.vmmd.v1.VMMDService/DeleteServiceProjection"
-	VMMDService_ForwardTCP_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/ForwardTCP"
-	VMMDService_BuildImage_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/BuildImage"
-	VMMDService_BuildAppliance_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/BuildAppliance"
-	VMMDService_ComponentHealth_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/ComponentHealth"
-	VMMDService_ProbeEgress_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/ProbeEgress"
-	VMMDService_WatchEvents_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/WatchEvents"
-	VMMDService_StatWorkspace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/StatWorkspace"
-	VMMDService_ListWorkspace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/ListWorkspace"
-	VMMDService_ReadWorkspace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/ReadWorkspace"
-	VMMDService_WriteWorkspace_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/WriteWorkspace"
-	VMMDService_ArchiveWorkspace_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ArchiveWorkspace"
-	VMMDService_ExtractWorkspace_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/ExtractWorkspace"
+	VMMDService_Health_FullMethodName                    = "/agentvmm.vmmd.v1.VMMDService/Health"
+	VMMDService_PrepareShutdown_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/PrepareShutdown"
+	VMMDService_EnsureSystemAppliance_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/EnsureSystemAppliance"
+	VMMDService_StopSystemAppliance_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/StopSystemAppliance"
+	VMMDService_DeleteSystemApplianceData_FullMethodName = "/agentvmm.vmmd.v1.VMMDService/DeleteSystemApplianceData"
+	VMMDService_GetSystemAppliance_FullMethodName        = "/agentvmm.vmmd.v1.VMMDService/GetSystemAppliance"
+	VMMDService_ListSystemAppliances_FullMethodName      = "/agentvmm.vmmd.v1.VMMDService/ListSystemAppliances"
+	VMMDService_OpenSystemStream_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/OpenSystemStream"
+	VMMDService_EnsureNamespace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/EnsureNamespace"
+	VMMDService_DeleteNamespace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/DeleteNamespace"
+	VMMDService_GetNamespace_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/GetNamespace"
+	VMMDService_ListNamespaces_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/ListNamespaces"
+	VMMDService_GetNamespaceUsage_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/GetNamespaceUsage"
+	VMMDService_GetSystemUsage_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/GetSystemUsage"
+	VMMDService_PullImage_FullMethodName                 = "/agentvmm.vmmd.v1.VMMDService/PullImage"
+	VMMDService_ImportImage_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/ImportImage"
+	VMMDService_CreateVolume_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/CreateVolume"
+	VMMDService_DeleteVolume_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/DeleteVolume"
+	VMMDService_GetVolume_FullMethodName                 = "/agentvmm.vmmd.v1.VMMDService/GetVolume"
+	VMMDService_ListVolumes_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/ListVolumes"
+	VMMDService_GetImage_FullMethodName                  = "/agentvmm.vmmd.v1.VMMDService/GetImage"
+	VMMDService_ListImages_FullMethodName                = "/agentvmm.vmmd.v1.VMMDService/ListImages"
+	VMMDService_DeleteImage_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/DeleteImage"
+	VMMDService_CreateContainer_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/CreateContainer"
+	VMMDService_StartContainer_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/StartContainer"
+	VMMDService_StopContainer_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/StopContainer"
+	VMMDService_WaitContainer_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/WaitContainer"
+	VMMDService_DeleteContainer_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/DeleteContainer"
+	VMMDService_InspectContainer_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/InspectContainer"
+	VMMDService_ListContainers_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/ListContainers"
+	VMMDService_GetContainerUsage_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/GetContainerUsage"
+	VMMDService_Logs_FullMethodName                      = "/agentvmm.vmmd.v1.VMMDService/Logs"
+	VMMDService_Exec_FullMethodName                      = "/agentvmm.vmmd.v1.VMMDService/Exec"
+	VMMDService_SignalContainer_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/SignalContainer"
+	VMMDService_ApplyNetworkLink_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/ApplyNetworkLink"
+	VMMDService_DeleteNetworkLink_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/DeleteNetworkLink"
+	VMMDService_ApplyServiceProjection_FullMethodName    = "/agentvmm.vmmd.v1.VMMDService/ApplyServiceProjection"
+	VMMDService_DeleteServiceProjection_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/DeleteServiceProjection"
+	VMMDService_ForwardTCP_FullMethodName                = "/agentvmm.vmmd.v1.VMMDService/ForwardTCP"
+	VMMDService_BuildImage_FullMethodName                = "/agentvmm.vmmd.v1.VMMDService/BuildImage"
+	VMMDService_BuildAppliance_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/BuildAppliance"
+	VMMDService_ComponentHealth_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/ComponentHealth"
+	VMMDService_ProbeEgress_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/ProbeEgress"
+	VMMDService_WatchEvents_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/WatchEvents"
+	VMMDService_StatWorkspace_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/StatWorkspace"
+	VMMDService_ListWorkspace_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/ListWorkspace"
+	VMMDService_ReadWorkspace_FullMethodName             = "/agentvmm.vmmd.v1.VMMDService/ReadWorkspace"
+	VMMDService_WriteWorkspace_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/WriteWorkspace"
+	VMMDService_ArchiveWorkspace_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/ArchiveWorkspace"
+	VMMDService_ExtractWorkspace_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/ExtractWorkspace"
 )
 
 // VMMDServiceClient is the client API for VMMDService service.
@@ -77,6 +79,8 @@ type VMMDServiceClient interface {
 	PrepareShutdown(ctx context.Context, in *PrepareShutdownRequest, opts ...grpc.CallOption) (*PrepareShutdownResponse, error)
 	EnsureSystemAppliance(ctx context.Context, in *EnsureSystemApplianceRequest, opts ...grpc.CallOption) (*SystemApplianceResponse, error)
 	StopSystemAppliance(ctx context.Context, in *StopSystemApplianceRequest, opts ...grpc.CallOption) (*SystemApplianceResponse, error)
+	DeleteSystemApplianceData(ctx context.Context, in *DeleteSystemApplianceDataRequest, opts ...grpc.CallOption) (*DeleteSystemApplianceDataResponse, error)
+	GetSystemAppliance(ctx context.Context, in *GetSystemApplianceRequest, opts ...grpc.CallOption) (*SystemApplianceResponse, error)
 	ListSystemAppliances(ctx context.Context, in *ListSystemAppliancesRequest, opts ...grpc.CallOption) (*ListSystemAppliancesResponse, error)
 	OpenSystemStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SystemStreamFrame, SystemStreamFrame], error)
 	EnsureNamespace(ctx context.Context, in *EnsureNamespaceRequest, opts ...grpc.CallOption) (*EnsureNamespaceResponse, error)
@@ -167,6 +171,26 @@ func (c *vMMDServiceClient) StopSystemAppliance(ctx context.Context, in *StopSys
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SystemApplianceResponse)
 	err := c.cc.Invoke(ctx, VMMDService_StopSystemAppliance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) DeleteSystemApplianceData(ctx context.Context, in *DeleteSystemApplianceDataRequest, opts ...grpc.CallOption) (*DeleteSystemApplianceDataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSystemApplianceDataResponse)
+	err := c.cc.Invoke(ctx, VMMDService_DeleteSystemApplianceData_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) GetSystemAppliance(ctx context.Context, in *GetSystemApplianceRequest, opts ...grpc.CallOption) (*SystemApplianceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SystemApplianceResponse)
+	err := c.cc.Invoke(ctx, VMMDService_GetSystemAppliance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -690,6 +714,8 @@ type VMMDServiceServer interface {
 	PrepareShutdown(context.Context, *PrepareShutdownRequest) (*PrepareShutdownResponse, error)
 	EnsureSystemAppliance(context.Context, *EnsureSystemApplianceRequest) (*SystemApplianceResponse, error)
 	StopSystemAppliance(context.Context, *StopSystemApplianceRequest) (*SystemApplianceResponse, error)
+	DeleteSystemApplianceData(context.Context, *DeleteSystemApplianceDataRequest) (*DeleteSystemApplianceDataResponse, error)
+	GetSystemAppliance(context.Context, *GetSystemApplianceRequest) (*SystemApplianceResponse, error)
 	ListSystemAppliances(context.Context, *ListSystemAppliancesRequest) (*ListSystemAppliancesResponse, error)
 	OpenSystemStream(grpc.BidiStreamingServer[SystemStreamFrame, SystemStreamFrame]) error
 	EnsureNamespace(context.Context, *EnsureNamespaceRequest) (*EnsureNamespaceResponse, error)
@@ -757,6 +783,12 @@ func (UnimplementedVMMDServiceServer) EnsureSystemAppliance(context.Context, *En
 }
 func (UnimplementedVMMDServiceServer) StopSystemAppliance(context.Context, *StopSystemApplianceRequest) (*SystemApplianceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopSystemAppliance not implemented")
+}
+func (UnimplementedVMMDServiceServer) DeleteSystemApplianceData(context.Context, *DeleteSystemApplianceDataRequest) (*DeleteSystemApplianceDataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSystemApplianceData not implemented")
+}
+func (UnimplementedVMMDServiceServer) GetSystemAppliance(context.Context, *GetSystemApplianceRequest) (*SystemApplianceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSystemAppliance not implemented")
 }
 func (UnimplementedVMMDServiceServer) ListSystemAppliances(context.Context, *ListSystemAppliancesRequest) (*ListSystemAppliancesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSystemAppliances not implemented")
@@ -979,6 +1011,42 @@ func _VMMDService_StopSystemAppliance_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VMMDServiceServer).StopSystemAppliance(ctx, req.(*StopSystemApplianceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_DeleteSystemApplianceData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSystemApplianceDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).DeleteSystemApplianceData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_DeleteSystemApplianceData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).DeleteSystemApplianceData(ctx, req.(*DeleteSystemApplianceDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_GetSystemAppliance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSystemApplianceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).GetSystemAppliance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_GetSystemAppliance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).GetSystemAppliance(ctx, req.(*GetSystemApplianceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1674,6 +1742,14 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopSystemAppliance",
 			Handler:    _VMMDService_StopSystemAppliance_Handler,
+		},
+		{
+			MethodName: "DeleteSystemApplianceData",
+			Handler:    _VMMDService_DeleteSystemApplianceData_Handler,
+		},
+		{
+			MethodName: "GetSystemAppliance",
+			Handler:    _VMMDService_GetSystemAppliance_Handler,
 		},
 		{
 			MethodName: "ListSystemAppliances",

@@ -159,34 +159,31 @@ func TestHTTPFrontendBindsSessionAndReleasesOnDelete(t *testing.T) {
 	}
 	stream.mu.Lock()
 	allocations := make(map[string]struct{})
-	acquiredLeases := 0
+	openedSessions := 0
 	for _, command := range stream.commands {
 		if ensure := command.GetEnsureAllocation(); ensure != nil {
 			allocations[ensure.GetAllocationId()] = struct{}{}
 		}
-		if command.GetAcquireLease() != nil {
-			acquiredLeases++
+		if command.GetOpenSession() != nil {
+			openedSessions++
 		}
 	}
 	stream.mu.Unlock()
-	if len(allocations) != 2 || acquiredLeases != 2 {
-		t.Fatalf("binding allocations = %v, acquired leases = %d", allocations, acquiredLeases)
+	if len(allocations) != 2 || openedSessions != 2 {
+		t.Fatalf("binding allocations = %v, opened sessions = %d", allocations, openedSessions)
 	}
 	stopHTTP()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		stream.mu.Lock()
-		var releasedLeases, releasedAllocations int
+		var releasedAllocations int
 		for _, command := range stream.commands {
-			if command.GetReleaseLease() != nil {
-				releasedLeases++
-			}
 			if command.GetReleaseAllocation() != nil {
 				releasedAllocations++
 			}
 		}
 		stream.mu.Unlock()
-		if releasedLeases == 2 && releasedAllocations == 2 {
+		if releasedAllocations == 2 {
 			select {
 			case err := <-httpDone:
 				if err != nil {
@@ -199,7 +196,7 @@ func TestHTTPFrontendBindsSessionAndReleasesOnDelete(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("DELETE and HTTP stop did not release both allocation leases and runtimes")
+	t.Fatal("DELETE and HTTP stop did not release both allocations and runtimes")
 }
 
 func bridgeTestRuntime(ctx context.Context, t *testing.T, client remotev1.RemoteControllerServiceClient, open *remotev1.OpenSession) {
@@ -218,7 +215,7 @@ func bridgeTestRuntime(ctx context.Context, t *testing.T, client remotev1.Remote
 	if err != nil {
 		return
 	}
-	if frontend.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration", ConnectionEpoch: 7, AllocationId: open.GetAllocationId(), LeaseId: open.GetLeaseId(), Generation: open.GetGeneration()}}}) != nil {
+	if frontend.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration", ConnectionEpoch: 7, AllocationId: open.GetAllocationId(), AllocationGeneration: open.GetAllocationGeneration()}}}) != nil {
 		return
 	}
 	done := make(chan struct{}, 2)

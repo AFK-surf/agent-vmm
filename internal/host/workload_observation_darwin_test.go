@@ -38,8 +38,8 @@ func TestRemoteWorkloadUsageScopesActiveCachedSamples(t *testing.T) {
 	controller := &Controller{
 		store: database, workloadRunsRecovered: true, workloadPressureAt: now,
 		workloadRuns: map[string]*workloadRun{
-			"a": {environmentID: "environment-a", usage: &vmmdv1.Usage{CpuNanos: 7, MemoryBytes: 11, DiskBytes: 13, SampledAtUnixNano: now.UnixNano()}},
-			"b": {environmentID: "environment-b", usage: &vmmdv1.Usage{CpuNanos: 101, MemoryBytes: 103, DiskBytes: 107, SampledAtUnixNano: now.UnixNano()}},
+			"a": {environmentID: "environment-a", registrationID: "registration-a", usage: &vmmdv1.Usage{CpuNanos: 7, MemoryBytes: 11, DiskBytes: 13, SampledAtUnixNano: now.UnixNano()}},
+			"b": {environmentID: "environment-b", registrationID: "registration-b", usage: &vmmdv1.Usage{CpuNanos: 101, MemoryBytes: 103, DiskBytes: 107, SampledAtUnixNano: now.UnixNano()}},
 		},
 	}
 	observedAt := timestamppb.New(now)
@@ -74,23 +74,23 @@ func TestRemoteWorkloadUsageFailsClosedForIncompleteCache(t *testing.T) {
 		{name: "stale pool pressure", pressureAt: now.Add(-3 * workloadSampleInterval), usage: &vmmdv1.Usage{SampledAtUnixNano: now.UnixNano()}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			controller := &Controller{store: database, workloadRunsRecovered: true, workloadPressureAt: test.pressureAt, workloadRuns: map[string]*workloadRun{"run": {environmentID: "environment", usage: test.usage}}}
+			controller := &Controller{store: database, workloadRunsRecovered: true, workloadPressureAt: test.pressureAt, workloadRuns: map[string]*workloadRun{"run": {environmentID: "environment", registrationID: "registration", usage: test.usage}}}
 			usage := controller.remoteWorkloadUsage(ctx, "registration", timestamppb.New(now))
 			if !usage.GetStale() || usage.GetUnavailableReason() != "active workload metrics are unavailable" {
 				t.Fatalf("usage = %+v", usage)
 			}
 		})
 	}
-	controller := &Controller{store: database, workloadRunsRecovered: true, workloadPressureAt: now, workloadRuns: map[string]*workloadRun{"run": {environmentID: "environment", usage: &vmmdv1.Usage{SampledAtUnixNano: now.Add(time.Second).UnixNano()}}}}
+	controller := &Controller{store: database, workloadRunsRecovered: true, workloadPressureAt: now, workloadRuns: map[string]*workloadRun{"run": {environmentID: "environment", registrationID: "registration", usage: &vmmdv1.Usage{SampledAtUnixNano: now.Add(time.Second).UnixNano()}}}}
 	if usage := controller.remoteWorkloadUsage(ctx, "registration", timestamppb.New(now)); usage.GetStale() {
 		t.Fatalf("bounded Guest clock skew rejected fresh usage: %+v", usage)
 	}
 }
 
 func observationTestRegistration(id string) store.RemoteRegistration {
-	return store.RemoteRegistration{ID: id, Endpoint: id, ProtocolVersion: "2", MaxEnvironments: 4,
-		PerEnvCPUMillis: 1000, PerEnvMemoryBytes: 1 << 30, PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
-		MaxEgressMode: 1, MaxLeaseSeconds: 60, DisconnectGraceSeconds: 30, StopGraceSeconds: 10,
+	return store.RemoteRegistration{ID: id, Endpoint: id, ProtocolVersion: "2",
+		PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
+		MaxEgressMode: 1, StopGraceSeconds: 10,
 		State: int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED), ConnectionState: int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED), EnrollmentState: int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY), ConnectorPhase: 1}
 }
 

@@ -15,11 +15,11 @@ import (
 )
 
 type clientCleanupOwner struct {
-	controller   *Controller
-	live         *controlConnection
-	clientID     string
-	allocationID string
-	lease        *remotev1.Lease
+	controller           *Controller
+	live                 *controlConnection
+	clientID             string
+	allocationID         string
+	allocationGeneration uint64
 
 	mu        sync.Mutex
 	execution chan bool
@@ -93,7 +93,7 @@ func (owner *clientCleanupOwner) ExecuteCleanup(ctx context.Context, execution m
 	volumes := append([]string(nil), execution.ConfirmedVolumeIDs...)
 	slices.Sort(volumes)
 	commandContext, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	result, err := owner.controller.dispatchOn(commandContext, owner.live, &remotev1.ControllerCommand{CommandId: commandID, TargetRevision: execution.Revision, Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: owner.allocationID, PlanRevision: execution.Revision, ConfirmedVolumeIds: volumes, Kind: remoteKind, ExpectedLeaseId: owner.lease.GetLeaseId(), ExpectedLeaseGeneration: owner.lease.GetGeneration()}}})
+	result, err := owner.controller.dispatchOn(commandContext, owner.live, &remotev1.ControllerCommand{CommandId: commandID, TargetRevision: execution.Revision, Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: owner.allocationID, PlanRevision: execution.Revision, ConfirmedVolumeIds: volumes, Kind: remoteKind}}})
 	cancel()
 	if err != nil {
 		return err

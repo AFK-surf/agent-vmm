@@ -46,6 +46,25 @@ func (server *Server) StopSystemAppliance(ctx context.Context, request *vmmdv1.S
 	return value.(*vmmdv1.SystemApplianceResponse), nil
 }
 
-func (server *Server) ListSystemAppliances(context.Context, *vmmdv1.ListSystemAppliancesRequest) (*vmmdv1.ListSystemAppliancesResponse, error) {
-	return &vmmdv1.ListSystemAppliancesResponse{Appliances: server.appliances.list()}, nil
+func (server *Server) DeleteSystemApplianceData(ctx context.Context, request *vmmdv1.DeleteSystemApplianceDataRequest) (*vmmdv1.DeleteSystemApplianceDataResponse, error) {
+	value, err := server.mutate(ctx, "delete-system-appliance-data", request, func() (any, error) {
+		return &vmmdv1.DeleteSystemApplianceDataResponse{}, server.appliances.deleteData(ctx, request.GetInstallationId(), request.GetDataVolumeId())
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return value.(*vmmdv1.DeleteSystemApplianceDataResponse), nil
+}
+
+func (server *Server) GetSystemAppliance(_ context.Context, request *vmmdv1.GetSystemApplianceRequest) (*vmmdv1.SystemApplianceResponse, error) {
+	appliance, err := server.appliances.get(request.GetInstallationId())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return &vmmdv1.SystemApplianceResponse{Appliance: appliance}, nil
+}
+
+func (server *Server) ListSystemAppliances(_ context.Context, request *vmmdv1.ListSystemAppliancesRequest) (*vmmdv1.ListSystemAppliancesResponse, error) {
+	appliances, next := server.appliances.list(request.GetAfterInstallationId(), int(request.GetLimit()))
+	return &vmmdv1.ListSystemAppliancesResponse{Appliances: appliances, NextCursor: next}, nil
 }

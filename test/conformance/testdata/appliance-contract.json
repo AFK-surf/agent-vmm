@@ -26,13 +26,6 @@
     "data_volume_min_bytes": 1073741824,
     "data_volume_max_bytes": 68719476736
   },
-  "host": {
-    "cpu_millis": 2000,
-    "memory_bytes": 1073741824,
-    "pids": 4096,
-    "disk_bytes": 8589934592,
-    "reserve": {"cpu_millis": 200, "memory_bytes": 134217728, "pids": 256, "disk_bytes": 536870912}
-  },
   "domains": [
     {
       "installation_id": "installation-a",
@@ -43,7 +36,7 @@
       "system_namespace": "system-installation-a",
       "system_container": "appliance-a-1",
       "system_volume": "volume-a",
-      "system_reservation": {"cpu_millis": 200, "memory_bytes": 134217728, "pids": 64, "disk_bytes": 1073741824},
+      "system_limits": {"pids": 64, "disk_bytes": 1073741824},
       "frontend": {"name": "api", "transport": "HTTP", "exposure": "HOST_LOOPBACK", "endpoint": "127.0.0.1:41001"},
       "bootstrap_socket": "/run/agent-vmm/bootstrap.sock",
       "controller_socket": "/run/agent-vmm/controller.sock",
@@ -59,7 +52,7 @@
       "system_namespace": "system-installation-b",
       "system_container": "appliance-b-3",
       "system_volume": "volume-b",
-      "system_reservation": {"cpu_millis": 200, "memory_bytes": 134217728, "pids": 64, "disk_bytes": 1073741824},
+      "system_limits": {"pids": 64, "disk_bytes": 1073741824},
       "frontend": {"name": "mcp-http", "transport": "HTTP", "exposure": "HOST_LOOPBACK", "endpoint": "127.0.0.1:41002"},
       "bootstrap_socket": "/run/agent-vmm/bootstrap.sock",
       "controller_socket": "/run/agent-vmm/controller.sock",

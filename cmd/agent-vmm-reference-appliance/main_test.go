@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
@@ -67,16 +66,12 @@ func (stream *referenceControlStream) Send(message *remotev1.ControllerControlMe
 		allocation := &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Generation: value.EnsureAllocation.GetGeneration(), ResourcesV2: value.EnsureAllocation.GetResourcesV2(), EgressMode: value.EnsureAllocation.GetEgressMode(), Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}
 		for _, existing := range stream.hello.GetInventory() {
 			if existing.GetAllocationId() == allocation.GetAllocationId() {
-				allocation.Lease = existing.GetLease()
+				allocation.Generation = existing.GetGeneration()
 			}
 		}
 		result.Result = &remotev1.CommandResult_Allocation{Allocation: allocation}
-	case *remotev1.ControllerCommand_AcquireLease:
-		result.Result = &remotev1.CommandResult_Lease{Lease: &remotev1.Lease{LeaseId: "lease-" + value.AcquireLease.GetAllocationId(), AllocationId: value.AcquireLease.GetAllocationId(), Generation: 9, State: hostv1.LeaseState_LEASE_STATE_ACTIVE, AllocationRevision: 5}}
-	case *remotev1.ControllerCommand_RenewLease:
-		result.Result = &remotev1.CommandResult_Lease{Lease: &remotev1.Lease{LeaseId: value.RenewLease.GetLeaseId(), AllocationId: strings.TrimPrefix(value.RenewLease.GetLeaseId(), "lease-"), Generation: value.RenewLease.GetGeneration(), State: hostv1.LeaseState_LEASE_STATE_ACTIVE, AllocationRevision: 5}}
 	case *remotev1.ControllerCommand_OpenSession:
-		result.Result = &remotev1.CommandResult_SessionReady{SessionReady: &remotev1.SessionReady{AllocationId: value.OpenSession.GetAllocationId(), LeaseId: value.OpenSession.GetLeaseId(), Generation: value.OpenSession.GetGeneration(), TunnelNonce: "nonce"}}
+		result.Result = &remotev1.CommandResult_SessionReady{SessionReady: &remotev1.SessionReady{AllocationId: value.OpenSession.GetAllocationId(), AllocationGeneration: value.OpenSession.GetAllocationGeneration(), TunnelNonce: "nonce"}}
 	}
 	stream.responses <- &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: result}}
 	return nil
@@ -88,9 +83,9 @@ func TestReferenceControllerReconcilesEmptyAndRestartedInventory(t *testing.T) {
 		inventory []*remotev1.Allocation
 		commands  int
 	}{
-		{name: "empty inventory", commands: 6},
-		{name: "retained inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_RETAINED}, {AllocationId: "ephemeral-task", Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_RETAINED}}, commands: 6},
-		{name: "active inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_LEASED, Lease: &remotev1.Lease{LeaseId: "durable", AllocationId: "durable-service", Generation: 2, State: hostv1.LeaseState_LEASE_STATE_ACTIVE}}, {AllocationId: "ephemeral-task", Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_LEASED, Lease: &remotev1.Lease{LeaseId: "task", AllocationId: "ephemeral-task", Generation: 3, State: hostv1.LeaseState_LEASE_STATE_ACTIVE}}}, commands: 4},
+		{name: "empty inventory", commands: 4},
+		{name: "retained inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Generation: 2, Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_RETAINED}, {AllocationId: "ephemeral-task", Generation: 3, Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_RETAINED}}, commands: 4},
+		{name: "active inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Generation: 2, Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}, {AllocationId: "ephemeral-task", Generation: 3, Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}}, commands: 4},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -104,12 +99,12 @@ func TestReferenceControllerReconcilesEmptyAndRestartedInventory(t *testing.T) {
 			if err := session.Ready(); err != nil {
 				t.Fatal(err)
 			}
-			leases, err := reconcileReferenceAllocations(ctx, newReferenceCommandCursor(session))
+			allocations, err := reconcileReferenceAllocations(ctx, newReferenceCommandCursor(session))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(leases) != 2 {
-				t.Fatalf("leases=%+v", leases)
+			if len(allocations) != 2 {
+				t.Fatalf("allocations=%+v", allocations)
 			}
 			if stream.ready.GetAcknowledgedInventoryWatermark() != 3 || len(stream.commands) != test.commands {
 				t.Fatalf("ready=%+v commands=%d", stream.ready, len(stream.commands))

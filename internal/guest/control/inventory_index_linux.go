@@ -11,6 +11,7 @@ import (
 
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	corecontainers "github.com/containerd/containerd/v2/core/containers"
+	"github.com/google/btree"
 )
 
 // runtimeInventoryIndex is a rebuildable, in-memory projection of
@@ -18,16 +19,49 @@ import (
 // scanning the shared runtime containerd namespace. containerd remains the
 // durable authority; NewRuntime rebuilds this index before VMMD is available.
 type runtimeInventoryIndex struct {
-	mu         sync.RWMutex
-	containers map[string]map[string]struct{}
-	images     map[string]map[string]struct{}
+	mu              sync.RWMutex
+	containers      map[string]map[string]struct{}
+	images          map[string]map[string]string
+	imageDigestRefs map[string]uint64
+	runtimeImages   *btree.BTreeG[string]
 }
 
 func newRuntimeInventoryIndex() *runtimeInventoryIndex {
 	return &runtimeInventoryIndex{
-		containers: make(map[string]map[string]struct{}),
-		images:     make(map[string]map[string]struct{}),
+		containers:      make(map[string]map[string]struct{}),
+		images:          make(map[string]map[string]string),
+		imageDigestRefs: make(map[string]uint64),
+		runtimeImages:   btree.NewG(8, func(left, right string) bool { return left < right }),
 	}
+}
+
+func (index *runtimeInventoryIndex) addRuntimeImage(reference string) {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	index.runtimeImages.ReplaceOrInsert(reference)
+}
+
+func (index *runtimeInventoryIndex) removeRuntimeImage(reference string) {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	index.runtimeImages.Delete(reference)
+}
+
+func (index *runtimeInventoryIndex) runtimeImagePage(after string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	result := make([]string, 0, limit)
+	index.runtimeImages.AscendGreaterOrEqual(after, func(value string) bool {
+		if value == after {
+			return true
+		}
+		result = append(result, value)
+		return len(result) < limit
+	})
+	return result
 }
 
 func (index *runtimeInventoryIndex) ensureNamespace(namespaceID string) {
@@ -37,7 +71,7 @@ func (index *runtimeInventoryIndex) ensureNamespace(namespaceID string) {
 		index.containers[namespaceID] = make(map[string]struct{})
 	}
 	if index.images[namespaceID] == nil {
-		index.images[namespaceID] = make(map[string]struct{})
+		index.images[namespaceID] = make(map[string]string)
 	}
 }
 
@@ -74,14 +108,28 @@ func (index *runtimeInventoryIndex) removeContainer(namespaceID, containerID str
 	return nil
 }
 
-func (index *runtimeInventoryIndex) addImage(namespaceID, reference string) error {
+func (index *runtimeInventoryIndex) addImage(namespaceID, reference, targetDigest string) error {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 	values, ok := index.images[namespaceID]
 	if !ok {
 		return fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
 	}
-	values[reference] = struct{}{}
+	if targetDigest == "" {
+		return fmt.Errorf("runtime image %q/%q has no target digest", namespaceID, reference)
+	}
+	if current, exists := values[reference]; exists {
+		if current == targetDigest {
+			return nil
+		}
+		if index.imageDigestRefs[current] <= 1 {
+			delete(index.imageDigestRefs, current)
+		} else {
+			index.imageDigestRefs[current]--
+		}
+	}
+	values[reference] = targetDigest
+	index.imageDigestRefs[targetDigest]++
 	return nil
 }
 
@@ -92,11 +140,23 @@ func (index *runtimeInventoryIndex) removeImage(namespaceID, reference string) e
 	if !ok {
 		return fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
 	}
-	if _, ok := values[reference]; !ok {
+	targetDigest, ok := values[reference]
+	if !ok {
 		return fmt.Errorf("runtime image %q/%q is not indexed", namespaceID, reference)
 	}
 	delete(values, reference)
+	if index.imageDigestRefs[targetDigest] <= 1 {
+		delete(index.imageDigestRefs, targetDigest)
+	} else {
+		index.imageDigestRefs[targetDigest]--
+	}
 	return nil
+}
+
+func (index *runtimeInventoryIndex) imageDigestReferenced(targetDigest string) bool {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	return index.imageDigestRefs[targetDigest] != 0
 }
 
 func (index *runtimeInventoryIndex) removeNamespace(namespaceID string) error {
@@ -120,7 +180,21 @@ func (index *runtimeInventoryIndex) containerIDs(namespaceID string, limit uint3
 }
 
 func (index *runtimeInventoryIndex) imageReferences(namespaceID string, limit uint32) ([]string, error) {
-	return index.names(namespaceID, limit, index.images, "image")
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	values, ok := index.images[namespaceID]
+	if !ok {
+		return nil, fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
+	}
+	if limit > 0 && uint32(len(values)) >= limit {
+		return nil, resourceExhausted("image inventory reached the requested limit")
+	}
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 func (index *runtimeInventoryIndex) names(namespaceID string, limit uint32, inventory map[string]map[string]struct{}, kind string) ([]string, error) {
@@ -181,25 +255,35 @@ func (r *Runtime) rebuildRuntimeInventory(ctx context.Context) error {
 		containerRecords = append(containerRecords, info)
 	}
 
-	imageRecords := make(map[string][]string, len(knownNamespaces))
+	imageRecords := make(map[string]map[string]string, len(knownNamespaces))
 	for namespaceID := range knownNamespaces {
 		records, err := r.client.ImageService().List(namespaceContext(ctx, namespaceID))
 		if err != nil {
 			return fmt.Errorf("read runtime images for namespace %q: %w", namespaceID, err)
 		}
 		for _, record := range records {
-			imageRecords[namespaceID] = append(imageRecords[namespaceID], record.Name)
+			if imageRecords[namespaceID] == nil {
+				imageRecords[namespaceID] = make(map[string]string)
+			}
+			imageRecords[namespaceID][record.Name] = record.Target.Digest.String()
 		}
 	}
 	rebuilt, err := buildRuntimeInventoryIndex(knownNamespaces, containerRecords, imageRecords)
 	if err != nil {
 		return err
 	}
+	runtimeImages, err := r.client.ImageService().List(runtimeContext(ctx))
+	if err != nil {
+		return fmt.Errorf("read internal runtime images: %w", err)
+	}
+	for _, record := range runtimeImages {
+		rebuilt.addRuntimeImage(record.Name)
+	}
 	r.inventory = rebuilt
 	return nil
 }
 
-func buildRuntimeInventoryIndex(knownNamespaces map[string]bool, containers []corecontainers.Container, images map[string][]string) (*runtimeInventoryIndex, error) {
+func buildRuntimeInventoryIndex(knownNamespaces map[string]bool, containers []corecontainers.Container, images map[string]map[string]string) (*runtimeInventoryIndex, error) {
 	rebuilt := newRuntimeInventoryIndex()
 	for namespaceID := range knownNamespaces {
 		rebuilt.ensureNamespace(namespaceID)
@@ -220,11 +304,11 @@ func buildRuntimeInventoryIndex(knownNamespaces map[string]bool, containers []co
 		if !knownNamespaces[namespaceID] {
 			return nil, fmt.Errorf("runtime images name unknown namespace %q", namespaceID)
 		}
-		for _, reference := range references {
+		for reference, targetDigest := range references {
 			if reference == "" {
 				return nil, fmt.Errorf("runtime image in namespace %q has no name", namespaceID)
 			}
-			if err := rebuilt.addImage(namespaceID, reference); err != nil {
+			if err := rebuilt.addImage(namespaceID, reference, targetDigest); err != nil {
 				return nil, err
 			}
 		}

@@ -10,6 +10,8 @@ service VMMDService {
 
   rpc EnsureSystemAppliance(EnsureSystemApplianceRequest) returns (SystemApplianceResponse);
   rpc StopSystemAppliance(StopSystemApplianceRequest) returns (SystemApplianceResponse);
+  rpc DeleteSystemApplianceData(DeleteSystemApplianceDataRequest) returns (DeleteSystemApplianceDataResponse);
+  rpc GetSystemAppliance(GetSystemApplianceRequest) returns (SystemApplianceResponse);
   rpc ListSystemAppliances(ListSystemAppliancesRequest) returns (ListSystemAppliancesResponse);
   rpc OpenSystemStream(stream SystemStreamFrame) returns (stream SystemStreamFrame);
 
@@ -164,17 +166,19 @@ message SystemApplianceIdentity {
 }
 
 message EnsureSystemApplianceRequest {
-  string                  request_id             = 1;
-  SystemApplianceIdentity identity               = 2;
-  string                  image_reference        = 3;
-  string                  data_device_identifier = 4;
-  string                  data_volume_id         = 5;
-  string                  data_volume_identity   = 6;
-  bytes                   data_volume_key        = 7;
-  bool                    initialize_data_volume = 8;
-  NamespaceLimits         limits                 = 9;
-  EgressMode              egress_mode            = 10;
-  uint64                  config_revision        = 11;
+  reserved 8;
+  reserved "initialize_data_volume";
+  string                  request_id                   = 1;
+  SystemApplianceIdentity identity                     = 2;
+  string                  image_reference              = 3;
+  string                  legacy_data_device_identifier = 4;
+  string                  data_volume_id               = 5;
+  string                  data_volume_identity         = 6;
+  bytes                   data_volume_key              = 7;
+  NamespaceLimits         limits                       = 9;
+  EgressMode              egress_mode                  = 10;
+  uint64                  config_revision              = 11;
+  uint64                  data_volume_bytes            = 12;
 }
 
 message StopSystemApplianceRequest {
@@ -183,7 +187,22 @@ message StopSystemApplianceRequest {
   uint32                  timeout_seconds = 3;
 }
 
-message ListSystemAppliancesRequest {}
+message DeleteSystemApplianceDataRequest {
+  string request_id      = 1;
+  string installation_id = 2;
+  string data_volume_id  = 3;
+}
+
+message DeleteSystemApplianceDataResponse {}
+
+message GetSystemApplianceRequest {
+  string installation_id = 1;
+}
+
+message ListSystemAppliancesRequest {
+  string after_installation_id = 1;
+  uint32 limit = 2;
+}
 
 message SystemAppliance {
   SystemApplianceIdentity identity             = 1;
@@ -198,7 +217,10 @@ message SystemAppliance {
 
 message SystemApplianceResponse { SystemAppliance appliance = 1; }
 
-message ListSystemAppliancesResponse { repeated SystemAppliance appliances = 1; }
+message ListSystemAppliancesResponse {
+  repeated SystemAppliance appliances = 1;
+  string next_cursor = 2;
+}
 
 message SystemStreamHeader {
   SystemApplianceIdentity identity               = 1;

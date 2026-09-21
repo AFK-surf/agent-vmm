@@ -318,6 +318,8 @@ func mutationRequestID(request proto.Message) string {
 		return request.GetRequestId()
 	case *vmmdv1.StopSystemApplianceRequest:
 		return request.GetRequestId()
+	case *vmmdv1.DeleteSystemApplianceDataRequest:
+		return request.GetRequestId()
 	case *vmmdv1.EnsureNamespaceRequest:
 		return request.GetRequestId()
 	case *vmmdv1.DeleteNamespaceRequest:

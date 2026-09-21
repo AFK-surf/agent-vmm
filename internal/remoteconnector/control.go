@@ -83,7 +83,7 @@ func (tracker *commandTracker) admit(command *remotev1.ControllerCommand, now ti
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_DEADLINE_EXCEEDED, "command deadline elapsed"), nil
 	}
 	if !validGenerationFence(command) {
-		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "lease generation fence mismatch"), nil
+		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "target generation fence mismatch"), nil
 	}
 	if ensure := command.GetEnsureAllocation(); ensure != nil {
 		if ensure.GetGeneration() == 0 || ensure.GetResourcesV2() == nil {
@@ -95,9 +95,6 @@ func (tracker *commandTracker) admit(command *remotev1.ControllerCommand, now ti
 	}
 	if release := command.GetReleaseAllocation(); release != nil && (release.GetExpectedGeneration() == 0 || command.GetTargetRevision() != release.GetExpectedRevision()) {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation release fence mismatch"), nil
-	}
-	if command.GetAcquireLease() != nil && command.GetTargetRevision() == 0 {
-		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation revision fence is required"), nil
 	}
 	if command.GetAcquireHostLoopbackFrontend() != nil && command.GetTargetRevision() == 0 {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "frontend allocation revision fence is required"), nil
@@ -132,18 +129,12 @@ func rejectAck(ack *remotev1.CommandAck, reason remotev1.ErrorReason, message st
 
 func validGenerationFence(command *remotev1.ControllerCommand) bool {
 	switch value := command.GetCommand().(type) {
-	case *remotev1.ControllerCommand_RenewLease:
-		return command.GetLeaseGeneration() == value.RenewLease.GetGeneration()
-	case *remotev1.ControllerCommand_ReleaseLease:
-		return command.GetLeaseGeneration() == value.ReleaseLease.GetGeneration()
-	case *remotev1.ControllerCommand_OpenSession:
-		return command.GetLeaseGeneration() == value.OpenSession.GetGeneration()
 	case *remotev1.ControllerCommand_RenewHostLoopbackFrontend:
-		return command.GetLeaseGeneration() == value.RenewHostLoopbackFrontend.GetGeneration()
+		return command.GetTargetGeneration() == value.RenewHostLoopbackFrontend.GetGeneration()
 	case *remotev1.ControllerCommand_ReleaseHostLoopbackFrontend:
-		return command.GetLeaseGeneration() == value.ReleaseHostLoopbackFrontend.GetGeneration()
+		return command.GetTargetGeneration() == value.ReleaseHostLoopbackFrontend.GetGeneration()
 	default:
-		return command.GetLeaseGeneration() == 0
+		return command.GetTargetGeneration() == 0
 	}
 }
 

@@ -241,23 +241,18 @@ struct RemoteRegistrationModel: Sendable, Equatable {
     let connector: ConnectorStatusModel
     let enrollmentError: String?
 
-    var activeLeases: Int { allocations.filter { $0.lease?.state == .active }.count }
 }
 
 struct RemotePoolSettings: Sendable, Equatable {
-    let maxEnvironments: UInt32
-    let perEnvironmentLimits: EnvironmentLimits
+    let perEnvironmentPIDs: UInt32
+    let perEnvironmentDiskBytes: UInt64
     let allowsPublicEgress: Bool
-    let maxLeaseSeconds: Int64
-    let disconnectGraceSeconds: Int64
     let stopGraceSeconds: Int64
 
     static let defaults = RemotePoolSettings(
-        maxEnvironments: 2,
-        perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 1 << 30, pids: 256, diskBytes: 2 << 30),
+        perEnvironmentPIDs: 256,
+        perEnvironmentDiskBytes: 2 << 30,
         allowsPublicEgress: false,
-        maxLeaseSeconds: 3_600,
-        disconnectGraceSeconds: 30,
         stopGraceSeconds: 10
     )
 }
@@ -270,8 +265,6 @@ enum RemoteConnectionStatus: String, Sendable {
         connected: Bool,
         connectorPhase: ConnectorStatusModel.Phase,
         observedAt: Date?,
-        disconnectedAt: Date?,
-        disconnectGraceSeconds: Int64,
         now: Date = .now
     ) -> Self {
         if connected {
@@ -279,10 +272,8 @@ enum RemoteConnectionStatus: String, Sendable {
             return .offline
         }
         if connectorPhase == .authFailed || connectorPhase == .configError { return .offline }
-        let grace = TimeInterval(max(0, disconnectGraceSeconds))
-        if let disconnectedAt, now.timeIntervalSince(disconnectedAt) <= grace { return .connecting }
-        if (connectorPhase == .connecting || connectorPhase == .retryWait),
-           let observedAt, now.timeIntervalSince(observedAt) <= grace {
+        if connectorPhase == .connecting || connectorPhase == .retryWait,
+           let observedAt, now.timeIntervalSince(observedAt) <= 20 {
             return .connecting
         }
         return .offline
@@ -311,15 +302,6 @@ struct RemoteAllocationModel: Identifiable, Sendable, Equatable {
     let state: String
     let limits: EnvironmentLimits
     let allowsPublicEgress: Bool
-    let lease: RemoteLeaseModel?
-}
-
-struct RemoteLeaseModel: Sendable, Equatable {
-    enum State: String, Sendable { case active = "Active", expired = "Expired", released = "Released", revoked = "Revoked", unknown = "Unavailable" }
-    let id: String
-    let workloadReference: String
-    let expiresAt: Date?
-    let state: State
 }
 
 struct ApplianceFrontendModel: Identifiable, Sendable, Equatable {
@@ -384,19 +366,15 @@ enum ApplianceAction: Sendable, Equatable {
 }
 
 struct ApplianceGrantModel: Sendable, Equatable {
-    var maxEnvironments: UInt32
-    var perEnvironmentLimits: EnvironmentLimits
+    var perEnvironmentPIDs: UInt32
+    var perEnvironmentDiskBytes: UInt64
     var allowsPublicEgress: Bool
-    var maxLeaseSeconds: UInt32
-    var disconnectGraceSeconds: UInt32
     var enabledFrontendNames: Set<String>
 
     static let bundledMCPDefault = ApplianceGrantModel(
-        maxEnvironments: 4,
-        perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 512 << 20, pids: 512, diskBytes: 4 << 30),
+        perEnvironmentPIDs: 512,
+        perEnvironmentDiskBytes: 4 << 30,
         allowsPublicEgress: true,
-        maxLeaseSeconds: 3_600,
-        disconnectGraceSeconds: 30,
 		enabledFrontendNames: [BundledMCPAppliance.frontendName]
     )
 }

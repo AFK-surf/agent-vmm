@@ -235,6 +235,60 @@ func replaceVolumeGenerationID(path string) (string, error) {
 	return value, nil
 }
 
+func backfillVolumeGenerationID(path string, before os.FileInfo) (string, error) {
+	marker := volumeGenerationMarkerPath(path)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		return "", err
+	}
+	value, err := newVolumeGenerationID()
+	if err != nil {
+		return "", err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(marker), ".agent-vmm-generation-")
+	if err != nil {
+		return "", err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if _, err := temporary.WriteString(value + "\n"); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return "", err
+	}
+	if err := temporary.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Link(temporaryPath, marker); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return readVolumeGenerationID(marker)
+		}
+		return "", err
+	}
+	after, err := os.Lstat(path)
+	if err != nil || !os.SameFile(before, after) {
+		if err != nil {
+			return "", err
+		}
+		return "", errors.New("volume changed while its generation marker was created")
+	}
+	directory, err := os.Open(filepath.Dir(marker))
+	if err != nil {
+		return "", err
+	}
+	defer directory.Close()
+	if err := directory.Sync(); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
 func readVolumeGenerationID(marker string) (string, error) {
 	body, err := os.ReadFile(marker)
 	if err != nil {

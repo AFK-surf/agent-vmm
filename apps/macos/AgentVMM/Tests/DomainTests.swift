@@ -147,27 +147,22 @@ import Foundation
     #expect(imageRemovalAvailability(for: used, inventory: .available, isRemoving: false) == .inUse(2))
 }
 
-@Test func remoteConnectionStatusHonorsGraceAndTerminalFailures() {
+@Test func remoteConnectionStatusHonorsFreshTransportStateAndTerminalFailures() {
     let now = Date(timeIntervalSinceReferenceDate: 1_000)
     #expect(RemoteConnectionStatus.derive(
-        connected: false, connectorPhase: .retryWait, observedAt: now.addingTimeInterval(-5),
-        disconnectedAt: now.addingTimeInterval(-10), disconnectGraceSeconds: 30, now: now
+        connected: false, connectorPhase: .retryWait, observedAt: now.addingTimeInterval(-10), now: now
     ) == .connecting)
     #expect(RemoteConnectionStatus.derive(
-        connected: false, connectorPhase: .retryWait, observedAt: now.addingTimeInterval(-40),
-        disconnectedAt: now.addingTimeInterval(-40), disconnectGraceSeconds: 30, now: now
+        connected: false, connectorPhase: .retryWait, observedAt: now.addingTimeInterval(-40), now: now
     ) == .offline)
     #expect(RemoteConnectionStatus.derive(
-        connected: false, connectorPhase: .authFailed, observedAt: now,
-        disconnectedAt: now, disconnectGraceSeconds: 30, now: now
+        connected: false, connectorPhase: .authFailed, observedAt: now, now: now
     ) == .offline)
     #expect(RemoteConnectionStatus.derive(
-        connected: true, connectorPhase: .connected, observedAt: now,
-        disconnectedAt: nil, disconnectGraceSeconds: 30, now: now
+        connected: true, connectorPhase: .connected, observedAt: now, now: now
     ) == .connected)
     #expect(RemoteConnectionStatus.derive(
-        connected: true, connectorPhase: .connected, observedAt: now.addingTimeInterval(-21),
-        disconnectedAt: nil, disconnectGraceSeconds: 30, now: now
+        connected: true, connectorPhase: .connected, observedAt: now.addingTimeInterval(-21), now: now
     ) == .offline)
 }
 
@@ -220,11 +215,9 @@ import Foundation
 
 @Test func remoteCapacityDraftPreservesUneditedPolicyExactly() {
     let policy = RemotePoolSettings(
-        maxEnvironments: 7,
-        perEnvironmentLimits: EnvironmentLimits(cpuMillis: 1_111, memoryBytes: 1_234_567_890, pids: 222, diskBytes: 4_567_890_123),
+        perEnvironmentPIDs: 222,
+        perEnvironmentDiskBytes: 4_567_890_123,
         allowsPublicEgress: false,
-        maxLeaseSeconds: 5_400,
-        disconnectGraceSeconds: 47,
         stopGraceSeconds: 13
     )
     let draft = RemotePoolDraft(policy)
@@ -234,9 +227,8 @@ import Foundation
 
 @Test func remoteCapacityDefaultsFitTheDefaultHostAndDenyPublicEgress() {
     let defaults = RemotePoolSettings.defaults
-    #expect(defaults.perEnvironmentLimits.cpuMillis <= 2_000)
-    #expect(defaults.perEnvironmentLimits.memoryBytes <= 1 << 30)
-    #expect(defaults.perEnvironmentLimits.diskBytes <= 8 << 30)
+    #expect(defaults.perEnvironmentPIDs == 256)
+    #expect(defaults.perEnvironmentDiskBytes <= 8 << 30)
     #expect(!defaults.allowsPublicEgress)
 }
 

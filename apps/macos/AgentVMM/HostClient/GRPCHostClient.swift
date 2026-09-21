@@ -415,11 +415,9 @@ extension GRPCHostClient {
 
     nonisolated func remotePool(_ value: RemotePoolSettings) -> Agentvmm_Host_V1_RemotePoolPolicy {
         var pool = Agentvmm_Host_V1_RemotePoolPolicy()
-        pool.maxEnvironments = value.maxEnvironments
-        pool.perEnvironmentLimits = resourceLimits(value.perEnvironmentLimits)
+        pool.perEnvironmentLimits.pids = value.perEnvironmentPIDs
+        pool.perEnvironmentLimits.diskBytes = value.perEnvironmentDiskBytes
         pool.maxEgressMode = value.allowsPublicEgress ? .publicInternet : .denyAll
-        pool.maxLeaseDuration.seconds = value.maxLeaseSeconds
-        pool.disconnectGrace.seconds = value.disconnectGraceSeconds
         pool.stopGrace.seconds = value.stopGraceSeconds
         return pool
     }
@@ -506,9 +504,7 @@ extension GRPCHostClient {
         let connectionState = RemoteConnectionStatus.derive(
             connected: value.connectionState == .connected,
             connectorPhase: connector.phase,
-            observedAt: connector.observedAt,
-            disconnectedAt: connector.disconnectedAt,
-            disconnectGraceSeconds: value.pool.disconnectGrace.seconds
+            observedAt: connector.observedAt
         )
         let enrollmentState: RemoteEnrollmentStatus = switch value.enrollmentState {
         case .pendingCredential: .pending
@@ -533,11 +529,9 @@ extension GRPCHostClient {
             inventoryRevision: value.inventoryRevision,
             owner: owner,
             pool: RemotePoolSettings(
-                maxEnvironments: value.pool.maxEnvironments,
-                perEnvironmentLimits: environmentLimits(value.pool.perEnvironmentLimits),
+                perEnvironmentPIDs: value.pool.perEnvironmentLimits.pids,
+                perEnvironmentDiskBytes: value.pool.perEnvironmentLimits.diskBytes,
                 allowsPublicEgress: value.pool.maxEgressMode == .publicInternet,
-                maxLeaseSeconds: value.pool.maxLeaseDuration.seconds,
-                disconnectGraceSeconds: value.pool.disconnectGrace.seconds,
                 stopGraceSeconds: value.pool.stopGrace.seconds
             ),
             allocations: value.allocations.map(remoteAllocation),
@@ -551,26 +545,13 @@ extension GRPCHostClient {
     }
 
     nonisolated func remoteAllocation(_ value: Agentvmm_Host_V1_RemoteAllocation) -> RemoteAllocationModel {
-        let leaseState: RemoteLeaseModel.State = switch value.lease.state {
-        case .active: .active
-        case .expired: .expired
-        case .released: .released
-        case .revoked: .revoked
-        default: .unknown
-        }
         return RemoteAllocationModel(
             allocationID: value.allocationID,
             environmentID: value.environmentID,
             displayName: value.displayLabel,
             state: String(describing: value.state).replacingOccurrences(of: "_", with: " ").capitalized,
             limits: environmentLimits(value.limits),
-            allowsPublicEgress: value.egressMode == .publicInternet,
-            lease: value.hasLease ? RemoteLeaseModel(
-                id: value.lease.leaseID,
-                workloadReference: value.lease.workloadRef,
-                expiresAt: optionalDate(value.lease.expiresAt),
-                state: leaseState
-            ) : nil
+            allowsPublicEgress: value.egressMode == .publicInternet
         )
     }
 
@@ -611,11 +592,9 @@ extension GRPCHostClient {
             healthy: value.health.healthy,
             healthMessage: value.health.status.nilIfEmpty,
             grant: ApplianceGrantModel(
-                maxEnvironments: grant.capacity.maxEnvironments,
-                perEnvironmentLimits: environmentLimits(grant.capacity.perEnvironmentLimits),
+                perEnvironmentPIDs: grant.capacity.perEnvironmentLimits.pids,
+                perEnvironmentDiskBytes: grant.capacity.perEnvironmentLimits.diskBytes,
                 allowsPublicEgress: grant.capacity.maxEgressMode == .publicInternet,
-                maxLeaseSeconds: grant.capacity.maxLeaseSeconds,
-                disconnectGraceSeconds: grant.capacity.disconnectGraceSeconds,
 				enabledFrontendNames: Set(grant.frontends.map(\.name))
             ),
             frontends: value.frontends.map {

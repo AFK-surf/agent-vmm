@@ -27,7 +27,7 @@ func TestCgroupContractWritesPlatformSharingAndHardIsolationFiles(t *testing.T) 
 	}
 }
 
-func TestResourcePoolsBoundSystemAndWorkloadNamespaceChildren(t *testing.T) {
+func TestResourcePoolsShareVMComputeAndKeepChildPIDLimits(t *testing.T) {
 	root := t.TempDir()
 	if err := initializeResourcePoolsAt(root, 8000, 12<<30); err != nil {
 		t.Fatal(err)
@@ -37,13 +37,13 @@ func TestResourcePoolsBoundSystemAndWorkloadNamespaceChildren(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for name, expected := range map[string]string{"cpu.max": "max 100000", "memory.max": "9663676416", "pids.max": "2048", "cgroup.subtree_control": "+cpu +memory +pids"} {
+	for name, expected := range map[string]string{"cpu.max": "max 100000", "memory.max": "12884901888", "pids.max": "max", "cgroup.subtree_control": "+cpu +memory +pids"} {
 		data, err := os.ReadFile(filepath.Join(root, "agent-vmm", "workload", name))
 		if err != nil || string(data) != expected {
 			t.Fatalf("pool %s = %q err=%v", name, data, err)
 		}
 	}
-	for name, expected := range map[string]string{"cpu.max": "max 100000", "memory.max": "3221225472", "pids.max": "2048", "cgroup.subtree_control": "+cpu +memory +pids"} {
+	for name, expected := range map[string]string{"cpu.max": "max 100000", "memory.max": "12884901888", "pids.max": "max", "cgroup.subtree_control": "+cpu +memory +pids"} {
 		data, err := os.ReadFile(filepath.Join(root, "agent-vmm", "system", name))
 		if err != nil || string(data) != expected {
 			t.Fatalf("system pool %s = %q err=%v", name, data, err)

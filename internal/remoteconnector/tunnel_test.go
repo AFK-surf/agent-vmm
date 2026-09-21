@@ -119,7 +119,7 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
-	ready, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 1, ExecutionOwnerId: "runtime:allocation:1"})
+	ready, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 1, ExecutionOwnerId: "runtime:allocation:1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 	}
 	select {
 	case request := <-revoked:
-		if request.GetSessionId() != "private" || request.GetLeaseId() != "lease" || request.GetGeneration() != 1 {
+		if request.GetSessionId() != "private" || request.GetAllocationGeneration() != 1 {
 			t.Fatalf("revoke request = %+v", request)
 		}
 	case <-time.After(3 * time.Second):
@@ -185,12 +185,12 @@ func TestTunnelOpenFailureRevokesRuntimeSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	manager := newTunnelManager(ctx, nil, hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
-	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 3, ExecutionOwnerId: "runtime:allocation:1"}); err == nil {
+	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 3, ExecutionOwnerId: "runtime:allocation:1"}); err == nil {
 		t.Fatal("invalid runtime socket was accepted")
 	}
 	select {
 	case request := <-revoked:
-		if request.GetSessionId() != "opened-before-failure" || request.GetLeaseId() != "lease" || request.GetGeneration() != 3 {
+		if request.GetSessionId() != "opened-before-failure" || request.GetAllocationGeneration() != 3 {
 			t.Fatalf("revoke request = %+v", request)
 		}
 	case <-time.After(3 * time.Second):
@@ -228,7 +228,7 @@ func TestControllerCloseRevokesRuntimeSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
-	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", LeaseId: "lease", Generation: 5, ExecutionOwnerId: "runtime:allocation:1"}); err != nil {
+	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 5, ExecutionOwnerId: "runtime:allocation:1"}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -239,7 +239,7 @@ func TestControllerCloseRevokesRuntimeSession(t *testing.T) {
 	}
 	select {
 	case request := <-revoked:
-		if request.GetSessionId() != "controller-closed" || request.GetGeneration() != 5 {
+		if request.GetSessionId() != "controller-closed" || request.GetAllocationGeneration() != 5 {
 			t.Fatalf("revoke request = %+v", request)
 		}
 	case <-time.After(3 * time.Second):

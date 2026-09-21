@@ -38,7 +38,7 @@ struct BundledMCPView: View {
             Button("Disable and Retain Agent Data") { Task { await model.setBundledMCPEnabled(false) } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The MCP frontend closes and active leases are revoked. Agent allocations and retained volumes stay on this Mac.")
+            Text("The MCP frontend closes and active sessions are revoked. Agent allocations and retained volumes stay on this Mac.")
         }
         .sheet(isPresented: $showingRemove, onDismiss: cancelRemovalPlanning) { removeSheet }
         .sheet(isPresented: $showingSetupPolicy) { setupPolicySheet }
@@ -96,9 +96,8 @@ struct BundledMCPView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("MCP access policy").font(.title2.weight(.semibold))
             Form {
-                Stepper("Maximum clients: \(grant.maxEnvironments)", value: $grant.maxEnvironments, in: 1...16)
                 Toggle("Allow client workloads to access the public internet", isOn: $grant.allowsPublicEgress)
-                LabeledContent("Per-client maximum", value: "1 CPU · 512 MiB memory · 4 GiB disk")
+                LabeledContent("Per-client isolation", value: "512 PIDs · 4 GiB disk")
             }
             HStack {
                 Spacer()
@@ -169,7 +168,7 @@ struct BundledMCPView: View {
     private func accessPolicy(_ appliance: ApplianceStatusModel) -> some View {
         GroupBox("Access policy") {
             VStack(alignment: .leading, spacing: 8) {
-                LabeledContent("Capacity", value: "Up to \(appliance.grant.maxEnvironments) clients")
+                LabeledContent("Isolation", value: "\(appliance.grant.perEnvironmentPIDs) PIDs · \(appliance.grant.perEnvironmentDiskBytes >> 30) GiB disk per client")
                 LabeledContent("Internet", value: appliance.grant.allowsPublicEgress ? "Allowed" : "Blocked")
                 Text("These limits apply to every client environment.").font(.caption).foregroundStyle(.secondary)
             }.padding(8)

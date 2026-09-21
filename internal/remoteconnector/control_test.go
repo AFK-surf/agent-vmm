@@ -85,21 +85,21 @@ func TestCommandTrackerFencesEpochSequenceDeadlineAndGeneration(t *testing.T) {
 		{name: "stale epoch", command: testCommand(1, 8, now.Add(time.Minute)), reason: remotev1.ErrorReason_ERROR_REASON_STALE_CONNECTION_EPOCH},
 		{name: "sequence gap", command: testCommand(2, 9, now.Add(time.Minute)), reason: remotev1.ErrorReason_ERROR_REASON_SEQUENCE_CONFLICT},
 		{name: "deadline", command: testCommand(1, 9, now), reason: remotev1.ErrorReason_ERROR_REASON_DEADLINE_EXCEEDED},
-		{name: "lease generation", command: func() *remotev1.ControllerCommand {
+		{name: "unexpected target generation", command: func() *remotev1.ControllerCommand {
 			command := testCommand(1, 9, now.Add(time.Minute))
-			command.LeaseGeneration = 3
-			command.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2, ExecutionOwnerId: "runtime:a:1"}}
+			command.TargetGeneration = 3
+			command.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", AllocationGeneration: 2, ExecutionOwnerId: "runtime:a:1"}}
 			return command
 		}(), reason: remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
 		{name: "cleanup plan revision", command: func() *remotev1.ControllerCommand {
 			command := testCommand(1, 9, now.Add(time.Minute))
 			command.TargetRevision = 8
-			command.Command = &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "a", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: 9, ExpectedLeaseId: "lease", ExpectedLeaseGeneration: 2}}
+			command.Command = &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "a", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: 9}}
 			return command
 		}(), reason: remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
-		{name: "acquire lease allocation revision", command: func() *remotev1.ControllerCommand {
+		{name: "frontend allocation revision", command: func() *remotev1.ControllerCommand {
 			command := testCommand(1, 9, now.Add(time.Minute))
-			command.Command = &remotev1.ControllerCommand_AcquireLease{AcquireLease: &remotev1.AcquireLease{AllocationId: "a", DurationSeconds: 30}}
+			command.Command = &remotev1.ControllerCommand_AcquireHostLoopbackFrontend{AcquireHostLoopbackFrontend: &remotev1.AcquireHostLoopbackFrontend{AllocationId: "a", AllocationGeneration: 2}}
 			return command
 		}(), reason: remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
 	}
@@ -166,8 +166,8 @@ func TestCommandTrackerTerminalRejectionsConsumeExpectedSequence(t *testing.T) {
 
 	generation := testCommand(2, 9, now.Add(time.Minute))
 	generation.CommandId = "command-2"
-	generation.LeaseGeneration = 3
-	generation.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", LeaseId: "l", Generation: 2, ExecutionOwnerId: "runtime:a:1"}}
+	generation.TargetGeneration = 3
+	generation.Command = &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: "a", AllocationGeneration: 2, ExecutionOwnerId: "runtime:a:1"}}
 	ack, cached = tracker.admit(generation, now)
 	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_STALE_REVISION {
 		t.Fatalf("generation rejection = %+v/%+v", ack, cached)
@@ -176,7 +176,7 @@ func TestCommandTrackerTerminalRejectionsConsumeExpectedSequence(t *testing.T) {
 	revision := testCommand(3, 9, now.Add(time.Minute))
 	revision.CommandId = "command-3"
 	revision.TargetRevision = 8
-	revision.Command = &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "a", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: 9, ExpectedLeaseId: "lease", ExpectedLeaseGeneration: 2}}
+	revision.Command = &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "a", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: 9}}
 	ack, cached = tracker.admit(revision, now)
 	if cached != nil || ack.GetReason() != remotev1.ErrorReason_ERROR_REASON_STALE_REVISION {
 		t.Fatalf("revision rejection = %+v/%+v", ack, cached)

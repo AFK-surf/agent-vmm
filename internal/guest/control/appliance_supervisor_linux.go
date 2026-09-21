@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
+	"github.com/google/btree"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/protobuf/proto"
 )
@@ -48,10 +48,12 @@ type applianceSupervisor struct {
 
 	mu      sync.Mutex
 	records map[string]*systemApplianceRecord
+	order   *btree.BTreeG[string]
 }
 
 func newApplianceSupervisor(runtime *Runtime, bootID string) *applianceSupervisor {
-	return &applianceSupervisor{runtime: runtime, bootID: bootID, volumes: newApplianceVolumeManager(), records: make(map[string]*systemApplianceRecord)}
+	return &applianceSupervisor{runtime: runtime, bootID: bootID, volumes: newApplianceVolumeManager(), records: make(map[string]*systemApplianceRecord),
+		order: btree.NewG(8, func(left, right string) bool { return left < right })}
 }
 
 func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmdv1.EnsureSystemApplianceRequest) (*vmmdv1.SystemAppliance, error) {
@@ -79,9 +81,10 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	}
 	record := &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: cloneSystemIdentity(identity), DataVolumeId: request.GetDataVolumeId(), DataVolumeIdentity: request.GetDataVolumeIdentity(), State: vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_STARTING, ConfigRevision: request.GetConfigRevision(), Status: "starting"}, streams: make(map[string]uint32), streamUses: make(map[string]uint32), usedNonces: make(map[string]struct{})}
 	supervisor.records[identity.GetInstallationId()] = record
+	supervisor.order.ReplaceOrInsert(identity.GetInstallationId())
 	supervisor.mu.Unlock()
 
-	volume, err := supervisor.volumes.unlock(ctx, identity.GetInstallationId(), request.GetDataDeviceIdentifier(), request.GetDataVolumeIdentity(), request.DataVolumeKey, request.GetInitializeDataVolume())
+	volume, err := supervisor.volumes.unlock(ctx, identity.GetInstallationId(), request.GetDataVolumeId(), request.GetLegacyDataDeviceIdentifier(), request.GetDataVolumeIdentity(), request.GetDataVolumeBytes(), request.DataVolumeKey)
 	if err != nil {
 		var sealed sealedVolumeError
 		if errors.As(err, &sealed) {
@@ -124,7 +127,7 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	}
 	if digest != identity.GetImageManifestDigest() {
 		_ = supervisor.volumes.close(context.Background(), volume)
-		return supervisor.seal(identity.GetInstallationId(), "IMAGE_DIGEST_MISMATCH"), errors.New("system appliance image digest does not match verified artifact")
+		return supervisor.seal(identity.GetInstallationId(), "IMAGE_DIGEST_MISMATCH"), errors.New("system appliance image digest does not match the selected artifact")
 	}
 	if err := supervisor.replaceStoppedContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId()); err != nil {
 		err = atRuntimeStage("stopped_container_cleanup", err)
@@ -133,7 +136,7 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	}
 	containerRequest := &vmmdv1.CreateContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.GetNamespaceId(), ContainerId: identity.GetContainerId(), Image: canonical,
 		ReadOnlyRoot: true, User: stringPointer("1000:1000"), LogLimitBytes: systemLogLimit,
-		Limits: &vmmdv1.ResourceLimits{CpuMillis: uint32Pointer(request.GetLimits().GetCpuMillis()), MemoryBytes: uint64Pointer(request.GetLimits().GetMemoryBytes()), Pids: uint32Pointer(request.GetLimits().GetPids())}}
+		Limits: &vmmdv1.ResourceLimits{Pids: uint32Pointer(request.GetLimits().GetPids())}}
 	if _, err := supervisor.runtime.createContainer(ctx, containerRequest, true, systemSpecOption(runtimePath, volume.mountPath)); err != nil {
 		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
@@ -183,21 +186,63 @@ func (supervisor *applianceSupervisor) stop(ctx context.Context, request *vmmdv1
 	record.status.Status = "stopped"
 	result := cloneSystemAppliance(record.status)
 	delete(supervisor.records, request.GetIdentity().GetInstallationId())
+	supervisor.order.Delete(request.GetIdentity().GetInstallationId())
 	supervisor.mu.Unlock()
 	return result, errors.Join(stopErr, closeErr)
 }
 
-func (supervisor *applianceSupervisor) list() []*vmmdv1.SystemAppliance {
+func (supervisor *applianceSupervisor) deleteData(ctx context.Context, installationID, volumeID string) error {
+	if err := validateID("installation_id", installationID); err != nil {
+		return err
+	}
+	if err := validateID("data_volume_id", volumeID); err != nil {
+		return err
+	}
+	supervisor.mu.Lock()
+	_, active := supervisor.records[installationID]
+	supervisor.mu.Unlock()
+	if active {
+		return errors.New("system appliance must stop before its data is deleted")
+	}
+	return supervisor.volumes.delete(installationID, volumeID)
+}
+
+func (supervisor *applianceSupervisor) get(installationID string) (*vmmdv1.SystemAppliance, error) {
+	if err := validateID("installation_id", installationID); err != nil {
+		return nil, err
+	}
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
-	result := make([]*vmmdv1.SystemAppliance, 0, len(supervisor.records))
-	for _, record := range supervisor.records {
-		result = append(result, cloneSystemAppliance(record.status))
+	record := supervisor.records[installationID]
+	if record == nil {
+		return nil, errdefs.ErrNotFound
 	}
-	sort.Slice(result, func(left, right int) bool {
-		return result[left].GetIdentity().GetInstallationId() < result[right].GetIdentity().GetInstallationId()
+	return cloneSystemAppliance(record.status), nil
+}
+
+func (supervisor *applianceSupervisor) list(after string, limit int) ([]*vmmdv1.SystemAppliance, string) {
+	if limit <= 0 || limit > 32 {
+		limit = 32
+	}
+	supervisor.mu.Lock()
+	defer supervisor.mu.Unlock()
+	result := make([]*vmmdv1.SystemAppliance, 0, limit)
+	next := ""
+	supervisor.order.AscendGreaterOrEqual(after, func(installationID string) bool {
+		if installationID == after {
+			return true
+		}
+		if len(result) == limit {
+			next = installationID
+			return false
+		}
+		result = append(result, cloneSystemAppliance(supervisor.records[installationID].status))
+		return true
 	})
-	return result
+	if next != "" && len(result) != 0 {
+		next = result[len(result)-1].GetIdentity().GetInstallationId()
+	}
+	return result, next
 }
 
 func (supervisor *applianceSupervisor) shutdown(ctx context.Context) error {
@@ -231,6 +276,7 @@ func (supervisor *applianceSupervisor) observe(installationID, namespaceID, cont
 		record.status.BoundedLog = boundedStatus(fmt.Errorf("system appliance payload exited with code %d after %d restarts: %v", exitCode, record.status.GetRestartCount(), waitErr))
 		volume, runtimePath := record.volume, record.runtimePath
 		delete(supervisor.records, installationID)
+		supervisor.order.Delete(installationID)
 		supervisor.mu.Unlock()
 		if volume.mapper != "" {
 			_ = supervisor.volumes.close(context.Background(), volume)
@@ -275,6 +321,7 @@ func (supervisor *applianceSupervisor) restartAfterBackoff(installationID, names
 			record.status.BoundedLog = boundedStatus(err)
 			volume, runtimePath := record.volume, record.runtimePath
 			delete(supervisor.records, installationID)
+			supervisor.order.Delete(installationID)
 			supervisor.mu.Unlock()
 			if volume.mapper != "" {
 				_ = supervisor.volumes.close(context.Background(), volume)
@@ -345,6 +392,7 @@ func (supervisor *applianceSupervisor) fail(installationID string, err error) *v
 	result := cloneSystemAppliance(record.status)
 	volume, runtimePath := record.volume, record.runtimePath
 	delete(supervisor.records, installationID)
+	supervisor.order.Delete(installationID)
 	supervisor.mu.Unlock()
 	// A fallible launch must not leave a FAILED record that rejects the next
 	// exact activation. Keep the durable data volume, but release its mount and
@@ -372,6 +420,7 @@ func (supervisor *applianceSupervisor) seal(installationID, reason string) *vmmd
 	result := cloneSystemAppliance(record.status)
 	volume, runtimePath := record.volume, record.runtimePath
 	delete(supervisor.records, installationID)
+	supervisor.order.Delete(installationID)
 	supervisor.mu.Unlock()
 	if volume.mapper != "" {
 		_ = supervisor.volumes.close(context.Background(), volume)

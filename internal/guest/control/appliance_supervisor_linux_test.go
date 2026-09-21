@@ -41,6 +41,51 @@ func TestSystemApplianceSpecIsNonRootReadOnlyAndDeviceFree(t *testing.T) {
 	}
 }
 
+func TestDeleteSystemApplianceDataRejectsActiveInstallation(t *testing.T) {
+	supervisor := newApplianceSupervisor(nil, "boot")
+	supervisor.records["controller-a"] = &systemApplianceRecord{}
+	supervisor.order.ReplaceOrInsert("controller-a")
+	if err := supervisor.deleteData(context.Background(), "controller-a", "volume-a"); err == nil {
+		t.Fatal("active appliance data was deleted")
+	}
+}
+
+func TestFailedSystemApplianceIsRemovedFromListIndex(t *testing.T) {
+	for _, fail := range []struct {
+		name string
+		run  func(*applianceSupervisor)
+	}{
+		{name: "launch", run: func(supervisor *applianceSupervisor) { supervisor.fail("controller-a", errors.New("failed")) }},
+		{name: "sealed", run: func(supervisor *applianceSupervisor) { supervisor.seal("controller-a", "sealed") }},
+	} {
+		t.Run(fail.name, func(t *testing.T) {
+			supervisor := newApplianceSupervisor(nil, "boot")
+			supervisor.records["controller-a"] = &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: &vmmdv1.SystemApplianceIdentity{InstallationId: "controller-a"}}}
+			supervisor.order.ReplaceOrInsert("controller-a")
+			fail.run(supervisor)
+			appliances, next := supervisor.list("", 32)
+			if len(appliances) != 0 || next != "" {
+				t.Fatalf("failed appliance remains in list: %+v, next=%q", appliances, next)
+			}
+		})
+	}
+}
+
+func TestGetSystemApplianceUsesExactInstallation(t *testing.T) {
+	supervisor := newApplianceSupervisor(nil, "boot")
+	for _, installationID := range []string{"controller-a", "controller-b"} {
+		supervisor.records[installationID] = &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: &vmmdv1.SystemApplianceIdentity{InstallationId: installationID}}}
+		supervisor.order.ReplaceOrInsert(installationID)
+	}
+	appliance, err := supervisor.get("controller-b")
+	if err != nil || appliance.GetIdentity().GetInstallationId() != "controller-b" {
+		t.Fatalf("get exact appliance = %+v, %v", appliance, err)
+	}
+	if _, err := supervisor.get("controller-c"); err == nil {
+		t.Fatal("missing appliance returned without error")
+	}
+}
+
 func TestSystemStreamFencesExactIdentityAndSingleUseBootstrap(t *testing.T) {
 	identity := &vmmdv1.SystemApplianceIdentity{InstallationId: "installation-a", BootId: "boot-a",
 		NamespaceId: "system.installation-a", ContainerId: "payload", ContainerInstanceId: "instance-a",

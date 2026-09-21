@@ -54,7 +54,7 @@ func (server *applianceAdminServer) exactInstallation(ctx context.Context, mutat
 			"INSTALLATION_REVISION_CONFLICT", "appliance_installation", installation.ID, "installation revision changed")
 	}
 	artifact, err := server.controller.store.GetApplianceArtifact(ctx, installation.ArtifactID)
-	if err != nil || !artifact.Verified {
+	if err != nil {
 		return store.ApplianceInstallation{}, store.ApplianceArtifact{}, resourceError(codes.FailedPrecondition,
 			"ARTIFACT_FENCE_FAILED", "appliance_artifact", installation.ArtifactID, "fixed artifact is unavailable")
 	}

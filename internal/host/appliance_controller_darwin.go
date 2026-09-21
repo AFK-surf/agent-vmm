@@ -66,7 +66,7 @@ func (controller *Controller) revokePrivateControllerDomain(ctx context.Context,
 
 	controller.stopApplianceFrontends(installation.ID)
 	controller.stopPrivateControllerRoute(installation.ID)
-	if err := controller.revokeRemoteLeases(registration.ID); err != nil {
+	if err := controller.retireRemoteRegistration(ctx, registration.ID); err != nil {
 		return err
 	}
 	if registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED) {

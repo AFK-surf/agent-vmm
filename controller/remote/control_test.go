@@ -300,7 +300,7 @@ func TestValidateHelloRejectsFeatureAndInventoryDrift(t *testing.T) {
 		hello.Inventory = append(hello.Inventory, &remotev1.Allocation{AllocationId: fmt.Sprintf("allocation-%d", index)})
 	}
 	if err := controllerremote.ValidateHello(hello, "registration-1"); err == nil {
-		t.Fatal("ValidateHello accepted inventory above the end-to-end bound")
+		t.Fatal("ValidateHello accepted an oversized inventory message")
 	}
 }
 

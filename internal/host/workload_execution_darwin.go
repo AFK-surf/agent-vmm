@@ -77,9 +77,8 @@ func executionDeadline(request *hostv1.ExecutionRequest, now time.Time) (time.Ti
 }
 
 func executionAuthority(identity auth.Identity) string {
-	// The lease authorizes this request, but it is not the identity of work
-	// that may outlive a control-session or lease rotation. The allocation is
-	// the stable remote owner; local callers fall back to their session.
+	// The allocation is the stable remote owner across controller sessions.
+	// Local callers fall back to their session.
 	if identity.AllocationID != "" {
 		return identity.AllocationID
 	}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -273,9 +272,6 @@ func TestVolumeGenerationFencesSameNameRecreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.HasPrefix(first, "legacy-") {
-		t.Fatalf("new volume used legacy generation %q", first)
-	}
 	if err := removeVolumeDirectory(path); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +296,7 @@ func TestVolumeGenerationFencesSameNameRecreation(t *testing.T) {
 	}
 }
 
-func TestExistingVolumeGenerationUsesStableLegacyFallback(t *testing.T) {
+func TestExistingVolumeGetsStableGenerationMarker(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "volumes", "namespace-a", "volume-a")
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
@@ -316,7 +312,46 @@ func TestExistingVolumeGenerationUsesStableLegacyFallback(t *testing.T) {
 	if entries, err := os.ReadDir(path); err != nil || len(entries) != 0 {
 		t.Fatalf("generation metadata leaked into workload volume: entries=%v err=%v", entries, err)
 	}
-	if _, err := os.Stat(volumeGenerationMarkerPath(path)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy observation wrote generation metadata: %v", err)
+	if _, err := os.Stat(volumeGenerationMarkerPath(path)); err != nil {
+		t.Fatalf("existing volume generation marker was not persisted: %v", err)
+	}
+	if err := os.Chmod(path, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	afterChmod, err := volumeGenerationID(path)
+	if err != nil || afterChmod != first {
+		t.Fatalf("metadata update changed generation from %q to %q: %v", first, afterChmod, err)
+	}
+	beforeRename := filepath.Join(path, "before")
+	if err := os.WriteFile(beforeRename, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(beforeRename, filepath.Join(path, "after")); err != nil {
+		t.Fatal(err)
+	}
+	afterRename, err := volumeGenerationID(path)
+	if err != nil || afterRename != first {
+		t.Fatalf("content rename changed generation from %q to %q: %v", first, afterRename, err)
+	}
+}
+
+func TestExistingVolumeGenerationRecoversAfterInterruptedBackfill(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "volumes", "namespace-a", "volume-a")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerDirectory := filepath.Dir(volumeGenerationMarkerPath(path))
+	if err := os.MkdirAll(markerDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(markerDirectory, ".agent-vmm-generation-interrupted"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := volumeGenerationID(path)
+	if err != nil || generation == "" {
+		t.Fatalf("interrupted backfill did not recover: generation=%q err=%v", generation, err)
+	}
+	if persisted, err := readVolumeGenerationID(volumeGenerationMarkerPath(path)); err != nil || persisted != generation {
+		t.Fatalf("recovered generation was not durable: persisted=%q err=%v", persisted, err)
 	}
 }

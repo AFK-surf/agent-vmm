@@ -495,7 +495,7 @@ public nonisolated enum Agentvmm_Host_V1_AgentSessionOrigin: SwiftProtobuf.Enum,
   public typealias RawValue = Int
   case unspecified // = 0
   case localIntegration // = 1
-  case remoteLease // = 2
+  case remoteAllocation // = 2
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -506,7 +506,7 @@ public nonisolated enum Agentvmm_Host_V1_AgentSessionOrigin: SwiftProtobuf.Enum,
     switch rawValue {
     case 0: self = .unspecified
     case 1: self = .localIntegration
-    case 2: self = .remoteLease
+    case 2: self = .remoteAllocation
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -515,7 +515,7 @@ public nonisolated enum Agentvmm_Host_V1_AgentSessionOrigin: SwiftProtobuf.Enum,
     switch self {
     case .unspecified: return 0
     case .localIntegration: return 1
-    case .remoteLease: return 2
+    case .remoteAllocation: return 2
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -524,7 +524,7 @@ public nonisolated enum Agentvmm_Host_V1_AgentSessionOrigin: SwiftProtobuf.Enum,
   public static let allCases: [Agentvmm_Host_V1_AgentSessionOrigin] = [
     .unspecified,
     .localIntegration,
-    .remoteLease,
+    .remoteAllocation,
   ]
 
 }
@@ -1245,7 +1245,6 @@ public nonisolated enum Agentvmm_Host_V1_AllocationState: SwiftProtobuf.Enum, Sw
   public typealias RawValue = Int
   case unspecified // = 0
   case ready // = 1
-  case leased // = 2
   case draining // = 3
   case retained // = 4
   case discarded // = 5
@@ -1259,7 +1258,6 @@ public nonisolated enum Agentvmm_Host_V1_AllocationState: SwiftProtobuf.Enum, Sw
     switch rawValue {
     case 0: self = .unspecified
     case 1: self = .ready
-    case 2: self = .leased
     case 3: self = .draining
     case 4: self = .retained
     case 5: self = .discarded
@@ -1271,7 +1269,6 @@ public nonisolated enum Agentvmm_Host_V1_AllocationState: SwiftProtobuf.Enum, Sw
     switch self {
     case .unspecified: return 0
     case .ready: return 1
-    case .leased: return 2
     case .draining: return 3
     case .retained: return 4
     case .discarded: return 5
@@ -1283,56 +1280,9 @@ public nonisolated enum Agentvmm_Host_V1_AllocationState: SwiftProtobuf.Enum, Sw
   public static let allCases: [Agentvmm_Host_V1_AllocationState] = [
     .unspecified,
     .ready,
-    .leased,
     .draining,
     .retained,
     .discarded,
-  ]
-
-}
-
-public nonisolated enum Agentvmm_Host_V1_LeaseState: SwiftProtobuf.Enum, Swift.CaseIterable {
-  public typealias RawValue = Int
-  case unspecified // = 0
-  case active // = 1
-  case expired // = 2
-  case released // = 3
-  case revoked // = 4
-  case UNRECOGNIZED(Int)
-
-  public init() {
-    self = .unspecified
-  }
-
-  public init?(rawValue: Int) {
-    switch rawValue {
-    case 0: self = .unspecified
-    case 1: self = .active
-    case 2: self = .expired
-    case 3: self = .released
-    case 4: self = .revoked
-    default: self = .UNRECOGNIZED(rawValue)
-    }
-  }
-
-  public var rawValue: Int {
-    switch self {
-    case .unspecified: return 0
-    case .active: return 1
-    case .expired: return 2
-    case .released: return 3
-    case .revoked: return 4
-    case .UNRECOGNIZED(let i): return i
-    }
-  }
-
-  // The compiler won't synthesize support with the UNRECOGNIZED case.
-  public static let allCases: [Agentvmm_Host_V1_LeaseState] = [
-    .unspecified,
-    .active,
-    .expired,
-    .released,
-    .revoked,
   ]
 
 }
@@ -1901,14 +1851,9 @@ public nonisolated struct Agentvmm_Host_V1_HostLoopbackFrontendLease: @unchecked
     set {_uniqueStorage()._allocationID = newValue}
   }
 
-  public var allocationLeaseID: String {
-    get {_storage._allocationLeaseID}
-    set {_uniqueStorage()._allocationLeaseID = newValue}
-  }
-
-  public var allocationLeaseGeneration: UInt64 {
-    get {_storage._allocationLeaseGeneration}
-    set {_uniqueStorage()._allocationLeaseGeneration = newValue}
+  public var allocationGeneration: UInt64 {
+    get {_storage._allocationGeneration}
+    set {_uniqueStorage()._allocationGeneration = newValue}
   }
 
   public var allocationRevision: UInt64 {
@@ -1972,9 +1917,7 @@ public nonisolated struct Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest: S
 
   public var allocationID: String = String()
 
-  public var allocationLeaseID: String = String()
-
-  public var allocationLeaseGeneration: UInt64 = 0
+  public var allocationGeneration: UInt64 = 0
 
   public var targetRevision: UInt64 = 0
 
@@ -2010,10 +1953,6 @@ public nonisolated struct Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest: Sen
   public var frontendLeaseID: String = String()
 
   public var generation: UInt64 = 0
-
-  public var allocationLeaseID: String = String()
-
-  public var allocationLeaseGeneration: UInt64 = 0
 
   public var duration: SwiftProtobuf.Google_Protobuf_Duration {
     get {_duration ?? SwiftProtobuf.Google_Protobuf_Duration()}
@@ -2099,14 +2038,9 @@ public nonisolated struct Agentvmm_Host_V1_HostLoopbackFrontendConnectionHeader:
     set {_uniqueStorage()._allocationID = newValue}
   }
 
-  public var allocationLeaseID: String {
-    get {_storage._allocationLeaseID}
-    set {_uniqueStorage()._allocationLeaseID = newValue}
-  }
-
-  public var allocationLeaseGeneration: UInt64 {
-    get {_storage._allocationLeaseGeneration}
-    set {_uniqueStorage()._allocationLeaseGeneration = newValue}
+  public var allocationGeneration: UInt64 {
+    get {_storage._allocationGeneration}
+    set {_uniqueStorage()._allocationGeneration = newValue}
   }
 
   public var allocationRevision: UInt64 {
@@ -6126,8 +6060,6 @@ public nonisolated struct Agentvmm_Host_V1_ControllerDomainMetrics: Sendable {
 
   public var activeSessions: UInt32 = 0
 
-  public var activeLeases: UInt32 = 0
-
   public var connectorRestarts: UInt64 = 0
 
   public var reconciliations: UInt64 = 0
@@ -6155,11 +6087,6 @@ public nonisolated struct Agentvmm_Host_V1_RemotePoolPolicy: @unchecked Sendable
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var maxEnvironments: UInt32 {
-    get {_storage._maxEnvironments}
-    set {_uniqueStorage()._maxEnvironments = newValue}
-  }
-
   public var perEnvironmentLimits: Agentvmm_Host_V1_ResourceLimits {
     get {_storage._perEnvironmentLimits ?? Agentvmm_Host_V1_ResourceLimits()}
     set {_uniqueStorage()._perEnvironmentLimits = newValue}
@@ -6173,24 +6100,6 @@ public nonisolated struct Agentvmm_Host_V1_RemotePoolPolicy: @unchecked Sendable
     get {_storage._maxEgressMode}
     set {_uniqueStorage()._maxEgressMode = newValue}
   }
-
-  public var maxLeaseDuration: SwiftProtobuf.Google_Protobuf_Duration {
-    get {_storage._maxLeaseDuration ?? SwiftProtobuf.Google_Protobuf_Duration()}
-    set {_uniqueStorage()._maxLeaseDuration = newValue}
-  }
-  /// Returns true if `maxLeaseDuration` has been explicitly set.
-  public var hasMaxLeaseDuration: Bool {_storage._maxLeaseDuration != nil}
-  /// Clears the value of `maxLeaseDuration`. Subsequent reads from it will return its default value.
-  public mutating func clearMaxLeaseDuration() {_uniqueStorage()._maxLeaseDuration = nil}
-
-  public var disconnectGrace: SwiftProtobuf.Google_Protobuf_Duration {
-    get {_storage._disconnectGrace ?? SwiftProtobuf.Google_Protobuf_Duration()}
-    set {_uniqueStorage()._disconnectGrace = newValue}
-  }
-  /// Returns true if `disconnectGrace` has been explicitly set.
-  public var hasDisconnectGrace: Bool {_storage._disconnectGrace != nil}
-  /// Clears the value of `disconnectGrace`. Subsequent reads from it will return its default value.
-  public mutating func clearDisconnectGrace() {_uniqueStorage()._disconnectGrace = nil}
 
   public var stopGrace: SwiftProtobuf.Google_Protobuf_Duration {
     get {_storage._stopGrace ?? SwiftProtobuf.Google_Protobuf_Duration()}
@@ -6609,109 +6518,49 @@ public nonisolated struct Agentvmm_Host_V1_RemoteRegistrationResponse: Sendable 
   fileprivate var _registration: Agentvmm_Host_V1_RemoteRegistration? = nil
 }
 
-public nonisolated struct Agentvmm_Host_V1_RemoteAllocation: @unchecked Sendable {
+public nonisolated struct Agentvmm_Host_V1_RemoteAllocation: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
-
-  public var allocationID: String {
-    get {_storage._allocationID}
-    set {_uniqueStorage()._allocationID = newValue}
-  }
-
-  public var displayLabel: String {
-    get {_storage._displayLabel}
-    set {_uniqueStorage()._displayLabel = newValue}
-  }
-
-  public var limits: Agentvmm_Host_V1_ResourceLimits {
-    get {_storage._limits ?? Agentvmm_Host_V1_ResourceLimits()}
-    set {_uniqueStorage()._limits = newValue}
-  }
-  /// Returns true if `limits` has been explicitly set.
-  public var hasLimits: Bool {_storage._limits != nil}
-  /// Clears the value of `limits`. Subsequent reads from it will return its default value.
-  public mutating func clearLimits() {_uniqueStorage()._limits = nil}
-
-  public var egressMode: Agentvmm_Host_V1_EgressMode {
-    get {_storage._egressMode}
-    set {_uniqueStorage()._egressMode = newValue}
-  }
-
-  public var revision: UInt64 {
-    get {_storage._revision}
-    set {_uniqueStorage()._revision = newValue}
-  }
-
-  public var state: Agentvmm_Host_V1_AllocationState {
-    get {_storage._state}
-    set {_uniqueStorage()._state = newValue}
-  }
-
-  public var lease: Agentvmm_Host_V1_RemoteLease {
-    get {_storage._lease ?? Agentvmm_Host_V1_RemoteLease()}
-    set {_uniqueStorage()._lease = newValue}
-  }
-  /// Returns true if `lease` has been explicitly set.
-  public var hasLease: Bool {_storage._lease != nil}
-  /// Clears the value of `lease`. Subsequent reads from it will return its default value.
-  public mutating func clearLease() {_uniqueStorage()._lease = nil}
-
-  public var environmentID: String {
-    get {_storage._environmentID}
-    set {_uniqueStorage()._environmentID = newValue}
-  }
-
-  public var generation: UInt64 {
-    get {_storage._generation}
-    set {_uniqueStorage()._generation = newValue}
-  }
-
-  public var resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2 {
-    get {_storage._resourcesV2 ?? Agentvmm_Host_V1_WorkloadResourcesV2()}
-    set {_uniqueStorage()._resourcesV2 = newValue}
-  }
-  /// Returns true if `resourcesV2` has been explicitly set.
-  public var hasResourcesV2: Bool {_storage._resourcesV2 != nil}
-  /// Clears the value of `resourcesV2`. Subsequent reads from it will return its default value.
-  public mutating func clearResourcesV2() {_uniqueStorage()._resourcesV2 = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _storage = _StorageClass.defaultInstance
-}
-
-public nonisolated struct Agentvmm_Host_V1_RemoteLease: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var leaseID: String = String()
 
   public var allocationID: String = String()
 
-  public var workloadRef: String = String()
+  public var displayLabel: String = String()
+
+  public var limits: Agentvmm_Host_V1_ResourceLimits {
+    get {_limits ?? Agentvmm_Host_V1_ResourceLimits()}
+    set {_limits = newValue}
+  }
+  /// Returns true if `limits` has been explicitly set.
+  public var hasLimits: Bool {self._limits != nil}
+  /// Clears the value of `limits`. Subsequent reads from it will return its default value.
+  public mutating func clearLimits() {self._limits = nil}
+
+  public var egressMode: Agentvmm_Host_V1_EgressMode = .unspecified
+
+  public var revision: UInt64 = 0
+
+  public var state: Agentvmm_Host_V1_AllocationState = .unspecified
+
+  public var environmentID: String = String()
 
   public var generation: UInt64 = 0
 
-  public var expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {_expiresAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
-    set {_expiresAt = newValue}
+  public var resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2 {
+    get {_resourcesV2 ?? Agentvmm_Host_V1_WorkloadResourcesV2()}
+    set {_resourcesV2 = newValue}
   }
-  /// Returns true if `expiresAt` has been explicitly set.
-  public var hasExpiresAt: Bool {self._expiresAt != nil}
-  /// Clears the value of `expiresAt`. Subsequent reads from it will return its default value.
-  public mutating func clearExpiresAt() {self._expiresAt = nil}
-
-  public var state: Agentvmm_Host_V1_LeaseState = .unspecified
+  /// Returns true if `resourcesV2` has been explicitly set.
+  public var hasResourcesV2: Bool {self._resourcesV2 != nil}
+  /// Clears the value of `resourcesV2`. Subsequent reads from it will return its default value.
+  public mutating func clearResourcesV2() {self._resourcesV2 = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+  fileprivate var _limits: Agentvmm_Host_V1_ResourceLimits? = nil
+  fileprivate var _resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2? = nil
 }
 
 public nonisolated struct Agentvmm_Host_V1_GetRemoteStateRequest: Sendable {
@@ -7054,114 +6903,9 @@ public nonisolated struct Agentvmm_Host_V1_ExecuteCleanupAllocationRequest: Send
 
   public var kind: Agentvmm_Host_V1_CleanupKind = .unspecified
 
-  public var expectedLeaseID: String = String()
-
-  public var expectedLeaseGeneration: UInt64 = 0
-
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
-}
-
-public nonisolated struct Agentvmm_Host_V1_AcquireLeaseRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var allocationID: String = String()
-
-  public var duration: SwiftProtobuf.Google_Protobuf_Duration {
-    get {_duration ?? SwiftProtobuf.Google_Protobuf_Duration()}
-    set {_duration = newValue}
-  }
-  /// Returns true if `duration` has been explicitly set.
-  public var hasDuration: Bool {self._duration != nil}
-  /// Clears the value of `duration`. Subsequent reads from it will return its default value.
-  public mutating func clearDuration() {self._duration = nil}
-
-  public var workloadRef: String = String()
-
-  public var connectionInstance: String = String()
-
-  public var registrationID: String = String()
-
-  public var expectedPolicyRevision: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _duration: SwiftProtobuf.Google_Protobuf_Duration? = nil
-}
-
-public nonisolated struct Agentvmm_Host_V1_RenewLeaseRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var leaseID: String = String()
-
-  public var generation: UInt64 = 0
-
-  public var duration: SwiftProtobuf.Google_Protobuf_Duration {
-    get {_duration ?? SwiftProtobuf.Google_Protobuf_Duration()}
-    set {_duration = newValue}
-  }
-  /// Returns true if `duration` has been explicitly set.
-  public var hasDuration: Bool {self._duration != nil}
-  /// Clears the value of `duration`. Subsequent reads from it will return its default value.
-  public mutating func clearDuration() {self._duration = nil}
-
-  public var registrationID: String = String()
-
-  public var connectionInstance: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _duration: SwiftProtobuf.Google_Protobuf_Duration? = nil
-}
-
-public nonisolated struct Agentvmm_Host_V1_ReleaseLeaseRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var leaseID: String = String()
-
-  public var generation: UInt64 = 0
-
-  public var registrationID: String = String()
-
-  public var connectionInstance: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentvmm_Host_V1_LeaseResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var lease: Agentvmm_Host_V1_RemoteLease {
-    get {_lease ?? Agentvmm_Host_V1_RemoteLease()}
-    set {_lease = newValue}
-  }
-  /// Returns true if `lease` has been explicitly set.
-  public var hasLease: Bool {self._lease != nil}
-  /// Clears the value of `lease`. Subsequent reads from it will return its default value.
-  public mutating func clearLease() {self._lease = nil}
-
-  public var allocationRevision: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _lease: Agentvmm_Host_V1_RemoteLease? = nil
 }
 
 public nonisolated struct Agentvmm_Host_V1_OpenRuntimeSessionRequest: Sendable {
@@ -7169,9 +6913,7 @@ public nonisolated struct Agentvmm_Host_V1_OpenRuntimeSessionRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var leaseID: String = String()
-
-  public var generation: UInt64 = 0
+  public var allocationGeneration: UInt64 = 0
 
   public var allocationID: String = String()
 
@@ -7193,13 +6935,13 @@ public nonisolated struct Agentvmm_Host_V1_RevokeRuntimeSessionRequest: Sendable
 
   public var sessionID: String = String()
 
-  public var leaseID: String = String()
-
-  public var generation: UInt64 = 0
+  public var allocationGeneration: UInt64 = 0
 
   public var registrationID: String = String()
 
   public var connectionInstance: String = String()
+
+  public var allocationID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -7255,7 +6997,7 @@ nonisolated extension Agentvmm_Host_V1_IntegrationConfigState: SwiftProtobuf._Pr
 }
 
 nonisolated extension Agentvmm_Host_V1_AgentSessionOrigin: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AGENT_SESSION_ORIGIN_UNSPECIFIED\0\u{1}AGENT_SESSION_ORIGIN_LOCAL_INTEGRATION\0\u{1}AGENT_SESSION_ORIGIN_REMOTE_LEASE\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AGENT_SESSION_ORIGIN_UNSPECIFIED\0\u{1}AGENT_SESSION_ORIGIN_LOCAL_INTEGRATION\0\u{1}AGENT_SESSION_ORIGIN_REMOTE_ALLOCATION\0")
 }
 
 nonisolated extension Agentvmm_Host_V1_AgentSessionState: SwiftProtobuf._ProtoNameProviding {
@@ -7323,11 +7065,7 @@ nonisolated extension Agentvmm_Host_V1_ConnectorPhase: SwiftProtobuf._ProtoNameP
 }
 
 nonisolated extension Agentvmm_Host_V1_AllocationState: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ALLOCATION_STATE_UNSPECIFIED\0\u{1}ALLOCATION_STATE_READY\0\u{1}ALLOCATION_STATE_LEASED\0\u{1}ALLOCATION_STATE_DRAINING\0\u{1}ALLOCATION_STATE_RETAINED\0\u{1}ALLOCATION_STATE_DISCARDED\0")
-}
-
-nonisolated extension Agentvmm_Host_V1_LeaseState: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0LEASE_STATE_UNSPECIFIED\0\u{1}LEASE_STATE_ACTIVE\0\u{1}LEASE_STATE_EXPIRED\0\u{1}LEASE_STATE_RELEASED\0\u{1}LEASE_STATE_REVOKED\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ALLOCATION_STATE_UNSPECIFIED\0\u{1}ALLOCATION_STATE_READY\0\u{2}\u{2}ALLOCATION_STATE_DRAINING\0\u{1}ALLOCATION_STATE_RETAINED\0\u{1}ALLOCATION_STATE_DISCARDED\0")
 }
 
 nonisolated extension Agentvmm_Host_V1_GetDeviceIdentityRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -8384,7 +8122,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendCapacity: SwiftProtob
 
 nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendLease: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".HostLoopbackFrontendLease"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}frontend_lease_id\0\u{1}generation\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}allocation_id\0\u{3}allocation_lease_id\0\u{3}allocation_lease_generation\0\u{3}allocation_revision\0\u{3}assignment_id\0\u{1}endpoint\0\u{3}access_token\0\u{3}expires_at\0\u{3}effective_capacity\0\u{3}connection_epoch\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}frontend_lease_id\0\u{1}generation\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}allocation_id\0\u{4}\u{2}allocation_generation\0\u{3}allocation_revision\0\u{3}assignment_id\0\u{1}endpoint\0\u{3}access_token\0\u{3}expires_at\0\u{3}effective_capacity\0\u{3}connection_epoch\0\u{b}allocation_lease_id\0\u{c}\u{6}\u{1}")
 
   fileprivate class _StorageClass {
     var _frontendLeaseID: String = String()
@@ -8392,8 +8130,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendLease: SwiftProtobuf.
     var _registrationID: String = String()
     var _connectionInstance: String = String()
     var _allocationID: String = String()
-    var _allocationLeaseID: String = String()
-    var _allocationLeaseGeneration: UInt64 = 0
+    var _allocationGeneration: UInt64 = 0
     var _allocationRevision: UInt64 = 0
     var _assignmentID: String = String()
     var _endpoint: String = String()
@@ -8416,8 +8153,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendLease: SwiftProtobuf.
       _registrationID = source._registrationID
       _connectionInstance = source._connectionInstance
       _allocationID = source._allocationID
-      _allocationLeaseID = source._allocationLeaseID
-      _allocationLeaseGeneration = source._allocationLeaseGeneration
+      _allocationGeneration = source._allocationGeneration
       _allocationRevision = source._allocationRevision
       _assignmentID = source._assignmentID
       _endpoint = source._endpoint
@@ -8448,8 +8184,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendLease: SwiftProtobuf.
         case 3: try { try decoder.decodeSingularStringField(value: &_storage._registrationID) }()
         case 4: try { try decoder.decodeSingularStringField(value: &_storage._connectionInstance) }()
         case 5: try { try decoder.decodeSingularStringField(value: &_storage._allocationID) }()
-        case 6: try { try decoder.decodeSingularStringField(value: &_storage._allocationLeaseID) }()
-        case 7: try { try decoder.decodeSingularUInt64Field(value: &_storage._allocationLeaseGeneration) }()
+        case 7: try { try decoder.decodeSingularUInt64Field(value: &_storage._allocationGeneration) }()
         case 8: try { try decoder.decodeSingularUInt64Field(value: &_storage._allocationRevision) }()
         case 9: try { try decoder.decodeSingularStringField(value: &_storage._assignmentID) }()
         case 10: try { try decoder.decodeSingularStringField(value: &_storage._endpoint) }()
@@ -8484,11 +8219,8 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendLease: SwiftProtobuf.
       if !_storage._allocationID.isEmpty {
         try visitor.visitSingularStringField(value: _storage._allocationID, fieldNumber: 5)
       }
-      if !_storage._allocationLeaseID.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._allocationLeaseID, fieldNumber: 6)
-      }
-      if _storage._allocationLeaseGeneration != 0 {
-        try visitor.visitSingularUInt64Field(value: _storage._allocationLeaseGeneration, fieldNumber: 7)
+      if _storage._allocationGeneration != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._allocationGeneration, fieldNumber: 7)
       }
       if _storage._allocationRevision != 0 {
         try visitor.visitSingularUInt64Field(value: _storage._allocationRevision, fieldNumber: 8)
@@ -8525,8 +8257,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendLease: SwiftProtobuf.
         if _storage._registrationID != rhs_storage._registrationID {return false}
         if _storage._connectionInstance != rhs_storage._connectionInstance {return false}
         if _storage._allocationID != rhs_storage._allocationID {return false}
-        if _storage._allocationLeaseID != rhs_storage._allocationLeaseID {return false}
-        if _storage._allocationLeaseGeneration != rhs_storage._allocationLeaseGeneration {return false}
+        if _storage._allocationGeneration != rhs_storage._allocationGeneration {return false}
         if _storage._allocationRevision != rhs_storage._allocationRevision {return false}
         if _storage._assignmentID != rhs_storage._assignmentID {return false}
         if _storage._endpoint != rhs_storage._endpoint {return false}
@@ -8545,7 +8276,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendLease: SwiftProtobuf.
 
 nonisolated extension Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcquireHostLoopbackFrontendRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}allocation_id\0\u{3}allocation_lease_id\0\u{3}allocation_lease_generation\0\u{3}target_revision\0\u{3}assignment_id\0\u{1}duration\0\u{3}connection_epoch\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}allocation_id\0\u{4}\u{2}allocation_generation\0\u{3}target_revision\0\u{3}assignment_id\0\u{1}duration\0\u{3}connection_epoch\0\u{b}allocation_lease_id\0\u{c}\u{4}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -8556,8 +8287,7 @@ nonisolated extension Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest: Swift
       case 1: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.allocationLeaseID) }()
-      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.allocationLeaseGeneration) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.allocationGeneration) }()
       case 6: try { try decoder.decodeSingularUInt64Field(value: &self.targetRevision) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.assignmentID) }()
       case 8: try { try decoder.decodeSingularMessageField(value: &self._duration) }()
@@ -8581,11 +8311,8 @@ nonisolated extension Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest: Swift
     if !self.allocationID.isEmpty {
       try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 3)
     }
-    if !self.allocationLeaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.allocationLeaseID, fieldNumber: 4)
-    }
-    if self.allocationLeaseGeneration != 0 {
-      try visitor.visitSingularUInt64Field(value: self.allocationLeaseGeneration, fieldNumber: 5)
+    if self.allocationGeneration != 0 {
+      try visitor.visitSingularUInt64Field(value: self.allocationGeneration, fieldNumber: 5)
     }
     if self.targetRevision != 0 {
       try visitor.visitSingularUInt64Field(value: self.targetRevision, fieldNumber: 6)
@@ -8606,8 +8333,7 @@ nonisolated extension Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest: Swift
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
     if lhs.allocationID != rhs.allocationID {return false}
-    if lhs.allocationLeaseID != rhs.allocationLeaseID {return false}
-    if lhs.allocationLeaseGeneration != rhs.allocationLeaseGeneration {return false}
+    if lhs.allocationGeneration != rhs.allocationGeneration {return false}
     if lhs.targetRevision != rhs.targetRevision {return false}
     if lhs.assignmentID != rhs.assignmentID {return false}
     if lhs._duration != rhs._duration {return false}
@@ -8619,7 +8345,7 @@ nonisolated extension Agentvmm_Host_V1_AcquireHostLoopbackFrontendRequest: Swift
 
 nonisolated extension Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RenewHostLoopbackFrontendRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}frontend_lease_id\0\u{1}generation\0\u{3}allocation_lease_id\0\u{3}allocation_lease_generation\0\u{1}duration\0\u{3}connection_epoch\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}frontend_lease_id\0\u{1}generation\0\u{2}\u{3}duration\0\u{3}connection_epoch\0\u{b}allocation_lease_id\0\u{b}allocation_lease_generation\0\u{c}\u{5}\u{1}\u{c}\u{6}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -8631,8 +8357,6 @@ nonisolated extension Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest: SwiftPr
       case 2: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.frontendLeaseID) }()
       case 4: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.allocationLeaseID) }()
-      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.allocationLeaseGeneration) }()
       case 7: try { try decoder.decodeSingularMessageField(value: &self._duration) }()
       case 8: try { try decoder.decodeSingularUInt64Field(value: &self.connectionEpoch) }()
       default: break
@@ -8657,12 +8381,6 @@ nonisolated extension Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest: SwiftPr
     if self.generation != 0 {
       try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 4)
     }
-    if !self.allocationLeaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.allocationLeaseID, fieldNumber: 5)
-    }
-    if self.allocationLeaseGeneration != 0 {
-      try visitor.visitSingularUInt64Field(value: self.allocationLeaseGeneration, fieldNumber: 6)
-    }
     try { if let v = self._duration {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
     } }()
@@ -8677,8 +8395,6 @@ nonisolated extension Agentvmm_Host_V1_RenewHostLoopbackFrontendRequest: SwiftPr
     if lhs.connectionInstance != rhs.connectionInstance {return false}
     if lhs.frontendLeaseID != rhs.frontendLeaseID {return false}
     if lhs.generation != rhs.generation {return false}
-    if lhs.allocationLeaseID != rhs.allocationLeaseID {return false}
-    if lhs.allocationLeaseGeneration != rhs.allocationLeaseGeneration {return false}
     if lhs._duration != rhs._duration {return false}
     if lhs.connectionEpoch != rhs.connectionEpoch {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
@@ -8778,7 +8494,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendAccept: SwiftProtobuf
 
 nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendConnectionHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".HostLoopbackFrontendConnectionHeader"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}frontend_lease_id\0\u{3}frontend_lease_generation\0\u{3}allocation_id\0\u{3}allocation_lease_id\0\u{3}allocation_lease_generation\0\u{3}allocation_revision\0\u{3}assignment_id\0\u{3}connection_id\0\u{3}effective_capacity\0\u{3}connection_epoch\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}frontend_lease_id\0\u{3}frontend_lease_generation\0\u{3}allocation_id\0\u{4}\u{2}allocation_generation\0\u{3}allocation_revision\0\u{3}assignment_id\0\u{3}connection_id\0\u{3}effective_capacity\0\u{3}connection_epoch\0\u{b}allocation_lease_id\0\u{c}\u{6}\u{1}")
 
   fileprivate class _StorageClass {
     var _registrationID: String = String()
@@ -8786,8 +8502,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendConnectionHeader: Swi
     var _frontendLeaseID: String = String()
     var _frontendLeaseGeneration: UInt64 = 0
     var _allocationID: String = String()
-    var _allocationLeaseID: String = String()
-    var _allocationLeaseGeneration: UInt64 = 0
+    var _allocationGeneration: UInt64 = 0
     var _allocationRevision: UInt64 = 0
     var _assignmentID: String = String()
     var _connectionID: String = String()
@@ -8808,8 +8523,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendConnectionHeader: Swi
       _frontendLeaseID = source._frontendLeaseID
       _frontendLeaseGeneration = source._frontendLeaseGeneration
       _allocationID = source._allocationID
-      _allocationLeaseID = source._allocationLeaseID
-      _allocationLeaseGeneration = source._allocationLeaseGeneration
+      _allocationGeneration = source._allocationGeneration
       _allocationRevision = source._allocationRevision
       _assignmentID = source._assignmentID
       _connectionID = source._connectionID
@@ -8838,8 +8552,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendConnectionHeader: Swi
         case 3: try { try decoder.decodeSingularStringField(value: &_storage._frontendLeaseID) }()
         case 4: try { try decoder.decodeSingularUInt64Field(value: &_storage._frontendLeaseGeneration) }()
         case 5: try { try decoder.decodeSingularStringField(value: &_storage._allocationID) }()
-        case 6: try { try decoder.decodeSingularStringField(value: &_storage._allocationLeaseID) }()
-        case 7: try { try decoder.decodeSingularUInt64Field(value: &_storage._allocationLeaseGeneration) }()
+        case 7: try { try decoder.decodeSingularUInt64Field(value: &_storage._allocationGeneration) }()
         case 8: try { try decoder.decodeSingularUInt64Field(value: &_storage._allocationRevision) }()
         case 9: try { try decoder.decodeSingularStringField(value: &_storage._assignmentID) }()
         case 10: try { try decoder.decodeSingularStringField(value: &_storage._connectionID) }()
@@ -8872,11 +8585,8 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendConnectionHeader: Swi
       if !_storage._allocationID.isEmpty {
         try visitor.visitSingularStringField(value: _storage._allocationID, fieldNumber: 5)
       }
-      if !_storage._allocationLeaseID.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._allocationLeaseID, fieldNumber: 6)
-      }
-      if _storage._allocationLeaseGeneration != 0 {
-        try visitor.visitSingularUInt64Field(value: _storage._allocationLeaseGeneration, fieldNumber: 7)
+      if _storage._allocationGeneration != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._allocationGeneration, fieldNumber: 7)
       }
       if _storage._allocationRevision != 0 {
         try visitor.visitSingularUInt64Field(value: _storage._allocationRevision, fieldNumber: 8)
@@ -8907,8 +8617,7 @@ nonisolated extension Agentvmm_Host_V1_HostLoopbackFrontendConnectionHeader: Swi
         if _storage._frontendLeaseID != rhs_storage._frontendLeaseID {return false}
         if _storage._frontendLeaseGeneration != rhs_storage._frontendLeaseGeneration {return false}
         if _storage._allocationID != rhs_storage._allocationID {return false}
-        if _storage._allocationLeaseID != rhs_storage._allocationLeaseID {return false}
-        if _storage._allocationLeaseGeneration != rhs_storage._allocationLeaseGeneration {return false}
+        if _storage._allocationGeneration != rhs_storage._allocationGeneration {return false}
         if _storage._allocationRevision != rhs_storage._allocationRevision {return false}
         if _storage._assignmentID != rhs_storage._assignmentID {return false}
         if _storage._connectionID != rhs_storage._connectionID {return false}
@@ -16368,7 +16077,7 @@ nonisolated extension Agentvmm_Host_V1_ConnectorStatus: SwiftProtobuf.Message, S
 
 nonisolated extension Agentvmm_Host_V1_ControllerDomainMetrics: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ControllerDomainMetrics"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}bytes_to_controller\0\u{3}bytes_to_runtime\0\u{3}send_stalls\0\u{3}window_blocked_millis\0\u{3}active_sessions\0\u{3}active_leases\0\u{3}connector_restarts\0\u{1}reconciliations\0\u{3}last_stop_latency_millis\0\u{3}sampled_at\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}bytes_to_controller\0\u{3}bytes_to_runtime\0\u{3}send_stalls\0\u{3}window_blocked_millis\0\u{3}active_sessions\0\u{4}\u{2}connector_restarts\0\u{1}reconciliations\0\u{3}last_stop_latency_millis\0\u{3}sampled_at\0\u{b}active_leases\0\u{c}\u{6}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -16381,7 +16090,6 @@ nonisolated extension Agentvmm_Host_V1_ControllerDomainMetrics: SwiftProtobuf.Me
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.sendStalls) }()
       case 4: try { try decoder.decodeSingularUInt64Field(value: &self.windowBlockedMillis) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.activeSessions) }()
-      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.activeLeases) }()
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self.connectorRestarts) }()
       case 8: try { try decoder.decodeSingularUInt64Field(value: &self.reconciliations) }()
       case 9: try { try decoder.decodeSingularUInt64Field(value: &self.lastStopLatencyMillis) }()
@@ -16411,9 +16119,6 @@ nonisolated extension Agentvmm_Host_V1_ControllerDomainMetrics: SwiftProtobuf.Me
     if self.activeSessions != 0 {
       try visitor.visitSingularUInt32Field(value: self.activeSessions, fieldNumber: 5)
     }
-    if self.activeLeases != 0 {
-      try visitor.visitSingularUInt32Field(value: self.activeLeases, fieldNumber: 6)
-    }
     if self.connectorRestarts != 0 {
       try visitor.visitSingularUInt64Field(value: self.connectorRestarts, fieldNumber: 7)
     }
@@ -16435,7 +16140,6 @@ nonisolated extension Agentvmm_Host_V1_ControllerDomainMetrics: SwiftProtobuf.Me
     if lhs.sendStalls != rhs.sendStalls {return false}
     if lhs.windowBlockedMillis != rhs.windowBlockedMillis {return false}
     if lhs.activeSessions != rhs.activeSessions {return false}
-    if lhs.activeLeases != rhs.activeLeases {return false}
     if lhs.connectorRestarts != rhs.connectorRestarts {return false}
     if lhs.reconciliations != rhs.reconciliations {return false}
     if lhs.lastStopLatencyMillis != rhs.lastStopLatencyMillis {return false}
@@ -16447,14 +16151,11 @@ nonisolated extension Agentvmm_Host_V1_ControllerDomainMetrics: SwiftProtobuf.Me
 
 nonisolated extension Agentvmm_Host_V1_RemotePoolPolicy: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemotePoolPolicy"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}max_environments\0\u{4}\u{2}per_environment_limits\0\u{3}max_egress_mode\0\u{3}max_lease_duration\0\u{3}disconnect_grace\0\u{3}stop_grace\0\u{3}host_loopback_frontend\0\u{b}aggregate_limits\0\u{c}\u{2}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{3}per_environment_limits\0\u{3}max_egress_mode\0\u{4}\u{3}stop_grace\0\u{3}host_loopback_frontend\0\u{b}max_environments\0\u{b}aggregate_limits\0\u{b}max_lease_duration\0\u{b}disconnect_grace\0\u{c}\u{1}\u{1}\u{c}\u{2}\u{1}\u{c}\u{5}\u{1}\u{c}\u{6}\u{1}")
 
   fileprivate class _StorageClass {
-    var _maxEnvironments: UInt32 = 0
     var _perEnvironmentLimits: Agentvmm_Host_V1_ResourceLimits? = nil
     var _maxEgressMode: Agentvmm_Host_V1_EgressMode = .unspecified
-    var _maxLeaseDuration: SwiftProtobuf.Google_Protobuf_Duration? = nil
-    var _disconnectGrace: SwiftProtobuf.Google_Protobuf_Duration? = nil
     var _stopGrace: SwiftProtobuf.Google_Protobuf_Duration? = nil
     var _hostLoopbackFrontend: Agentvmm_Host_V1_HostLoopbackFrontendCapacity? = nil
 
@@ -16467,11 +16168,8 @@ nonisolated extension Agentvmm_Host_V1_RemotePoolPolicy: SwiftProtobuf.Message, 
     private init() {}
 
     init(copying source: _StorageClass) {
-      _maxEnvironments = source._maxEnvironments
       _perEnvironmentLimits = source._perEnvironmentLimits
       _maxEgressMode = source._maxEgressMode
-      _maxLeaseDuration = source._maxLeaseDuration
-      _disconnectGrace = source._disconnectGrace
       _stopGrace = source._stopGrace
       _hostLoopbackFrontend = source._hostLoopbackFrontend
     }
@@ -16492,11 +16190,8 @@ nonisolated extension Agentvmm_Host_V1_RemotePoolPolicy: SwiftProtobuf.Message, 
         // allocates stack space for every case branch when no optimizations are
         // enabled. https://github.com/apple/swift-protobuf/issues/1034
         switch fieldNumber {
-        case 1: try { try decoder.decodeSingularUInt32Field(value: &_storage._maxEnvironments) }()
         case 3: try { try decoder.decodeSingularMessageField(value: &_storage._perEnvironmentLimits) }()
         case 4: try { try decoder.decodeSingularEnumField(value: &_storage._maxEgressMode) }()
-        case 5: try { try decoder.decodeSingularMessageField(value: &_storage._maxLeaseDuration) }()
-        case 6: try { try decoder.decodeSingularMessageField(value: &_storage._disconnectGrace) }()
         case 7: try { try decoder.decodeSingularMessageField(value: &_storage._stopGrace) }()
         case 8: try { try decoder.decodeSingularMessageField(value: &_storage._hostLoopbackFrontend) }()
         default: break
@@ -16511,21 +16206,12 @@ nonisolated extension Agentvmm_Host_V1_RemotePoolPolicy: SwiftProtobuf.Message, 
       // allocates stack space for every if/case branch local when no optimizations
       // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
       // https://github.com/apple/swift-protobuf/issues/1182
-      if _storage._maxEnvironments != 0 {
-        try visitor.visitSingularUInt32Field(value: _storage._maxEnvironments, fieldNumber: 1)
-      }
       try { if let v = _storage._perEnvironmentLimits {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
       } }()
       if _storage._maxEgressMode != .unspecified {
         try visitor.visitSingularEnumField(value: _storage._maxEgressMode, fieldNumber: 4)
       }
-      try { if let v = _storage._maxLeaseDuration {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
-      } }()
-      try { if let v = _storage._disconnectGrace {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-      } }()
       try { if let v = _storage._stopGrace {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
       } }()
@@ -16541,11 +16227,8 @@ nonisolated extension Agentvmm_Host_V1_RemotePoolPolicy: SwiftProtobuf.Message, 
       let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
         let rhs_storage = _args.1
-        if _storage._maxEnvironments != rhs_storage._maxEnvironments {return false}
         if _storage._perEnvironmentLimits != rhs_storage._perEnvironmentLimits {return false}
         if _storage._maxEgressMode != rhs_storage._maxEgressMode {return false}
-        if _storage._maxLeaseDuration != rhs_storage._maxLeaseDuration {return false}
-        if _storage._disconnectGrace != rhs_storage._disconnectGrace {return false}
         if _storage._stopGrace != rhs_storage._stopGrace {return false}
         if _storage._hostLoopbackFrontend != rhs_storage._hostLoopbackFrontend {return false}
         return true
@@ -17332,140 +17015,7 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistrationResponse: SwiftProtobuf
 
 nonisolated extension Agentvmm_Host_V1_RemoteAllocation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoteAllocation"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}display_label\0\u{1}limits\0\u{3}egress_mode\0\u{1}revision\0\u{1}state\0\u{1}lease\0\u{3}environment_id\0\u{1}generation\0\u{3}resources_v2\0")
-
-  fileprivate class _StorageClass {
-    var _allocationID: String = String()
-    var _displayLabel: String = String()
-    var _limits: Agentvmm_Host_V1_ResourceLimits? = nil
-    var _egressMode: Agentvmm_Host_V1_EgressMode = .unspecified
-    var _revision: UInt64 = 0
-    var _state: Agentvmm_Host_V1_AllocationState = .unspecified
-    var _lease: Agentvmm_Host_V1_RemoteLease? = nil
-    var _environmentID: String = String()
-    var _generation: UInt64 = 0
-    var _resourcesV2: Agentvmm_Host_V1_WorkloadResourcesV2? = nil
-
-      // This property is used as the initial default value for new instances of the type.
-      // The type itself is protecting the reference to its storage via CoW semantics.
-      // This will force a copy to be made of this reference when the first mutation occurs;
-      // hence, it is safe to mark this as `nonisolated(unsafe)`.
-      static nonisolated(unsafe) let defaultInstance = _StorageClass()
-
-    private init() {}
-
-    init(copying source: _StorageClass) {
-      _allocationID = source._allocationID
-      _displayLabel = source._displayLabel
-      _limits = source._limits
-      _egressMode = source._egressMode
-      _revision = source._revision
-      _state = source._state
-      _lease = source._lease
-      _environmentID = source._environmentID
-      _generation = source._generation
-      _resourcesV2 = source._resourcesV2
-    }
-  }
-
-  fileprivate mutating func _uniqueStorage() -> _StorageClass {
-    if !isKnownUniquelyReferenced(&_storage) {
-      _storage = _StorageClass(copying: _storage)
-    }
-    return _storage
-  }
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    _ = _uniqueStorage()
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      while let fieldNumber = try decoder.nextFieldNumber() {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch fieldNumber {
-        case 1: try { try decoder.decodeSingularStringField(value: &_storage._allocationID) }()
-        case 2: try { try decoder.decodeSingularStringField(value: &_storage._displayLabel) }()
-        case 3: try { try decoder.decodeSingularMessageField(value: &_storage._limits) }()
-        case 4: try { try decoder.decodeSingularEnumField(value: &_storage._egressMode) }()
-        case 5: try { try decoder.decodeSingularUInt64Field(value: &_storage._revision) }()
-        case 6: try { try decoder.decodeSingularEnumField(value: &_storage._state) }()
-        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._lease) }()
-        case 8: try { try decoder.decodeSingularStringField(value: &_storage._environmentID) }()
-        case 9: try { try decoder.decodeSingularUInt64Field(value: &_storage._generation) }()
-        case 10: try { try decoder.decodeSingularMessageField(value: &_storage._resourcesV2) }()
-        default: break
-        }
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every if/case branch local when no optimizations
-      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-      // https://github.com/apple/swift-protobuf/issues/1182
-      if !_storage._allocationID.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._allocationID, fieldNumber: 1)
-      }
-      if !_storage._displayLabel.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._displayLabel, fieldNumber: 2)
-      }
-      try { if let v = _storage._limits {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-      } }()
-      if _storage._egressMode != .unspecified {
-        try visitor.visitSingularEnumField(value: _storage._egressMode, fieldNumber: 4)
-      }
-      if _storage._revision != 0 {
-        try visitor.visitSingularUInt64Field(value: _storage._revision, fieldNumber: 5)
-      }
-      if _storage._state != .unspecified {
-        try visitor.visitSingularEnumField(value: _storage._state, fieldNumber: 6)
-      }
-      try { if let v = _storage._lease {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
-      } }()
-      if !_storage._environmentID.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._environmentID, fieldNumber: 8)
-      }
-      if _storage._generation != 0 {
-        try visitor.visitSingularUInt64Field(value: _storage._generation, fieldNumber: 9)
-      }
-      try { if let v = _storage._resourcesV2 {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
-      } }()
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_RemoteAllocation, rhs: Agentvmm_Host_V1_RemoteAllocation) -> Bool {
-    if lhs._storage !== rhs._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
-        let _storage = _args.0
-        let rhs_storage = _args.1
-        if _storage._allocationID != rhs_storage._allocationID {return false}
-        if _storage._displayLabel != rhs_storage._displayLabel {return false}
-        if _storage._limits != rhs_storage._limits {return false}
-        if _storage._egressMode != rhs_storage._egressMode {return false}
-        if _storage._revision != rhs_storage._revision {return false}
-        if _storage._state != rhs_storage._state {return false}
-        if _storage._lease != rhs_storage._lease {return false}
-        if _storage._environmentID != rhs_storage._environmentID {return false}
-        if _storage._generation != rhs_storage._generation {return false}
-        if _storage._resourcesV2 != rhs_storage._resourcesV2 {return false}
-        return true
-      }
-      if !storagesAreEqual {return false}
-    }
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_RemoteLease: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".RemoteLease"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}allocation_id\0\u{3}workload_ref\0\u{1}generation\0\u{3}expires_at\0\u{1}state\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}display_label\0\u{1}limits\0\u{3}egress_mode\0\u{1}revision\0\u{1}state\0\u{4}\u{2}environment_id\0\u{1}generation\0\u{3}resources_v2\0\u{b}lease\0\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17473,12 +17023,15 @@ nonisolated extension Agentvmm_Host_V1_RemoteLease: SwiftProtobuf.Message, Swift
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.workloadRef) }()
-      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
-      case 5: try { try decoder.decodeSingularMessageField(value: &self._expiresAt) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.displayLabel) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._limits) }()
+      case 4: try { try decoder.decodeSingularEnumField(value: &self.egressMode) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
       case 6: try { try decoder.decodeSingularEnumField(value: &self.state) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.environmentID) }()
+      case 9: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
+      case 10: try { try decoder.decodeSingularMessageField(value: &self._resourcesV2) }()
       default: break
       }
     }
@@ -17489,34 +17042,46 @@ nonisolated extension Agentvmm_Host_V1_RemoteLease: SwiftProtobuf.Message, Swift
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
-    }
     if !self.allocationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 2)
+      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 1)
     }
-    if !self.workloadRef.isEmpty {
-      try visitor.visitSingularStringField(value: self.workloadRef, fieldNumber: 3)
+    if !self.displayLabel.isEmpty {
+      try visitor.visitSingularStringField(value: self.displayLabel, fieldNumber: 2)
     }
-    if self.generation != 0 {
-      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 4)
-    }
-    try { if let v = self._expiresAt {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    try { if let v = self._limits {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
+    if self.egressMode != .unspecified {
+      try visitor.visitSingularEnumField(value: self.egressMode, fieldNumber: 4)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 5)
+    }
     if self.state != .unspecified {
       try visitor.visitSingularEnumField(value: self.state, fieldNumber: 6)
     }
+    if !self.environmentID.isEmpty {
+      try visitor.visitSingularStringField(value: self.environmentID, fieldNumber: 8)
+    }
+    if self.generation != 0 {
+      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 9)
+    }
+    try { if let v = self._resourcesV2 {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentvmm_Host_V1_RemoteLease, rhs: Agentvmm_Host_V1_RemoteLease) -> Bool {
-    if lhs.leaseID != rhs.leaseID {return false}
+  public static func ==(lhs: Agentvmm_Host_V1_RemoteAllocation, rhs: Agentvmm_Host_V1_RemoteAllocation) -> Bool {
     if lhs.allocationID != rhs.allocationID {return false}
-    if lhs.workloadRef != rhs.workloadRef {return false}
-    if lhs.generation != rhs.generation {return false}
-    if lhs._expiresAt != rhs._expiresAt {return false}
+    if lhs.displayLabel != rhs.displayLabel {return false}
+    if lhs._limits != rhs._limits {return false}
+    if lhs.egressMode != rhs.egressMode {return false}
+    if lhs.revision != rhs.revision {return false}
     if lhs.state != rhs.state {return false}
+    if lhs.environmentID != rhs.environmentID {return false}
+    if lhs.generation != rhs.generation {return false}
+    if lhs._resourcesV2 != rhs._resourcesV2 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -18190,7 +17755,7 @@ nonisolated extension Agentvmm_Host_V1_AllocationCleanupPlanResponse: SwiftProto
 
 nonisolated extension Agentvmm_Host_V1_ExecuteCleanupAllocationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ExecuteCleanupAllocationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}plan_revision\0\u{3}confirmed_volume_ids\0\u{3}registration_id\0\u{3}connection_instance\0\u{1}kind\0\u{3}expected_lease_id\0\u{3}expected_lease_generation\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{3}plan_revision\0\u{3}confirmed_volume_ids\0\u{3}registration_id\0\u{3}connection_instance\0\u{1}kind\0\u{b}expected_lease_id\0\u{b}expected_lease_generation\0\u{c}\u{7}\u{1}\u{c}\u{8}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -18204,8 +17769,6 @@ nonisolated extension Agentvmm_Host_V1_ExecuteCleanupAllocationRequest: SwiftPro
       case 4: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
       case 6: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
-      case 7: try { try decoder.decodeSingularStringField(value: &self.expectedLeaseID) }()
-      case 8: try { try decoder.decodeSingularUInt64Field(value: &self.expectedLeaseGeneration) }()
       default: break
       }
     }
@@ -18230,12 +17793,6 @@ nonisolated extension Agentvmm_Host_V1_ExecuteCleanupAllocationRequest: SwiftPro
     if self.kind != .unspecified {
       try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 6)
     }
-    if !self.expectedLeaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.expectedLeaseID, fieldNumber: 7)
-    }
-    if self.expectedLeaseGeneration != 0 {
-      try visitor.visitSingularUInt64Field(value: self.expectedLeaseGeneration, fieldNumber: 8)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -18246,205 +17803,6 @@ nonisolated extension Agentvmm_Host_V1_ExecuteCleanupAllocationRequest: SwiftPro
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
     if lhs.kind != rhs.kind {return false}
-    if lhs.expectedLeaseID != rhs.expectedLeaseID {return false}
-    if lhs.expectedLeaseGeneration != rhs.expectedLeaseGeneration {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_AcquireLeaseRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".AcquireLeaseRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}allocation_id\0\u{1}duration\0\u{3}workload_ref\0\u{3}connection_instance\0\u{3}registration_id\0\u{3}expected_policy_revision\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._duration) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.workloadRef) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
-      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.expectedPolicyRevision) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.allocationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 1)
-    }
-    try { if let v = self._duration {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
-    if !self.workloadRef.isEmpty {
-      try visitor.visitSingularStringField(value: self.workloadRef, fieldNumber: 3)
-    }
-    if !self.connectionInstance.isEmpty {
-      try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 4)
-    }
-    if !self.registrationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 5)
-    }
-    if self.expectedPolicyRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.expectedPolicyRevision, fieldNumber: 6)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_AcquireLeaseRequest, rhs: Agentvmm_Host_V1_AcquireLeaseRequest) -> Bool {
-    if lhs.allocationID != rhs.allocationID {return false}
-    if lhs._duration != rhs._duration {return false}
-    if lhs.workloadRef != rhs.workloadRef {return false}
-    if lhs.connectionInstance != rhs.connectionInstance {return false}
-    if lhs.registrationID != rhs.registrationID {return false}
-    if lhs.expectedPolicyRevision != rhs.expectedPolicyRevision {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_RenewLeaseRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".RenewLeaseRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{1}generation\0\u{1}duration\0\u{3}registration_id\0\u{3}connection_instance\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._duration) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
-    }
-    if self.generation != 0 {
-      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 2)
-    }
-    try { if let v = self._duration {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
-    if !self.registrationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 4)
-    }
-    if !self.connectionInstance.isEmpty {
-      try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 5)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_RenewLeaseRequest, rhs: Agentvmm_Host_V1_RenewLeaseRequest) -> Bool {
-    if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.generation != rhs.generation {return false}
-    if lhs._duration != rhs._duration {return false}
-    if lhs.registrationID != rhs.registrationID {return false}
-    if lhs.connectionInstance != rhs.connectionInstance {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_ReleaseLeaseRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ReleaseLeaseRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{1}generation\0\u{3}registration_id\0\u{3}connection_instance\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
-    }
-    if self.generation != 0 {
-      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 2)
-    }
-    if !self.registrationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 3)
-    }
-    if !self.connectionInstance.isEmpty {
-      try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 4)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_ReleaseLeaseRequest, rhs: Agentvmm_Host_V1_ReleaseLeaseRequest) -> Bool {
-    if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.generation != rhs.generation {return false}
-    if lhs.registrationID != rhs.registrationID {return false}
-    if lhs.connectionInstance != rhs.connectionInstance {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_LeaseResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".LeaseResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}lease\0\u{3}allocation_revision\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._lease) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.allocationRevision) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._lease {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if self.allocationRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.allocationRevision, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_LeaseResponse, rhs: Agentvmm_Host_V1_LeaseResponse) -> Bool {
-    if lhs._lease != rhs._lease {return false}
-    if lhs.allocationRevision != rhs.allocationRevision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -18452,7 +17810,7 @@ nonisolated extension Agentvmm_Host_V1_LeaseResponse: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".OpenRuntimeSessionRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{1}generation\0\u{3}allocation_id\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}execution_owner_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{2}allocation_generation\0\u{3}allocation_id\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}execution_owner_id\0\u{b}lease_id\0\u{c}\u{1}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -18460,8 +17818,7 @@ nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.allocationGeneration) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
@@ -18472,11 +17829,8 @@ nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
-    }
-    if self.generation != 0 {
-      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 2)
+    if self.allocationGeneration != 0 {
+      try visitor.visitSingularUInt64Field(value: self.allocationGeneration, fieldNumber: 2)
     }
     if !self.allocationID.isEmpty {
       try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 3)
@@ -18494,8 +17848,7 @@ nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_OpenRuntimeSessionRequest, rhs: Agentvmm_Host_V1_OpenRuntimeSessionRequest) -> Bool {
-    if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.generation != rhs.generation {return false}
+    if lhs.allocationGeneration != rhs.allocationGeneration {return false}
     if lhs.allocationID != rhs.allocationID {return false}
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
@@ -18507,7 +17860,7 @@ nonisolated extension Agentvmm_Host_V1_OpenRuntimeSessionRequest: SwiftProtobuf.
 
 nonisolated extension Agentvmm_Host_V1_RevokeRuntimeSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RevokeRuntimeSessionRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}lease_id\0\u{1}generation\0\u{3}registration_id\0\u{3}connection_instance\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{4}\u{2}allocation_generation\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}allocation_id\0\u{b}lease_id\0\u{c}\u{2}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -18516,10 +17869,10 @@ nonisolated extension Agentvmm_Host_V1_RevokeRuntimeSessionRequest: SwiftProtobu
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.allocationGeneration) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
       default: break
       }
     }
@@ -18529,11 +17882,8 @@ nonisolated extension Agentvmm_Host_V1_RevokeRuntimeSessionRequest: SwiftProtobu
     if !self.sessionID.isEmpty {
       try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
     }
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 2)
-    }
-    if self.generation != 0 {
-      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 3)
+    if self.allocationGeneration != 0 {
+      try visitor.visitSingularUInt64Field(value: self.allocationGeneration, fieldNumber: 3)
     }
     if !self.registrationID.isEmpty {
       try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 4)
@@ -18541,15 +17891,18 @@ nonisolated extension Agentvmm_Host_V1_RevokeRuntimeSessionRequest: SwiftProtobu
     if !self.connectionInstance.isEmpty {
       try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 5)
     }
+    if !self.allocationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_RevokeRuntimeSessionRequest, rhs: Agentvmm_Host_V1_RevokeRuntimeSessionRequest) -> Bool {
     if lhs.sessionID != rhs.sessionID {return false}
-    if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.generation != rhs.generation {return false}
+    if lhs.allocationGeneration != rhs.allocationGeneration {return false}
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
+    if lhs.allocationID != rhs.allocationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -23,16 +23,15 @@ func (applianceArtifactVerifier) verify(manifest *appliancev1.ControllerApplianc
 	if manifest.GetPlatform() != "linux/arm64" || !canonicalOCIDigest.MatchString(manifest.GetImageManifestDigest()) {
 		return nil, nil, errors.New("manifest platform or image digest is invalid")
 	}
-	if manifest.GetDataVolumeBytes() < 1<<30 || manifest.GetDataVolumeBytes() > 64<<30 || manifest.GetSystemResources() == nil ||
-		!limitsPositive(manifest.GetSystemResources().GetFloor()) || !limitsPositive(manifest.GetSystemResources().GetCeiling()) ||
-		manifest.GetRequestedCapacity() == nil || manifest.GetRequestedCapacity().GetMaxEnvironments() == 0 ||
-		!limitsPositive(manifest.GetRequestedCapacity().GetPerEnvironmentLimits()) {
+	if manifest.GetDataVolumeBytes() < 1<<30 || manifest.GetDataVolumeBytes() > 64<<30 ||
+		!isolationLimitsValid(manifest.GetSystemLimits()) || manifest.GetRequestedCapacity() == nil ||
+		!isolationLimitsValid(manifest.GetRequestedCapacity().GetPerEnvironmentLimits()) {
 		return nil, nil, errors.New("manifest resource declaration is incomplete")
 	}
 	if manifest.GetBootstrapProtocolVersion() == "" || manifest.GetControllerProtocolVersion() == "" ||
 		manifest.GetStartupDeadlineSeconds() == 0 || manifest.GetStartupDeadlineSeconds() > 300 ||
 		manifest.GetProbationSeconds() == 0 || manifest.GetProbationSeconds() > 60 ||
-		manifest.GetHealthTimeoutSeconds() == 0 || manifest.GetHealthTimeoutSeconds() > 60 || manifest.GetMinimumApplianceRuntime() == "" {
+		manifest.GetHealthTimeoutSeconds() == 0 || manifest.GetHealthTimeoutSeconds() > 60 {
 		return nil, nil, errors.New("manifest lifecycle declaration is incomplete or outside host ceilings")
 	}
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
@@ -54,20 +53,15 @@ func (applianceArtifactVerifier) verify(manifest *appliancev1.ControllerApplianc
 func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, grant *appliancev1.ApprovedGrant) error {
 	requested := manifest.GetRequestedCapacity()
 	approved := grant.GetCapacity()
-	if requested == nil || approved == nil || grant.GetSystemResources() == nil || manifest.GetSystemResources() == nil {
+	if requested == nil || approved == nil || !isolationLimitsValid(grant.GetSystemLimits()) || !isolationLimitsValid(manifest.GetSystemLimits()) ||
+		!isolationLimitsValid(approved.GetPerEnvironmentLimits()) {
 		return errors.New("resource grant is incomplete")
 	}
-	requestedSystem, approvedSystem := manifest.GetSystemResources(), grant.GetSystemResources()
-	if !limitsLTE(requestedSystem.GetFloor(), approvedSystem.GetFloor()) ||
-		!limitsLTE(approvedSystem.GetFloor(), approvedSystem.GetCeiling()) ||
-		!limitsLTE(approvedSystem.GetCeiling(), requestedSystem.GetCeiling()) {
-		return errors.New("approved system resources expand or violate the manifest range")
+	if !limitsLTE(grant.GetSystemLimits(), manifest.GetSystemLimits()) {
+		return errors.New("approved system limits expand the manifest limits")
 	}
-	if approved.GetMaxEnvironments() > requested.GetMaxEnvironments() ||
-		!limitsLTE(approved.GetPerEnvironmentLimits(), requested.GetPerEnvironmentLimits()) ||
-		approved.GetMaxEgressMode() > requested.GetMaxEgressMode() || grant.GetEgressMode() > manifest.GetRequestedEgressMode() ||
-		approved.GetMaxLeaseSeconds() > requested.GetMaxLeaseSeconds() ||
-		approved.GetDisconnectGraceSeconds() > requested.GetDisconnectGraceSeconds() {
+	if !limitsLTE(approved.GetPerEnvironmentLimits(), requested.GetPerEnvironmentLimits()) ||
+		approved.GetMaxEgressMode() > requested.GetMaxEgressMode() || grant.GetEgressMode() > manifest.GetRequestedEgressMode() {
 		return errors.New("approved capacity expands manifest capabilities")
 	}
 	if len(grant.GetFrontends()) > len(manifest.GetRequestedFrontends()) {
@@ -96,22 +90,23 @@ func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, gr
 	return nil
 }
 
-// validateApplianceCapacity keeps a signed grant from advertising resources
-// that can never fit in this VM.
-func validateApplianceCapacity(grant *appliancev1.ApprovedGrant, host store.ResourceAmount) error {
-	if grant == nil || grant.GetSystemResources() == nil || grant.GetSystemResources().GetCeiling() == nil ||
-		grant.GetCapacity() == nil || grant.GetCapacity().GetPerEnvironmentLimits() == nil {
+// validateApplianceIsolationLimits keeps PID and disk limits within this VM.
+func validateApplianceIsolationLimits(grant *appliancev1.ApprovedGrant, host store.ResourceAmount) error {
+	if grant == nil || !isolationLimitsValid(grant.GetSystemLimits()) ||
+		grant.GetCapacity() == nil || !isolationLimitsValid(grant.GetCapacity().GetPerEnvironmentLimits()) {
 		return errors.New("resource grant is incomplete")
 	}
-	system := grant.GetSystemResources().GetCeiling()
+	system := grant.GetSystemLimits()
 	perEnvironment := grant.GetCapacity().GetPerEnvironmentLimits()
-	if uint64(system.GetCpuMillis()) > host.CPUMillis || system.GetMemoryBytes() > host.MemoryBytes ||
-		uint64(system.GetPids()) > host.PIDs || system.GetDiskBytes() > host.DiskBytes ||
-		uint64(perEnvironment.GetCpuMillis()) > host.CPUMillis || perEnvironment.GetMemoryBytes() > host.MemoryBytes ||
+	if uint64(system.GetPids()) > host.PIDs || system.GetDiskBytes() > host.DiskBytes ||
 		uint64(perEnvironment.GetPids()) > host.PIDs || perEnvironment.GetDiskBytes() > host.DiskBytes {
 		return errors.New("approved resources exceed VM capacity")
 	}
 	return nil
+}
+
+func isolationLimitsValid(value *hostv1.ResourceLimits) bool {
+	return value != nil && value.CpuMillis == nil && value.MemoryBytes == nil && value.GetPids() > 0 && value.GetDiskBytes() > 0
 }
 
 func dynamicHostLoopbackWithin(approved, requested *appliancev1.DynamicHostLoopbackGrant) bool {

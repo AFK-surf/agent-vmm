@@ -17,7 +17,7 @@ import (
 )
 
 func TestRemoteErrorDetailsHideLocalEnvironment(t *testing.T) {
-	identity := auth.Identity{Role: auth.Agent, SessionID: "session", EnvironmentID: "local-environment", NamespaceID: "local-namespace", RegistrationID: "registration", AllocationID: "allocation", LeaseID: "lease"}
+	identity := auth.Identity{Role: auth.Agent, SessionID: "session", EnvironmentID: "local-environment", NamespaceID: "local-namespace", RegistrationID: "registration", AllocationID: "allocation", AllocationGeneration: 1}
 	interceptor := auth.UnaryInterceptor(identity)
 	for _, source := range []error{
 		status.Error(codes.Unavailable, "unavailable"),

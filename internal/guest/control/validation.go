@@ -49,12 +49,6 @@ func validateResourceLimits(namespaceID string, limits *vmmdv1.ResourceLimits, n
 	if limits == nil {
 		return nil
 	}
-	if isSystemNamespace(namespaceID) && limits.CpuMillis != nil && (limits.GetCpuMillis() == 0 || limits.GetCpuMillis() > namespace.GetCpuMillis()) {
-		return errors.New("container CPU limit must be positive and no greater than its namespace")
-	}
-	if isSystemNamespace(namespaceID) && limits.MemoryBytes != nil && (limits.GetMemoryBytes() == 0 || limits.GetMemoryBytes() > namespace.GetMemoryBytes()) {
-		return errors.New("container memory limit must be positive and no greater than its namespace")
-	}
 	if limits.Pids != nil && (limits.GetPids() == 0 || limits.GetPids() > namespace.GetPids()) {
 		return errors.New("container PID limit must be positive and no greater than its namespace")
 	}

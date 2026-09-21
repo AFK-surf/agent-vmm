@@ -193,12 +193,12 @@ func (manager *hostLoopbackFrontendManager) closeRegistration(registrationID, in
 	}, kind)
 }
 
-func (manager *hostLoopbackFrontendManager) closeAllocationLease(id string, generation uint64, kind hostv1.HostLoopbackFrontendEvent_Kind) {
+func (manager *hostLoopbackFrontendManager) closeAllocation(registrationID, allocationID string, generation uint64, kind hostv1.HostLoopbackFrontendEvent_Kind) {
 	if manager == nil {
 		return
 	}
 	manager.closeMatching(func(lease *hostLoopbackFrontendLease) bool {
-		return lease.proto.GetAllocationLeaseId() == id && lease.proto.GetAllocationLeaseGeneration() == generation
+		return lease.proto.GetRegistrationId() == registrationID && lease.proto.GetAllocationId() == allocationID && lease.proto.GetAllocationGeneration() == generation
 	}, kind)
 }
 
@@ -257,8 +257,8 @@ func (server *remoteComputeServer) AcquireHostLoopbackFrontend(ctx context.Conte
 	if err := server.controller.requireRemoteAdmission(); err != nil {
 		return nil, err
 	}
-	if request.GetAssignmentId() == "" || len(request.GetAssignmentId()) > 256 || request.GetAllocationId() == "" || request.GetAllocationLeaseId() == "" || request.GetAllocationLeaseGeneration() == 0 || request.GetTargetRevision() == 0 {
-		return nil, invalidField("frontend identity", "exact allocation, lease, revision, and assignment are required")
+	if request.GetAssignmentId() == "" || len(request.GetAssignmentId()) > 256 || request.GetAllocationId() == "" || request.GetAllocationGeneration() == 0 || request.GetTargetRevision() == 0 {
+		return nil, invalidField("frontend identity", "exact allocation, generation, revision, and assignment are required")
 	}
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
@@ -284,16 +284,9 @@ func (server *remoteComputeServer) AcquireHostLoopbackFrontend(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	if environment.PolicyRevision != request.GetTargetRevision() {
+	if environment.PolicyRevision != request.GetTargetRevision() || environment.AllocationGeneration != request.GetAllocationGeneration() ||
+		environment.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
 		return nil, resourceError(codes.Aborted, "POLICY_REVISION_CONFLICT", "allocation", request.GetAllocationId(), "allocation policy revision is stale")
-	}
-	server.controller.mu.Lock()
-	allocationLease := server.controller.remoteLeases[request.GetAllocationLeaseId()]
-	valid := allocationLease != nil && allocationLease.registrationID == registration.ID && allocationLease.allocationID == request.GetAllocationId() &&
-		allocationLease.generation == request.GetAllocationLeaseGeneration() && remoteLeaseActive(allocationLease)
-	server.controller.mu.Unlock()
-	if !valid {
-		return nil, resourceError(codes.FailedPrecondition, "LEASE_REVOKED", "lease", request.GetAllocationLeaseId(), "allocation lease is not active")
 	}
 	capacity := hostLoopbackCapacityToProto(grant.DynamicHostLoopback)
 	duration := request.GetDuration().AsDuration()
@@ -317,8 +310,8 @@ func (server *remoteComputeServer) AcquireHostLoopbackFrontend(ctx context.Conte
 	leaseCtx, cancel := context.WithCancel(context.Background())
 	expires := time.Now().Add(duration)
 	value := &hostv1.HostLoopbackFrontendLease{FrontendLeaseId: id, Generation: server.controller.hostFrontendGeneration.Add(1), RegistrationId: registration.ID,
-		ConnectionInstance: request.GetConnectionInstance(), AllocationId: request.GetAllocationId(), AllocationLeaseId: request.GetAllocationLeaseId(),
-		AllocationLeaseGeneration: request.GetAllocationLeaseGeneration(), AllocationRevision: request.GetTargetRevision(), AssignmentId: request.GetAssignmentId(),
+		ConnectionInstance: request.GetConnectionInstance(), AllocationId: request.GetAllocationId(), AllocationGeneration: request.GetAllocationGeneration(),
+		AllocationRevision: request.GetTargetRevision(), AssignmentId: request.GetAssignmentId(),
 		Endpoint: listener.Addr().String(), AccessToken: append([]byte(nil), token[:]...), ExpiresAt: timestamppb.New(expires), EffectiveCapacity: capacity, ConnectionEpoch: request.GetConnectionEpoch()}
 	lease := &hostLoopbackFrontendLease{manager: server.controller.hostFrontends, proto: value, token: token, listener: listener, ctx: leaseCtx, cancel: cancel, connections: make(map[string]net.Conn)}
 	if err := server.controller.hostFrontends.add(lease, capacity); err != nil {
@@ -354,8 +347,7 @@ func (server *remoteComputeServer) RenewHostLoopbackFrontend(ctx context.Context
 	server.controller.hostFrontends.mu.Lock()
 	lease := server.controller.hostFrontends.leases[request.GetFrontendLeaseId()]
 	if lease == nil || lease.proto.GetGeneration() != request.GetGeneration() || lease.proto.GetRegistrationId() != request.GetRegistrationId() ||
-		lease.proto.GetConnectionInstance() != request.GetConnectionInstance() || lease.proto.GetConnectionEpoch() != request.GetConnectionEpoch() || lease.proto.GetAllocationLeaseId() != request.GetAllocationLeaseId() ||
-		lease.proto.GetAllocationLeaseGeneration() != request.GetAllocationLeaseGeneration() {
+		lease.proto.GetConnectionInstance() != request.GetConnectionInstance() || lease.proto.GetConnectionEpoch() != request.GetConnectionEpoch() {
 		server.controller.hostFrontends.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, "frontend lease is not active")
 	}
@@ -364,14 +356,11 @@ func (server *remoteComputeServer) RenewHostLoopbackFrontend(ctx context.Context
 		server.controller.hostFrontends.mu.Unlock()
 		return nil, invalidField("duration", "frontend lease duration exceeds the immutable grant")
 	}
-	server.controller.mu.Lock()
-	allocationLease := server.controller.remoteLeases[request.GetAllocationLeaseId()]
-	valid := allocationLease != nil && allocationLease.registrationID == lease.proto.GetRegistrationId() && allocationLease.allocationID == lease.proto.GetAllocationId() &&
-		allocationLease.generation == request.GetAllocationLeaseGeneration() && remoteLeaseActive(allocationLease)
-	server.controller.mu.Unlock()
-	if !valid {
+	environment, err := server.remoteEnvironment(ctx, lease.proto.GetRegistrationId(), lease.proto.GetAllocationId())
+	if err != nil || environment.AllocationGeneration != lease.proto.GetAllocationGeneration() ||
+		environment.PolicyRevision != lease.proto.GetAllocationRevision() || environment.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_READY) {
 		server.controller.hostFrontends.mu.Unlock()
-		return nil, status.Error(codes.FailedPrecondition, "allocation lease is not active")
+		return nil, status.Error(codes.FailedPrecondition, "frontend allocation is not current")
 	}
 	expires := time.Now().Add(duration)
 	lease.proto.ExpiresAt = timestamppb.New(expires)
@@ -471,8 +460,8 @@ func (server *remoteComputeServer) AcceptHostLoopbackFrontend(stream hostv1.Remo
 	}
 	header := &hostv1.HostLoopbackFrontendConnectionHeader{RegistrationId: pending.lease.proto.GetRegistrationId(), ConnectionInstance: pending.lease.proto.GetConnectionInstance(),
 		FrontendLeaseId: pending.lease.proto.GetFrontendLeaseId(), FrontendLeaseGeneration: pending.lease.proto.GetGeneration(), AllocationId: pending.lease.proto.GetAllocationId(),
-		AllocationLeaseId: pending.lease.proto.GetAllocationLeaseId(), AllocationLeaseGeneration: pending.lease.proto.GetAllocationLeaseGeneration(),
-		AllocationRevision: pending.lease.proto.GetAllocationRevision(), AssignmentId: pending.lease.proto.GetAssignmentId(), ConnectionId: pending.connectionID,
+		AllocationGeneration: pending.lease.proto.GetAllocationGeneration(),
+		AllocationRevision:   pending.lease.proto.GetAllocationRevision(), AssignmentId: pending.lease.proto.GetAssignmentId(), ConnectionId: pending.connectionID,
 		EffectiveCapacity: pending.lease.proto.GetEffectiveCapacity(), ConnectionEpoch: pending.lease.proto.GetConnectionEpoch()}
 	if err := stream.Send(&hostv1.HostFrontendFrame{Payload: &hostv1.HostFrontendFrame_Header{Header: header}}); err != nil {
 		return err

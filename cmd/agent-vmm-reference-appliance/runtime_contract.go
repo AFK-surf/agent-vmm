@@ -23,7 +23,7 @@ import (
 
 const referenceImage = "agent-vmm.local/reference-workload:v1"
 
-func (controller referenceController) runReferenceContract(ctx context.Context, cursor *referenceCommandCursor, leases map[string]*remotev1.Lease) error {
+func (controller referenceController) runReferenceContract(ctx context.Context, cursor *referenceCommandCursor, allocations map[string]*remotev1.Allocation) error {
 	durable, durableOwner, err := controller.runtimeClient(ctx, "durable-service")
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	capability, err := controller.routeCapability(exported, leases["ephemeral-task"], environment.GetEnvironment().GetPolicyRevision())
+	capability, err := controller.routeCapability(exported, allocations["ephemeral-task"], environment.GetEnvironment().GetPolicyRevision())
 	if err != nil {
 		return err
 	}
@@ -106,31 +106,26 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 		return err
 	}
 	taskClosed = true
-	if err := cleanupReferenceTaskAllocation(ctx, cursor, leases["ephemeral-task"]); err != nil {
+	if err := cleanupReferenceTaskAllocation(ctx, cursor, allocations["ephemeral-task"]); err != nil {
 		return err
 	}
-	delete(leases, "ephemeral-task")
+	delete(allocations, "ephemeral-task")
 	return nil
 }
 
-func cleanupReferenceTaskAllocation(ctx context.Context, cursor *referenceCommandCursor, lease *remotev1.Lease) error {
-	if lease == nil {
-		return errors.New("ephemeral task lease is unavailable")
+func cleanupReferenceTaskAllocation(ctx context.Context, cursor *referenceCommandCursor, allocation *remotev1.Allocation) error {
+	if allocation == nil {
+		return errors.New("ephemeral task allocation is unavailable")
 	}
-	released, err := dispatchReferenceCommand(ctx, cursor, "release-task-lease", &remotev1.ControllerCommand{LeaseGeneration: lease.GetGeneration(), Command: &remotev1.ControllerCommand_ReleaseLease{ReleaseLease: &remotev1.ReleaseLease{LeaseId: lease.GetLeaseId(), Generation: lease.GetGeneration()}}})
-	if err != nil {
+	if _, err := dispatchReferenceCommand(ctx, cursor, "release-task-allocation", &remotev1.ControllerCommand{TargetRevision: allocation.GetRevision(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: allocation.GetAllocationId(), ExpectedRevision: allocation.GetRevision(), ExpectedGeneration: allocation.GetGeneration()}}}); err != nil {
 		return err
 	}
-	revision := released.GetLease().GetAllocationRevision()
-	if _, err := dispatchReferenceCommand(ctx, cursor, "release-task-allocation", &remotev1.ControllerCommand{TargetRevision: revision, Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: lease.GetAllocationId(), ExpectedRevision: revision, ExpectedGeneration: 1}}}); err != nil {
-		return err
-	}
-	planned, err := dispatchReferenceCommand(ctx, cursor, "plan-task-cleanup", &remotev1.ControllerCommand{Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+	planned, err := dispatchReferenceCommand(ctx, cursor, "plan-task-cleanup", &remotev1.ControllerCommand{Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
 	if err != nil {
 		return err
 	}
 	plan := planned.GetCleanupPlan()
-	_, err = dispatchReferenceCommand(ctx, cursor, "execute-task-cleanup", &remotev1.ControllerCommand{TargetRevision: plan.GetRevision(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: lease.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetRevision(), ConfirmedVolumeIds: plan.GetVolumeIds()}}})
+	_, err = dispatchReferenceCommand(ctx, cursor, "execute-task-cleanup", &remotev1.ControllerCommand{TargetRevision: plan.GetRevision(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetRevision(), ConfirmedVolumeIds: plan.GetVolumeIds()}}})
 	return err
 }
 
@@ -184,12 +179,12 @@ func createReferenceContainer(ctx context.Context, client hostv1.AgentRuntimeSer
 	return response.GetContainer(), nil
 }
 
-func (controller referenceController) routeCapability(exported *servicev1.ServiceExport, lease *remotev1.Lease, policyRevision uint64) (*trustv1.RouteCapability, error) {
+func (controller referenceController) routeCapability(exported *servicev1.ServiceExport, allocation *remotev1.Allocation, policyRevision uint64) (*trustv1.RouteCapability, error) {
 	state, err := loadReferenceAuthority(filepath.Join(stateDirectory, referenceAuthorityState))
 	if err != nil {
 		return nil, err
 	}
-	if exported == nil || lease == nil || policyRevision == 0 {
+	if exported == nil || allocation == nil || policyRevision == 0 {
 		return nil, errors.New("exact reference route identity is required")
 	}
 	nonce := make([]byte, 32)
@@ -197,7 +192,7 @@ func (controller referenceController) routeCapability(exported *servicev1.Servic
 		return nil, err
 	}
 	now := time.Now().UTC()
-	allocationID := lease.GetAllocationId()
+	allocationID := allocation.GetAllocationId()
 	capability := &trustv1.RouteCapability{CapabilityId: fmt.Sprintf("reference-route:%d:%s", controller.identity.routeGeneration(), exported.GetExportId()), Authority: proto.Clone(state.anchor.GetAuthority()).(*trustv1.AuthorityDescriptor),
 		SourceDeviceId: state.credential.GetSubjectDeviceId(), SourceAllocationId: &allocationID, DestinationDeviceId: state.credential.GetSubjectDeviceId(), DestinationExportId: exported.GetExportId(),
 		AllowedProtocol: "tcp", AllowedVerbs: []string{"connect"}, RouteGeneration: controller.identity.routeGeneration(), PolicyRevision: policyRevision,

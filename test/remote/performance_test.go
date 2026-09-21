@@ -131,7 +131,7 @@ func runGRPC(t *testing.T, rtt time.Duration, bridge bool) metrics {
 				t.Error(err)
 				return
 			}
-			if err := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{ProtocolVersion: remoteconnector.ProtocolVersion, RegistrationId: "r", AllocationId: string(rune('a' + index)), LeaseId: "lease", Generation: 1, TunnelNonce: "nonce", FrameBytes: remoteconnector.FrameBytes, MaxInFlightBytes: remoteconnector.MaxInFlightBytes}}}); err != nil {
+			if err := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{ProtocolVersion: remoteconnector.ProtocolVersion, RegistrationId: "r", AllocationId: string(rune('a' + index)), AllocationGeneration: 1, TunnelNonce: "nonce", FrameBytes: remoteconnector.FrameBytes, MaxInFlightBytes: remoteconnector.MaxInFlightBytes}}}); err != nil {
 				t.Error(err)
 				return
 			}

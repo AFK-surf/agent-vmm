@@ -10,18 +10,8 @@ import (
 )
 
 type resources struct {
-	CPU    uint64 `json:"cpu_millis"`
-	Memory uint64 `json:"memory_bytes"`
 	PIDs   uint64 `json:"pids"`
 	Disk   uint64 `json:"disk_bytes"`
-}
-
-func (r resources) add(other resources) resources {
-	return resources{CPU: r.CPU + other.CPU, Memory: r.Memory + other.Memory, PIDs: r.PIDs + other.PIDs, Disk: r.Disk + other.Disk}
-}
-
-func (r resources) fits(limit resources) bool {
-	return r.CPU <= limit.CPU && r.Memory <= limit.Memory && r.PIDs <= limit.PIDs && r.Disk <= limit.Disk
 }
 
 type applianceFixture struct {
@@ -52,10 +42,6 @@ type applianceFixture struct {
 		DataVolumeMinBytes         uint64 `json:"data_volume_min_bytes"`
 		DataVolumeMaxBytes         uint64 `json:"data_volume_max_bytes"`
 	} `json:"limits"`
-	Host struct {
-		resources
-		Reserve resources `json:"reserve"`
-	} `json:"host"`
 	Domains []struct {
 		InstallationID      string    `json:"installation_id"`
 		RegistrationID      string    `json:"registration_id"`
@@ -65,7 +51,7 @@ type applianceFixture struct {
 		SystemNamespace     string    `json:"system_namespace"`
 		SystemContainer     string    `json:"system_container"`
 		SystemVolume        string    `json:"system_volume"`
-		SystemReservation   resources `json:"system_reservation"`
+		SystemLimits        resources `json:"system_limits"`
 		Frontend            struct {
 			Name, Transport, Exposure, Endpoint string
 		} `json:"frontend"`
@@ -134,14 +120,12 @@ func TestApplianceContractIdentitiesAndIsolation(t *testing.T) {
 	}
 }
 
-func TestApplianceSystemReservationAdmissionAndBounds(t *testing.T) {
+func TestApplianceIsolationAndTransportBounds(t *testing.T) {
 	fixture := loadApplianceFixture(t)
-	used := fixture.Host.Reserve
 	for _, domain := range fixture.Domains {
-		used = used.add(domain.SystemReservation)
-	}
-	if !used.fits(fixture.Host.resources) {
-		t.Fatalf("system reservations %+v exceed host %+v", used, fixture.Host.resources)
+		if domain.SystemLimits.PIDs == 0 || domain.SystemLimits.Disk == 0 {
+			t.Fatalf("domain has no PID or disk isolation limit: %+v", domain)
+		}
 	}
 	limits := fixture.Limits
 	if limits.ManifestBytes == 0 || limits.BootstrapBytes == 0 || limits.BootstrapFrameBytes > limits.BootstrapTotalBytes || limits.BootstrapBytes > limits.BootstrapTotalBytes || limits.BootstrapConcurrentStreams != 1 || limits.BootstrapUseCount != 1 {

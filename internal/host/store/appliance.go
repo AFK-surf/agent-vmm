@@ -21,26 +21,9 @@ var (
 	ErrBundledInstallationConflict  = errors.New("bundled appliance installation changed")
 )
 
-const (
-	ReservationOwnerHost       int32 = 1
-	ReservationOwnerAppliance  int32 = 2
-	ReservationResourceSystem  int32 = 1
-	ReservationResourceRuntime int32 = 2
-)
-
 type ResourceAmount struct {
-	CPUMillis   uint64
-	MemoryBytes uint64
-	PIDs        uint64
-	DiskBytes   uint64
-}
-
-func (amount ResourceAmount) add(other ResourceAmount) ResourceAmount {
-	return ResourceAmount{CPUMillis: amount.CPUMillis + other.CPUMillis, MemoryBytes: amount.MemoryBytes + other.MemoryBytes, PIDs: amount.PIDs + other.PIDs, DiskBytes: amount.DiskBytes + other.DiskBytes}
-}
-
-func (amount ResourceAmount) fits(limit ResourceAmount) bool {
-	return amount.CPUMillis <= limit.CPUMillis && amount.MemoryBytes <= limit.MemoryBytes && amount.PIDs <= limit.PIDs && amount.DiskBytes <= limit.DiskBytes
+	PIDs      uint64
+	DiskBytes uint64
 }
 
 type ApplianceInstallation struct {
@@ -56,15 +39,20 @@ type ApplianceInstallation struct {
 type ApplianceArtifact struct {
 	ID, ImageDigest, ImageReference, Platform, ProductID, Release string
 	CanonicalHash, Manifest                                       []byte
-	Verified                                                      bool
 	CreatedAt                                                     time.Time
 }
 
 type ApplianceVolume struct {
 	InstallationID, VolumeID, Identity string
 	Bytes                              uint64
+	Layout                             int32
 	UpdatedAt                          time.Time
 }
+
+const (
+	ApplianceVolumeLayoutHostBlock  int32 = 1
+	ApplianceVolumeLayoutGuestImage int32 = 2
+)
 
 type ApplianceFrontend struct {
 	Name                                        string
@@ -75,12 +63,11 @@ type ApplianceFrontend struct {
 }
 
 type ApplianceGrant struct {
-	InstallationID                                           string
-	Revision                                                 uint64
-	System, PerEnvironment                                   ResourceAmount
-	MaxEnvironments, MaxLeaseSeconds, DisconnectGraceSeconds uint32
-	EgressMode, MaxEgressMode                                int32
-	DynamicHostLoopback                                      HostLoopbackFrontendCapacity
+	InstallationID            string
+	Revision                  uint64
+	System, PerEnvironment    ResourceAmount
+	EgressMode, MaxEgressMode int32
+	DynamicHostLoopback       HostLoopbackFrontendCapacity
 }
 
 type HostLoopbackFrontendCapacity struct {
@@ -89,13 +76,6 @@ type HostLoopbackFrontendCapacity struct {
 	MaxFrameBytes, ConnectionDeadlineSeconds, ConnectionIdleSeconds uint32
 	MaxConnectionBytes                                              uint64
 	MaxUseCount                                                     uint32
-}
-
-type ResourceReservation struct {
-	ID, OwnerID, ResourceID string
-	OwnerKind, ResourceKind int32
-	Amount                  ResourceAmount
-	Retained                bool
 }
 
 type ApplianceOperation struct {
@@ -114,11 +94,11 @@ type ApplianceOperationTransition struct {
 }
 
 type ApplianceRemove struct {
-	InstallationID, RegistrationID, ReservationID, OperationID string
-	ExpectedRevision, CommitRevision                           uint64
-	ExpectedState, PendingState, ExpectedPhase                 int32
-	Operation                                                  ApplianceOperation
-	Receipt                                                    []byte
+	InstallationID, RegistrationID, OperationID string
+	ExpectedRevision, CommitRevision            uint64
+	ExpectedState, PendingState, ExpectedPhase  int32
+	Operation                                   ApplianceOperation
+	Receipt                                     []byte
 }
 
 func (store *Store) StageApplianceArtifact(ctx context.Context, artifact ApplianceArtifact, operation ApplianceOperation) (ApplianceArtifact, ApplianceOperation, error) {
@@ -129,10 +109,10 @@ func (store *Store) StageApplianceArtifact(ctx context.Context, artifact Applian
 	defer tx.Rollback()
 	now := time.Now().UnixNano()
 	_, err = tx.ExecContext(ctx, `INSERT INTO appliance_artifacts(artifact_id, canonical_hash, image_digest,
-		image_reference, platform, product_id, release, verified, manifest,
-		created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID,
+		image_reference, platform, product_id, release, manifest,
+		created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID,
 		applianceBlob(artifact.CanonicalHash), artifact.ImageDigest, artifact.ImageReference, artifact.Platform,
-		artifact.ProductID, artifact.Release, artifact.Verified, applianceBlob(artifact.Manifest), now)
+		artifact.ProductID, artifact.Release, applianceBlob(artifact.Manifest), now)
 	if err != nil {
 		return ApplianceArtifact{}, ApplianceOperation{}, err
 	}
@@ -179,10 +159,10 @@ func (store *Store) SwitchBundledApplianceArtifact(ctx context.Context, installa
 	if errors.Is(err, sql.ErrNoRows) {
 		now := time.Now().UnixNano()
 		_, err = tx.ExecContext(ctx, `INSERT INTO appliance_artifacts(artifact_id, canonical_hash, image_digest,
-			image_reference, platform, product_id, release, verified, manifest, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID, applianceBlob(artifact.CanonicalHash),
+			image_reference, platform, product_id, release, manifest, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, artifact.ID, applianceBlob(artifact.CanonicalHash),
 			artifact.ImageDigest, artifact.ImageReference, artifact.Platform, artifact.ProductID, artifact.Release,
-			artifact.Verified, applianceBlob(artifact.Manifest), now)
+			applianceBlob(artifact.Manifest), now)
 		current = artifact
 	} else if err == nil && !sameApplianceArtifact(current, artifact) {
 		return ApplianceInstallation{}, ErrBundledArtifactConflict
@@ -229,17 +209,17 @@ func bundledApplianceUpgradeState(state int32) bool {
 func sameApplianceArtifact(left, right ApplianceArtifact) bool {
 	return left.ImageDigest == right.ImageDigest && left.ImageReference == right.ImageReference &&
 		left.Platform == right.Platform && left.ProductID == right.ProductID && left.Release == right.Release &&
-		left.Verified == right.Verified && bytes.Equal(left.CanonicalHash, right.CanonicalHash) && bytes.Equal(left.Manifest, right.Manifest)
+		bytes.Equal(left.CanonicalHash, right.CanonicalHash) && bytes.Equal(left.Manifest, right.Manifest)
 }
 
 const applianceArtifactSelect = `SELECT artifact_id, canonical_hash, image_digest, image_reference, platform,
-	product_id, release, verified, manifest, created_at FROM appliance_artifacts`
+	product_id, release, manifest, created_at FROM appliance_artifacts`
 
 func scanApplianceArtifact(row rowScanner) (ApplianceArtifact, error) {
 	var artifact ApplianceArtifact
 	var created int64
 	err := row.Scan(&artifact.ID, &artifact.CanonicalHash, &artifact.ImageDigest, &artifact.ImageReference,
-		&artifact.Platform, &artifact.ProductID, &artifact.Release, &artifact.Verified, &artifact.Manifest, &created)
+		&artifact.Platform, &artifact.ProductID, &artifact.Release, &artifact.Manifest, &created)
 	artifact.CreatedAt = time.Unix(0, created)
 	return artifact, err
 }
@@ -254,6 +234,26 @@ func (store *Store) GetApplianceInstallation(ctx context.Context, id string) (Ap
 
 func (store *Store) ListApplianceInstallations(ctx context.Context) ([]ApplianceInstallation, error) {
 	rows, err := store.db.QueryContext(ctx, applianceInstallationSelect+" ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []ApplianceInstallation
+	for rows.Next() {
+		value, err := scanApplianceInstallation(rows)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (store *Store) ListApplianceInstallationPage(ctx context.Context, after string, limit int) ([]ApplianceInstallation, error) {
+	if limit <= 0 || limit > 32 {
+		limit = 32
+	}
+	rows, err := store.db.QueryContext(ctx, applianceInstallationSelect+" WHERE id>? ORDER BY id LIMIT ?", after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -300,11 +300,32 @@ func (store *Store) UpdateApplianceInstallation(ctx context.Context, value Appli
 func (store *Store) GetApplianceVolume(ctx context.Context, installationID string) (ApplianceVolume, error) {
 	var value ApplianceVolume
 	var updated int64
-	err := store.db.QueryRowContext(ctx, `SELECT installation_id, volume_id, identity, bytes, updated_at
+	err := store.db.QueryRowContext(ctx, `SELECT installation_id, volume_id, identity, bytes, layout, updated_at
 		FROM appliance_volumes WHERE installation_id=?`, installationID).Scan(&value.InstallationID,
-		&value.VolumeID, &value.Identity, &value.Bytes, &updated)
+		&value.VolumeID, &value.Identity, &value.Bytes, &value.Layout, &updated)
 	value.UpdatedAt = time.Unix(0, updated)
 	return value, err
+}
+
+func (store *Store) MarkApplianceVolumeGuestImage(ctx context.Context, installationID, volumeID string) error {
+	result, err := store.db.ExecContext(ctx, `UPDATE appliance_volumes SET layout=?, updated_at=?
+		WHERE installation_id=? AND volume_id=? AND layout=?`, ApplianceVolumeLayoutGuestImage,
+		time.Now().UnixNano(), installationID, volumeID, ApplianceVolumeLayoutHostBlock)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 1 {
+		return nil
+	}
+	volume, err := store.GetApplianceVolume(ctx, installationID)
+	if err == nil && volume.VolumeID == volumeID && volume.Layout == ApplianceVolumeLayoutGuestImage {
+		return nil
+	}
+	return ErrInstallationRevisionConflict
 }
 
 func (store *Store) ListApplianceFrontends(ctx context.Context, installationID string) ([]ApplianceFrontend, error) {
@@ -334,20 +355,19 @@ func (store *Store) GetApplianceGrant(ctx context.Context, installationID string
 	return grant, err
 }
 
-const applianceGrantSelect = `SELECT installation_id, revision, system_cpu_millis, system_memory_bytes,
-	system_pids, system_disk_bytes, max_environments, per_env_cpu_millis, per_env_memory_bytes, per_env_pids,
-	per_env_disk_bytes, egress_mode, max_egress_mode, max_lease_seconds, disconnect_grace_seconds,
+const applianceGrantSelect = `SELECT installation_id, revision,
+	system_pids, system_disk_bytes, per_env_pids,
+	per_env_disk_bytes, egress_mode, max_egress_mode,
 	dynamic_max_active_leases, dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
 	dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease, dynamic_max_frame_bytes,
 	dynamic_max_connection_bytes, dynamic_connection_deadline_seconds, dynamic_connection_idle_seconds,
 	dynamic_max_use_count FROM appliance_grants`
 
 func applianceGrantScan(grant *ApplianceGrant) []any {
-	return []any{&grant.InstallationID, &grant.Revision, &grant.System.CPUMillis, &grant.System.MemoryBytes,
-		&grant.System.PIDs, &grant.System.DiskBytes, &grant.MaxEnvironments,
-		&grant.PerEnvironment.CPUMillis, &grant.PerEnvironment.MemoryBytes, &grant.PerEnvironment.PIDs,
-		&grant.PerEnvironment.DiskBytes, &grant.EgressMode, &grant.MaxEgressMode, &grant.MaxLeaseSeconds,
-		&grant.DisconnectGraceSeconds, &grant.DynamicHostLoopback.MaxActiveLeases,
+	return []any{&grant.InstallationID, &grant.Revision,
+		&grant.System.PIDs, &grant.System.DiskBytes, &grant.PerEnvironment.PIDs,
+		&grant.PerEnvironment.DiskBytes, &grant.EgressMode, &grant.MaxEgressMode,
+		&grant.DynamicHostLoopback.MaxActiveLeases,
 		&grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation, &grant.DynamicHostLoopback.MaxLeaseSeconds,
 		&grant.DynamicHostLoopback.MaxConcurrentConnections,
 		&grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, &grant.DynamicHostLoopback.MaxFrameBytes,
@@ -356,10 +376,9 @@ func applianceGrantScan(grant *ApplianceGrant) []any {
 }
 
 func applianceGrantArgs(grant ApplianceGrant, now int64) []any {
-	return []any{grant.InstallationID, grant.Revision, grant.System.CPUMillis, grant.System.MemoryBytes,
-		grant.System.PIDs, grant.System.DiskBytes, grant.MaxEnvironments,
-		grant.PerEnvironment.CPUMillis, grant.PerEnvironment.MemoryBytes, grant.PerEnvironment.PIDs,
-		grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode, grant.MaxLeaseSeconds, grant.DisconnectGraceSeconds,
+	return []any{grant.InstallationID, grant.Revision,
+		grant.System.PIDs, grant.System.DiskBytes, grant.PerEnvironment.PIDs,
+		grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode,
 		grant.DynamicHostLoopback.MaxActiveLeases, grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation,
 		grant.DynamicHostLoopback.MaxLeaseSeconds, grant.DynamicHostLoopback.MaxConcurrentConnections,
 		grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, grant.DynamicHostLoopback.MaxFrameBytes,
@@ -368,7 +387,7 @@ func applianceGrantArgs(grant ApplianceGrant, now int64) []any {
 }
 
 func (store *Store) InstallApplianceDomain(ctx context.Context, installation ApplianceInstallation,
-	grant ApplianceGrant, reservation ResourceReservation, hostCapacity ResourceAmount,
+	grant ApplianceGrant,
 	registration RemoteRegistration, frontends []ApplianceFrontend, operation ApplianceOperation) (ApplianceInstallation, RemoteRegistration, ApplianceOperation, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -380,18 +399,11 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 	}
 	var artifactProduct string
 	if err := tx.QueryRowContext(ctx, `SELECT product_id FROM appliance_artifacts
-		WHERE artifact_id=? AND verified=1`, installation.ArtifactID).Scan(&artifactProduct); err != nil {
+		WHERE artifact_id=?`, installation.ArtifactID).Scan(&artifactProduct); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
 	if artifactProduct != installation.ProductID {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, ErrInstallationRevisionConflict
-	}
-	total, err := sumReservations(ctx, tx, "", 0)
-	if err != nil {
-		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
-	}
-	if !total.add(reservation.Amount).fits(hostCapacity) {
-		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, ErrResourceCapacityExceeded
 	}
 	now := time.Now().UnixNano()
 	if registration.InventoryRevision == 0 {
@@ -400,15 +412,14 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 	// The installation's registration_id is an immediate foreign key. Create
 	// the independent registration row before linking it from the installation.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO remote_registrations(id, endpoint, display_name,
-		protocol_version, max_environments, per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
-		max_egress_mode, max_lease_seconds, disconnect_grace_seconds, stop_grace_seconds, state,
+		protocol_version, per_env_pids, per_env_disk_bytes,
+		max_egress_mode, stop_grace_seconds, state,
 		connection_state, enrollment_state, connector_phase, connector_observed_at, enrollment_request_id,
 		owner_kind, installation_id, inventory_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
-		registration.MaxEnvironments, registration.PerEnvCPUMillis,
-		registration.PerEnvMemoryBytes, registration.PerEnvPIDs, registration.PerEnvDiskBytes, registration.MaxEgressMode,
-		registration.MaxLeaseSeconds, registration.DisconnectGraceSeconds, registration.StopGraceSeconds,
+		registration.PerEnvPIDs, registration.PerEnvDiskBytes, registration.MaxEgressMode,
+		registration.StopGraceSeconds,
 		registration.State, registration.ConnectionState, registration.EnrollmentState, registration.ConnectorPhase,
 		now, registration.EnrollmentRequestID, registration.OwnerKind, registration.InstallationID,
 		registration.InventoryRevision, now, now); err != nil {
@@ -425,28 +436,19 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO appliance_volumes(installation_id, volume_id, identity,
-		bytes, updated_at) VALUES (?, ?, ?, ?, ?)`, installation.ID, installation.EncryptedVolumeID,
-		installation.EncryptedVolumeIdentity, installation.DataVolumeBytes, now); err != nil {
+		bytes, layout, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, installation.ID, installation.EncryptedVolumeID,
+		installation.EncryptedVolumeIdentity, installation.DataVolumeBytes, ApplianceVolumeLayoutGuestImage, now); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
 	grant.InstallationID = installation.ID
 	if _, err := tx.ExecContext(ctx, `INSERT INTO appliance_grants(installation_id, revision,
-		system_cpu_millis, system_memory_bytes, system_pids, system_disk_bytes, max_environments,
-		per_env_cpu_millis, per_env_memory_bytes, per_env_pids, per_env_disk_bytes,
-		egress_mode, max_egress_mode, max_lease_seconds, disconnect_grace_seconds, dynamic_max_active_leases,
+		system_pids, system_disk_bytes, per_env_pids, per_env_disk_bytes,
+		egress_mode, max_egress_mode, dynamic_max_active_leases,
 		dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
 		dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease,
 		dynamic_max_frame_bytes, dynamic_max_connection_bytes, dynamic_connection_deadline_seconds,
 		dynamic_connection_idle_seconds, dynamic_max_use_count, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
-		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO resource_reservations(id, owner_kind, owner_id,
-		resource_kind, resource_id, cpu_millis, memory_bytes, pids, disk_bytes, retained, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, reservation.ID, reservation.OwnerKind,
-		reservation.OwnerID, reservation.ResourceKind, reservation.ResourceID, reservation.Amount.CPUMillis,
-		reservation.Amount.MemoryBytes, reservation.Amount.PIDs, reservation.Amount.DiskBytes,
-		reservation.Retained, now); err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
 	for _, frontend := range frontends {

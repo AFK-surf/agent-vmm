@@ -301,18 +301,16 @@ func (controller *Controller) applianceFrontendInstanceCurrent(ctx context.Conte
 		return false
 	}
 	defer connection.Close()
-	response, err := client.ListSystemAppliances(ctx, &vmmdv1.ListSystemAppliancesRequest{})
+	appliance, err := getSystemAppliance(ctx, client, identity.GetInstallationId())
 	if err != nil {
 		return false
 	}
-	for _, appliance := range response.GetAppliances() {
-		observed := appliance.GetIdentity()
-		if observed.GetInstallationId() == identity.GetInstallationId() && observed.GetBootId() == identity.GetBootId() &&
-			observed.GetContainerInstanceId() == identity.GetContainerInstanceId() {
-			return appliance.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING
-		}
+	if appliance == nil {
+		return false
 	}
-	return false
+	observed := appliance.GetIdentity()
+	return observed.GetBootId() == identity.GetBootId() && observed.GetContainerInstanceId() == identity.GetContainerInstanceId() &&
+		appliance.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING
 }
 
 func (runtime *applianceFrontendRuntime) proxy(local net.Conn) {
