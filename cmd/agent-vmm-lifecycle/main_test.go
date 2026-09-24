@@ -424,10 +424,11 @@ func TestLifecyclePathsRejectsTheDebugAppBundle(t *testing.T) {
 }
 
 func TestManagedRepairArgumentIsIdempotent(t *testing.T) {
-	input := "<array>\n<string>agent-vmm-host</string>\n</array>"
+	input := "<array>\n    <string>agent-vmm-host</string>\n  </array>"
 	once := addProgramArgument(input, "--disable-personal-mesh-pairing")
 	twice := addProgramArgument(once, "--disable-personal-mesh-pairing")
-	if once != twice || strings.Count(once, "--disable-personal-mesh-pairing") != 1 {
+	expected := "<array>\n    <string>agent-vmm-host</string>\n  \t\t<string>--disable-personal-mesh-pairing</string>\n\t</array>"
+	if once != expected || twice != once {
 		t.Fatalf("managed argument render is not idempotent: %q", twice)
 	}
 }

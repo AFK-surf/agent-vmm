@@ -26,7 +26,7 @@ func TestHostDefinitionMatchesLifecycleCurrentDeclaration(t *testing.T) {
 	}
 	expected := strings.ReplaceAll(string(template), "__HOME__", config.Home)
 	expected = strings.ReplaceAll(expected, "__APP__", "/Users/service-user/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app")
-	expected = strings.Replace(expected, "  </array>", "    <string>--disable-personal-mesh-pairing</string>\n  </array>", 1)
+	expected = strings.Replace(expected, "  </array>", "  \t\t<string>--disable-personal-mesh-pairing</string>\n\t</array>", 1)
 	expected = strings.Replace(expected, "<string>Interactive</string>", "<string>Background</string>", 1)
 	expected = strings.Replace(expected, "</dict>\n</plist>", "\t<key>UserName</key>\n\t<string>service-user</string>\n\t<key>GroupName</key>\n\t<string>staff</string>\n</dict>\n</plist>", 1)
 	if actual := string(renderPlist(config, job)); actual != expected {

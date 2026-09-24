@@ -301,7 +301,12 @@ func renderHostPlist(config ownerConfig, job fixedJob) []byte {
 	values := append([]string{job.program}, job.arguments...)
 	var arguments strings.Builder
 	for _, value := range values {
-		arguments.WriteString("    <string>" + xmlEscape(value) + "</string>\n")
+		if value == "--disable-personal-mesh-pairing" {
+			// Match the installed lifecycle definition byte for byte.
+			arguments.WriteString("  \t\t<string>" + xmlEscape(value) + "</string>\n")
+		} else {
+			arguments.WriteString("    <string>" + xmlEscape(value) + "</string>\n")
+		}
 	}
 	return []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -311,7 +316,7 @@ func renderHostPlist(config ownerConfig, job fixedJob) []byte {
   <string>%s</string>
   <key>ProgramArguments</key>
   <array>
-%s  </array>
+%s%s</array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -333,7 +338,7 @@ func renderHostPlist(config ownerConfig, job fixedJob) []byte {
 	<string>%s</string>
 </dict>
 </plist>
-`, job.label, arguments.String(), xmlEscape(job.stdout), xmlEscape(job.stderr), xmlEscape(config.User), xmlEscape(config.Group)))
+`, job.label, arguments.String(), "\t", xmlEscape(job.stdout), xmlEscape(job.stderr), xmlEscape(config.User), xmlEscape(config.Group)))
 }
 
 func xmlEscape(value string) string {
