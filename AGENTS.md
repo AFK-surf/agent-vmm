@@ -42,6 +42,7 @@ detailed writing or a different style.
 
 ## Unexpected Situations
 
+- VMMD starts containerd without the OpenRC service, so it must set `RLIMIT_NOFILE` before dropping `CAP_SYS_RESOURCE`. The inherited 4096 limit can exhaust gofer's per-mount file caches even when workload descriptors are closed. Preserve the capability removal that enforces project quotas.
 - `build/host/install.sh` selects its payload exclusively through `OUTPUT_DIRECTORY`; a positional app path is ignored. Always set `OUTPUT_DIRECTORY` when installing a non-default package, then verify the installed helper set before reporting the local version.
 - `InstallApplianceDomain` must insert the private `remote_registrations` row before the installation row because `appliance_installations.registration_id` is an immediate foreign key. Keep both writes in the same transaction so a fresh installation cannot fail with a foreign-key error after planning succeeds.
 - The MCP `ForwardTCP` bridge has one sender goroutine; do not call `CloseSend` until both copy directions have exited, or gRPC's stream state races with an in-flight `Send`.

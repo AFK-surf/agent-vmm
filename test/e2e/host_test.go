@@ -56,6 +56,7 @@ func TestE2E(t *testing.T) {
 	}{
 		{"container_lifecycle", testContainerLifecycle},
 		{"named_volume", testNamedVolume},
+		{"gofer_file_cache", testGoferFileCache},
 		{"disk_quota", testDiskQuota},
 		{"same_namespace", testSameNamespace},
 		{"default_isolation", testDefaultIsolation},
@@ -1808,7 +1809,7 @@ func testResidualScan(t *testing.T, client *productClient) {
 		t.Fatal(err)
 	}
 	for _, namespaceID := range []string{
-		"lifecycle", "volume-owner", "volume-other", "quota", "healthy", "shared-small", "same",
+		"lifecycle", "volume-owner", "volume-other", "file-cache", "quota", "healthy", "shared-small", "same",
 		"isolated-source", "isolated-destination", "link-source", "link-destination", "revoke-source",
 		"revoke-destination", "egress-deny", "egress-public", "forward", "dockerfile-build", "parallel-a",
 		"parallel-b", "cancel-build", "quota-build", "restart-source", "restart-destination", "force-source", "force-destination",

@@ -220,6 +220,12 @@ func execContainerdWithoutQuotaBypass() error {
 	// hard limits. vmmd retains CAP_SYS_ADMIN as the quota/project-id authority.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	// This launcher bypasses the OpenRC containerd service, so set its file
+	// limit here. Gofer caches descriptors across mounts after workloads close
+	// their files; the inherited 4096 limit is insufficient for those caches.
+	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &unix.Rlimit{Cur: 1048576, Max: 1048576}); err != nil {
+		return fmt.Errorf("set containerd open file limit: %w", err)
+	}
 	// Give containerd the minimum OOM score before removing CAP_SYS_RESOURCE.
 	// The runsc shim inherits -1000 and raises itself to its built-in -999, which
 	// is permitted without restoring the capability that can override project
