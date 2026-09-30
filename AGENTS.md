@@ -65,6 +65,8 @@ Update or delete an entry when the issue changes or no longer applies.
 Merge entries that describe the same condition.
 Do not record temporary failures or narrow implementation mistakes.
 
+- nftables v0.3.0 sends a whole atomic batch before reading ACKs and rule echoes. The default netlink receive buffer can overflow with seven public namespaces. Keep the explicit per-reconcile receive buffer and five-second deadline. Run the kernel regression in its private network namespace. Its fixture size is not a product capacity limit.
+
 ### General Project Assumptions
 
 - This project is new and has no production release. Report code that does not follow current best practices.

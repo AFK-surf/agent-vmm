@@ -49,6 +49,11 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Test with the race detector
         run: go test -race ./... -count=1
+      - name: Test policy reconciliation in an isolated kernel namespace
+        run: |
+          go test -race -c -o "$RUNNER_TEMP/network-kernel.test" ./internal/guest/network
+          sudo env AGENT_VMM_NFTABLES_TEST=1 "$RUNNER_TEMP/network-kernel.test" \
+            -test.run '^TestKernelPolicyReconcilePublicNamespaces$' -test.v
       - name: Vet
         run: go vet ./...
       - name: Check protobuf compatibility

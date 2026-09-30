@@ -4,14 +4,19 @@ package network
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/google/nftables"
+	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -235,4 +240,63 @@ func idsSelector(ids ...string) *vmmdv1.ContainerSelector {
 
 func cloneLink(link *vmmdv1.NetworkLink) *vmmdv1.NetworkLink {
 	return &vmmdv1.NetworkLink{Id: link.Id, SourceNamespaceId: link.SourceNamespaceId, DestinationNamespaceId: link.DestinationNamespaceId, Source: link.Source, Destination: link.Destination, TcpPorts: append([]uint32(nil), link.TcpPorts...), DnsAlias: link.DnsAlias}
+}
+
+// Requires CAP_SYS_ADMIN and CAP_NET_ADMIN to create an isolated network namespace.
+func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
+	if os.Getenv("AGENT_VMM_NFTABLES_TEST") != "1" {
+		t.Skip("requires an isolated kernel network namespace")
+	}
+	runtime.LockOSThread()
+	original, err := unix.Open("/proc/thread-self/ns/net", unix.O_RDONLY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		runtime.UnlockOSThread()
+		t.Fatal(err)
+	}
+	if err := unix.Unshare(unix.CLONE_NEWNET); err != nil {
+		_ = unix.Close(original)
+		runtime.UnlockOSThread()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		defer unix.Close(original)
+		if err := unix.Setns(original, unix.CLONE_NEWNET); err != nil {
+			t.Errorf("restore network namespace: %v", err)
+			return
+		}
+		runtime.UnlockOSThread()
+	})
+	manager := &Manager{
+		namespaces: make(map[string]Namespace),
+		endpoints:  make(map[string]map[string]Endpoint),
+	}
+	t.Cleanup(func() {
+		connection := &nftables.Conn{}
+		connection.DelTable(&nftables.Table{Name: "agent-vmm", Family: nftables.TableFamilyINet})
+		if err := connection.Flush(); err != nil {
+			t.Errorf("remove test policy: %v", err)
+		}
+	})
+	for index := range 16 {
+		id := fmt.Sprintf("public-%d", index)
+		manager.namespaces[id] = Namespace{ID: id, Bridge: fmt.Sprintf("bridge%d", index), EgressMode: vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}
+		manager.endpoints[id] = map[string]Endpoint{"worker": {Address: netip.MustParseAddr(fmt.Sprintf("10.64.%d.2", index))}}
+		if err := manager.Health(); err != nil {
+			t.Fatalf("reconcile %d public namespaces: %v", index+1, err)
+		}
+	}
+	// Health replaces the table again after all namespaces exist.
+	if err := manager.Health(); err != nil {
+		t.Fatalf("repeat policy reconciliation: %v", err)
+	}
+	chains, err := (&nftables.Conn{}).ListChains()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, chain := range chains {
+		if chain.Table.Name == "agent-vmm" && chain.Name == "forward" && chain.Policy != nil && *chain.Policy == nftables.ChainPolicyDrop {
+			return
+		}
+	}
+	t.Fatal("reconciled policy has no default-drop forward chain")
 }

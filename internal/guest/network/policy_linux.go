@@ -292,6 +292,10 @@ func (m *Manager) selectedEndpoints(namespaceID string, selector *vmmdv1.Contain
 func (m *Manager) reconcileLocked() error {
 	deadline := time.Now().Add(5 * time.Second)
 	connection, err := nftables.New(nftables.AsLasting(), nftables.WithSockOptions(func(socket *netlink.Conn) error {
+		// Rule creation returns ACKs and full rule echoes before Flush reads them.
+		if err := socket.SetReadBuffer(4 << 20); err != nil {
+			return err
+		}
 		if err := socket.SetReadDeadline(deadline); err != nil {
 			return err
 		}
