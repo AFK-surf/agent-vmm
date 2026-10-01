@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var errInvalidEnvironment = errors.New("environment must contain valid KEY=VALUE entries; values may contain newlines but not NUL")
@@ -449,6 +450,34 @@ func (r *Runtime) ListContainersBounded(ctx context.Context, namespaceID string,
 	if err != nil {
 		return nil, err
 	}
+	return r.loadIndexedContainers(ctx, namespaceID, containerIDs)
+}
+
+func (r *Runtime) ListContainersPage(ctx context.Context, namespaceID, after string, size uint32) ([]*vmmdv1.Container, string, error) {
+	if size == 0 || size > 32 || len(after) > 200 {
+		return nil, "", status.Error(codes.InvalidArgument, "container page exceeds its read budget")
+	}
+	if err := r.namespaceExists(ctx, namespaceID); err != nil {
+		return nil, "", err
+	}
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
+		return nil, "", err
+	}
+	ids, err := inventory.containerPage(namespaceID, after, int(size)+1)
+	if err != nil {
+		return nil, "", err
+	}
+	next := ""
+	if len(ids) > int(size) {
+		ids = ids[:size]
+		next = ids[len(ids)-1]
+	}
+	containers, err := r.loadIndexedContainers(ctx, namespaceID, ids)
+	return containers, next, err
+}
+
+func (r *Runtime) loadIndexedContainers(ctx context.Context, namespaceID string, containerIDs []string) ([]*vmmdv1.Container, error) {
 	nsctx := runtimeContext(ctx)
 	return indexedInventoryLoad(containerIDs, func(containerID string) (*vmmdv1.Container, error) {
 		container, err := ownedRuntimeContainer(ctx, r.client, namespaceID, containerID)

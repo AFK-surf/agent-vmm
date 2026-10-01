@@ -7,6 +7,13 @@ form an artificial Cartesian product:
   acknowledgement, inventory watermark, epoch, command fence, allocation,
   runtime session, revoke, and the atomic admission decision. A disconnect
   closes the command session but preserves the durable allocation.
+  Local disposal acceptance refines its durable revoke fence. The fixed-target
+  abstraction retains that fence after resource cleanup and Host restart.
+  TERM-to-KILL stop observations remain in `WorkloadRunLifecycle`; namespace
+  content references remain in `OCIContentLifecycle`. Force cleanup adds no
+  new fairness or progress claim: an unreachable Guest can leave it pending.
+  Cross-registration data isolation, row deletion, and receipt crash recovery
+  require the Go store and sacrificial Host/Guest regressions.
 - `OCIImageMaterialization.tla` owns exact-digest archive re-import after a
   logical image grant survives without its shared content or persistent overlay
   lower snapshot.

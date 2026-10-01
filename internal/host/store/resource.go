@@ -111,3 +111,26 @@ func (store *Store) ListWorkloadEnvironmentPage(ctx context.Context, after strin
 	}
 	return result, rows.Err()
 }
+
+func (store *Store) ListLocalResourceEnvironmentPage(ctx context.Context, after string, limit int) ([]Environment, error) {
+	if limit <= 0 || limit > 32 {
+		limit = 32
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
+ memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+ COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at
+ FROM environments e WHERE id>? AND namespace_id NOT LIKE 'system.%' AND (owner_kind=1 OR EXISTS(SELECT 1 FROM remote_registrations r WHERE r.id=e.registration_id AND r.owner_kind=1)) ORDER BY id LIMIT ?`, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Environment
+	for rows.Next() {
+		environment, err := scanEnvironment(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, environment)
+	}
+	return result, rows.Err()
+}

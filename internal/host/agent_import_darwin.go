@@ -51,6 +51,9 @@ func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportI
 		return err
 	}
 	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(stream.Context(), identity.EnvironmentID); err != nil {
+		return err
+	}
 	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
 	defer unlock()
 	if err := server.validateAgentInventoryTarget(stream.Context(), identity.EnvironmentID, identity.NamespaceID); err != nil {

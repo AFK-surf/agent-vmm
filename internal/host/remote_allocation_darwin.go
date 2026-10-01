@@ -112,21 +112,37 @@ func (controller *Controller) stopRemoteWorkload(ctx context.Context, environmen
 		return err
 	}
 	defer connection.Close()
-	containers, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
-	if err != nil {
-		return err
-	}
-	timeout := registration.StopGraceSeconds
-	for _, container := range containers.GetContainers() {
-		if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_CREATED || container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
-			continue
+	return controller.stopRemoteNamespace(ctx, client, environment, registration.StopGraceSeconds)
+}
+
+func (controller *Controller) stopRemoteNamespace(ctx context.Context, client vmmdv1.VMMDServiceClient, environment store.Environment, grace uint32) error {
+	for cursor := ""; ; {
+		page, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID, PageSize: 32, AfterContainerId: cursor})
+		if err != nil {
+			return err
 		}
-		_, stopErr := controller.stopWorkloadContainerLocked(ctx, client, environment.ID, &vmmdv1.StopContainerRequest{RequestId: derivedRequestID("remote-stop-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), TimeoutSeconds: &timeout})
-		if stopErr != nil {
-			if _, killErr := client.SignalContainer(ctx, &vmmdv1.SignalContainerRequest{RequestId: derivedRequestID("remote-kill-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), Signal: vmmdv1.ProcessSignal_PROCESS_SIGNAL_KILL}); killErr != nil {
-				return errors.Join(stopErr, killErr)
+		if len(page.GetContainers()) > 32 {
+			return errors.New("container retirement page exceeds its budget")
+		}
+		for _, container := range page.GetContainers() {
+			if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_CREATED || container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+				continue
+			}
+			stopped, err := controller.stopWorkloadContainerLocked(ctx, client, environment.ID, &vmmdv1.StopContainerRequest{RequestId: derivedRequestID("remote-stop-" + container.GetId()), ActorNamespaceId: environment.NamespaceID, ContainerId: container.GetId(), TimeoutSeconds: &grace})
+			if err != nil {
+				return err
+			}
+			if stopped.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED && stopped.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_CREATED {
+				return errors.New("container retirement stop is not confirmed")
 			}
 		}
+		next := page.GetNextCursor()
+		if next == "" {
+			return nil
+		}
+		if next <= cursor || len(next) > 200 {
+			return errors.New("container retirement cursor did not advance")
+		}
+		cursor = next
 	}
-	return nil
 }

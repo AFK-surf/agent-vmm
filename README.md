@@ -6,6 +6,33 @@ The macOS host uses Virtualization.framework. The guest uses containerd and one 
 
 `agent-vmmd` controls containers, storage, networks, image builds, and cross-namespace access inside the guest.
 
+## Local resource management
+
+The OS operator can inspect or delete exact local resources without a cloud login.
+`GetLocalDiskSummary` reads one Guest `/state` filesystem total. It does not collect CPU or memory metrics.
+`ListLocalEnvironmentPage` and `ListLocalRegistrationPage` return at most 32 indexed records with explicit cursors.
+Environment disk details use existing owner samples only. A sample must match the boot, namespace, and allocation generation and be at most 15 seconds old.
+A missing sample remains unknown. The overview does not probe each environment or fetch cloud names or contents.
+Import reservations are separate from used disk bytes. Namespace deletion does not promise immediate physical space reclamation or secure erasure.
+
+Normal registration revocation stops its containers and moves environments to Retained. It preserves private volumes and writable layers.
+Container retirement uses indexed pages of 32 and requires observed stop results. A failed stop leaves retirement incomplete.
+Drain remains a separate product lifecycle. Host connectivity loss alone cannot stop independently running workloads.
+
+`PlanLocalDisposal` freezes one OwnerLocal environment or the whole exact external registration, including its revision and affected count.
+`ExecuteLocalDisposal` requires fresh trusted operator confirmation. Agent and remote connector roles cannot call these methods.
+The Host commits the existing operation receipt and durable replay fence before Guest side effects.
+Cleanup removes only the frozen private namespaces, sessions, grants, and bindings. It preserves other registrations, shared OCI content, and PersonalMesh identity.
+An unavailable Guest leaves accepted cleanup pending. Host restart resumes the original receipt and loads its fence before reconnect.
+The fence survives removal of resource rows. It rejects old enrollment, admission, and enable commands while allowing a new authorized setup.
+A deleted registration returns the typed `LOCAL_DISPOSED` reason. The BFT runner reports that original operation through its existing terminal-failure owner.
+
+Comma recovery uses the existing Host root for the fixed `agent-vmm/comma-recovery/1` purpose only.
+The cloud installation owner checks original subject, current Workspace authority, scope, revision, and its single-use 120-second challenge.
+Recovery moves the delivery target, preserving registration, allocations, and files. Local disposal disables proof for that target.
+The lifecycle helper carries bounded JSON over stdin for local plan, execution, receipt, resource-page, and proof commands.
+It uses the existing operator socket and does not install, uninstall, or contact a cloud service for these commands.
+
 ## Managed Host CLI
 
 The managed Host bundle includes the `agent-vmm` CLI for bounded local

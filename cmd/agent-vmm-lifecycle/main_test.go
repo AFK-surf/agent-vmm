@@ -16,6 +16,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"golang.org/x/sys/unix"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1888,5 +1889,40 @@ func TestAtomicWriteReplacesDefinition(t *testing.T) {
 func TestHostHealthDoesNotConfirmManagedInstall(t *testing.T) {
 	if operationConfirmed("install-managed", serviceStatus{HostInstalled: true, HostLoaded: true, HostHealthy: true}) {
 		t.Fatal("managed install recovery was confirmed without exact registration observation")
+	}
+}
+
+func TestExactRegistrationReadClassification(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{nil, "present"}, {status.Error(codes.NotFound, "absent"), "absent"},
+		{status.Error(codes.Unavailable, "database unreadable"), "unreadable"},
+		{context.DeadlineExceeded, "unreadable"},
+	} {
+		got, _ := classifyRegistrationRead(test.err)
+		if got != test.want {
+			t.Fatalf("read %v = %s, want %s", test.err, got, test.want)
+		}
+	}
+}
+
+func TestDisposedRegistrationFailureStaysTerminalThroughLifecycleJournal(t *testing.T) {
+	failure, err := status.New(codes.NotFound, "original registration is absent").WithDetails(&errdetails.ErrorInfo{Reason: "LOCAL_DISPOSED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+		return nil, failure.Err()
+	}
+	set := func(context.Context, *hostv1.SetRemoteRegistrationStateRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+		t.Fatal("disposed registration was mutated")
+		return nil, nil
+	}
+	err = setRemoteRegistrationStateWith(context.Background(), "disposed", hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, "original-control", get, set)
+	_, code, _, retryable := lifecycleFailure("registration-enabled", err)
+	if code != "local_disposed" || retryable {
+		t.Fatalf("failure=%s retryable=%v err=%v", code, retryable, err)
 	}
 }

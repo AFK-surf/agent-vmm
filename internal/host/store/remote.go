@@ -263,7 +263,7 @@ func (store *Store) SetRemoteRegistrationState(ctx context.Context, id string, e
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET state=?, revision=revision+1,
 		connection_state=CASE WHEN ? = 3 THEN 1 ELSE connection_state END,
 		connection_instance=CASE WHEN ? = 3 THEN '' ELSE connection_instance END, updated_at=?
-		WHERE id=? AND revision=?`, state, state, state, time.Now().UnixNano(), id, expectedRevision)
+		WHERE id=? AND revision=? AND state != 3 AND enrollment_state=2`, state, state, state, time.Now().UnixNano(), id, expectedRevision)
 	if err != nil {
 		return RemoteRegistration{}, err
 	}
@@ -326,8 +326,16 @@ func (store *Store) DeleteIncompleteRemoteRegistration(ctx context.Context, id s
 }
 
 func (store *Store) CompleteRemoteRevocation(ctx context.Context, id string, expectedRevision uint64) (RemoteRegistration, error) {
+	current, err := store.GetRemoteRegistration(ctx, id)
+	if err != nil {
+		return RemoteRegistration{}, err
+	}
+	if current.Revision == expectedRevision && current.State == 3 {
+		return current, nil
+	}
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET state=3, connection_state=1,
-		connection_instance='', revision=revision+1, updated_at=? WHERE id=? AND revision=? AND enrollment_state=4`,
+		connection_instance='', revision=revision+1, updated_at=? WHERE id=? AND revision=? AND enrollment_state=4
+ AND NOT EXISTS (SELECT 1 FROM environments WHERE registration_id=remote_registrations.id AND allocation_state != 4)`,
 		time.Now().UnixNano(), id, expectedRevision)
 	if err != nil {
 		return RemoteRegistration{}, err
@@ -342,6 +350,13 @@ func (store *Store) CompleteRemoteRevocation(ctx context.Context, id string, exp
 }
 
 func (store *Store) BeginRemoteRevocation(ctx context.Context, id string, expectedRevision uint64) (RemoteRegistration, error) {
+	current, err := store.GetRemoteRegistration(ctx, id)
+	if err != nil {
+		return RemoteRegistration{}, err
+	}
+	if current.Revision == expectedRevision && current.EnrollmentState == 4 && (current.State == 2 || current.State == 3) {
+		return current, nil
+	}
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET enrollment_state=4, state=2,
 		connection_state=1, connection_instance='', revision=revision+1, updated_at=?
 		WHERE id=? AND revision=? AND state != 3 AND enrollment_state=2`, time.Now().UnixNano(), id, expectedRevision)

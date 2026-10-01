@@ -20,7 +20,7 @@ import (
 // durable authority; NewRuntime rebuilds this index before VMMD is available.
 type runtimeInventoryIndex struct {
 	mu              sync.RWMutex
-	containers      map[string]map[string]struct{}
+	containers      map[string]*btree.BTreeG[string]
 	images          map[string]map[string]string
 	imageDigestRefs map[string]uint64
 	runtimeImages   *btree.BTreeG[string]
@@ -28,7 +28,7 @@ type runtimeInventoryIndex struct {
 
 func newRuntimeInventoryIndex() *runtimeInventoryIndex {
 	return &runtimeInventoryIndex{
-		containers:      make(map[string]map[string]struct{}),
+		containers:      make(map[string]*btree.BTreeG[string]),
 		images:          make(map[string]map[string]string),
 		imageDigestRefs: make(map[string]uint64),
 		runtimeImages:   btree.NewG(8, func(left, right string) bool { return left < right }),
@@ -68,7 +68,7 @@ func (index *runtimeInventoryIndex) ensureNamespace(namespaceID string) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 	if index.containers[namespaceID] == nil {
-		index.containers[namespaceID] = make(map[string]struct{})
+		index.containers[namespaceID] = btree.NewG(8, func(left, right string) bool { return left < right })
 	}
 	if index.images[namespaceID] == nil {
 		index.images[namespaceID] = make(map[string]string)
@@ -90,7 +90,7 @@ func (index *runtimeInventoryIndex) addContainer(namespaceID, containerID string
 	if !ok {
 		return fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
 	}
-	values[containerID] = struct{}{}
+	values.ReplaceOrInsert(containerID)
 	return nil
 }
 
@@ -101,10 +101,10 @@ func (index *runtimeInventoryIndex) removeContainer(namespaceID, containerID str
 	if !ok {
 		return fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
 	}
-	if _, ok := values[containerID]; !ok {
+	if _, ok := values.Get(containerID); !ok {
 		return fmt.Errorf("runtime container %q/%q is not indexed", namespaceID, containerID)
 	}
-	delete(values, containerID)
+	values.Delete(containerID)
 	return nil
 }
 
@@ -167,7 +167,7 @@ func (index *runtimeInventoryIndex) removeNamespace(namespaceID string) error {
 	if !containersOK || !imagesOK {
 		return fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
 	}
-	if len(containers) != 0 || len(images) != 0 {
+	if containers.Len() != 0 || len(images) != 0 {
 		return fmt.Errorf("runtime inventory namespace %q is not empty", namespaceID)
 	}
 	delete(index.containers, namespaceID)
@@ -176,7 +176,35 @@ func (index *runtimeInventoryIndex) removeNamespace(namespaceID string) error {
 }
 
 func (index *runtimeInventoryIndex) containerIDs(namespaceID string, limit uint32) ([]string, error) {
-	return index.names(namespaceID, limit, index.containers, "container")
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	values, ok := index.containers[namespaceID]
+	if !ok {
+		return nil, fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
+	}
+	if limit > 0 && uint32(values.Len()) >= limit {
+		return nil, resourceExhausted("container inventory reached the requested limit")
+	}
+	result := make([]string, 0, values.Len())
+	values.Ascend(func(id string) bool { result = append(result, id); return true })
+	return result, nil
+}
+
+func (index *runtimeInventoryIndex) containerPage(namespaceID, after string, limit int) ([]string, error) {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	values, ok := index.containers[namespaceID]
+	if !ok {
+		return nil, fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
+	}
+	result := make([]string, 0, limit)
+	values.AscendGreaterOrEqual(after, func(id string) bool {
+		if id > after {
+			result = append(result, id)
+		}
+		return len(result) < limit
+	})
+	return result, nil
 }
 
 func (index *runtimeInventoryIndex) imageReferences(namespaceID string, limit uint32) ([]string, error) {
@@ -188,24 +216,6 @@ func (index *runtimeInventoryIndex) imageReferences(namespaceID string, limit ui
 	}
 	if limit > 0 && uint32(len(values)) >= limit {
 		return nil, resourceExhausted("image inventory reached the requested limit")
-	}
-	result := make([]string, 0, len(values))
-	for value := range values {
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result, nil
-}
-
-func (index *runtimeInventoryIndex) names(namespaceID string, limit uint32, inventory map[string]map[string]struct{}, kind string) ([]string, error) {
-	index.mu.RLock()
-	defer index.mu.RUnlock()
-	values, ok := inventory[namespaceID]
-	if !ok {
-		return nil, fmt.Errorf("runtime inventory namespace %q is not indexed", namespaceID)
-	}
-	if limit > 0 && uint32(len(values)) >= limit {
-		return nil, resourceExhausted(kind + " inventory reached the requested limit")
 	}
 	result := make([]string, 0, len(values))
 	for value := range values {

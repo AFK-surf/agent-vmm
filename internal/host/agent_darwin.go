@@ -114,6 +114,9 @@ func (server *agentServer) DeleteImage(ctx context.Context, request *hostv1.Dele
 		return nil, err
 	}
 	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+		return nil, err
+	}
 	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
 	defer unlock()
 	if err := server.validateAgentInventoryTarget(ctx, identity.EnvironmentID, identity.NamespaceID); err != nil {
@@ -158,6 +161,9 @@ func (server *agentServer) CreateContainer(ctx context.Context, request *hostv1.
 		return nil, err
 	}
 	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -189,6 +195,14 @@ func (server *agentServer) CreateContainer(ctx context.Context, request *hostv1.
 func (server *agentServer) StartContainer(ctx context.Context, request *hostv1.ContainerMutationRequest) (*hostv1.ContainerResponse, error) {
 	identity, err := auth.AgentIdentity(ctx)
 	if err != nil {
+		return nil, err
+	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
 		return nil, err
 	}
 	client, connection, err := server.controller.guestClient(ctx)
@@ -271,6 +285,9 @@ func (server *agentServer) DeleteContainer(ctx context.Context, request *hostv1.
 		return nil, err
 	}
 	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+		return nil, err
+	}
 	if request.GetExpectedGenerationId() == "" {
 		return nil, invalidField("expected_generation_id", "container generation is required")
 	}
@@ -390,6 +407,9 @@ func (server *agentServer) CreateVolume(ctx context.Context, request *hostv1.Cre
 		return nil, err
 	}
 	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -416,6 +436,9 @@ func (server *agentServer) DeleteVolume(ctx context.Context, request *hostv1.Del
 		return nil, err
 	}
 	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err

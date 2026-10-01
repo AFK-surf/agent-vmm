@@ -41,6 +41,14 @@ func (server *operatorServer) ContinueContainer(ctx context.Context, request *ho
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, request.GetEnvironmentId()); err != nil {
+		return nil, err
+	}
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")

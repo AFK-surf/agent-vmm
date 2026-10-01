@@ -1803,6 +1803,8 @@ const (
 	OperatorService_PlanResetEnvironment_FullMethodName               = "/agentvmm.host.v1.OperatorService/PlanResetEnvironment"
 	OperatorService_PlanDiscardEnvironment_FullMethodName             = "/agentvmm.host.v1.OperatorService/PlanDiscardEnvironment"
 	OperatorService_ExecuteCleanup_FullMethodName                     = "/agentvmm.host.v1.OperatorService/ExecuteCleanup"
+	OperatorService_PlanLocalDisposal_FullMethodName                  = "/agentvmm.host.v1.OperatorService/PlanLocalDisposal"
+	OperatorService_ExecuteLocalDisposal_FullMethodName               = "/agentvmm.host.v1.OperatorService/ExecuteLocalDisposal"
 	OperatorService_GetOperation_FullMethodName                       = "/agentvmm.host.v1.OperatorService/GetOperation"
 	OperatorService_RunDiagnostics_FullMethodName                     = "/agentvmm.host.v1.OperatorService/RunDiagnostics"
 	OperatorService_PreviewSupportBundle_FullMethodName               = "/agentvmm.host.v1.OperatorService/PreviewSupportBundle"
@@ -1819,6 +1821,10 @@ const (
 	OperatorService_SetRemoteRegistrationState_FullMethodName         = "/agentvmm.host.v1.OperatorService/SetRemoteRegistrationState"
 	OperatorService_GetRemoteRegistration_FullMethodName              = "/agentvmm.host.v1.OperatorService/GetRemoteRegistration"
 	OperatorService_ListRemoteRegistrations_FullMethodName            = "/agentvmm.host.v1.OperatorService/ListRemoteRegistrations"
+	OperatorService_SignCommaRecovery_FullMethodName                  = "/agentvmm.host.v1.OperatorService/SignCommaRecovery"
+	OperatorService_GetLocalDiskSummary_FullMethodName                = "/agentvmm.host.v1.OperatorService/GetLocalDiskSummary"
+	OperatorService_ListLocalEnvironmentPage_FullMethodName           = "/agentvmm.host.v1.OperatorService/ListLocalEnvironmentPage"
+	OperatorService_ListLocalRegistrationPage_FullMethodName          = "/agentvmm.host.v1.OperatorService/ListLocalRegistrationPage"
 	OperatorService_GetDeviceIdentity_FullMethodName                  = "/agentvmm.host.v1.OperatorService/GetDeviceIdentity"
 	OperatorService_RotateDeviceRoot_FullMethodName                   = "/agentvmm.host.v1.OperatorService/RotateDeviceRoot"
 	OperatorService_ListPersonalMeshes_FullMethodName                 = "/agentvmm.host.v1.OperatorService/ListPersonalMeshes"
@@ -1874,6 +1880,8 @@ type OperatorServiceClient interface {
 	PlanResetEnvironment(ctx context.Context, in *PlanEnvironmentRequest, opts ...grpc.CallOption) (*CleanupPlanResponse, error)
 	PlanDiscardEnvironment(ctx context.Context, in *PlanEnvironmentRequest, opts ...grpc.CallOption) (*CleanupPlanResponse, error)
 	ExecuteCleanup(ctx context.Context, in *ExecuteCleanupRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	PlanLocalDisposal(ctx context.Context, in *PlanLocalDisposalRequest, opts ...grpc.CallOption) (*LocalDisposalPlanResponse, error)
+	ExecuteLocalDisposal(ctx context.Context, in *ExecuteLocalDisposalRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	GetOperation(ctx context.Context, in *GetOperationRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	RunDiagnostics(ctx context.Context, in *RunDiagnosticsRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	PreviewSupportBundle(ctx context.Context, in *PreviewSupportBundleRequest, opts ...grpc.CallOption) (*SupportBundlePreview, error)
@@ -1890,6 +1898,10 @@ type OperatorServiceClient interface {
 	SetRemoteRegistrationState(ctx context.Context, in *SetRemoteRegistrationStateRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(ctx context.Context, in *GetRemoteRegistrationRequest, opts ...grpc.CallOption) (*RemoteRegistrationResponse, error)
 	ListRemoteRegistrations(ctx context.Context, in *ListRemoteRegistrationsRequest, opts ...grpc.CallOption) (*ListRemoteRegistrationsResponse, error)
+	SignCommaRecovery(ctx context.Context, in *SignCommaRecoveryRequest, opts ...grpc.CallOption) (*SignCommaRecoveryResponse, error)
+	GetLocalDiskSummary(ctx context.Context, in *GetLocalDiskSummaryRequest, opts ...grpc.CallOption) (*LocalDiskSummary, error)
+	ListLocalEnvironmentPage(ctx context.Context, in *ListLocalEnvironmentPageRequest, opts ...grpc.CallOption) (*LocalEnvironmentPage, error)
+	ListLocalRegistrationPage(ctx context.Context, in *ListLocalRegistrationPageRequest, opts ...grpc.CallOption) (*LocalRegistrationPage, error)
 	GetDeviceIdentity(ctx context.Context, in *GetDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error)
 	RotateDeviceRoot(ctx context.Context, in *RotateDeviceRootRequest, opts ...grpc.CallOption) (*RotateDeviceRootResponse, error)
 	ListPersonalMeshes(ctx context.Context, in *ListPersonalMeshesRequest, opts ...grpc.CallOption) (*ListPersonalMeshesResponse, error)
@@ -2282,6 +2294,26 @@ func (c *operatorServiceClient) ExecuteCleanup(ctx context.Context, in *ExecuteC
 	return out, nil
 }
 
+func (c *operatorServiceClient) PlanLocalDisposal(ctx context.Context, in *PlanLocalDisposalRequest, opts ...grpc.CallOption) (*LocalDisposalPlanResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LocalDisposalPlanResponse)
+	err := c.cc.Invoke(ctx, OperatorService_PlanLocalDisposal_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ExecuteLocalDisposal(ctx context.Context, in *ExecuteLocalDisposalRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OperationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ExecuteLocalDisposal_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *operatorServiceClient) GetOperation(ctx context.Context, in *GetOperationRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OperationResponse)
@@ -2436,6 +2468,46 @@ func (c *operatorServiceClient) ListRemoteRegistrations(ctx context.Context, in 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListRemoteRegistrationsResponse)
 	err := c.cc.Invoke(ctx, OperatorService_ListRemoteRegistrations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) SignCommaRecovery(ctx context.Context, in *SignCommaRecoveryRequest, opts ...grpc.CallOption) (*SignCommaRecoveryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SignCommaRecoveryResponse)
+	err := c.cc.Invoke(ctx, OperatorService_SignCommaRecovery_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) GetLocalDiskSummary(ctx context.Context, in *GetLocalDiskSummaryRequest, opts ...grpc.CallOption) (*LocalDiskSummary, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LocalDiskSummary)
+	err := c.cc.Invoke(ctx, OperatorService_GetLocalDiskSummary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListLocalEnvironmentPage(ctx context.Context, in *ListLocalEnvironmentPageRequest, opts ...grpc.CallOption) (*LocalEnvironmentPage, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LocalEnvironmentPage)
+	err := c.cc.Invoke(ctx, OperatorService_ListLocalEnvironmentPage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListLocalRegistrationPage(ctx context.Context, in *ListLocalRegistrationPageRequest, opts ...grpc.CallOption) (*LocalRegistrationPage, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LocalRegistrationPage)
+	err := c.cc.Invoke(ctx, OperatorService_ListLocalRegistrationPage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2630,6 +2702,8 @@ type OperatorServiceServer interface {
 	PlanResetEnvironment(context.Context, *PlanEnvironmentRequest) (*CleanupPlanResponse, error)
 	PlanDiscardEnvironment(context.Context, *PlanEnvironmentRequest) (*CleanupPlanResponse, error)
 	ExecuteCleanup(context.Context, *ExecuteCleanupRequest) (*OperationResponse, error)
+	PlanLocalDisposal(context.Context, *PlanLocalDisposalRequest) (*LocalDisposalPlanResponse, error)
+	ExecuteLocalDisposal(context.Context, *ExecuteLocalDisposalRequest) (*OperationResponse, error)
 	GetOperation(context.Context, *GetOperationRequest) (*OperationResponse, error)
 	RunDiagnostics(context.Context, *RunDiagnosticsRequest) (*OperationResponse, error)
 	PreviewSupportBundle(context.Context, *PreviewSupportBundleRequest) (*SupportBundlePreview, error)
@@ -2646,6 +2720,10 @@ type OperatorServiceServer interface {
 	SetRemoteRegistrationState(context.Context, *SetRemoteRegistrationStateRequest) (*RemoteRegistrationResponse, error)
 	GetRemoteRegistration(context.Context, *GetRemoteRegistrationRequest) (*RemoteRegistrationResponse, error)
 	ListRemoteRegistrations(context.Context, *ListRemoteRegistrationsRequest) (*ListRemoteRegistrationsResponse, error)
+	SignCommaRecovery(context.Context, *SignCommaRecoveryRequest) (*SignCommaRecoveryResponse, error)
+	GetLocalDiskSummary(context.Context, *GetLocalDiskSummaryRequest) (*LocalDiskSummary, error)
+	ListLocalEnvironmentPage(context.Context, *ListLocalEnvironmentPageRequest) (*LocalEnvironmentPage, error)
+	ListLocalRegistrationPage(context.Context, *ListLocalRegistrationPageRequest) (*LocalRegistrationPage, error)
 	GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentityResponse, error)
 	RotateDeviceRoot(context.Context, *RotateDeviceRootRequest) (*RotateDeviceRootResponse, error)
 	ListPersonalMeshes(context.Context, *ListPersonalMeshesRequest) (*ListPersonalMeshesResponse, error)
@@ -2773,6 +2851,12 @@ func (UnimplementedOperatorServiceServer) PlanDiscardEnvironment(context.Context
 func (UnimplementedOperatorServiceServer) ExecuteCleanup(context.Context, *ExecuteCleanupRequest) (*OperationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExecuteCleanup not implemented")
 }
+func (UnimplementedOperatorServiceServer) PlanLocalDisposal(context.Context, *PlanLocalDisposalRequest) (*LocalDisposalPlanResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PlanLocalDisposal not implemented")
+}
+func (UnimplementedOperatorServiceServer) ExecuteLocalDisposal(context.Context, *ExecuteLocalDisposalRequest) (*OperationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecuteLocalDisposal not implemented")
+}
 func (UnimplementedOperatorServiceServer) GetOperation(context.Context, *GetOperationRequest) (*OperationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetOperation not implemented")
 }
@@ -2820,6 +2904,18 @@ func (UnimplementedOperatorServiceServer) GetRemoteRegistration(context.Context,
 }
 func (UnimplementedOperatorServiceServer) ListRemoteRegistrations(context.Context, *ListRemoteRegistrationsRequest) (*ListRemoteRegistrationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListRemoteRegistrations not implemented")
+}
+func (UnimplementedOperatorServiceServer) SignCommaRecovery(context.Context, *SignCommaRecoveryRequest) (*SignCommaRecoveryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SignCommaRecovery not implemented")
+}
+func (UnimplementedOperatorServiceServer) GetLocalDiskSummary(context.Context, *GetLocalDiskSummaryRequest) (*LocalDiskSummary, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetLocalDiskSummary not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListLocalEnvironmentPage(context.Context, *ListLocalEnvironmentPageRequest) (*LocalEnvironmentPage, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListLocalEnvironmentPage not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListLocalRegistrationPage(context.Context, *ListLocalRegistrationPageRequest) (*LocalRegistrationPage, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListLocalRegistrationPage not implemented")
 }
 func (UnimplementedOperatorServiceServer) GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDeviceIdentity not implemented")
@@ -3478,6 +3574,42 @@ func _OperatorService_ExecuteCleanup_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_PlanLocalDisposal_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanLocalDisposalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).PlanLocalDisposal(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_PlanLocalDisposal_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).PlanLocalDisposal(ctx, req.(*PlanLocalDisposalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ExecuteLocalDisposal_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecuteLocalDisposalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ExecuteLocalDisposal(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ExecuteLocalDisposal_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ExecuteLocalDisposal(ctx, req.(*ExecuteLocalDisposalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OperatorService_GetOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetOperationRequest)
 	if err := dec(in); err != nil {
@@ -3762,6 +3894,78 @@ func _OperatorService_ListRemoteRegistrations_Handler(srv interface{}, ctx conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OperatorServiceServer).ListRemoteRegistrations(ctx, req.(*ListRemoteRegistrationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_SignCommaRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignCommaRecoveryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).SignCommaRecovery(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_SignCommaRecovery_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).SignCommaRecovery(ctx, req.(*SignCommaRecoveryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_GetLocalDiskSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLocalDiskSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).GetLocalDiskSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_GetLocalDiskSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).GetLocalDiskSummary(ctx, req.(*GetLocalDiskSummaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListLocalEnvironmentPage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListLocalEnvironmentPageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListLocalEnvironmentPage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListLocalEnvironmentPage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListLocalEnvironmentPage(ctx, req.(*ListLocalEnvironmentPageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListLocalRegistrationPage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListLocalRegistrationPageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListLocalRegistrationPage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListLocalRegistrationPage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListLocalRegistrationPage(ctx, req.(*ListLocalRegistrationPageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -4168,6 +4372,14 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OperatorService_ExecuteCleanup_Handler,
 		},
 		{
+			MethodName: "PlanLocalDisposal",
+			Handler:    _OperatorService_PlanLocalDisposal_Handler,
+		},
+		{
+			MethodName: "ExecuteLocalDisposal",
+			Handler:    _OperatorService_ExecuteLocalDisposal_Handler,
+		},
+		{
 			MethodName: "GetOperation",
 			Handler:    _OperatorService_GetOperation_Handler,
 		},
@@ -4230,6 +4442,22 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListRemoteRegistrations",
 			Handler:    _OperatorService_ListRemoteRegistrations_Handler,
+		},
+		{
+			MethodName: "SignCommaRecovery",
+			Handler:    _OperatorService_SignCommaRecovery_Handler,
+		},
+		{
+			MethodName: "GetLocalDiskSummary",
+			Handler:    _OperatorService_GetLocalDiskSummary_Handler,
+		},
+		{
+			MethodName: "ListLocalEnvironmentPage",
+			Handler:    _OperatorService_ListLocalEnvironmentPage_Handler,
+		},
+		{
+			MethodName: "ListLocalRegistrationPage",
+			Handler:    _OperatorService_ListLocalRegistrationPage_Handler,
 		},
 		{
 			MethodName: "GetDeviceIdentity",

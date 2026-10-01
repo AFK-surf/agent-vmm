@@ -66,6 +66,7 @@ type Config struct {
 }
 
 type Controller struct {
+	localDisposalWake           chan struct{}
 	manager                     *vmm.Manager
 	store                       *store.Store
 	trust                       *hosttrust.Manager
@@ -86,6 +87,7 @@ type Controller struct {
 	mu                       sync.Mutex
 	sessions                 map[string]*sessionServer
 	observed                 map[string][]*hostv1.Container
+	localResourceCache       map[string]localResourceSample
 	workloadRuns             map[string]*workloadRun
 	workloadRunOrder         []string
 	workloadRunIndex         map[string]int
@@ -285,6 +287,7 @@ func New(config Config) (*Controller, error) {
 		applianceFrontends:       make(map[string]*applianceFrontendRuntime),
 		domainMetrics:            make(map[string]*controllerDomainMetricState),
 		externalConnectors:       make(map[string]*externalConnectorRoute),
+		localDisposalWake:        make(chan struct{}, 1),
 		workloadRuns:             make(map[string]*workloadRun),
 		workloadRunIndex:         make(map[string]int),
 		allocationRetirementWake: make(chan struct{}, 1),
@@ -319,7 +322,7 @@ func New(config Config) (*Controller, error) {
 	}
 	reconcileContext, reconcileCancel := context.WithCancel(context.Background())
 	controller.applianceReconcileCancel = reconcileCancel
-	controller.applianceReconcileWG.Add(3)
+	controller.applianceReconcileWG.Add(4)
 	go func() {
 		defer controller.applianceReconcileWG.Done()
 		controller.workloadObservationLoop(reconcileContext)
@@ -332,6 +335,7 @@ func New(config Config) (*Controller, error) {
 		defer controller.applianceReconcileWG.Done()
 		controller.allocationRetirementLoop(reconcileContext)
 	}()
+	go func() { defer controller.applianceReconcileWG.Done(); controller.localDisposalLoop(reconcileContext) }()
 	return controller, nil
 }
 
@@ -652,6 +656,13 @@ func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, en
 }
 
 func (controller *Controller) projectEnvironment(ctx context.Context, environment store.Environment) error {
+	disposed, err := controller.store.EnvironmentDisposed(ctx, environment)
+	if err != nil {
+		return err
+	}
+	if disposed {
+		return nil
+	}
 	if environment.OwnerKind == store.OwnerRemoteRegistration && environment.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
 		return nil
 	}
@@ -846,6 +857,7 @@ func (controller *Controller) environmentSnapshot(ctx context.Context, environme
 	}
 	if usageErr == nil {
 		result.Usage = usageFromGuest(usage.GetUsage())
+		controller.rememberLocalResourceSample(environment, result)
 	} else {
 		result.Usage = &hostv1.Usage{SampledAt: timestamppb.Now(), Stale: true, UnavailableReason: "environment metrics are unavailable"}
 	}
@@ -868,6 +880,7 @@ func (controller *Controller) forgetContainers(environmentID string) {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
 	delete(controller.observed, environmentID)
+	delete(controller.localResourceCache, environmentID)
 	prefix := environmentID + "\x00"
 	for key := range controller.stoppedWorkloadInstances {
 		if strings.HasPrefix(key, prefix) {

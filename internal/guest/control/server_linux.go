@@ -236,6 +236,16 @@ func (s *Server) InspectContainer(ctx context.Context, request *vmmdv1.InspectCo
 }
 
 func (s *Server) ListContainers(ctx context.Context, request *vmmdv1.ListContainersRequest) (*vmmdv1.ListContainersResponse, error) {
+	if request.GetPageSize() > 0 || request.GetAfterContainerId() != "" {
+		if request.GetLimit() != 0 {
+			return nil, status.Error(codes.InvalidArgument, "container page cannot combine an overflow limit")
+		}
+		containers, next, err := s.runtime.ListContainersPage(ctx, request.GetActorNamespaceId(), request.GetAfterContainerId(), request.GetPageSize())
+		if err != nil {
+			return nil, rpcError(err)
+		}
+		return &vmmdv1.ListContainersResponse{Containers: containers, NextCursor: next}, nil
+	}
 	containers, err := s.runtime.ListContainersBounded(ctx, request.GetActorNamespaceId(), request.GetLimit())
 	if err != nil {
 		return nil, rpcError(err)

@@ -208,13 +208,14 @@ func dispatchRemoteCommand(cursor *remoteCommandCursor, command *remotev1.Contro
 
 type isolatedDomainController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
-	registrationID string
-	session        chan net.Conn
-	finish         chan struct{}
-	cleaned        chan struct{}
-	epoch          atomic.Uint64
-	cleanedOnce    sync.Once
-	finished       atomic.Bool
+	registrationID         string
+	session                chan net.Conn
+	finish                 chan struct{}
+	cleaned                chan struct{}
+	epoch                  atomic.Uint64
+	cleanedOnce            sync.Once
+	finished               atomic.Bool
+	allowExistingInventory bool
 }
 
 func (server *isolatedDomainController) Enroll(context.Context, *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
@@ -237,7 +238,7 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 	if err := session.Ready(); err != nil {
 		return err
 	}
-	if len(hello.GetInventory()) != 0 {
+	if len(hello.GetInventory()) != 0 && (!server.allowExistingInventory || len(hello.GetInventory()) != 1 || hello.GetInventory()[0].GetAllocationId() != "shared" || hello.GetInventory()[0].GetGeneration() != 1) {
 		return status.Error(codes.FailedPrecondition, "isolated domain started with unexpected inventory")
 	}
 	cursor := &remoteCommandCursor{session: session}

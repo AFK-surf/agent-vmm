@@ -5749,6 +5749,32 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "PlanLocalDisposal" metadata.
+        public enum PlanLocalDisposal: Sendable {
+            /// Request type for "PlanLocalDisposal".
+            public typealias Input = Agentvmm_Host_V1_PlanLocalDisposalRequest
+            /// Response type for "PlanLocalDisposal".
+            public typealias Output = Agentvmm_Host_V1_LocalDisposalPlanResponse
+            /// Descriptor for "PlanLocalDisposal".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "PlanLocalDisposal",
+                type: .unary
+            )
+        }
+        /// Namespace for "ExecuteLocalDisposal" metadata.
+        public enum ExecuteLocalDisposal: Sendable {
+            /// Request type for "ExecuteLocalDisposal".
+            public typealias Input = Agentvmm_Host_V1_ExecuteLocalDisposalRequest
+            /// Response type for "ExecuteLocalDisposal".
+            public typealias Output = Agentvmm_Host_V1_OperationResponse
+            /// Descriptor for "ExecuteLocalDisposal".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "ExecuteLocalDisposal",
+                type: .unary
+            )
+        }
         /// Namespace for "GetOperation" metadata.
         public enum GetOperation: Sendable {
             /// Request type for "GetOperation".
@@ -5954,6 +5980,58 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
                 method: "ListRemoteRegistrations",
+                type: .unary
+            )
+        }
+        /// Namespace for "SignCommaRecovery" metadata.
+        public enum SignCommaRecovery: Sendable {
+            /// Request type for "SignCommaRecovery".
+            public typealias Input = Agentvmm_Host_V1_SignCommaRecoveryRequest
+            /// Response type for "SignCommaRecovery".
+            public typealias Output = Agentvmm_Host_V1_SignCommaRecoveryResponse
+            /// Descriptor for "SignCommaRecovery".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "SignCommaRecovery",
+                type: .unary
+            )
+        }
+        /// Namespace for "GetLocalDiskSummary" metadata.
+        public enum GetLocalDiskSummary: Sendable {
+            /// Request type for "GetLocalDiskSummary".
+            public typealias Input = Agentvmm_Host_V1_GetLocalDiskSummaryRequest
+            /// Response type for "GetLocalDiskSummary".
+            public typealias Output = Agentvmm_Host_V1_LocalDiskSummary
+            /// Descriptor for "GetLocalDiskSummary".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "GetLocalDiskSummary",
+                type: .unary
+            )
+        }
+        /// Namespace for "ListLocalEnvironmentPage" metadata.
+        public enum ListLocalEnvironmentPage: Sendable {
+            /// Request type for "ListLocalEnvironmentPage".
+            public typealias Input = Agentvmm_Host_V1_ListLocalEnvironmentPageRequest
+            /// Response type for "ListLocalEnvironmentPage".
+            public typealias Output = Agentvmm_Host_V1_LocalEnvironmentPage
+            /// Descriptor for "ListLocalEnvironmentPage".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "ListLocalEnvironmentPage",
+                type: .unary
+            )
+        }
+        /// Namespace for "ListLocalRegistrationPage" metadata.
+        public enum ListLocalRegistrationPage: Sendable {
+            /// Request type for "ListLocalRegistrationPage".
+            public typealias Input = Agentvmm_Host_V1_ListLocalRegistrationPageRequest
+            /// Response type for "ListLocalRegistrationPage".
+            public typealias Output = Agentvmm_Host_V1_LocalRegistrationPage
+            /// Descriptor for "ListLocalRegistrationPage".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "ListLocalRegistrationPage",
                 type: .unary
             )
         }
@@ -6188,6 +6266,8 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             PlanResetEnvironment.descriptor,
             PlanDiscardEnvironment.descriptor,
             ExecuteCleanup.descriptor,
+            PlanLocalDisposal.descriptor,
+            ExecuteLocalDisposal.descriptor,
             GetOperation.descriptor,
             RunDiagnostics.descriptor,
             PreviewSupportBundle.descriptor,
@@ -6204,6 +6284,10 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             SetRemoteRegistrationState.descriptor,
             GetRemoteRegistration.descriptor,
             ListRemoteRegistrations.descriptor,
+            SignCommaRecovery.descriptor,
+            GetLocalDiskSummary.descriptor,
+            ListLocalEnvironmentPage.descriptor,
+            ListLocalRegistrationPage.descriptor,
             GetDeviceIdentity.descriptor,
             RotateDeviceRoot.descriptor,
             ListPersonalMeshes.descriptor,
@@ -6884,6 +6968,44 @@ extension Agentvmm_Host_V1_OperatorService {
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_OperationResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
+        /// Call the "PlanLocalDisposal" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_PlanLocalDisposalRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_PlanLocalDisposalRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalDisposalPlanResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func planLocalDisposal<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanLocalDisposalRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_PlanLocalDisposalRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalDisposalPlanResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDisposalPlanResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ExecuteLocalDisposal" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteLocalDisposalRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecuteLocalDisposalRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_OperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func executeLocalDisposal<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteLocalDisposalRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecuteLocalDisposalRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_OperationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_OperationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
         /// Call the "GetOperation" method.
         ///
         /// - Parameters:
@@ -7186,6 +7308,82 @@ extension Agentvmm_Host_V1_OperatorService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "SignCommaRecovery" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_SignCommaRecoveryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_SignCommaRecoveryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_SignCommaRecoveryResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func signCommaRecovery<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_SignCommaRecoveryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_SignCommaRecoveryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_SignCommaRecoveryResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SignCommaRecoveryResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "GetLocalDiskSummary" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetLocalDiskSummaryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetLocalDiskSummaryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalDiskSummary` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func getLocalDiskSummary<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetLocalDiskSummaryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetLocalDiskSummaryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalDiskSummary>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDiskSummary>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ListLocalEnvironmentPage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListLocalEnvironmentPageRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListLocalEnvironmentPageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalEnvironmentPage` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func listLocalEnvironmentPage<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalEnvironmentPageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListLocalEnvironmentPageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalEnvironmentPage>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalEnvironmentPage>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ListLocalRegistrationPage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListLocalRegistrationPageRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListLocalRegistrationPageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalRegistrationPage` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func listLocalRegistrationPage<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalRegistrationPageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListLocalRegistrationPageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalRegistrationPage>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalRegistrationPage>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "GetDeviceIdentity" method.
@@ -8504,6 +8702,66 @@ extension Agentvmm_Host_V1_OperatorService {
             )
         }
 
+        /// Call the "PlanLocalDisposal" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_PlanLocalDisposalRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_PlanLocalDisposalRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalDisposalPlanResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func planLocalDisposal<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanLocalDisposalRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_PlanLocalDisposalRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalDisposalPlanResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDisposalPlanResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.PlanLocalDisposal.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ExecuteLocalDisposal" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteLocalDisposalRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ExecuteLocalDisposalRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_OperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func executeLocalDisposal<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteLocalDisposalRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ExecuteLocalDisposalRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_OperationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_OperationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ExecuteLocalDisposal.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
         /// Call the "GetOperation" method.
         ///
         /// - Parameters:
@@ -8977,6 +9235,126 @@ extension Agentvmm_Host_V1_OperatorService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_OperatorService.Method.ListRemoteRegistrations.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "SignCommaRecovery" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_SignCommaRecoveryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_SignCommaRecoveryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_SignCommaRecoveryResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func signCommaRecovery<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_SignCommaRecoveryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_SignCommaRecoveryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_SignCommaRecoveryResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SignCommaRecoveryResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.SignCommaRecovery.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "GetLocalDiskSummary" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_GetLocalDiskSummaryRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_GetLocalDiskSummaryRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalDiskSummary` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func getLocalDiskSummary<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetLocalDiskSummaryRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_GetLocalDiskSummaryRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalDiskSummary>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDiskSummary>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.GetLocalDiskSummary.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ListLocalEnvironmentPage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListLocalEnvironmentPageRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListLocalEnvironmentPageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalEnvironmentPage` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func listLocalEnvironmentPage<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalEnvironmentPageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListLocalEnvironmentPageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalEnvironmentPage>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalEnvironmentPage>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ListLocalEnvironmentPage.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ListLocalRegistrationPage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListLocalRegistrationPageRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListLocalRegistrationPageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_LocalRegistrationPage` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func listLocalRegistrationPage<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalRegistrationPageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListLocalRegistrationPageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_LocalRegistrationPage>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalRegistrationPage>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ListLocalRegistrationPage.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -10283,6 +10661,56 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
+    /// Call the "PlanLocalDisposal" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_PlanLocalDisposalRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func planLocalDisposal<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanLocalDisposalRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDisposalPlanResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.planLocalDisposal(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_PlanLocalDisposalRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_LocalDisposalPlanResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ExecuteLocalDisposal" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ExecuteLocalDisposalRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func executeLocalDisposal<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteLocalDisposalRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_OperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.executeLocalDisposal(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ExecuteLocalDisposalRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_OperationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "GetOperation" method.
     ///
     /// - Parameters:
@@ -10678,6 +11106,106 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListRemoteRegistrationsRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ListRemoteRegistrationsResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "SignCommaRecovery" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_SignCommaRecoveryRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func signCommaRecovery<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_SignCommaRecoveryRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SignCommaRecoveryResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.signCommaRecovery(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_SignCommaRecoveryRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_SignCommaRecoveryResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetLocalDiskSummary" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_GetLocalDiskSummaryRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getLocalDiskSummary<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_GetLocalDiskSummaryRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDiskSummary>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.getLocalDiskSummary(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_GetLocalDiskSummaryRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_LocalDiskSummary>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListLocalEnvironmentPage" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ListLocalEnvironmentPageRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listLocalEnvironmentPage<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalEnvironmentPageRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalEnvironmentPage>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.listLocalEnvironmentPage(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListLocalEnvironmentPageRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_LocalEnvironmentPage>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListLocalRegistrationPage" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ListLocalRegistrationPageRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listLocalRegistrationPage<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalRegistrationPageRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalRegistrationPage>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.listLocalRegistrationPage(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListLocalRegistrationPageRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_LocalRegistrationPage>(),
             options: options,
             onResponse: handleResponse
         )
@@ -12042,6 +12570,64 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
+    /// Call the "PlanLocalDisposal" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func planLocalDisposal<Result>(
+        _ message: Agentvmm_Host_V1_PlanLocalDisposalRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDisposalPlanResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_PlanLocalDisposalRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.planLocalDisposal(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ExecuteLocalDisposal" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func executeLocalDisposal<Result>(
+        _ message: Agentvmm_Host_V1_ExecuteLocalDisposalRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_OperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ExecuteLocalDisposalRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.executeLocalDisposal(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "GetOperation" method.
     ///
     /// - Parameters:
@@ -12500,6 +13086,122 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             metadata: metadata
         )
         return try await self.listRemoteRegistrations(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "SignCommaRecovery" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func signCommaRecovery<Result>(
+        _ message: Agentvmm_Host_V1_SignCommaRecoveryRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SignCommaRecoveryResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_SignCommaRecoveryRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.signCommaRecovery(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetLocalDiskSummary" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getLocalDiskSummary<Result>(
+        _ message: Agentvmm_Host_V1_GetLocalDiskSummaryRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalDiskSummary>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_GetLocalDiskSummaryRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.getLocalDiskSummary(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListLocalEnvironmentPage" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listLocalEnvironmentPage<Result>(
+        _ message: Agentvmm_Host_V1_ListLocalEnvironmentPageRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalEnvironmentPage>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalEnvironmentPageRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.listLocalEnvironmentPage(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListLocalRegistrationPage" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listLocalRegistrationPage<Result>(
+        _ message: Agentvmm_Host_V1_ListLocalRegistrationPageRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_LocalRegistrationPage>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ListLocalRegistrationPageRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.listLocalRegistrationPage(
             request: request,
             options: options,
             onResponse: handleResponse

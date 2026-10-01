@@ -694,10 +694,21 @@ func TestRemoteEnrollmentTransitionsAreRevisionAndStateFenced(t *testing.T) {
 	if err != nil || revoking.State != 2 || revoking.EnrollmentState != 4 || revoking.ConnectionState != 1 || revoking.ConnectionInstance != "" {
 		t.Fatalf("revoking=%+v err=%v", revoking, err)
 	}
+	retry, err := database.BeginRemoteRevocation(ctx, revoking.ID, revoking.Revision)
+	if err != nil || retry.Revision != revoking.Revision {
+		t.Fatalf("revocation retry = %+v, %v", retry, err)
+	}
+	if _, err := database.BeginRemoteRevocation(ctx, revoking.ID, ready.Revision); err == nil {
+		t.Fatal("stale revocation retry accepted")
+	}
 	revoked, err := database.CompleteRemoteRevocation(ctx, revoking.ID, revoking.Revision)
 	if err != nil || revoked.State != 3 || revoked.ConnectionState != 1 {
 		t.Fatalf("revoked=%+v err=%v", revoked, err)
 	}
+	if _, err := database.SetRemoteRegistrationState(ctx, revoked.ID, revoked.Revision, 1); err == nil {
+		t.Fatal("revoked registration was enabled")
+	}
+
 }
 
 func TestConnectorStatusRejectsStaleInstances(t *testing.T) {

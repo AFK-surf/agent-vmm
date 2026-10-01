@@ -502,3 +502,25 @@ func TestConnectionReplacementFencesOldTransportWithoutRevokingAcceptedAllocatio
 }
 
 func testOptional[T any](value T) *T { return &value }
+func TestNormalRetirementPagesEveryContainerAndRequiresObservedStop(t *testing.T) {
+	controller := &Controller{}
+	environment := store.Environment{ID: "retained", NamespaceID: "private"}
+	guest := &retirementGuest{containerCount: 101}
+	client, closeGuest := startRetirementGuest(t, guest)
+	defer closeGuest()
+	if err := controller.stopRemoteNamespace(context.Background(), client, environment, 1); err != nil {
+		t.Fatal(err)
+	}
+	if guest.stops.Load() != 101 {
+		t.Fatalf("actual stops=%d", guest.stops.Load())
+	}
+	guest = &retirementGuest{unresolved: true, containerCount: 101}
+	client, closeSecond := startRetirementGuest(t, guest)
+	defer closeSecond()
+	if err := controller.stopRemoteNamespace(context.Background(), client, environment, 1); err == nil {
+		t.Fatal("unobserved stop allowed Retained")
+	}
+	if guest.stops.Load() != 1 {
+		t.Fatal("retirement continued after unconfirmed stop")
+	}
+}

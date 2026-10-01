@@ -29,6 +29,7 @@ const (
 	VMMDService_OpenSystemStream_FullMethodName          = "/agentvmm.vmmd.v1.VMMDService/OpenSystemStream"
 	VMMDService_EnsureNamespace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/EnsureNamespace"
 	VMMDService_DeleteNamespace_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/DeleteNamespace"
+	VMMDService_DisposeNamespaceBatch_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/DisposeNamespaceBatch"
 	VMMDService_GetNamespace_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/GetNamespace"
 	VMMDService_ListNamespaces_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/ListNamespaces"
 	VMMDService_GetNamespaceUsage_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/GetNamespaceUsage"
@@ -85,6 +86,7 @@ type VMMDServiceClient interface {
 	OpenSystemStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SystemStreamFrame, SystemStreamFrame], error)
 	EnsureNamespace(ctx context.Context, in *EnsureNamespaceRequest, opts ...grpc.CallOption) (*EnsureNamespaceResponse, error)
 	DeleteNamespace(ctx context.Context, in *DeleteNamespaceRequest, opts ...grpc.CallOption) (*DeleteNamespaceResponse, error)
+	DisposeNamespaceBatch(ctx context.Context, in *DisposeNamespaceBatchRequest, opts ...grpc.CallOption) (*DisposeNamespaceBatchResponse, error)
 	GetNamespace(ctx context.Context, in *GetNamespaceRequest, opts ...grpc.CallOption) (*GetNamespaceResponse, error)
 	ListNamespaces(ctx context.Context, in *ListNamespacesRequest, opts ...grpc.CallOption) (*ListNamespacesResponse, error)
 	GetNamespaceUsage(ctx context.Context, in *GetNamespaceUsageRequest, opts ...grpc.CallOption) (*GetUsageResponse, error)
@@ -234,6 +236,16 @@ func (c *vMMDServiceClient) DeleteNamespace(ctx context.Context, in *DeleteNames
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteNamespaceResponse)
 	err := c.cc.Invoke(ctx, VMMDService_DeleteNamespace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) DisposeNamespaceBatch(ctx context.Context, in *DisposeNamespaceBatchRequest, opts ...grpc.CallOption) (*DisposeNamespaceBatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DisposeNamespaceBatchResponse)
+	err := c.cc.Invoke(ctx, VMMDService_DisposeNamespaceBatch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -720,6 +732,7 @@ type VMMDServiceServer interface {
 	OpenSystemStream(grpc.BidiStreamingServer[SystemStreamFrame, SystemStreamFrame]) error
 	EnsureNamespace(context.Context, *EnsureNamespaceRequest) (*EnsureNamespaceResponse, error)
 	DeleteNamespace(context.Context, *DeleteNamespaceRequest) (*DeleteNamespaceResponse, error)
+	DisposeNamespaceBatch(context.Context, *DisposeNamespaceBatchRequest) (*DisposeNamespaceBatchResponse, error)
 	GetNamespace(context.Context, *GetNamespaceRequest) (*GetNamespaceResponse, error)
 	ListNamespaces(context.Context, *ListNamespacesRequest) (*ListNamespacesResponse, error)
 	GetNamespaceUsage(context.Context, *GetNamespaceUsageRequest) (*GetUsageResponse, error)
@@ -801,6 +814,9 @@ func (UnimplementedVMMDServiceServer) EnsureNamespace(context.Context, *EnsureNa
 }
 func (UnimplementedVMMDServiceServer) DeleteNamespace(context.Context, *DeleteNamespaceRequest) (*DeleteNamespaceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteNamespace not implemented")
+}
+func (UnimplementedVMMDServiceServer) DisposeNamespaceBatch(context.Context, *DisposeNamespaceBatchRequest) (*DisposeNamespaceBatchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DisposeNamespaceBatch not implemented")
 }
 func (UnimplementedVMMDServiceServer) GetNamespace(context.Context, *GetNamespaceRequest) (*GetNamespaceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetNamespace not implemented")
@@ -1108,6 +1124,24 @@ func _VMMDService_DeleteNamespace_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VMMDServiceServer).DeleteNamespace(ctx, req.(*DeleteNamespaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_DisposeNamespaceBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DisposeNamespaceBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).DisposeNamespaceBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_DisposeNamespaceBatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).DisposeNamespaceBatch(ctx, req.(*DisposeNamespaceBatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1762,6 +1796,10 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteNamespace",
 			Handler:    _VMMDService_DeleteNamespace_Handler,
+		},
+		{
+			MethodName: "DisposeNamespaceBatch",
+			Handler:    _VMMDService_DisposeNamespaceBatch_Handler,
 		},
 		{
 			MethodName: "GetNamespace",

@@ -42,6 +42,9 @@ func auditUnary(controller *Controller) grpc.UnaryServerInterceptor {
 
 func sessionActivityUnary(controller *Controller, sessionID string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if err := controller.authorizeSession(ctx, sessionID); err != nil {
+			return nil, err
+		}
 		controller.markSessionActivity(sessionID)
 		return handler(ctx, request)
 	}
@@ -49,6 +52,9 @@ func sessionActivityUnary(controller *Controller, sessionID string) grpc.UnarySe
 
 func sessionActivityStream(controller *Controller, sessionID string) grpc.StreamServerInterceptor {
 	return func(server any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := controller.authorizeSession(stream.Context(), sessionID); err != nil {
+			return err
+		}
 		controller.markSessionActivity(sessionID)
 		return handler(server, stream)
 	}
@@ -229,7 +235,7 @@ func isMutation(method string) bool {
 		"ListAgentIntegrations", "ListAgentSessions", "GetRemoteRegistration", "ListRemoteRegistrations", "ListPersonalMeshes",
 		"GetPersonalMeshPairing", "ListServiceListeners", "ListServiceExports", "GetServiceExport", "ListServiceImports", "GetServiceImport",
 		"GetRemoteState", "GetRemoteObservation", "ReportConnectorStatus", "PlanCleanupAllocation",
-		"RunDiagnostics", "ExportSupportBundle":
+		"RunDiagnostics", "ExportSupportBundle", "PlanLocalDisposal", "SignCommaRecovery", "GetLocalDiskSummary", "ListLocalEnvironmentPage", "ListLocalRegistrationPage":
 		return false
 	default:
 		// Unknown RPCs retain mutation receipts until their owner explicitly
@@ -370,3 +376,14 @@ type hostContextStream struct {
 }
 
 func (stream *hostContextStream) Context() context.Context { return stream.context }
+
+func (controller *Controller) authorizeSession(ctx context.Context, id string) error {
+	session, err := controller.store.GetSession(ctx, id)
+	if err != nil {
+		return resourceError(codes.PermissionDenied, "SESSION_UNAVAILABLE", "session", id, "session authority is unavailable")
+	}
+	if session.RevokedAt != nil || session.ClosedAt != nil || !session.ExpiresAt.After(time.Now()) {
+		return resourceError(codes.PermissionDenied, "SESSION_REVOKED", "session", id, "session authority has ended")
+	}
+	return controller.requireUndisposedEnvironment(ctx, session.EnvironmentID)
+}

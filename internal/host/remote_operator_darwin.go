@@ -27,6 +27,9 @@ func (server *operatorServer) BeginRemoteEnrollment(ctx context.Context, request
 	if request.GetRequestId() == "" || request.GetEndpoint() == "" || request.GetProtocolVersion() == "" {
 		return nil, invalidField("request_id/endpoint/protocol_version", "request ID, endpoint, and protocol version are required")
 	}
+	if err := server.controller.requireUndisposedRegistration(ctx, request.GetRegistrationId(), request.GetRequestId()); err != nil {
+		return nil, err
+	}
 	if existing, err := server.controller.store.RemoteRegistrationByEnrollmentRequest(ctx, request.GetRequestId()); err == nil {
 		return server.controller.remoteRegistrationResponse(ctx, existing), nil
 	}
@@ -66,6 +69,17 @@ func (server *operatorServer) ApplyManagedRemoteEnrollment(ctx context.Context, 
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
+	releaseAdmission, err := server.controller.lockRemoteAdmission(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseAdmission()
+
 	managed := request.GetRegistration()
 	if managed == nil || managed.GetRegistrationId() == "" || managed.GetSourcePolicyRevision() == 0 || len(managed.GetTrustBundle()) == 0 || !validScopeDigest(managed.GetScopeDigest()) {
 		return nil, invalidField("managed_registration", "complete managed registration identity, trust, scope, and policy are required")
@@ -162,6 +176,10 @@ func (server *operatorServer) RetryRemoteEnrollment(ctx context.Context, request
 	if request.GetRequestId() == "" || request.GetRegistrationId() == "" || request.GetExpectedRevision() == 0 {
 		return nil, invalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
 	}
+	if err := server.controller.requireUndisposedRegistration(ctx, request.GetRegistrationId(), ""); err != nil {
+		return nil, err
+	}
+
 	updated, err := server.controller.store.RetryRemoteEnrollment(ctx, request.GetRegistrationId(), request.GetExpectedRevision())
 	if err != nil {
 		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", request.GetRegistrationId(), err.Error())
@@ -176,6 +194,10 @@ func (server *operatorServer) setEnrollment(ctx context.Context, requestID, id s
 	if requestID == "" || id == "" || revision == 0 {
 		return nil, invalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
 	}
+	if err := server.controller.requireUndisposedRegistration(ctx, id, ""); err != nil {
+		return nil, err
+	}
+
 	updated, err := server.controller.store.SetRemoteEnrollment(ctx, id, revision, int32(from), int32(state), code, message)
 	if err != nil {
 		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", id, err.Error())
@@ -207,6 +229,9 @@ func (server *operatorServer) BeginRemoteRevocation(ctx context.Context, request
 	updated, err := server.controller.store.BeginRemoteRevocation(ctx, request.GetRegistrationId(), request.GetExpectedRevision())
 	server.controller.remoteAdmissionMu.Unlock()
 	if err == nil {
+		if updated.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED) {
+			return server.controller.remoteRegistrationResponse(ctx, updated), nil
+		}
 		server.controller.stopExternalConnector(request.GetRegistrationId())
 		if revokeErr := server.controller.retireRemoteRegistration(ctx, request.GetRegistrationId()); revokeErr != nil {
 			return nil, resourceError(codes.FailedPrecondition, "REMOTE_REGISTRATION_RETIRE_FAILED", "remote_registration", request.GetRegistrationId(), revokeErr.Error())
@@ -222,6 +247,19 @@ func (server *operatorServer) CompleteRemoteRevocation(ctx context.Context, requ
 	}
 	if request.GetRequestId() == "" || request.GetRegistrationId() == "" || request.GetExpectedRevision() == 0 {
 		return nil, invalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
+	}
+	current, readErr := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
+	if readErr != nil {
+		return nil, resourceError(codes.Unavailable, "REGISTRATION_UNREADABLE", "remote_registration", request.GetRegistrationId(), "remote registration could not be read")
+	}
+	if current.Revision != request.GetExpectedRevision() {
+		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", current.ID, "registration revision changed")
+	}
+	if current.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED) {
+		return server.controller.remoteRegistrationResponse(ctx, current), nil
+	}
+	if revokeErr := server.controller.retireRemoteRegistration(ctx, request.GetRegistrationId()); revokeErr != nil {
+		return nil, resourceError(codes.FailedPrecondition, "REMOTE_REGISTRATION_RETIRE_FAILED", "remote_registration", request.GetRegistrationId(), revokeErr.Error())
 	}
 	server.controller.remoteAdmissionMu.Lock()
 	updated, err := server.controller.store.CompleteRemoteRevocation(ctx, request.GetRegistrationId(), request.GetExpectedRevision())
@@ -280,10 +318,17 @@ func (server *operatorServer) SetRemoteRegistrationState(ctx context.Context, re
 		return nil, invalidField("state", "registration state must be enabled or draining")
 	}
 	server.controller.remoteAdmissionMu.Lock()
+	if err := server.controller.requireUndisposedRegistration(ctx, request.GetRegistrationId(), ""); err != nil {
+		server.controller.remoteAdmissionMu.Unlock()
+		return nil, err
+	}
 	current, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
 	if err != nil {
 		server.controller.remoteAdmissionMu.Unlock()
-		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", request.GetRegistrationId(), "remote registration does not exist")
+		}
+		return nil, resourceError(codes.Unavailable, "REGISTRATION_UNREADABLE", "remote_registration", request.GetRegistrationId(), "remote registration could not be read")
 	}
 	updated, err := server.controller.store.SetRemoteRegistrationState(ctx, current.ID, request.GetExpectedRevision(), int32(request.GetState()))
 	server.controller.remoteAdmissionMu.Unlock()
@@ -303,8 +348,18 @@ func (server *operatorServer) GetRemoteRegistration(ctx context.Context, request
 		return nil, err
 	}
 	registration, err := server.controller.store.GetRemoteRegistration(ctx, request.GetRegistrationId())
+	if errors.Is(err, sql.ErrNoRows) {
+		disposed, readErr := server.controller.store.RegistrationDisposed(ctx, request.GetRegistrationId(), "")
+		if readErr != nil {
+			return nil, resourceError(codes.Unavailable, "REGISTRATION_UNREADABLE", "remote_registration", request.GetRegistrationId(), "local revocation facts could not be read")
+		}
+		if disposed {
+			return nil, resourceError(codes.NotFound, "LOCAL_DISPOSED", "remote_registration", request.GetRegistrationId(), "the local operator disposed this registration")
+		}
+		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", request.GetRegistrationId(), "remote registration does not exist")
+	}
 	if err != nil {
-		return nil, resourceError(codes.NotFound, "REGISTRATION_NOT_FOUND", "remote_registration", "active", "active remote registration does not exist")
+		return nil, resourceError(codes.Unavailable, "REGISTRATION_UNREADABLE", "remote_registration", request.GetRegistrationId(), "remote registration could not be read")
 	}
 	return server.controller.remoteRegistrationResponse(ctx, registration), nil
 }

@@ -220,3 +220,80 @@ func TestRuntimeInventoryRebuildIndexesRawLegacyRecords(t *testing.T) {
 		t.Fatal("unnamed image record was indexed")
 	}
 }
+
+func TestDisposalBatchesConsumeOnlyOneNamespaceAbovePreviewLimit(t *testing.T) {
+	index := newRuntimeInventoryIndex()
+	index.ensureNamespace("target")
+	index.ensureNamespace("other")
+	if err := index.addContainer("other", "retained"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 101; i++ {
+		if err := index.addContainer("target", fmt.Sprintf("container-%03d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed := 0
+	for {
+		batch, err := index.disposalBatch("target", false, 32)
+		if err != nil || len(batch) > 32 {
+			t.Fatalf("batch=%d,%v", len(batch), err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for _, id := range batch {
+			if err := index.removeContainer("target", id); err != nil {
+				t.Fatal(err)
+			}
+			removed++
+		}
+	}
+	if removed != 101 {
+		t.Fatalf("removed=%d", removed)
+	}
+	remaining, err := index.containerIDs("other", 2)
+	if err != nil || len(remaining) != 1 || remaining[0] != "retained" {
+		t.Fatalf("other namespace=%v,%v", remaining, err)
+	}
+	if _, err := index.disposalBatch("missing", false, 32); err == nil {
+		t.Fatal("unknown namespace treated as empty")
+	}
+}
+
+func TestContainerCursorPagesRetainAllObjectsWithoutFullLoadOrDeletion(t *testing.T) {
+	index := newRuntimeInventoryIndex()
+	index.ensureNamespace("retained")
+	for n := 0; n < 101; n++ {
+		if err := index.addContainer("retained", fmt.Sprintf("container-%03d", n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cursor := ""
+	seen := map[string]bool{}
+	for {
+		page, err := index.containerPage("retained", cursor, 32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) > 32 {
+			t.Fatal("container page is unbounded")
+		}
+		for _, id := range page {
+			if seen[id] {
+				t.Fatal("container repeated")
+			}
+			seen[id] = true
+		}
+		if len(page) == 0 {
+			break
+		}
+		cursor = page[len(page)-1]
+	}
+	if len(seen) != 101 {
+		t.Fatalf("retained containers=%d", len(seen))
+	}
+	if objects, err := index.containerIDs("retained", 0); err != nil || len(objects) != 101 {
+		t.Fatalf("retirement deleted private container metadata: %d %v", len(objects), err)
+	}
+}

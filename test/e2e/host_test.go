@@ -164,7 +164,7 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 		Release: "e2e", ImageReference: "agent-vmm.local/reference@" + imageDigest,
 		ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1",
 		ControllerProtocolVersion: "controller-ready-v1",
-		DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{
+		DataVolumeBytes:           1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{
 			PerEnvironmentLimits: limits(100, 128<<20, 64, 256<<20),
 			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL},
 		RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StartupDeadlineSeconds: 60,
@@ -2535,7 +2535,13 @@ func execContainer(t *testing.T, client *productClient, namespaceID, containerID
 		t.Fatalf("exec %s: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 	}
 	requestID := "exec-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000")
-	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: requestID, ContainerId: containerID, Argv: argv}}}); err != nil {
+	current, err := client.GetContainer(ctx, namespaceID, &hostv1.ContainerRequest{ContainerId: containerID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: requestID, ContainerId: containerID, Argv: argv,
+		ExpectedInstanceId: current.GetContainer().GetInstanceId(), ExecutionId: requestID,
+		ExecutionKind: hostv1.ExecutionKind_EXECUTION_KIND_EXEC, ExecutionDeadlineUnixNano: time.Now().Add(30 * time.Second).UnixNano()}}}); err != nil {
 		t.Fatalf("exec %s send: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 	}
 	if err := stream.CloseSend(); err != nil {

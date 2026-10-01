@@ -33,7 +33,7 @@ func (store *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if version != 0 && version != 18 && version != 19 && version != 20 && version != 21 && version != 22 && version != schemaVersion {
+	if version != 0 && version != 18 && version != 19 && version != 20 && version != 21 && version != 22 && version != 23 && version != schemaVersion {
 		return fmt.Errorf("host database schema %d requires offline conversion. Preserve the existing database", version)
 	}
 	if version == 0 {
@@ -108,6 +108,14 @@ func (store *Store) migrate(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
+			return err
+		}
+	}
+	if version < 24 {
+		if err := migrateV24(tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
 			return err
 		}
 	}

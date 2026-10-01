@@ -17,6 +17,7 @@ service VMMDService {
 
   rpc EnsureNamespace(EnsureNamespaceRequest) returns (EnsureNamespaceResponse);
   rpc DeleteNamespace(DeleteNamespaceRequest) returns (DeleteNamespaceResponse);
+  rpc DisposeNamespaceBatch(DisposeNamespaceBatchRequest) returns (DisposeNamespaceBatchResponse);
   rpc GetNamespace(GetNamespaceRequest) returns (GetNamespaceResponse);
   rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
   rpc GetNamespaceUsage(GetNamespaceUsageRequest) returns (GetUsageResponse);
@@ -541,10 +542,14 @@ message InspectContainerResponse {
 message ListContainersRequest {
   string actor_namespace_id = 1;
   uint32 limit = 2;
+  // Cursor pages are independent of the existing fail-on-overflow limit.
+  uint32 page_size = 3;
+  string after_container_id = 4;
 }
 
 message ListContainersResponse {
   repeated Container containers = 1;
+  string next_cursor = 2;
 }
 
 message GetContainerUsageRequest {
@@ -879,4 +884,14 @@ message RuntimeEvent {
   string            request_id          = 5;
   string            operation_id        = 6;
   int64             timestamp_unix_nano = 7;
+}
+
+// Host invokes this only after durable local operator scope isolation.
+message DisposeNamespaceBatchRequest {
+  string request_id = 1;
+  string namespace_id = 2;
+}
+message DisposeNamespaceBatchResponse {
+  bool complete = 1;
+  string stage = 2;
 }

@@ -93,6 +93,8 @@ service OperatorService {
   rpc PlanResetEnvironment(PlanEnvironmentRequest) returns (CleanupPlanResponse);
   rpc PlanDiscardEnvironment(PlanEnvironmentRequest) returns (CleanupPlanResponse);
   rpc ExecuteCleanup(ExecuteCleanupRequest) returns (OperationResponse);
+  rpc PlanLocalDisposal(PlanLocalDisposalRequest) returns (LocalDisposalPlanResponse);
+  rpc ExecuteLocalDisposal(ExecuteLocalDisposalRequest) returns (OperationResponse);
   rpc GetOperation(GetOperationRequest) returns (OperationResponse);
   rpc RunDiagnostics(RunDiagnosticsRequest) returns (OperationResponse);
   rpc PreviewSupportBundle(PreviewSupportBundleRequest) returns (SupportBundlePreview);
@@ -109,6 +111,10 @@ service OperatorService {
   rpc SetRemoteRegistrationState(SetRemoteRegistrationStateRequest) returns (RemoteRegistrationResponse);
   rpc GetRemoteRegistration(GetRemoteRegistrationRequest) returns (RemoteRegistrationResponse);
   rpc ListRemoteRegistrations(ListRemoteRegistrationsRequest) returns (ListRemoteRegistrationsResponse);
+  rpc SignCommaRecovery(SignCommaRecoveryRequest) returns (SignCommaRecoveryResponse);
+  rpc GetLocalDiskSummary(GetLocalDiskSummaryRequest) returns (LocalDiskSummary);
+  rpc ListLocalEnvironmentPage(ListLocalEnvironmentPageRequest) returns (LocalEnvironmentPage);
+  rpc ListLocalRegistrationPage(ListLocalRegistrationPageRequest) returns (LocalRegistrationPage);
   rpc GetDeviceIdentity(GetDeviceIdentityRequest) returns (DeviceIdentityResponse);
   rpc RotateDeviceRoot(RotateDeviceRootRequest) returns (RotateDeviceRootResponse);
   rpc ListPersonalMeshes(ListPersonalMeshesRequest) returns (ListPersonalMeshesResponse);
@@ -1682,3 +1688,65 @@ message RevokeRuntimeSessionRequest {
   string connection_instance = 5;
   string allocation_id = 6;
 }
+
+// Local OS operator authority. Cloud controllers and Agent sessions cannot invoke these RPCs.
+enum LocalDisposalTargetKind {
+  LOCAL_DISPOSAL_TARGET_KIND_UNSPECIFIED = 0;
+  LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT = 1;
+  LOCAL_DISPOSAL_TARGET_KIND_REGISTRATION = 2;
+}
+message PlanLocalDisposalRequest {
+  LocalDisposalTargetKind target_kind = 1;
+  string target_id = 2;
+}
+message LocalDisposalPlan {
+  LocalDisposalTargetKind target_kind = 1;
+  string target_id = 2;
+  uint64 revision = 3;
+  string namespace_id = 4;
+  string display_name = 5;
+  uint64 environment_count = 6;
+  bool activity_unknown = 7;
+}
+message LocalDisposalPlanResponse { LocalDisposalPlan plan = 1; }
+message ExecuteLocalDisposalRequest {
+  string request_id = 1;
+  LocalDisposalPlan plan = 2;
+  bool irreversible_confirmation = 3;
+}
+
+message SignCommaRecoveryRequest { bytes challenge_json = 1; }
+message SignCommaRecoveryResponse { agentvmm.trust.v1.DeviceIdentity identity = 1; bytes signature = 2; }
+
+// Operator projections exclude cloud names, commands, images and per-container inventory.
+message GetLocalDiskSummaryRequest {}
+message LocalDiskSummary {
+ google.protobuf.Timestamp collected_at = 1;
+ string boot_id = 2;
+ VMState vm_state = 3;
+ DiskAccounting guest_state_fs = 4;
+ string unavailable_reason = 5;
+}
+message ListLocalEnvironmentPageRequest { string after_id = 1; }
+message LocalEnvironmentSummary {
+ string id = 1;
+ string origin = 2;
+ string state = 3;
+ google.protobuf.Timestamp state_observed_at = 4;
+ optional uint64 private_disk_bytes = 5;
+ google.protobuf.Timestamp sampled_at = 6;
+ bool partial = 7;
+ string registration_id = 8;
+ string allocation_id = 9;
+ uint64 allocation_generation = 10;
+ uint64 revision = 11;
+}
+message LocalEnvironmentPage {
+ repeated LocalEnvironmentSummary environments = 1;
+ string next_cursor = 2;
+ google.protobuf.Timestamp collected_at = 3;
+ string boot_id = 4;
+}
+message ListLocalRegistrationPageRequest { string after_id = 1; }
+message LocalRegistrationMetadata { string id = 1; uint64 revision = 2; RemoteRegistrationState state = 3; }
+message LocalRegistrationPage { repeated LocalRegistrationMetadata registrations = 1; string next_cursor = 2; }

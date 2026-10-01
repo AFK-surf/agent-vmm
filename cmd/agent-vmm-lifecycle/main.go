@@ -20,6 +20,7 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"golang.org/x/sys/unix"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -115,6 +116,9 @@ type serviceStatus struct {
 	ConnectorLoaded      bool                              `json:"connectorLoaded"`
 	HostReadable         bool                              `json:"hostReadable"`
 	HostHealthy          bool                              `json:"hostHealthy"`
+	RegistrationRead     string                            `json:"registrationRead,omitempty"`
+	RegistrationState    string                            `json:"registrationState,omitempty"`
+	RegistrationReason   string                            `json:"registrationReason,omitempty"`
 	HostResources        *hostv1.LayerResources            `json:"hostResources,omitempty"`
 	GuestResources       *hostv1.LayerResources            `json:"guestResources,omitempty"`
 	SnapshotObservedAt   string                            `json:"snapshotObservedAt,omitempty"`
@@ -179,6 +183,10 @@ func main() {
 		fatal(err.Error())
 	}
 	serviceRequest.action = os.Args[1]
+	if localOperatorCommand(os.Args[1]) {
+		executeLocalOperator(os.Args[1], serviceRequest, commandArgs)
+		return
+	}
 	if os.Args[1] == "operation" {
 		resolved, err := observationPathsForRequest(serviceRequest)
 		if err != nil {
@@ -389,6 +397,20 @@ func main() {
 		if operationErr != nil {
 			fatal(operationErr.Error())
 		}
+	case "registration-revoke":
+		registrationID, _, requestID := parseRegistrationStateArgs(append(commandArgs, "--state", "draining"))
+		if requestID == "" {
+			requestID = newOperationID("req")
+		}
+		operation, operationErr := runLifecycleOperationWithFailedRetry(resolved, "registration-revoke", requestID, registrationID, "", "", 0, true, func() error {
+			return revokeRemoteRegistration(context.Background(), resolved, registrationID, requestID)
+		})
+		if err := writeOperation(operation); err != nil {
+			fatal("operation encoding failed")
+		}
+		if operationErr != nil {
+			fatal(operationErr.Error())
+		}
 	case "registration-state":
 		registrationID, state, requestID := parseRegistrationStateArgs(commandArgs)
 		if requestID == "" {
@@ -419,7 +441,7 @@ func main() {
 
 func lifecycleMutationCommand(command string) bool {
 	switch command {
-	case "install", "install-operation-ack", "repair", "registration-state", "drain", "update", "uninstall":
+	case "install", "install-operation-ack", "repair", "registration-state", "registration-revoke", "drain", "update", "uninstall":
 		return true
 	default:
 		return false
@@ -792,6 +814,10 @@ func readStatusContext(ctx context.Context, value paths, registrationIDs ...stri
 		HostInstalled:  regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
 		Operation:      readLifecycleOperation(value),
 	}
+	if len(registrationIDs) != 0 && registrationIDs[0] != "" {
+		result.RegistrationRead = "unreadable"
+		result.RegistrationReason = "operator_unavailable"
+	}
 	result.Startup = readStartupEvidence(value, result.Operation)
 	if service, err := launchctlServiceObserver(ctx, value.serviceDomain()+"/"+hostLabel); err == nil {
 		result.HostObserved = true
@@ -811,6 +837,9 @@ func readStatusContext(ctx context.Context, value paths, registrationIDs ...stri
 		facts, _ := readOperatorFactsContext(ctx, filepath.Join(value.applicationData, "operator.sock"), registrationIDs...)
 		result.HostReadable = facts.hostReadable
 		result.HostHealthy = facts.hostHealthy
+		result.RegistrationRead = facts.registrationRead
+		result.RegistrationState = facts.registrationState
+		result.RegistrationReason = facts.registrationReason
 		result.ConnectorLoaded = facts.connectorConnected
 		result.Snapshot = facts.snapshot
 		if facts.snapshot != nil {
@@ -1007,8 +1036,11 @@ func setRemoteRegistrationStateWith(
 	set func(context.Context, *hostv1.SetRemoteRegistrationStateRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error),
 ) error {
 	current, err := get(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
-	if err != nil || current.GetRegistration().GetId() != registrationID {
-		return errors.New("managed registration is not readable")
+	if err != nil {
+		return fmt.Errorf("read managed registration: %w", err)
+	}
+	if current.GetRegistration().GetId() != registrationID {
+		return errors.New("managed registration identity changed")
 	}
 	if current.GetRegistration().GetState() == state && !(state == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED && current.GetRegistration().GetConnectionState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) {
 		return nil
@@ -1270,6 +1302,11 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 }
 
 func lifecycleFailure(kind string, err error) (string, string, string, bool) {
+	for _, detail := range status.Convert(err).Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "LOCAL_DISPOSED" {
+			return kind, "local_disposed", "The local operator deleted this registration. Start a new authorized setup to connect again.", false
+		}
+	}
 	message := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " "))
 	if len(message) > 512 {
 		message = message[:512]
@@ -1453,6 +1490,9 @@ type operatorFacts struct {
 	hostReadable       bool
 	hostHealthy        bool
 	connectorConnected bool
+	registrationRead   string
+	registrationState  string
+	registrationReason string
 	snapshot           *hostv1.GetSystemSnapshotResponse
 }
 
@@ -1482,13 +1522,13 @@ func readOperatorFacts(socket string) (operatorFacts, error) {
 func readOperatorFactsContext(ctx context.Context, socket string, registrationIDs ...string) (operatorFacts, error) {
 	connection, err := operatorConnection(ctx, socket)
 	if err != nil {
-		return operatorFacts{}, err
+		return operatorFacts{registrationRead: "unreadable", registrationReason: "operator_unavailable"}, err
 	}
 	defer connection.Close()
 
 	snapshot, err := hostv1.NewOperatorServiceClient(connection).GetSystemHealthSummary(ctx, &hostv1.GetSystemHealthSummaryRequest{})
 	if err != nil {
-		return operatorFacts{}, err
+		return operatorFacts{registrationRead: "unreadable", registrationReason: "operator_unavailable"}, err
 	}
 	facts := operatorFacts{
 		hostReadable: true,
@@ -1498,8 +1538,17 @@ func readOperatorFactsContext(ctx context.Context, socket string, registrationID
 	}
 	if len(registrationIDs) != 0 && registrationIDs[0] != "" {
 		remote, err := hostv1.NewOperatorServiceClient(connection).GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationIDs[0]})
+		facts.registrationRead, facts.registrationReason = classifyRegistrationRead(err)
 		if err != nil {
 			return facts, err
+		}
+		switch remote.GetRegistration().GetState() {
+		case hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED:
+			facts.registrationState = "enabled"
+		case hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING:
+			facts.registrationState = "draining"
+		case hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED:
+			facts.registrationState = "revoked"
 		}
 		facts.connectorConnected = remote.GetRegistration().GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
 	}
@@ -2153,4 +2202,41 @@ func finalizeManagedInstallOperation(value paths, operationID string, operation 
 		return retain(fmt.Errorf("cleanup managed install plan: %w", err))
 	}
 	return operation, operationErr
+}
+
+func classifyRegistrationRead(err error) (string, string) {
+	if err == nil {
+		return "present", ""
+	}
+	if status.Code(err) == codes.NotFound {
+		return "absent", "registration_not_found"
+	}
+	return "unreadable", "registration_unreadable"
+}
+
+func revokeRemoteRegistration(ctx context.Context, value paths, registrationID, requestID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	connection, err := operatorConnection(ctx, filepath.Join(value.applicationData, "operator.sock"))
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	client := hostv1.NewOperatorServiceClient(connection)
+	current, err := client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
+	if status.Code(err) == codes.NotFound {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current.GetRegistration().GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
+		return nil
+	}
+	begun, err := client.BeginRemoteRevocation(ctx, &hostv1.BeginRemoteRevocationRequest{RegistrationId: registrationID, ExpectedRevision: current.GetRegistration().GetRevision(), RequestId: requestID})
+	if err != nil {
+		return err
+	}
+	_, err = client.CompleteRemoteRevocation(ctx, &hostv1.CompleteRemoteRevocationRequest{RegistrationId: registrationID, ExpectedRevision: begun.GetRegistration().GetRevision(), RequestId: requestID})
+	return err
 }

@@ -6,9 +6,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,8 +27,11 @@ import (
 
 type retirementGuest struct {
 	vmmdv1.UnimplementedVMMDServiceServer
-	path       string
-	dropDelete bool
+	path           string
+	dropDelete     bool
+	containerCount int
+	stops          atomic.Int32
+	unresolved     bool
 }
 
 func (server *retirementGuest) DeleteNamespace(_ context.Context, request *vmmdv1.DeleteNamespaceRequest) (*vmmdv1.DeleteNamespaceResponse, error) {
@@ -145,4 +150,30 @@ func TestNamespaceRetirementKeepsPrivateData(t *testing.T) {
 	if err != nil || string(data) != "owned bytes" {
 		t.Fatalf("private data changed: %q err=%v", data, err)
 	}
+}
+
+func (g *retirementGuest) ListContainers(_ context.Context, r *vmmdv1.ListContainersRequest) (*vmmdv1.ListContainersResponse, error) {
+	if r.GetPageSize() != 32 || r.GetLimit() != 0 {
+		return nil, errors.New("retirement did not request a bounded cursor page")
+	}
+	page := &vmmdv1.ListContainersResponse{}
+	for n := 0; n < g.containerCount; n++ {
+		id := fmt.Sprintf("container-%03d", n)
+		if id > r.GetAfterContainerId() {
+			page.Containers = append(page.Containers, &vmmdv1.Container{Id: id, State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING})
+			if len(page.Containers) == 32 {
+				page.NextCursor = id
+				break
+			}
+		}
+	}
+	return page, nil
+}
+func (g *retirementGuest) StopContainer(_ context.Context, r *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
+	g.stops.Add(1)
+	state := vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
+	if g.unresolved {
+		state = vmmdv1.ContainerState_CONTAINER_STATE_RUNNING
+	}
+	return &vmmdv1.StopContainerResponse{Container: &vmmdv1.Container{Id: r.GetContainerId(), State: state}}, nil
 }

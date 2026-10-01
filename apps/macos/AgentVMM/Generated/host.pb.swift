@@ -1287,6 +1287,45 @@ public nonisolated enum Agentvmm_Host_V1_AllocationState: SwiftProtobuf.Enum, Sw
 
 }
 
+/// Local OS operator authority. Cloud controllers and Agent sessions cannot invoke these RPCs.
+public nonisolated enum Agentvmm_Host_V1_LocalDisposalTargetKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case environment // = 1
+  case registration // = 2
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .environment
+    case 2: self = .registration
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .environment: return 1
+    case .registration: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Agentvmm_Host_V1_LocalDisposalTargetKind] = [
+    .unspecified,
+    .environment,
+    .registration,
+  ]
+
+}
+
 public nonisolated struct Agentvmm_Host_V1_GetDeviceIdentityRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -6948,6 +6987,311 @@ public nonisolated struct Agentvmm_Host_V1_RevokeRuntimeSessionRequest: Sendable
   public init() {}
 }
 
+public nonisolated struct Agentvmm_Host_V1_PlanLocalDisposalRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var targetKind: Agentvmm_Host_V1_LocalDisposalTargetKind = .unspecified
+
+  public var targetID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_LocalDisposalPlan: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var targetKind: Agentvmm_Host_V1_LocalDisposalTargetKind = .unspecified
+
+  public var targetID: String = String()
+
+  public var revision: UInt64 = 0
+
+  public var namespaceID: String = String()
+
+  public var displayName: String = String()
+
+  public var environmentCount: UInt64 = 0
+
+  public var activityUnknown: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_LocalDisposalPlanResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var plan: Agentvmm_Host_V1_LocalDisposalPlan {
+    get {_plan ?? Agentvmm_Host_V1_LocalDisposalPlan()}
+    set {_plan = newValue}
+  }
+  /// Returns true if `plan` has been explicitly set.
+  public var hasPlan: Bool {self._plan != nil}
+  /// Clears the value of `plan`. Subsequent reads from it will return its default value.
+  public mutating func clearPlan() {self._plan = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _plan: Agentvmm_Host_V1_LocalDisposalPlan? = nil
+}
+
+public nonisolated struct Agentvmm_Host_V1_ExecuteLocalDisposalRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestID: String = String()
+
+  public var plan: Agentvmm_Host_V1_LocalDisposalPlan {
+    get {_plan ?? Agentvmm_Host_V1_LocalDisposalPlan()}
+    set {_plan = newValue}
+  }
+  /// Returns true if `plan` has been explicitly set.
+  public var hasPlan: Bool {self._plan != nil}
+  /// Clears the value of `plan`. Subsequent reads from it will return its default value.
+  public mutating func clearPlan() {self._plan = nil}
+
+  public var irreversibleConfirmation: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _plan: Agentvmm_Host_V1_LocalDisposalPlan? = nil
+}
+
+public nonisolated struct Agentvmm_Host_V1_SignCommaRecoveryRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var challengeJson: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_SignCommaRecoveryResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var identity: Agentvmm_Trust_V1_DeviceIdentity {
+    get {_identity ?? Agentvmm_Trust_V1_DeviceIdentity()}
+    set {_identity = newValue}
+  }
+  /// Returns true if `identity` has been explicitly set.
+  public var hasIdentity: Bool {self._identity != nil}
+  /// Clears the value of `identity`. Subsequent reads from it will return its default value.
+  public mutating func clearIdentity() {self._identity = nil}
+
+  public var signature: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _identity: Agentvmm_Trust_V1_DeviceIdentity? = nil
+}
+
+/// Operator projections exclude cloud names, commands, images and per-container inventory.
+public nonisolated struct Agentvmm_Host_V1_GetLocalDiskSummaryRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_LocalDiskSummary: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_collectedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_collectedAt = newValue}
+  }
+  /// Returns true if `collectedAt` has been explicitly set.
+  public var hasCollectedAt: Bool {self._collectedAt != nil}
+  /// Clears the value of `collectedAt`. Subsequent reads from it will return its default value.
+  public mutating func clearCollectedAt() {self._collectedAt = nil}
+
+  public var bootID: String = String()
+
+  public var vmState: Agentvmm_Host_V1_VMState = .unspecified
+
+  public var guestStateFs: Agentvmm_Host_V1_DiskAccounting {
+    get {_guestStateFs ?? Agentvmm_Host_V1_DiskAccounting()}
+    set {_guestStateFs = newValue}
+  }
+  /// Returns true if `guestStateFs` has been explicitly set.
+  public var hasGuestStateFs: Bool {self._guestStateFs != nil}
+  /// Clears the value of `guestStateFs`. Subsequent reads from it will return its default value.
+  public mutating func clearGuestStateFs() {self._guestStateFs = nil}
+
+  public var unavailableReason: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+  fileprivate var _guestStateFs: Agentvmm_Host_V1_DiskAccounting? = nil
+}
+
+public nonisolated struct Agentvmm_Host_V1_ListLocalEnvironmentPageRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var afterID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_LocalEnvironmentSummary: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: String = String()
+
+  public var origin: String = String()
+
+  public var state: String = String()
+
+  public var stateObservedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_stateObservedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_stateObservedAt = newValue}
+  }
+  /// Returns true if `stateObservedAt` has been explicitly set.
+  public var hasStateObservedAt: Bool {self._stateObservedAt != nil}
+  /// Clears the value of `stateObservedAt`. Subsequent reads from it will return its default value.
+  public mutating func clearStateObservedAt() {self._stateObservedAt = nil}
+
+  public var privateDiskBytes: UInt64 {
+    get {_privateDiskBytes ?? 0}
+    set {_privateDiskBytes = newValue}
+  }
+  /// Returns true if `privateDiskBytes` has been explicitly set.
+  public var hasPrivateDiskBytes: Bool {self._privateDiskBytes != nil}
+  /// Clears the value of `privateDiskBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearPrivateDiskBytes() {self._privateDiskBytes = nil}
+
+  public var sampledAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_sampledAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_sampledAt = newValue}
+  }
+  /// Returns true if `sampledAt` has been explicitly set.
+  public var hasSampledAt: Bool {self._sampledAt != nil}
+  /// Clears the value of `sampledAt`. Subsequent reads from it will return its default value.
+  public mutating func clearSampledAt() {self._sampledAt = nil}
+
+  public var partial: Bool = false
+
+  public var registrationID: String = String()
+
+  public var allocationID: String = String()
+
+  public var allocationGeneration: UInt64 = 0
+
+  public var revision: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _stateObservedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+  fileprivate var _privateDiskBytes: UInt64? = nil
+  fileprivate var _sampledAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+}
+
+public nonisolated struct Agentvmm_Host_V1_LocalEnvironmentPage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var environments: [Agentvmm_Host_V1_LocalEnvironmentSummary] = []
+
+  public var nextCursor: String = String()
+
+  public var collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_collectedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_collectedAt = newValue}
+  }
+  /// Returns true if `collectedAt` has been explicitly set.
+  public var hasCollectedAt: Bool {self._collectedAt != nil}
+  /// Clears the value of `collectedAt`. Subsequent reads from it will return its default value.
+  public mutating func clearCollectedAt() {self._collectedAt = nil}
+
+  public var bootID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+}
+
+public nonisolated struct Agentvmm_Host_V1_ListLocalRegistrationPageRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var afterID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_LocalRegistrationMetadata: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: String = String()
+
+  public var revision: UInt64 = 0
+
+  public var state: Agentvmm_Host_V1_RemoteRegistrationState = .unspecified
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentvmm_Host_V1_LocalRegistrationPage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var registrations: [Agentvmm_Host_V1_LocalRegistrationMetadata] = []
+
+  public var nextCursor: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "agentvmm.host.v1"
@@ -7066,6 +7410,10 @@ nonisolated extension Agentvmm_Host_V1_ConnectorPhase: SwiftProtobuf._ProtoNameP
 
 nonisolated extension Agentvmm_Host_V1_AllocationState: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ALLOCATION_STATE_UNSPECIFIED\0\u{1}ALLOCATION_STATE_READY\0\u{2}\u{2}ALLOCATION_STATE_DRAINING\0\u{1}ALLOCATION_STATE_RETAINED\0\u{1}ALLOCATION_STATE_DISCARDED\0")
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalDisposalTargetKind: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0LOCAL_DISPOSAL_TARGET_KIND_UNSPECIFIED\0\u{1}LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT\0\u{1}LOCAL_DISPOSAL_TARGET_KIND_REGISTRATION\0")
 }
 
 nonisolated extension Agentvmm_Host_V1_GetDeviceIdentityRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -17903,6 +18251,589 @@ nonisolated extension Agentvmm_Host_V1_RevokeRuntimeSessionRequest: SwiftProtobu
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
     if lhs.allocationID != rhs.allocationID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_PlanLocalDisposalRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PlanLocalDisposalRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}target_kind\0\u{3}target_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.targetKind) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.targetID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.targetKind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.targetKind, fieldNumber: 1)
+    }
+    if !self.targetID.isEmpty {
+      try visitor.visitSingularStringField(value: self.targetID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_PlanLocalDisposalRequest, rhs: Agentvmm_Host_V1_PlanLocalDisposalRequest) -> Bool {
+    if lhs.targetKind != rhs.targetKind {return false}
+    if lhs.targetID != rhs.targetID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalDisposalPlan: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LocalDisposalPlan"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}target_kind\0\u{3}target_id\0\u{1}revision\0\u{3}namespace_id\0\u{3}display_name\0\u{3}environment_count\0\u{3}activity_unknown\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.targetKind) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.targetID) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.namespaceID) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.displayName) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.environmentCount) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self.activityUnknown) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.targetKind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.targetKind, fieldNumber: 1)
+    }
+    if !self.targetID.isEmpty {
+      try visitor.visitSingularStringField(value: self.targetID, fieldNumber: 2)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 3)
+    }
+    if !self.namespaceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.namespaceID, fieldNumber: 4)
+    }
+    if !self.displayName.isEmpty {
+      try visitor.visitSingularStringField(value: self.displayName, fieldNumber: 5)
+    }
+    if self.environmentCount != 0 {
+      try visitor.visitSingularUInt64Field(value: self.environmentCount, fieldNumber: 6)
+    }
+    if self.activityUnknown != false {
+      try visitor.visitSingularBoolField(value: self.activityUnknown, fieldNumber: 7)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LocalDisposalPlan, rhs: Agentvmm_Host_V1_LocalDisposalPlan) -> Bool {
+    if lhs.targetKind != rhs.targetKind {return false}
+    if lhs.targetID != rhs.targetID {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.namespaceID != rhs.namespaceID {return false}
+    if lhs.displayName != rhs.displayName {return false}
+    if lhs.environmentCount != rhs.environmentCount {return false}
+    if lhs.activityUnknown != rhs.activityUnknown {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalDisposalPlanResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LocalDisposalPlanResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}plan\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._plan) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._plan {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LocalDisposalPlanResponse, rhs: Agentvmm_Host_V1_LocalDisposalPlanResponse) -> Bool {
+    if lhs._plan != rhs._plan {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_ExecuteLocalDisposalRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ExecuteLocalDisposalRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}plan\0\u{3}irreversible_confirmation\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._plan) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.irreversibleConfirmation) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    try { if let v = self._plan {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if self.irreversibleConfirmation != false {
+      try visitor.visitSingularBoolField(value: self.irreversibleConfirmation, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_ExecuteLocalDisposalRequest, rhs: Agentvmm_Host_V1_ExecuteLocalDisposalRequest) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs._plan != rhs._plan {return false}
+    if lhs.irreversibleConfirmation != rhs.irreversibleConfirmation {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_SignCommaRecoveryRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SignCommaRecoveryRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}challenge_json\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.challengeJson) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.challengeJson.isEmpty {
+      try visitor.visitSingularBytesField(value: self.challengeJson, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_SignCommaRecoveryRequest, rhs: Agentvmm_Host_V1_SignCommaRecoveryRequest) -> Bool {
+    if lhs.challengeJson != rhs.challengeJson {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_SignCommaRecoveryResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SignCommaRecoveryResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}identity\0\u{1}signature\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._identity) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.signature) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._identity {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.signature.isEmpty {
+      try visitor.visitSingularBytesField(value: self.signature, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_SignCommaRecoveryResponse, rhs: Agentvmm_Host_V1_SignCommaRecoveryResponse) -> Bool {
+    if lhs._identity != rhs._identity {return false}
+    if lhs.signature != rhs.signature {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_GetLocalDiskSummaryRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetLocalDiskSummaryRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_GetLocalDiskSummaryRequest, rhs: Agentvmm_Host_V1_GetLocalDiskSummaryRequest) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalDiskSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LocalDiskSummary"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}collected_at\0\u{3}boot_id\0\u{3}vm_state\0\u{3}guest_state_fs\0\u{3}unavailable_reason\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._collectedAt) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.bootID) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.vmState) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._guestStateFs) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.unavailableReason) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._collectedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.bootID.isEmpty {
+      try visitor.visitSingularStringField(value: self.bootID, fieldNumber: 2)
+    }
+    if self.vmState != .unspecified {
+      try visitor.visitSingularEnumField(value: self.vmState, fieldNumber: 3)
+    }
+    try { if let v = self._guestStateFs {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
+    if !self.unavailableReason.isEmpty {
+      try visitor.visitSingularStringField(value: self.unavailableReason, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LocalDiskSummary, rhs: Agentvmm_Host_V1_LocalDiskSummary) -> Bool {
+    if lhs._collectedAt != rhs._collectedAt {return false}
+    if lhs.bootID != rhs.bootID {return false}
+    if lhs.vmState != rhs.vmState {return false}
+    if lhs._guestStateFs != rhs._guestStateFs {return false}
+    if lhs.unavailableReason != rhs.unavailableReason {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_ListLocalEnvironmentPageRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListLocalEnvironmentPageRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}after_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.afterID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.afterID.isEmpty {
+      try visitor.visitSingularStringField(value: self.afterID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_ListLocalEnvironmentPageRequest, rhs: Agentvmm_Host_V1_ListLocalEnvironmentPageRequest) -> Bool {
+    if lhs.afterID != rhs.afterID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalEnvironmentSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LocalEnvironmentSummary"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}origin\0\u{1}state\0\u{3}state_observed_at\0\u{3}private_disk_bytes\0\u{3}sampled_at\0\u{1}partial\0\u{3}registration_id\0\u{3}allocation_id\0\u{3}allocation_generation\0\u{1}revision\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.origin) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.state) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._stateObservedAt) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self._privateDiskBytes) }()
+      case 6: try { try decoder.decodeSingularMessageField(value: &self._sampledAt) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self.partial) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
+      case 10: try { try decoder.decodeSingularUInt64Field(value: &self.allocationGeneration) }()
+      case 11: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.origin.isEmpty {
+      try visitor.visitSingularStringField(value: self.origin, fieldNumber: 2)
+    }
+    if !self.state.isEmpty {
+      try visitor.visitSingularStringField(value: self.state, fieldNumber: 3)
+    }
+    try { if let v = self._stateObservedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._privateDiskBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 5)
+    } }()
+    try { if let v = self._sampledAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+    } }()
+    if self.partial != false {
+      try visitor.visitSingularBoolField(value: self.partial, fieldNumber: 7)
+    }
+    if !self.registrationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 8)
+    }
+    if !self.allocationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 9)
+    }
+    if self.allocationGeneration != 0 {
+      try visitor.visitSingularUInt64Field(value: self.allocationGeneration, fieldNumber: 10)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 11)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LocalEnvironmentSummary, rhs: Agentvmm_Host_V1_LocalEnvironmentSummary) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.origin != rhs.origin {return false}
+    if lhs.state != rhs.state {return false}
+    if lhs._stateObservedAt != rhs._stateObservedAt {return false}
+    if lhs._privateDiskBytes != rhs._privateDiskBytes {return false}
+    if lhs._sampledAt != rhs._sampledAt {return false}
+    if lhs.partial != rhs.partial {return false}
+    if lhs.registrationID != rhs.registrationID {return false}
+    if lhs.allocationID != rhs.allocationID {return false}
+    if lhs.allocationGeneration != rhs.allocationGeneration {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalEnvironmentPage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LocalEnvironmentPage"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}environments\0\u{3}next_cursor\0\u{3}collected_at\0\u{3}boot_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.environments) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.nextCursor) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._collectedAt) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.bootID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.environments.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.environments, fieldNumber: 1)
+    }
+    if !self.nextCursor.isEmpty {
+      try visitor.visitSingularStringField(value: self.nextCursor, fieldNumber: 2)
+    }
+    try { if let v = self._collectedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    if !self.bootID.isEmpty {
+      try visitor.visitSingularStringField(value: self.bootID, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LocalEnvironmentPage, rhs: Agentvmm_Host_V1_LocalEnvironmentPage) -> Bool {
+    if lhs.environments != rhs.environments {return false}
+    if lhs.nextCursor != rhs.nextCursor {return false}
+    if lhs._collectedAt != rhs._collectedAt {return false}
+    if lhs.bootID != rhs.bootID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_ListLocalRegistrationPageRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListLocalRegistrationPageRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}after_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.afterID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.afterID.isEmpty {
+      try visitor.visitSingularStringField(value: self.afterID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_ListLocalRegistrationPageRequest, rhs: Agentvmm_Host_V1_ListLocalRegistrationPageRequest) -> Bool {
+    if lhs.afterID != rhs.afterID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalRegistrationMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LocalRegistrationMetadata"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}revision\0\u{1}state\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.state) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 2)
+    }
+    if self.state != .unspecified {
+      try visitor.visitSingularEnumField(value: self.state, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LocalRegistrationMetadata, rhs: Agentvmm_Host_V1_LocalRegistrationMetadata) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.state != rhs.state {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_LocalRegistrationPage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LocalRegistrationPage"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}registrations\0\u{3}next_cursor\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.registrations) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.nextCursor) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.registrations.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.registrations, fieldNumber: 1)
+    }
+    if !self.nextCursor.isEmpty {
+      try visitor.visitSingularStringField(value: self.nextCursor, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_LocalRegistrationPage, rhs: Agentvmm_Host_V1_LocalRegistrationPage) -> Bool {
+    if lhs.registrations != rhs.registrations {return false}
+    if lhs.nextCursor != rhs.nextCursor {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

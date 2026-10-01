@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 23
+const schemaVersion = 24
 
 const (
 	auditRetention  = 30 * 24 * time.Hour
@@ -115,7 +115,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(`UPDATE operations SET state=?, stage='interrupted', error_reason='SIDECAR_RESTARTED',
-		error_message='the sidecar restarted before the operation completed', updated_at=? WHERE state=?`,
+		error_message='the sidecar restarted before the operation completed', updated_at=? WHERE state=? AND kind != 'local-disposal'`,
 		int32(hostv1.OperationState_OPERATION_STATE_INTERRUPTED), time.Now().UnixNano(), int32(hostv1.OperationState_OPERATION_STATE_RUNNING)); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("recover interrupted operations: %w", err)

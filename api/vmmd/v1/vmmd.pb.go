@@ -5310,6 +5310,9 @@ type ListContainersRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ActorNamespaceId string                 `protobuf:"bytes,1,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
 	Limit            uint32                 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Cursor pages are independent of the existing fail-on-overflow limit.
+	PageSize         uint32 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	AfterContainerId string `protobuf:"bytes,4,opt,name=after_container_id,json=afterContainerId,proto3" json:"after_container_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -5358,9 +5361,24 @@ func (x *ListContainersRequest) GetLimit() uint32 {
 	return 0
 }
 
+func (x *ListContainersRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListContainersRequest) GetAfterContainerId() string {
+	if x != nil {
+		return x.AfterContainerId
+	}
+	return ""
+}
+
 type ListContainersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Containers    []*Container           `protobuf:"bytes,1,rep,name=containers,proto3" json:"containers,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5400,6 +5418,13 @@ func (x *ListContainersResponse) GetContainers() []*Container {
 		return x.Containers
 	}
 	return nil
+}
+
+func (x *ListContainersResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 type GetContainerUsageRequest struct {
@@ -8674,6 +8699,111 @@ func (x *RuntimeEvent) GetTimestampUnixNano() int64 {
 	return 0
 }
 
+// Host invokes this only after durable local operator scope isolation.
+type DisposeNamespaceBatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	NamespaceId   string                 `protobuf:"bytes,2,opt,name=namespace_id,json=namespaceId,proto3" json:"namespace_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisposeNamespaceBatchRequest) Reset() {
+	*x = DisposeNamespaceBatchRequest{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[125]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisposeNamespaceBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisposeNamespaceBatchRequest) ProtoMessage() {}
+
+func (x *DisposeNamespaceBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[125]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisposeNamespaceBatchRequest.ProtoReflect.Descriptor instead.
+func (*DisposeNamespaceBatchRequest) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{125}
+}
+
+func (x *DisposeNamespaceBatchRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *DisposeNamespaceBatchRequest) GetNamespaceId() string {
+	if x != nil {
+		return x.NamespaceId
+	}
+	return ""
+}
+
+type DisposeNamespaceBatchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Complete      bool                   `protobuf:"varint,1,opt,name=complete,proto3" json:"complete,omitempty"`
+	Stage         string                 `protobuf:"bytes,2,opt,name=stage,proto3" json:"stage,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisposeNamespaceBatchResponse) Reset() {
+	*x = DisposeNamespaceBatchResponse{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[126]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisposeNamespaceBatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisposeNamespaceBatchResponse) ProtoMessage() {}
+
+func (x *DisposeNamespaceBatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[126]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisposeNamespaceBatchResponse.ProtoReflect.Descriptor instead.
+func (*DisposeNamespaceBatchResponse) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{126}
+}
+
+func (x *DisposeNamespaceBatchResponse) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *DisposeNamespaceBatchResponse) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
 var File_vmmd_v1_vmmd_proto protoreflect.FileDescriptor
 
 const file_vmmd_v1_vmmd_proto_rawDesc = "" +
@@ -9061,14 +9191,18 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x12actor_namespace_id\x18\x01 \x01(\tR\x10actorNamespaceId\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\"U\n" +
 	"\x18InspectContainerResponse\x129\n" +
-	"\tcontainer\x18\x01 \x01(\v2\x1b.agentvmm.vmmd.v1.ContainerR\tcontainer\"[\n" +
+	"\tcontainer\x18\x01 \x01(\v2\x1b.agentvmm.vmmd.v1.ContainerR\tcontainer\"\xa6\x01\n" +
 	"\x15ListContainersRequest\x12,\n" +
 	"\x12actor_namespace_id\x18\x01 \x01(\tR\x10actorNamespaceId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\rR\x05limit\"U\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x1b\n" +
+	"\tpage_size\x18\x03 \x01(\rR\bpageSize\x12,\n" +
+	"\x12after_container_id\x18\x04 \x01(\tR\x10afterContainerId\"v\n" +
 	"\x16ListContainersResponse\x12;\n" +
 	"\n" +
 	"containers\x18\x01 \x03(\v2\x1b.agentvmm.vmmd.v1.ContainerR\n" +
-	"containers\"k\n" +
+	"containers\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"k\n" +
 	"\x18GetContainerUsageRequest\x12,\n" +
 	"\x12actor_namespace_id\x18\x01 \x01(\tR\x10actorNamespaceId\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\"\x90\x03\n" +
@@ -9314,7 +9448,14 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x05 \x01(\tR\trequestId\x12!\n" +
 	"\foperation_id\x18\x06 \x01(\tR\voperationId\x12.\n" +
-	"\x13timestamp_unix_nano\x18\a \x01(\x03R\x11timestampUnixNano*}\n" +
+	"\x13timestamp_unix_nano\x18\a \x01(\x03R\x11timestampUnixNano\"`\n" +
+	"\x1cDisposeNamespaceBatchRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12!\n" +
+	"\fnamespace_id\x18\x02 \x01(\tR\vnamespaceId\"Q\n" +
+	"\x1dDisposeNamespaceBatchResponse\x12\x1a\n" +
+	"\bcomplete\x18\x01 \x01(\bR\bcomplete\x12\x14\n" +
+	"\x05stage\x18\x02 \x01(\tR\x05stage*}\n" +
 	"\x12WorkspaceEntryKind\x12$\n" +
 	" WORKSPACE_ENTRY_KIND_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19WORKSPACE_ENTRY_KIND_FILE\x10\x01\x12\"\n" +
@@ -9359,7 +9500,7 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x1bCOMPONENT_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17COMPONENT_STATE_HEALTHY\x10\x01\x12\x1c\n" +
 	"\x18COMPONENT_STATE_DEGRADED\x10\x02\x12\x1f\n" +
-	"\x1bCOMPONENT_STATE_UNAVAILABLE\x10\x032\x8a'\n" +
+	"\x1bCOMPONENT_STATE_UNAVAILABLE\x10\x032\x84(\n" +
 	"\vVMMDService\x12K\n" +
 	"\x06Health\x12\x1f.agentvmm.vmmd.v1.HealthRequest\x1a .agentvmm.vmmd.v1.HealthResponse\x12f\n" +
 	"\x0fPrepareShutdown\x12(.agentvmm.vmmd.v1.PrepareShutdownRequest\x1a).agentvmm.vmmd.v1.PrepareShutdownResponse\x12r\n" +
@@ -9370,7 +9511,8 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x14ListSystemAppliances\x12-.agentvmm.vmmd.v1.ListSystemAppliancesRequest\x1a..agentvmm.vmmd.v1.ListSystemAppliancesResponse\x12`\n" +
 	"\x10OpenSystemStream\x12#.agentvmm.vmmd.v1.SystemStreamFrame\x1a#.agentvmm.vmmd.v1.SystemStreamFrame(\x010\x01\x12f\n" +
 	"\x0fEnsureNamespace\x12(.agentvmm.vmmd.v1.EnsureNamespaceRequest\x1a).agentvmm.vmmd.v1.EnsureNamespaceResponse\x12f\n" +
-	"\x0fDeleteNamespace\x12(.agentvmm.vmmd.v1.DeleteNamespaceRequest\x1a).agentvmm.vmmd.v1.DeleteNamespaceResponse\x12]\n" +
+	"\x0fDeleteNamespace\x12(.agentvmm.vmmd.v1.DeleteNamespaceRequest\x1a).agentvmm.vmmd.v1.DeleteNamespaceResponse\x12x\n" +
+	"\x15DisposeNamespaceBatch\x12..agentvmm.vmmd.v1.DisposeNamespaceBatchRequest\x1a/.agentvmm.vmmd.v1.DisposeNamespaceBatchResponse\x12]\n" +
 	"\fGetNamespace\x12%.agentvmm.vmmd.v1.GetNamespaceRequest\x1a&.agentvmm.vmmd.v1.GetNamespaceResponse\x12c\n" +
 	"\x0eListNamespaces\x12'.agentvmm.vmmd.v1.ListNamespacesRequest\x1a(.agentvmm.vmmd.v1.ListNamespacesResponse\x12c\n" +
 	"\x11GetNamespaceUsage\x12*.agentvmm.vmmd.v1.GetNamespaceUsageRequest\x1a\".agentvmm.vmmd.v1.GetUsageResponse\x12]\n" +
@@ -9428,7 +9570,7 @@ func file_vmmd_v1_vmmd_proto_rawDescGZIP() []byte {
 }
 
 var file_vmmd_v1_vmmd_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_vmmd_v1_vmmd_proto_msgTypes = make([]protoimpl.MessageInfo, 126)
+var file_vmmd_v1_vmmd_proto_msgTypes = make([]protoimpl.MessageInfo, 128)
 var file_vmmd_v1_vmmd_proto_goTypes = []any{
 	(WorkspaceEntryKind)(0),                   // 0: agentvmm.vmmd.v1.WorkspaceEntryKind
 	(SystemApplianceState)(0),                 // 1: agentvmm.vmmd.v1.SystemApplianceState
@@ -9564,7 +9706,9 @@ var file_vmmd_v1_vmmd_proto_goTypes = []any{
 	(*ResourceReference)(nil),                 // 131: agentvmm.vmmd.v1.ResourceReference
 	(*WatchEventsRequest)(nil),                // 132: agentvmm.vmmd.v1.WatchEventsRequest
 	(*RuntimeEvent)(nil),                      // 133: agentvmm.vmmd.v1.RuntimeEvent
-	nil,                                       // 134: agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
+	(*DisposeNamespaceBatchRequest)(nil),      // 134: agentvmm.vmmd.v1.DisposeNamespaceBatchRequest
+	(*DisposeNamespaceBatchResponse)(nil),     // 135: agentvmm.vmmd.v1.DisposeNamespaceBatchResponse
+	nil,                                       // 136: agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
 }
 var file_vmmd_v1_vmmd_proto_depIdxs = []int32{
 	0,   // 0: agentvmm.vmmd.v1.WorkspaceEntry.kind:type_name -> agentvmm.vmmd.v1.WorkspaceEntryKind
@@ -9572,7 +9716,7 @@ var file_vmmd_v1_vmmd_proto_depIdxs = []int32{
 	15,  // 2: agentvmm.vmmd.v1.WriteWorkspaceRequest.header:type_name -> agentvmm.vmmd.v1.WriteWorkspaceHeader
 	10,  // 3: agentvmm.vmmd.v1.WriteWorkspaceResponse.entry:type_name -> agentvmm.vmmd.v1.WorkspaceEntry
 	20,  // 4: agentvmm.vmmd.v1.ExtractWorkspaceRequest.header:type_name -> agentvmm.vmmd.v1.ExtractWorkspaceHeader
-	134, // 5: agentvmm.vmmd.v1.HealthResponse.runtime_versions:type_name -> agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
+	136, // 5: agentvmm.vmmd.v1.HealthResponse.runtime_versions:type_name -> agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
 	26,  // 6: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
 	38,  // 7: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
 	3,   // 8: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
@@ -9648,98 +9792,100 @@ var file_vmmd_v1_vmmd_proto_depIdxs = []int32{
 	37,  // 78: agentvmm.vmmd.v1.VMMDService.OpenSystemStream:input_type -> agentvmm.vmmd.v1.SystemStreamFrame
 	40,  // 79: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:input_type -> agentvmm.vmmd.v1.EnsureNamespaceRequest
 	42,  // 80: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:input_type -> agentvmm.vmmd.v1.DeleteNamespaceRequest
-	44,  // 81: agentvmm.vmmd.v1.VMMDService.GetNamespace:input_type -> agentvmm.vmmd.v1.GetNamespaceRequest
-	46,  // 82: agentvmm.vmmd.v1.VMMDService.ListNamespaces:input_type -> agentvmm.vmmd.v1.ListNamespacesRequest
-	48,  // 83: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:input_type -> agentvmm.vmmd.v1.GetNamespaceUsageRequest
-	49,  // 84: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:input_type -> agentvmm.vmmd.v1.GetSystemUsageRequest
-	50,  // 85: agentvmm.vmmd.v1.VMMDService.PullImage:input_type -> agentvmm.vmmd.v1.PullImageRequest
-	53,  // 86: agentvmm.vmmd.v1.VMMDService.ImportImage:input_type -> agentvmm.vmmd.v1.ImportImageRequest
-	55,  // 87: agentvmm.vmmd.v1.VMMDService.CreateVolume:input_type -> agentvmm.vmmd.v1.CreateVolumeRequest
-	57,  // 88: agentvmm.vmmd.v1.VMMDService.DeleteVolume:input_type -> agentvmm.vmmd.v1.DeleteVolumeRequest
-	59,  // 89: agentvmm.vmmd.v1.VMMDService.GetVolume:input_type -> agentvmm.vmmd.v1.GetVolumeRequest
-	61,  // 90: agentvmm.vmmd.v1.VMMDService.ListVolumes:input_type -> agentvmm.vmmd.v1.ListVolumesRequest
-	64,  // 91: agentvmm.vmmd.v1.VMMDService.GetImage:input_type -> agentvmm.vmmd.v1.GetImageRequest
-	66,  // 92: agentvmm.vmmd.v1.VMMDService.ListImages:input_type -> agentvmm.vmmd.v1.ListImagesRequest
-	68,  // 93: agentvmm.vmmd.v1.VMMDService.DeleteImage:input_type -> agentvmm.vmmd.v1.DeleteImageRequest
-	74,  // 94: agentvmm.vmmd.v1.VMMDService.CreateContainer:input_type -> agentvmm.vmmd.v1.CreateContainerRequest
-	76,  // 95: agentvmm.vmmd.v1.VMMDService.StartContainer:input_type -> agentvmm.vmmd.v1.StartContainerRequest
-	78,  // 96: agentvmm.vmmd.v1.VMMDService.StopContainer:input_type -> agentvmm.vmmd.v1.StopContainerRequest
-	80,  // 97: agentvmm.vmmd.v1.VMMDService.WaitContainer:input_type -> agentvmm.vmmd.v1.WaitContainerRequest
-	82,  // 98: agentvmm.vmmd.v1.VMMDService.DeleteContainer:input_type -> agentvmm.vmmd.v1.DeleteContainerRequest
-	84,  // 99: agentvmm.vmmd.v1.VMMDService.InspectContainer:input_type -> agentvmm.vmmd.v1.InspectContainerRequest
-	86,  // 100: agentvmm.vmmd.v1.VMMDService.ListContainers:input_type -> agentvmm.vmmd.v1.ListContainersRequest
-	88,  // 101: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:input_type -> agentvmm.vmmd.v1.GetContainerUsageRequest
-	92,  // 102: agentvmm.vmmd.v1.VMMDService.Logs:input_type -> agentvmm.vmmd.v1.LogsRequest
-	98,  // 103: agentvmm.vmmd.v1.VMMDService.Exec:input_type -> agentvmm.vmmd.v1.ExecRequest
-	94,  // 104: agentvmm.vmmd.v1.VMMDService.SignalContainer:input_type -> agentvmm.vmmd.v1.SignalContainerRequest
-	103, // 105: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:input_type -> agentvmm.vmmd.v1.ApplyNetworkLinkRequest
-	105, // 106: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:input_type -> agentvmm.vmmd.v1.DeleteNetworkLinkRequest
-	108, // 107: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:input_type -> agentvmm.vmmd.v1.ApplyServiceProjectionRequest
-	110, // 108: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:input_type -> agentvmm.vmmd.v1.DeleteServiceProjectionRequest
-	113, // 109: agentvmm.vmmd.v1.VMMDService.ForwardTCP:input_type -> agentvmm.vmmd.v1.ForwardTCPRequest
-	120, // 110: agentvmm.vmmd.v1.VMMDService.BuildImage:input_type -> agentvmm.vmmd.v1.BuildImageRequest
-	123, // 111: agentvmm.vmmd.v1.VMMDService.BuildAppliance:input_type -> agentvmm.vmmd.v1.BuildApplianceRequest
-	127, // 112: agentvmm.vmmd.v1.VMMDService.ComponentHealth:input_type -> agentvmm.vmmd.v1.ComponentHealthRequest
-	129, // 113: agentvmm.vmmd.v1.VMMDService.ProbeEgress:input_type -> agentvmm.vmmd.v1.ProbeEgressRequest
-	132, // 114: agentvmm.vmmd.v1.VMMDService.WatchEvents:input_type -> agentvmm.vmmd.v1.WatchEventsRequest
-	9,   // 115: agentvmm.vmmd.v1.VMMDService.StatWorkspace:input_type -> agentvmm.vmmd.v1.WorkspacePathRequest
-	11,  // 116: agentvmm.vmmd.v1.VMMDService.ListWorkspace:input_type -> agentvmm.vmmd.v1.ListWorkspaceRequest
-	13,  // 117: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:input_type -> agentvmm.vmmd.v1.ReadWorkspaceRequest
-	16,  // 118: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:input_type -> agentvmm.vmmd.v1.WriteWorkspaceRequest
-	18,  // 119: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:input_type -> agentvmm.vmmd.v1.ArchiveWorkspaceRequest
-	21,  // 120: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:input_type -> agentvmm.vmmd.v1.ExtractWorkspaceRequest
-	23,  // 121: agentvmm.vmmd.v1.VMMDService.Health:output_type -> agentvmm.vmmd.v1.HealthResponse
-	25,  // 122: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:output_type -> agentvmm.vmmd.v1.PrepareShutdownResponse
-	34,  // 123: agentvmm.vmmd.v1.VMMDService.EnsureSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
-	34,  // 124: agentvmm.vmmd.v1.VMMDService.StopSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
-	30,  // 125: agentvmm.vmmd.v1.VMMDService.DeleteSystemApplianceData:output_type -> agentvmm.vmmd.v1.DeleteSystemApplianceDataResponse
-	34,  // 126: agentvmm.vmmd.v1.VMMDService.GetSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
-	35,  // 127: agentvmm.vmmd.v1.VMMDService.ListSystemAppliances:output_type -> agentvmm.vmmd.v1.ListSystemAppliancesResponse
-	37,  // 128: agentvmm.vmmd.v1.VMMDService.OpenSystemStream:output_type -> agentvmm.vmmd.v1.SystemStreamFrame
-	41,  // 129: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:output_type -> agentvmm.vmmd.v1.EnsureNamespaceResponse
-	43,  // 130: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:output_type -> agentvmm.vmmd.v1.DeleteNamespaceResponse
-	45,  // 131: agentvmm.vmmd.v1.VMMDService.GetNamespace:output_type -> agentvmm.vmmd.v1.GetNamespaceResponse
-	47,  // 132: agentvmm.vmmd.v1.VMMDService.ListNamespaces:output_type -> agentvmm.vmmd.v1.ListNamespacesResponse
-	90,  // 133: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	90,  // 134: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	51,  // 135: agentvmm.vmmd.v1.VMMDService.PullImage:output_type -> agentvmm.vmmd.v1.PullImageResponse
-	63,  // 136: agentvmm.vmmd.v1.VMMDService.ImportImage:output_type -> agentvmm.vmmd.v1.Image
-	56,  // 137: agentvmm.vmmd.v1.VMMDService.CreateVolume:output_type -> agentvmm.vmmd.v1.CreateVolumeResponse
-	58,  // 138: agentvmm.vmmd.v1.VMMDService.DeleteVolume:output_type -> agentvmm.vmmd.v1.DeleteVolumeResponse
-	60,  // 139: agentvmm.vmmd.v1.VMMDService.GetVolume:output_type -> agentvmm.vmmd.v1.GetVolumeResponse
-	62,  // 140: agentvmm.vmmd.v1.VMMDService.ListVolumes:output_type -> agentvmm.vmmd.v1.ListVolumesResponse
-	65,  // 141: agentvmm.vmmd.v1.VMMDService.GetImage:output_type -> agentvmm.vmmd.v1.GetImageResponse
-	67,  // 142: agentvmm.vmmd.v1.VMMDService.ListImages:output_type -> agentvmm.vmmd.v1.ListImagesResponse
-	69,  // 143: agentvmm.vmmd.v1.VMMDService.DeleteImage:output_type -> agentvmm.vmmd.v1.DeleteImageResponse
-	75,  // 144: agentvmm.vmmd.v1.VMMDService.CreateContainer:output_type -> agentvmm.vmmd.v1.CreateContainerResponse
-	77,  // 145: agentvmm.vmmd.v1.VMMDService.StartContainer:output_type -> agentvmm.vmmd.v1.StartContainerResponse
-	79,  // 146: agentvmm.vmmd.v1.VMMDService.StopContainer:output_type -> agentvmm.vmmd.v1.StopContainerResponse
-	81,  // 147: agentvmm.vmmd.v1.VMMDService.WaitContainer:output_type -> agentvmm.vmmd.v1.WaitContainerResponse
-	83,  // 148: agentvmm.vmmd.v1.VMMDService.DeleteContainer:output_type -> agentvmm.vmmd.v1.DeleteContainerResponse
-	85,  // 149: agentvmm.vmmd.v1.VMMDService.InspectContainer:output_type -> agentvmm.vmmd.v1.InspectContainerResponse
-	87,  // 150: agentvmm.vmmd.v1.VMMDService.ListContainers:output_type -> agentvmm.vmmd.v1.ListContainersResponse
-	90,  // 151: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	93,  // 152: agentvmm.vmmd.v1.VMMDService.Logs:output_type -> agentvmm.vmmd.v1.LogsResponse
-	99,  // 153: agentvmm.vmmd.v1.VMMDService.Exec:output_type -> agentvmm.vmmd.v1.ExecResponse
-	95,  // 154: agentvmm.vmmd.v1.VMMDService.SignalContainer:output_type -> agentvmm.vmmd.v1.SignalContainerResponse
-	104, // 155: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:output_type -> agentvmm.vmmd.v1.ApplyNetworkLinkResponse
-	106, // 156: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:output_type -> agentvmm.vmmd.v1.DeleteNetworkLinkResponse
-	109, // 157: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:output_type -> agentvmm.vmmd.v1.ApplyServiceProjectionResponse
-	111, // 158: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:output_type -> agentvmm.vmmd.v1.DeleteServiceProjectionResponse
-	114, // 159: agentvmm.vmmd.v1.VMMDService.ForwardTCP:output_type -> agentvmm.vmmd.v1.ForwardTCPResponse
-	122, // 160: agentvmm.vmmd.v1.VMMDService.BuildImage:output_type -> agentvmm.vmmd.v1.BuildImageResponse
-	125, // 161: agentvmm.vmmd.v1.VMMDService.BuildAppliance:output_type -> agentvmm.vmmd.v1.BuildApplianceResponse
-	128, // 162: agentvmm.vmmd.v1.VMMDService.ComponentHealth:output_type -> agentvmm.vmmd.v1.ComponentHealthResponse
-	130, // 163: agentvmm.vmmd.v1.VMMDService.ProbeEgress:output_type -> agentvmm.vmmd.v1.ProbeEgressResponse
-	133, // 164: agentvmm.vmmd.v1.VMMDService.WatchEvents:output_type -> agentvmm.vmmd.v1.RuntimeEvent
-	10,  // 165: agentvmm.vmmd.v1.VMMDService.StatWorkspace:output_type -> agentvmm.vmmd.v1.WorkspaceEntry
-	12,  // 166: agentvmm.vmmd.v1.VMMDService.ListWorkspace:output_type -> agentvmm.vmmd.v1.ListWorkspaceResponse
-	14,  // 167: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:output_type -> agentvmm.vmmd.v1.ReadWorkspaceResponse
-	17,  // 168: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
-	19,  // 169: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:output_type -> agentvmm.vmmd.v1.ArchiveWorkspaceResponse
-	17,  // 170: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
-	121, // [121:171] is the sub-list for method output_type
-	71,  // [71:121] is the sub-list for method input_type
+	134, // 81: agentvmm.vmmd.v1.VMMDService.DisposeNamespaceBatch:input_type -> agentvmm.vmmd.v1.DisposeNamespaceBatchRequest
+	44,  // 82: agentvmm.vmmd.v1.VMMDService.GetNamespace:input_type -> agentvmm.vmmd.v1.GetNamespaceRequest
+	46,  // 83: agentvmm.vmmd.v1.VMMDService.ListNamespaces:input_type -> agentvmm.vmmd.v1.ListNamespacesRequest
+	48,  // 84: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:input_type -> agentvmm.vmmd.v1.GetNamespaceUsageRequest
+	49,  // 85: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:input_type -> agentvmm.vmmd.v1.GetSystemUsageRequest
+	50,  // 86: agentvmm.vmmd.v1.VMMDService.PullImage:input_type -> agentvmm.vmmd.v1.PullImageRequest
+	53,  // 87: agentvmm.vmmd.v1.VMMDService.ImportImage:input_type -> agentvmm.vmmd.v1.ImportImageRequest
+	55,  // 88: agentvmm.vmmd.v1.VMMDService.CreateVolume:input_type -> agentvmm.vmmd.v1.CreateVolumeRequest
+	57,  // 89: agentvmm.vmmd.v1.VMMDService.DeleteVolume:input_type -> agentvmm.vmmd.v1.DeleteVolumeRequest
+	59,  // 90: agentvmm.vmmd.v1.VMMDService.GetVolume:input_type -> agentvmm.vmmd.v1.GetVolumeRequest
+	61,  // 91: agentvmm.vmmd.v1.VMMDService.ListVolumes:input_type -> agentvmm.vmmd.v1.ListVolumesRequest
+	64,  // 92: agentvmm.vmmd.v1.VMMDService.GetImage:input_type -> agentvmm.vmmd.v1.GetImageRequest
+	66,  // 93: agentvmm.vmmd.v1.VMMDService.ListImages:input_type -> agentvmm.vmmd.v1.ListImagesRequest
+	68,  // 94: agentvmm.vmmd.v1.VMMDService.DeleteImage:input_type -> agentvmm.vmmd.v1.DeleteImageRequest
+	74,  // 95: agentvmm.vmmd.v1.VMMDService.CreateContainer:input_type -> agentvmm.vmmd.v1.CreateContainerRequest
+	76,  // 96: agentvmm.vmmd.v1.VMMDService.StartContainer:input_type -> agentvmm.vmmd.v1.StartContainerRequest
+	78,  // 97: agentvmm.vmmd.v1.VMMDService.StopContainer:input_type -> agentvmm.vmmd.v1.StopContainerRequest
+	80,  // 98: agentvmm.vmmd.v1.VMMDService.WaitContainer:input_type -> agentvmm.vmmd.v1.WaitContainerRequest
+	82,  // 99: agentvmm.vmmd.v1.VMMDService.DeleteContainer:input_type -> agentvmm.vmmd.v1.DeleteContainerRequest
+	84,  // 100: agentvmm.vmmd.v1.VMMDService.InspectContainer:input_type -> agentvmm.vmmd.v1.InspectContainerRequest
+	86,  // 101: agentvmm.vmmd.v1.VMMDService.ListContainers:input_type -> agentvmm.vmmd.v1.ListContainersRequest
+	88,  // 102: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:input_type -> agentvmm.vmmd.v1.GetContainerUsageRequest
+	92,  // 103: agentvmm.vmmd.v1.VMMDService.Logs:input_type -> agentvmm.vmmd.v1.LogsRequest
+	98,  // 104: agentvmm.vmmd.v1.VMMDService.Exec:input_type -> agentvmm.vmmd.v1.ExecRequest
+	94,  // 105: agentvmm.vmmd.v1.VMMDService.SignalContainer:input_type -> agentvmm.vmmd.v1.SignalContainerRequest
+	103, // 106: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:input_type -> agentvmm.vmmd.v1.ApplyNetworkLinkRequest
+	105, // 107: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:input_type -> agentvmm.vmmd.v1.DeleteNetworkLinkRequest
+	108, // 108: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:input_type -> agentvmm.vmmd.v1.ApplyServiceProjectionRequest
+	110, // 109: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:input_type -> agentvmm.vmmd.v1.DeleteServiceProjectionRequest
+	113, // 110: agentvmm.vmmd.v1.VMMDService.ForwardTCP:input_type -> agentvmm.vmmd.v1.ForwardTCPRequest
+	120, // 111: agentvmm.vmmd.v1.VMMDService.BuildImage:input_type -> agentvmm.vmmd.v1.BuildImageRequest
+	123, // 112: agentvmm.vmmd.v1.VMMDService.BuildAppliance:input_type -> agentvmm.vmmd.v1.BuildApplianceRequest
+	127, // 113: agentvmm.vmmd.v1.VMMDService.ComponentHealth:input_type -> agentvmm.vmmd.v1.ComponentHealthRequest
+	129, // 114: agentvmm.vmmd.v1.VMMDService.ProbeEgress:input_type -> agentvmm.vmmd.v1.ProbeEgressRequest
+	132, // 115: agentvmm.vmmd.v1.VMMDService.WatchEvents:input_type -> agentvmm.vmmd.v1.WatchEventsRequest
+	9,   // 116: agentvmm.vmmd.v1.VMMDService.StatWorkspace:input_type -> agentvmm.vmmd.v1.WorkspacePathRequest
+	11,  // 117: agentvmm.vmmd.v1.VMMDService.ListWorkspace:input_type -> agentvmm.vmmd.v1.ListWorkspaceRequest
+	13,  // 118: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:input_type -> agentvmm.vmmd.v1.ReadWorkspaceRequest
+	16,  // 119: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:input_type -> agentvmm.vmmd.v1.WriteWorkspaceRequest
+	18,  // 120: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:input_type -> agentvmm.vmmd.v1.ArchiveWorkspaceRequest
+	21,  // 121: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:input_type -> agentvmm.vmmd.v1.ExtractWorkspaceRequest
+	23,  // 122: agentvmm.vmmd.v1.VMMDService.Health:output_type -> agentvmm.vmmd.v1.HealthResponse
+	25,  // 123: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:output_type -> agentvmm.vmmd.v1.PrepareShutdownResponse
+	34,  // 124: agentvmm.vmmd.v1.VMMDService.EnsureSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
+	34,  // 125: agentvmm.vmmd.v1.VMMDService.StopSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
+	30,  // 126: agentvmm.vmmd.v1.VMMDService.DeleteSystemApplianceData:output_type -> agentvmm.vmmd.v1.DeleteSystemApplianceDataResponse
+	34,  // 127: agentvmm.vmmd.v1.VMMDService.GetSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
+	35,  // 128: agentvmm.vmmd.v1.VMMDService.ListSystemAppliances:output_type -> agentvmm.vmmd.v1.ListSystemAppliancesResponse
+	37,  // 129: agentvmm.vmmd.v1.VMMDService.OpenSystemStream:output_type -> agentvmm.vmmd.v1.SystemStreamFrame
+	41,  // 130: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:output_type -> agentvmm.vmmd.v1.EnsureNamespaceResponse
+	43,  // 131: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:output_type -> agentvmm.vmmd.v1.DeleteNamespaceResponse
+	135, // 132: agentvmm.vmmd.v1.VMMDService.DisposeNamespaceBatch:output_type -> agentvmm.vmmd.v1.DisposeNamespaceBatchResponse
+	45,  // 133: agentvmm.vmmd.v1.VMMDService.GetNamespace:output_type -> agentvmm.vmmd.v1.GetNamespaceResponse
+	47,  // 134: agentvmm.vmmd.v1.VMMDService.ListNamespaces:output_type -> agentvmm.vmmd.v1.ListNamespacesResponse
+	90,  // 135: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	90,  // 136: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	51,  // 137: agentvmm.vmmd.v1.VMMDService.PullImage:output_type -> agentvmm.vmmd.v1.PullImageResponse
+	63,  // 138: agentvmm.vmmd.v1.VMMDService.ImportImage:output_type -> agentvmm.vmmd.v1.Image
+	56,  // 139: agentvmm.vmmd.v1.VMMDService.CreateVolume:output_type -> agentvmm.vmmd.v1.CreateVolumeResponse
+	58,  // 140: agentvmm.vmmd.v1.VMMDService.DeleteVolume:output_type -> agentvmm.vmmd.v1.DeleteVolumeResponse
+	60,  // 141: agentvmm.vmmd.v1.VMMDService.GetVolume:output_type -> agentvmm.vmmd.v1.GetVolumeResponse
+	62,  // 142: agentvmm.vmmd.v1.VMMDService.ListVolumes:output_type -> agentvmm.vmmd.v1.ListVolumesResponse
+	65,  // 143: agentvmm.vmmd.v1.VMMDService.GetImage:output_type -> agentvmm.vmmd.v1.GetImageResponse
+	67,  // 144: agentvmm.vmmd.v1.VMMDService.ListImages:output_type -> agentvmm.vmmd.v1.ListImagesResponse
+	69,  // 145: agentvmm.vmmd.v1.VMMDService.DeleteImage:output_type -> agentvmm.vmmd.v1.DeleteImageResponse
+	75,  // 146: agentvmm.vmmd.v1.VMMDService.CreateContainer:output_type -> agentvmm.vmmd.v1.CreateContainerResponse
+	77,  // 147: agentvmm.vmmd.v1.VMMDService.StartContainer:output_type -> agentvmm.vmmd.v1.StartContainerResponse
+	79,  // 148: agentvmm.vmmd.v1.VMMDService.StopContainer:output_type -> agentvmm.vmmd.v1.StopContainerResponse
+	81,  // 149: agentvmm.vmmd.v1.VMMDService.WaitContainer:output_type -> agentvmm.vmmd.v1.WaitContainerResponse
+	83,  // 150: agentvmm.vmmd.v1.VMMDService.DeleteContainer:output_type -> agentvmm.vmmd.v1.DeleteContainerResponse
+	85,  // 151: agentvmm.vmmd.v1.VMMDService.InspectContainer:output_type -> agentvmm.vmmd.v1.InspectContainerResponse
+	87,  // 152: agentvmm.vmmd.v1.VMMDService.ListContainers:output_type -> agentvmm.vmmd.v1.ListContainersResponse
+	90,  // 153: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	93,  // 154: agentvmm.vmmd.v1.VMMDService.Logs:output_type -> agentvmm.vmmd.v1.LogsResponse
+	99,  // 155: agentvmm.vmmd.v1.VMMDService.Exec:output_type -> agentvmm.vmmd.v1.ExecResponse
+	95,  // 156: agentvmm.vmmd.v1.VMMDService.SignalContainer:output_type -> agentvmm.vmmd.v1.SignalContainerResponse
+	104, // 157: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:output_type -> agentvmm.vmmd.v1.ApplyNetworkLinkResponse
+	106, // 158: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:output_type -> agentvmm.vmmd.v1.DeleteNetworkLinkResponse
+	109, // 159: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:output_type -> agentvmm.vmmd.v1.ApplyServiceProjectionResponse
+	111, // 160: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:output_type -> agentvmm.vmmd.v1.DeleteServiceProjectionResponse
+	114, // 161: agentvmm.vmmd.v1.VMMDService.ForwardTCP:output_type -> agentvmm.vmmd.v1.ForwardTCPResponse
+	122, // 162: agentvmm.vmmd.v1.VMMDService.BuildImage:output_type -> agentvmm.vmmd.v1.BuildImageResponse
+	125, // 163: agentvmm.vmmd.v1.VMMDService.BuildAppliance:output_type -> agentvmm.vmmd.v1.BuildApplianceResponse
+	128, // 164: agentvmm.vmmd.v1.VMMDService.ComponentHealth:output_type -> agentvmm.vmmd.v1.ComponentHealthResponse
+	130, // 165: agentvmm.vmmd.v1.VMMDService.ProbeEgress:output_type -> agentvmm.vmmd.v1.ProbeEgressResponse
+	133, // 166: agentvmm.vmmd.v1.VMMDService.WatchEvents:output_type -> agentvmm.vmmd.v1.RuntimeEvent
+	10,  // 167: agentvmm.vmmd.v1.VMMDService.StatWorkspace:output_type -> agentvmm.vmmd.v1.WorkspaceEntry
+	12,  // 168: agentvmm.vmmd.v1.VMMDService.ListWorkspace:output_type -> agentvmm.vmmd.v1.ListWorkspaceResponse
+	14,  // 169: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:output_type -> agentvmm.vmmd.v1.ReadWorkspaceResponse
+	17,  // 170: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
+	19,  // 171: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:output_type -> agentvmm.vmmd.v1.ArchiveWorkspaceResponse
+	17,  // 172: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
+	122, // [122:173] is the sub-list for method output_type
+	71,  // [71:122] is the sub-list for method input_type
 	71,  // [71:71] is the sub-list for extension type_name
 	71,  // [71:71] is the sub-list for extension extendee
 	0,   // [0:71] is the sub-list for field type_name
@@ -9828,7 +9974,7 @@ func file_vmmd_v1_vmmd_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vmmd_v1_vmmd_proto_rawDesc), len(file_vmmd_v1_vmmd_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   126,
+			NumMessages:   128,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
