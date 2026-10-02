@@ -164,7 +164,7 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|status|operation|maintenance|maintenance-status|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
+		fatal("usage: agent-vmm-lifecycle version --json|status|operation|maintenance|maintenance-status|publish-host|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
@@ -185,6 +185,10 @@ func main() {
 	serviceRequest.action = os.Args[1]
 	if os.Args[1] == "maintenance" || os.Args[1] == "maintenance-status" {
 		executeMaintenanceCommand(os.Args[1], serviceRequest, commandArgs)
+		return
+	}
+	if os.Args[1] == "publish-host" {
+		executePublishHost(serviceRequest, commandArgs)
 		return
 	}
 	if localOperatorCommand(os.Args[1]) {
@@ -448,7 +452,7 @@ func main() {
 
 func lifecycleMutationCommand(command string) bool {
 	switch command {
-	case "maintenance", "install", "install-operation-ack", "repair", "registration-state", "registration-revoke", "drain", "update", "uninstall":
+	case "publish-host", "maintenance", "install", "install-operation-ack", "repair", "registration-state", "registration-revoke", "drain", "update", "uninstall":
 		return true
 	default:
 		return false
@@ -694,6 +698,9 @@ func observationPathsForRequest(request serviceRequest) (paths, error) {
 	if request.app != "" && os.Geteuid() != 0 {
 		return paths{}, errors.New("--service-app is restricted to an administrator installer")
 	}
+	if request.sharedHost {
+		request.app = sharedHostApp(account.HomeDir)
+	}
 	return observationPathsForConfig(account.HomeDir, executable, config, request.app)
 }
 
@@ -749,6 +756,12 @@ func lifecyclePathsForRequest(request serviceRequest, executable string) (paths,
 	}
 	if request.app != "" && os.Geteuid() != 0 {
 		return paths{}, errors.New("--service-app is restricted to an administrator installer")
+	}
+	if request.sharedHost {
+		request.app = sharedHostApp(account.HomeDir)
+		if err := validateMaintenancePath(account.HomeDir, request.app); err != nil {
+			return paths{}, err
+		}
 	}
 	return lifecyclePathsForConfigWithApp(account.HomeDir, executable, config, request.app)
 }

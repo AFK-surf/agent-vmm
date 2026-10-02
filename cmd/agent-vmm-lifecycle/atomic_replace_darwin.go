@@ -7,3 +7,7 @@ import "golang.org/x/sys/unix"
 func atomicSwapApp(source, target string) error {
 	return unix.RenameatxNp(unix.AT_FDCWD, source, unix.AT_FDCWD, target, unix.RENAME_SWAP)
 }
+
+func atomicPublishApp(source, target string) error {
+	return unix.RenameatxNp(unix.AT_FDCWD, source, unix.AT_FDCWD, target, unix.RENAME_EXCL)
+}

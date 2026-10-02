@@ -26,10 +26,11 @@ const (
 )
 
 type serviceRequest struct {
-	mode   serviceMode
-	user   string
-	app    string
-	action string
+	mode       serviceMode
+	user       string
+	app        string
+	action     string
+	sharedHost bool
 }
 
 type serviceConfig struct {
@@ -48,6 +49,11 @@ func extractServiceRequest(arguments []string) (serviceRequest, []string, error)
 	remaining := make([]string, 0, len(arguments))
 	for index := 0; index < len(arguments); index++ {
 		switch arguments[index] {
+		case "--shared-host":
+			if request.sharedHost {
+				return serviceRequest{}, nil, errors.New("--shared-host may be specified only once")
+			}
+			request.sharedHost = true
 		case "--service-type":
 			if request.mode != "" {
 				return serviceRequest{}, nil, errors.New("--service-type may be specified only once")
@@ -84,6 +90,9 @@ func extractServiceRequest(arguments []string) (serviceRequest, []string, error)
 		default:
 			remaining = append(remaining, arguments[index])
 		}
+	}
+	if request.sharedHost && request.app != "" {
+		return serviceRequest{}, nil, errors.New("--shared-host and --service-app are mutually exclusive")
 	}
 	return request, remaining, nil
 }

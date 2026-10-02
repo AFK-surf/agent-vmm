@@ -3,10 +3,13 @@ set -euo pipefail
 
 repo="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/agent-vmm-install-test.XXXXXX")"
+scratch="$(CDPATH= cd -- "$scratch" && pwd -P)"
 trap 'rm -rf "$scratch"' EXIT
 service_user="$(id -un)"
 service_home="$scratch/home"
 payload="$scratch/payload"
+ln -s "$scratch" "$scratch/alias"
+payload_input="$scratch/alias/payload"
 source_app="$payload/Agent VMM Host.app"
 mkdir -p "$scratch/bin" "$source_app/Contents/Helpers" "$source_app/Contents/MacOS"
 
@@ -46,6 +49,15 @@ if [ "${1:-}" = maintenance-status ]; then
     printf '%s\n' "${TEST_MAINTENANCE_RECEIPT:-null}"
     exit 0
 fi
+if [ "${1:-}" = publish-host ]; then
+    test "$2" = --source-app
+    test "$3" = "$(CDPATH= cd -- "$3" && pwd -P)"
+    app="$TEST_SERVICE_HOME/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app"
+    test ! -e "$app"
+    cp -R "$3" "$app"
+    exit 0
+fi
+case "$0" in *'/current/Agent VMM Host.app/'*) echo 'installer used old installed helper' >&2; exit 1;; esac
 printf '%s\n' "$*" >> "$TEST_LIFECYCLE_LOG"
 
 if [ "${1:-}" = install ]; then
@@ -78,7 +90,7 @@ run_installer() {
 		TEST_OLD_CURRENT="$scratch/current-is-old" TEST_INSTALL_FAILED="$scratch/install-failed" \
 		TEST_REPAIR_COMPLETE="$scratch/repair-complete" TEST_FAIL_INSTALL_ONCE="${fail_install_once:-0}" \
 		TEST_REQUIRE_REPAIR="${require_repair:-0}" TEST_MAINTENANCE_RECEIPT="${maintenance_receipt:-null}" \
-		OUTPUT_DIRECTORY="$payload" PATH="$scratch/bin:$PATH" \
+		OUTPUT_DIRECTORY="$payload_input" PATH="$scratch/bin:$PATH" \
 		"$repo/build/host/install.sh" --service-type agent --service-user "$service_user"
 }
 
@@ -103,11 +115,11 @@ first_update=$(sed -n '4p' "$scratch/lifecycle.log")
 second_update=$(sed -n '5p' "$scratch/lifecycle.log")
 test "$first_update" = "$second_update"
 release_key=$(printf '%s' release-stable | shasum -a 256 | awk '{print $1}')
-test "$install_call" = "install --service-type agent --service-user $service_user --request-id local-host-install-$release_key"
-test "$repair_call" = "repair --service-type agent --service-user $service_user --request-id local-host-repair-$release_key"
-test "$status_call" = "status --service-type agent --service-user $service_user"
+test "$install_call" = "install --shared-host --service-type agent --service-user $service_user --request-id local-host-install-$release_key"
+test "$repair_call" = "repair --shared-host --service-type agent --service-user $service_user --request-id local-host-repair-$release_key"
+test "$status_call" = "status --shared-host --service-type agent --service-user $service_user"
 case "$first_update" in
-"update --source-app $service_home/Library/Application Support/Agent VMM Host/current/.Agent VMM Host.$release_key.app --target-release-id release-stable --request-id local-host-update-$release_key --service-type agent --service-user $service_user") ;;
+"update --shared-host --source-app $service_home/Library/Application Support/Agent VMM Host/current/.Agent VMM Host.$release_key.app --target-release-id release-stable --request-id local-host-update-$release_key --service-type agent --service-user $service_user") ;;
 *) echo "update did not resume the release-derived request: $first_update" >&2; exit 1 ;;
 esac
 
@@ -123,9 +135,9 @@ run_installer
 recovery_install=$(sed -n '1p' "$scratch/lifecycle.log")
 recovery_repair=$(sed -n '2p' "$scratch/lifecycle.log")
 recovery_status=$(sed -n '3p' "$scratch/lifecycle.log")
-test "$recovery_install" = "install --service-type agent --service-user $service_user --request-id local-host-install-$release_key"
-test "$recovery_repair" = "repair --service-type agent --service-user $service_user --request-id local-host-repair-$release_key"
-test "$recovery_status" = "status --service-type agent --service-user $service_user"
+test "$recovery_install" = "install --shared-host --service-type agent --service-user $service_user --request-id local-host-install-$release_key"
+test "$recovery_repair" = "repair --shared-host --service-type agent --service-user $service_user --request-id local-host-repair-$release_key"
+test "$recovery_status" = "status --shared-host --service-type agent --service-user $service_user"
 test -e "$scratch/repair-complete"
 
 rm -rf "$service_home"

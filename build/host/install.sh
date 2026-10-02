@@ -35,6 +35,9 @@ fi
 
 source_app="$payload/Agent VMM Host.app"
 test -d "$source_app"
+# Package archives may live below macOS /var or another symlinked parent.
+# Pass the physical source path to the native publication owner.
+source_app=$(CDPATH= cd -- "$source_app" && pwd -P)
 test -x "$source_app/Contents/Helpers/agent-vmm"
 test -x "$source_app/Contents/Helpers/agent-vmm-lifecycle"
 test -x "$source_app/Contents/Helpers/agent-vmm-service-executor"
@@ -88,6 +91,7 @@ fi
 
 if [ "$installer_uid" -eq 0 ]; then
 	trusted_stage=$(mktemp -d /var/tmp/agent-vmm-install.XXXXXX)
+	trusted_stage=$(CDPATH= cd -- "$trusted_stage" && pwd -P)
 	chmod 0700 "$trusted_stage"
 	chown root:wheel "$trusted_stage"
 	trusted_app="$trusted_stage/Agent VMM Host.app"
@@ -153,10 +157,10 @@ if [ "$already_current" -eq 1 ]; then
 			"$executor" install --job host
 		fi
 	fi
-	run_lifecycle_with_managed_policy "$app/Contents/Helpers/agent-vmm-lifecycle" repair \
+	run_lifecycle_with_managed_policy "$source_app/Contents/Helpers/agent-vmm-lifecycle" repair --shared-host \
 		--service-type "$effective_service_type" --service-user "$service_user" \
 		--request-id "$repair_request_id"
-	observed_status=$(run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" status \
+	observed_status=$(run_as_service_user "$source_app/Contents/Helpers/agent-vmm-lifecycle" status --shared-host \
 		--service-type "$effective_service_type" --service-user "$service_user")
 	printf '%s\n' "$observed_status"
 	printf '%s\n' "$observed_status" | python3 -c '
@@ -172,24 +176,26 @@ if missing:
 fi
 
 if [ ! -d "$app" ]; then
-	mv "$staged_app" "$app"
+	run_as_service_user "$source_app/Contents/Helpers/agent-vmm-lifecycle" publish-host \
+		--source-app "$source_app" --service-type "$effective_service_type" --service-user "$service_user"
+	rm -rf "$staged_app"
 	created_staged=0
 	trap - EXIT HUP INT TERM
 	if [ "$effective_service_type" = daemon ]; then
 		"$executor" install --job host
 	fi
-	run_lifecycle_with_managed_policy "$app/Contents/Helpers/agent-vmm-lifecycle" install \
+	run_lifecycle_with_managed_policy "$source_app/Contents/Helpers/agent-vmm-lifecycle" install --shared-host \
 		--service-type "$effective_service_type" --service-user "$service_user" \
 		--request-id "$install_request_id"
 	exit 0
 fi
 
-lifecycle="$app/Contents/Helpers/agent-vmm-lifecycle"
+lifecycle="$source_app/Contents/Helpers/agent-vmm-lifecycle"
 # From this point the prepared path is owner recovery material. Lifecycle
 # removes it only after the selected release completes.
 trap - EXIT HUP INT TERM
 if [ "$effective_service_type" = agent ]; then
-	run_as_service_user "$lifecycle" update --source-app "$staged_app" \
+	run_as_service_user "$lifecycle" update --shared-host --source-app "$staged_app" \
 		--target-release-id "$target_release_id" --request-id "$update_request_id" \
 		--service-type agent --service-user "$service_user"
 	exit 0
@@ -202,7 +208,7 @@ attempt_log=$(mktemp -t agent-vmm-update.XXXXXX)
 trap 'rm -f "$attempt_log"' EXIT HUP INT TERM
 administrator_actions=0
 while [ "$administrator_actions" -lt 3 ]; do
-	if run_as_service_user "$lifecycle" update --source-app "$staged_app" \
+	if run_as_service_user "$lifecycle" update --shared-host --source-app "$staged_app" \
 		--target-release-id "$target_release_id" --request-id "$update_request_id" \
 		--service-type daemon --service-user "$service_user" >"$attempt_log" 2>&1; then
 		rm -f "$attempt_log"

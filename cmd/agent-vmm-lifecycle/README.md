@@ -270,3 +270,40 @@ The acknowledgement and resume tests cover the product handoff. The retained
 ownership. `HostVMRestartRecovery` covers VM admission and recovery.
 Appliance activation is a separate protocol in `ApplianceActivationLifecycle`.
 See [the model roster](../../spec/tla/README.md).
+
+### Shared Host publication from a new helper
+
+Product installers use the verified payload helper for first publication:
+
+```sh
+"$source_app/Contents/Helpers/agent-vmm-lifecycle" publish-host \
+  --source-app "$source_app" --service-type auto
+```
+
+The source is a canonical, separate `Agent VMM Host.app` bundle. The command
+holds the external maintenance `owner.lock`, checks the current maintenance
+policy, verifies the source and copied bundle signature and release, and
+publishes only to the configured user's standard shared application path.
+The final rename cannot replace an existing path. No launchd or VM action is
+part of publication. The source remains available to the caller.
+
+Success returns JSON with `version: 1`, `action: "publish-host"`, `targetApp`,
+`releaseId`, and `outcome: "published"` or `"already_present"`. The latter
+requires an existing valid bundle with the same release. A different or
+damaged target requires update or maintenance. A failed or interrupted
+publication may be retried; it cannot overwrite a target installed meanwhile.
+Active maintenance and completed uninstall reject publication, including a
+caller that passed an earlier preflight check.
+
+A verified payload helper can then use `--shared-host` with ordinary
+`install`, `repair`, `update`, `status`, or `operation`. This flag selects the
+standard shared target instead of the helper's source bundle. It accepts no
+path and does not relax the administrator restriction on `--service-app`.
+Consumers must use the new payload helper for mutations when an installed
+helper predates the maintenance fence. Ordinary update holds the same owner
+lock through cutover; a caller-side policy read is not a substitute.
+
+The administrator's fixed daemon executor ceremony remains separate. Its
+explicit system-job actions are not a cross-process maintenance transaction.
+Unprivileged product installers must not emulate those actions or overwrite
+the application themselves.
