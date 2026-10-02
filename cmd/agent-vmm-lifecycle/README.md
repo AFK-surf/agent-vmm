@@ -34,6 +34,7 @@ The maintenance JSON request has these fields:
 | `targetReleaseId`, `artifactSha256`, `artifactSize` | Selected release, lowercase archive SHA-256 and bytes; omit for uninstall |
 | `confirmSharedHost` | `true` after a trusted local whole-Host confirmation |
 | `confirmDataDeletion` | `true` for reset only |
+| `supersedesRequestId` | Optional exact failed request to replace after a new trusted confirmation; only reset reinstall or uninstall |
 
 The owner rejects reuse of a request ID with another action, data policy, target,
 source, artifact, or service identity. It does not switch targets from a developer
@@ -47,7 +48,7 @@ not erase unrelated applications, the source bundle, or the maintenance journal.
 The JSON receipt includes the request fields, `serviceMode`, `serviceUser`,
 `stage`, `outcome`, `retryable`, timestamps, and completed effect checkpoints.
 Stages are `accepted`, `stopping`, `resetting`, `removing`, `replacing`, `restoring`,
-`verifying`, and `complete`. Outcome is `pending`, `failed`, or `succeeded`.
+`verifying`, and `complete`. Outcome is `pending`, `failed`, `succeeded`, or `superseded`.
 `failureCode=maintenance_incomplete` and `failureMessage` explain an accepted
 operation's failed stage. A process crash can leave `pending`; it does not prove
 that the effects failed or completed. Retry the same complete request.
@@ -58,6 +59,26 @@ removal and data reset. Status accepts `{ "requestId": "..." }`, or `{}`/empty
 input for the latest receipt. It returns `null` when none exists. Status does not
 create directories, read Host data, start a service, or need an installed app.
 Other applications must use separate journal filenames or subdirectories.
+
+If a preserve operation cannot restore the existing data, the local operator can
+confirm reset reinstall or uninstall with a new request ID and the exact
+`supersedesRequestId`. Under the owner lock, the prior request must still be the
+active, latest, failed request for the same target and service. Pending, completed,
+unreadable, and stale requests cannot be replaced. The new request retains its
+own action, data policy, artifact, and confirmation. It starts with a fresh stop;
+it does not inherit completed effect checkpoints from the prior request.
+
+For every new request, the owner writes its receipt before it atomically switches
+active ownership. Replacements also record supersession in that state commit. If that state commit fails, status for the staged new
+receipt returns `null`; the prior owner state remains unchanged. Retry the exact
+new request to finish admission. An ordinary staged receipt records
+`admissionPreviousRequestId` and can be admitted only while that owner history is
+unchanged. A later uninstall cannot be undone by replaying an older staged
+reinstall. After acceptance, status and replay of the prior
+request return `outcome: "superseded"`, `retryable: false`, and
+`supersededByRequestId`. Its original failed receipt stays on disk, and it cannot
+perform further effects. Supersession neither declares the prior work successful
+nor bypasses process-stop, disk-release, or deletion-confirmation requirements.
 
 The owner first attempts a graceful VM stop. An old or damaged Host can instead
 be stopped through its exact launchd service. Process exit and disk release must
@@ -74,7 +95,8 @@ the same request. Do not run the maintenance business operation as root.
 
 `state.json` has `version: 1`, optional `activeRequest` and `latestRequest`,
 `uninstalled`, `completedRequests` (settled maintenance request IDs), and
-`blockedInstalls` (managed install IDs). Both maps use ID keys with value `true`.
+`blockedInstalls` (managed install IDs). Those two maps use ID keys with value `true`. Optional `supersededRequests`
+maps each replaced request ID to its replacement request ID.
 The completion state atomically clears the active request and records settlement.
 A verified-effects checkpoint lets a failed completion write retry only settlement.
 Status reports success only from committed owner state, including a crash before

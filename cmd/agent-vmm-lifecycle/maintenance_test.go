@@ -489,3 +489,275 @@ func TestMaintenancePreserveUninstallAllowsRetainedBindingAfterExplicitReinstall
 	}
 	release()
 }
+
+func TestFailedPreserveMaintenanceCanBeReplacedWithoutReplayingOldWork(t *testing.T) {
+	for _, mode := range []struct{ action, policy string }{{"reinstall", "reset"}, {"uninstall", "preserve"}, {"uninstall", "reset"}} {
+		t.Run(mode.action+mode.policy, func(t *testing.T) {
+			p, old, a := maintenanceFixture(t)
+			a.restore = func(paths, string) error { return errors.New("existing data cannot start") }
+			failed, err := runMaintenance(p, old, a)
+			if err == nil || !failed.SoftwareInstalled || failed.Outcome != "failed" {
+				t.Fatalf("%+v %v", failed, err)
+			}
+			next := old
+			next.RequestID = "maint-2"
+			next.SupersedesRequestID = old.RequestID
+			next.Action = mode.action
+			next.DataPolicy = mode.policy
+			next.ConfirmDataDeletion = mode.policy == "reset"
+			if next.Action == "uninstall" {
+				next.SourceApp = ""
+				next.TargetReleaseID = ""
+				next.ArtifactSHA256 = ""
+				next.ArtifactSize = 0
+			}
+			stops, resets := 0, 0
+			a.stop = func(paths) error { stops++; return nil }
+			a.resetData = func(paths) error {
+				if stops == 0 {
+					t.Fatal("reset before stop")
+				}
+				resets++
+				return nil
+			}
+			a.restore = func(paths, string) error { return nil }
+			done, err := runMaintenance(p, next, a)
+			if err != nil || done.Outcome != "succeeded" || stops != 1 {
+				t.Fatalf("%+v stops=%d %v", done, stops, err)
+			}
+			if (resets == 1) != (mode.policy == "reset") {
+				t.Fatalf("resets=%d", resets)
+			}
+			a.stop = func(paths) error { t.Fatal("old request performed effects"); return nil }
+			replay, err := runMaintenance(p, old, a)
+			if err != nil || replay.Outcome != "superseded" || replay.SupersededByRequestID != next.RequestID || replay.Retryable {
+				t.Fatalf("%+v %v", replay, err)
+			}
+			observed, err := maintenanceStatus(p, old.RequestID)
+			if err != nil || observed.Outcome != "superseded" {
+				t.Fatalf("%+v %v", observed, err)
+			}
+		})
+	}
+}
+
+func TestSupersessionAdmissionWriteFailureDoesNotAcceptOrLoseEitherScope(t *testing.T) {
+	p, old, a := maintenanceFixture(t)
+	a.restore = func(paths, string) error { return errors.New("cannot restore data") }
+	if _, err := runMaintenance(p, old, a); err == nil {
+		t.Fatal("expected failure")
+	}
+	next := old
+	next.RequestID = "next"
+	next.SupersedesRequestID = old.RequestID
+	next.Action = "reinstall"
+	next.DataPolicy = "reset"
+	next.ConfirmDataDeletion = true
+	a.commitAdmission = func(*os.File, maintenanceState) error { return errors.New("state commit failed") }
+	a.stop = func(paths) error { t.Fatal("effects before acceptance"); return nil }
+	if _, err := runMaintenance(p, next, a); err == nil {
+		t.Fatal("ignored commit failure")
+	}
+	observed, err := maintenanceStatus(p, next.RequestID)
+	if err != nil || observed != nil {
+		t.Fatalf("unaccepted receipt exposed: %+v %v", observed, err)
+	}
+	previous, err := maintenanceStatus(p, old.RequestID)
+	if err != nil || previous.Outcome != "failed" {
+		t.Fatalf("prior receipt lost: %+v %v", previous, err)
+	}
+	// The exact same request recovers the staged receipt, then stops afresh.
+	a.commitAdmission = nil
+	stops := 0
+	a.stop = func(paths) error { stops++; return nil }
+	a.restore = func(paths, string) error { return nil }
+	done, err := runMaintenance(p, next, a)
+	if err != nil || done.Outcome != "succeeded" || stops != 1 {
+		t.Fatalf("%+v stops=%d %v", done, stops, err)
+	}
+}
+
+func TestSupersedingStopFailureRetainsNewRequestAndNeverClearsData(t *testing.T) {
+	p, old, a := maintenanceFixture(t)
+	a.restore = func(paths, string) error { return errors.New("cannot restore") }
+	_, _ = runMaintenance(p, old, a)
+	next := old
+	next.RequestID = "next"
+	next.SupersedesRequestID = old.RequestID
+	next.DataPolicy = "reset"
+	next.ConfirmDataDeletion = true
+	a.stop = func(paths) error { return errors.New("disk owner unknown") }
+	a.resetData = func(paths) error { t.Fatal("reset despite failed stop"); return nil }
+	got, err := runMaintenance(p, next, a)
+	if err == nil || got.Outcome != "failed" || got.DataCleared {
+		t.Fatalf("%+v %v", got, err)
+	}
+	previous, _ := maintenanceStatus(p, old.RequestID)
+	latest, _ := maintenanceStatus(p, "")
+	if previous.Outcome != "superseded" || latest.RequestID != next.RequestID || latest.Outcome != "failed" {
+		t.Fatalf("old=%+v latest=%+v", previous, latest)
+	}
+}
+
+func TestSupersessionRejectsUnconfirmedOrDifferentPredecessor(t *testing.T) {
+	for _, kind := range []string{"pending", "completed", "different-service", "different-target", "stale-id", "preserve-reinstall"} {
+		t.Run(kind, func(t *testing.T) {
+			p, old, a := maintenanceFixture(t)
+			a.restore = func(paths, string) error { return errors.New("cannot restore") }
+			_, _ = runMaintenance(p, old, a)
+			next := old
+			next.RequestID = "next"
+			next.SupersedesRequestID = old.RequestID
+			next.DataPolicy = "reset"
+			next.ConfirmDataDeletion = true
+			directory, unlock, err := lockMaintenance(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var prior maintenanceReceipt
+			if err = readMaintenanceJSON(directory, maintenanceReceiptName(old.RequestID), &prior); err != nil {
+				t.Fatal(err)
+			}
+			switch kind {
+			case "pending":
+				prior.Outcome = "pending"
+			case "completed":
+				state, _ := loadMaintenanceState(directory)
+				state.CompletedRequests[old.RequestID] = true
+				err = writeMaintenanceJSON(directory, "state.json", state)
+			case "different-service":
+				prior.ServiceUser = "different-user"
+			case "different-target":
+				prior.TargetApp = "/other/Agent VMM Host.app"
+			case "stale-id":
+				next.SupersedesRequestID = "another-request"
+			case "preserve-reinstall":
+				next.DataPolicy = "preserve"
+				next.ConfirmDataDeletion = false
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = writeMaintenanceJSON(directory, maintenanceReceiptName(old.RequestID), prior); err != nil {
+				t.Fatal(err)
+			}
+			unlock()
+			a.stop = func(paths) error { t.Fatal("rejected supersession performed effects"); return nil }
+			if _, err = runMaintenance(p, next, a); err == nil {
+				t.Fatal("accepted invalid supersession")
+			}
+		})
+	}
+}
+
+func TestStatusDoesNotReportAnAcceptedMissingReceiptAsUnaccepted(t *testing.T) {
+	p, _, _ := maintenanceFixture(t)
+	directory, unlock, err := lockMaintenance(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := maintenanceState{Version: 1, ActiveRequest: "accepted", LatestRequest: "accepted"}
+	if err = writeMaintenanceJSON(directory, "state.json", state); err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	if receipt, err := maintenanceStatus(p, "accepted"); err == nil || receipt != nil {
+		t.Fatalf("missing accepted receipt became unaccepted: %+v %v", receipt, err)
+	}
+	if receipt, err := maintenanceStatus(p, "never-accepted"); err != nil || receipt != nil {
+		t.Fatalf("unknown request: %+v %v", receipt, err)
+	}
+}
+
+func TestReplacementKeepsDaemonIdentityAfterFailedResetRemovedServiceData(t *testing.T) {
+	p, old, a := maintenanceFixture(t)
+	p.service.Mode = serviceModeDaemon
+	p.service.User = "original-service"
+	p.service.DisablePairing = true
+	old.DataPolicy = "reset"
+	old.ConfirmDataDeletion = true
+	a.restore = func(paths, string) error { return errors.New("restore failed after reset") }
+	if _, err := runMaintenance(p, old, a); err == nil {
+		t.Fatal("expected failure")
+	}
+	next := old
+	next.RequestID = "next"
+	next.SupersedesRequestID = old.RequestID
+	owner, err := maintenanceServiceReceipt(p, next)
+	if err != nil || owner.ServiceMode != serviceModeDaemon || owner.ServiceUser != "original-service" || !owner.DisablePairing {
+		t.Fatalf("lost original service owner: %+v %v", owner, err)
+	}
+}
+
+func TestOrdinaryAdmissionWriteFailureRemainsUnacceptedAndRetriesExactScope(t *testing.T) {
+	p, prior, a := maintenanceFixture(t)
+	if _, err := runMaintenance(p, prior, a); err != nil {
+		t.Fatal(err)
+	}
+	next := prior
+	next.RequestID = "next"
+	a.commitAdmission = func(*os.File, maintenanceState) error { return errors.New("admission commit failed") }
+	a.stop = func(paths) error { t.Fatal("effect before admission"); return nil }
+	if _, err := runMaintenance(p, next, a); err == nil {
+		t.Fatal("expected write failure")
+	}
+	if got, err := maintenanceStatus(p, next.RequestID); got != nil || err != nil {
+		t.Fatalf("unaccepted ordinary receipt: %+v %v", got, err)
+	}
+	a.commitAdmission = nil
+	stops := 0
+	a.stop = func(paths) error { stops++; return nil }
+	got, err := runMaintenance(p, next, a)
+	if err != nil || got.Outcome != "succeeded" || stops != 1 {
+		t.Fatalf("%+v stops=%d %v", got, stops, err)
+	}
+}
+
+func TestStagedOrdinaryReinstallCannotReviveAfterLaterUninstall(t *testing.T) {
+	p, staged, a := maintenanceFixture(t)
+	a.commitAdmission = func(*os.File, maintenanceState) error { return errors.New("admission commit failed") }
+	if _, err := runMaintenance(p, staged, a); err == nil {
+		t.Fatal("expected write failure")
+	}
+	uninstall := staged
+	uninstall.RequestID = "later-uninstall"
+	uninstall.Action = "uninstall"
+	uninstall.SourceApp = ""
+	uninstall.TargetReleaseID = ""
+	uninstall.ArtifactSHA256 = ""
+	uninstall.ArtifactSize = 0
+	a.commitAdmission = nil
+	if got, err := runMaintenance(p, uninstall, a); err != nil || got.Outcome != "succeeded" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	a.stop = func(paths) error { t.Fatal("stale proposal repeated effects"); return nil }
+	if _, err := runMaintenance(p, staged, a); err == nil {
+		t.Fatal("stale staged reinstall revived after uninstall")
+	}
+}
+
+func TestMissingAcceptedOrSupersededReceiptCannotBeRecreatedByReplay(t *testing.T) {
+	for _, kind := range []string{"active", "superseded"} {
+		t.Run(kind, func(t *testing.T) {
+			p, r, a := maintenanceFixture(t)
+			directory, unlock, err := lockMaintenance(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := maintenanceState{Version: 1, ActiveRequest: r.RequestID, LatestRequest: r.RequestID}
+			if kind == "superseded" {
+				state.ActiveRequest = ""
+				state.LatestRequest = "later"
+				state.SupersededRequests = map[string]string{r.RequestID: "later"}
+			}
+			if err = writeMaintenanceJSON(directory, "state.json", state); err != nil {
+				t.Fatal(err)
+			}
+			unlock()
+			a.stop = func(paths) error { t.Fatal("replayed an accepted request with lost evidence"); return nil }
+			if _, err = runMaintenance(p, r, a); err == nil {
+				t.Fatal("recreated missing accepted receipt")
+			}
+		})
+	}
+}

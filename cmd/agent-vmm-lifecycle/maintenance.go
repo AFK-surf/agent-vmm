@@ -32,36 +32,40 @@ type maintenanceRequest struct {
 	TargetReleaseID     string `json:"targetReleaseId,omitempty"`
 	ArtifactSHA256      string `json:"artifactSha256,omitempty"`
 	ArtifactSize        uint64 `json:"artifactSize,omitempty"`
+	SupersedesRequestID string `json:"supersedesRequestId,omitempty"`
 	ConfirmSharedHost   bool   `json:"confirmSharedHost"`
 	ConfirmDataDeletion bool   `json:"confirmDataDeletion,omitempty"`
 }
 
 type maintenanceReceipt struct {
 	maintenanceRequest
-	ServiceMode       serviceMode `json:"serviceMode"`
-	ServiceUser       string      `json:"serviceUser"`
-	DisablePairing    bool        `json:"disablePairing"`
-	Stage             string      `json:"stage"`
-	Outcome           string      `json:"outcome"`
-	Retryable         bool        `json:"retryable"`
-	FailureCode       string      `json:"failureCode,omitempty"`
-	FailureMessage    string      `json:"failureMessage,omitempty"`
-	DataCleared       bool        `json:"dataCleared,omitempty"`
-	SoftwareRemoved   bool        `json:"softwareRemoved,omitempty"`
-	SoftwareInstalled bool        `json:"softwareInstalled,omitempty"`
-	EffectsVerified   bool        `json:"effectsVerified,omitempty"`
-	RestoreAttempts   uint64      `json:"restoreAttempts,omitempty"`
-	StartedAt         int64       `json:"startedAt"`
-	UpdatedAt         int64       `json:"updatedAt"`
+	AdmissionPreviousRequestID string      `json:"admissionPreviousRequestId,omitempty"`
+	SupersededByRequestID      string      `json:"supersededByRequestId,omitempty"`
+	ServiceMode                serviceMode `json:"serviceMode"`
+	ServiceUser                string      `json:"serviceUser"`
+	DisablePairing             bool        `json:"disablePairing"`
+	Stage                      string      `json:"stage"`
+	Outcome                    string      `json:"outcome"`
+	Retryable                  bool        `json:"retryable"`
+	FailureCode                string      `json:"failureCode,omitempty"`
+	FailureMessage             string      `json:"failureMessage,omitempty"`
+	DataCleared                bool        `json:"dataCleared,omitempty"`
+	SoftwareRemoved            bool        `json:"softwareRemoved,omitempty"`
+	SoftwareInstalled          bool        `json:"softwareInstalled,omitempty"`
+	EffectsVerified            bool        `json:"effectsVerified,omitempty"`
+	RestoreAttempts            uint64      `json:"restoreAttempts,omitempty"`
+	StartedAt                  int64       `json:"startedAt"`
+	UpdatedAt                  int64       `json:"updatedAt"`
 }
 
 type maintenanceState struct {
-	Version           int             `json:"version"`
-	ActiveRequest     string          `json:"activeRequest,omitempty"`
-	LatestRequest     string          `json:"latestRequest,omitempty"`
-	Uninstalled       bool            `json:"uninstalled"`
-	CompletedRequests map[string]bool `json:"completedRequests,omitempty"`
-	BlockedInstalls   map[string]bool `json:"blockedInstalls,omitempty"`
+	Version            int               `json:"version"`
+	ActiveRequest      string            `json:"activeRequest,omitempty"`
+	LatestRequest      string            `json:"latestRequest,omitempty"`
+	Uninstalled        bool              `json:"uninstalled"`
+	CompletedRequests  map[string]bool   `json:"completedRequests,omitempty"`
+	SupersededRequests map[string]string `json:"supersededRequests,omitempty"`
+	BlockedInstalls    map[string]bool   `json:"blockedInstalls,omitempty"`
 }
 
 func maintenancePaths(value paths) string {
@@ -153,6 +157,9 @@ func loadMaintenanceState(directory *os.File) (maintenanceState, error) {
 	if state.CompletedRequests == nil {
 		state.CompletedRequests = map[string]bool{}
 	}
+	if state.SupersededRequests == nil {
+		state.SupersededRequests = map[string]string{}
+	}
 	if state.BlockedInstalls == nil {
 		state.BlockedInstalls = map[string]bool{}
 	}
@@ -205,6 +212,11 @@ func validateMaintenanceRequest(value paths, request maintenanceRequest) error {
 	if request.DataPolicy == "preserve" && request.ConfirmDataDeletion {
 		return errors.New("data deletion confirmation conflicts with preserve")
 	}
+	if request.SupersedesRequestID != "" {
+		if !operationIDPattern.MatchString(request.SupersedesRequestID) || request.SupersedesRequestID == request.RequestID || !(request.Action == "uninstall" || (request.Action == "reinstall" && request.DataPolicy == "reset")) {
+			return errors.New("failed maintenance replacement requires an exact prior request and reset reinstall or uninstall")
+		}
+	}
 	standard := filepath.Join(value.home, "Library", "Application Support", "Agent VMM Host", "current", bundle.HostAppName)
 	if request.TargetApp != standard || value.app != standard {
 		return errors.New("maintenance target must be this service user's standard shared Host app")
@@ -239,6 +251,7 @@ type maintenanceActions struct {
 	validateSource    func(maintenanceRequest) error
 	validateInstalled func(paths, maintenanceRequest) error
 	commitState       func(*os.File, maintenanceState) error
+	commitAdmission   func(*os.File, maintenanceState) error
 	stop              func(paths) error
 	removeSoftware    func(paths) error
 	resetData         func(paths) error
@@ -396,22 +409,33 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 		if !reflect.DeepEqual(receipt.maintenanceRequest, request) || receipt.ServiceMode != value.service.Mode || receipt.ServiceUser != value.service.User {
 			return receipt, errors.New("maintenance requestId belongs to a different action, data policy, service or artifact")
 		}
+		if next := state.SupersededRequests[request.RequestID]; next != "" {
+			return supersededMaintenanceReceipt(receipt, next), nil
+		}
 		if state.CompletedRequests[request.RequestID] {
 			return completedMaintenanceReceipt(receipt), nil
 		}
-		if state.LatestRequest != "" && state.LatestRequest != request.RequestID {
-			return receipt, errors.New("this unfinished request was superseded; inspect the latest maintenance request")
+		if state.LatestRequest != request.RequestID && request.SupersedesRequestID == "" &&
+			(state.ActiveRequest != "" || receipt.Stage != "accepted" || receipt.Outcome != "pending" || receipt.AdmissionPreviousRequestID != state.LatestRequest) {
+			return receipt, errors.New("this unfinished request is no longer current; inspect the latest maintenance request")
 		}
-		if receipt.EffectsVerified {
+		if receipt.EffectsVerified && state.ActiveRequest == request.RequestID {
 			return settleMaintenance(directory, name, state, receipt, actions.commitState)
 		}
 
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return receipt, readErr
-	} else if state.CompletedRequests[request.RequestID] {
-		return receipt, errors.New("completed maintenance receipt is unavailable; keep the owner journal for recovery")
+	} else if state.CompletedRequests[request.RequestID] || state.SupersededRequests[request.RequestID] != "" || state.ActiveRequest == request.RequestID || state.LatestRequest == request.RequestID {
+		return receipt, errors.New("accepted maintenance receipt is unavailable; keep the owner journal for recovery")
 	}
-	if state.ActiveRequest != "" && state.ActiveRequest != request.RequestID {
+	superseding := request.SupersedesRequestID != "" && state.ActiveRequest != request.RequestID
+	if superseding {
+		if err = validateFailedMaintenanceSupersession(directory, value, request, state); err != nil {
+			return receipt, err
+		}
+	} else if request.SupersedesRequestID != "" && state.SupersededRequests[request.SupersedesRequestID] != request.RequestID {
+		return receipt, errors.New("maintenance supersession is not owned by this request")
+	} else if state.ActiveRequest != "" && state.ActiveRequest != request.RequestID {
 		return receipt, errors.New("continue the existing maintenance request before starting another")
 	}
 	// Fence old helpers that predate the outer maintenance lock, then save the
@@ -433,7 +457,7 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 	}
 	if readErr != nil {
 		now := time.Now().UnixMilli()
-		receipt = maintenanceReceipt{maintenanceRequest: request, ServiceMode: value.service.Mode, ServiceUser: value.service.User, DisablePairing: value.service.DisablePairing, Stage: "accepted", Outcome: "pending", Retryable: true, StartedAt: now, UpdatedAt: now}
+		receipt = maintenanceReceipt{maintenanceRequest: request, AdmissionPreviousRequestID: state.LatestRequest, ServiceMode: value.service.Mode, ServiceUser: value.service.User, DisablePairing: value.service.DisablePairing, Stage: "accepted", Outcome: "pending", Retryable: true, StartedAt: now, UpdatedAt: now}
 	}
 	state.ActiveRequest, state.LatestRequest = request.RequestID, request.RequestID
 	if request.DataPolicy == "reset" {
@@ -441,13 +465,24 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 			return receipt, err
 		}
 	}
-	if err = writeMaintenanceJSON(directory, "state.json", state); err != nil {
-		return receipt, err
-	}
-	if readErr != nil {
+	// Stage every new request before the owner pointer. Until the state commit
+	// it authorizes no effects and status does not report it as accepted.
+	if readErr != nil || superseding {
 		if err = writeMaintenanceJSON(directory, name, receipt); err != nil {
 			return receipt, err
 		}
+	}
+	if superseding {
+		state.SupersededRequests[request.SupersedesRequestID] = request.RequestID
+	}
+	commitAdmission := actions.commitAdmission
+	if commitAdmission == nil {
+		commitAdmission = func(dir *os.File, state maintenanceState) error {
+			return writeMaintenanceJSON(dir, "state.json", state)
+		}
+	}
+	if err = commitAdmission(directory, state); err != nil {
+		return receipt, err
 	}
 	step := func(stage string, action func() error) error {
 		receipt.Stage, receipt.Outcome, receipt.Retryable = stage, "pending", true
@@ -522,6 +557,26 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 	return settleMaintenance(directory, name, state, receipt, actions.commitState)
 }
 
+func supersededMaintenanceReceipt(receipt maintenanceReceipt, next string) maintenanceReceipt {
+	receipt.Outcome, receipt.Retryable, receipt.SupersededByRequestID = "superseded", false, next
+	return receipt
+}
+
+func validateFailedMaintenanceSupersession(directory *os.File, value paths, request maintenanceRequest, state maintenanceState) error {
+	previousID := request.SupersedesRequestID
+	if state.ActiveRequest != previousID || state.LatestRequest != previousID || state.CompletedRequests[previousID] || state.SupersededRequests[previousID] != "" {
+		return errors.New("only the exact current failed maintenance request can be replaced")
+	}
+	var previous maintenanceReceipt
+	if err := readMaintenanceJSON(directory, maintenanceReceiptName(previousID), &previous); err != nil {
+		return err
+	}
+	if previous.Version != 1 || previous.RequestID != previousID || previous.Outcome != "failed" || previous.TargetApp != request.TargetApp || previous.ServiceMode != value.service.Mode || previous.ServiceUser != value.service.User {
+		return errors.New("replacement requires a confirmed failed receipt for the same Host and service")
+	}
+	return nil
+}
+
 func maintenanceStatus(value paths, id string) (*maintenanceReceipt, error) {
 	directory, err := openMaintenanceDirectory(value, false)
 	if errors.Is(err, os.ErrNotExist) {
@@ -544,6 +599,9 @@ func maintenanceStatus(value paths, id string) (*maintenanceReceipt, error) {
 	var receipt maintenanceReceipt
 	if err := readMaintenanceJSON(directory, maintenanceReceiptName(id), &receipt); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if state.ActiveRequest == id || state.LatestRequest == id || state.CompletedRequests[id] || state.SupersededRequests[id] != "" {
+				return nil, errors.New("accepted maintenance receipt is unavailable; keep the owner journal for recovery")
+			}
 			return nil, nil
 		}
 		return nil, err
@@ -551,12 +609,28 @@ func maintenanceStatus(value paths, id string) (*maintenanceReceipt, error) {
 	if receipt.Version != 1 || receipt.RequestID != id {
 		return nil, errors.New("Host maintenance receipt has an unsupported identity or version")
 	}
-	if state.CompletedRequests[id] {
+	if next := state.SupersededRequests[id]; next != "" {
+		receipt = supersededMaintenanceReceipt(receipt, next)
+	} else if state.CompletedRequests[id] {
 		receipt = completedMaintenanceReceipt(receipt)
 	} else if receipt.Outcome == "succeeded" {
 		return nil, errors.New("maintenance completion is not committed")
+	} else if state.ActiveRequest != id || state.LatestRequest != id {
+		// A receipt written before a failed supersession commit is recovery
+		// material, not an accepted maintenance operation.
+		return nil, nil
 	}
 	return &receipt, nil
+}
+
+// A failed reset can already have removed service.json. A replacement keeps
+// that operation's service identity instead of reinterpreting auto as agent.
+func maintenanceServiceReceipt(value paths, request maintenanceRequest) (*maintenanceReceipt, error) {
+	saved, err := maintenanceStatus(value, request.RequestID)
+	if err != nil || saved != nil || request.SupersedesRequestID == "" {
+		return saved, err
+	}
+	return maintenanceStatus(value, request.SupersedesRequestID)
 }
 
 func executeMaintenanceCommand(command string, service serviceRequest, args []string) {
@@ -597,7 +671,7 @@ func executeMaintenanceCommand(command string, service serviceRequest, args []st
 	if decoder.Decode(&request) != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		fatal("invalid maintenance request")
 	}
-	saved, err := maintenanceStatus(paths{home: account.HomeDir}, request.RequestID)
+	saved, err := maintenanceServiceReceipt(paths{home: account.HomeDir}, request)
 	if err != nil {
 		fatal(err.Error())
 	}
