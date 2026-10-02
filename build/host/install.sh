@@ -63,6 +63,20 @@ run_lifecycle_with_managed_policy() {
 	fi
 }
 
+# Honor operator maintenance before copying or starting the shared software.
+# Use the verified payload helper even when the installed app was removed.
+codesign --verify --deep --strict "$source_app"
+maintenance_receipt=$(printf '{}\n' | run_as_service_user "$source_app/Contents/Helpers/agent-vmm-lifecycle" maintenance-status --service-user "$service_user")
+printf '%s\n' "$maintenance_receipt" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+if value is not None:
+    if (not isinstance(value, dict) or value.get("version") != 1
+            or value.get("outcome") != "succeeded"
+            or value.get("action") == "uninstall"):
+        raise SystemExit("Continue or explicitly reinstall through Host maintenance before running this installer.")
+'
+
 if [ "$installer_uid" -eq 0 ]; then
 	install -d -o "$service_user" -g "$service_gid" -m 0755 "$app_parent"
 	install -d -o "$service_user" -g "$service_gid" -m 0700 \

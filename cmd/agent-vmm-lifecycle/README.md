@@ -1,5 +1,101 @@
 # Local lifecycle coordinator
 
+## Shared Host maintenance
+
+`maintenance` is the local operator entry for the whole shared Host. It supports
+update with data preserved, reinstall with data preserved or reset, and uninstall
+with data preserved or reset. These operations interrupt all BFT and Comma work
+in the VM. They do not grant cloud permissions or revoke cloud registrations.
+Exact environment or registration disposal remains a separate operation.
+
+Run the helper from a verified bundle outside the installed app and Host data.
+This also works when the installed helper is absent or too old. The source bundle
+must keep its normal `Agent VMM Host.app` name. Verify the downloaded archive's
+SHA-256 and size before extracting it. Retain that bundle for failed-operation
+recovery; the native owner verifies its signature and selected release again.
+The archive fields bind the selected artifact to the request; they do not replace
+the caller's archive verification.
+
+```sh
+"$verified_app/Contents/Helpers/agent-vmm-lifecycle" maintenance --service-type auto < request.json
+"$verified_app/Contents/Helpers/agent-vmm-lifecycle" maintenance-status < status-request.json
+```
+
+The maintenance JSON request has these fields:
+
+| Field | Contract |
+| --- | --- |
+| `version` | `1` |
+| `requestId` | Stable lifecycle request ID; reuse it for every retry |
+| `action` | `update`, `reinstall`, or `uninstall` |
+| `dataPolicy` | `preserve` or `reset`; update permits only preserve |
+| `targetApp` | Service user's `~/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app` |
+| `sourceApp` | Separate, canonical verified bundle; omit for uninstall |
+| `targetReleaseId`, `artifactSha256`, `artifactSize` | Selected release, lowercase archive SHA-256 and bytes; omit for uninstall |
+| `confirmSharedHost` | `true` after a trusted local whole-Host confirmation |
+| `confirmDataDeletion` | `true` for reset only |
+
+The owner rejects reuse of a request ID with another action, data policy, target,
+source, artifact, or service identity. It does not switch targets from a developer
+source path. Preserve retains Host data, volume contents, metadata, credentials,
+root identity, registration records, and pairing policy. It does not preserve
+running processes or restore cloud access. Reset removes the service user's fixed
+`AgentVMM` data directory and `~/Library/Logs/AgentVMM`, including their keys and
+bindings, only after the shared process stops and releases the disk. Reset does
+not erase unrelated applications, the source bundle, or the maintenance journal.
+
+The JSON receipt includes the request fields, `serviceMode`, `serviceUser`,
+`stage`, `outcome`, `retryable`, timestamps, and completed effect checkpoints.
+Stages are `accepted`, `stopping`, `resetting`, `removing`, `replacing`, `restoring`,
+`verifying`, and `complete`. Outcome is `pending`, `failed`, or `succeeded`.
+`failureCode=maintenance_incomplete` and `failureMessage` explain an accepted
+operation's failed stage. A process crash can leave `pending`; it does not prove
+that the effects failed or completed. Retry the same complete request.
+
+The journal and flock live in `~/Library/Application Support/Agent VMM Maintenance`:
+`owner.lock`, `state.json`, and `request-<sha256(requestId)>.json`. They survive app
+removal and data reset. Status accepts `{ "requestId": "..." }`, or `{}`/empty
+input for the latest receipt. It returns `null` when none exists. Status does not
+create directories, read Host data, start a service, or need an installed app.
+Other applications must use separate journal filenames or subdirectories.
+
+The owner first attempts a graceful VM stop. An old or damaged Host can instead
+be stopped through its exact launchd service. Process exit and disk release must
+both be confirmed before reset or replacement. An unknown process or disk owner
+leaves the operation incomplete. After replacement, retries restore and verify
+the installed release. If that bundle is missing or damaged, the same request
+stops the Host and replaces it from the frozen source without repeating reset. A same-version
+reinstall still replaces the bundle. An uninstall never calls restore.
+
+Daemon operations keep the existing administrator boundary. Run maintenance as
+the service user. If it reports that a fixed system job must be stopped, removed,
+or installed, the administrator uses `agent-vmm-service-executor` and then resumes
+the same request. Do not run the maintenance business operation as root.
+
+`state.json` has `version: 1`, optional `activeRequest` and `latestRequest`,
+`uninstalled`, `completedRequests` (settled maintenance request IDs), and
+`blockedInstalls` (managed install IDs). Both maps use ID keys with value `true`.
+The completion state atomically clears the active request and records settlement.
+A verified-effects checkpoint lets a failed completion write retry only settlement.
+Status reports success only from committed owner state, including a crash before
+the receipt projection was written. Historical requests cannot repeat effects.
+Normal
+lifecycle mutations reject active maintenance or an uninstalled Host. Explicit
+maintenance reinstall permits new setup. Preserve uninstall uses this temporary
+fence; after explicit preserve reinstall, retained bindings may resume under their
+existing authorization. Reset records locally known managed install IDs and rejects
+their replay after reinstall, including a retry
+that changes its outer request ID. The shipped installer checks maintenance
+before copying or starting software. Consumers must treat unreadable or unknown
+policy as unavailable, not as an absent fence. The latest BFT runner must honor
+this same policy before its own copy, install, and control operations.
+
+This fence does not constrain arbitrary old binaries or a local operator who
+rewrites files directly. A descriptor that was never delivered locally has no
+issue timestamp, so this owner cannot infer that it predates maintenance. Product
+owners must retire their old pending intent. Cloud records can remain after a
+local reset; clearing those records still requires cloud authorization.
+
 ## Command availability
 
 This table is the authoritative availability source for managed local tools.

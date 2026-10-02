@@ -42,6 +42,10 @@ if [ "${1:-}" = version ]; then
 	printf '%s\n' '{"release_id":"release-stable"}'
 	exit 0
 fi
+if [ "${1:-}" = maintenance-status ]; then
+    printf '%s\n' "${TEST_MAINTENANCE_RECEIPT:-null}"
+    exit 0
+fi
 printf '%s\n' "$*" >> "$TEST_LIFECYCLE_LOG"
 
 if [ "${1:-}" = install ]; then
@@ -73,7 +77,7 @@ run_installer() {
 	TEST_SERVICE_HOME="$service_home" TEST_LIFECYCLE_LOG="$scratch/lifecycle.log" TEST_ATTEMPT_COUNT="$scratch/attempt-count" \
 		TEST_OLD_CURRENT="$scratch/current-is-old" TEST_INSTALL_FAILED="$scratch/install-failed" \
 		TEST_REPAIR_COMPLETE="$scratch/repair-complete" TEST_FAIL_INSTALL_ONCE="${fail_install_once:-0}" \
-		TEST_REQUIRE_REPAIR="${require_repair:-0}" \
+		TEST_REQUIRE_REPAIR="${require_repair:-0}" TEST_MAINTENANCE_RECEIPT="${maintenance_receipt:-null}" \
 		OUTPUT_DIRECTORY="$payload" PATH="$scratch/bin:$PATH" \
 		"$repo/build/host/install.sh" --service-type agent --service-user "$service_user"
 }
@@ -124,4 +128,18 @@ test "$recovery_repair" = "repair --service-type agent --service-user $service_u
 test "$recovery_status" = "status --service-type agent --service-user $service_user"
 test -e "$scratch/repair-complete"
 
-echo "Agent VMM installer resume contract passed"
+rm -rf "$service_home"
+maintenance_receipt='{"version":1,"action":"uninstall","outcome":"succeeded"}'
+if run_installer >/dev/null 2>&1; then
+    echo "installer resurrected an explicitly uninstalled Host" >&2
+    exit 1
+fi
+test ! -e "$service_home/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app"
+maintenance_receipt='{"version":1,"action":"reinstall","outcome":"pending"}'
+if run_installer >/dev/null 2>&1; then
+    echo "installer bypassed pending Host maintenance" >&2
+    exit 1
+fi
+test ! -e "$service_home/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app"
+
+echo "Agent VMM installer resume and maintenance contract passed"

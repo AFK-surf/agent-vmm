@@ -164,7 +164,7 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|status|operation|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
+		fatal("usage: agent-vmm-lifecycle version --json|status|operation|maintenance|maintenance-status|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
@@ -183,6 +183,10 @@ func main() {
 		fatal(err.Error())
 	}
 	serviceRequest.action = os.Args[1]
+	if os.Args[1] == "maintenance" || os.Args[1] == "maintenance-status" {
+		executeMaintenanceCommand(os.Args[1], serviceRequest, commandArgs)
+		return
+	}
 	if localOperatorCommand(os.Args[1]) {
 		executeLocalOperator(os.Args[1], serviceRequest, commandArgs)
 		return
@@ -306,6 +310,9 @@ func main() {
 					}
 					reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_completed", RequestID: requestID})
 					return ensureVMStarted(resolved, requestID)
+				}
+				if err := checkMaintenanceInstallTarget(resolved, resumeOperationID); err != nil {
+					return err
 				}
 				if completedResume {
 					return nil
@@ -441,7 +448,7 @@ func main() {
 
 func lifecycleMutationCommand(command string) bool {
 	switch command {
-	case "install", "install-operation-ack", "repair", "registration-state", "registration-revoke", "drain", "update", "uninstall":
+	case "maintenance", "install", "install-operation-ack", "repair", "registration-state", "registration-revoke", "drain", "update", "uninstall":
 		return true
 	default:
 		return false
@@ -1115,6 +1122,11 @@ func persistRepairStage(value paths, requestID, registrationID, stage string) er
 }
 
 func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRegistrationID, targetReleaseID, targetArtifactSHA256 string, targetArtifactSize uint64, retryFailed bool, action func() error) (lifecycleOperation, error) {
+	maintenanceRelease, err := acquireMaintenanceMutation(value, kind, requestID)
+	if err != nil {
+		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "failed", FailureCode: "local_maintenance_required", FailureMessage: err.Error()}, err
+	}
+	defer maintenanceRelease()
 	owner := lifecycleOperationOwner(value)
 	release, err := acquireOperationLockOwned(value, owner)
 	if err != nil {
