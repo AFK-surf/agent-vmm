@@ -236,7 +236,7 @@ func writeDisposalSentinel(t *testing.T, ctx context.Context, runtime hostv1.Age
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Header{Header: &hostv1.WriteWorkspaceHeader{RequestId: volumeID + "-sentinel", Path: "value", VolumeId: volumeID, Mode: 0600}}}); err != nil {
+	if err := stream.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Header{Header: &hostv1.WriteWorkspaceHeader{RequestId: "sentinel-" + value, Path: "value", VolumeId: volumeID, Mode: 0600}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := stream.Send(&hostv1.WriteWorkspaceRequest{Payload: &hostv1.WriteWorkspaceRequest_Data{Data: []byte(value)}}); err != nil {

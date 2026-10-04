@@ -319,6 +319,9 @@ func (s *Server) WriteWorkspace(stream vmmdv1.VMMDService_WriteWorkspaceServer) 
 	if err := unix.Renameat(int(parent.Fd()), stagingName, int(parent.Fd()), name); err != nil {
 		return rpcError(err)
 	}
+	if err := parent.Sync(); err != nil {
+		return rpcError(err)
+	}
 	result, err := openWorkspaceRoot(header.GetActorNamespaceId(), header.GetVolumeId(), clean, unix.O_RDONLY)
 	if err != nil {
 		return rpcError(err)

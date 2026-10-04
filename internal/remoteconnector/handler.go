@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -52,6 +53,32 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 				handler.tunnels.CloseAllocation(value.ReleaseAllocation.GetAllocationId())
 			}
 			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
+		}
+	case *remotev1.ControllerCommand_DisposeAllocation:
+		request := value.DisposeAllocation
+		if request.GetExpectedRevision() == 0 || request.GetExpectedRevision() != command.GetTargetRevision() || request.GetExpectedGeneration() == 0 {
+			err = status.Error(codes.Aborted, "allocation deletion revision is stale")
+			break
+		}
+		var response *hostv1.AllocationResponse
+		response, err = handler.client.DisposeAllocation(ctx, &hostv1.DisposeAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: request.GetAllocationId(), ExpectedPolicyRevision: request.GetExpectedRevision(), ExpectedGeneration: request.GetExpectedGeneration(), RequestId: request.GetRequestId()})
+		if err == nil {
+			if handler.tunnels != nil {
+				handler.tunnels.CloseAllocation(request.GetAllocationId())
+			}
+			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
+		} else if reasonFor(err) == remotev1.ErrorReason_ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED {
+			for _, detail := range status.Convert(err).Details() {
+				info, ok := detail.(*errdetails.ErrorInfo)
+				if !ok || info.GetReason() != "DISPOSAL_REVISION_NOT_ACCEPTED" {
+					continue
+				}
+				generation, genErr := strconv.ParseUint(info.Metadata["generation"], 10, 64)
+				revision, revErr := strconv.ParseUint(info.Metadata["revision"], 10, 64)
+				if genErr == nil && revErr == nil && revision > 0 && generation == request.GetExpectedGeneration() && info.Metadata["allocation_id"] == request.GetAllocationId() {
+					result.Result = &remotev1.CommandResult_Allocation{Allocation: &remotev1.Allocation{AllocationId: request.GetAllocationId(), Generation: generation, Revision: revision}}
+				}
+			}
 		}
 	case *remotev1.ControllerCommand_PlanCleanupAllocation:
 		var response *hostv1.AllocationCleanupPlanResponse
@@ -185,6 +212,8 @@ func reasonFor(err error) remotev1.ErrorReason {
 		for _, detail := range current.Details() {
 			if info, ok := detail.(*errdetails.ErrorInfo); ok {
 				switch info.GetReason() {
+				case "DISPOSAL_REVISION_NOT_ACCEPTED":
+					return remotev1.ErrorReason_ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED
 				case "POLICY_REVISION_CONFLICT":
 					return remotev1.ErrorReason_ERROR_REASON_STALE_REVISION
 				case "POOL_PER_ENVIRONMENT_LIMIT":

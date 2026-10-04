@@ -16085,6 +16085,90 @@ func (x *ReleaseAllocationRequest) GetExpectedGeneration() uint64 {
 	return 0
 }
 
+type DisposeAllocationRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	RegistrationId         string                 `protobuf:"bytes,1,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	ConnectionInstance     string                 `protobuf:"bytes,2,opt,name=connection_instance,json=connectionInstance,proto3" json:"connection_instance,omitempty"`
+	AllocationId           string                 `protobuf:"bytes,3,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	ExpectedPolicyRevision uint64                 `protobuf:"varint,4,opt,name=expected_policy_revision,json=expectedPolicyRevision,proto3" json:"expected_policy_revision,omitempty"`
+	ExpectedGeneration     uint64                 `protobuf:"varint,5,opt,name=expected_generation,json=expectedGeneration,proto3" json:"expected_generation,omitempty"`
+	RequestId              string                 `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *DisposeAllocationRequest) Reset() {
+	*x = DisposeAllocationRequest{}
+	mi := &file_host_v1_host_proto_msgTypes[214]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisposeAllocationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisposeAllocationRequest) ProtoMessage() {}
+
+func (x *DisposeAllocationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_host_v1_host_proto_msgTypes[214]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisposeAllocationRequest.ProtoReflect.Descriptor instead.
+func (*DisposeAllocationRequest) Descriptor() ([]byte, []int) {
+	return file_host_v1_host_proto_rawDescGZIP(), []int{214}
+}
+
+func (x *DisposeAllocationRequest) GetRegistrationId() string {
+	if x != nil {
+		return x.RegistrationId
+	}
+	return ""
+}
+
+func (x *DisposeAllocationRequest) GetConnectionInstance() string {
+	if x != nil {
+		return x.ConnectionInstance
+	}
+	return ""
+}
+
+func (x *DisposeAllocationRequest) GetAllocationId() string {
+	if x != nil {
+		return x.AllocationId
+	}
+	return ""
+}
+
+func (x *DisposeAllocationRequest) GetExpectedPolicyRevision() uint64 {
+	if x != nil {
+		return x.ExpectedPolicyRevision
+	}
+	return 0
+}
+
+func (x *DisposeAllocationRequest) GetExpectedGeneration() uint64 {
+	if x != nil {
+		return x.ExpectedGeneration
+	}
+	return 0
+}
+
+func (x *DisposeAllocationRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 type PlanCleanupAllocationRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	AllocationId       string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
@@ -16097,7 +16181,7 @@ type PlanCleanupAllocationRequest struct {
 
 func (x *PlanCleanupAllocationRequest) Reset() {
 	*x = PlanCleanupAllocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[214]
+	mi := &file_host_v1_host_proto_msgTypes[215]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16109,7 +16193,7 @@ func (x *PlanCleanupAllocationRequest) String() string {
 func (*PlanCleanupAllocationRequest) ProtoMessage() {}
 
 func (x *PlanCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[214]
+	mi := &file_host_v1_host_proto_msgTypes[215]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16122,7 +16206,7 @@ func (x *PlanCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanCleanupAllocationRequest.ProtoReflect.Descriptor instead.
 func (*PlanCleanupAllocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{214}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{215}
 }
 
 func (x *PlanCleanupAllocationRequest) GetAllocationId() string {
@@ -16166,7 +16250,7 @@ type AllocationCleanupPlan struct {
 
 func (x *AllocationCleanupPlan) Reset() {
 	*x = AllocationCleanupPlan{}
-	mi := &file_host_v1_host_proto_msgTypes[215]
+	mi := &file_host_v1_host_proto_msgTypes[216]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16178,7 +16262,7 @@ func (x *AllocationCleanupPlan) String() string {
 func (*AllocationCleanupPlan) ProtoMessage() {}
 
 func (x *AllocationCleanupPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[215]
+	mi := &file_host_v1_host_proto_msgTypes[216]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16191,7 +16275,7 @@ func (x *AllocationCleanupPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationCleanupPlan.ProtoReflect.Descriptor instead.
 func (*AllocationCleanupPlan) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{215}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{216}
 }
 
 func (x *AllocationCleanupPlan) GetAllocationId() string {
@@ -16238,7 +16322,7 @@ type AllocationCleanupPlanResponse struct {
 
 func (x *AllocationCleanupPlanResponse) Reset() {
 	*x = AllocationCleanupPlanResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[216]
+	mi := &file_host_v1_host_proto_msgTypes[217]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16250,7 +16334,7 @@ func (x *AllocationCleanupPlanResponse) String() string {
 func (*AllocationCleanupPlanResponse) ProtoMessage() {}
 
 func (x *AllocationCleanupPlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[216]
+	mi := &file_host_v1_host_proto_msgTypes[217]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16263,7 +16347,7 @@ func (x *AllocationCleanupPlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllocationCleanupPlanResponse.ProtoReflect.Descriptor instead.
 func (*AllocationCleanupPlanResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{216}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{217}
 }
 
 func (x *AllocationCleanupPlanResponse) GetPlan() *AllocationCleanupPlan {
@@ -16287,7 +16371,7 @@ type ExecuteCleanupAllocationRequest struct {
 
 func (x *ExecuteCleanupAllocationRequest) Reset() {
 	*x = ExecuteCleanupAllocationRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[217]
+	mi := &file_host_v1_host_proto_msgTypes[218]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16299,7 +16383,7 @@ func (x *ExecuteCleanupAllocationRequest) String() string {
 func (*ExecuteCleanupAllocationRequest) ProtoMessage() {}
 
 func (x *ExecuteCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[217]
+	mi := &file_host_v1_host_proto_msgTypes[218]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16312,7 +16396,7 @@ func (x *ExecuteCleanupAllocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteCleanupAllocationRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteCleanupAllocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{217}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{218}
 }
 
 func (x *ExecuteCleanupAllocationRequest) GetAllocationId() string {
@@ -16370,7 +16454,7 @@ type OpenRuntimeSessionRequest struct {
 
 func (x *OpenRuntimeSessionRequest) Reset() {
 	*x = OpenRuntimeSessionRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[218]
+	mi := &file_host_v1_host_proto_msgTypes[219]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16382,7 +16466,7 @@ func (x *OpenRuntimeSessionRequest) String() string {
 func (*OpenRuntimeSessionRequest) ProtoMessage() {}
 
 func (x *OpenRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[218]
+	mi := &file_host_v1_host_proto_msgTypes[219]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16395,7 +16479,7 @@ func (x *OpenRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenRuntimeSessionRequest.ProtoReflect.Descriptor instead.
 func (*OpenRuntimeSessionRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{218}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{219}
 }
 
 func (x *OpenRuntimeSessionRequest) GetAllocationGeneration() uint64 {
@@ -16446,7 +16530,7 @@ type RevokeRuntimeSessionRequest struct {
 
 func (x *RevokeRuntimeSessionRequest) Reset() {
 	*x = RevokeRuntimeSessionRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[219]
+	mi := &file_host_v1_host_proto_msgTypes[220]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16458,7 +16542,7 @@ func (x *RevokeRuntimeSessionRequest) String() string {
 func (*RevokeRuntimeSessionRequest) ProtoMessage() {}
 
 func (x *RevokeRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[219]
+	mi := &file_host_v1_host_proto_msgTypes[220]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16471,7 +16555,7 @@ func (x *RevokeRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeRuntimeSessionRequest.ProtoReflect.Descriptor instead.
 func (*RevokeRuntimeSessionRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{219}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{220}
 }
 
 func (x *RevokeRuntimeSessionRequest) GetSessionId() string {
@@ -16519,7 +16603,7 @@ type PlanLocalDisposalRequest struct {
 
 func (x *PlanLocalDisposalRequest) Reset() {
 	*x = PlanLocalDisposalRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[220]
+	mi := &file_host_v1_host_proto_msgTypes[221]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16531,7 +16615,7 @@ func (x *PlanLocalDisposalRequest) String() string {
 func (*PlanLocalDisposalRequest) ProtoMessage() {}
 
 func (x *PlanLocalDisposalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[220]
+	mi := &file_host_v1_host_proto_msgTypes[221]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16544,7 +16628,7 @@ func (x *PlanLocalDisposalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanLocalDisposalRequest.ProtoReflect.Descriptor instead.
 func (*PlanLocalDisposalRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{220}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{221}
 }
 
 func (x *PlanLocalDisposalRequest) GetTargetKind() LocalDisposalTargetKind {
@@ -16576,7 +16660,7 @@ type LocalDisposalPlan struct {
 
 func (x *LocalDisposalPlan) Reset() {
 	*x = LocalDisposalPlan{}
-	mi := &file_host_v1_host_proto_msgTypes[221]
+	mi := &file_host_v1_host_proto_msgTypes[222]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16588,7 +16672,7 @@ func (x *LocalDisposalPlan) String() string {
 func (*LocalDisposalPlan) ProtoMessage() {}
 
 func (x *LocalDisposalPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[221]
+	mi := &file_host_v1_host_proto_msgTypes[222]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16601,7 +16685,7 @@ func (x *LocalDisposalPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalDisposalPlan.ProtoReflect.Descriptor instead.
 func (*LocalDisposalPlan) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{221}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{222}
 }
 
 func (x *LocalDisposalPlan) GetTargetKind() LocalDisposalTargetKind {
@@ -16662,7 +16746,7 @@ type LocalDisposalPlanResponse struct {
 
 func (x *LocalDisposalPlanResponse) Reset() {
 	*x = LocalDisposalPlanResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[222]
+	mi := &file_host_v1_host_proto_msgTypes[223]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16674,7 +16758,7 @@ func (x *LocalDisposalPlanResponse) String() string {
 func (*LocalDisposalPlanResponse) ProtoMessage() {}
 
 func (x *LocalDisposalPlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[222]
+	mi := &file_host_v1_host_proto_msgTypes[223]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16687,7 +16771,7 @@ func (x *LocalDisposalPlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalDisposalPlanResponse.ProtoReflect.Descriptor instead.
 func (*LocalDisposalPlanResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{222}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{223}
 }
 
 func (x *LocalDisposalPlanResponse) GetPlan() *LocalDisposalPlan {
@@ -16708,7 +16792,7 @@ type ExecuteLocalDisposalRequest struct {
 
 func (x *ExecuteLocalDisposalRequest) Reset() {
 	*x = ExecuteLocalDisposalRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[223]
+	mi := &file_host_v1_host_proto_msgTypes[224]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16720,7 +16804,7 @@ func (x *ExecuteLocalDisposalRequest) String() string {
 func (*ExecuteLocalDisposalRequest) ProtoMessage() {}
 
 func (x *ExecuteLocalDisposalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[223]
+	mi := &file_host_v1_host_proto_msgTypes[224]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16733,7 +16817,7 @@ func (x *ExecuteLocalDisposalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteLocalDisposalRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteLocalDisposalRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{223}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{224}
 }
 
 func (x *ExecuteLocalDisposalRequest) GetRequestId() string {
@@ -16766,7 +16850,7 @@ type SignCommaRecoveryRequest struct {
 
 func (x *SignCommaRecoveryRequest) Reset() {
 	*x = SignCommaRecoveryRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[224]
+	mi := &file_host_v1_host_proto_msgTypes[225]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16778,7 +16862,7 @@ func (x *SignCommaRecoveryRequest) String() string {
 func (*SignCommaRecoveryRequest) ProtoMessage() {}
 
 func (x *SignCommaRecoveryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[224]
+	mi := &file_host_v1_host_proto_msgTypes[225]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16791,7 +16875,7 @@ func (x *SignCommaRecoveryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignCommaRecoveryRequest.ProtoReflect.Descriptor instead.
 func (*SignCommaRecoveryRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{224}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{225}
 }
 
 func (x *SignCommaRecoveryRequest) GetChallengeJson() []byte {
@@ -16811,7 +16895,7 @@ type SignCommaRecoveryResponse struct {
 
 func (x *SignCommaRecoveryResponse) Reset() {
 	*x = SignCommaRecoveryResponse{}
-	mi := &file_host_v1_host_proto_msgTypes[225]
+	mi := &file_host_v1_host_proto_msgTypes[226]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16823,7 +16907,7 @@ func (x *SignCommaRecoveryResponse) String() string {
 func (*SignCommaRecoveryResponse) ProtoMessage() {}
 
 func (x *SignCommaRecoveryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[225]
+	mi := &file_host_v1_host_proto_msgTypes[226]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16836,7 +16920,7 @@ func (x *SignCommaRecoveryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignCommaRecoveryResponse.ProtoReflect.Descriptor instead.
 func (*SignCommaRecoveryResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{225}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{226}
 }
 
 func (x *SignCommaRecoveryResponse) GetIdentity() *v1.DeviceIdentity {
@@ -16862,7 +16946,7 @@ type GetLocalDiskSummaryRequest struct {
 
 func (x *GetLocalDiskSummaryRequest) Reset() {
 	*x = GetLocalDiskSummaryRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[226]
+	mi := &file_host_v1_host_proto_msgTypes[227]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16874,7 +16958,7 @@ func (x *GetLocalDiskSummaryRequest) String() string {
 func (*GetLocalDiskSummaryRequest) ProtoMessage() {}
 
 func (x *GetLocalDiskSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[226]
+	mi := &file_host_v1_host_proto_msgTypes[227]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16887,7 +16971,7 @@ func (x *GetLocalDiskSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLocalDiskSummaryRequest.ProtoReflect.Descriptor instead.
 func (*GetLocalDiskSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{226}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{227}
 }
 
 type LocalDiskSummary struct {
@@ -16903,7 +16987,7 @@ type LocalDiskSummary struct {
 
 func (x *LocalDiskSummary) Reset() {
 	*x = LocalDiskSummary{}
-	mi := &file_host_v1_host_proto_msgTypes[227]
+	mi := &file_host_v1_host_proto_msgTypes[228]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16915,7 +16999,7 @@ func (x *LocalDiskSummary) String() string {
 func (*LocalDiskSummary) ProtoMessage() {}
 
 func (x *LocalDiskSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[227]
+	mi := &file_host_v1_host_proto_msgTypes[228]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16928,7 +17012,7 @@ func (x *LocalDiskSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalDiskSummary.ProtoReflect.Descriptor instead.
 func (*LocalDiskSummary) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{227}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{228}
 }
 
 func (x *LocalDiskSummary) GetCollectedAt() *timestamppb.Timestamp {
@@ -16975,7 +17059,7 @@ type ListLocalEnvironmentPageRequest struct {
 
 func (x *ListLocalEnvironmentPageRequest) Reset() {
 	*x = ListLocalEnvironmentPageRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[228]
+	mi := &file_host_v1_host_proto_msgTypes[229]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16987,7 +17071,7 @@ func (x *ListLocalEnvironmentPageRequest) String() string {
 func (*ListLocalEnvironmentPageRequest) ProtoMessage() {}
 
 func (x *ListLocalEnvironmentPageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[228]
+	mi := &file_host_v1_host_proto_msgTypes[229]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17000,7 +17084,7 @@ func (x *ListLocalEnvironmentPageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLocalEnvironmentPageRequest.ProtoReflect.Descriptor instead.
 func (*ListLocalEnvironmentPageRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{228}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{229}
 }
 
 func (x *ListLocalEnvironmentPageRequest) GetAfterId() string {
@@ -17029,7 +17113,7 @@ type LocalEnvironmentSummary struct {
 
 func (x *LocalEnvironmentSummary) Reset() {
 	*x = LocalEnvironmentSummary{}
-	mi := &file_host_v1_host_proto_msgTypes[229]
+	mi := &file_host_v1_host_proto_msgTypes[230]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17041,7 +17125,7 @@ func (x *LocalEnvironmentSummary) String() string {
 func (*LocalEnvironmentSummary) ProtoMessage() {}
 
 func (x *LocalEnvironmentSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[229]
+	mi := &file_host_v1_host_proto_msgTypes[230]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17054,7 +17138,7 @@ func (x *LocalEnvironmentSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalEnvironmentSummary.ProtoReflect.Descriptor instead.
 func (*LocalEnvironmentSummary) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{229}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{230}
 }
 
 func (x *LocalEnvironmentSummary) GetId() string {
@@ -17146,7 +17230,7 @@ type LocalEnvironmentPage struct {
 
 func (x *LocalEnvironmentPage) Reset() {
 	*x = LocalEnvironmentPage{}
-	mi := &file_host_v1_host_proto_msgTypes[230]
+	mi := &file_host_v1_host_proto_msgTypes[231]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17158,7 +17242,7 @@ func (x *LocalEnvironmentPage) String() string {
 func (*LocalEnvironmentPage) ProtoMessage() {}
 
 func (x *LocalEnvironmentPage) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[230]
+	mi := &file_host_v1_host_proto_msgTypes[231]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17171,7 +17255,7 @@ func (x *LocalEnvironmentPage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalEnvironmentPage.ProtoReflect.Descriptor instead.
 func (*LocalEnvironmentPage) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{230}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{231}
 }
 
 func (x *LocalEnvironmentPage) GetEnvironments() []*LocalEnvironmentSummary {
@@ -17211,7 +17295,7 @@ type ListLocalRegistrationPageRequest struct {
 
 func (x *ListLocalRegistrationPageRequest) Reset() {
 	*x = ListLocalRegistrationPageRequest{}
-	mi := &file_host_v1_host_proto_msgTypes[231]
+	mi := &file_host_v1_host_proto_msgTypes[232]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17223,7 +17307,7 @@ func (x *ListLocalRegistrationPageRequest) String() string {
 func (*ListLocalRegistrationPageRequest) ProtoMessage() {}
 
 func (x *ListLocalRegistrationPageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[231]
+	mi := &file_host_v1_host_proto_msgTypes[232]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17236,7 +17320,7 @@ func (x *ListLocalRegistrationPageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLocalRegistrationPageRequest.ProtoReflect.Descriptor instead.
 func (*ListLocalRegistrationPageRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{231}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{232}
 }
 
 func (x *ListLocalRegistrationPageRequest) GetAfterId() string {
@@ -17257,7 +17341,7 @@ type LocalRegistrationMetadata struct {
 
 func (x *LocalRegistrationMetadata) Reset() {
 	*x = LocalRegistrationMetadata{}
-	mi := &file_host_v1_host_proto_msgTypes[232]
+	mi := &file_host_v1_host_proto_msgTypes[233]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17269,7 +17353,7 @@ func (x *LocalRegistrationMetadata) String() string {
 func (*LocalRegistrationMetadata) ProtoMessage() {}
 
 func (x *LocalRegistrationMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[232]
+	mi := &file_host_v1_host_proto_msgTypes[233]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17282,7 +17366,7 @@ func (x *LocalRegistrationMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalRegistrationMetadata.ProtoReflect.Descriptor instead.
 func (*LocalRegistrationMetadata) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{232}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{233}
 }
 
 func (x *LocalRegistrationMetadata) GetId() string {
@@ -17316,7 +17400,7 @@ type LocalRegistrationPage struct {
 
 func (x *LocalRegistrationPage) Reset() {
 	*x = LocalRegistrationPage{}
-	mi := &file_host_v1_host_proto_msgTypes[233]
+	mi := &file_host_v1_host_proto_msgTypes[234]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17328,7 +17412,7 @@ func (x *LocalRegistrationPage) String() string {
 func (*LocalRegistrationPage) ProtoMessage() {}
 
 func (x *LocalRegistrationPage) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_host_proto_msgTypes[233]
+	mi := &file_host_v1_host_proto_msgTypes[234]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17341,7 +17425,7 @@ func (x *LocalRegistrationPage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalRegistrationPage.ProtoReflect.Descriptor instead.
 func (*LocalRegistrationPage) Descriptor() ([]byte, []int) {
-	return file_host_v1_host_proto_rawDescGZIP(), []int{233}
+	return file_host_v1_host_proto_rawDescGZIP(), []int{234}
 }
 
 func (x *LocalRegistrationPage) GetRegistrations() []*LocalRegistrationMetadata {
@@ -18583,7 +18667,15 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x18expected_policy_revision\x18\x02 \x01(\x04R\x16expectedPolicyRevision\x12'\n" +
 	"\x0fregistration_id\x18\x03 \x01(\tR\x0eregistrationId\x12/\n" +
 	"\x13connection_instance\x18\x04 \x01(\tR\x12connectionInstance\x12/\n" +
-	"\x13expected_generation\x18\x05 \x01(\x04R\x12expectedGeneration\"\xd0\x01\n" +
+	"\x13expected_generation\x18\x05 \x01(\x04R\x12expectedGeneration\"\xa3\x02\n" +
+	"\x18DisposeAllocationRequest\x12'\n" +
+	"\x0fregistration_id\x18\x01 \x01(\tR\x0eregistrationId\x12/\n" +
+	"\x13connection_instance\x18\x02 \x01(\tR\x12connectionInstance\x12#\n" +
+	"\rallocation_id\x18\x03 \x01(\tR\fallocationId\x128\n" +
+	"\x18expected_policy_revision\x18\x04 \x01(\x04R\x16expectedPolicyRevision\x12/\n" +
+	"\x13expected_generation\x18\x05 \x01(\x04R\x12expectedGeneration\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x06 \x01(\tR\trequestId\"\xd0\x01\n" +
 	"\x1cPlanCleanupAllocationRequest\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12'\n" +
 	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12/\n" +
@@ -18964,7 +19056,7 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x14RepairDeviceIdentity\x12-.agentvmm.host.v1.RepairDeviceIdentityRequest\x1a(.agentvmm.host.v1.DeviceIdentityResponse\x12\x82\x01\n" +
 	"\x1dCreatePersonalServiceListener\x126.agentvmm.host.v1.CreatePersonalServiceListenerRequest\x1a).agentvmm.host.v1.ServiceListenerResponse\x12u\n" +
 	"\x14ListServiceListeners\x12-.agentvmm.host.v1.ListServiceListenersRequest\x1a..agentvmm.host.v1.ListServiceListenersResponse\x12_\n" +
-	"\x15RevokeServiceListener\x12..agentvmm.host.v1.RevokeServiceListenerRequest\x1a\x16.google.protobuf.Empty2\xb4\r\n" +
+	"\x15RevokeServiceListener\x12..agentvmm.host.v1.RevokeServiceListenerRequest\x1a\x16.google.protobuf.Empty2\x9b\x0e\n" +
 	"\x14RemoteComputeService\x12c\n" +
 	"\x0eGetRemoteState\x12'.agentvmm.host.v1.GetRemoteStateRequest\x1a(.agentvmm.host.v1.GetRemoteStateResponse\x12u\n" +
 	"\x14GetRemoteObservation\x12-.agentvmm.host.v1.GetRemoteObservationRequest\x1a..agentvmm.host.v1.GetRemoteObservationResponse\x12k\n" +
@@ -18972,7 +19064,8 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"\x17SetRemoteAdmissionState\x120.agentvmm.host.v1.SetRemoteAdmissionStateRequest\x1a(.agentvmm.host.v1.GetRemoteStateResponse\x12q\n" +
 	"\x15ReportConnectorStatus\x12..agentvmm.host.v1.ReportConnectorStatusRequest\x1a(.agentvmm.host.v1.GetRemoteStateResponse\x12c\n" +
 	"\x10EnsureAllocation\x12).agentvmm.host.v1.EnsureAllocationRequest\x1a$.agentvmm.host.v1.AllocationResponse\x12e\n" +
-	"\x11ReleaseAllocation\x12*.agentvmm.host.v1.ReleaseAllocationRequest\x1a$.agentvmm.host.v1.AllocationResponse\x12x\n" +
+	"\x11ReleaseAllocation\x12*.agentvmm.host.v1.ReleaseAllocationRequest\x1a$.agentvmm.host.v1.AllocationResponse\x12e\n" +
+	"\x11DisposeAllocation\x12*.agentvmm.host.v1.DisposeAllocationRequest\x1a$.agentvmm.host.v1.AllocationResponse\x12x\n" +
 	"\x15PlanCleanupAllocation\x12..agentvmm.host.v1.PlanCleanupAllocationRequest\x1a/.agentvmm.host.v1.AllocationCleanupPlanResponse\x12s\n" +
 	"\x18ExecuteCleanupAllocation\x121.agentvmm.host.v1.ExecuteCleanupAllocationRequest\x1a$.agentvmm.host.v1.AllocationResponse\x12o\n" +
 	"\x12OpenRuntimeSession\x12+.agentvmm.host.v1.OpenRuntimeSessionRequest\x1a,.agentvmm.host.v1.CreateAgentSessionResponse\x12]\n" +
@@ -18995,7 +19088,7 @@ func file_host_v1_host_proto_rawDescGZIP() []byte {
 }
 
 var file_host_v1_host_proto_enumTypes = make([]protoimpl.EnumInfo, 31)
-var file_host_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 234)
+var file_host_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 235)
 var file_host_v1_host_proto_goTypes = []any{
 	(DeviceIdentityState)(0),                          // 0: agentvmm.host.v1.DeviceIdentityState
 	(ServiceListenerExposure)(0),                      // 1: agentvmm.host.v1.ServiceListenerExposure
@@ -19242,67 +19335,68 @@ var file_host_v1_host_proto_goTypes = []any{
 	(*EnsureAllocationRequest)(nil),                   // 242: agentvmm.host.v1.EnsureAllocationRequest
 	(*AllocationResponse)(nil),                        // 243: agentvmm.host.v1.AllocationResponse
 	(*ReleaseAllocationRequest)(nil),                  // 244: agentvmm.host.v1.ReleaseAllocationRequest
-	(*PlanCleanupAllocationRequest)(nil),              // 245: agentvmm.host.v1.PlanCleanupAllocationRequest
-	(*AllocationCleanupPlan)(nil),                     // 246: agentvmm.host.v1.AllocationCleanupPlan
-	(*AllocationCleanupPlanResponse)(nil),             // 247: agentvmm.host.v1.AllocationCleanupPlanResponse
-	(*ExecuteCleanupAllocationRequest)(nil),           // 248: agentvmm.host.v1.ExecuteCleanupAllocationRequest
-	(*OpenRuntimeSessionRequest)(nil),                 // 249: agentvmm.host.v1.OpenRuntimeSessionRequest
-	(*RevokeRuntimeSessionRequest)(nil),               // 250: agentvmm.host.v1.RevokeRuntimeSessionRequest
-	(*PlanLocalDisposalRequest)(nil),                  // 251: agentvmm.host.v1.PlanLocalDisposalRequest
-	(*LocalDisposalPlan)(nil),                         // 252: agentvmm.host.v1.LocalDisposalPlan
-	(*LocalDisposalPlanResponse)(nil),                 // 253: agentvmm.host.v1.LocalDisposalPlanResponse
-	(*ExecuteLocalDisposalRequest)(nil),               // 254: agentvmm.host.v1.ExecuteLocalDisposalRequest
-	(*SignCommaRecoveryRequest)(nil),                  // 255: agentvmm.host.v1.SignCommaRecoveryRequest
-	(*SignCommaRecoveryResponse)(nil),                 // 256: agentvmm.host.v1.SignCommaRecoveryResponse
-	(*GetLocalDiskSummaryRequest)(nil),                // 257: agentvmm.host.v1.GetLocalDiskSummaryRequest
-	(*LocalDiskSummary)(nil),                          // 258: agentvmm.host.v1.LocalDiskSummary
-	(*ListLocalEnvironmentPageRequest)(nil),           // 259: agentvmm.host.v1.ListLocalEnvironmentPageRequest
-	(*LocalEnvironmentSummary)(nil),                   // 260: agentvmm.host.v1.LocalEnvironmentSummary
-	(*LocalEnvironmentPage)(nil),                      // 261: agentvmm.host.v1.LocalEnvironmentPage
-	(*ListLocalRegistrationPageRequest)(nil),          // 262: agentvmm.host.v1.ListLocalRegistrationPageRequest
-	(*LocalRegistrationMetadata)(nil),                 // 263: agentvmm.host.v1.LocalRegistrationMetadata
-	(*LocalRegistrationPage)(nil),                     // 264: agentvmm.host.v1.LocalRegistrationPage
-	(*v1.DeviceIdentity)(nil),                         // 265: agentvmm.trust.v1.DeviceIdentity
-	(*v1.DeviceRootRotation)(nil),                     // 266: agentvmm.trust.v1.DeviceRootRotation
-	(*v1.RouteBudget)(nil),                            // 267: agentvmm.trust.v1.RouteBudget
-	(*timestamppb.Timestamp)(nil),                     // 268: google.protobuf.Timestamp
-	(*v1.PersonalMeshDescriptor)(nil),                 // 269: agentvmm.trust.v1.PersonalMeshDescriptor
-	(*v1.MeshSnapshot)(nil),                           // 270: agentvmm.trust.v1.MeshSnapshot
-	(*v1.RegistryOperation)(nil),                      // 271: agentvmm.trust.v1.RegistryOperation
-	(v1.MeshPermission)(0),                            // 272: agentvmm.trust.v1.MeshPermission
-	(*durationpb.Duration)(nil),                       // 273: google.protobuf.Duration
-	(v11.ServiceProtocol)(0),                          // 274: agentvmm.service.v1.ServiceProtocol
-	(*v1.RouteCapability)(nil),                        // 275: agentvmm.trust.v1.RouteCapability
-	(*v11.ServiceImport)(nil),                         // 276: agentvmm.service.v1.ServiceImport
-	(*emptypb.Empty)(nil),                             // 277: google.protobuf.Empty
-	(*v11.ServiceExport)(nil),                         // 278: agentvmm.service.v1.ServiceExport
-	(*v11.ListServiceExportsResponse)(nil),            // 279: agentvmm.service.v1.ListServiceExportsResponse
+	(*DisposeAllocationRequest)(nil),                  // 245: agentvmm.host.v1.DisposeAllocationRequest
+	(*PlanCleanupAllocationRequest)(nil),              // 246: agentvmm.host.v1.PlanCleanupAllocationRequest
+	(*AllocationCleanupPlan)(nil),                     // 247: agentvmm.host.v1.AllocationCleanupPlan
+	(*AllocationCleanupPlanResponse)(nil),             // 248: agentvmm.host.v1.AllocationCleanupPlanResponse
+	(*ExecuteCleanupAllocationRequest)(nil),           // 249: agentvmm.host.v1.ExecuteCleanupAllocationRequest
+	(*OpenRuntimeSessionRequest)(nil),                 // 250: agentvmm.host.v1.OpenRuntimeSessionRequest
+	(*RevokeRuntimeSessionRequest)(nil),               // 251: agentvmm.host.v1.RevokeRuntimeSessionRequest
+	(*PlanLocalDisposalRequest)(nil),                  // 252: agentvmm.host.v1.PlanLocalDisposalRequest
+	(*LocalDisposalPlan)(nil),                         // 253: agentvmm.host.v1.LocalDisposalPlan
+	(*LocalDisposalPlanResponse)(nil),                 // 254: agentvmm.host.v1.LocalDisposalPlanResponse
+	(*ExecuteLocalDisposalRequest)(nil),               // 255: agentvmm.host.v1.ExecuteLocalDisposalRequest
+	(*SignCommaRecoveryRequest)(nil),                  // 256: agentvmm.host.v1.SignCommaRecoveryRequest
+	(*SignCommaRecoveryResponse)(nil),                 // 257: agentvmm.host.v1.SignCommaRecoveryResponse
+	(*GetLocalDiskSummaryRequest)(nil),                // 258: agentvmm.host.v1.GetLocalDiskSummaryRequest
+	(*LocalDiskSummary)(nil),                          // 259: agentvmm.host.v1.LocalDiskSummary
+	(*ListLocalEnvironmentPageRequest)(nil),           // 260: agentvmm.host.v1.ListLocalEnvironmentPageRequest
+	(*LocalEnvironmentSummary)(nil),                   // 261: agentvmm.host.v1.LocalEnvironmentSummary
+	(*LocalEnvironmentPage)(nil),                      // 262: agentvmm.host.v1.LocalEnvironmentPage
+	(*ListLocalRegistrationPageRequest)(nil),          // 263: agentvmm.host.v1.ListLocalRegistrationPageRequest
+	(*LocalRegistrationMetadata)(nil),                 // 264: agentvmm.host.v1.LocalRegistrationMetadata
+	(*LocalRegistrationPage)(nil),                     // 265: agentvmm.host.v1.LocalRegistrationPage
+	(*v1.DeviceIdentity)(nil),                         // 266: agentvmm.trust.v1.DeviceIdentity
+	(*v1.DeviceRootRotation)(nil),                     // 267: agentvmm.trust.v1.DeviceRootRotation
+	(*v1.RouteBudget)(nil),                            // 268: agentvmm.trust.v1.RouteBudget
+	(*timestamppb.Timestamp)(nil),                     // 269: google.protobuf.Timestamp
+	(*v1.PersonalMeshDescriptor)(nil),                 // 270: agentvmm.trust.v1.PersonalMeshDescriptor
+	(*v1.MeshSnapshot)(nil),                           // 271: agentvmm.trust.v1.MeshSnapshot
+	(*v1.RegistryOperation)(nil),                      // 272: agentvmm.trust.v1.RegistryOperation
+	(v1.MeshPermission)(0),                            // 273: agentvmm.trust.v1.MeshPermission
+	(*durationpb.Duration)(nil),                       // 274: google.protobuf.Duration
+	(v11.ServiceProtocol)(0),                          // 275: agentvmm.service.v1.ServiceProtocol
+	(*v1.RouteCapability)(nil),                        // 276: agentvmm.trust.v1.RouteCapability
+	(*v11.ServiceImport)(nil),                         // 277: agentvmm.service.v1.ServiceImport
+	(*emptypb.Empty)(nil),                             // 278: google.protobuf.Empty
+	(*v11.ServiceExport)(nil),                         // 279: agentvmm.service.v1.ServiceExport
+	(*v11.ListServiceExportsResponse)(nil),            // 280: agentvmm.service.v1.ListServiceExportsResponse
 }
 var file_host_v1_host_proto_depIdxs = []int32{
-	265, // 0: agentvmm.host.v1.DeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	266, // 0: agentvmm.host.v1.DeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
 	0,   // 1: agentvmm.host.v1.DeviceIdentityResponse.state:type_name -> agentvmm.host.v1.DeviceIdentityState
-	265, // 2: agentvmm.host.v1.RotateDeviceRootResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	266, // 3: agentvmm.host.v1.RotateDeviceRootResponse.rotation:type_name -> agentvmm.trust.v1.DeviceRootRotation
+	266, // 2: agentvmm.host.v1.RotateDeviceRootResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	267, // 3: agentvmm.host.v1.RotateDeviceRootResponse.rotation:type_name -> agentvmm.trust.v1.DeviceRootRotation
 	44,  // 4: agentvmm.host.v1.ListPersonalMeshesResponse.meshes:type_name -> agentvmm.host.v1.PersonalMeshResponse
 	1,   // 5: agentvmm.host.v1.CreatePersonalServiceListenerRequest.exposure:type_name -> agentvmm.host.v1.ServiceListenerExposure
-	267, // 6: agentvmm.host.v1.CreatePersonalServiceListenerRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
+	268, // 6: agentvmm.host.v1.CreatePersonalServiceListenerRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
 	1,   // 7: agentvmm.host.v1.ServiceListener.exposure:type_name -> agentvmm.host.v1.ServiceListenerExposure
-	268, // 8: agentvmm.host.v1.ServiceListener.expires_at:type_name -> google.protobuf.Timestamp
+	269, // 8: agentvmm.host.v1.ServiceListener.expires_at:type_name -> google.protobuf.Timestamp
 	39,  // 9: agentvmm.host.v1.ServiceListenerResponse.listener:type_name -> agentvmm.host.v1.ServiceListener
 	39,  // 10: agentvmm.host.v1.ListServiceListenersResponse.listeners:type_name -> agentvmm.host.v1.ServiceListener
-	269, // 11: agentvmm.host.v1.PersonalMeshResponse.mesh_descriptor:type_name -> agentvmm.trust.v1.PersonalMeshDescriptor
-	270, // 12: agentvmm.host.v1.PersonalMeshResponse.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
-	271, // 13: agentvmm.host.v1.PersonalMeshResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	270, // 14: agentvmm.host.v1.ApplyPersonalMeshSnapshotRequest.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
-	268, // 15: agentvmm.host.v1.PersonalMeshPairingInvitation.expires_at:type_name -> google.protobuf.Timestamp
+	270, // 11: agentvmm.host.v1.PersonalMeshResponse.mesh_descriptor:type_name -> agentvmm.trust.v1.PersonalMeshDescriptor
+	271, // 12: agentvmm.host.v1.PersonalMeshResponse.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
+	272, // 13: agentvmm.host.v1.PersonalMeshResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	271, // 14: agentvmm.host.v1.ApplyPersonalMeshSnapshotRequest.snapshot:type_name -> agentvmm.trust.v1.MeshSnapshot
+	269, // 15: agentvmm.host.v1.PersonalMeshPairingInvitation.expires_at:type_name -> google.protobuf.Timestamp
 	47,  // 16: agentvmm.host.v1.JoinPersonalMeshPairingRequest.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	272, // 17: agentvmm.host.v1.JoinPersonalMeshPairingRequest.permissions:type_name -> agentvmm.trust.v1.MeshPermission
+	273, // 17: agentvmm.host.v1.JoinPersonalMeshPairingRequest.permissions:type_name -> agentvmm.trust.v1.MeshPermission
 	47,  // 18: agentvmm.host.v1.PersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	271, // 19: agentvmm.host.v1.PersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	268, // 20: agentvmm.host.v1.HostLoopbackFrontendLease.expires_at:type_name -> google.protobuf.Timestamp
+	272, // 19: agentvmm.host.v1.PersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	269, // 20: agentvmm.host.v1.HostLoopbackFrontendLease.expires_at:type_name -> google.protobuf.Timestamp
 	55,  // 21: agentvmm.host.v1.HostLoopbackFrontendLease.effective_capacity:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
-	273, // 22: agentvmm.host.v1.AcquireHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
-	273, // 23: agentvmm.host.v1.RenewHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
+	274, // 22: agentvmm.host.v1.AcquireHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
+	274, // 23: agentvmm.host.v1.RenewHostLoopbackFrontendRequest.duration:type_name -> google.protobuf.Duration
 	55,  // 24: agentvmm.host.v1.HostLoopbackFrontendConnectionHeader.effective_capacity:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
 	30,  // 25: agentvmm.host.v1.HostLoopbackFrontendEvent.kind:type_name -> agentvmm.host.v1.HostLoopbackFrontendEvent.Kind
 	61,  // 26: agentvmm.host.v1.HostFrontendFrame.header:type_name -> agentvmm.host.v1.HostLoopbackFrontendConnectionHeader
@@ -19314,10 +19408,10 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	72,  // 32: agentvmm.host.v1.WriteWorkspaceRequest.header:type_name -> agentvmm.host.v1.WriteWorkspaceHeader
 	67,  // 33: agentvmm.host.v1.WriteWorkspaceResponse.entry:type_name -> agentvmm.host.v1.WorkspaceEntry
 	77,  // 34: agentvmm.host.v1.ExtractWorkspaceRequest.header:type_name -> agentvmm.host.v1.ExtractWorkspaceHeader
-	274, // 35: agentvmm.host.v1.CreateServiceExportRequest.protocol:type_name -> agentvmm.service.v1.ServiceProtocol
-	275, // 36: agentvmm.host.v1.CreateServiceImportRequest.capability:type_name -> agentvmm.trust.v1.RouteCapability
-	267, // 37: agentvmm.host.v1.CreatePersonalServiceImportRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
-	276, // 38: agentvmm.host.v1.ListServiceImportsResponse.imports:type_name -> agentvmm.service.v1.ServiceImport
+	275, // 35: agentvmm.host.v1.CreateServiceExportRequest.protocol:type_name -> agentvmm.service.v1.ServiceProtocol
+	276, // 36: agentvmm.host.v1.CreateServiceImportRequest.capability:type_name -> agentvmm.trust.v1.RouteCapability
+	268, // 37: agentvmm.host.v1.CreatePersonalServiceImportRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
+	277, // 38: agentvmm.host.v1.ListServiceImportsResponse.imports:type_name -> agentvmm.service.v1.ServiceImport
 	3,   // 39: agentvmm.host.v1.VM.state:type_name -> agentvmm.host.v1.VMState
 	93,  // 40: agentvmm.host.v1.StartVMRequest.fence:type_name -> agentvmm.host.v1.VMMutationFence
 	93,  // 41: agentvmm.host.v1.StopVMRequest.fence:type_name -> agentvmm.host.v1.VMMutationFence
@@ -19334,33 +19428,33 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	97,  // 52: agentvmm.host.v1.AgentEnvironment.owner:type_name -> agentvmm.host.v1.EnvironmentOwner
 	6,   // 53: agentvmm.host.v1.AgentEnvironment.origin:type_name -> agentvmm.host.v1.EnvironmentOrigin
 	7,   // 54: agentvmm.host.v1.AgentEnvironment.inventory_state:type_name -> agentvmm.host.v1.InventoryState
-	268, // 55: agentvmm.host.v1.AgentEnvironment.inventory_observed_at:type_name -> google.protobuf.Timestamp
+	269, // 55: agentvmm.host.v1.AgentEnvironment.inventory_observed_at:type_name -> google.protobuf.Timestamp
 	98,  // 56: agentvmm.host.v1.CreateAgentSessionResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
-	268, // 57: agentvmm.host.v1.CreateAgentSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
+	269, // 57: agentvmm.host.v1.CreateAgentSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
 	8,   // 58: agentvmm.host.v1.AgentIntegration.scope:type_name -> agentvmm.host.v1.IntegrationScope
 	9,   // 59: agentvmm.host.v1.AgentIntegration.desired_state:type_name -> agentvmm.host.v1.IntegrationDesiredState
 	10,  // 60: agentvmm.host.v1.AgentIntegration.config_state:type_name -> agentvmm.host.v1.IntegrationConfigState
-	268, // 61: agentvmm.host.v1.AgentIntegration.created_at:type_name -> google.protobuf.Timestamp
-	268, // 62: agentvmm.host.v1.AgentIntegration.updated_at:type_name -> google.protobuf.Timestamp
-	268, // 63: agentvmm.host.v1.AgentIntegration.last_verified_at:type_name -> google.protobuf.Timestamp
+	269, // 61: agentvmm.host.v1.AgentIntegration.created_at:type_name -> google.protobuf.Timestamp
+	269, // 62: agentvmm.host.v1.AgentIntegration.updated_at:type_name -> google.protobuf.Timestamp
+	269, // 63: agentvmm.host.v1.AgentIntegration.last_verified_at:type_name -> google.protobuf.Timestamp
 	102, // 64: agentvmm.host.v1.ListAgentIntegrationsResponse.integrations:type_name -> agentvmm.host.v1.AgentIntegration
 	8,   // 65: agentvmm.host.v1.PrepareAgentIntegrationRequest.scope:type_name -> agentvmm.host.v1.IntegrationScope
 	102, // 66: agentvmm.host.v1.AgentIntegrationResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
 	11,  // 67: agentvmm.host.v1.AgentSession.origin:type_name -> agentvmm.host.v1.AgentSessionOrigin
 	12,  // 68: agentvmm.host.v1.AgentSession.state:type_name -> agentvmm.host.v1.AgentSessionState
-	268, // 69: agentvmm.host.v1.AgentSession.created_at:type_name -> google.protobuf.Timestamp
-	268, // 70: agentvmm.host.v1.AgentSession.expires_at:type_name -> google.protobuf.Timestamp
-	268, // 71: agentvmm.host.v1.AgentSession.connected_at:type_name -> google.protobuf.Timestamp
-	268, // 72: agentvmm.host.v1.AgentSession.last_activity_at:type_name -> google.protobuf.Timestamp
+	269, // 69: agentvmm.host.v1.AgentSession.created_at:type_name -> google.protobuf.Timestamp
+	269, // 70: agentvmm.host.v1.AgentSession.expires_at:type_name -> google.protobuf.Timestamp
+	269, // 71: agentvmm.host.v1.AgentSession.connected_at:type_name -> google.protobuf.Timestamp
+	269, // 72: agentvmm.host.v1.AgentSession.last_activity_at:type_name -> google.protobuf.Timestamp
 	112, // 73: agentvmm.host.v1.ListAgentSessionsResponse.sessions:type_name -> agentvmm.host.v1.AgentSession
 	98,  // 74: agentvmm.host.v1.GetEnvironmentResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
 	98,  // 75: agentvmm.host.v1.ListEnvironmentsResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
 	13,  // 76: agentvmm.host.v1.Container.state:type_name -> agentvmm.host.v1.ContainerState
 	122, // 77: agentvmm.host.v1.Container.volumes:type_name -> agentvmm.host.v1.VolumeMount
 	177, // 78: agentvmm.host.v1.Container.usage:type_name -> agentvmm.host.v1.Usage
-	268, // 79: agentvmm.host.v1.Container.created_at:type_name -> google.protobuf.Timestamp
-	268, // 80: agentvmm.host.v1.Container.started_at:type_name -> google.protobuf.Timestamp
-	268, // 81: agentvmm.host.v1.Container.finished_at:type_name -> google.protobuf.Timestamp
+	269, // 79: agentvmm.host.v1.Container.created_at:type_name -> google.protobuf.Timestamp
+	269, // 80: agentvmm.host.v1.Container.started_at:type_name -> google.protobuf.Timestamp
+	269, // 81: agentvmm.host.v1.Container.finished_at:type_name -> google.protobuf.Timestamp
 	95,  // 82: agentvmm.host.v1.CreateContainerRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
 	122, // 83: agentvmm.host.v1.CreateContainerRequest.volumes:type_name -> agentvmm.host.v1.VolumeMount
 	124, // 84: agentvmm.host.v1.CreateContainerRequest.entrypoint_override:type_name -> agentvmm.host.v1.StringList
@@ -19374,9 +19468,9 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	123, // 92: agentvmm.host.v1.ListContainersResponse.containers:type_name -> agentvmm.host.v1.Container
 	141, // 93: agentvmm.host.v1.ImportImageRequest.header:type_name -> agentvmm.host.v1.ImportImageHeader
 	143, // 94: agentvmm.host.v1.ListImagesResponse.images:type_name -> agentvmm.host.v1.Image
-	268, // 95: agentvmm.host.v1.LogsRequest.since:type_name -> google.protobuf.Timestamp
+	269, // 95: agentvmm.host.v1.LogsRequest.since:type_name -> google.protobuf.Timestamp
 	149, // 96: agentvmm.host.v1.OperatorLogsRequest.query:type_name -> agentvmm.host.v1.LogsRequest
-	268, // 97: agentvmm.host.v1.LogRecord.timestamp:type_name -> google.protobuf.Timestamp
+	269, // 97: agentvmm.host.v1.LogRecord.timestamp:type_name -> google.protobuf.Timestamp
 	17,  // 98: agentvmm.host.v1.LogRecord.stream:type_name -> agentvmm.host.v1.LogStream
 	18,  // 99: agentvmm.host.v1.SignalContainerRequest.signal:type_name -> agentvmm.host.v1.ProcessSignal
 	14,  // 100: agentvmm.host.v1.ExecStart.execution_kind:type_name -> agentvmm.host.v1.ExecutionKind
@@ -19395,27 +19489,27 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	171, // 113: agentvmm.host.v1.BuildImageRequest.secret:type_name -> agentvmm.host.v1.BuildSecretChunk
 	173, // 114: agentvmm.host.v1.BuildImageResponse.result:type_name -> agentvmm.host.v1.BuildImageResult
 	20,  // 115: agentvmm.host.v1.ComponentHealth.state:type_name -> agentvmm.host.v1.HealthState
-	268, // 116: agentvmm.host.v1.ComponentHealth.observed_at:type_name -> google.protobuf.Timestamp
+	269, // 116: agentvmm.host.v1.ComponentHealth.observed_at:type_name -> google.protobuf.Timestamp
 	20,  // 117: agentvmm.host.v1.HealthStatus.state:type_name -> agentvmm.host.v1.HealthState
 	175, // 118: agentvmm.host.v1.HealthStatus.components:type_name -> agentvmm.host.v1.ComponentHealth
-	268, // 119: agentvmm.host.v1.Usage.sampled_at:type_name -> google.protobuf.Timestamp
+	269, // 119: agentvmm.host.v1.Usage.sampled_at:type_name -> google.protobuf.Timestamp
 	89,  // 120: agentvmm.host.v1.GetSystemSnapshotResponse.vm:type_name -> agentvmm.host.v1.VM
 	176, // 121: agentvmm.host.v1.GetSystemSnapshotResponse.health:type_name -> agentvmm.host.v1.HealthStatus
 	177, // 122: agentvmm.host.v1.GetSystemSnapshotResponse.usage:type_name -> agentvmm.host.v1.Usage
 	98,  // 123: agentvmm.host.v1.GetSystemSnapshotResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
-	268, // 124: agentvmm.host.v1.GetSystemSnapshotResponse.collected_at:type_name -> google.protobuf.Timestamp
+	269, // 124: agentvmm.host.v1.GetSystemSnapshotResponse.collected_at:type_name -> google.protobuf.Timestamp
 	218, // 125: agentvmm.host.v1.GetSystemSnapshotResponse.remote_registrations:type_name -> agentvmm.host.v1.RemoteRegistration
 	184, // 126: agentvmm.host.v1.GetSystemSnapshotResponse.host_resources:type_name -> agentvmm.host.v1.LayerResources
 	184, // 127: agentvmm.host.v1.GetSystemSnapshotResponse.guest_resources:type_name -> agentvmm.host.v1.LayerResources
 	89,  // 128: agentvmm.host.v1.GetVMImpactSummaryResponse.vm:type_name -> agentvmm.host.v1.VM
-	268, // 129: agentvmm.host.v1.GetVMImpactSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
+	269, // 129: agentvmm.host.v1.GetVMImpactSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
 	186, // 130: agentvmm.host.v1.GetVMImpactSummaryResponse.known_workloads:type_name -> agentvmm.host.v1.ResourceReference
 	183, // 131: agentvmm.host.v1.LayerResources.disk:type_name -> agentvmm.host.v1.DiskAccounting
-	268, // 132: agentvmm.host.v1.LayerResources.sampled_at:type_name -> google.protobuf.Timestamp
+	269, // 132: agentvmm.host.v1.LayerResources.sampled_at:type_name -> google.protobuf.Timestamp
 	186, // 133: agentvmm.host.v1.RuntimeEvent.resource:type_name -> agentvmm.host.v1.ResourceReference
-	268, // 134: agentvmm.host.v1.RuntimeEvent.timestamp:type_name -> google.protobuf.Timestamp
+	269, // 134: agentvmm.host.v1.RuntimeEvent.timestamp:type_name -> google.protobuf.Timestamp
 	186, // 135: agentvmm.host.v1.WatchMetricsRequest.scope:type_name -> agentvmm.host.v1.ResourceReference
-	273, // 136: agentvmm.host.v1.WatchMetricsRequest.interval:type_name -> google.protobuf.Duration
+	274, // 136: agentvmm.host.v1.WatchMetricsRequest.interval:type_name -> google.protobuf.Duration
 	186, // 137: agentvmm.host.v1.MetricsSample.scope:type_name -> agentvmm.host.v1.ResourceReference
 	177, // 138: agentvmm.host.v1.MetricsSample.usage:type_name -> agentvmm.host.v1.Usage
 	95,  // 139: agentvmm.host.v1.UpdateEnvironmentPolicyRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
@@ -19433,21 +19527,21 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	186, // 151: agentvmm.host.v1.OperationError.resource:type_name -> agentvmm.host.v1.ResourceReference
 	186, // 152: agentvmm.host.v1.Operation.resource:type_name -> agentvmm.host.v1.ResourceReference
 	22,  // 153: agentvmm.host.v1.Operation.state:type_name -> agentvmm.host.v1.OperationState
-	268, // 154: agentvmm.host.v1.Operation.started_at:type_name -> google.protobuf.Timestamp
-	268, // 155: agentvmm.host.v1.Operation.updated_at:type_name -> google.protobuf.Timestamp
+	269, // 154: agentvmm.host.v1.Operation.started_at:type_name -> google.protobuf.Timestamp
+	269, // 155: agentvmm.host.v1.Operation.updated_at:type_name -> google.protobuf.Timestamp
 	206, // 156: agentvmm.host.v1.Operation.error:type_name -> agentvmm.host.v1.OperationError
 	207, // 157: agentvmm.host.v1.OperationResponse.operation:type_name -> agentvmm.host.v1.Operation
 	212, // 158: agentvmm.host.v1.SupportBundlePreview.items:type_name -> agentvmm.host.v1.SupportBundleItem
 	27,  // 159: agentvmm.host.v1.ConnectorStatus.phase:type_name -> agentvmm.host.v1.ConnectorPhase
-	268, // 160: agentvmm.host.v1.ConnectorStatus.observed_at:type_name -> google.protobuf.Timestamp
-	268, // 161: agentvmm.host.v1.ConnectorStatus.last_connected_at:type_name -> google.protobuf.Timestamp
-	268, // 162: agentvmm.host.v1.ConnectorStatus.disconnected_at:type_name -> google.protobuf.Timestamp
-	268, // 163: agentvmm.host.v1.ConnectorStatus.next_retry_at:type_name -> google.protobuf.Timestamp
+	269, // 160: agentvmm.host.v1.ConnectorStatus.observed_at:type_name -> google.protobuf.Timestamp
+	269, // 161: agentvmm.host.v1.ConnectorStatus.last_connected_at:type_name -> google.protobuf.Timestamp
+	269, // 162: agentvmm.host.v1.ConnectorStatus.disconnected_at:type_name -> google.protobuf.Timestamp
+	269, // 163: agentvmm.host.v1.ConnectorStatus.next_retry_at:type_name -> google.protobuf.Timestamp
 	216, // 164: agentvmm.host.v1.ConnectorStatus.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
-	268, // 165: agentvmm.host.v1.ControllerDomainMetrics.sampled_at:type_name -> google.protobuf.Timestamp
+	269, // 165: agentvmm.host.v1.ControllerDomainMetrics.sampled_at:type_name -> google.protobuf.Timestamp
 	95,  // 166: agentvmm.host.v1.RemotePoolPolicy.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
 	4,   // 167: agentvmm.host.v1.RemotePoolPolicy.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	273, // 168: agentvmm.host.v1.RemotePoolPolicy.stop_grace:type_name -> google.protobuf.Duration
+	274, // 168: agentvmm.host.v1.RemotePoolPolicy.stop_grace:type_name -> google.protobuf.Duration
 	55,  // 169: agentvmm.host.v1.RemotePoolPolicy.host_loopback_frontend:type_name -> agentvmm.host.v1.HostLoopbackFrontendCapacity
 	217, // 170: agentvmm.host.v1.RemoteRegistration.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
 	23,  // 171: agentvmm.host.v1.RemoteRegistration.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
@@ -19455,8 +19549,8 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	233, // 173: agentvmm.host.v1.RemoteRegistration.allocations:type_name -> agentvmm.host.v1.RemoteAllocation
 	26,  // 174: agentvmm.host.v1.RemoteRegistration.enrollment_state:type_name -> agentvmm.host.v1.RemoteEnrollmentState
 	215, // 175: agentvmm.host.v1.RemoteRegistration.connector_status:type_name -> agentvmm.host.v1.ConnectorStatus
-	268, // 176: agentvmm.host.v1.RemoteRegistration.created_at:type_name -> google.protobuf.Timestamp
-	268, // 177: agentvmm.host.v1.RemoteRegistration.updated_at:type_name -> google.protobuf.Timestamp
+	269, // 176: agentvmm.host.v1.RemoteRegistration.created_at:type_name -> google.protobuf.Timestamp
+	269, // 177: agentvmm.host.v1.RemoteRegistration.updated_at:type_name -> google.protobuf.Timestamp
 	24,  // 178: agentvmm.host.v1.RemoteRegistration.owner_kind:type_name -> agentvmm.host.v1.RemoteRegistrationOwnerKind
 	216, // 179: agentvmm.host.v1.RemoteRegistration.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
 	217, // 180: agentvmm.host.v1.BeginRemoteEnrollmentRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
@@ -19473,7 +19567,7 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	237, // 191: agentvmm.host.v1.GetRemoteObservationResponse.reclaim_candidate:type_name -> agentvmm.host.v1.WorkloadReclaimCandidate
 	176, // 192: agentvmm.host.v1.GetRemoteObservationResponse.health:type_name -> agentvmm.host.v1.HealthStatus
 	177, // 193: agentvmm.host.v1.GetRemoteObservationResponse.usage:type_name -> agentvmm.host.v1.Usage
-	268, // 194: agentvmm.host.v1.GetRemoteObservationResponse.observed_at:type_name -> google.protobuf.Timestamp
+	269, // 194: agentvmm.host.v1.GetRemoteObservationResponse.observed_at:type_name -> google.protobuf.Timestamp
 	25,  // 195: agentvmm.host.v1.SetConnectionStateRequest.state:type_name -> agentvmm.host.v1.RemoteConnectionState
 	23,  // 196: agentvmm.host.v1.SetRemoteAdmissionStateRequest.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
 	215, // 197: agentvmm.host.v1.ReportConnectorStatusRequest.status:type_name -> agentvmm.host.v1.ConnectorStatus
@@ -19484,22 +19578,22 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	21,  // 202: agentvmm.host.v1.PlanCleanupAllocationRequest.kind:type_name -> agentvmm.host.v1.CleanupKind
 	201, // 203: agentvmm.host.v1.AllocationCleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
 	21,  // 204: agentvmm.host.v1.AllocationCleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
-	246, // 205: agentvmm.host.v1.AllocationCleanupPlanResponse.plan:type_name -> agentvmm.host.v1.AllocationCleanupPlan
+	247, // 205: agentvmm.host.v1.AllocationCleanupPlanResponse.plan:type_name -> agentvmm.host.v1.AllocationCleanupPlan
 	21,  // 206: agentvmm.host.v1.ExecuteCleanupAllocationRequest.kind:type_name -> agentvmm.host.v1.CleanupKind
 	29,  // 207: agentvmm.host.v1.PlanLocalDisposalRequest.target_kind:type_name -> agentvmm.host.v1.LocalDisposalTargetKind
 	29,  // 208: agentvmm.host.v1.LocalDisposalPlan.target_kind:type_name -> agentvmm.host.v1.LocalDisposalTargetKind
-	252, // 209: agentvmm.host.v1.LocalDisposalPlanResponse.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
-	252, // 210: agentvmm.host.v1.ExecuteLocalDisposalRequest.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
-	265, // 211: agentvmm.host.v1.SignCommaRecoveryResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	268, // 212: agentvmm.host.v1.LocalDiskSummary.collected_at:type_name -> google.protobuf.Timestamp
+	253, // 209: agentvmm.host.v1.LocalDisposalPlanResponse.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
+	253, // 210: agentvmm.host.v1.ExecuteLocalDisposalRequest.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
+	266, // 211: agentvmm.host.v1.SignCommaRecoveryResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	269, // 212: agentvmm.host.v1.LocalDiskSummary.collected_at:type_name -> google.protobuf.Timestamp
 	3,   // 213: agentvmm.host.v1.LocalDiskSummary.vm_state:type_name -> agentvmm.host.v1.VMState
 	183, // 214: agentvmm.host.v1.LocalDiskSummary.guest_state_fs:type_name -> agentvmm.host.v1.DiskAccounting
-	268, // 215: agentvmm.host.v1.LocalEnvironmentSummary.state_observed_at:type_name -> google.protobuf.Timestamp
-	268, // 216: agentvmm.host.v1.LocalEnvironmentSummary.sampled_at:type_name -> google.protobuf.Timestamp
-	260, // 217: agentvmm.host.v1.LocalEnvironmentPage.environments:type_name -> agentvmm.host.v1.LocalEnvironmentSummary
-	268, // 218: agentvmm.host.v1.LocalEnvironmentPage.collected_at:type_name -> google.protobuf.Timestamp
+	269, // 215: agentvmm.host.v1.LocalEnvironmentSummary.state_observed_at:type_name -> google.protobuf.Timestamp
+	269, // 216: agentvmm.host.v1.LocalEnvironmentSummary.sampled_at:type_name -> google.protobuf.Timestamp
+	261, // 217: agentvmm.host.v1.LocalEnvironmentPage.environments:type_name -> agentvmm.host.v1.LocalEnvironmentSummary
+	269, // 218: agentvmm.host.v1.LocalEnvironmentPage.collected_at:type_name -> google.protobuf.Timestamp
 	23,  // 219: agentvmm.host.v1.LocalRegistrationMetadata.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
-	263, // 220: agentvmm.host.v1.LocalRegistrationPage.registrations:type_name -> agentvmm.host.v1.LocalRegistrationMetadata
+	264, // 220: agentvmm.host.v1.LocalRegistrationPage.registrations:type_name -> agentvmm.host.v1.LocalRegistrationMetadata
 	117, // 221: agentvmm.host.v1.AgentRuntimeService.GetEnvironment:input_type -> agentvmm.host.v1.GetOwnEnvironmentRequest
 	139, // 222: agentvmm.host.v1.AgentRuntimeService.PullImage:input_type -> agentvmm.host.v1.PullImageRequest
 	142, // 223: agentvmm.host.v1.AgentRuntimeService.ImportImage:input_type -> agentvmm.host.v1.ImportImageRequest
@@ -19579,8 +19673,8 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	200, // 297: agentvmm.host.v1.OperatorService.PlanResetEnvironment:input_type -> agentvmm.host.v1.PlanEnvironmentRequest
 	200, // 298: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:input_type -> agentvmm.host.v1.PlanEnvironmentRequest
 	204, // 299: agentvmm.host.v1.OperatorService.ExecuteCleanup:input_type -> agentvmm.host.v1.ExecuteCleanupRequest
-	251, // 300: agentvmm.host.v1.OperatorService.PlanLocalDisposal:input_type -> agentvmm.host.v1.PlanLocalDisposalRequest
-	254, // 301: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:input_type -> agentvmm.host.v1.ExecuteLocalDisposalRequest
+	252, // 300: agentvmm.host.v1.OperatorService.PlanLocalDisposal:input_type -> agentvmm.host.v1.PlanLocalDisposalRequest
+	255, // 301: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:input_type -> agentvmm.host.v1.ExecuteLocalDisposalRequest
 	209, // 302: agentvmm.host.v1.OperatorService.GetOperation:input_type -> agentvmm.host.v1.GetOperationRequest
 	210, // 303: agentvmm.host.v1.OperatorService.RunDiagnostics:input_type -> agentvmm.host.v1.RunDiagnosticsRequest
 	211, // 304: agentvmm.host.v1.OperatorService.PreviewSupportBundle:input_type -> agentvmm.host.v1.PreviewSupportBundleRequest
@@ -19597,10 +19691,10 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	228, // 315: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:input_type -> agentvmm.host.v1.SetRemoteRegistrationStateRequest
 	229, // 316: agentvmm.host.v1.OperatorService.GetRemoteRegistration:input_type -> agentvmm.host.v1.GetRemoteRegistrationRequest
 	230, // 317: agentvmm.host.v1.OperatorService.ListRemoteRegistrations:input_type -> agentvmm.host.v1.ListRemoteRegistrationsRequest
-	255, // 318: agentvmm.host.v1.OperatorService.SignCommaRecovery:input_type -> agentvmm.host.v1.SignCommaRecoveryRequest
-	257, // 319: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:input_type -> agentvmm.host.v1.GetLocalDiskSummaryRequest
-	259, // 320: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:input_type -> agentvmm.host.v1.ListLocalEnvironmentPageRequest
-	262, // 321: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:input_type -> agentvmm.host.v1.ListLocalRegistrationPageRequest
+	256, // 318: agentvmm.host.v1.OperatorService.SignCommaRecovery:input_type -> agentvmm.host.v1.SignCommaRecoveryRequest
+	258, // 319: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:input_type -> agentvmm.host.v1.GetLocalDiskSummaryRequest
+	260, // 320: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:input_type -> agentvmm.host.v1.ListLocalEnvironmentPageRequest
+	263, // 321: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:input_type -> agentvmm.host.v1.ListLocalRegistrationPageRequest
 	31,  // 322: agentvmm.host.v1.OperatorService.GetDeviceIdentity:input_type -> agentvmm.host.v1.GetDeviceIdentityRequest
 	33,  // 323: agentvmm.host.v1.OperatorService.RotateDeviceRoot:input_type -> agentvmm.host.v1.RotateDeviceRootRequest
 	36,  // 324: agentvmm.host.v1.OperatorService.ListPersonalMeshes:input_type -> agentvmm.host.v1.ListPersonalMeshesRequest
@@ -19623,147 +19717,149 @@ var file_host_v1_host_proto_depIdxs = []int32{
 	241, // 341: agentvmm.host.v1.RemoteComputeService.ReportConnectorStatus:input_type -> agentvmm.host.v1.ReportConnectorStatusRequest
 	242, // 342: agentvmm.host.v1.RemoteComputeService.EnsureAllocation:input_type -> agentvmm.host.v1.EnsureAllocationRequest
 	244, // 343: agentvmm.host.v1.RemoteComputeService.ReleaseAllocation:input_type -> agentvmm.host.v1.ReleaseAllocationRequest
-	245, // 344: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:input_type -> agentvmm.host.v1.PlanCleanupAllocationRequest
-	248, // 345: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:input_type -> agentvmm.host.v1.ExecuteCleanupAllocationRequest
-	249, // 346: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:input_type -> agentvmm.host.v1.OpenRuntimeSessionRequest
-	250, // 347: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:input_type -> agentvmm.host.v1.RevokeRuntimeSessionRequest
-	57,  // 348: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:input_type -> agentvmm.host.v1.AcquireHostLoopbackFrontendRequest
-	58,  // 349: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:input_type -> agentvmm.host.v1.RenewHostLoopbackFrontendRequest
-	59,  // 350: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:input_type -> agentvmm.host.v1.ReleaseHostLoopbackFrontendRequest
-	65,  // 351: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:input_type -> agentvmm.host.v1.ControllerFrontendFrame
-	119, // 352: agentvmm.host.v1.AgentRuntimeService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
-	140, // 353: agentvmm.host.v1.AgentRuntimeService.PullImage:output_type -> agentvmm.host.v1.PullImageResponse
-	143, // 354: agentvmm.host.v1.AgentRuntimeService.ImportImage:output_type -> agentvmm.host.v1.Image
-	146, // 355: agentvmm.host.v1.AgentRuntimeService.ListImages:output_type -> agentvmm.host.v1.ListImagesResponse
-	277, // 356: agentvmm.host.v1.AgentRuntimeService.DeleteImage:output_type -> google.protobuf.Empty
-	135, // 357: agentvmm.host.v1.AgentRuntimeService.CreateContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	135, // 358: agentvmm.host.v1.AgentRuntimeService.StartContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	135, // 359: agentvmm.host.v1.AgentRuntimeService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	130, // 360: agentvmm.host.v1.AgentRuntimeService.AcquireExecution:output_type -> agentvmm.host.v1.ExecutionResponse
-	277, // 361: agentvmm.host.v1.AgentRuntimeService.ReleaseExecution:output_type -> google.protobuf.Empty
-	133, // 362: agentvmm.host.v1.AgentRuntimeService.ListExecutions:output_type -> agentvmm.host.v1.ListExecutionsResponse
-	135, // 363: agentvmm.host.v1.AgentRuntimeService.QuiesceContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	136, // 364: agentvmm.host.v1.AgentRuntimeService.WaitContainer:output_type -> agentvmm.host.v1.WaitContainerResponse
-	277, // 365: agentvmm.host.v1.AgentRuntimeService.DeleteContainer:output_type -> google.protobuf.Empty
-	135, // 366: agentvmm.host.v1.AgentRuntimeService.GetContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	138, // 367: agentvmm.host.v1.AgentRuntimeService.ListContainers:output_type -> agentvmm.host.v1.ListContainersResponse
-	151, // 368: agentvmm.host.v1.AgentRuntimeService.Logs:output_type -> agentvmm.host.v1.LogRecord
-	156, // 369: agentvmm.host.v1.AgentRuntimeService.Exec:output_type -> agentvmm.host.v1.ExecResponse
-	277, // 370: agentvmm.host.v1.AgentRuntimeService.SignalContainer:output_type -> google.protobuf.Empty
-	161, // 371: agentvmm.host.v1.AgentRuntimeService.CreateVolume:output_type -> agentvmm.host.v1.VolumeResponse
-	277, // 372: agentvmm.host.v1.AgentRuntimeService.DeleteVolume:output_type -> google.protobuf.Empty
-	161, // 373: agentvmm.host.v1.AgentRuntimeService.GetVolume:output_type -> agentvmm.host.v1.VolumeResponse
-	163, // 374: agentvmm.host.v1.AgentRuntimeService.ListVolumes:output_type -> agentvmm.host.v1.ListVolumesResponse
-	166, // 375: agentvmm.host.v1.AgentRuntimeService.ForwardTCP:output_type -> agentvmm.host.v1.ForwardTCPResponse
-	174, // 376: agentvmm.host.v1.AgentRuntimeService.BuildImage:output_type -> agentvmm.host.v1.BuildImageResponse
-	277, // 377: agentvmm.host.v1.AgentRuntimeService.ReleaseSession:output_type -> google.protobuf.Empty
-	203, // 378: agentvmm.host.v1.AgentRuntimeService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	203, // 379: agentvmm.host.v1.AgentRuntimeService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	208, // 380: agentvmm.host.v1.AgentRuntimeService.RequestReset:output_type -> agentvmm.host.v1.OperationResponse
-	208, // 381: agentvmm.host.v1.AgentRuntimeService.RequestDiscard:output_type -> agentvmm.host.v1.OperationResponse
-	67,  // 382: agentvmm.host.v1.AgentRuntimeService.StatWorkspace:output_type -> agentvmm.host.v1.WorkspaceEntry
-	69,  // 383: agentvmm.host.v1.AgentRuntimeService.ListWorkspace:output_type -> agentvmm.host.v1.ListWorkspaceResponse
-	71,  // 384: agentvmm.host.v1.AgentRuntimeService.ReadWorkspace:output_type -> agentvmm.host.v1.ReadWorkspaceResponse
-	74,  // 385: agentvmm.host.v1.AgentRuntimeService.WriteWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
-	76,  // 386: agentvmm.host.v1.AgentRuntimeService.ArchiveWorkspace:output_type -> agentvmm.host.v1.ArchiveWorkspaceResponse
-	74,  // 387: agentvmm.host.v1.AgentRuntimeService.ExtractWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
-	278, // 388: agentvmm.host.v1.AgentRuntimeService.CreateServiceExport:output_type -> agentvmm.service.v1.ServiceExport
-	279, // 389: agentvmm.host.v1.AgentRuntimeService.ListServiceExports:output_type -> agentvmm.service.v1.ListServiceExportsResponse
-	278, // 390: agentvmm.host.v1.AgentRuntimeService.GetServiceExport:output_type -> agentvmm.service.v1.ServiceExport
-	277, // 391: agentvmm.host.v1.AgentRuntimeService.RevokeServiceExport:output_type -> google.protobuf.Empty
-	276, // 392: agentvmm.host.v1.AgentRuntimeService.CreateServiceImport:output_type -> agentvmm.service.v1.ServiceImport
-	276, // 393: agentvmm.host.v1.AgentRuntimeService.CreatePersonalServiceImport:output_type -> agentvmm.service.v1.ServiceImport
-	86,  // 394: agentvmm.host.v1.AgentRuntimeService.ListServiceImports:output_type -> agentvmm.host.v1.ListServiceImportsResponse
-	276, // 395: agentvmm.host.v1.AgentRuntimeService.GetServiceImport:output_type -> agentvmm.service.v1.ServiceImport
-	277, // 396: agentvmm.host.v1.AgentRuntimeService.RevokeServiceImport:output_type -> google.protobuf.Empty
-	208, // 397: agentvmm.host.v1.OperatorService.StartVM:output_type -> agentvmm.host.v1.OperationResponse
-	94,  // 398: agentvmm.host.v1.OperatorService.GetVM:output_type -> agentvmm.host.v1.VMResponse
-	208, // 399: agentvmm.host.v1.OperatorService.StopVM:output_type -> agentvmm.host.v1.OperationResponse
-	100, // 400: agentvmm.host.v1.OperatorService.CreateAgentSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
-	277, // 401: agentvmm.host.v1.OperatorService.RevokeAgentSession:output_type -> google.protobuf.Empty
-	104, // 402: agentvmm.host.v1.OperatorService.ListAgentIntegrations:output_type -> agentvmm.host.v1.ListAgentIntegrationsResponse
-	111, // 403: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	111, // 404: agentvmm.host.v1.OperatorService.BeginAgentIntegrationConfiguration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	111, // 405: agentvmm.host.v1.OperatorService.CommitAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	111, // 406: agentvmm.host.v1.OperatorService.FailAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	111, // 407: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	111, // 408: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
-	114, // 409: agentvmm.host.v1.OperatorService.ListAgentSessions:output_type -> agentvmm.host.v1.ListAgentSessionsResponse
-	277, // 410: agentvmm.host.v1.OperatorService.RevokeAgentSessions:output_type -> google.protobuf.Empty
-	180, // 411: agentvmm.host.v1.OperatorService.GetSystemSnapshot:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
-	180, // 412: agentvmm.host.v1.OperatorService.GetSystemHealthSummary:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
-	182, // 413: agentvmm.host.v1.OperatorService.GetVMImpactSummary:output_type -> agentvmm.host.v1.GetVMImpactSummaryResponse
-	121, // 414: agentvmm.host.v1.OperatorService.ListEnvironments:output_type -> agentvmm.host.v1.ListEnvironmentsResponse
-	119, // 415: agentvmm.host.v1.OperatorService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
-	146, // 416: agentvmm.host.v1.OperatorService.ListEnvironmentImages:output_type -> agentvmm.host.v1.ListImagesResponse
-	277, // 417: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:output_type -> google.protobuf.Empty
-	187, // 418: agentvmm.host.v1.OperatorService.WatchEvents:output_type -> agentvmm.host.v1.RuntimeEvent
-	189, // 419: agentvmm.host.v1.OperatorService.WatchMetrics:output_type -> agentvmm.host.v1.MetricsSample
-	151, // 420: agentvmm.host.v1.OperatorService.Logs:output_type -> agentvmm.host.v1.LogRecord
-	135, // 421: agentvmm.host.v1.OperatorService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	135, // 422: agentvmm.host.v1.OperatorService.ContinueContainer:output_type -> agentvmm.host.v1.ContainerResponse
-	277, // 423: agentvmm.host.v1.OperatorService.SignalContainer:output_type -> google.protobuf.Empty
-	277, // 424: agentvmm.host.v1.OperatorService.DeleteContainer:output_type -> google.protobuf.Empty
-	119, // 425: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:output_type -> agentvmm.host.v1.GetEnvironmentResponse
-	277, // 426: agentvmm.host.v1.OperatorService.ApplyNetworkLink:output_type -> google.protobuf.Empty
-	277, // 427: agentvmm.host.v1.OperatorService.DeleteNetworkLink:output_type -> google.protobuf.Empty
-	203, // 428: agentvmm.host.v1.OperatorService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	203, // 429: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
-	208, // 430: agentvmm.host.v1.OperatorService.ExecuteCleanup:output_type -> agentvmm.host.v1.OperationResponse
-	253, // 431: agentvmm.host.v1.OperatorService.PlanLocalDisposal:output_type -> agentvmm.host.v1.LocalDisposalPlanResponse
-	208, // 432: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:output_type -> agentvmm.host.v1.OperationResponse
-	208, // 433: agentvmm.host.v1.OperatorService.GetOperation:output_type -> agentvmm.host.v1.OperationResponse
-	208, // 434: agentvmm.host.v1.OperatorService.RunDiagnostics:output_type -> agentvmm.host.v1.OperationResponse
-	213, // 435: agentvmm.host.v1.OperatorService.PreviewSupportBundle:output_type -> agentvmm.host.v1.SupportBundlePreview
-	208, // 436: agentvmm.host.v1.OperatorService.ExportSupportBundle:output_type -> agentvmm.host.v1.OperationResponse
-	232, // 437: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 438: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 439: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 440: agentvmm.host.v1.OperatorService.FailRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 441: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	277, // 442: agentvmm.host.v1.OperatorService.RemoveIncompleteRemoteRegistration:output_type -> google.protobuf.Empty
-	232, // 443: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 444: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 445: agentvmm.host.v1.OperatorService.UpdateRemotePool:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 446: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	232, // 447: agentvmm.host.v1.OperatorService.GetRemoteRegistration:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
-	231, // 448: agentvmm.host.v1.OperatorService.ListRemoteRegistrations:output_type -> agentvmm.host.v1.ListRemoteRegistrationsResponse
-	256, // 449: agentvmm.host.v1.OperatorService.SignCommaRecovery:output_type -> agentvmm.host.v1.SignCommaRecoveryResponse
-	258, // 450: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:output_type -> agentvmm.host.v1.LocalDiskSummary
-	261, // 451: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:output_type -> agentvmm.host.v1.LocalEnvironmentPage
-	264, // 452: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:output_type -> agentvmm.host.v1.LocalRegistrationPage
-	32,  // 453: agentvmm.host.v1.OperatorService.GetDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
-	34,  // 454: agentvmm.host.v1.OperatorService.RotateDeviceRoot:output_type -> agentvmm.host.v1.RotateDeviceRootResponse
-	37,  // 455: agentvmm.host.v1.OperatorService.ListPersonalMeshes:output_type -> agentvmm.host.v1.ListPersonalMeshesResponse
-	44,  // 456: agentvmm.host.v1.OperatorService.CreatePersonalMesh:output_type -> agentvmm.host.v1.PersonalMeshResponse
-	44,  // 457: agentvmm.host.v1.OperatorService.ApplyPersonalMeshSnapshot:output_type -> agentvmm.host.v1.PersonalMeshResponse
-	44,  // 458: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:output_type -> agentvmm.host.v1.PersonalMeshResponse
-	53,  // 459: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	53,  // 460: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	53,  // 461: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	53,  // 462: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	53,  // 463: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
-	32,  // 464: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
-	40,  // 465: agentvmm.host.v1.OperatorService.CreatePersonalServiceListener:output_type -> agentvmm.host.v1.ServiceListenerResponse
-	42,  // 466: agentvmm.host.v1.OperatorService.ListServiceListeners:output_type -> agentvmm.host.v1.ListServiceListenersResponse
-	277, // 467: agentvmm.host.v1.OperatorService.RevokeServiceListener:output_type -> google.protobuf.Empty
-	235, // 468: agentvmm.host.v1.RemoteComputeService.GetRemoteState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	238, // 469: agentvmm.host.v1.RemoteComputeService.GetRemoteObservation:output_type -> agentvmm.host.v1.GetRemoteObservationResponse
-	235, // 470: agentvmm.host.v1.RemoteComputeService.SetConnectionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	235, // 471: agentvmm.host.v1.RemoteComputeService.SetRemoteAdmissionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	235, // 472: agentvmm.host.v1.RemoteComputeService.ReportConnectorStatus:output_type -> agentvmm.host.v1.GetRemoteStateResponse
-	243, // 473: agentvmm.host.v1.RemoteComputeService.EnsureAllocation:output_type -> agentvmm.host.v1.AllocationResponse
-	243, // 474: agentvmm.host.v1.RemoteComputeService.ReleaseAllocation:output_type -> agentvmm.host.v1.AllocationResponse
-	247, // 475: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:output_type -> agentvmm.host.v1.AllocationCleanupPlanResponse
-	243, // 476: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:output_type -> agentvmm.host.v1.AllocationResponse
-	100, // 477: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
-	277, // 478: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:output_type -> google.protobuf.Empty
-	56,  // 479: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
-	56,  // 480: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
-	277, // 481: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:output_type -> google.protobuf.Empty
-	64,  // 482: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostFrontendFrame
-	352, // [352:483] is the sub-list for method output_type
-	221, // [221:352] is the sub-list for method input_type
+	245, // 344: agentvmm.host.v1.RemoteComputeService.DisposeAllocation:input_type -> agentvmm.host.v1.DisposeAllocationRequest
+	246, // 345: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:input_type -> agentvmm.host.v1.PlanCleanupAllocationRequest
+	249, // 346: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:input_type -> agentvmm.host.v1.ExecuteCleanupAllocationRequest
+	250, // 347: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:input_type -> agentvmm.host.v1.OpenRuntimeSessionRequest
+	251, // 348: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:input_type -> agentvmm.host.v1.RevokeRuntimeSessionRequest
+	57,  // 349: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:input_type -> agentvmm.host.v1.AcquireHostLoopbackFrontendRequest
+	58,  // 350: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:input_type -> agentvmm.host.v1.RenewHostLoopbackFrontendRequest
+	59,  // 351: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:input_type -> agentvmm.host.v1.ReleaseHostLoopbackFrontendRequest
+	65,  // 352: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:input_type -> agentvmm.host.v1.ControllerFrontendFrame
+	119, // 353: agentvmm.host.v1.AgentRuntimeService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
+	140, // 354: agentvmm.host.v1.AgentRuntimeService.PullImage:output_type -> agentvmm.host.v1.PullImageResponse
+	143, // 355: agentvmm.host.v1.AgentRuntimeService.ImportImage:output_type -> agentvmm.host.v1.Image
+	146, // 356: agentvmm.host.v1.AgentRuntimeService.ListImages:output_type -> agentvmm.host.v1.ListImagesResponse
+	278, // 357: agentvmm.host.v1.AgentRuntimeService.DeleteImage:output_type -> google.protobuf.Empty
+	135, // 358: agentvmm.host.v1.AgentRuntimeService.CreateContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	135, // 359: agentvmm.host.v1.AgentRuntimeService.StartContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	135, // 360: agentvmm.host.v1.AgentRuntimeService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	130, // 361: agentvmm.host.v1.AgentRuntimeService.AcquireExecution:output_type -> agentvmm.host.v1.ExecutionResponse
+	278, // 362: agentvmm.host.v1.AgentRuntimeService.ReleaseExecution:output_type -> google.protobuf.Empty
+	133, // 363: agentvmm.host.v1.AgentRuntimeService.ListExecutions:output_type -> agentvmm.host.v1.ListExecutionsResponse
+	135, // 364: agentvmm.host.v1.AgentRuntimeService.QuiesceContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	136, // 365: agentvmm.host.v1.AgentRuntimeService.WaitContainer:output_type -> agentvmm.host.v1.WaitContainerResponse
+	278, // 366: agentvmm.host.v1.AgentRuntimeService.DeleteContainer:output_type -> google.protobuf.Empty
+	135, // 367: agentvmm.host.v1.AgentRuntimeService.GetContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	138, // 368: agentvmm.host.v1.AgentRuntimeService.ListContainers:output_type -> agentvmm.host.v1.ListContainersResponse
+	151, // 369: agentvmm.host.v1.AgentRuntimeService.Logs:output_type -> agentvmm.host.v1.LogRecord
+	156, // 370: agentvmm.host.v1.AgentRuntimeService.Exec:output_type -> agentvmm.host.v1.ExecResponse
+	278, // 371: agentvmm.host.v1.AgentRuntimeService.SignalContainer:output_type -> google.protobuf.Empty
+	161, // 372: agentvmm.host.v1.AgentRuntimeService.CreateVolume:output_type -> agentvmm.host.v1.VolumeResponse
+	278, // 373: agentvmm.host.v1.AgentRuntimeService.DeleteVolume:output_type -> google.protobuf.Empty
+	161, // 374: agentvmm.host.v1.AgentRuntimeService.GetVolume:output_type -> agentvmm.host.v1.VolumeResponse
+	163, // 375: agentvmm.host.v1.AgentRuntimeService.ListVolumes:output_type -> agentvmm.host.v1.ListVolumesResponse
+	166, // 376: agentvmm.host.v1.AgentRuntimeService.ForwardTCP:output_type -> agentvmm.host.v1.ForwardTCPResponse
+	174, // 377: agentvmm.host.v1.AgentRuntimeService.BuildImage:output_type -> agentvmm.host.v1.BuildImageResponse
+	278, // 378: agentvmm.host.v1.AgentRuntimeService.ReleaseSession:output_type -> google.protobuf.Empty
+	203, // 379: agentvmm.host.v1.AgentRuntimeService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	203, // 380: agentvmm.host.v1.AgentRuntimeService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	208, // 381: agentvmm.host.v1.AgentRuntimeService.RequestReset:output_type -> agentvmm.host.v1.OperationResponse
+	208, // 382: agentvmm.host.v1.AgentRuntimeService.RequestDiscard:output_type -> agentvmm.host.v1.OperationResponse
+	67,  // 383: agentvmm.host.v1.AgentRuntimeService.StatWorkspace:output_type -> agentvmm.host.v1.WorkspaceEntry
+	69,  // 384: agentvmm.host.v1.AgentRuntimeService.ListWorkspace:output_type -> agentvmm.host.v1.ListWorkspaceResponse
+	71,  // 385: agentvmm.host.v1.AgentRuntimeService.ReadWorkspace:output_type -> agentvmm.host.v1.ReadWorkspaceResponse
+	74,  // 386: agentvmm.host.v1.AgentRuntimeService.WriteWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
+	76,  // 387: agentvmm.host.v1.AgentRuntimeService.ArchiveWorkspace:output_type -> agentvmm.host.v1.ArchiveWorkspaceResponse
+	74,  // 388: agentvmm.host.v1.AgentRuntimeService.ExtractWorkspace:output_type -> agentvmm.host.v1.WriteWorkspaceResponse
+	279, // 389: agentvmm.host.v1.AgentRuntimeService.CreateServiceExport:output_type -> agentvmm.service.v1.ServiceExport
+	280, // 390: agentvmm.host.v1.AgentRuntimeService.ListServiceExports:output_type -> agentvmm.service.v1.ListServiceExportsResponse
+	279, // 391: agentvmm.host.v1.AgentRuntimeService.GetServiceExport:output_type -> agentvmm.service.v1.ServiceExport
+	278, // 392: agentvmm.host.v1.AgentRuntimeService.RevokeServiceExport:output_type -> google.protobuf.Empty
+	277, // 393: agentvmm.host.v1.AgentRuntimeService.CreateServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	277, // 394: agentvmm.host.v1.AgentRuntimeService.CreatePersonalServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	86,  // 395: agentvmm.host.v1.AgentRuntimeService.ListServiceImports:output_type -> agentvmm.host.v1.ListServiceImportsResponse
+	277, // 396: agentvmm.host.v1.AgentRuntimeService.GetServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	278, // 397: agentvmm.host.v1.AgentRuntimeService.RevokeServiceImport:output_type -> google.protobuf.Empty
+	208, // 398: agentvmm.host.v1.OperatorService.StartVM:output_type -> agentvmm.host.v1.OperationResponse
+	94,  // 399: agentvmm.host.v1.OperatorService.GetVM:output_type -> agentvmm.host.v1.VMResponse
+	208, // 400: agentvmm.host.v1.OperatorService.StopVM:output_type -> agentvmm.host.v1.OperationResponse
+	100, // 401: agentvmm.host.v1.OperatorService.CreateAgentSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
+	278, // 402: agentvmm.host.v1.OperatorService.RevokeAgentSession:output_type -> google.protobuf.Empty
+	104, // 403: agentvmm.host.v1.OperatorService.ListAgentIntegrations:output_type -> agentvmm.host.v1.ListAgentIntegrationsResponse
+	111, // 404: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	111, // 405: agentvmm.host.v1.OperatorService.BeginAgentIntegrationConfiguration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	111, // 406: agentvmm.host.v1.OperatorService.CommitAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	111, // 407: agentvmm.host.v1.OperatorService.FailAgentIntegration:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	111, // 408: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	111, // 409: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:output_type -> agentvmm.host.v1.AgentIntegrationResponse
+	114, // 410: agentvmm.host.v1.OperatorService.ListAgentSessions:output_type -> agentvmm.host.v1.ListAgentSessionsResponse
+	278, // 411: agentvmm.host.v1.OperatorService.RevokeAgentSessions:output_type -> google.protobuf.Empty
+	180, // 412: agentvmm.host.v1.OperatorService.GetSystemSnapshot:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
+	180, // 413: agentvmm.host.v1.OperatorService.GetSystemHealthSummary:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
+	182, // 414: agentvmm.host.v1.OperatorService.GetVMImpactSummary:output_type -> agentvmm.host.v1.GetVMImpactSummaryResponse
+	121, // 415: agentvmm.host.v1.OperatorService.ListEnvironments:output_type -> agentvmm.host.v1.ListEnvironmentsResponse
+	119, // 416: agentvmm.host.v1.OperatorService.GetEnvironment:output_type -> agentvmm.host.v1.GetEnvironmentResponse
+	146, // 417: agentvmm.host.v1.OperatorService.ListEnvironmentImages:output_type -> agentvmm.host.v1.ListImagesResponse
+	278, // 418: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:output_type -> google.protobuf.Empty
+	187, // 419: agentvmm.host.v1.OperatorService.WatchEvents:output_type -> agentvmm.host.v1.RuntimeEvent
+	189, // 420: agentvmm.host.v1.OperatorService.WatchMetrics:output_type -> agentvmm.host.v1.MetricsSample
+	151, // 421: agentvmm.host.v1.OperatorService.Logs:output_type -> agentvmm.host.v1.LogRecord
+	135, // 422: agentvmm.host.v1.OperatorService.StopContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	135, // 423: agentvmm.host.v1.OperatorService.ContinueContainer:output_type -> agentvmm.host.v1.ContainerResponse
+	278, // 424: agentvmm.host.v1.OperatorService.SignalContainer:output_type -> google.protobuf.Empty
+	278, // 425: agentvmm.host.v1.OperatorService.DeleteContainer:output_type -> google.protobuf.Empty
+	119, // 426: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:output_type -> agentvmm.host.v1.GetEnvironmentResponse
+	278, // 427: agentvmm.host.v1.OperatorService.ApplyNetworkLink:output_type -> google.protobuf.Empty
+	278, // 428: agentvmm.host.v1.OperatorService.DeleteNetworkLink:output_type -> google.protobuf.Empty
+	203, // 429: agentvmm.host.v1.OperatorService.PlanResetEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	203, // 430: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.CleanupPlanResponse
+	208, // 431: agentvmm.host.v1.OperatorService.ExecuteCleanup:output_type -> agentvmm.host.v1.OperationResponse
+	254, // 432: agentvmm.host.v1.OperatorService.PlanLocalDisposal:output_type -> agentvmm.host.v1.LocalDisposalPlanResponse
+	208, // 433: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:output_type -> agentvmm.host.v1.OperationResponse
+	208, // 434: agentvmm.host.v1.OperatorService.GetOperation:output_type -> agentvmm.host.v1.OperationResponse
+	208, // 435: agentvmm.host.v1.OperatorService.RunDiagnostics:output_type -> agentvmm.host.v1.OperationResponse
+	213, // 436: agentvmm.host.v1.OperatorService.PreviewSupportBundle:output_type -> agentvmm.host.v1.SupportBundlePreview
+	208, // 437: agentvmm.host.v1.OperatorService.ExportSupportBundle:output_type -> agentvmm.host.v1.OperationResponse
+	232, // 438: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 439: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 440: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 441: agentvmm.host.v1.OperatorService.FailRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 442: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	278, // 443: agentvmm.host.v1.OperatorService.RemoveIncompleteRemoteRegistration:output_type -> google.protobuf.Empty
+	232, // 444: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 445: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 446: agentvmm.host.v1.OperatorService.UpdateRemotePool:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 447: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	232, // 448: agentvmm.host.v1.OperatorService.GetRemoteRegistration:output_type -> agentvmm.host.v1.RemoteRegistrationResponse
+	231, // 449: agentvmm.host.v1.OperatorService.ListRemoteRegistrations:output_type -> agentvmm.host.v1.ListRemoteRegistrationsResponse
+	257, // 450: agentvmm.host.v1.OperatorService.SignCommaRecovery:output_type -> agentvmm.host.v1.SignCommaRecoveryResponse
+	259, // 451: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:output_type -> agentvmm.host.v1.LocalDiskSummary
+	262, // 452: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:output_type -> agentvmm.host.v1.LocalEnvironmentPage
+	265, // 453: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:output_type -> agentvmm.host.v1.LocalRegistrationPage
+	32,  // 454: agentvmm.host.v1.OperatorService.GetDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
+	34,  // 455: agentvmm.host.v1.OperatorService.RotateDeviceRoot:output_type -> agentvmm.host.v1.RotateDeviceRootResponse
+	37,  // 456: agentvmm.host.v1.OperatorService.ListPersonalMeshes:output_type -> agentvmm.host.v1.ListPersonalMeshesResponse
+	44,  // 457: agentvmm.host.v1.OperatorService.CreatePersonalMesh:output_type -> agentvmm.host.v1.PersonalMeshResponse
+	44,  // 458: agentvmm.host.v1.OperatorService.ApplyPersonalMeshSnapshot:output_type -> agentvmm.host.v1.PersonalMeshResponse
+	44,  // 459: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:output_type -> agentvmm.host.v1.PersonalMeshResponse
+	53,  // 460: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	53,  // 461: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	53,  // 462: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	53,  // 463: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	53,  // 464: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:output_type -> agentvmm.host.v1.PersonalMeshPairingResponse
+	32,  // 465: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:output_type -> agentvmm.host.v1.DeviceIdentityResponse
+	40,  // 466: agentvmm.host.v1.OperatorService.CreatePersonalServiceListener:output_type -> agentvmm.host.v1.ServiceListenerResponse
+	42,  // 467: agentvmm.host.v1.OperatorService.ListServiceListeners:output_type -> agentvmm.host.v1.ListServiceListenersResponse
+	278, // 468: agentvmm.host.v1.OperatorService.RevokeServiceListener:output_type -> google.protobuf.Empty
+	235, // 469: agentvmm.host.v1.RemoteComputeService.GetRemoteState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	238, // 470: agentvmm.host.v1.RemoteComputeService.GetRemoteObservation:output_type -> agentvmm.host.v1.GetRemoteObservationResponse
+	235, // 471: agentvmm.host.v1.RemoteComputeService.SetConnectionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	235, // 472: agentvmm.host.v1.RemoteComputeService.SetRemoteAdmissionState:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	235, // 473: agentvmm.host.v1.RemoteComputeService.ReportConnectorStatus:output_type -> agentvmm.host.v1.GetRemoteStateResponse
+	243, // 474: agentvmm.host.v1.RemoteComputeService.EnsureAllocation:output_type -> agentvmm.host.v1.AllocationResponse
+	243, // 475: agentvmm.host.v1.RemoteComputeService.ReleaseAllocation:output_type -> agentvmm.host.v1.AllocationResponse
+	243, // 476: agentvmm.host.v1.RemoteComputeService.DisposeAllocation:output_type -> agentvmm.host.v1.AllocationResponse
+	248, // 477: agentvmm.host.v1.RemoteComputeService.PlanCleanupAllocation:output_type -> agentvmm.host.v1.AllocationCleanupPlanResponse
+	243, // 478: agentvmm.host.v1.RemoteComputeService.ExecuteCleanupAllocation:output_type -> agentvmm.host.v1.AllocationResponse
+	100, // 479: agentvmm.host.v1.RemoteComputeService.OpenRuntimeSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
+	278, // 480: agentvmm.host.v1.RemoteComputeService.RevokeRuntimeSession:output_type -> google.protobuf.Empty
+	56,  // 481: agentvmm.host.v1.RemoteComputeService.AcquireHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
+	56,  // 482: agentvmm.host.v1.RemoteComputeService.RenewHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostLoopbackFrontendLease
+	278, // 483: agentvmm.host.v1.RemoteComputeService.ReleaseHostLoopbackFrontend:output_type -> google.protobuf.Empty
+	64,  // 484: agentvmm.host.v1.RemoteComputeService.AcceptHostLoopbackFrontend:output_type -> agentvmm.host.v1.HostFrontendFrame
+	353, // [353:485] is the sub-list for method output_type
+	221, // [221:353] is the sub-list for method input_type
 	221, // [221:221] is the sub-list for extension type_name
 	221, // [221:221] is the sub-list for extension extendee
 	0,   // [0:221] is the sub-list for field type_name
@@ -19850,14 +19946,14 @@ func file_host_v1_host_proto_init() {
 	file_host_v1_host_proto_msgTypes[179].OneofWrappers = []any{}
 	file_host_v1_host_proto_msgTypes[180].OneofWrappers = []any{}
 	file_host_v1_host_proto_msgTypes[183].OneofWrappers = []any{}
-	file_host_v1_host_proto_msgTypes[229].OneofWrappers = []any{}
+	file_host_v1_host_proto_msgTypes[230].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_host_v1_host_proto_rawDesc), len(file_host_v1_host_proto_rawDesc)),
 			NumEnums:      31,
-			NumMessages:   234,
+			NumMessages:   235,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

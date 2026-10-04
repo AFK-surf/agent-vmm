@@ -12,15 +12,17 @@ import (
 var ErrLocalDisposed = errors.New("local target was disposed by its operator")
 
 type LocalDisposal struct {
-	OperationID         string
-	Kind                string
-	TargetID            string
-	ParentID            string
-	RegistrationID      string
-	EnrollmentRequestID string
-	NamespaceID         string
-	Revision            uint64
-	Completed           bool
+	OperationID          string
+	Kind                 string
+	TargetID             string
+	ParentID             string
+	RegistrationID       string
+	EnrollmentRequestID  string
+	NamespaceID          string
+	Revision             uint64
+	Completed            bool
+	AllocationID         string
+	AllocationGeneration uint64
 }
 
 func migrateV24(tx *sql.Tx) error {
@@ -94,11 +96,28 @@ func migrateV24(tx *sql.Tx) error {
 	return nil
 }
 
-const disposalSelect = `SELECT operation_id,target_kind,target_id,parent_id,registration_id,enrollment_request_id,namespace_id,target_revision,completed FROM local_disposals`
+func migrateV25(tx *sql.Tx) error {
+	for _, statement := range []string{
+		`ALTER TABLE local_disposals ADD COLUMN allocation_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE local_disposals ADD COLUMN allocation_generation INTEGER NOT NULL DEFAULT 0`,
+		`CREATE UNIQUE INDEX allocation_disposal_scope ON local_disposals(registration_id,allocation_id,allocation_generation) WHERE allocation_id != ''`,
+		`CREATE TRIGGER disposed_allocation_insert BEFORE INSERT ON environments WHEN EXISTS (
+          SELECT 1 FROM local_disposals WHERE allocation_id != '' AND registration_id=NEW.registration_id
+            AND allocation_id=NEW.allocation_id AND allocation_generation=NEW.allocation_generation)
+          BEGIN SELECT RAISE(ABORT,'LOCAL_DISPOSED'); END`,
+	} {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const disposalSelect = `SELECT operation_id,target_kind,target_id,parent_id,registration_id,enrollment_request_id,namespace_id,target_revision,completed,allocation_id,allocation_generation FROM local_disposals`
 
 func scanDisposal(row rowScanner) (LocalDisposal, error) {
 	var result LocalDisposal
-	err := row.Scan(&result.OperationID, &result.Kind, &result.TargetID, &result.ParentID, &result.RegistrationID, &result.EnrollmentRequestID, &result.NamespaceID, &result.Revision, &result.Completed)
+	err := row.Scan(&result.OperationID, &result.Kind, &result.TargetID, &result.ParentID, &result.RegistrationID, &result.EnrollmentRequestID, &result.NamespaceID, &result.Revision, &result.Completed, &result.AllocationID, &result.AllocationGeneration)
 	return result, err
 }
 
@@ -116,6 +135,22 @@ func (store *Store) EnvironmentDisposed(ctx context.Context, environment Environ
 // AcceptLocalDisposal commits the receipt and replay fence before any Guest work.
 // The caller holds inventory transition, remote admission, and the exact environment lock.
 func (store *Store) AcceptLocalDisposal(ctx context.Context, operation Operation, requested LocalDisposal) (Operation, error) {
+	return store.acceptDisposal(ctx, operation, requested, false)
+}
+
+// AcceptAllocationDisposal uses cloud authority for one generation, never a registration-wide scope.
+func (store *Store) AcceptAllocationDisposal(ctx context.Context, operation Operation, requested LocalDisposal) (Operation, error) {
+	if requested.Kind != "environment" || requested.RegistrationID == "" || requested.AllocationID == "" || requested.AllocationGeneration == 0 {
+		return Operation{}, errors.New("invalid allocation disposal scope")
+	}
+	return store.acceptDisposal(ctx, operation, requested, true)
+}
+
+func (store *Store) AllocationDisposal(ctx context.Context, registration, allocation string, generation uint64) (LocalDisposal, error) {
+	return scanDisposal(store.db.QueryRowContext(ctx, disposalSelect+` WHERE registration_id=? AND allocation_id=? AND allocation_generation=?`, registration, allocation, generation))
+}
+
+func (store *Store) acceptDisposal(ctx context.Context, operation Operation, requested LocalDisposal, remote bool) (Operation, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Operation{}, err
@@ -127,7 +162,7 @@ func (store *Store) AcceptLocalDisposal(ctx context.Context, operation Operation
 		if loadErr != nil {
 			return Operation{}, loadErr
 		}
-		if target.Kind != requested.Kind || target.TargetID != requested.TargetID || target.Revision != requested.Revision {
+		if target.Kind != requested.Kind || target.TargetID != requested.TargetID || target.Revision != requested.Revision || target.RegistrationID != requested.RegistrationID && remote || target.AllocationID != requested.AllocationID || target.AllocationGeneration != requested.AllocationGeneration {
 			return Operation{}, errors.New("disposal request identity conflict")
 		}
 		return prior, nil
@@ -148,7 +183,16 @@ func (store *Store) AcceptLocalDisposal(ctx context.Context, operation Operation
 	} else if requested.Kind == "environment" {
 		var revision uint64
 		var namespace string
-		if err := tx.QueryRowContext(ctx, `SELECT policy_revision,namespace_id FROM environments WHERE id=? AND owner_kind=?`, requested.TargetID, OwnerLocal).Scan(&revision, &namespace); err != nil {
+		if remote {
+			var registration, allocation string
+			var generation uint64
+			if err := tx.QueryRowContext(ctx, `SELECT policy_revision,namespace_id,registration_id,allocation_id,allocation_generation FROM environments WHERE id=? AND owner_kind=?`, requested.TargetID, OwnerRemoteRegistration).Scan(&revision, &namespace, &registration, &allocation, &generation); err != nil {
+				return Operation{}, err
+			}
+			if registration != requested.RegistrationID || allocation != requested.AllocationID || generation != requested.AllocationGeneration {
+				return Operation{}, errors.New("allocation disposal fence changed")
+			}
+		} else if err := tx.QueryRowContext(ctx, `SELECT policy_revision,namespace_id FROM environments WHERE id=? AND owner_kind=?`, requested.TargetID, OwnerLocal).Scan(&revision, &namespace); err != nil {
 			return Operation{}, err
 		}
 		if revision != requested.Revision || namespace != requested.NamespaceID {
@@ -163,7 +207,7 @@ func (store *Store) AcceptLocalDisposal(ctx context.Context, operation Operation
 	if _, err := tx.ExecContext(ctx, `INSERT INTO operations(id,kind,environment_id,state,stage,request_id,error_reason,error_message,output_path,started_at,updated_at) VALUES(?,?,?,?,?,?, '', '', '',?,?)`, operation.ID, "local-disposal", requested.TargetID, operation.State, operation.Stage, operation.RequestID, now.UnixNano(), now.UnixNano()); err != nil {
 		return Operation{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO local_disposals(target_kind,target_id,operation_id,registration_id,enrollment_request_id,namespace_id,target_revision) VALUES(?,?,?,?,?,?,?)`, requested.Kind, requested.TargetID, operation.ID, requested.RegistrationID, requested.EnrollmentRequestID, requested.NamespaceID, requested.Revision); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO local_disposals(target_kind,target_id,operation_id,registration_id,enrollment_request_id,namespace_id,target_revision,allocation_id,allocation_generation) VALUES(?,?,?,?,?,?,?,?,?)`, requested.Kind, requested.TargetID, operation.ID, requested.RegistrationID, requested.EnrollmentRequestID, requested.NamespaceID, requested.Revision, requested.AllocationID, requested.AllocationGeneration); err != nil {
 		return Operation{}, err
 	}
 	if requested.Kind == "registration" {
@@ -231,9 +275,9 @@ func (store *Store) CaptureDisposalEnvironment(ctx context.Context, root LocalDi
 	if root.Kind != "registration" || root.TargetID != environment.RegistrationID {
 		return LocalDisposal{}, errors.New("disposal scope mismatch")
 	}
-	_, err := store.db.ExecContext(ctx, `INSERT INTO local_disposals(target_kind,target_id,parent_id,operation_id,registration_id,namespace_id,target_revision)
- SELECT 'environment',?,target_id,operation_id,registration_id,?,? FROM local_disposals WHERE target_kind='registration' AND target_id=? AND operation_id=?
- ON CONFLICT(target_kind,target_id) DO NOTHING`, environment.ID, environment.NamespaceID, environment.PolicyRevision, root.TargetID, root.OperationID)
+	_, err := store.db.ExecContext(ctx, `INSERT INTO local_disposals(target_kind,target_id,parent_id,operation_id,registration_id,namespace_id,target_revision,allocation_id,allocation_generation)
+ SELECT 'environment',?,target_id,operation_id,registration_id,?,?,?,? FROM local_disposals WHERE target_kind='registration' AND target_id=? AND operation_id=?
+ ON CONFLICT(target_kind,target_id) DO NOTHING`, environment.ID, environment.NamespaceID, environment.PolicyRevision, environment.AllocationID, environment.AllocationGeneration, root.TargetID, root.OperationID)
 	if err != nil {
 		return LocalDisposal{}, err
 	}

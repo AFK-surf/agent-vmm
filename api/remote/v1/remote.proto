@@ -178,6 +178,7 @@ message ControllerCommand {
   oneof command {
     EnsureAllocation ensure_allocation = 10;
     ReleaseAllocation release_allocation = 11;
+    DisposeAllocation dispose_allocation = 22;
     PlanCleanupAllocation plan_cleanup_allocation = 12;
     ExecuteCleanupAllocation execute_cleanup_allocation = 13;
     DrainRegistration drain_registration = 17;
@@ -221,6 +222,12 @@ message ReleaseAllocation {
   string allocation_id = 1;
   uint64 expected_revision = 2;
   uint64 expected_generation = 3;
+}
+message DisposeAllocation {
+  string allocation_id = 1;
+  uint64 expected_revision = 2;
+  uint64 expected_generation = 3;
+  string request_id = 4;
 }
 message PlanCleanupAllocation {
   string allocation_id = 1;
@@ -331,6 +338,7 @@ enum ErrorReason {
   ERROR_REASON_SEQUENCE_CONFLICT = 14;
   ERROR_REASON_DEADLINE_EXCEEDED = 15;
   ERROR_REASON_FEATURE_MISMATCH = 16;
+  ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED = 17;
 }
 
 message CleanupPlan {

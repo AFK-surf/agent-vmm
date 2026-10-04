@@ -277,6 +277,7 @@ service RemoteComputeService {
   rpc ReportConnectorStatus(ReportConnectorStatusRequest) returns (GetRemoteStateResponse);
   rpc EnsureAllocation(EnsureAllocationRequest) returns (AllocationResponse);
   rpc ReleaseAllocation(ReleaseAllocationRequest) returns (AllocationResponse);
+  rpc DisposeAllocation(DisposeAllocationRequest) returns (AllocationResponse);
   rpc PlanCleanupAllocation(PlanCleanupAllocationRequest) returns (AllocationCleanupPlanResponse);
   rpc ExecuteCleanupAllocation(ExecuteCleanupAllocationRequest) returns (AllocationResponse);
   rpc OpenRuntimeSession(OpenRuntimeSessionRequest) returns (CreateAgentSessionResponse);
@@ -1637,6 +1638,15 @@ message ReleaseAllocationRequest {
   string registration_id = 3;
   string connection_instance = 4;
   uint64 expected_generation = 5;
+}
+
+message DisposeAllocationRequest {
+  string registration_id = 1;
+  string connection_instance = 2;
+  string allocation_id = 3;
+  uint64 expected_policy_revision = 4;
+  uint64 expected_generation = 5;
+  string request_id = 6;
 }
 
 message PlanCleanupAllocationRequest {

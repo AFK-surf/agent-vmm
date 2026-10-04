@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 24
+const schemaVersion = 25
 
 const (
 	auditRetention  = 30 * 24 * time.Hour

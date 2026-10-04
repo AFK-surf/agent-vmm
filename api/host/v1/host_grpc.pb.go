@@ -4548,6 +4548,7 @@ const (
 	RemoteComputeService_ReportConnectorStatus_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/ReportConnectorStatus"
 	RemoteComputeService_EnsureAllocation_FullMethodName            = "/agentvmm.host.v1.RemoteComputeService/EnsureAllocation"
 	RemoteComputeService_ReleaseAllocation_FullMethodName           = "/agentvmm.host.v1.RemoteComputeService/ReleaseAllocation"
+	RemoteComputeService_DisposeAllocation_FullMethodName           = "/agentvmm.host.v1.RemoteComputeService/DisposeAllocation"
 	RemoteComputeService_PlanCleanupAllocation_FullMethodName       = "/agentvmm.host.v1.RemoteComputeService/PlanCleanupAllocation"
 	RemoteComputeService_ExecuteCleanupAllocation_FullMethodName    = "/agentvmm.host.v1.RemoteComputeService/ExecuteCleanupAllocation"
 	RemoteComputeService_OpenRuntimeSession_FullMethodName          = "/agentvmm.host.v1.RemoteComputeService/OpenRuntimeSession"
@@ -4569,6 +4570,7 @@ type RemoteComputeServiceClient interface {
 	ReportConnectorStatus(ctx context.Context, in *ReportConnectorStatusRequest, opts ...grpc.CallOption) (*GetRemoteStateResponse, error)
 	EnsureAllocation(ctx context.Context, in *EnsureAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	ReleaseAllocation(ctx context.Context, in *ReleaseAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
+	DisposeAllocation(ctx context.Context, in *DisposeAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	PlanCleanupAllocation(ctx context.Context, in *PlanCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationCleanupPlanResponse, error)
 	ExecuteCleanupAllocation(ctx context.Context, in *ExecuteCleanupAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error)
 	OpenRuntimeSession(ctx context.Context, in *OpenRuntimeSessionRequest, opts ...grpc.CallOption) (*CreateAgentSessionResponse, error)
@@ -4651,6 +4653,16 @@ func (c *remoteComputeServiceClient) ReleaseAllocation(ctx context.Context, in *
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AllocationResponse)
 	err := c.cc.Invoke(ctx, RemoteComputeService_ReleaseAllocation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *remoteComputeServiceClient) DisposeAllocation(ctx context.Context, in *DisposeAllocationRequest, opts ...grpc.CallOption) (*AllocationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AllocationResponse)
+	err := c.cc.Invoke(ctx, RemoteComputeService_DisposeAllocation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -4751,6 +4763,7 @@ type RemoteComputeServiceServer interface {
 	ReportConnectorStatus(context.Context, *ReportConnectorStatusRequest) (*GetRemoteStateResponse, error)
 	EnsureAllocation(context.Context, *EnsureAllocationRequest) (*AllocationResponse, error)
 	ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error)
+	DisposeAllocation(context.Context, *DisposeAllocationRequest) (*AllocationResponse, error)
 	PlanCleanupAllocation(context.Context, *PlanCleanupAllocationRequest) (*AllocationCleanupPlanResponse, error)
 	ExecuteCleanupAllocation(context.Context, *ExecuteCleanupAllocationRequest) (*AllocationResponse, error)
 	OpenRuntimeSession(context.Context, *OpenRuntimeSessionRequest) (*CreateAgentSessionResponse, error)
@@ -4789,6 +4802,9 @@ func (UnimplementedRemoteComputeServiceServer) EnsureAllocation(context.Context,
 }
 func (UnimplementedRemoteComputeServiceServer) ReleaseAllocation(context.Context, *ReleaseAllocationRequest) (*AllocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseAllocation not implemented")
+}
+func (UnimplementedRemoteComputeServiceServer) DisposeAllocation(context.Context, *DisposeAllocationRequest) (*AllocationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DisposeAllocation not implemented")
 }
 func (UnimplementedRemoteComputeServiceServer) PlanCleanupAllocation(context.Context, *PlanCleanupAllocationRequest) (*AllocationCleanupPlanResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlanCleanupAllocation not implemented")
@@ -4961,6 +4977,24 @@ func _RemoteComputeService_ReleaseAllocation_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RemoteComputeService_DisposeAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DisposeAllocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RemoteComputeServiceServer).DisposeAllocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RemoteComputeService_DisposeAllocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RemoteComputeServiceServer).DisposeAllocation(ctx, req.(*DisposeAllocationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RemoteComputeService_PlanCleanupAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PlanCleanupAllocationRequest)
 	if err := dec(in); err != nil {
@@ -5128,6 +5162,10 @@ var RemoteComputeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseAllocation",
 			Handler:    _RemoteComputeService_ReleaseAllocation_Handler,
+		},
+		{
+			MethodName: "DisposeAllocation",
+			Handler:    _RemoteComputeService_DisposeAllocation_Handler,
 		},
 		{
 			MethodName: "PlanCleanupAllocation",

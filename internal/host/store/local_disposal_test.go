@@ -203,3 +203,85 @@ func TestOwnerLocalDisposalDoesNotRevokeAnotherLocalEnvironment(t *testing.T) {
 		t.Fatal("other local Session removed", err)
 	}
 }
+
+func TestAllocationDisposalKeepsRegistrationAndAdjacentAllocationAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { database.Close() }()
+	registration := RemoteRegistration{ID: "shared", Endpoint: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 5, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}
+	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
+		t.Fatal(err)
+	}
+	capacity := resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
+	target := Environment{ID: "env-target", NamespaceID: "namespace-target", OwnerKind: OwnerRemoteRegistration, RegistrationID: "shared", AllocationID: "target", AllocationGeneration: 7, AllocationState: 2, CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}
+	target, err = database.BeginWorkloadAdmission(ctx, target, capacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	neighbor := target
+	neighbor.ID, neighbor.NamespaceID, neighbor.AllocationID = "env-neighbor", "namespace-neighbor", "neighbor"
+	if _, err := database.BeginWorkloadAdmission(ctx, neighbor, capacity); err != nil {
+		t.Fatal(err)
+	}
+	root := LocalDisposal{Kind: "environment", TargetID: target.ID, NamespaceID: target.NamespaceID, RegistrationID: target.RegistrationID, AllocationID: target.AllocationID, AllocationGeneration: target.AllocationGeneration, Revision: target.PolicyRevision}
+	operation := Operation{ID: "delete-target", RequestID: "delete-request"}
+	stale := root
+	stale.AllocationGeneration--
+	if _, err := database.AcceptAllocationDisposal(ctx, operation, stale); err == nil {
+		t.Fatal("stale generation accepted")
+	}
+	if _, err := database.AcceptLocalDisposal(ctx, operation, root); err == nil {
+		t.Fatal("operator widened remote authority")
+	}
+	accepted, err := database.AcceptAllocationDisposal(ctx, operation, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.BeginWorkloadAdmission(ctx, target, capacity); err == nil {
+		t.Fatal("disposed allocation recreated")
+	}
+	root, err = database.AllocationDisposal(ctx, "shared", "target", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := database.AcceptAllocationDisposal(ctx, operation, root)
+	if err != nil || replay.ID != accepted.ID {
+		t.Fatalf("replay=%+v, %v", replay, err)
+	}
+	if err := database.FinishDisposalEnvironment(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinishLocalDisposal(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := database.AllocationDisposal(ctx, "shared", "target", 7)
+	if err != nil || !completed.Completed {
+		t.Fatalf("completed=%+v, %v", completed, err)
+	}
+	if _, err := database.GetRemoteRegistration(ctx, "shared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.GetEnvironment(ctx, neighbor.ID); err != nil {
+		t.Fatal("adjacent allocation lost:", err)
+	}
+	target.ID = "another-env"
+	target.NamespaceID = "another-namespace"
+	if _, err := database.BeginWorkloadAdmission(ctx, target, capacity); err == nil {
+		t.Fatal("allocation recreated with new environment ID")
+	}
+	target.AllocationID = "new-target"
+	if _, err := database.BeginWorkloadAdmission(ctx, target, capacity); err != nil {
+		t.Fatal("new authorized allocation rejected:", err)
+	}
+}

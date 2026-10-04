@@ -13744,6 +13744,19 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "DisposeAllocation" metadata.
+        public enum DisposeAllocation: Sendable {
+            /// Request type for "DisposeAllocation".
+            public typealias Input = Agentvmm_Host_V1_DisposeAllocationRequest
+            /// Response type for "DisposeAllocation".
+            public typealias Output = Agentvmm_Host_V1_AllocationResponse
+            /// Descriptor for "DisposeAllocation".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.RemoteComputeService"),
+                method: "DisposeAllocation",
+                type: .unary
+            )
+        }
         /// Namespace for "PlanCleanupAllocation" metadata.
         public enum PlanCleanupAllocation: Sendable {
             /// Request type for "PlanCleanupAllocation".
@@ -13857,6 +13870,7 @@ public enum Agentvmm_Host_V1_RemoteComputeService: Sendable {
             ReportConnectorStatus.descriptor,
             EnsureAllocation.descriptor,
             ReleaseAllocation.descriptor,
+            DisposeAllocation.descriptor,
             PlanCleanupAllocation.descriptor,
             ExecuteCleanupAllocation.descriptor,
             OpenRuntimeSession.descriptor,
@@ -14012,6 +14026,25 @@ extension Agentvmm_Host_V1_RemoteComputeService {
         func releaseAllocation<Result>(
             request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ReleaseAllocationRequest>,
             serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ReleaseAllocationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "DisposeAllocation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_DisposeAllocationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_DisposeAllocationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_AllocationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func disposeAllocation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_DisposeAllocationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_DisposeAllocationRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result
@@ -14389,6 +14422,36 @@ extension Agentvmm_Host_V1_RemoteComputeService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.ReleaseAllocation.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "DisposeAllocation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_DisposeAllocationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_DisposeAllocationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_AllocationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func disposeAllocation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_DisposeAllocationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_DisposeAllocationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_AllocationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_RemoteComputeService.Method.DisposeAllocation.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -14814,6 +14877,31 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
         )
     }
 
+    /// Call the "DisposeAllocation" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_DisposeAllocationRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func disposeAllocation<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_DisposeAllocationRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.disposeAllocation(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_DisposeAllocationRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_AllocationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "PlanCleanupAllocation" method.
     ///
     /// - Parameters:
@@ -15213,6 +15301,35 @@ extension Agentvmm_Host_V1_RemoteComputeService.ClientProtocol {
             metadata: metadata
         )
         return try await self.releaseAllocation(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "DisposeAllocation" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func disposeAllocation<Result>(
+        _ message: Agentvmm_Host_V1_DisposeAllocationRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_AllocationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_DisposeAllocationRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.disposeAllocation(
             request: request,
             options: options,
             onResponse: handleResponse

@@ -61,6 +61,10 @@ func (store *e2eCredentialStore) Delete(context.Context, string) error {
 	return nil
 }
 
+type remoteE2EAction struct {
+	command *remotev1.ControllerCommand
+	reply   chan *remotev1.CommandResult
+}
 type remoteE2EController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
 	registrationID  string
@@ -69,6 +73,8 @@ type remoteE2EController struct {
 	connections     chan int
 	failures        chan string
 	connectionEpoch atomic.Uint64
+	actions         chan remoteE2EAction
+	retired         sync.Map
 }
 type remoteE2ESession struct {
 	allocationID string
@@ -106,6 +112,9 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 		}
 	}
 	for index, allocationID := range []string{"remote-a", "remote-b"} {
+		if _, retired := server.retired.Load(allocationID); retired {
+			continue
+		}
 		egress := hostv1.EgressMode_EGRESS_MODE_DENY_ALL
 		if index == 0 {
 			egress = hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
@@ -128,6 +137,9 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 	}
 	server.connections <- len(allocations)
 	for _, allocation := range allocations {
+		if _, retired := server.retired.Load(allocation.GetAllocationId()); retired {
+			continue
+		}
 		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "open-" + allocation.GetAllocationId(), Command: &remotev1.ControllerCommand_OpenSession{OpenSession: &remotev1.OpenSession{AllocationId: allocation.GetAllocationId(), AllocationGeneration: allocation.GetGeneration(), ExecutionOwnerId: "e2e:" + allocation.GetAllocationId()}}})
 		if err != nil {
 			return err
@@ -137,10 +149,24 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 			return status.Error(codes.Internal, "open failed")
 		}
 	}
-	select {
-	case <-server.finish:
-	case <-stream.Context().Done():
-		return stream.Context().Err()
+waiting:
+	for {
+		select {
+		case action := <-server.actions:
+			result, err := server.command(cursor, action.command)
+			if err != nil {
+				server.reportFailure(err.Error())
+				return err
+			}
+			if disposal := action.command.GetDisposeAllocation(); disposal != nil && (result.GetOutcome() == remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED || result.GetReason() == remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE) {
+				server.retired.Store(disposal.GetAllocationId(), true)
+			}
+			action.reply <- result
+		case <-server.finish:
+			break waiting
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		}
 	}
 	for _, allocation := range allocations {
 		releasedAllocation, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "release-allocation-" + allocation.GetAllocationId(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: allocation.GetAllocationId(), ExpectedRevision: allocation.GetRevision(), ExpectedGeneration: allocation.GetGeneration()}}})
@@ -194,6 +220,8 @@ func dispatchRemoteCommand(cursor *remoteCommandCursor, command *remotev1.Contro
 	switch value := command.GetCommand().(type) {
 	case *remotev1.ControllerCommand_ReleaseAllocation:
 		command.TargetRevision = value.ReleaseAllocation.GetExpectedRevision()
+	case *remotev1.ControllerCommand_DisposeAllocation:
+		command.TargetRevision = value.DisposeAllocation.GetExpectedRevision()
 	case *remotev1.ControllerCommand_ExecuteCleanupAllocation:
 		command.TargetRevision = value.ExecuteCleanupAllocation.GetPlanRevision()
 	}

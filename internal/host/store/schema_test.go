@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -233,4 +235,46 @@ func createV18Database(t *testing.T, path string, includeReservation bool) *sql.
 		t.Fatal(err)
 	}
 	return database
+}
+
+func TestVersion24UpgradesTheExistingSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := database.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV19, migrateV20, migrateV21, migrateV22, migrateV23, migrateV24} {
+		if err := migration(tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES(24,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	database.Close()
+	opened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	var version int
+	if err := opened.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("version=%d", version)
+	}
+	if _, err := opened.AllocationDisposal(context.Background(), "registration", "allocation", 1); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("new deletion lookup=%v", err)
+	}
 }

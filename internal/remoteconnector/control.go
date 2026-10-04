@@ -28,7 +28,7 @@ var requiredProtocolFeatures = []string{
 	"resource-v2",
 }
 
-var protocolFeatures = append(append(append([]string(nil), requiredProtocolFeatures...), remoteObservationFeature), runtimeCapabilityFeatures...)
+var protocolFeatures = append(append(append([]string(nil), requiredProtocolFeatures...), remoteObservationFeature, "allocation-disposal-v1"), runtimeCapabilityFeatures...)
 
 type commandTracker struct {
 	epoch              uint64
@@ -95,6 +95,9 @@ func (tracker *commandTracker) admit(command *remotev1.ControllerCommand, now ti
 	}
 	if release := command.GetReleaseAllocation(); release != nil && (release.GetExpectedGeneration() == 0 || command.GetTargetRevision() != release.GetExpectedRevision()) {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation release fence mismatch"), nil
+	}
+	if disposal := command.GetDisposeAllocation(); disposal != nil && (disposal.GetExpectedGeneration() == 0 || command.GetTargetRevision() != disposal.GetExpectedRevision() || disposal.GetRequestId() == "") {
+		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation deletion fence mismatch"), nil
 	}
 	if command.GetAcquireHostLoopbackFrontend() != nil && command.GetTargetRevision() == 0 {
 		return rejectAck(ack, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "frontend allocation revision fence is required"), nil

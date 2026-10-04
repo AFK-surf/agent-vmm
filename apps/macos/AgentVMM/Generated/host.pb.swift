@@ -6866,6 +6866,28 @@ public nonisolated struct Agentvmm_Host_V1_ReleaseAllocationRequest: Sendable {
   public init() {}
 }
 
+public nonisolated struct Agentvmm_Host_V1_DisposeAllocationRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var registrationID: String = String()
+
+  public var connectionInstance: String = String()
+
+  public var allocationID: String = String()
+
+  public var expectedPolicyRevision: UInt64 = 0
+
+  public var expectedGeneration: UInt64 = 0
+
+  public var requestID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentvmm_Host_V1_PlanCleanupAllocationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -17967,6 +17989,61 @@ nonisolated extension Agentvmm_Host_V1_ReleaseAllocationRequest: SwiftProtobuf.M
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.connectionInstance != rhs.connectionInstance {return false}
     if lhs.expectedGeneration != rhs.expectedGeneration {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_DisposeAllocationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DisposeAllocationRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}registration_id\0\u{3}connection_instance\0\u{3}allocation_id\0\u{3}expected_policy_revision\0\u{3}expected_generation\0\u{3}request_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.connectionInstance) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.allocationID) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.expectedPolicyRevision) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.expectedGeneration) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.registrationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 1)
+    }
+    if !self.connectionInstance.isEmpty {
+      try visitor.visitSingularStringField(value: self.connectionInstance, fieldNumber: 2)
+    }
+    if !self.allocationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.allocationID, fieldNumber: 3)
+    }
+    if self.expectedPolicyRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.expectedPolicyRevision, fieldNumber: 4)
+    }
+    if self.expectedGeneration != 0 {
+      try visitor.visitSingularUInt64Field(value: self.expectedGeneration, fieldNumber: 5)
+    }
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_DisposeAllocationRequest, rhs: Agentvmm_Host_V1_DisposeAllocationRequest) -> Bool {
+    if lhs.registrationID != rhs.registrationID {return false}
+    if lhs.connectionInstance != rhs.connectionInstance {return false}
+    if lhs.allocationID != rhs.allocationID {return false}
+    if lhs.expectedPolicyRevision != rhs.expectedPolicyRevision {return false}
+    if lhs.expectedGeneration != rhs.expectedGeneration {return false}
+    if lhs.requestID != rhs.requestID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
