@@ -357,6 +357,8 @@ For a state-preserving update:
    the fixed executor stops the Host job. Retry the same lifecycle request to
    replace the application. This retry first confirms that the job is absent
    and the exact state-disk owner has exited; it does not call the stopped Host.
+   If the disk file is absent, the executor also checks unlinked open files.
+   An open disk or a failed inspection blocks the stop.
    The fixed executor then installs the Host job from its protected path. Retry
    the same request once more as the service user to complete recovery. Root
    does not run lifecycle, Host, VM, download,

@@ -67,17 +67,6 @@ var observeLaunchctl = func(label string) (bool, bool, int, error) {
 	}
 	return true, running, pid, nil
 }
-var stateDiskBusy = func(path string) (bool, error) {
-	command := exec.Command("/usr/sbin/lsof", "-Fn", "--", path)
-	output, err := command.Output()
-	if err == nil {
-		return len(output) != 0, nil
-	}
-	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 && len(exit.Stderr) == 0 {
-		return false, nil
-	}
-	return false, err
-}
 var processAlive = func(pid int) bool { err := unix.Kill(pid, 0); return err == nil || errors.Is(err, unix.EPERM) }
 
 func main() {

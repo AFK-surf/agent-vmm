@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,12 +128,23 @@ func TestHostStopRequiresReleasedStateDiskBeforeBootout(t *testing.T) {
 	oldObserve, oldRun, oldBusy := observeLaunchctl, runLaunchctl, stateDiskBusy
 	defer func() { observeLaunchctl, runLaunchctl, stateDiskBusy = oldObserve, oldRun, oldBusy }()
 	observeLaunchctl = func(string) (bool, bool, int, error) { return true, true, 42, nil }
-	stateDiskBusy = func(string) (bool, error) { return true, nil }
-	calls := 0
-	runLaunchctl = func(...string) error { calls++; return nil }
-	err := stopJob(ownerConfig{Home: "/Users/service"}, fixedJob{name: "host", label: hostLabel})
-	if err == nil || calls != 0 {
-		t.Fatalf("err=%v calls=%d", err, calls)
+	for _, test := range []struct {
+		name string
+		busy bool
+		err  error
+	}{
+		{name: "attached", busy: true},
+		{name: "inspection failed", err: errors.New("inspection failed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDiskBusy = func(string) (bool, error) { return test.busy, test.err }
+			calls := 0
+			runLaunchctl = func(...string) error { calls++; return nil }
+			err := stopJob(ownerConfig{Home: "/Users/service"}, fixedJob{name: "host", label: hostLabel})
+			if err == nil || calls != 0 {
+				t.Fatalf("err=%v calls=%d", err, calls)
+			}
+		})
 	}
 }
 
@@ -186,4 +198,34 @@ func TestHostStopBootsOutOnlyAfterReleaseAndConfirmsExit(t *testing.T) {
 	if strings.Join(arguments, " ") != "bootout system/"+hostLabel || checks != 2 {
 		t.Fatalf("args=%v checks=%d", arguments, checks)
 	}
+}
+
+func TestStateDiskReleaseAcrossRemoval(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "state.raw")
+	assertBusy := func(want bool) {
+		t.Helper()
+		busy, err := stateDiskBusy(path)
+		if err != nil || busy != want {
+			t.Fatalf("busy=%v want=%v err=%v", busy, want, err)
+		}
+	}
+	assertBusy(false)
+	disk, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer disk.Close()
+	assertBusy(true)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	assertBusy(true)
+	if err := disk.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertBusy(false)
 }
