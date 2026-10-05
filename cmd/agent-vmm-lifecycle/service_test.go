@@ -235,10 +235,10 @@ func TestServiceUserAdoptsOnlyExactRunningAdministratorDaemon(t *testing.T) {
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProgramArguments</key><array><string>host</string></array><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	desired, err := renderServiceDefinition(value, false)
+	desired, err := renderServiceDefinition(value, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestServiceUserAdoptsOnlyExactRunningAdministratorDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	configured, err := readServiceConfig(value.serviceConfigFile)
-	if err != nil || configured.Mode != serviceModeDaemon || configured.UID != 502 {
+	if err != nil || configured.Mode != serviceModeDaemon || configured.UID != 502 || !configured.DisablePairing {
 		t.Fatalf("service config=%+v err=%v", configured, err)
 	}
 }
