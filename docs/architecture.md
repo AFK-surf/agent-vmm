@@ -207,6 +207,11 @@ the internal runtime namespace.
 
 `agent-vmm-host` is the sole VM owner and host control plane. It stores policy facts in one SQLite database, exposes a private operator Unix socket, and creates one revocable `0600` Unix socket per agent session. The session identity fixes the environment and guest namespace; request messages cannot replace either identity.
 
+The operator can sign a dedicated Comma recovery challenge with the existing device root and exact local registration.
+Enrollment health does not gate identity proof. Failed enrollment remains recoverable without creating a new registration.
+Revoked or locally disposed registrations cannot sign. The challenge binds the account, Session, Workspace, installation and nonce.
+Cloud authorization decides whether to consume the proof. Signing changes neither enrollment nor command authority.
+
 The SwiftUI app is an optional operator client. It consumes snapshots and bounded event, metric, and log streams. Its lifecycle is independent of the sidecar, VM, and agent sessions.
 
 The host controller has these responsibilities:

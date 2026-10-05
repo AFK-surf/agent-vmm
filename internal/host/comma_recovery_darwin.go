@@ -38,7 +38,7 @@ func (server *operatorServer) SignCommaRecovery(ctx context.Context, request *ho
 	if err != nil {
 		return nil, disposalReadError(err, challenge.RegistrationID)
 	}
-	if registration.OwnerKind != store.RemoteRegistrationExternal || registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED) || registration.EnrollmentState != int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY) {
+	if registration.OwnerKind != store.RemoteRegistrationExternal || registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED) {
 		return nil, resourceError(codes.FailedPrecondition, "RECOVERY_TARGET_UNAVAILABLE", "remote_registration", challenge.RegistrationID, "the original local registration is not recoverable")
 	}
 	if server.controller.trust == nil {
