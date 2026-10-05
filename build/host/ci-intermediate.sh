@@ -101,28 +101,35 @@ inspect_archive() {
   rm -rf "$scratch"
 }
 
-fetch_public() {
+fetch_r2() {
   local component="$1"
   local revision="$2"
   local destination="$3"
-  local key base partial status retries
+  local key partial diagnostic
+  : "${CLOUDFLARE_R2_ACCOUNT_ID:?required}"
+  : "${CLOUDFLARE_R2_BUCKET:?required}"
+  : "${AWS_ACCESS_KEY_ID:?required}"
+  : "${AWS_SECRET_ACCESS_KEY:?required}"
+  : "${AWS_DEFAULT_REGION:=auto}"
+  export AWS_DEFAULT_REGION
+  command -v aws >/dev/null
   key="$(key_for "$component" "$revision")"
-  base="${CI_INTERMEDIATE_PUBLIC_BASE_URL:-https://cue-release.afk.surf}"
-  retries="${CI_INTERMEDIATE_CURL_RETRY:-3}"
-  [[ "$retries" =~ ^[0-9]+$ ]] || fail "CI_INTERMEDIATE_CURL_RETRY must be a non-negative integer"
   partial="${destination}.partial.$$"
-  trap 'rm -f "$partial"' RETURN
+  diagnostic="${partial}.error"
+  trap 'rm -f "$partial" "$diagnostic"' RETURN
   mkdir -p "$(dirname "$destination")"
-  status="$(curl --silent --show-error --retry "$retries" --retry-all-errors \
-    --connect-timeout 30 --max-time 3600 --output "$partial" --write-out '%{http_code}' \
-    "$base/$key")" || return 4
-  case "$status" in
-    200) ;;
-    404) return 3 ;;
-    *) echo "CI intermediate returned HTTP $status: $key" >&2; return 4 ;;
-  esac
+  if ! AWS_RETRY_MODE=standard AWS_MAX_ATTEMPTS=3 aws \
+    --endpoint-url "https://${CLOUDFLARE_R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+    --cli-connect-timeout 30 --cli-read-timeout 60 \
+    s3api get-object --bucket "$CLOUDFLARE_R2_BUCKET" --key "$key" "$partial" \
+    >/dev/null 2>"$diagnostic"; then
+    if grep -q '(NoSuchKey)' "$diagnostic"; then return 3; fi
+    cat "$diagnostic" >&2
+    return 4
+  fi
   inspect_archive "$component" "$revision" "$partial" || return 5
   mv "$partial" "$destination"
+  rm -f "$diagnostic"
   trap - RETURN
 }
 
@@ -209,7 +216,7 @@ case "$mode" in
     destination="$3"
     validate_component "$component"
     validate_revision "$revision"
-    fetch_public "$component" "$revision" "$destination"
+    fetch_r2 "$component" "$revision" "$destination"
     emit_archive_facts "$destination"
     ;;
 
@@ -224,7 +231,7 @@ case "$mode" in
     validate_revision "$revision"
     [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail "invalid expected archive sha256"
     [[ "$expected_size" =~ ^[1-9][0-9]*$ ]] || fail "invalid expected archive size"
-    fetch_public "$component" "$revision" "$destination"
+    fetch_r2 "$component" "$revision" "$destination"
     [[ "$(sha256_file "$destination")" == "$expected_sha" && "$(file_size "$destination")" == "$expected_size" ]] || \
       fail "CI intermediate differs from the selected builder output"
     ;;

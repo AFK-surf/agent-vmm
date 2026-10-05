@@ -37,7 +37,7 @@ fi
 
 if "$script" download agent-vmm-host "$revision" "$first_sha" \
     "$(wc -c < "$first" | tr -d '[:space:]')" "$scratch/no-server.tar.gz" >/dev/null 2>&1; then
-  echo "download unexpectedly succeeded without a server" >&2
+  echo "download unexpectedly succeeded without R2 credentials" >&2
   exit 1
 fi
 
@@ -45,14 +45,31 @@ mkdir -p "$scratch/bin"
 cat > "$scratch/bin/aws" <<'EOF'
 #!/usr/bin/env bash
 set -eu
+if [[ "${AWS_TRANSPORT_FAILURE:-}" == true ]]; then echo "AccessDenied" >&2; exit 255; fi
 echo "$*" >> "$AWS_LOG"
 case "$*" in
-  *" head-object "*) exit 1 ;;
-  *" put-object "*) exit 0 ;;
+  *" head-object "*) test -f "$AWS_OBJECT" ;;
+  *" put-object "*)
+    if [[ -f "$AWS_OBJECT" ]]; then exit 1; fi
+    previous=
+    for arg in "$@"; do
+      if [[ "$previous" == --body ]]; then cp "$arg" "$AWS_OBJECT"; fi
+      previous="$arg"
+    done
+    ;;
+  *" get-object "*)
+    if [[ ! -f "$AWS_OBJECT" ]]; then echo 'An error occurred (NoSuchKey) when calling GetObject' >&2; exit 255; fi
+    cp "$AWS_OBJECT" "${@: -1}"
+    ;;
   *) exit 1 ;;
 esac
 EOF
 chmod +x "$scratch/bin/aws"
+export AWS_OBJECT="$scratch/object.tar.gz"
+export AWS_LOG="$scratch/aws.log"
+export CLOUDFLARE_R2_ACCOUNT_ID=account CLOUDFLARE_R2_BUCKET=bucket
+export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=secret
+export PATH="$scratch/bin:$PATH"
 output="$scratch/output"
 AWS_LOG="$scratch/aws.log" GITHUB_OUTPUT="$output" \
   CLOUDFLARE_R2_ACCOUNT_ID=account CLOUDFLARE_R2_BUCKET=bucket \
@@ -62,10 +79,42 @@ AWS_LOG="$scratch/aws.log" GITHUB_OUTPUT="$output" \
 grep -q "key=ci-intermediates/agent-vmm-host/commit/$revision.tar.gz" "$output"
 grep -q -- "--if-none-match \*" "$scratch/aws.log"
 
+"$script" download agent-vmm-host "$revision" "$first_sha" \
+  "$(wc -c < "$first" | tr -d '[:space:]')" "$scratch/download.tar.gz"
+cmp "$first" "$scratch/download.tar.gz"
+"$script" probe agent-vmm-host "$revision" "$scratch/probe.tar.gz" >/dev/null
+cmp "$first" "$scratch/probe.tar.gz"
+if "$script" download agent-vmm-host "$revision" "$(printf '%064d' 0)" \
+  "$(wc -c < "$first" | tr -d '[:space:]')" "$scratch/wrong-digest.tar.gz" >/dev/null 2>&1; then
+  echo "download accepted bytes with the wrong builder digest" >&2
+  exit 1
+fi
 wrong_revision="0000000000000000000000000000000000000000"
 if "$script" publish agent-vmm-host "$wrong_revision" "$first" >/dev/null 2>&1; then
   echo "archive with the wrong source revision unexpectedly published" >&2
   exit 1
 fi
+
+expect_probe_failure() {
+  local expected="$1" status
+  set +e
+  "$script" probe agent-vmm-host "$revision" "$scratch/rejected.tar.gz" >/dev/null 2>&1
+  status=$?
+  set -e
+  [[ "$status" == "$expected" ]] || { echo "probe returned $status instead of $expected" >&2; exit 1; }
+}
+export AWS_TRANSPORT_FAILURE=true
+expect_probe_failure 4
+unset AWS_TRANSPORT_FAILURE
+rm "$AWS_OBJECT"
+expect_probe_failure 3
+cp "$first" "$AWS_OBJECT"
+# A valid archive from another source must not become a cache hit.
+jq --arg revision "$wrong_revision" '.source_revision=$revision | .release_id="agent-vmm-"+$revision' "$resources/release-inventory.json" > "$scratch/inventory.json"
+mv "$scratch/inventory.json" "$resources/release-inventory.json"
+jq --arg revision "$wrong_revision" '.Settings[0].Value=$revision' "$resources/host-build-info.json" > "$scratch/build-info.json"
+mv "$scratch/build-info.json" "$resources/host-build-info.json"
+"$script" pack agent-vmm-host "$wrong_revision" "$scratch/input" "Agent VMM Host.app" "$AWS_OBJECT" >/dev/null
+expect_probe_failure 5
 
 echo "Agent VMM CI intermediate contract passed"

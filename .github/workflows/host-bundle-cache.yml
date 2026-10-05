@@ -98,6 +98,12 @@ jobs:
           rustup default 1.96.0
           rustup target add aarch64-apple-darwin
       - name: Download exact Guest CI intermediate from R2
+        env:
+          CLOUDFLARE_R2_ACCOUNT_ID: ${{ vars.CLOUDFLARE_R2_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ vars.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.CLOUDFLARE_R2_REGION || 'auto' }}
         run: |
           build/host/ci-intermediate.sh download agent-vmm-guest \
             '${{ needs.resolve-source.outputs.revision }}' \
