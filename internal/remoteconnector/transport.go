@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"runtime"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
+	"golang.org/x/net/http/httpproxy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
@@ -22,33 +24,45 @@ import (
 
 var controllerConnectParams = grpc.ConnectParams{
 	Backoff:           backoff.Config{BaseDelay: time.Second, Multiplier: 1.6, Jitter: 0.2, MaxDelay: MaxReconnectDelay},
-	MinConnectTimeout: 10 * time.Second,
+	MinConnectTimeout: gatewayDialBudget,
 }
 
 var controllerKeepalive = keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}
 
 func dialController(config Config, credential []byte) (*grpc.ClientConn, error) {
-	options := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.EndpointIdentity, RootCAs: config.TLSRoots})),
+	target, transportOptions := gatewayDialOptions(config)
+	options := append(transportOptions, []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxControlBytes), grpc.MaxCallSendMsgSize(MaxControlBytes)),
 		grpc.WithInitialWindowSize(StreamWindowBytes), grpc.WithInitialConnWindowSize(ConnectionWindowBytes),
 		grpc.WithConnectParams(controllerConnectParams), grpc.WithKeepaliveParams(controllerKeepalive),
-	}
+	}...)
 	if len(credential) != 0 {
 		options = append(options, grpc.WithPerRPCCredentials(bearerCredential{value: credential, registration: config.RegistrationID}))
 	}
-	return grpc.NewClient(config.Endpoint, options...)
+	return grpc.NewClient(target, options...)
 }
 
 func dialStoredController(config Config) (*grpc.ClientConn, error) {
-	options := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.EndpointIdentity, RootCAs: config.TLSRoots})),
+	target, transportOptions := gatewayDialOptions(config)
+	options := append(transportOptions, []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxControlBytes), grpc.MaxCallSendMsgSize(MaxControlBytes)),
 		grpc.WithInitialWindowSize(StreamWindowBytes), grpc.WithInitialConnWindowSize(ConnectionWindowBytes),
 		grpc.WithConnectParams(controllerConnectParams), grpc.WithKeepaliveParams(controllerKeepalive),
 		grpc.WithPerRPCCredentials(storedCredential{store: config.CredentialStore, account: config.RegistrationID}),
+	}...)
+	return grpc.NewClient(target, options...)
+}
+
+// Preserve explicit HTTP CONNECT proxy policy. Interface recovery applies only to
+// direct sockets (including system-managed TUN routing).
+func gatewayDialOptions(config Config) (string, []grpc.DialOption) {
+	tlsCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.EndpointIdentity, RootCAs: config.TLSRoots})
+	proxy, err := httpproxy.FromEnvironment().ProxyFunc()(&url.URL{Scheme: "https", Host: config.Endpoint})
+	if err != nil || proxy != nil {
+		return config.Endpoint, []grpc.DialOption{grpc.WithTransportCredentials(tlsCredentials)}
 	}
-	return grpc.NewClient(config.Endpoint, options...)
+	transport := newGatewayTransport(tlsCredentials)
+	return "passthrough:///" + config.Endpoint, []grpc.DialOption{grpc.WithTransportCredentials(transport), grpc.WithContextDialer(transport.Dial)}
 }
 
 type bearerCredential struct {

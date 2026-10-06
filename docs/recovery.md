@@ -42,6 +42,43 @@ stopped and started once through the normal artifact, grant, bootstrap, and
 instance fences; a failed attempt enters `FAILED` instead of retrying without
 a bound.
 
+### Managed Gateway connection recovery
+
+The Host first resolves the configured Gateway through the system resolver.
+A failed TCP or TLS connection permits another address, then another configured
+macOS interface. SystemConfiguration supplies each interface and its DNS servers.
+Supplemental DNS domains limit which names use that resolver. The connector uses
+only active non-loopback interfaces. It prefers physical interfaces after the
+default route fails. It does not install routes or change system DNS.
+
+Each direct connection pass has a 20-second budget. Configuration discovery has
+one second. At most one configuration read can remain blocked in configd.
+Later passes can skip discovery instead of accumulating blocked readers.
+Each route has two seconds for DNS and at most two configured resolvers.
+Resolvers share the remaining budget. Each resolver tries UDP, then TCP after
+failure. A truncated UDP response also uses standard DNS-over-TCP recovery.
+
+The pass tries TCP and TLS candidates sequentially. Each candidate has three
+seconds. Limits are eight candidates, three additional interfaces, and three
+addresses per route. Duplicate address/interface pairs are skipped. Delays between
+candidates increase from 100 to 200 to 400 milliseconds. The total budget takes
+priority, so a pass need not exhaust every candidate. Later gRPC connection
+passes retain the existing jittered backoff, capped at 30 seconds.
+
+Every candidate uses the original Gateway hostname, configured CA roots, TLS 1.3,
+and HTTP/2. DNS and interface selection provide reachability, not authority.
+Only stock TLS verification can admit a connection. Bearer credentials and
+registration requests follow verification. The route adapter does not retry an
+application RPC or replace the installation plan. Explicit HTTP CONNECT proxies
+retain the existing gRPC proxy path, including NO_PROXY. Route recovery applies
+to direct sockets, including system TUN routes.
+
+If all configured resolvers or routes fail, enrollment remains failed and
+recoverable under its existing owner policy. No fixed Gateway IP, public DNS
+server, certificate bypass, or persistent route cache supplies a fallback.
+A connected TLS test does not prove successful enrollment. The opt-in
+`TestGatewayConfiguredEndpoint` checks DNS and TLS without sending credentials.
+
 ### Egress-grant schema preflight
 
 An existing schema-17 Host database created before the independent
