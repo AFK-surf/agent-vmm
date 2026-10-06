@@ -12,6 +12,9 @@ const (
 	RemoteRegistrationPrivate  = 2
 )
 
+var ErrRemoteRegistrationRevisionConflict = errors.New("registration revision conflict")
+var ErrRemoteRegistrationEnrollmentState = errors.New("registration enrollment state does not permit revocation")
+
 type RemoteRegistration struct {
 	ID                      string
 	Endpoint                string
@@ -354,12 +357,18 @@ func (store *Store) BeginRemoteRevocation(ctx context.Context, id string, expect
 	if err != nil {
 		return RemoteRegistration{}, err
 	}
-	if current.Revision == expectedRevision && current.EnrollmentState == 4 && (current.State == 2 || current.State == 3) {
+	if current.Revision != expectedRevision {
+		return RemoteRegistration{}, ErrRemoteRegistrationRevisionConflict
+	}
+	if current.EnrollmentState == 4 && (current.State == 2 || current.State == 3) {
 		return current, nil
+	}
+	if current.EnrollmentState < 1 || current.EnrollmentState > 3 {
+		return RemoteRegistration{}, ErrRemoteRegistrationEnrollmentState
 	}
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET enrollment_state=4, state=2,
 		connection_state=1, connection_instance='', revision=revision+1, updated_at=?
-		WHERE id=? AND revision=? AND state != 3 AND enrollment_state=2`, time.Now().UnixNano(), id, expectedRevision)
+		WHERE id=? AND revision=? AND state != 3 AND enrollment_state IN (1,2,3)`, time.Now().UnixNano(), id, expectedRevision)
 	if err != nil {
 		return RemoteRegistration{}, err
 	}
@@ -367,7 +376,7 @@ func (store *Store) BeginRemoteRevocation(ctx context.Context, id string, expect
 		if err != nil {
 			return RemoteRegistration{}, err
 		}
-		return RemoteRegistration{}, errors.New("registration revision conflict")
+		return RemoteRegistration{}, ErrRemoteRegistrationRevisionConflict
 	}
 	return store.GetRemoteRegistration(ctx, id)
 }

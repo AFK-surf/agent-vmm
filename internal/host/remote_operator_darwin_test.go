@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -133,4 +134,53 @@ func TestDisposedRegistrationControlReleasesAdmissionAndKeepsTypedAbsence(t *tes
 		}
 	}
 	t.Fatal("disposed absence lost its terminal reason")
+}
+
+func TestRevokeIncompleteRegistrationKeepsOtherRegistration(t *testing.T) {
+	for _, enrollment := range []int32{1, 3} {
+		t.Run(fmt.Sprint(enrollment), func(t *testing.T) {
+			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			ctx := context.Background()
+			create := func(id string, state int32) store.RemoteRegistration {
+				r, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: id, Endpoint: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 5, State: 1, ConnectionState: 1, EnrollmentState: state, ConnectorPhase: 1, EnrollmentRequestID: id})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return r
+			}
+			target, neighbor := create("failed", enrollment), create("neighbor", 2)
+			server := &operatorServer{controller: &Controller{store: database}}
+			call := func(action func(context.Context) (any, error)) (any, error) {
+				return auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})(ctx, nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, _ any) (any, error) { return action(ctx) })
+			}
+			result, err := call(func(ctx context.Context) (any, error) {
+				return server.BeginRemoteRevocation(ctx, &hostv1.BeginRemoteRevocationRequest{RegistrationId: target.ID, ExpectedRevision: target.Revision, RequestId: "remove"})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			begun := result.(*hostv1.RemoteRegistrationResponse).Registration
+			_, err = call(func(ctx context.Context) (any, error) {
+				return server.CompleteRemoteRevocation(ctx, &hostv1.CompleteRemoteRevocationRequest{RegistrationId: target.ID, ExpectedRevision: begun.Revision, RequestId: "remove"})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			revoked, err := database.GetRemoteRegistration(ctx, target.ID)
+			if err != nil || revoked.State != 3 {
+				t.Fatalf("revoked=%+v err=%v", revoked, err)
+			}
+			current, err := database.GetRemoteRegistration(ctx, neighbor.ID)
+			if err != nil || current.Revision != neighbor.Revision || current.State != 1 {
+				t.Fatalf("neighbor changed: %+v %v", current, err)
+			}
+			if _, err := database.SetRemoteRegistrationState(ctx, revoked.ID, revoked.Revision, 1); err == nil {
+				t.Fatal("revoked registration enabled")
+			}
+		})
+	}
 }

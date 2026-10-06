@@ -238,7 +238,13 @@ func (server *operatorServer) BeginRemoteRevocation(ctx context.Context, request
 		}
 		return server.controller.remoteRegistrationResponse(ctx, updated), nil
 	}
-	return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", request.GetRegistrationId(), err.Error())
+	if errors.Is(err, store.ErrRemoteRegistrationRevisionConflict) {
+		return nil, resourceError(codes.Aborted, "REGISTRATION_REVISION_CONFLICT", "remote_registration", request.GetRegistrationId(), "registration revision changed")
+	}
+	if errors.Is(err, store.ErrRemoteRegistrationEnrollmentState) {
+		return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_ENROLLMENT_STATE", "remote_registration", request.GetRegistrationId(), "registration enrollment state does not permit revocation")
+	}
+	return nil, resourceError(codes.Unavailable, "REGISTRATION_UNREADABLE", "remote_registration", request.GetRegistrationId(), "remote registration could not be updated")
 }
 
 func (server *operatorServer) CompleteRemoteRevocation(ctx context.Context, request *hostv1.CompleteRemoteRevocationRequest) (*hostv1.RemoteRegistrationResponse, error) {

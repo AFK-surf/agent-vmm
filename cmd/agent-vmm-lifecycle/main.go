@@ -1172,7 +1172,7 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 			if !retryFailed || previous.Kind != kind {
 				return *previous, errors.New("operation already failed; use a new request id after reviewing status")
 			}
-			if !previous.Retryable {
+			if !previous.Retryable && !(kind == "registration-revoke" && strings.Contains(previous.FailureMessage, "registration revision conflict")) {
 				return *previous, errors.New("operation failure requires operator action")
 			}
 			if previous.Attempt >= boundedOperationMaxAttempts {
@@ -1348,6 +1348,9 @@ func lifecycleFailure(kind string, err error) (string, string, string, bool) {
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrCoordinatorNotReady) {
 		return stage, "transient_timeout", message, true
+	}
+	if kind == "registration-revoke" && registrationRevisionConflict(err) {
+		return stage, "registration_revision_changed", "The registration changed. Continue removal of the same registration.", true
 	}
 	switch status.Code(err) {
 	case codes.Unavailable:
@@ -2248,20 +2251,42 @@ func revokeRemoteRegistration(ctx context.Context, value paths, registrationID, 
 	}
 	defer connection.Close()
 	client := hostv1.NewOperatorServiceClient(connection)
-	current, err := client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
-	if status.Code(err) == codes.NotFound {
-		return nil
+	return completeRemoteRevocation(ctx, client, registrationID, requestID)
+}
+
+func registrationRevisionConflict(err error) bool {
+	if status.Code(err) != codes.Aborted {
+		return false
 	}
-	if err != nil {
-		return err
+	for _, detail := range status.Convert(err).Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "REGISTRATION_REVISION_CONFLICT" {
+			return true
+		}
 	}
-	if current.GetRegistration().GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
-		return nil
+	return false
+}
+
+func completeRemoteRevocation(ctx context.Context, client hostv1.OperatorServiceClient, registrationID, requestID string) error {
+	var last error
+	for range 3 {
+		current, err := client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if current.GetRegistration().GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
+			return nil
+		}
+		begun, err := client.BeginRemoteRevocation(ctx, &hostv1.BeginRemoteRevocationRequest{RegistrationId: registrationID, ExpectedRevision: current.GetRegistration().GetRevision(), RequestId: requestID})
+		if err == nil {
+			_, err = client.CompleteRemoteRevocation(ctx, &hostv1.CompleteRemoteRevocationRequest{RegistrationId: registrationID, ExpectedRevision: begun.GetRegistration().GetRevision(), RequestId: requestID})
+		}
+		if !registrationRevisionConflict(err) {
+			return err
+		}
+		last = err
 	}
-	begun, err := client.BeginRemoteRevocation(ctx, &hostv1.BeginRemoteRevocationRequest{RegistrationId: registrationID, ExpectedRevision: current.GetRegistration().GetRevision(), RequestId: requestID})
-	if err != nil {
-		return err
-	}
-	_, err = client.CompleteRemoteRevocation(ctx, &hostv1.CompleteRemoteRevocationRequest{RegistrationId: registrationID, ExpectedRevision: begun.GetRegistration().GetRevision(), RequestId: requestID})
-	return err
+	return last
 }

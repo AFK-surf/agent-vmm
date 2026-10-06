@@ -1926,3 +1926,67 @@ func TestDisposedRegistrationFailureStaysTerminalThroughLifecycleJournal(t *test
 		t.Fatalf("failure=%s retryable=%v err=%v", code, retryable, err)
 	}
 }
+
+func TestRevokeResumesPreviouslyFailedExactRequest(t *testing.T) {
+	value := testPaths(t.TempDir())
+	previous := lifecycleOperation{OperationID: "remove", RequestID: "remove", Kind: "registration-revoke", TargetRegistrationID: "failed", Outcome: "failed", Attempt: 1, FailureCode: "operation_failed", FailureMessage: "registration revision conflict"}
+	if err := persistOperation(value, previous); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	action := func() error { calls++; return nil }
+	operation, err := runLifecycleOperationWithFailedRetry(value, "registration-revoke", "remove", "failed", "", "", 0, true, action)
+	if err != nil || operation.Outcome != "succeeded" || operation.Attempt != 2 || calls != 1 {
+		t.Fatalf("operation=%+v calls=%d err=%v", operation, calls, err)
+	}
+	_, err = runLifecycleOperationWithFailedRetry(value, "registration-revoke", "remove", "neighbor", "", "", 0, true, action)
+	if err == nil || calls != 1 {
+		t.Fatal("request moved to another registration")
+	}
+	_, err = runLifecycleOperationWithFailedRetry(value, "registration-revoke", "remove", "failed", "", "", 0, true, action)
+	if err != nil || calls != 1 {
+		t.Fatal("completed removal replayed")
+	}
+}
+
+type revocationRaceClient struct {
+	hostv1.OperatorServiceClient
+	reads, begins, completes int
+	alwaysConflict           bool
+}
+
+func (c *revocationRaceClient) GetRemoteRegistration(_ context.Context, r *hostv1.GetRemoteRegistrationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+	c.reads++
+	if r.RegistrationId != "failed" {
+		return nil, status.Error(codes.PermissionDenied, "wrong target")
+	}
+	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: r.RegistrationId, Revision: uint64(c.reads), State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED}}, nil
+}
+func (c *revocationRaceClient) BeginRemoteRevocation(_ context.Context, r *hostv1.BeginRemoteRevocationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+	c.begins++
+	if r.RequestId != "remove" || r.ExpectedRevision != uint64(c.reads) {
+		return nil, status.Error(codes.InvalidArgument, "wrong identity")
+	}
+	if c.begins == 1 || c.alwaysConflict {
+		conflict, _ := status.New(codes.Aborted, "registration revision changed").WithDetails(&errdetails.ErrorInfo{Reason: "REGISTRATION_REVISION_CONFLICT"})
+		return nil, conflict.Err()
+	}
+	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: r.RegistrationId, Revision: r.ExpectedRevision + 1}}, nil
+}
+func (c *revocationRaceClient) CompleteRemoteRevocation(_ context.Context, r *hostv1.CompleteRemoteRevocationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+	c.completes++
+	if r.RegistrationId != "failed" || r.RequestId != "remove" || r.ExpectedRevision != uint64(c.reads+1) {
+		return nil, status.Error(codes.InvalidArgument, "wrong completion")
+	}
+	return &hostv1.RemoteRegistrationResponse{}, nil
+}
+func TestRevokeRefreshesExactRevisionWithinBound(t *testing.T) {
+	client := &revocationRaceClient{}
+	if err := completeRemoteRevocation(context.Background(), client, "failed", "remove"); err != nil || client.reads != 2 || client.completes != 1 {
+		t.Fatalf("client=%+v err=%v", client, err)
+	}
+	client = &revocationRaceClient{alwaysConflict: true}
+	if err := completeRemoteRevocation(context.Background(), client, "failed", "remove"); !registrationRevisionConflict(err) || client.reads != 3 || client.completes != 0 {
+		t.Fatalf("client=%+v err=%v", client, err)
+	}
+}
