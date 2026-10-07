@@ -9,5 +9,5 @@ import (
 )
 
 func importArchiveAddressAllowed(address netip.Addr) bool {
-	return egress.DestinationAllowed(address, nil, false)
+	return egress.DestinationAllowed(address, nil, true)
 }

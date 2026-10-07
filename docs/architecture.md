@@ -550,7 +550,7 @@ remain separate operator mutations; the connector and local MCP cannot call them
 
 ## Public Egress Boundary
 
-`PullImage` and `PUBLIC_INTERNET` permit only public destinations.
+`PullImage`, runtime OCI archive downloads, and `PUBLIC_INTERNET` permit only public destinations.
 Each DNS result and HTTP redirect requires a new address check.
 
 The check rejects private, shared, documentation, loopback, link-local, metadata, guest-host, and agent-namespace addresses.

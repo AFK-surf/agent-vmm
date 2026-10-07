@@ -10,5 +10,5 @@ import (
 )
 
 func importArchiveAddressAllowed(address netip.Addr) bool {
-	return egress.DestinationAllowed(address, nil, false) || os.Getenv("AGENT_VMM_E2E_ARCHIVE_CA") != "" && address.IsLoopback()
+	return egress.DestinationAllowed(address, nil, true) || os.Getenv("AGENT_VMM_E2E_ARCHIVE_CA") != "" && address.IsLoopback()
 }

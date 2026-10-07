@@ -155,7 +155,7 @@ func (resolver fixedImportResolver) LookupNetIP(context.Context, string, string)
 func TestImportHTTPClientRejectsAnyNonPublicResolutionBeforeDial(t *testing.T) {
 	dialed := false
 	_, err := importHTTPClient(context.Background(), "https://archive.example/image.tar", fixedImportResolver{addresses: []netip.Addr{
-		netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("127.0.0.1"),
+		netip.MustParseAddr("198.18.76.40"), netip.MustParseAddr("127.0.0.1"),
 	}}, func(context.Context, string, string) (net.Conn, error) {
 		dialed = true
 		return nil, errors.New("unexpected dial")
@@ -183,5 +183,37 @@ func TestImportHTTPClientPinsValidatedAddressAndDisablesProxy(t *testing.T) {
 	_, err = transport.DialContext(context.Background(), "tcp", "archive.example:8443")
 	if err == nil || network != "tcp4" || destination != "93.184.216.34:8443" {
 		t.Fatalf("pinned dial: network=%q destination=%q err=%v", network, destination, err)
+	}
+}
+
+func TestImportArchiveThroughTransparentProxy(t *testing.T) {
+	payload := []byte("published runtime archive")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "example.com" {
+			t.Errorf("archive hostname changed: %s", r.Host)
+		}
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+	client, err := importHTTPClient(context.Background(), "https://example.com/image.tar",
+		fixedImportResolver{addresses: []netip.Addr{netip.MustParseAddr("198.18.76.40")}},
+		func(ctx context.Context, network, address string) (net.Conn, error) {
+			if address != "198.18.76.40:443" {
+				t.Errorf("unvalidated destination: %s", address)
+			}
+			return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := client.Transport.(*http.Transport)
+	transport.TLSClientConfig = server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	defer transport.CloseIdleConnections()
+	var received bytes.Buffer
+	if err := downloadImportArchiveWithClient(context.Background(), client, "https://example.com/image.tar", uint64(len(payload)), func(chunk []byte) error { _, err := received.Write(chunk); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(received.Bytes(), payload) {
+		t.Fatalf("archive bytes changed: %q", received.Bytes())
 	}
 }
