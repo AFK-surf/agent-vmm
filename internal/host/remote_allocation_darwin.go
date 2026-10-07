@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -71,25 +72,36 @@ func (controller *Controller) retireRemoteRegistration(ctx context.Context, regi
 		}
 		for _, environment := range environments {
 			cursor = environment.AllocationID
-			unlockEnvironment := controller.lockEnvironment(environment.ID)
-			current, loadErr := controller.store.GetEnvironment(ctx, environment.ID)
-			if loadErr == nil {
-				loadErr = controller.closeAllocationRuntime(ctx, registrationID, current.AllocationID, current.AllocationGeneration)
-			}
-			if loadErr == nil {
-				loadErr = controller.stopRemoteWorkload(ctx, current.ID)
-			}
-			if loadErr == nil && current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
-				_, loadErr = controller.store.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
-			}
-			unlockEnvironment()
-			if loadErr != nil {
-				failures = append(failures, loadErr)
+			if err := controller.retireRemoteEnvironment(ctx, registrationID, environment); err != nil {
+				failures = append(failures, err)
 			}
 		}
 	}
 	controller.wakeAllocationRetirement()
 	return errors.Join(failures...)
+}
+
+func (controller *Controller) retireRemoteEnvironment(ctx context.Context, registrationID string, environment store.Environment) error {
+	unlockEnvironment := controller.lockEnvironment(environment.ID)
+	defer unlockEnvironment()
+	current, err := controller.store.GetEnvironment(ctx, environment.ID)
+	// Empty allocation retirement can finish after the page was read.
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := controller.closeAllocationRuntime(ctx, registrationID, current.AllocationID, current.AllocationGeneration); err != nil {
+		return err
+	}
+	if err := controller.stopRemoteWorkload(ctx, current.ID); err != nil {
+		return err
+	}
+	if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		_, err = controller.store.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
+	}
+	return err
 }
 
 func (controller *Controller) disconnectRemoteRegistration(registrationID, instance string) {

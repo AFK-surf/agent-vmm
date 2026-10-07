@@ -133,6 +133,9 @@ func TestNamespaceRetirementResponseLossAndRestartPreserveIdentity(t *testing.T)
 	if _, err := database.GetEnvironment(ctx, recovered.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("completed retirement remains: %v", err)
 	}
+	if err := controller.retireRemoteEnvironment(ctx, recovered.RegistrationID, recovered); err != nil {
+		t.Fatalf("registration revocation after concurrent empty allocation retirement: %v", err)
+	}
 }
 
 func TestNamespaceRetirementKeepsPrivateData(t *testing.T) {
