@@ -346,6 +346,45 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
                 type: .bidirectionalStreaming
             )
         }
+        /// Namespace for "CopyImage" metadata.
+        public enum CopyImage: Sendable {
+            /// Request type for "CopyImage".
+            public typealias Input = Agentvmm_Host_V1_CopyImageRequest
+            /// Response type for "CopyImage".
+            public typealias Output = Agentvmm_Host_V1_Image
+            /// Descriptor for "CopyImage".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "CopyImage",
+                type: .unary
+            )
+        }
+        /// Namespace for "ObserveImageOperation" metadata.
+        public enum ObserveImageOperation: Sendable {
+            /// Request type for "ObserveImageOperation".
+            public typealias Input = Agentvmm_Host_V1_ImageOperationRequest
+            /// Response type for "ObserveImageOperation".
+            public typealias Output = Agentvmm_Host_V1_ImageOperationReceipt
+            /// Descriptor for "ObserveImageOperation".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "ObserveImageOperation",
+                type: .unary
+            )
+        }
+        /// Namespace for "CancelImageOperation" metadata.
+        public enum CancelImageOperation: Sendable {
+            /// Request type for "CancelImageOperation".
+            public typealias Input = Agentvmm_Host_V1_ImageOperationRequest
+            /// Response type for "CancelImageOperation".
+            public typealias Output = Agentvmm_Host_V1_ImageOperationReceipt
+            /// Descriptor for "CancelImageOperation".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.AgentRuntimeService"),
+                method: "CancelImageOperation",
+                type: .unary
+            )
+        }
         /// Namespace for "ReleaseSession" metadata.
         public enum ReleaseSession: Sendable {
             /// Request type for "ReleaseSession".
@@ -633,6 +672,9 @@ public enum Agentvmm_Host_V1_AgentRuntimeService: Sendable {
             ListVolumes.descriptor,
             ForwardTCP.descriptor,
             BuildImage.descriptor,
+            CopyImage.descriptor,
+            ObserveImageOperation.descriptor,
+            CancelImageOperation.descriptor,
             ReleaseSession.descriptor,
             PlanResetEnvironment.descriptor,
             PlanDiscardEnvironment.descriptor,
@@ -1145,6 +1187,63 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_BuildImageResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Host_V1_BuildImageResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "CopyImage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_CopyImageRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_CopyImageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_Image` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func copyImage<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CopyImageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CopyImageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_Image>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ObserveImageOperation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ImageOperationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ImageOperationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ImageOperationReceipt` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func observeImageOperation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ImageOperationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ImageOperationReceipt>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "CancelImageOperation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ImageOperationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ImageOperationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ImageOperationReceipt` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func cancelImageOperation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ImageOperationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ImageOperationReceipt>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "ReleaseSession" method.
@@ -2277,6 +2376,96 @@ extension Agentvmm_Host_V1_AgentRuntimeService {
             try await self.client.bidirectionalStreaming(
                 request: request,
                 descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.BuildImage.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "CopyImage" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_CopyImageRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_CopyImageRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_Image` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func copyImage<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CopyImageRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CopyImageRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_Image>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.CopyImage.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ObserveImageOperation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ImageOperationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ImageOperationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ImageOperationReceipt` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func observeImageOperation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ImageOperationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ImageOperationReceipt>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.ObserveImageOperation.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "CancelImageOperation" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ImageOperationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ImageOperationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ImageOperationReceipt` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func cancelImageOperation<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ImageOperationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ImageOperationReceipt>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_AgentRuntimeService.Method.CancelImageOperation.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -3500,6 +3689,81 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
         )
     }
 
+    /// Call the "CopyImage" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_CopyImageRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func copyImage<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CopyImageRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.copyImage(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_CopyImageRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_Image>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ObserveImageOperation" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ImageOperationRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func observeImageOperation<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.observeImageOperation(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ImageOperationRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ImageOperationReceipt>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "CancelImageOperation" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ImageOperationRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func cancelImageOperation<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.cancelImageOperation(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ImageOperationRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ImageOperationReceipt>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "ReleaseSession" method.
     ///
     /// - Parameters:
@@ -4713,6 +4977,93 @@ extension Agentvmm_Host_V1_AgentRuntimeService.ClientProtocol {
             producer: producer
         )
         return try await self.buildImage(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "CopyImage" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func copyImage<Result>(
+        _ message: Agentvmm_Host_V1_CopyImageRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_Image>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_CopyImageRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.copyImage(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ObserveImageOperation" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func observeImageOperation<Result>(
+        _ message: Agentvmm_Host_V1_ImageOperationRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.observeImageOperation(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "CancelImageOperation" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func cancelImageOperation<Result>(
+        _ message: Agentvmm_Host_V1_ImageOperationRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ImageOperationReceipt>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ImageOperationRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.cancelImageOperation(
             request: request,
             options: options,
             onResponse: handleResponse
@@ -6191,6 +6542,19 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "CreateLocalServiceListener" metadata.
+        public enum CreateLocalServiceListener: Sendable {
+            /// Request type for "CreateLocalServiceListener".
+            public typealias Input = Agentvmm_Host_V1_CreateLocalServiceListenerRequest
+            /// Response type for "CreateLocalServiceListener".
+            public typealias Output = Agentvmm_Host_V1_ServiceListenerResponse
+            /// Descriptor for "CreateLocalServiceListener".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "CreateLocalServiceListener",
+                type: .unary
+            )
+        }
         /// Namespace for "CreatePersonalServiceListener" metadata.
         public enum CreatePersonalServiceListener: Sendable {
             /// Request type for "CreatePersonalServiceListener".
@@ -6227,6 +6591,58 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
                 method: "RevokeServiceListener",
+                type: .unary
+            )
+        }
+        /// Namespace for "CreateHostShare" metadata.
+        public enum CreateHostShare: Sendable {
+            /// Request type for "CreateHostShare".
+            public typealias Input = Agentvmm_Host_V1_CreateHostShareRequest
+            /// Response type for "CreateHostShare".
+            public typealias Output = Agentvmm_Host_V1_HostShareResponse
+            /// Descriptor for "CreateHostShare".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "CreateHostShare",
+                type: .unary
+            )
+        }
+        /// Namespace for "RebindHostShare" metadata.
+        public enum RebindHostShare: Sendable {
+            /// Request type for "RebindHostShare".
+            public typealias Input = Agentvmm_Host_V1_RebindHostShareRequest
+            /// Response type for "RebindHostShare".
+            public typealias Output = Agentvmm_Host_V1_HostShareResponse
+            /// Descriptor for "RebindHostShare".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "RebindHostShare",
+                type: .unary
+            )
+        }
+        /// Namespace for "RevokeHostShare" metadata.
+        public enum RevokeHostShare: Sendable {
+            /// Request type for "RevokeHostShare".
+            public typealias Input = Agentvmm_Host_V1_RevokeHostShareRequest
+            /// Response type for "RevokeHostShare".
+            public typealias Output = Agentvmm_Host_V1_HostShareResponse
+            /// Descriptor for "RevokeHostShare".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "RevokeHostShare",
+                type: .unary
+            )
+        }
+        /// Namespace for "ListHostShares" metadata.
+        public enum ListHostShares: Sendable {
+            /// Request type for "ListHostShares".
+            public typealias Input = Agentvmm_Host_V1_ListHostSharesRequest
+            /// Response type for "ListHostShares".
+            public typealias Output = Agentvmm_Host_V1_ListHostSharesResponse
+            /// Descriptor for "ListHostShares".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "ListHostShares",
                 type: .unary
             )
         }
@@ -6300,9 +6716,14 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             ConfirmPersonalMeshPairing.descriptor,
             RejectPersonalMeshPairing.descriptor,
             RepairDeviceIdentity.descriptor,
+            CreateLocalServiceListener.descriptor,
             CreatePersonalServiceListener.descriptor,
             ListServiceListeners.descriptor,
-            RevokeServiceListener.descriptor
+            RevokeServiceListener.descriptor,
+            CreateHostShare.descriptor,
+            RebindHostShare.descriptor,
+            RevokeHostShare.descriptor,
+            ListHostShares.descriptor
         ]
     }
 }
@@ -7614,6 +8035,25 @@ extension Agentvmm_Host_V1_OperatorService {
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_DeviceIdentityResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
+        /// Call the "CreateLocalServiceListener" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_CreateLocalServiceListenerRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_CreateLocalServiceListenerRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ServiceListenerResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func createLocalServiceListener<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateLocalServiceListenerRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CreateLocalServiceListenerRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ServiceListenerResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ServiceListenerResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
         /// Call the "CreatePersonalServiceListener" method.
         ///
         /// - Parameters:
@@ -7669,6 +8109,82 @@ extension Agentvmm_Host_V1_OperatorService {
             deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "CreateHostShare" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_CreateHostShareRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_CreateHostShareRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostShareResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func createHostShare<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateHostShareRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CreateHostShareRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostShareResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "RebindHostShare" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RebindHostShareRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RebindHostShareRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostShareResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func rebindHostShare<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RebindHostShareRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RebindHostShareRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostShareResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "RevokeHostShare" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RevokeHostShareRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RevokeHostShareRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostShareResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func revokeHostShare<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeHostShareRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RevokeHostShareRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostShareResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ListHostShares" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListHostSharesRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListHostSharesRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListHostSharesResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func listHostShares<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSharesRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListHostSharesRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListHostSharesResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSharesResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
     }
 
@@ -9722,6 +10238,36 @@ extension Agentvmm_Host_V1_OperatorService {
             )
         }
 
+        /// Call the "CreateLocalServiceListener" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_CreateLocalServiceListenerRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_CreateLocalServiceListenerRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ServiceListenerResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func createLocalServiceListener<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateLocalServiceListenerRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CreateLocalServiceListenerRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ServiceListenerResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ServiceListenerResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.CreateLocalServiceListener.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
         /// Call the "CreatePersonalServiceListener" method.
         ///
         /// - Parameters:
@@ -9805,6 +10351,126 @@ extension Agentvmm_Host_V1_OperatorService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Host_V1_OperatorService.Method.RevokeServiceListener.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "CreateHostShare" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_CreateHostShareRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_CreateHostShareRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostShareResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func createHostShare<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateHostShareRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CreateHostShareRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostShareResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.CreateHostShare.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "RebindHostShare" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RebindHostShareRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RebindHostShareRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostShareResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func rebindHostShare<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RebindHostShareRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RebindHostShareRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostShareResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.RebindHostShare.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "RevokeHostShare" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RevokeHostShareRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RevokeHostShareRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_HostShareResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func revokeHostShare<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeHostShareRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RevokeHostShareRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_HostShareResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.RevokeHostShare.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ListHostShares" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListHostSharesRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListHostSharesRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListHostSharesResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func listHostShares<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSharesRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListHostSharesRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListHostSharesResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSharesResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ListHostShares.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -11511,6 +12177,31 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
+    /// Call the "CreateLocalServiceListener" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_CreateLocalServiceListenerRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createLocalServiceListener<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateLocalServiceListenerRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ServiceListenerResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.createLocalServiceListener(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_CreateLocalServiceListenerRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ServiceListenerResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "CreatePersonalServiceListener" method.
     ///
     /// - Parameters:
@@ -11581,6 +12272,106 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RevokeServiceListenerRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "CreateHostShare" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_CreateHostShareRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createHostShare<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateHostShareRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.createHostShare(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_CreateHostShareRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_HostShareResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RebindHostShare" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_RebindHostShareRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func rebindHostShare<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RebindHostShareRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.rebindHostShare(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RebindHostShareRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_HostShareResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RevokeHostShare" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_RevokeHostShareRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func revokeHostShare<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeHostShareRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.revokeHostShare(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RevokeHostShareRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_HostShareResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListHostShares" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ListHostSharesRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listHostShares<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSharesRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSharesResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.listHostShares(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListHostSharesRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ListHostSharesResponse>(),
             options: options,
             onResponse: handleResponse
         )
@@ -13556,6 +14347,35 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
+    /// Call the "CreateLocalServiceListener" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createLocalServiceListener<Result>(
+        _ message: Agentvmm_Host_V1_CreateLocalServiceListenerRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ServiceListenerResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateLocalServiceListenerRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.createLocalServiceListener(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "CreatePersonalServiceListener" method.
     ///
     /// - Parameters:
@@ -13637,6 +14457,122 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             metadata: metadata
         )
         return try await self.revokeServiceListener(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "CreateHostShare" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createHostShare<Result>(
+        _ message: Agentvmm_Host_V1_CreateHostShareRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_CreateHostShareRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.createHostShare(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RebindHostShare" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func rebindHostShare<Result>(
+        _ message: Agentvmm_Host_V1_RebindHostShareRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_RebindHostShareRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.rebindHostShare(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RevokeHostShare" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func revokeHostShare<Result>(
+        _ message: Agentvmm_Host_V1_RevokeHostShareRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_HostShareResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_RevokeHostShareRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.revokeHostShare(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListHostShares" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listHostShares<Result>(
+        _ message: Agentvmm_Host_V1_ListHostSharesRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSharesResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSharesRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.listHostShares(
             request: request,
             options: options,
             onResponse: handleResponse

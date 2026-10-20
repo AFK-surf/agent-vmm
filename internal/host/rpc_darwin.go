@@ -42,8 +42,15 @@ func auditUnary(controller *Controller) grpc.UnaryServerInterceptor {
 
 func sessionActivityUnary(controller *Controller, sessionID string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if err := controller.authorizeSession(ctx, sessionID); err != nil {
+		unlock, err := controller.lockSessionMutation(ctx, sessionID, info.FullMethod)
+		if err != nil {
 			return nil, err
+		}
+		defer unlock()
+		if info.FullMethod != hostv1.AgentRuntimeService_ReleaseSession_FullMethodName {
+			if err := controller.authorizeSession(ctx, sessionID); err != nil {
+				return nil, err
+			}
 		}
 		controller.markSessionActivity(sessionID)
 		return handler(ctx, request)
@@ -52,6 +59,11 @@ func sessionActivityUnary(controller *Controller, sessionID string) grpc.UnarySe
 
 func sessionActivityStream(controller *Controller, sessionID string) grpc.StreamServerInterceptor {
 	return func(server any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		unlock, err := controller.lockSessionMutation(stream.Context(), sessionID, info.FullMethod)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		if err := controller.authorizeSession(stream.Context(), sessionID); err != nil {
 			return err
 		}
@@ -80,50 +92,13 @@ func remoteRuntimeStream(ownerKind int32) grpc.StreamServerInterceptor {
 
 func remoteRuntimeDenied(method string) bool {
 	switch method {
-	case hostv1.AgentRuntimeService_GetEnvironment_FullMethodName,
-		hostv1.AgentRuntimeService_PullImage_FullMethodName,
-		hostv1.AgentRuntimeService_ImportImage_FullMethodName,
-		hostv1.AgentRuntimeService_CreateContainer_FullMethodName,
-		hostv1.AgentRuntimeService_StartContainer_FullMethodName,
-		hostv1.AgentRuntimeService_StopContainer_FullMethodName,
-		hostv1.AgentRuntimeService_AcquireExecution_FullMethodName,
-		hostv1.AgentRuntimeService_ReleaseExecution_FullMethodName,
-		hostv1.AgentRuntimeService_ListExecutions_FullMethodName,
-		hostv1.AgentRuntimeService_QuiesceContainer_FullMethodName,
-		hostv1.AgentRuntimeService_WaitContainer_FullMethodName,
-		hostv1.AgentRuntimeService_DeleteContainer_FullMethodName,
-		hostv1.AgentRuntimeService_GetContainer_FullMethodName,
-		hostv1.AgentRuntimeService_ListContainers_FullMethodName,
-		hostv1.AgentRuntimeService_ListImages_FullMethodName,
-		hostv1.AgentRuntimeService_DeleteImage_FullMethodName,
-		hostv1.AgentRuntimeService_Logs_FullMethodName,
-		hostv1.AgentRuntimeService_Exec_FullMethodName,
-		hostv1.AgentRuntimeService_SignalContainer_FullMethodName,
-		hostv1.AgentRuntimeService_CreateVolume_FullMethodName,
-		hostv1.AgentRuntimeService_DeleteVolume_FullMethodName,
-		hostv1.AgentRuntimeService_GetVolume_FullMethodName,
-		hostv1.AgentRuntimeService_ListVolumes_FullMethodName,
-		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
-		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
-		hostv1.AgentRuntimeService_ReleaseSession_FullMethodName,
-		hostv1.AgentRuntimeService_StatWorkspace_FullMethodName,
-		hostv1.AgentRuntimeService_ListWorkspace_FullMethodName,
-		hostv1.AgentRuntimeService_ReadWorkspace_FullMethodName,
-		hostv1.AgentRuntimeService_WriteWorkspace_FullMethodName,
-		hostv1.AgentRuntimeService_ArchiveWorkspace_FullMethodName,
-		hostv1.AgentRuntimeService_ExtractWorkspace_FullMethodName,
-		hostv1.AgentRuntimeService_CreateServiceExport_FullMethodName,
-		hostv1.AgentRuntimeService_ListServiceExports_FullMethodName,
-		hostv1.AgentRuntimeService_GetServiceExport_FullMethodName,
-		hostv1.AgentRuntimeService_RevokeServiceExport_FullMethodName,
-		hostv1.AgentRuntimeService_CreateServiceImport_FullMethodName,
-		hostv1.AgentRuntimeService_CreatePersonalServiceImport_FullMethodName,
-		hostv1.AgentRuntimeService_ListServiceImports_FullMethodName,
-		hostv1.AgentRuntimeService_GetServiceImport_FullMethodName,
-		hostv1.AgentRuntimeService_RevokeServiceImport_FullMethodName:
-		return false
-	default:
+	case hostv1.AgentRuntimeService_PlanResetEnvironment_FullMethodName,
+		hostv1.AgentRuntimeService_PlanDiscardEnvironment_FullMethodName,
+		hostv1.AgentRuntimeService_RequestReset_FullMethodName,
+		hostv1.AgentRuntimeService_RequestDiscard_FullMethodName:
 		return true
+	default:
+		return false
 	}
 }
 
@@ -165,7 +140,7 @@ func auditRPC(controller *Controller, ctx context.Context, fullMethod string, re
 	requestID := ""
 	if message, ok := request.(proto.Message); ok {
 		requestID = protoStringField(message.ProtoReflect(), "request_id")
-		for _, field := range []protoreflect.Name{"environment_id", "container_id", "volume_id", "link_id", "session_id"} {
+		for _, field := range []protoreflect.Name{"environment_id", "container_id", "volume_id", "share_id", "link_id", "session_id"} {
 			if value := protoStringField(message.ProtoReflect(), field); value != "" {
 				if target == "" {
 					target = value
@@ -233,7 +208,7 @@ func isMutation(method string) bool {
 		"PlanResetEnvironment", "PlanDiscardEnvironment", "PreviewSupportBundle", "GetDeviceIdentity",
 		"StatWorkspace", "ListWorkspace", "ReadWorkspace", "ArchiveWorkspace",
 		"ListAgentIntegrations", "ListAgentSessions", "GetRemoteRegistration", "ListRemoteRegistrations", "ListPersonalMeshes",
-		"GetPersonalMeshPairing", "ListServiceListeners", "ListServiceExports", "GetServiceExport", "ListServiceImports", "GetServiceImport",
+		"GetPersonalMeshPairing", "ListHostShares", "ListServiceListeners", "ListServiceExports", "GetServiceExport", "ListServiceImports", "GetServiceImport",
 		"GetRemoteState", "GetRemoteObservation", "ReportConnectorStatus", "PlanCleanupAllocation",
 		"RunDiagnostics", "ExportSupportBundle", "PlanLocalDisposal", "SignCommaRecovery", "GetLocalDiskSummary", "ListLocalEnvironmentPage", "ListLocalRegistrationPage":
 		return false
@@ -322,6 +297,10 @@ func addErrorDetails(ctx context.Context, err error) error {
 				clean, detailErr = clean.WithDetails(safe)
 			case *errdetails.RetryInfo:
 				clean, detailErr = clean.WithDetails(safe)
+			case *hostv1.RemoteAllocation:
+				allocation := proto.Clone(safe).(*hostv1.RemoteAllocation)
+				allocation.EnvironmentId = ""
+				clean, detailErr = clean.WithDetails(allocation)
 			}
 			if detailErr != nil {
 				return status.Error(value.Code(), value.Message())
@@ -358,6 +337,7 @@ func deadlineStream(server any, stream grpc.ServerStream, info *grpc.StreamServe
 	case hostv1.AgentRuntimeService_Exec_FullMethodName,
 		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
 		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
+		hostv1.AgentRuntimeService_CopyImage_FullMethodName,
 		hostv1.AgentRuntimeService_ImportImage_FullMethodName,
 		hostv1.AgentRuntimeService_Logs_FullMethodName,
 		hostv1.OperatorService_WatchEvents_FullMethodName,
@@ -376,14 +356,3 @@ type hostContextStream struct {
 }
 
 func (stream *hostContextStream) Context() context.Context { return stream.context }
-
-func (controller *Controller) authorizeSession(ctx context.Context, id string) error {
-	session, err := controller.store.GetSession(ctx, id)
-	if err != nil {
-		return resourceError(codes.PermissionDenied, "SESSION_UNAVAILABLE", "session", id, "session authority is unavailable")
-	}
-	if session.RevokedAt != nil || session.ClosedAt != nil || !session.ExpiresAt.After(time.Now()) {
-		return resourceError(codes.PermissionDenied, "SESSION_REVOKED", "session", id, "session authority has ended")
-	}
-	return controller.requireUndisposedEnvironment(ctx, session.EnvironmentID)
-}

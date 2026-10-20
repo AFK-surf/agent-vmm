@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	"io"
 	"log"
 	"os"
@@ -57,11 +58,23 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	if err != nil {
 		return invalid(err)
 	}
+	hotImage, hot, err := s.acknowledgeMaterializedImport(stream.Context(), header, imageReference, manifestDigest)
+	if err != nil {
+		return rpcError(err)
+	}
+	if hot {
+		return stream.SendAndClose(hotImage)
+	}
 	unlockMaterializer, err := s.runtime.lockImportSlot(manifestDigest.String())
 	if err != nil {
 		return rpcError(err)
 	}
 	defer unlockMaterializer()
+	if header.GetSystemImport() {
+		if err := s.runtime.prepareSystemImageImport(stream.Context(), header, imageReference, manifestDigest.String()); err != nil {
+			return rpcError(err)
+		}
+	}
 	reusable, physicalGrowth, reusableTarget, err := s.runtime.imageMaterialized(stream.Context(), header.GetActorNamespaceId(), imageReference, manifestDigest, header.GetSystemImport())
 	if err != nil {
 		return rpcError(err)
@@ -80,7 +93,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 		}
 		return stream.SendAndClose(value.(*vmmdv1.Image))
 	}
-	reservation, err := s.runtime.reserveImport(stream.Context(), header, true)
+	reservation, err := s.runtime.reserveImport(stream.Context(), header)
 	if err != nil {
 		return rpcError(err)
 	}
@@ -111,7 +124,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 			return err
 		}
 		var createErr error
-		archive, createErr = s.runtime.createImportArchive(header.GetRequestId())
+		archive, createErr = s.runtime.createImportArchive()
 		return createErr
 	}); err != nil {
 		return rpcError(err)
@@ -155,7 +168,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	if written != header.GetArchiveSize() || subtle.ConstantTimeCompare(hash.Sum(nil), header.GetArchiveSha256()) != 1 {
 		return invalid(errors.New("OCI archive size or sha256 does not match the header"))
 	}
-	manifest, err := validateOCIArchive(archive, manifestDigest)
+	manifest, err := ociarchive.Validate(archive, manifestDigest)
 	if err != nil {
 		return invalid(err)
 	}
@@ -197,6 +210,10 @@ func writeImportChunk(budget *guestdisk.Budget, reservation *importReservation, 
 func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageReference string, manifestDigest digest.Digest, system bool) (bool, bool, *ocispec.Descriptor, error) {
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
+	return r.imageMaterializedLocked(ctx, namespaceID, imageReference, manifestDigest, system)
+}
+
+func (r *Runtime) imageMaterializedLocked(ctx context.Context, namespaceID, imageReference string, manifestDigest digest.Digest, system bool) (bool, bool, *ocispec.Descriptor, error) {
 	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
 		return false, false, nil, err
 	}
@@ -217,7 +234,7 @@ func (r *Runtime) imageMaterialized(ctx context.Context, namespaceID, imageRefer
 	if runtimeImage.Target().Digest != manifestDigest {
 		return false, false, nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "digest-owned runtime image metadata is inconsistent", imageReference)
 	}
-	unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), namespaceSnapshotter(namespaceID))
+	unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), containerSnapshotter)
 	unpacked, err = reusableSourceUnpacked(unpacked, err)
 	if err != nil {
 		return false, false, nil, err
@@ -253,7 +270,7 @@ func reusableSourceUnpacked(unpacked bool, err error) (bool, error) {
 	return unpacked, err
 }
 
-func (r *Runtime) createImportArchive(requestID string) (*os.File, error) {
+func (r *Runtime) createImportArchive() (*os.File, error) {
 	directory := filepath.Join(stateRoot, "imports")
 	if err := ensureDirectory(directory, 0o700); err != nil {
 		return nil, err
@@ -261,7 +278,7 @@ func (r *Runtime) createImportArchive(requestID string) (*os.File, error) {
 	if err := assignOCIRoot(directory, projectID, assignProject); err != nil {
 		return nil, err
 	}
-	file, err := os.CreateTemp(directory, requestID+"-*.oci.part")
+	file, err := os.CreateTemp(directory, "import-*.oci.part")
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +290,7 @@ func (r *Runtime) createImportArchive(requestID string) (*os.File, error) {
 	return file, nil
 }
 
-func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header *vmmdv1.ImportImageHeader, imageReference string, manifest ocispec.Descriptor, system, replaceTarget bool) (*vmmdv1.Image, error) {
+func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header *vmmdv1.ImportImageHeader, imageReference string, manifest ocispec.Descriptor, system, replaceTarget bool) (result *vmmdv1.Image, importErr error) {
 	unlock := r.lockNamespace(header.GetActorNamespaceId())
 	defer unlock()
 	namespaceID := header.GetActorNamespaceId()
@@ -283,14 +300,20 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	logicalContext := namespaceContext(ctx, namespaceID)
 	nsctx := runtimeContext(ctx)
 	runtimeReference := runtimeImageReference(manifest.Digest)
-	stagingLease, err := r.client.LeasesService().Create(nsctx, leases.WithRandomID(), leases.WithExpiration(24*time.Hour))
+	leaseIdentity := leases.WithRandomID()
+	if kind, found := ctx.Value(imageOperationContextKey{}).(vmmdv1.ImageOperationKind); found {
+		leaseIdentity = leases.WithID(imageOperationLeaseID(namespaceID, header.RequestId, kind))
+	}
+	stagingLease, err := r.client.LeasesService().Create(nsctx, leaseIdentity, leases.WithExpiration(24*time.Hour))
 	if err != nil {
 		return nil, err
 	}
 	stagingContext := leases.WithLease(nsctx, stagingLease.ID)
 	defer func() {
-		if releaseErr := r.client.LeasesService().Delete(nsctx, stagingLease, leases.SynchronousDelete); releaseErr != nil {
-			log.Printf("OCI import staging lease cleanup failed for %q: %v", imageReference, releaseErr)
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if releaseErr := r.client.LeasesService().Delete(runtimeContext(cleanup), stagingLease, leases.SynchronousDelete); releaseErr != nil && !errdefs.IsNotFound(releaseErr) {
+			importErr = errors.Join(importErr, &imageCleanupFailure{releaseErr})
 		}
 	}()
 	var fingerprint, requestLabel string
@@ -324,17 +347,27 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	}
 	existing, existingErr := r.client.GetImage(nsctx, runtimeReference)
 	if existingErr == nil {
-		unpacked, err := existing.IsUnpacked(nsctx, namespaceSnapshotter(namespaceID))
+		unpacked, err := existing.IsUnpacked(nsctx, containerSnapshotter)
 		unpacked, err = reusableSourceUnpacked(unpacked, err)
 		if err != nil {
 			return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", imageReference)
 		}
 		if unpacked {
+			if system {
+				if err := validateSystemImageMaterialization(stagingContext, r.client, existing); err != nil {
+					return nil, err
+				}
+			}
 			if err := r.commitLogicalImageRecord(logicalContext, logical, logicalErr, imageReference, existing.Target(), requestLabel, fingerprint); err != nil {
 				return nil, err
 			}
 			if err := r.indexCommittedImage(namespaceID, imageReference, existing.Target().Digest.String()); err != nil {
 				return nil, err
+			}
+			if system {
+				if err := r.pruneSystemImages(ctx, namespaceID, imageReference, ""); err != nil {
+					return nil, err
+				}
 			}
 			return r.getImageForRole(ctx, namespaceID, imageReference, system)
 		}
@@ -354,9 +387,16 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 		if _, err := archive.Seek(0, io.SeekStart); err != nil {
 			return nil, err
 		}
+		importStarted := time.Now()
+		if system {
+			r.logSystemImageStorage("import")
+		}
 		importedRecords, err := r.client.Import(stagingContext, archive,
 			containerd.WithImportPlatform(platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: "arm64"})),
 			containerd.WithImageRefTranslator(func(string) string { return "" }))
+		if system {
+			log.Printf("system image content import: elapsed=%s succeeded=%t", time.Since(importStarted).Round(time.Millisecond), err == nil)
+		}
 		if err != nil {
 			if ociQuotaExceeded(err) {
 				return nil, resourceExhausted("OCI materialization reached its hard project quota")
@@ -396,18 +436,35 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 			return nil, err
 		}
 	}
-	if err := materialized.Unpack(stagingContext, namespaceSnapshotter(namespaceID), containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); err != nil {
+	unpackStarted := time.Now()
+	if system {
+		r.logSystemImageStorage("unpack")
+	}
+	if err := materialized.Unpack(stagingContext, containerSnapshotter, containerd.WithUnpackApplyOpts(diff.WithSyncFs(true))); err != nil {
 		if createdRecord {
 			_ = r.client.ImageService().Delete(stagingContext, runtimeReference, coreimages.SynchronousDelete())
 			if inventory, inventoryErr := r.requireRuntimeInventory(); inventoryErr == nil {
 				inventory.removeRuntimeImage(runtimeReference)
 			}
 		}
+		if system {
+			r.logSystemImageStorage("unpack_failed")
+			log.Printf("system image unpack: elapsed=%s succeeded=false", time.Since(unpackStarted).Round(time.Millisecond))
+		}
 		log.Printf("OCI import unpack failed for %q: %v", imageReference, err)
 		if ociQuotaExceeded(err) {
 			return nil, resourceExhausted("OCI materialization reached its hard project quota")
 		}
 		return nil, imageError(codes.FailedPrecondition, "IMAGE_UNPACK_FAILED", "image content could not be unpacked", imageReference)
+	}
+	if system {
+		r.logSystemImageStorage("unpack_complete")
+		log.Printf("system image unpack: elapsed=%s succeeded=true", time.Since(unpackStarted).Round(time.Millisecond))
+	}
+	if system {
+		if err := validateSystemImageMaterialization(stagingContext, r.client, materialized); err != nil {
+			return nil, err
+		}
 	}
 	if err := r.commitLogicalImageRecord(logicalContext, logical, logicalErr, imageReference, materialized.Target(), requestLabel, fingerprint); err != nil {
 		return nil, err
@@ -417,6 +474,11 @@ func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header
 	}
 	if err := syncStateFilesystem(); err != nil {
 		return nil, fmt.Errorf("persist imported image: %w", err)
+	}
+	if system {
+		if err := r.pruneSystemImages(ctx, namespaceID, imageReference, ""); err != nil {
+			return nil, err
+		}
 	}
 	return r.getImageForRole(ctx, namespaceID, imageReference, system)
 }

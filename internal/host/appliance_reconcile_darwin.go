@@ -4,16 +4,15 @@ package host
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"log"
-	"time"
-
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"log"
+	"slices"
+	"time"
 )
 
 func (controller *Controller) applianceReconcileLoop(ctx context.Context) {
@@ -27,17 +26,22 @@ func (controller *Controller) applianceReconcileLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
+			removeErr := controller.recoverPendingApplianceRemovals(ctx)
+			if removeErr != nil {
+				log.Printf("reconcile pending appliance removals: %v", removeErr)
+			}
 			if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
 				delay = fallbackDelay
 				timer.Reset(delay)
 				continue
 			}
 			next, err := controller.reconcileObservedAppliancePage(ctx, cursor)
+			err = errors.Join(removeErr, err)
+			cursor = next
 			if err != nil {
 				log.Printf("reconcile observed appliances: %v", err)
 				delay = nextApplianceReconcileDelay(delay)
 			} else {
-				cursor = next
 				delay = fallbackDelay
 			}
 			timer.Reset(delay)
@@ -74,10 +78,13 @@ func (controller *Controller) reconcileObservedAppliancePage(ctx context.Context
 			return "", err
 		}
 	}
-	if err := controller.reconcileObservedApplianceCandidates(ctx, installations, "", false); err != nil {
+	client, connection, err := controller.guestClient(ctx)
+	if err != nil {
 		return after, err
 	}
-	return installations[len(installations)-1].ID, nil
+	defer connection.Close()
+	err = controller.reconcileObservedApplianceCandidates(ctx, client, installations, "", false)
+	return installations[len(installations)-1].ID, err
 }
 
 func (controller *Controller) reconcileObservedAppliancesExcept(ctx context.Context, excludedInstallationID string, requireReady bool) error {
@@ -94,26 +101,48 @@ func (controller *Controller) reconcileObservedAppliancesExcept(ctx context.Cont
 		if len(installations) == 0 {
 			return result
 		}
-		if err := controller.reconcileObservedApplianceCandidates(ctx, installations, excludedInstallationID, requireReady); err != nil {
-			result = errors.Join(result, err)
+		client, connection, err := controller.guestClient(ctx)
+		if err != nil {
+			return errors.Join(result, err)
 		}
+		reconcileErr := controller.reconcileObservedApplianceCandidates(ctx, client, installations, excludedInstallationID, requireReady)
+		connection.Close()
+		result = errors.Join(result, reconcileErr)
 		after = installations[len(installations)-1].ID
 	}
 }
 
-func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.Context, installations []store.ApplianceInstallation, excludedInstallationID string, requireReady bool) error {
+func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.Context, client vmmdv1.VMMDServiceClient, installations []store.ApplianceInstallation, excludedInstallationID string, requireReady bool) error {
 	if controller.applianceSecrets == nil {
 		return errors.New("appliance protected store is unavailable")
 	}
+	retentionInstallations := slices.Clone(installations)
 	candidates := make(map[string]store.ApplianceInstallation, len(installations))
+	filtered := installations[:0]
 	for _, installation := range installations {
+		pending, err := controller.store.HasPendingApplianceUpdate(ctx, installation.ID)
+		if err != nil {
+			return err
+		}
+		if pending {
+			continue
+		}
 		candidates[installation.ID] = installation
+		filtered = append(filtered, installation)
 	}
-	client, connection, err := controller.guestClient(ctx)
-	if err != nil {
-		return err
+	installations = filtered
+	var result error
+	retentionFailed := make(map[string]bool)
+	for _, installation := range retentionInstallations {
+		if installation.ID == excludedInstallationID {
+			continue
+		}
+		if err := controller.reconcileSystemImageRetention(ctx, client, installation.ID); err != nil {
+			result = errors.Join(result, fmt.Errorf("retain appliance images %s: %w", installation.ID, err))
+			retentionFailed[installation.ID] = true
+		}
 	}
-	defer connection.Close()
+
 	active := make(map[string]bool, len(installations))
 	for _, installation := range installations {
 		running, err := controller.store.HasRunningApplianceOperation(ctx, installation.ID)
@@ -124,7 +153,6 @@ func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.C
 	}
 	observed := make(map[string]bool, len(installations))
 	runtimes := make([]*vmmdv1.SystemAppliance, 0, len(installations))
-	var result error
 	for _, installation := range installations {
 		if installation.ID == excludedInstallationID {
 			continue
@@ -160,6 +188,12 @@ func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.C
 			if installation.DesiredEnabled {
 				if err := controller.invalidateApplianceRuntime(ctx, installation, runtime, "INSTANCE_NOT_RUNNING"); err != nil {
 					result = errors.Join(result, fmt.Errorf("invalidate appliance %s: %w", installation.ID, err))
+					continue
+				}
+				if runtime.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_FAILED && !active[installation.ID] && applianceRecoveryState(installation.State) && !retentionFailed[installation.ID] {
+					if err := controller.recoverApplianceRuntime(ctx, client, installation, runtime); err != nil {
+						result = errors.Join(result, fmt.Errorf("recover appliance %s: %w", installation.ID, err))
+					}
 				}
 			} else if !active[installation.ID] {
 				if err := controller.reconcileDisabledAppliance(ctx, installation); err != nil {
@@ -174,6 +208,9 @@ func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.C
 					result = errors.Join(result, fmt.Errorf("revoke appliance %s: %w", installation.ID, err))
 				}
 			}
+			continue
+		}
+		if retentionFailed[installation.ID] {
 			continue
 		}
 		if installation.RegistrationID == "" {
@@ -194,7 +231,14 @@ func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.C
 		}
 		identityMatches := installation.CurrentBootID == identity.GetBootId() && installation.CurrentContainerInstance == identity.GetContainerInstanceId()
 		if identityMatches && installation.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING) {
+			trustStatus, trustErr := controller.refreshApplianceTrust(ctx, client, installation, identity, time.Now())
+			if trustErr != nil {
+				result = errors.Join(result, fmt.Errorf("refresh appliance trust %s: %w", installation.ID, trustErr))
+			}
 			health := &appliancev1.ApplianceHealth{InstallationId: installation.ID, BootId: identity.GetBootId(), ContainerInstance: identity.GetContainerInstanceId(), ConfigRevision: runtime.GetConfigRevision(), Healthy: true, Status: runtime.GetStatus()}
+			if trustStatus != "" {
+				health.Status = trustStatus
+			}
 			if err := controller.publishApplianceInstance(ctx, installation, identity, health); err != nil {
 				controller.setObservedApplianceFailure(installation, runtime, "INSTANCE_PUBLICATION_FAILED")
 				result = errors.Join(result, fmt.Errorf("restore appliance publication %s: %w", installation.ID, err))
@@ -222,7 +266,7 @@ func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.C
 			}
 			continue
 		}
-		if installation.DesiredEnabled && installation.RegistrationID != "" && !active[installation.ID] && !observed[installation.ID] && applianceRecoveryState(installation.State) {
+		if installation.DesiredEnabled && installation.RegistrationID != "" && !active[installation.ID] && !observed[installation.ID] && applianceRecoveryState(installation.State) && !retentionFailed[installation.ID] {
 			if err := controller.recoverApplianceRuntime(ctx, client, installation, nil); err != nil {
 				result = errors.Join(result, fmt.Errorf("recover unobserved appliance %s: %w", installation.ID, err))
 			}
@@ -250,247 +294,4 @@ func (controller *Controller) reconcileObservedApplianceCandidates(ctx context.C
 	}
 
 	return result
-}
-
-func applianceRecoveryState(state int32) bool {
-	return state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED) ||
-		state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STARTING) ||
-		state == int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING)
-}
-
-func (controller *Controller) recoverApplianceRuntime(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance) error {
-	unlock := controller.lockIntegration("appliance-lifecycle:" + installation.ID)
-	defer unlock()
-	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
-	if err != nil {
-		return err
-	}
-	if current.Revision != installation.Revision || current.State != installation.State || !current.DesiredEnabled || current.RegistrationID == "" {
-		return nil
-	}
-
-	if runtime != nil {
-		if err := controller.stopStartedAppliance(ctx, client, runtime.GetIdentity()); err != nil {
-			return controller.failAppliance(ctx, installation, "STALE_ARTIFACT_STOP_FAILED", err)
-		}
-	}
-	prepared, recover, err := controller.prepareApplianceRecoveryLocked(ctx, installation)
-	if err != nil || !recover {
-		return err
-	}
-	return controller.startApplianceLocked(ctx, client, prepared)
-}
-
-func (controller *Controller) prepareApplianceRecoveryLocked(ctx context.Context, installation store.ApplianceInstallation) (store.ApplianceInstallation, bool, error) {
-	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
-	if err != nil {
-		return store.ApplianceInstallation{}, false, err
-	}
-	if current.Revision != installation.Revision || current.State != installation.State || !current.DesiredEnabled || current.RegistrationID == "" || !applianceRecoveryState(current.State) {
-		return current, false, nil
-	}
-	controller.stopApplianceFrontends(current.ID)
-	controller.clearApplianceHealth(current.ID)
-	controller.stopPrivateControllerRoute(current.ID)
-	if err := controller.invalidateRemoteController(ctx, current.RegistrationID); err != nil {
-		return store.ApplianceInstallation{}, false, err
-	}
-	if current.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED) && current.CurrentBootID == "" && current.CurrentContainerInstance == "" {
-		return current, true, nil
-	}
-	current.State = int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED)
-	current.CurrentBootID = ""
-	current.CurrentContainerInstance = ""
-	updated, err := controller.store.UpdateApplianceInstallation(ctx, current, current.Revision)
-	return updated, err == nil, err
-}
-
-func (controller *Controller) reconcileDisabledAppliance(ctx context.Context, installation store.ApplianceInstallation) error {
-	domainErr := controller.revokePrivateControllerDomain(ctx, installation.ID)
-	trustErr := controller.revokeApplianceTrustAuthority(ctx, installation.ID)
-	if errors.Is(trustErr, sql.ErrNoRows) {
-		trustErr = nil
-	}
-	stopErr := controller.stopAppliance(ctx, installation.ID)
-	return errors.Join(trustErr, domainErr, stopErr)
-}
-
-func (controller *Controller) invalidateApplianceRuntime(ctx context.Context, installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance, reason string) error {
-	controller.stopApplianceFrontends(installation.ID)
-	controller.clearApplianceHealth(installation.ID)
-	controller.stopPrivateControllerRoute(installation.ID)
-	if installation.RegistrationID != "" {
-		if err := controller.invalidateRemoteController(ctx, installation.RegistrationID); err != nil {
-			return err
-		}
-	}
-	if runtime != nil {
-		controller.setObservedApplianceFailure(installation, runtime, reason)
-	} else {
-		controller.setApplianceFailure(installation, reason)
-	}
-	return nil
-}
-
-func (controller *Controller) adoptObservedAppliance(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance) error {
-	unlock := controller.lockIntegration("appliance-lifecycle:" + installation.ID)
-	defer unlock()
-	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
-	if err != nil {
-		return err
-	}
-	if current.Revision != installation.Revision || current.State != installation.State || !current.DesiredEnabled {
-		return nil
-	}
-	installation = current
-	grant, err := controller.store.GetApplianceGrant(ctx, installation.ID)
-	if err != nil {
-		return err
-	}
-	controller.stopApplianceFrontends(installation.ID)
-	controller.clearApplianceHealth(installation.ID)
-	controller.stopPrivateControllerRoute(installation.ID)
-	if installation.RegistrationID != "" {
-		if err := controller.invalidateRemoteController(ctx, installation.RegistrationID); err != nil {
-			return err
-		}
-	}
-	candidate := installation
-	candidate.State = int32(appliancev1.ApplianceState_APPLIANCE_STATE_STARTING)
-	candidate.CurrentBootID = runtime.GetIdentity().GetBootId()
-	candidate.CurrentContainerInstance = runtime.GetIdentity().GetContainerInstanceId()
-	configRevision := installation.Revision + 1
-	persisted, err := controller.store.UpdateApplianceInstallation(ctx, candidate, installation.Revision)
-	if err != nil {
-		return err
-	}
-	candidate = persisted
-	health, err := controller.bootstrapAppliance(ctx, client, candidate, grant, runtime.GetIdentity(), configRevision)
-	if err != nil {
-		if errors.Is(err, errBootstrapStoreIntegrity) || (candidate.BootstrapID != "" && bootstrapFailureReason(err) == "BOOTSTRAP_STATE_UNAVAILABLE") {
-			return controller.sealStartedAppliance(ctx, client, candidate, runtime.GetIdentity(), "BOOTSTRAP_SECRET_INTEGRITY_FAILED")
-		}
-		controller.revokeFailedAppliancePublication(ctx, installation.ID)
-		return err
-	}
-	bootstrapID := candidate.BootstrapID
-	if bootstrapID != "" {
-		if err := controller.applianceSecrets.DeleteBootstrap(ctx, candidate.ID, bootstrapID); err != nil {
-			controller.setPendingApplianceHealth(health)
-			controller.revokeFailedAppliancePublication(ctx, installation.ID)
-			return fmt.Errorf("delete consumed bootstrap envelope %s/%s: %w", candidate.ID, bootstrapID, err)
-		}
-	}
-	candidate, err = controller.store.GetApplianceInstallation(ctx, candidate.ID)
-	if err != nil {
-		controller.revokeFailedAppliancePublication(ctx, installation.ID)
-		return err
-	}
-	if err := controller.publishApplianceInstance(ctx, candidate, runtime.GetIdentity(), health); err != nil {
-		controller.revokeFailedAppliancePublication(ctx, installation.ID)
-		return err
-	}
-	candidate.State = int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING)
-	candidate.BootstrapID = ""
-	if _, err := controller.store.UpdateApplianceInstallation(ctx, candidate, candidate.Revision); err != nil {
-		controller.revokeFailedAppliancePublication(ctx, installation.ID)
-		return err
-	}
-	controller.clearPendingApplianceHealth(candidate.ID)
-	return nil
-}
-
-func (controller *Controller) retryPendingApplianceCleanup(ctx context.Context, client vmmdv1.VMMDServiceClient, installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance, health *appliancev1.ApplianceHealth) error {
-	unlock := controller.lockIntegration("appliance-lifecycle:" + installation.ID)
-	defer unlock()
-	current, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
-	if err != nil {
-		return err
-	}
-	if current.Revision != installation.Revision || current.State != installation.State || !current.DesiredEnabled {
-		return nil
-	}
-	installation = current
-	candidate, err := controller.store.GetApplianceInstallation(ctx, installation.ID)
-	if err != nil {
-		return err
-	}
-	bootstrapID := candidate.BootstrapID
-	configRevision := runtime.GetConfigRevision()
-	if configRevision == 0 {
-		configRevision = candidate.Revision
-	}
-	if health == nil {
-		grant, err := controller.store.GetApplianceGrant(ctx, installation.ID)
-		if err != nil {
-			return err
-		}
-		health, err = controller.bootstrapAppliance(ctx, client, candidate, grant, runtime.GetIdentity(), configRevision)
-		if err != nil {
-			if errors.Is(err, errBootstrapStoreIntegrity) || (bootstrapID != "" && bootstrapFailureReason(err) == "BOOTSTRAP_STATE_UNAVAILABLE") {
-				return controller.sealStartedAppliance(ctx, client, candidate, runtime.GetIdentity(), "BOOTSTRAP_SECRET_INTEGRITY_FAILED")
-			}
-			// A replay proves that the guest durably consumed the initial
-			// envelope before the host crashed. Only then is deleting the seed
-			// safe; ordinary non-replay failures must preserve it for retry.
-			if bootstrapID == "" || bootstrapFailureReason(err) != "BOOTSTRAP_REPLAY_REJECTED" {
-				return err
-			}
-			if err := controller.applianceSecrets.DeleteBootstrap(ctx, installation.ID, bootstrapID); err != nil {
-				return err
-			}
-			candidate.BootstrapID = ""
-			health, err = controller.bootstrapAppliance(ctx, client, candidate, grant, runtime.GetIdentity(), configRevision)
-			if err != nil {
-				if errors.Is(err, errBootstrapStoreIntegrity) || (bootstrapID != "" && bootstrapFailureReason(err) == "BOOTSTRAP_STATE_UNAVAILABLE") {
-					return controller.sealStartedAppliance(ctx, client, candidate, runtime.GetIdentity(), "BOOTSTRAP_SECRET_INTEGRITY_FAILED")
-				}
-				return err
-			}
-		} else if bootstrapID != "" {
-			if err := controller.applianceSecrets.DeleteBootstrap(ctx, installation.ID, bootstrapID); err != nil {
-				return err
-			}
-		}
-	} else if bootstrapID != "" {
-		// The in-memory health is the receipt from the previous successful
-		// bootstrap attempt, so the protected seed is consumed already.
-		if err := controller.applianceSecrets.DeleteBootstrap(ctx, installation.ID, bootstrapID); err != nil {
-			return err
-		}
-	}
-	candidate.BootstrapID = ""
-	if err := controller.publishApplianceInstance(ctx, candidate, runtime.GetIdentity(), health); err != nil {
-		controller.revokeFailedAppliancePublication(ctx, installation.ID)
-		return err
-	}
-	candidate.State = int32(appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING)
-	candidate.BootstrapID = ""
-	if _, err := controller.store.UpdateApplianceInstallation(ctx, candidate, candidate.Revision); err != nil {
-		controller.revokeFailedAppliancePublication(ctx, installation.ID)
-		return err
-	}
-	controller.clearPendingApplianceHealth(installation.ID)
-	return nil
-}
-
-func (controller *Controller) revokeFailedAppliancePublication(ctx context.Context, installationID string) {
-	controller.stopApplianceFrontends(installationID)
-	controller.clearApplianceHealth(installationID)
-	controller.stopPrivateControllerRoute(installationID)
-	if installation, err := controller.store.GetApplianceInstallation(ctx, installationID); err == nil && installation.RegistrationID != "" {
-		if err := controller.invalidateRemoteController(ctx, installation.RegistrationID); err != nil {
-			log.Printf("invalidate failed-publication controller %s: %v", installationID, err)
-		}
-	}
-	if err := controller.revokeApplianceTrustAuthority(ctx, installationID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("revoke failed-publication trust %s: %v", installationID, err)
-	}
-}
-
-func (controller *Controller) setObservedApplianceFailure(installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance, reason string) {
-	identity := runtime.GetIdentity()
-	controller.setApplianceHealth(&appliancev1.ApplianceHealth{InstallationId: installation.ID,
-		BootId: identity.GetBootId(), ContainerInstance: identity.GetContainerInstanceId(),
-		ConfigRevision: runtime.GetConfigRevision(), Healthy: false, Status: reason})
 }

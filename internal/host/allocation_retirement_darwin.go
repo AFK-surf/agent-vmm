@@ -92,11 +92,7 @@ func (controller *Controller) retireEmptyAllocationWithClient(ctx context.Contex
 func (controller *Controller) finalizeAllocationRetirement(ctx context.Context, environment store.Environment) error {
 	controller.projectionMu.Lock()
 	defer controller.projectionMu.Unlock()
-	publish := controller.publishSourcePoliciesLocked
-	if controller.sourcePolicyPublisher != nil {
-		publish = controller.sourcePolicyPublisher
-	}
-	if err := publish(ctx, environment.ID); err != nil {
+	if err := controller.publishCleanupSourcePoliciesLocked(ctx, environment.ID); err != nil {
 		return err
 	}
 	if err := controller.store.DiscardEnvironment(ctx, environment.ID); err != nil {
@@ -104,4 +100,12 @@ func (controller *Controller) finalizeAllocationRetirement(ctx context.Context, 
 	}
 	controller.forgetContainers(environment.ID)
 	return nil
+}
+
+func (controller *Controller) publishCleanupSourcePoliciesLocked(ctx context.Context, excludedEnvironmentID string) error {
+	publish := controller.publishSourcePoliciesLocked
+	if controller.sourcePolicyPublisher != nil {
+		publish = controller.sourcePolicyPublisher
+	}
+	return publish(ctx, excludedEnvironmentID)
 }

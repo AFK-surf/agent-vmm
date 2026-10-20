@@ -94,9 +94,10 @@ func (controller *Controller) preparePrivateRegistration(ctx context.Context, in
 	if registration.OwnerKind != store.RemoteRegistrationPrivate || registration.InstallationID != installation.ID {
 		return errors.New("private registration does not belong to the appliance installation")
 	}
-	if registration.EnrollmentState == int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL) {
+	if registration.EnrollmentState == int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL) ||
+		registration.EnrollmentState == int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_SETUP_INCOMPLETE) {
 		registration, err = controller.store.SetRemoteEnrollment(ctx, registration.ID, registration.Revision,
-			int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL), int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY), "", "")
+			registration.EnrollmentState, int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY), "", "")
 		if err != nil {
 			return err
 		}
@@ -234,7 +235,7 @@ func (controller *Controller) dialPrivateApplianceController(ctx context.Context
 			}
 			connection, err := openSystemStreamConn(streamContext, vmmd, &vmmdv1.SystemStreamHeader{Identity: identity,
 				Kind: vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_CONTROLLER, Nonce: nonce, MaxFrameBytes: 1 << 20,
-				MaxTotalBytes: 1 << 30, IdleSeconds: 300, MaxConcurrentStreams: 1, MaxUseCount: 1024})
+				IdleSeconds: 300, MaxConcurrentStreams: 1})
 			if err != nil {
 				cancelStream()
 				owner.Close()

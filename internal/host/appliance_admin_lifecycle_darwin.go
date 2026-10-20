@@ -56,7 +56,7 @@ func (server *applianceAdminServer) Restart(ctx context.Context, request *applia
 	if err != nil || response.GetOperation().GetPhase() != appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED {
 		return response, err
 	}
-	if err := server.controller.stopAppliance(ctx, request.GetInstallationId()); err == nil {
+	if err = server.controller.stopAppliance(ctx, request.GetInstallationId()); err == nil {
 		err = server.controller.activateAppliance(ctx, request.GetInstallationId())
 	}
 	if err != nil {

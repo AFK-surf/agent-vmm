@@ -43,7 +43,7 @@ func TestTaskStartLabelFailureCleansStartedTask(t *testing.T) {
 	if !errors.Is(err, want) {
 		t.Fatalf("start error = %v, want %v", err, want)
 	}
-	if got := calls[len(calls)-3:]; !reflect.DeepEqual(got, []string{"process-kill", "process-delete", "task-delete"}) {
+	if got := calls[len(calls)-4:]; !reflect.DeepEqual(got, []string{"process-kill", "process-delete", "task-kill", "task-delete"}) {
 		t.Fatalf("post-guard cleanup = %v", got)
 	}
 }
@@ -112,6 +112,14 @@ func (task *guardedTask) Start(context.Context) error {
 func (task *guardedTask) Exec(context.Context, string, *specs.Process, cio.Creator) (containerd.Process, error) {
 	task.record("exec")
 	return task.process, nil
+}
+
+func (task *guardedTask) Kill(ctx context.Context, _ syscall.Signal, _ ...containerd.KillOpts) error {
+	if task.requireLiveCleanup && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	task.record("task-kill")
+	return nil
 }
 
 func (task *guardedTask) Delete(ctx context.Context, _ ...containerd.ProcessDeleteOpts) (*containerd.ExitStatus, error) {

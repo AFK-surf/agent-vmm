@@ -2,9 +2,8 @@ package control
 
 import (
 	"context"
-	"sync/atomic"
+	"strings"
 	"testing"
-	"time"
 )
 
 func TestValidation(t *testing.T) {
@@ -27,46 +26,44 @@ func TestValidation(t *testing.T) {
 	}
 }
 
+func TestRequestIdentityIsIndependentOfResourceNames(t *testing.T) {
+	t.Parallel()
+	for _, requestID := range []string{
+		"VwpTUla9HPAJRBo1iOjwO:jobs",
+		"_owner:register",
+		"workflow/" + strings.Repeat("a", 128) + ":runner:daemon",
+	} {
+		if err := validateRequestID(requestID); err != nil {
+			t.Fatalf("request identity %q: %v", requestID, err)
+		}
+		d := new(deduper)
+		calls := 0
+		for range 2 {
+			if _, err := d.do(context.Background(), "create/"+requestID, "same", func() (any, error) {
+				calls++
+				return "receipt", nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if calls != 1 {
+			t.Fatalf("original identity executed %d times", calls)
+		}
+		if _, err := d.do(context.Background(), "create/"+requestID, "changed", func() (any, error) {
+			t.Fatal("conflicting payload executed")
+			return nil, nil
+		}); err == nil {
+			t.Fatal("conflicting payload accepted")
+		}
+	}
+	if err := validateRequestID(""); err == nil {
+		t.Fatal("missing request identity accepted")
+	}
+}
+
 func TestInternalRuntimeNamespaceIsReserved(t *testing.T) {
 	if err := validateID("actor_namespace_id", runtimeContainerdNamespace); err == nil {
 		t.Fatal("internal runtime namespace was accepted as an actor namespace")
-	}
-}
-
-func TestDeduperSingleFlight(t *testing.T) {
-	t.Parallel()
-	var calls atomic.Int32
-	d := new(deduper)
-	operation := func() (any, error) {
-		calls.Add(1)
-		time.Sleep(20 * time.Millisecond)
-		return "ok", nil
-	}
-	results := make(chan any, 2)
-	for range 2 {
-		go func() {
-			value, _ := d.do(context.Background(), "create/r1", "same", operation)
-			results <- value
-		}()
-	}
-	for range 2 {
-		if value := <-results; value != "ok" {
-			t.Fatalf("result = %v", value)
-		}
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("calls = %d, want 1", calls.Load())
-	}
-}
-
-func TestDeduperRejectsRequestIDReuse(t *testing.T) {
-	t.Parallel()
-	d := new(deduper)
-	if _, err := d.do(context.Background(), "create/r1", "first", func() (any, error) { return "ok", nil }); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.do(context.Background(), "create/r1", "different", func() (any, error) { return "wrong", nil }); err == nil {
-		t.Fatal("different input with the same request id was accepted")
 	}
 }
 

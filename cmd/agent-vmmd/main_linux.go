@@ -18,6 +18,7 @@ import (
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guest/bootstrap"
+	"github.com/AFK-surf/agent-vmm/internal/guest/containerddaemon"
 	"github.com/AFK-surf/agent-vmm/internal/guest/control"
 	"github.com/AFK-surf/agent-vmm/internal/guest/egress"
 	"github.com/AFK-surf/agent-vmm/internal/guest/network"
@@ -44,7 +45,7 @@ func main() {
 	}
 	reportGuestStartup(startup, "bootstrap", "succeeded", nil)
 	reportGuestStartup(startup, "oci_storage", "started", nil)
-	if err := control.PrepareOCIStorage(prepared.StateDevice, prepared.ControlDevice); err != nil {
+	if err := control.PrepareOCIStorage(prepared.StateDevice); err != nil {
 		reportGuestStartup(startup, "oci_storage", "failed", err)
 		os.Exit(1)
 	}
@@ -190,6 +191,42 @@ func reportGuestStartup(reference startupReference, stage, state string, failure
 }
 
 func startContainerd() (*exec.Cmd, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	stopErr := containerddaemon.Stop(ctx, "/run/containerd/containerd.sock")
+	cancel()
+	if stopErr != nil {
+		return nil, fmt.Errorf("settle previous containerd writer: %w", stopErr)
+	}
+	required, err := containerddaemon.NativeRetirementRequired("/control/containerd")
+	if err != nil {
+		return nil, err
+	}
+	if required {
+		recovery, err := launchContainerd()
+		if err != nil {
+			return nil, err
+		}
+		retireContext, retireCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		retireErr := containerddaemon.StopRetiredNativeTasks(retireContext, "/run/containerd/containerd.sock")
+		retireCancel()
+		stopContext, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stopErr := containerddaemon.Stop(stopContext, "/run/containerd/containerd.sock")
+		stopCancel()
+		if stopErr != nil {
+			_ = recovery.Process.Kill()
+		}
+		_ = recovery.Wait()
+		if err := errors.Join(retireErr, stopErr); err != nil {
+			return nil, fmt.Errorf("settle retired native tasks: %w", err)
+		}
+	}
+	if err := containerddaemon.RemoveRetiredNative("/control/containerd"); err != nil {
+		return nil, err
+	}
+	return launchContainerd()
+}
+
+func launchContainerd() (*exec.Cmd, error) {
 	if err := os.MkdirAll("/run/containerd", 0o755); err != nil {
 		return nil, err
 	}
@@ -204,7 +241,7 @@ func startContainerd() (*exec.Cmd, error) {
 		return nil, err
 	}
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
-		if info, err := os.Stat("/run/containerd/containerd.sock"); err == nil && info.Mode()&os.ModeSocket != 0 {
+		if containerddaemon.IsOwner("/run/containerd/containerd.sock", command.Process.Pid) {
 			return command, nil
 		}
 		time.Sleep(50 * time.Millisecond)

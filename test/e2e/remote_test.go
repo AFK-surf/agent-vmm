@@ -458,7 +458,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		t.Fatal("remote build returned no digest")
 	}
 	createVolume(t, remoteClient, "remote-a", "data")
-	serverContainer := createContainerWithImageAndVolumes(t, remoteClient, "remote-a", "server", "agent.local/remote-e2e:latest", []string{"/bin/result", "--serve", "8080"}, []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	serverContainer := createContainerWithImageAndVolumes(t, remoteClient, "remote-a", "server", "agent.local/remote-e2e:latest", []string{"/bin/result", "--serve", "8080"}, []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}})
 	startContainer(t, remoteClient, "remote-a", serverContainer.GetId())
 	time.Sleep(500 * time.Millisecond)
 	if output, code := execContainer(t, remoteClient, "remote-a", serverContainer.GetId(), []string{"/bin/result", "--write", "/data/value", "remote-exec"}); code != 0 || string(output) != "remote-exec\n" {

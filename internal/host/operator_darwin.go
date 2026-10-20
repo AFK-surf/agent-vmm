@@ -14,7 +14,6 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -55,14 +54,8 @@ func (controller *Controller) startVM(ctx context.Context, requestID string, fen
 		return nil, invalidField("request_id", "request ID is required")
 	}
 	return controller.executeOperatorVMOperation(ctx, vmLifecycleStart, "vm-start", requestID, "running", "VM_START_FAILED", func(executionCtx context.Context, operation store.Operation) error {
-		if err := controller.recoverInterruptedApplianceAdminOperations(executionCtx); err != nil {
-			return fmt.Errorf("recover interrupted appliance operations: %w", err)
-		}
-		if err := controller.recoverPendingApplianceRemovals(executionCtx); err != nil {
-			return fmt.Errorf("recover pending appliance removals: %w", err)
-		}
 		if fence != nil {
-			if err := controller.validateVMMutationFenceLocked(executionCtx, fence); err != nil {
+			if err := controller.validateVMMutationFenceLocked(fence); err != nil {
 				return err
 			}
 		}
@@ -89,7 +82,7 @@ func (server *operatorServer) StopVM(ctx context.Context, request *hostv1.StopVM
 		return nil, invalidField("fence", "VM mutation fence is required")
 	}
 	return server.controller.executeOperatorVMOperation(ctx, vmLifecycleStop, "vm-stop", request.GetRequestId(), "stopped", "VM_STOP_FAILED", func(executionCtx context.Context, _ store.Operation) error {
-		if err := server.controller.validateVMMutationFenceLocked(executionCtx, request.GetFence()); err != nil {
+		if err := server.controller.validateVMMutationFenceLocked(request.GetFence()); err != nil {
 			return err
 		}
 		return server.controller.vmLifecycle.stopOwned(executionCtx, request.GetForce())
@@ -191,31 +184,18 @@ func operatorVMTerminalError(operation store.Operation) error {
 func (controller *Controller) validateVMMutationFence(ctx context.Context, expected *hostv1.VMMutationFence) error {
 	controller.inventoryTransition.Lock()
 	defer controller.inventoryTransition.Unlock()
-	return controller.validateVMMutationFenceLocked(ctx, expected)
+	return controller.validateVMMutationFenceLocked(expected)
 }
 
-func (controller *Controller) validateVMMutationFenceLocked(ctx context.Context, expected *hostv1.VMMutationFence) error {
+func (controller *Controller) validateVMMutationFenceLocked(expected *hostv1.VMMutationFence) error {
 	if expected == nil || !expected.GetWholeVmImpactAcknowledged() {
 		return fmt.Errorf("%w: whole-VM impact was not acknowledged", errVMMutationFence)
 	}
-	current := controller.vmImpactSummaryLocked(ctx)
-	if current.GetVm().GetState() != expected.GetState() || current.GetVm().GetBootId() != expected.GetBootId() {
+	current := controller.manager.Snapshot()
+	if current.GetState() != expected.GetState() || current.GetBootId() != expected.GetBootId() {
 		return fmt.Errorf("%w: state or boot identity changed", errVMMutationFence)
 	}
-	currentByIdentity := make(map[string]*hostv1.ResourceReference, len(current.GetKnownWorkloads()))
-	for _, reference := range current.GetKnownWorkloads() {
-		currentByIdentity[vmImpactIdentity(reference)] = reference
-	}
-	for _, observed := range expected.GetObservedWorkloads() {
-		if latest := currentByIdentity[vmImpactIdentity(observed)]; latest != nil && !proto.Equal(latest, observed) {
-			return fmt.Errorf("%w: observed workload owner revision changed", errVMMutationFence)
-		}
-	}
 	return nil
-}
-
-func vmImpactIdentity(reference *hostv1.ResourceReference) string {
-	return reference.GetKind() + "\x00" + reference.GetEnvironmentId() + "\x00" + reference.GetResourceId()
 }
 
 func (server *operatorServer) CreateAgentSession(ctx context.Context, request *hostv1.CreateAgentSessionRequest) (*hostv1.CreateAgentSessionResponse, error) {
@@ -236,7 +216,10 @@ func (server *operatorServer) CreateAgentSession(ctx context.Context, request *h
 			integration.ConfigState != int32(hostv1.IntegrationConfigState_INTEGRATION_CONFIG_STATE_NEEDS_RESTART)) {
 		return nil, resourceError(codes.FailedPrecondition, "INTEGRATION_NOT_READY", "integration", request.GetIntegrationId(), "agent integration is not ready")
 	}
-	session, environment, err := server.controller.createSession(ctx, integration.EnvironmentID, integration.ID, store.OwnerLocal, auth.Identity{})
+	if request.ExpectedIntegrationRevision != nil && request.GetExpectedIntegrationRevision() != integration.Revision {
+		return nil, integrationConflict(integration.ID, store.ErrOperationReceiptConflict)
+	}
+	session, environment, err := server.controller.createSession(ctx, integration.EnvironmentID, integration.ID, integration.Revision, store.OwnerLocal, auth.Identity{})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", integration.EnvironmentID, "integration environment does not exist")

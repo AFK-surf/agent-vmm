@@ -109,7 +109,7 @@ func (client *productClient) EnsureEnvironment(ctx context.Context, environmentI
 	prepared, err := client.operator.PrepareAgentIntegration(ctx, &hostv1.PrepareAgentIntegrationRequest{
 		RequestId: requestID + "-integration", AdapterId: "e2e", DisplayName: environmentID,
 		Scope: hostv1.IntegrationScope_INTEGRATION_SCOPE_MANUAL, ConfigTarget: "e2e://" + environmentID,
-		EnvironmentId: optional(environmentID),
+		EnvironmentId: optional(environmentID), Limits: limits,
 	})
 	if err != nil {
 		return nil, err

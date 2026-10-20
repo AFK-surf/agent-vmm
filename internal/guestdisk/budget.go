@@ -12,8 +12,7 @@ const (
 	MinimumImportBytes    = uint64(2 << 30)
 	ControlPartitionBytes = uint64(8 << 30)
 	ControlSystemBytes    = uint64(4 << 30)
-	ControlImageBytes     = uint64(2 << 30)
-	ControlReserveBytes   = ControlPartitionBytes - ControlSystemBytes - ControlImageBytes
+	ControlReserveBytes   = ControlPartitionBytes - ControlSystemBytes
 )
 
 var (
@@ -31,14 +30,15 @@ const (
 )
 
 type Snapshot struct {
-	Inodes                 uint64
-	FreeInodes             uint64
-	CapacityBytes          uint64
-	UsedBytes              uint64
-	ImportReservationBytes uint64
-	EmergencyBytes         uint64
-	MetadataGrowthBytes    uint64
-	AllocationUnitBytes    uint64
+	Inodes                   uint64
+	FreeInodes               uint64
+	CapacityBytes            uint64
+	UsedBytes                uint64
+	ImportReservationBytes   uint64
+	NamespaceCommitmentBytes uint64
+	EmergencyBytes           uint64
+	MetadataGrowthBytes      uint64
+	AllocationUnitBytes      uint64
 }
 
 func (snapshot Snapshot) SystemReserveBytes() (uint64, bool) {
@@ -48,7 +48,7 @@ func (snapshot Snapshot) SystemReserveBytes() (uint64, bool) {
 
 func (snapshot Snapshot) AvailableBytes() (uint64, bool) {
 	committed := snapshot.UsedBytes
-	for _, value := range []uint64{snapshot.ImportReservationBytes, snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes} {
+	for _, value := range []uint64{snapshot.ImportReservationBytes, snapshot.NamespaceCommitmentBytes, snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes} {
 		var carry uint64
 		committed, carry = bits.Add64(committed, value, 0)
 		if carry != 0 || committed > snapshot.CapacityBytes {
@@ -66,10 +66,10 @@ func (snapshot Snapshot) Safe() bool {
 }
 
 func (snapshot Snapshot) Pressure() Pressure {
-	if snapshot.CapacityBytes == 0 || snapshot.UsedBytes > snapshot.CapacityBytes || snapshot.ImportReservationBytes > snapshot.CapacityBytes-snapshot.UsedBytes {
+	if snapshot.CapacityBytes == 0 || snapshot.UsedBytes > snapshot.CapacityBytes || snapshot.ImportReservationBytes > snapshot.CapacityBytes-snapshot.UsedBytes || snapshot.NamespaceCommitmentBytes > snapshot.CapacityBytes-snapshot.UsedBytes-snapshot.ImportReservationBytes {
 		return PressureCritical
 	}
-	return max(pressureFromFree(snapshot.CapacityBytes, snapshot.CapacityBytes-snapshot.UsedBytes-snapshot.ImportReservationBytes), pressureFromFree(snapshot.Inodes, snapshot.FreeInodes))
+	return max(pressureFromFree(snapshot.CapacityBytes, snapshot.CapacityBytes-snapshot.UsedBytes-snapshot.ImportReservationBytes-snapshot.NamespaceCommitmentBytes), pressureFromFree(snapshot.Inodes, snapshot.FreeInodes))
 }
 
 func pressureFromFree(total, free uint64) Pressure {

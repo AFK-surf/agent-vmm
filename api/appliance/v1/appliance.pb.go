@@ -8,9 +8,11 @@ package appliancev1
 
 import (
 	v1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	v12 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	v11 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -79,6 +81,7 @@ const (
 	FrontendExposure_FRONTEND_EXPOSURE_UNSPECIFIED   FrontendExposure = 0
 	FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK FrontendExposure = 1
 	FrontendExposure_FRONTEND_EXPOSURE_OUTBOUND_ONLY FrontendExposure = 2
+	FrontendExposure_FRONTEND_EXPOSURE_LAN_HTTP      FrontendExposure = 3
 )
 
 // Enum value maps for FrontendExposure.
@@ -87,11 +90,13 @@ var (
 		0: "FRONTEND_EXPOSURE_UNSPECIFIED",
 		1: "FRONTEND_EXPOSURE_HOST_LOOPBACK",
 		2: "FRONTEND_EXPOSURE_OUTBOUND_ONLY",
+		3: "FRONTEND_EXPOSURE_LAN_HTTP",
 	}
 	FrontendExposure_value = map[string]int32{
 		"FRONTEND_EXPOSURE_UNSPECIFIED":   0,
 		"FRONTEND_EXPOSURE_HOST_LOOPBACK": 1,
 		"FRONTEND_EXPOSURE_OUTBOUND_ONLY": 2,
+		"FRONTEND_EXPOSURE_LAN_HTTP":      3,
 	}
 )
 
@@ -302,11 +307,11 @@ func (ApplianceOperationState) EnumDescriptor() ([]byte, []int) {
 type AppliancePlanKind int32
 
 const (
-	AppliancePlanKind_APPLIANCE_PLAN_KIND_UNSPECIFIED   AppliancePlanKind = 0
-	AppliancePlanKind_APPLIANCE_PLAN_KIND_INSTALL       AppliancePlanKind = 1
-	AppliancePlanKind_APPLIANCE_PLAN_KIND_ACTIVATE      AppliancePlanKind = 2
-	AppliancePlanKind_APPLIANCE_PLAN_KIND_REMOVE        AppliancePlanKind = 3
-	AppliancePlanKind_APPLIANCE_PLAN_KIND_SEALED_REPAIR AppliancePlanKind = 4
+	AppliancePlanKind_APPLIANCE_PLAN_KIND_UNSPECIFIED AppliancePlanKind = 0
+	AppliancePlanKind_APPLIANCE_PLAN_KIND_INSTALL     AppliancePlanKind = 1
+	AppliancePlanKind_APPLIANCE_PLAN_KIND_ACTIVATE    AppliancePlanKind = 2
+	AppliancePlanKind_APPLIANCE_PLAN_KIND_REMOVE      AppliancePlanKind = 3
+	AppliancePlanKind_APPLIANCE_PLAN_KIND_UPDATE      AppliancePlanKind = 5
 )
 
 // Enum value maps for AppliancePlanKind.
@@ -316,14 +321,14 @@ var (
 		1: "APPLIANCE_PLAN_KIND_INSTALL",
 		2: "APPLIANCE_PLAN_KIND_ACTIVATE",
 		3: "APPLIANCE_PLAN_KIND_REMOVE",
-		4: "APPLIANCE_PLAN_KIND_SEALED_REPAIR",
+		5: "APPLIANCE_PLAN_KIND_UPDATE",
 	}
 	AppliancePlanKind_value = map[string]int32{
-		"APPLIANCE_PLAN_KIND_UNSPECIFIED":   0,
-		"APPLIANCE_PLAN_KIND_INSTALL":       1,
-		"APPLIANCE_PLAN_KIND_ACTIVATE":      2,
-		"APPLIANCE_PLAN_KIND_REMOVE":        3,
-		"APPLIANCE_PLAN_KIND_SEALED_REPAIR": 4,
+		"APPLIANCE_PLAN_KIND_UNSPECIFIED": 0,
+		"APPLIANCE_PLAN_KIND_INSTALL":     1,
+		"APPLIANCE_PLAN_KIND_ACTIVATE":    2,
+		"APPLIANCE_PLAN_KIND_REMOVE":      3,
+		"APPLIANCE_PLAN_KIND_UPDATE":      5,
 	}
 )
 
@@ -365,21 +370,23 @@ const (
 	ApplianceOperationKind_APPLIANCE_OPERATION_KIND_RESTART       ApplianceOperationKind = 5
 	ApplianceOperationKind_APPLIANCE_OPERATION_KIND_REVOKE        ApplianceOperationKind = 6
 	ApplianceOperationKind_APPLIANCE_OPERATION_KIND_REMOVE        ApplianceOperationKind = 7
-	ApplianceOperationKind_APPLIANCE_OPERATION_KIND_SEALED_REPAIR ApplianceOperationKind = 8
+	ApplianceOperationKind_APPLIANCE_OPERATION_KIND_UPDATE        ApplianceOperationKind = 9
+	ApplianceOperationKind_APPLIANCE_OPERATION_KIND_STAGE_CONTENT ApplianceOperationKind = 10
 )
 
 // Enum value maps for ApplianceOperationKind.
 var (
 	ApplianceOperationKind_name = map[int32]string{
-		0: "APPLIANCE_OPERATION_KIND_UNSPECIFIED",
-		1: "APPLIANCE_OPERATION_KIND_STAGE",
-		2: "APPLIANCE_OPERATION_KIND_INSTALL",
-		3: "APPLIANCE_OPERATION_KIND_ACTIVATE",
-		4: "APPLIANCE_OPERATION_KIND_STOP",
-		5: "APPLIANCE_OPERATION_KIND_RESTART",
-		6: "APPLIANCE_OPERATION_KIND_REVOKE",
-		7: "APPLIANCE_OPERATION_KIND_REMOVE",
-		8: "APPLIANCE_OPERATION_KIND_SEALED_REPAIR",
+		0:  "APPLIANCE_OPERATION_KIND_UNSPECIFIED",
+		1:  "APPLIANCE_OPERATION_KIND_STAGE",
+		2:  "APPLIANCE_OPERATION_KIND_INSTALL",
+		3:  "APPLIANCE_OPERATION_KIND_ACTIVATE",
+		4:  "APPLIANCE_OPERATION_KIND_STOP",
+		5:  "APPLIANCE_OPERATION_KIND_RESTART",
+		6:  "APPLIANCE_OPERATION_KIND_REVOKE",
+		7:  "APPLIANCE_OPERATION_KIND_REMOVE",
+		9:  "APPLIANCE_OPERATION_KIND_UPDATE",
+		10: "APPLIANCE_OPERATION_KIND_STAGE_CONTENT",
 	}
 	ApplianceOperationKind_value = map[string]int32{
 		"APPLIANCE_OPERATION_KIND_UNSPECIFIED":   0,
@@ -390,7 +397,8 @@ var (
 		"APPLIANCE_OPERATION_KIND_RESTART":       5,
 		"APPLIANCE_OPERATION_KIND_REVOKE":        6,
 		"APPLIANCE_OPERATION_KIND_REMOVE":        7,
-		"APPLIANCE_OPERATION_KIND_SEALED_REPAIR": 8,
+		"APPLIANCE_OPERATION_KIND_UPDATE":        9,
+		"APPLIANCE_OPERATION_KIND_STAGE_CONTENT": 10,
 	}
 )
 
@@ -430,17 +438,27 @@ const (
 	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED ApplianceOperationPhase = 3
 	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY  ApplianceOperationPhase = 4
 	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_TERMINAL         ApplianceOperationPhase = 5
+	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PREPARING        ApplianceOperationPhase = 6
+	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_DRAINING         ApplianceOperationPhase = 7
+	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_STOPPING         ApplianceOperationPhase = 8
+	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_SWITCHING        ApplianceOperationPhase = 9
+	ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_ACTIVATING       ApplianceOperationPhase = 10
 )
 
 // Enum value maps for ApplianceOperationPhase.
 var (
 	ApplianceOperationPhase_name = map[int32]string{
-		0: "APPLIANCE_OPERATION_PHASE_UNSPECIFIED",
-		1: "APPLIANCE_OPERATION_PHASE_PLANNED",
-		2: "APPLIANCE_OPERATION_PHASE_PROBATION",
-		3: "APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED",
-		4: "APPLIANCE_OPERATION_PHASE_PENDING_DESTROY",
-		5: "APPLIANCE_OPERATION_PHASE_TERMINAL",
+		0:  "APPLIANCE_OPERATION_PHASE_UNSPECIFIED",
+		1:  "APPLIANCE_OPERATION_PHASE_PLANNED",
+		2:  "APPLIANCE_OPERATION_PHASE_PROBATION",
+		3:  "APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED",
+		4:  "APPLIANCE_OPERATION_PHASE_PENDING_DESTROY",
+		5:  "APPLIANCE_OPERATION_PHASE_TERMINAL",
+		6:  "APPLIANCE_OPERATION_PHASE_PREPARING",
+		7:  "APPLIANCE_OPERATION_PHASE_DRAINING",
+		8:  "APPLIANCE_OPERATION_PHASE_STOPPING",
+		9:  "APPLIANCE_OPERATION_PHASE_SWITCHING",
+		10: "APPLIANCE_OPERATION_PHASE_ACTIVATING",
 	}
 	ApplianceOperationPhase_value = map[string]int32{
 		"APPLIANCE_OPERATION_PHASE_UNSPECIFIED":      0,
@@ -449,6 +467,11 @@ var (
 		"APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED": 3,
 		"APPLIANCE_OPERATION_PHASE_PENDING_DESTROY":  4,
 		"APPLIANCE_OPERATION_PHASE_TERMINAL":         5,
+		"APPLIANCE_OPERATION_PHASE_PREPARING":        6,
+		"APPLIANCE_OPERATION_PHASE_DRAINING":         7,
+		"APPLIANCE_OPERATION_PHASE_STOPPING":         8,
+		"APPLIANCE_OPERATION_PHASE_SWITCHING":        9,
+		"APPLIANCE_OPERATION_PHASE_ACTIVATING":       10,
 	}
 )
 
@@ -490,6 +513,7 @@ const (
 	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED ApplianceTerminalReason = 6
 	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_REMOVED          ApplianceTerminalReason = 7
 	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_OPERATION_FAILED ApplianceTerminalReason = 8
+	ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_OPERATOR_STOPPED ApplianceTerminalReason = 9
 )
 
 // Enum value maps for ApplianceTerminalReason.
@@ -503,6 +527,7 @@ var (
 		6: "APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED",
 		7: "APPLIANCE_TERMINAL_REASON_REMOVED",
 		8: "APPLIANCE_TERMINAL_REASON_OPERATION_FAILED",
+		9: "APPLIANCE_TERMINAL_REASON_OPERATOR_STOPPED",
 	}
 	ApplianceTerminalReason_value = map[string]int32{
 		"APPLIANCE_TERMINAL_REASON_UNSPECIFIED":      0,
@@ -513,6 +538,7 @@ var (
 		"APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED": 6,
 		"APPLIANCE_TERMINAL_REASON_REMOVED":          7,
 		"APPLIANCE_TERMINAL_REASON_OPERATION_FAILED": 8,
+		"APPLIANCE_TERMINAL_REASON_OPERATOR_STOPPED": 9,
 	}
 )
 
@@ -541,6 +567,58 @@ func (x ApplianceTerminalReason) Number() protoreflect.EnumNumber {
 // Deprecated: Use ApplianceTerminalReason.Descriptor instead.
 func (ApplianceTerminalReason) EnumDescriptor() ([]byte, []int) {
 	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{8}
+}
+
+type ApplianceContentRole int32
+
+const (
+	ApplianceContentRole_APPLIANCE_CONTENT_ROLE_UNSPECIFIED ApplianceContentRole = 0
+	ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER  ApplianceContentRole = 1
+	ApplianceContentRole_APPLIANCE_CONTENT_ROLE_HARNESS     ApplianceContentRole = 2
+	ApplianceContentRole_APPLIANCE_CONTENT_ROLE_WORKLOAD    ApplianceContentRole = 3
+)
+
+// Enum value maps for ApplianceContentRole.
+var (
+	ApplianceContentRole_name = map[int32]string{
+		0: "APPLIANCE_CONTENT_ROLE_UNSPECIFIED",
+		1: "APPLIANCE_CONTENT_ROLE_CONTROLLER",
+		2: "APPLIANCE_CONTENT_ROLE_HARNESS",
+		3: "APPLIANCE_CONTENT_ROLE_WORKLOAD",
+	}
+	ApplianceContentRole_value = map[string]int32{
+		"APPLIANCE_CONTENT_ROLE_UNSPECIFIED": 0,
+		"APPLIANCE_CONTENT_ROLE_CONTROLLER":  1,
+		"APPLIANCE_CONTENT_ROLE_HARNESS":     2,
+		"APPLIANCE_CONTENT_ROLE_WORKLOAD":    3,
+	}
+)
+
+func (x ApplianceContentRole) Enum() *ApplianceContentRole {
+	p := new(ApplianceContentRole)
+	*p = x
+	return p
+}
+
+func (x ApplianceContentRole) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ApplianceContentRole) Descriptor() protoreflect.EnumDescriptor {
+	return file_appliance_v1_appliance_proto_enumTypes[9].Descriptor()
+}
+
+func (ApplianceContentRole) Type() protoreflect.EnumType {
+	return &file_appliance_v1_appliance_proto_enumTypes[9]
+}
+
+func (x ApplianceContentRole) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ApplianceContentRole.Descriptor instead.
+func (ApplianceContentRole) EnumDescriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{9}
 }
 
 type BuildArtifactHeader struct {
@@ -898,7 +976,6 @@ type StreamBounds struct {
 	DeadlineSeconds      uint32                 `protobuf:"varint,3,opt,name=deadline_seconds,json=deadlineSeconds,proto3" json:"deadline_seconds,omitempty"`
 	IdleSeconds          uint32                 `protobuf:"varint,4,opt,name=idle_seconds,json=idleSeconds,proto3" json:"idle_seconds,omitempty"`
 	MaxConcurrentStreams uint32                 `protobuf:"varint,5,opt,name=max_concurrent_streams,json=maxConcurrentStreams,proto3" json:"max_concurrent_streams,omitempty"`
-	MaxUseCount          uint32                 `protobuf:"varint,6,opt,name=max_use_count,json=maxUseCount,proto3" json:"max_use_count,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -964,13 +1041,6 @@ func (x *StreamBounds) GetIdleSeconds() uint32 {
 func (x *StreamBounds) GetMaxConcurrentStreams() uint32 {
 	if x != nil {
 		return x.MaxConcurrentStreams
-	}
-	return 0
-}
-
-func (x *StreamBounds) GetMaxUseCount() uint32 {
-	if x != nil {
-		return x.MaxUseCount
 	}
 	return 0
 }
@@ -1051,6 +1121,7 @@ type DynamicHostLoopbackGrant struct {
 	MaxConcurrentConnections         uint32                 `protobuf:"varint,4,opt,name=max_concurrent_connections,json=maxConcurrentConnections,proto3" json:"max_concurrent_connections,omitempty"`
 	MaxConcurrentConnectionsPerLease uint32                 `protobuf:"varint,5,opt,name=max_concurrent_connections_per_lease,json=maxConcurrentConnectionsPerLease,proto3" json:"max_concurrent_connections_per_lease,omitempty"`
 	ConnectionBounds                 *StreamBounds          `protobuf:"bytes,6,opt,name=connection_bounds,json=connectionBounds,proto3" json:"connection_bounds,omitempty"`
+	MaxUseCount                      uint32                 `protobuf:"varint,7,opt,name=max_use_count,json=maxUseCount,proto3" json:"max_use_count,omitempty"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -1127,6 +1198,13 @@ func (x *DynamicHostLoopbackGrant) GetConnectionBounds() *StreamBounds {
 	return nil
 }
 
+func (x *DynamicHostLoopbackGrant) GetMaxUseCount() uint32 {
+	if x != nil {
+		return x.MaxUseCount
+	}
+	return 0
+}
+
 type CapacityGrant struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	PerEnvironmentLimits *v1.ResourceLimits     `protobuf:"bytes,3,opt,name=per_environment_limits,json=perEnvironmentLimits,proto3" json:"per_environment_limits,omitempty"`
@@ -1180,24 +1258,26 @@ func (x *CapacityGrant) GetMaxEgressMode() v1.EgressMode {
 }
 
 type ControllerApplianceManifest struct {
-	state                        protoimpl.MessageState    `protogen:"open.v1"`
-	ContractVersion              string                    `protobuf:"bytes,1,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
-	ProductId                    string                    `protobuf:"bytes,2,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
-	Release                      string                    `protobuf:"bytes,4,opt,name=release,proto3" json:"release,omitempty"`
-	ImageReference               string                    `protobuf:"bytes,5,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
-	ImageManifestDigest          string                    `protobuf:"bytes,6,opt,name=image_manifest_digest,json=imageManifestDigest,proto3" json:"image_manifest_digest,omitempty"`
-	Platform                     string                    `protobuf:"bytes,7,opt,name=platform,proto3" json:"platform,omitempty"`
-	BootstrapProtocolVersion     string                    `protobuf:"bytes,8,opt,name=bootstrap_protocol_version,json=bootstrapProtocolVersion,proto3" json:"bootstrap_protocol_version,omitempty"`
-	ControllerProtocolVersion    string                    `protobuf:"bytes,9,opt,name=controller_protocol_version,json=controllerProtocolVersion,proto3" json:"controller_protocol_version,omitempty"`
-	DataVolumeBytes              uint64                    `protobuf:"varint,11,opt,name=data_volume_bytes,json=dataVolumeBytes,proto3" json:"data_volume_bytes,omitempty"`
-	RequestedCapacity            *CapacityGrant            `protobuf:"bytes,12,opt,name=requested_capacity,json=requestedCapacity,proto3" json:"requested_capacity,omitempty"`
-	RequestedEgressMode          v1.EgressMode             `protobuf:"varint,13,opt,name=requested_egress_mode,json=requestedEgressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"requested_egress_mode,omitempty"`
-	RequestedFrontends           []*ControllerFrontend     `protobuf:"bytes,14,rep,name=requested_frontends,json=requestedFrontends,proto3" json:"requested_frontends,omitempty"`
-	StartupDeadlineSeconds       uint32                    `protobuf:"varint,15,opt,name=startup_deadline_seconds,json=startupDeadlineSeconds,proto3" json:"startup_deadline_seconds,omitempty"`
-	ProbationSeconds             uint32                    `protobuf:"varint,16,opt,name=probation_seconds,json=probationSeconds,proto3" json:"probation_seconds,omitempty"`
-	HealthTimeoutSeconds         uint32                    `protobuf:"varint,17,opt,name=health_timeout_seconds,json=healthTimeoutSeconds,proto3" json:"health_timeout_seconds,omitempty"`
-	RequestedDynamicHostLoopback *DynamicHostLoopbackGrant `protobuf:"bytes,19,opt,name=requested_dynamic_host_loopback,json=requestedDynamicHostLoopback,proto3" json:"requested_dynamic_host_loopback,omitempty"`
-	SystemLimits                 *v1.ResourceLimits        `protobuf:"bytes,20,opt,name=system_limits,json=systemLimits,proto3" json:"system_limits,omitempty"`
+	state                        protoimpl.MessageState       `protogen:"open.v1"`
+	ContractVersion              string                       `protobuf:"bytes,1,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
+	ProductId                    string                       `protobuf:"bytes,2,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	Release                      string                       `protobuf:"bytes,4,opt,name=release,proto3" json:"release,omitempty"`
+	ImageReference               string                       `protobuf:"bytes,5,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
+	ImageManifestDigest          string                       `protobuf:"bytes,6,opt,name=image_manifest_digest,json=imageManifestDigest,proto3" json:"image_manifest_digest,omitempty"`
+	Platform                     string                       `protobuf:"bytes,7,opt,name=platform,proto3" json:"platform,omitempty"`
+	BootstrapProtocolVersion     string                       `protobuf:"bytes,8,opt,name=bootstrap_protocol_version,json=bootstrapProtocolVersion,proto3" json:"bootstrap_protocol_version,omitempty"`
+	ControllerProtocolVersion    string                       `protobuf:"bytes,9,opt,name=controller_protocol_version,json=controllerProtocolVersion,proto3" json:"controller_protocol_version,omitempty"`
+	DataVolumeBytes              uint64                       `protobuf:"varint,11,opt,name=data_volume_bytes,json=dataVolumeBytes,proto3" json:"data_volume_bytes,omitempty"`
+	RequestedCapacity            *CapacityGrant               `protobuf:"bytes,12,opt,name=requested_capacity,json=requestedCapacity,proto3" json:"requested_capacity,omitempty"`
+	RequestedEgressMode          v1.EgressMode                `protobuf:"varint,13,opt,name=requested_egress_mode,json=requestedEgressMode,proto3,enum=agentvmm.host.v1.EgressMode" json:"requested_egress_mode,omitempty"`
+	RequestedFrontends           []*ControllerFrontend        `protobuf:"bytes,14,rep,name=requested_frontends,json=requestedFrontends,proto3" json:"requested_frontends,omitempty"`
+	StartupDeadlineSeconds       uint32                       `protobuf:"varint,15,opt,name=startup_deadline_seconds,json=startupDeadlineSeconds,proto3" json:"startup_deadline_seconds,omitempty"`
+	ProbationSeconds             uint32                       `protobuf:"varint,16,opt,name=probation_seconds,json=probationSeconds,proto3" json:"probation_seconds,omitempty"`
+	HealthTimeoutSeconds         uint32                       `protobuf:"varint,17,opt,name=health_timeout_seconds,json=healthTimeoutSeconds,proto3" json:"health_timeout_seconds,omitempty"`
+	RequestedDynamicHostLoopback *DynamicHostLoopbackGrant    `protobuf:"bytes,19,opt,name=requested_dynamic_host_loopback,json=requestedDynamicHostLoopback,proto3" json:"requested_dynamic_host_loopback,omitempty"`
+	SystemLimits                 *v1.ResourceLimits           `protobuf:"bytes,20,opt,name=system_limits,json=systemLimits,proto3" json:"system_limits,omitempty"`
+	RequestedLanEgress           bool                         `protobuf:"varint,21,opt,name=requested_lan_egress,json=requestedLanEgress,proto3" json:"requested_lan_egress,omitempty"`
+	ContentRefs                  []*ApplianceContentReference `protobuf:"bytes,22,rep,name=content_refs,json=contentRefs,proto3" json:"content_refs,omitempty"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
@@ -1351,6 +1431,72 @@ func (x *ControllerApplianceManifest) GetSystemLimits() *v1.ResourceLimits {
 	return nil
 }
 
+func (x *ControllerApplianceManifest) GetRequestedLanEgress() bool {
+	if x != nil {
+		return x.RequestedLanEgress
+	}
+	return false
+}
+
+func (x *ControllerApplianceManifest) GetContentRefs() []*ApplianceContentReference {
+	if x != nil {
+		return x.ContentRefs
+	}
+	return nil
+}
+
+type HostTcpEndpoint struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ip            string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
+	Port          uint32                 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HostTcpEndpoint) Reset() {
+	*x = HostTcpEndpoint{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HostTcpEndpoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HostTcpEndpoint) ProtoMessage() {}
+
+func (x *HostTcpEndpoint) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HostTcpEndpoint.ProtoReflect.Descriptor instead.
+func (*HostTcpEndpoint) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *HostTcpEndpoint) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *HostTcpEndpoint) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
 type ApprovedGrant struct {
 	state               protoimpl.MessageState    `protogen:"open.v1"`
 	Capacity            *CapacityGrant            `protobuf:"bytes,2,opt,name=capacity,proto3" json:"capacity,omitempty"`
@@ -1359,13 +1505,15 @@ type ApprovedGrant struct {
 	Revision            uint64                    `protobuf:"varint,5,opt,name=revision,proto3" json:"revision,omitempty"`
 	DynamicHostLoopback *DynamicHostLoopbackGrant `protobuf:"bytes,6,opt,name=dynamic_host_loopback,json=dynamicHostLoopback,proto3" json:"dynamic_host_loopback,omitempty"`
 	SystemLimits        *v1.ResourceLimits        `protobuf:"bytes,7,opt,name=system_limits,json=systemLimits,proto3" json:"system_limits,omitempty"`
+	LanEgress           bool                      `protobuf:"varint,8,opt,name=lan_egress,json=lanEgress,proto3" json:"lan_egress,omitempty"`
+	HostTcpEndpoints    []*HostTcpEndpoint        `protobuf:"bytes,9,rep,name=host_tcp_endpoints,json=hostTcpEndpoints,proto3" json:"host_tcp_endpoints,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ApprovedGrant) Reset() {
 	*x = ApprovedGrant{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1377,7 +1525,7 @@ func (x *ApprovedGrant) String() string {
 func (*ApprovedGrant) ProtoMessage() {}
 
 func (x *ApprovedGrant) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[9]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1390,7 +1538,7 @@ func (x *ApprovedGrant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovedGrant.ProtoReflect.Descriptor instead.
 func (*ApprovedGrant) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{9}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ApprovedGrant) GetCapacity() *CapacityGrant {
@@ -1435,30 +1583,45 @@ func (x *ApprovedGrant) GetSystemLimits() *v1.ResourceLimits {
 	return nil
 }
 
+func (x *ApprovedGrant) GetLanEgress() bool {
+	if x != nil {
+		return x.LanEgress
+	}
+	return false
+}
+
+func (x *ApprovedGrant) GetHostTcpEndpoints() []*HostTcpEndpoint {
+	if x != nil {
+		return x.HostTcpEndpoints
+	}
+	return nil
+}
+
 type ApplianceLaunchClaim struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	InstallationId      string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
-	ArtifactId          string                 `protobuf:"bytes,2,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
-	BootId              string                 `protobuf:"bytes,3,opt,name=boot_id,json=bootId,proto3" json:"boot_id,omitempty"`
-	SystemNamespace     string                 `protobuf:"bytes,4,opt,name=system_namespace,json=systemNamespace,proto3" json:"system_namespace,omitempty"`
-	ContainerInstance   string                 `protobuf:"bytes,5,opt,name=container_instance,json=containerInstance,proto3" json:"container_instance,omitempty"`
-	BootNonce           []byte                 `protobuf:"bytes,6,opt,name=boot_nonce,json=bootNonce,proto3" json:"boot_nonce,omitempty"`
-	BootstrapId         string                 `protobuf:"bytes,7,opt,name=bootstrap_id,json=bootstrapId,proto3" json:"bootstrap_id,omitempty"`
-	ConfigRevision      uint64                 `protobuf:"varint,8,opt,name=config_revision,json=configRevision,proto3" json:"config_revision,omitempty"`
-	ApprovedGrant       *ApprovedGrant         `protobuf:"bytes,9,opt,name=approved_grant,json=approvedGrant,proto3" json:"approved_grant,omitempty"`
-	ExpiresUnixMillis   int64                  `protobuf:"varint,10,opt,name=expires_unix_millis,json=expiresUnixMillis,proto3" json:"expires_unix_millis,omitempty"`
-	Signature           []byte                 `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
-	DeviceRootPublicKey []byte                 `protobuf:"bytes,12,opt,name=device_root_public_key,json=deviceRootPublicKey,proto3" json:"device_root_public_key,omitempty"`
-	DeviceRootRevision  uint64                 `protobuf:"varint,13,opt,name=device_root_revision,json=deviceRootRevision,proto3" json:"device_root_revision,omitempty"`
-	RegistrationId      string                 `protobuf:"bytes,14,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
-	DeviceIdentity      *v11.DeviceIdentity    `protobuf:"bytes,15,opt,name=device_identity,json=deviceIdentity,proto3" json:"device_identity,omitempty"`
+	state               protoimpl.MessageState   `protogen:"open.v1"`
+	InstallationId      string                   `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	ArtifactId          string                   `protobuf:"bytes,2,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
+	BootId              string                   `protobuf:"bytes,3,opt,name=boot_id,json=bootId,proto3" json:"boot_id,omitempty"`
+	SystemNamespace     string                   `protobuf:"bytes,4,opt,name=system_namespace,json=systemNamespace,proto3" json:"system_namespace,omitempty"`
+	ContainerInstance   string                   `protobuf:"bytes,5,opt,name=container_instance,json=containerInstance,proto3" json:"container_instance,omitempty"`
+	BootNonce           []byte                   `protobuf:"bytes,6,opt,name=boot_nonce,json=bootNonce,proto3" json:"boot_nonce,omitempty"`
+	BootstrapId         string                   `protobuf:"bytes,7,opt,name=bootstrap_id,json=bootstrapId,proto3" json:"bootstrap_id,omitempty"`
+	ConfigRevision      uint64                   `protobuf:"varint,8,opt,name=config_revision,json=configRevision,proto3" json:"config_revision,omitempty"`
+	ApprovedGrant       *ApprovedGrant           `protobuf:"bytes,9,opt,name=approved_grant,json=approvedGrant,proto3" json:"approved_grant,omitempty"`
+	ExpiresUnixMillis   int64                    `protobuf:"varint,10,opt,name=expires_unix_millis,json=expiresUnixMillis,proto3" json:"expires_unix_millis,omitempty"`
+	Signature           []byte                   `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
+	DeviceRootPublicKey []byte                   `protobuf:"bytes,12,opt,name=device_root_public_key,json=deviceRootPublicKey,proto3" json:"device_root_public_key,omitempty"`
+	DeviceRootRevision  uint64                   `protobuf:"varint,13,opt,name=device_root_revision,json=deviceRootRevision,proto3" json:"device_root_revision,omitempty"`
+	RegistrationId      string                   `protobuf:"bytes,14,opt,name=registration_id,json=registrationId,proto3" json:"registration_id,omitempty"`
+	DeviceIdentity      *v11.DeviceIdentity      `protobuf:"bytes,15,opt,name=device_identity,json=deviceIdentity,proto3" json:"device_identity,omitempty"`
+	ContentMounts       []*ApplianceContentMount `protobuf:"bytes,16,rep,name=content_mounts,json=contentMounts,proto3" json:"content_mounts,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ApplianceLaunchClaim) Reset() {
 	*x = ApplianceLaunchClaim{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1470,7 +1633,7 @@ func (x *ApplianceLaunchClaim) String() string {
 func (*ApplianceLaunchClaim) ProtoMessage() {}
 
 func (x *ApplianceLaunchClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[10]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1483,7 +1646,7 @@ func (x *ApplianceLaunchClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceLaunchClaim.ProtoReflect.Descriptor instead.
 func (*ApplianceLaunchClaim) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{10}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ApplianceLaunchClaim) GetInstallationId() string {
@@ -1591,6 +1754,13 @@ func (x *ApplianceLaunchClaim) GetDeviceIdentity() *v11.DeviceIdentity {
 	return nil
 }
 
+func (x *ApplianceLaunchClaim) GetContentMounts() []*ApplianceContentMount {
+	if x != nil {
+		return x.ContentMounts
+	}
+	return nil
+}
+
 type ApplianceManagedTrustBundle struct {
 	state                protoimpl.MessageState    `protogen:"open.v1"`
 	InstallationId       string                    `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
@@ -1607,7 +1777,7 @@ type ApplianceManagedTrustBundle struct {
 
 func (x *ApplianceManagedTrustBundle) Reset() {
 	*x = ApplianceManagedTrustBundle{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1619,7 +1789,7 @@ func (x *ApplianceManagedTrustBundle) String() string {
 func (*ApplianceManagedTrustBundle) ProtoMessage() {}
 
 func (x *ApplianceManagedTrustBundle) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[11]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1632,7 +1802,7 @@ func (x *ApplianceManagedTrustBundle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceManagedTrustBundle.ProtoReflect.Descriptor instead.
 func (*ApplianceManagedTrustBundle) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{11}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ApplianceManagedTrustBundle) GetInstallationId() string {
@@ -1704,7 +1874,7 @@ type OpaqueBootstrapEnvelope struct {
 
 func (x *OpaqueBootstrapEnvelope) Reset() {
 	*x = OpaqueBootstrapEnvelope{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1716,7 +1886,7 @@ func (x *OpaqueBootstrapEnvelope) String() string {
 func (*OpaqueBootstrapEnvelope) ProtoMessage() {}
 
 func (x *OpaqueBootstrapEnvelope) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[12]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1729,7 +1899,7 @@ func (x *OpaqueBootstrapEnvelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpaqueBootstrapEnvelope.ProtoReflect.Descriptor instead.
 func (*OpaqueBootstrapEnvelope) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{12}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *OpaqueBootstrapEnvelope) GetInstallationId() string {
@@ -1778,7 +1948,7 @@ type BootstrapReceipt struct {
 
 func (x *BootstrapReceipt) Reset() {
 	*x = BootstrapReceipt{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1790,7 +1960,7 @@ func (x *BootstrapReceipt) String() string {
 func (*BootstrapReceipt) ProtoMessage() {}
 
 func (x *BootstrapReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[13]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1803,7 +1973,7 @@ func (x *BootstrapReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootstrapReceipt.ProtoReflect.Descriptor instead.
 func (*BootstrapReceipt) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{13}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *BootstrapReceipt) GetInstallationId() string {
@@ -1843,7 +2013,7 @@ type ApplianceHealth struct {
 
 func (x *ApplianceHealth) Reset() {
 	*x = ApplianceHealth{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1855,7 +2025,7 @@ func (x *ApplianceHealth) String() string {
 func (*ApplianceHealth) ProtoMessage() {}
 
 func (x *ApplianceHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[14]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1868,7 +2038,7 @@ func (x *ApplianceHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceHealth.ProtoReflect.Descriptor instead.
 func (*ApplianceHealth) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{14}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ApplianceHealth) GetInstallationId() string {
@@ -1941,7 +2111,7 @@ type HostBootstrapFrame struct {
 
 func (x *HostBootstrapFrame) Reset() {
 	*x = HostBootstrapFrame{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1953,7 +2123,7 @@ func (x *HostBootstrapFrame) String() string {
 func (*HostBootstrapFrame) ProtoMessage() {}
 
 func (x *HostBootstrapFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[15]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1966,7 +2136,7 @@ func (x *HostBootstrapFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostBootstrapFrame.ProtoReflect.Descriptor instead.
 func (*HostBootstrapFrame) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{15}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *HostBootstrapFrame) GetPayload() isHostBootstrapFrame_Payload {
@@ -2040,7 +2210,7 @@ type ApplianceBootstrapFrame struct {
 
 func (x *ApplianceBootstrapFrame) Reset() {
 	*x = ApplianceBootstrapFrame{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2052,7 +2222,7 @@ func (x *ApplianceBootstrapFrame) String() string {
 func (*ApplianceBootstrapFrame) ProtoMessage() {}
 
 func (x *ApplianceBootstrapFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[16]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2065,7 +2235,7 @@ func (x *ApplianceBootstrapFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceBootstrapFrame.ProtoReflect.Descriptor instead.
 func (*ApplianceBootstrapFrame) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{16}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ApplianceBootstrapFrame) GetPayload() isApplianceBootstrapFrame_Payload {
@@ -2153,7 +2323,7 @@ type ApplianceFrontendStatus struct {
 
 func (x *ApplianceFrontendStatus) Reset() {
 	*x = ApplianceFrontendStatus{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2165,7 +2335,7 @@ func (x *ApplianceFrontendStatus) String() string {
 func (*ApplianceFrontendStatus) ProtoMessage() {}
 
 func (x *ApplianceFrontendStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[17]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2178,7 +2348,7 @@ func (x *ApplianceFrontendStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceFrontendStatus.ProtoReflect.Descriptor instead.
 func (*ApplianceFrontendStatus) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{17}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ApplianceFrontendStatus) GetName() string {
@@ -2239,13 +2409,14 @@ type ApplianceStatus struct {
 	Enabled            bool                       `protobuf:"varint,12,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	BootId             string                     `protobuf:"bytes,13,opt,name=boot_id,json=bootId,proto3" json:"boot_id,omitempty"`
 	ContainerInstance  string                     `protobuf:"bytes,14,opt,name=container_instance,json=containerInstance,proto3" json:"container_instance,omitempty"`
+	RuntimeStopped     *bool                      `protobuf:"varint,15,opt,name=runtime_stopped,json=runtimeStopped,proto3,oneof" json:"runtime_stopped,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ApplianceStatus) Reset() {
 	*x = ApplianceStatus{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2257,7 +2428,7 @@ func (x *ApplianceStatus) String() string {
 func (*ApplianceStatus) ProtoMessage() {}
 
 func (x *ApplianceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[18]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2270,7 +2441,7 @@ func (x *ApplianceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceStatus.ProtoReflect.Descriptor instead.
 func (*ApplianceStatus) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{18}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ApplianceStatus) GetInstallationId() string {
@@ -2371,6 +2542,13 @@ func (x *ApplianceStatus) GetContainerInstance() string {
 	return ""
 }
 
+func (x *ApplianceStatus) GetRuntimeStopped() bool {
+	if x != nil && x.RuntimeStopped != nil {
+		return *x.RuntimeStopped
+	}
+	return false
+}
+
 type ApplianceImpact struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ResourceType  string                 `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
@@ -2384,7 +2562,7 @@ type ApplianceImpact struct {
 
 func (x *ApplianceImpact) Reset() {
 	*x = ApplianceImpact{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2396,7 +2574,7 @@ func (x *ApplianceImpact) String() string {
 func (*ApplianceImpact) ProtoMessage() {}
 
 func (x *ApplianceImpact) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[19]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2409,7 +2587,7 @@ func (x *ApplianceImpact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceImpact.ProtoReflect.Descriptor instead.
 func (*ApplianceImpact) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{19}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ApplianceImpact) GetResourceType() string {
@@ -2460,7 +2638,7 @@ type AppliancePlan struct {
 
 func (x *AppliancePlan) Reset() {
 	*x = AppliancePlan{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2472,7 +2650,7 @@ func (x *AppliancePlan) String() string {
 func (*AppliancePlan) ProtoMessage() {}
 
 func (x *AppliancePlan) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[20]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2485,7 +2663,7 @@ func (x *AppliancePlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppliancePlan.ProtoReflect.Descriptor instead.
 func (*AppliancePlan) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{20}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AppliancePlan) GetInstallationId() string {
@@ -2533,7 +2711,7 @@ type ApplianceOperationError struct {
 
 func (x *ApplianceOperationError) Reset() {
 	*x = ApplianceOperationError{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2545,7 +2723,7 @@ func (x *ApplianceOperationError) String() string {
 func (*ApplianceOperationError) ProtoMessage() {}
 
 func (x *ApplianceOperationError) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[21]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2558,7 +2736,7 @@ func (x *ApplianceOperationError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceOperationError.ProtoReflect.Descriptor instead.
 func (*ApplianceOperationError) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{21}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ApplianceOperationError) GetReason() string {
@@ -2576,26 +2754,29 @@ func (x *ApplianceOperationError) GetMessage() string {
 }
 
 type ApplianceOperation struct {
-	state            protoimpl.MessageState   `protogen:"open.v1"`
-	OperationId      string                   `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	InstallationId   string                   `protobuf:"bytes,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
-	RequestId        string                   `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Kind             ApplianceOperationKind   `protobuf:"varint,4,opt,name=kind,proto3,enum=agentvmm.appliance.v1.ApplianceOperationKind" json:"kind,omitempty"`
-	State            ApplianceOperationState  `protobuf:"varint,5,opt,name=state,proto3,enum=agentvmm.appliance.v1.ApplianceOperationState" json:"state,omitempty"`
-	Phase            ApplianceOperationPhase  `protobuf:"varint,6,opt,name=phase,proto3,enum=agentvmm.appliance.v1.ApplianceOperationPhase" json:"phase,omitempty"`
-	ExpectedRevision uint64                   `protobuf:"varint,7,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
-	StartedAt        *timestamppb.Timestamp   `protobuf:"bytes,8,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	UpdatedAt        *timestamppb.Timestamp   `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Error            *ApplianceOperationError `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
-	TerminalReason   ApplianceTerminalReason  `protobuf:"varint,11,opt,name=terminal_reason,json=terminalReason,proto3,enum=agentvmm.appliance.v1.ApplianceTerminalReason" json:"terminal_reason,omitempty"`
-	Receipt          []byte                   `protobuf:"bytes,12,opt,name=receipt,proto3" json:"receipt,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state              protoimpl.MessageState   `protogen:"open.v1"`
+	OperationId        string                   `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	InstallationId     string                   `protobuf:"bytes,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	RequestId          string                   `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Kind               ApplianceOperationKind   `protobuf:"varint,4,opt,name=kind,proto3,enum=agentvmm.appliance.v1.ApplianceOperationKind" json:"kind,omitempty"`
+	State              ApplianceOperationState  `protobuf:"varint,5,opt,name=state,proto3,enum=agentvmm.appliance.v1.ApplianceOperationState" json:"state,omitempty"`
+	Phase              ApplianceOperationPhase  `protobuf:"varint,6,opt,name=phase,proto3,enum=agentvmm.appliance.v1.ApplianceOperationPhase" json:"phase,omitempty"`
+	ExpectedRevision   uint64                   `protobuf:"varint,7,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	StartedAt          *timestamppb.Timestamp   `protobuf:"bytes,8,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	UpdatedAt          *timestamppb.Timestamp   `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Error              *ApplianceOperationError `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
+	TerminalReason     ApplianceTerminalReason  `protobuf:"varint,11,opt,name=terminal_reason,json=terminalReason,proto3,enum=agentvmm.appliance.v1.ApplianceTerminalReason" json:"terminal_reason,omitempty"`
+	Receipt            []byte                   `protobuf:"bytes,12,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	SourceArtifactId   string                   `protobuf:"bytes,13,opt,name=source_artifact_id,json=sourceArtifactId,proto3" json:"source_artifact_id,omitempty"`
+	TargetArtifactId   string                   `protobuf:"bytes,14,opt,name=target_artifact_id,json=targetArtifactId,proto3" json:"target_artifact_id,omitempty"`
+	DeadlineUnixMillis int64                    `protobuf:"varint,15,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ApplianceOperation) Reset() {
 	*x = ApplianceOperation{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2607,7 +2788,7 @@ func (x *ApplianceOperation) String() string {
 func (*ApplianceOperation) ProtoMessage() {}
 
 func (x *ApplianceOperation) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[22]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2620,7 +2801,7 @@ func (x *ApplianceOperation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceOperation.ProtoReflect.Descriptor instead.
 func (*ApplianceOperation) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{22}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ApplianceOperation) GetOperationId() string {
@@ -2707,6 +2888,27 @@ func (x *ApplianceOperation) GetReceipt() []byte {
 	return nil
 }
 
+func (x *ApplianceOperation) GetSourceArtifactId() string {
+	if x != nil {
+		return x.SourceArtifactId
+	}
+	return ""
+}
+
+func (x *ApplianceOperation) GetTargetArtifactId() string {
+	if x != nil {
+		return x.TargetArtifactId
+	}
+	return ""
+}
+
+func (x *ApplianceOperation) GetDeadlineUnixMillis() int64 {
+	if x != nil {
+		return x.DeadlineUnixMillis
+	}
+	return 0
+}
+
 type ApplianceOperationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Operation     *ApplianceOperation    `protobuf:"bytes,1,opt,name=operation,proto3" json:"operation,omitempty"`
@@ -2717,7 +2919,7 @@ type ApplianceOperationResponse struct {
 
 func (x *ApplianceOperationResponse) Reset() {
 	*x = ApplianceOperationResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2729,7 +2931,7 @@ func (x *ApplianceOperationResponse) String() string {
 func (*ApplianceOperationResponse) ProtoMessage() {}
 
 func (x *ApplianceOperationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[23]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2742,7 +2944,7 @@ func (x *ApplianceOperationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceOperationResponse.ProtoReflect.Descriptor instead.
 func (*ApplianceOperationResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{23}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ApplianceOperationResponse) GetOperation() *ApplianceOperation {
@@ -2768,7 +2970,7 @@ type AppliancePlanResponse struct {
 
 func (x *AppliancePlanResponse) Reset() {
 	*x = AppliancePlanResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2780,7 +2982,7 @@ func (x *AppliancePlanResponse) String() string {
 func (*AppliancePlanResponse) ProtoMessage() {}
 
 func (x *AppliancePlanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[24]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2793,7 +2995,7 @@ func (x *AppliancePlanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppliancePlanResponse.ProtoReflect.Descriptor instead.
 func (*AppliancePlanResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{24}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AppliancePlanResponse) GetPlan() *AppliancePlan {
@@ -2812,7 +3014,7 @@ type ApplianceStatusResponse struct {
 
 func (x *ApplianceStatusResponse) Reset() {
 	*x = ApplianceStatusResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2824,7 +3026,7 @@ func (x *ApplianceStatusResponse) String() string {
 func (*ApplianceStatusResponse) ProtoMessage() {}
 
 func (x *ApplianceStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[25]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2837,7 +3039,7 @@ func (x *ApplianceStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplianceStatusResponse.ProtoReflect.Descriptor instead.
 func (*ApplianceStatusResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{25}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ApplianceStatusResponse) GetStatus() *ApplianceStatus {
@@ -2858,7 +3060,7 @@ type StageArtifactRequest struct {
 
 func (x *StageArtifactRequest) Reset() {
 	*x = StageArtifactRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2870,7 +3072,7 @@ func (x *StageArtifactRequest) String() string {
 func (*StageArtifactRequest) ProtoMessage() {}
 
 func (x *StageArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[26]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2883,7 +3085,7 @@ func (x *StageArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StageArtifactRequest.ProtoReflect.Descriptor instead.
 func (*StageArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{26}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *StageArtifactRequest) GetRequestId() string {
@@ -2921,7 +3123,7 @@ type PlanInstallRequest struct {
 
 func (x *PlanInstallRequest) Reset() {
 	*x = PlanInstallRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2933,7 +3135,7 @@ func (x *PlanInstallRequest) String() string {
 func (*PlanInstallRequest) ProtoMessage() {}
 
 func (x *PlanInstallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[27]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2946,7 +3148,7 @@ func (x *PlanInstallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanInstallRequest.ProtoReflect.Descriptor instead.
 func (*PlanInstallRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{27}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *PlanInstallRequest) GetInstallationId() string {
@@ -3006,7 +3208,7 @@ type InstallRequest struct {
 
 func (x *InstallRequest) Reset() {
 	*x = InstallRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3018,7 +3220,7 @@ func (x *InstallRequest) String() string {
 func (*InstallRequest) ProtoMessage() {}
 
 func (x *InstallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[28]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3031,7 +3233,7 @@ func (x *InstallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallRequest.ProtoReflect.Descriptor instead.
 func (*InstallRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{28}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *InstallRequest) GetInstallationId() string {
@@ -3095,7 +3297,7 @@ type PlanActivationRequest struct {
 
 func (x *PlanActivationRequest) Reset() {
 	*x = PlanActivationRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3107,7 +3309,7 @@ func (x *PlanActivationRequest) String() string {
 func (*PlanActivationRequest) ProtoMessage() {}
 
 func (x *PlanActivationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[29]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3120,7 +3322,7 @@ func (x *PlanActivationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanActivationRequest.ProtoReflect.Descriptor instead.
 func (*PlanActivationRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{29}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *PlanActivationRequest) GetInstallationId() string {
@@ -3163,7 +3365,7 @@ type ActivateRequest struct {
 
 func (x *ActivateRequest) Reset() {
 	*x = ActivateRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3175,7 +3377,7 @@ func (x *ActivateRequest) String() string {
 func (*ActivateRequest) ProtoMessage() {}
 
 func (x *ActivateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[30]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3188,7 +3390,7 @@ func (x *ActivateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivateRequest.ProtoReflect.Descriptor instead.
 func (*ActivateRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{30}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ActivateRequest) GetInstallationId() string {
@@ -3227,7 +3429,7 @@ type ListAppliancesRequest struct {
 
 func (x *ListAppliancesRequest) Reset() {
 	*x = ListAppliancesRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3239,7 +3441,7 @@ func (x *ListAppliancesRequest) String() string {
 func (*ListAppliancesRequest) ProtoMessage() {}
 
 func (x *ListAppliancesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[31]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3252,7 +3454,7 @@ func (x *ListAppliancesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAppliancesRequest.ProtoReflect.Descriptor instead.
 func (*ListAppliancesRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{31}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{32}
 }
 
 type ListAppliancesResponse struct {
@@ -3264,7 +3466,7 @@ type ListAppliancesResponse struct {
 
 func (x *ListAppliancesResponse) Reset() {
 	*x = ListAppliancesResponse{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3276,7 +3478,7 @@ func (x *ListAppliancesResponse) String() string {
 func (*ListAppliancesResponse) ProtoMessage() {}
 
 func (x *ListAppliancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[32]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3289,7 +3491,7 @@ func (x *ListAppliancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAppliancesResponse.ProtoReflect.Descriptor instead.
 func (*ListAppliancesResponse) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{32}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ListAppliancesResponse) GetAppliances() []*ApplianceStatus {
@@ -3308,7 +3510,7 @@ type GetApplianceStatusRequest struct {
 
 func (x *GetApplianceStatusRequest) Reset() {
 	*x = GetApplianceStatusRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3320,7 +3522,7 @@ func (x *GetApplianceStatusRequest) String() string {
 func (*GetApplianceStatusRequest) ProtoMessage() {}
 
 func (x *GetApplianceStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[33]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3333,7 +3535,7 @@ func (x *GetApplianceStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApplianceStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetApplianceStatusRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{33}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GetApplianceStatusRequest) GetInstallationId() string {
@@ -3353,7 +3555,7 @@ type WatchApplianceOperationRequest struct {
 
 func (x *WatchApplianceOperationRequest) Reset() {
 	*x = WatchApplianceOperationRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3365,7 +3567,7 @@ func (x *WatchApplianceOperationRequest) String() string {
 func (*WatchApplianceOperationRequest) ProtoMessage() {}
 
 func (x *WatchApplianceOperationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[34]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3378,7 +3580,7 @@ func (x *WatchApplianceOperationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchApplianceOperationRequest.ProtoReflect.Descriptor instead.
 func (*WatchApplianceOperationRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{34}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *WatchApplianceOperationRequest) GetInstallationId() string {
@@ -3407,7 +3609,7 @@ type StopApplianceRequest struct {
 
 func (x *StopApplianceRequest) Reset() {
 	*x = StopApplianceRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3419,7 +3621,7 @@ func (x *StopApplianceRequest) String() string {
 func (*StopApplianceRequest) ProtoMessage() {}
 
 func (x *StopApplianceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[35]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3432,7 +3634,7 @@ func (x *StopApplianceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopApplianceRequest.ProtoReflect.Descriptor instead.
 func (*StopApplianceRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{35}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *StopApplianceRequest) GetInstallationId() string {
@@ -3475,7 +3677,7 @@ type RestartApplianceRequest struct {
 
 func (x *RestartApplianceRequest) Reset() {
 	*x = RestartApplianceRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3487,7 +3689,7 @@ func (x *RestartApplianceRequest) String() string {
 func (*RestartApplianceRequest) ProtoMessage() {}
 
 func (x *RestartApplianceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[36]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3500,7 +3702,7 @@ func (x *RestartApplianceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartApplianceRequest.ProtoReflect.Descriptor instead.
 func (*RestartApplianceRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{36}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RestartApplianceRequest) GetInstallationId() string {
@@ -3543,7 +3745,7 @@ type RevokeApplianceRequest struct {
 
 func (x *RevokeApplianceRequest) Reset() {
 	*x = RevokeApplianceRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3555,7 +3757,7 @@ func (x *RevokeApplianceRequest) String() string {
 func (*RevokeApplianceRequest) ProtoMessage() {}
 
 func (x *RevokeApplianceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[37]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3568,7 +3770,7 @@ func (x *RevokeApplianceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeApplianceRequest.ProtoReflect.Descriptor instead.
 func (*RevokeApplianceRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{37}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *RevokeApplianceRequest) GetInstallationId() string {
@@ -3599,152 +3801,6 @@ func (x *RevokeApplianceRequest) GetDeadlineUnixMillis() int64 {
 	return 0
 }
 
-type PlanSealedRepairRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	InstallationId     string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
-	RequestId          string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	ExpectedRevision   uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
-	DeadlineUnixMillis int64                  `protobuf:"varint,4,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *PlanSealedRepairRequest) Reset() {
-	*x = PlanSealedRepairRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PlanSealedRepairRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PlanSealedRepairRequest) ProtoMessage() {}
-
-func (x *PlanSealedRepairRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[38]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PlanSealedRepairRequest.ProtoReflect.Descriptor instead.
-func (*PlanSealedRepairRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{38}
-}
-
-func (x *PlanSealedRepairRequest) GetInstallationId() string {
-	if x != nil {
-		return x.InstallationId
-	}
-	return ""
-}
-
-func (x *PlanSealedRepairRequest) GetRequestId() string {
-	if x != nil {
-		return x.RequestId
-	}
-	return ""
-}
-
-func (x *PlanSealedRepairRequest) GetExpectedRevision() uint64 {
-	if x != nil {
-		return x.ExpectedRevision
-	}
-	return 0
-}
-
-func (x *PlanSealedRepairRequest) GetDeadlineUnixMillis() int64 {
-	if x != nil {
-		return x.DeadlineUnixMillis
-	}
-	return 0
-}
-
-type ExecuteSealedRepairRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	InstallationId     string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
-	RequestId          string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	ExpectedRevision   uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
-	DeadlineUnixMillis int64                  `protobuf:"varint,4,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
-	// Operator-only recovery material. It is accepted only over the local
-	// authenticated admin channel, consumed in memory, and never persisted.
-	RecoveryMaterial []byte `protobuf:"bytes,6,opt,name=recovery_material,json=recoveryMaterial,proto3" json:"recovery_material,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *ExecuteSealedRepairRequest) Reset() {
-	*x = ExecuteSealedRepairRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExecuteSealedRepairRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExecuteSealedRepairRequest) ProtoMessage() {}
-
-func (x *ExecuteSealedRepairRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExecuteSealedRepairRequest.ProtoReflect.Descriptor instead.
-func (*ExecuteSealedRepairRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{39}
-}
-
-func (x *ExecuteSealedRepairRequest) GetInstallationId() string {
-	if x != nil {
-		return x.InstallationId
-	}
-	return ""
-}
-
-func (x *ExecuteSealedRepairRequest) GetRequestId() string {
-	if x != nil {
-		return x.RequestId
-	}
-	return ""
-}
-
-func (x *ExecuteSealedRepairRequest) GetExpectedRevision() uint64 {
-	if x != nil {
-		return x.ExpectedRevision
-	}
-	return 0
-}
-
-func (x *ExecuteSealedRepairRequest) GetDeadlineUnixMillis() int64 {
-	if x != nil {
-		return x.DeadlineUnixMillis
-	}
-	return 0
-}
-
-func (x *ExecuteSealedRepairRequest) GetRecoveryMaterial() []byte {
-	if x != nil {
-		return x.RecoveryMaterial
-	}
-	return nil
-}
-
 type PlanRemoveRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	InstallationId     string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
@@ -3757,7 +3813,7 @@ type PlanRemoveRequest struct {
 
 func (x *PlanRemoveRequest) Reset() {
 	*x = PlanRemoveRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3769,7 +3825,7 @@ func (x *PlanRemoveRequest) String() string {
 func (*PlanRemoveRequest) ProtoMessage() {}
 
 func (x *PlanRemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3782,7 +3838,7 @@ func (x *PlanRemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanRemoveRequest.ProtoReflect.Descriptor instead.
 func (*PlanRemoveRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{40}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *PlanRemoveRequest) GetInstallationId() string {
@@ -3826,7 +3882,7 @@ type ExecuteRemoveRequest struct {
 
 func (x *ExecuteRemoveRequest) Reset() {
 	*x = ExecuteRemoveRequest{}
-	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3838,7 +3894,7 @@ func (x *ExecuteRemoveRequest) String() string {
 func (*ExecuteRemoveRequest) ProtoMessage() {}
 
 func (x *ExecuteRemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
+	mi := &file_appliance_v1_appliance_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3851,7 +3907,7 @@ func (x *ExecuteRemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteRemoveRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteRemoveRequest) Descriptor() ([]byte, []int) {
-	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{41}
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ExecuteRemoveRequest) GetInstallationId() string {
@@ -3889,11 +3945,1137 @@ func (x *ExecuteRemoveRequest) GetConfirmedResourceIds() []string {
 	return nil
 }
 
+type PlanUpdateRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	InstallationId     string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	RequestId          string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ExpectedRevision   uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	ArtifactId         string                 `protobuf:"bytes,4,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
+	DeadlineUnixMillis int64                  `protobuf:"varint,5,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
+	ApprovedGrant      *ApprovedGrant         `protobuf:"bytes,6,opt,name=approved_grant,json=approvedGrant,proto3" json:"approved_grant,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *PlanUpdateRequest) Reset() {
+	*x = PlanUpdateRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanUpdateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanUpdateRequest) ProtoMessage() {}
+
+func (x *PlanUpdateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanUpdateRequest.ProtoReflect.Descriptor instead.
+func (*PlanUpdateRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *PlanUpdateRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *PlanUpdateRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *PlanUpdateRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *PlanUpdateRequest) GetArtifactId() string {
+	if x != nil {
+		return x.ArtifactId
+	}
+	return ""
+}
+
+func (x *PlanUpdateRequest) GetDeadlineUnixMillis() int64 {
+	if x != nil {
+		return x.DeadlineUnixMillis
+	}
+	return 0
+}
+
+func (x *PlanUpdateRequest) GetApprovedGrant() *ApprovedGrant {
+	if x != nil {
+		return x.ApprovedGrant
+	}
+	return nil
+}
+
+type UpdateApplianceRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	InstallationId     string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	RequestId          string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ExpectedRevision   uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	ArtifactId         string                 `protobuf:"bytes,4,opt,name=artifact_id,json=artifactId,proto3" json:"artifact_id,omitempty"`
+	DeadlineUnixMillis int64                  `protobuf:"varint,5,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
+	ApprovedGrant      *ApprovedGrant         `protobuf:"bytes,6,opt,name=approved_grant,json=approvedGrant,proto3" json:"approved_grant,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *UpdateApplianceRequest) Reset() {
+	*x = UpdateApplianceRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateApplianceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateApplianceRequest) ProtoMessage() {}
+
+func (x *UpdateApplianceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateApplianceRequest.ProtoReflect.Descriptor instead.
+func (*UpdateApplianceRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *UpdateApplianceRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *UpdateApplianceRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UpdateApplianceRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *UpdateApplianceRequest) GetArtifactId() string {
+	if x != nil {
+		return x.ArtifactId
+	}
+	return ""
+}
+
+func (x *UpdateApplianceRequest) GetDeadlineUnixMillis() int64 {
+	if x != nil {
+		return x.DeadlineUnixMillis
+	}
+	return 0
+}
+
+func (x *UpdateApplianceRequest) GetApprovedGrant() *ApprovedGrant {
+	if x != nil {
+		return x.ApprovedGrant
+	}
+	return nil
+}
+
+type RecoverApplianceUpdateRequest struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	InstallationId           string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	OperationId              string                 `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	ExpectedUpdatedUnixNanos int64                  `protobuf:"varint,4,opt,name=expected_updated_unix_nanos,json=expectedUpdatedUnixNanos,proto3" json:"expected_updated_unix_nanos,omitempty"`
+	DeadlineUnixMillis       int64                  `protobuf:"varint,5,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *RecoverApplianceUpdateRequest) Reset() {
+	*x = RecoverApplianceUpdateRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecoverApplianceUpdateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecoverApplianceUpdateRequest) ProtoMessage() {}
+
+func (x *RecoverApplianceUpdateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecoverApplianceUpdateRequest.ProtoReflect.Descriptor instead.
+func (*RecoverApplianceUpdateRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *RecoverApplianceUpdateRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *RecoverApplianceUpdateRequest) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *RecoverApplianceUpdateRequest) GetExpectedUpdatedUnixNanos() int64 {
+	if x != nil {
+		return x.ExpectedUpdatedUnixNanos
+	}
+	return 0
+}
+
+func (x *RecoverApplianceUpdateRequest) GetDeadlineUnixMillis() int64 {
+	if x != nil {
+		return x.DeadlineUnixMillis
+	}
+	return 0
+}
+
+type ApplianceUpdateProgress struct {
+	state                protoimpl.MessageState         `protogen:"open.v1"`
+	Request              *UpdateApplianceRequest        `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
+	SourceArtifactId     string                         `protobuf:"bytes,2,opt,name=source_artifact_id,json=sourceArtifactId,proto3" json:"source_artifact_id,omitempty"`
+	InstallationRevision uint64                         `protobuf:"varint,3,opt,name=installation_revision,json=installationRevision,proto3" json:"installation_revision,omitempty"`
+	SourceGrant          *ApprovedGrant                 `protobuf:"bytes,4,opt,name=source_grant,json=sourceGrant,proto3" json:"source_grant,omitempty"`
+	Recovery             *RecoverApplianceUpdateRequest `protobuf:"bytes,5,opt,name=recovery,proto3" json:"recovery,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *ApplianceUpdateProgress) Reset() {
+	*x = ApplianceUpdateProgress{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplianceUpdateProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplianceUpdateProgress) ProtoMessage() {}
+
+func (x *ApplianceUpdateProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplianceUpdateProgress.ProtoReflect.Descriptor instead.
+func (*ApplianceUpdateProgress) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ApplianceUpdateProgress) GetRequest() *UpdateApplianceRequest {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
+func (x *ApplianceUpdateProgress) GetSourceArtifactId() string {
+	if x != nil {
+		return x.SourceArtifactId
+	}
+	return ""
+}
+
+func (x *ApplianceUpdateProgress) GetInstallationRevision() uint64 {
+	if x != nil {
+		return x.InstallationRevision
+	}
+	return 0
+}
+
+func (x *ApplianceUpdateProgress) GetSourceGrant() *ApprovedGrant {
+	if x != nil {
+		return x.SourceGrant
+	}
+	return nil
+}
+
+func (x *ApplianceUpdateProgress) GetRecovery() *RecoverApplianceUpdateRequest {
+	if x != nil {
+		return x.Recovery
+	}
+	return nil
+}
+
+type ApplianceContentReference struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Role                ApplianceContentRole   `protobuf:"varint,1,opt,name=role,proto3,enum=agentvmm.appliance.v1.ApplianceContentRole" json:"role,omitempty"`
+	ArchiveSha256       []byte                 `protobuf:"bytes,2,opt,name=archive_sha256,json=archiveSha256,proto3" json:"archive_sha256,omitempty"`
+	ArchiveSize         uint64                 `protobuf:"varint,3,opt,name=archive_size,json=archiveSize,proto3" json:"archive_size,omitempty"`
+	Platform            string                 `protobuf:"bytes,4,opt,name=platform,proto3" json:"platform,omitempty"`
+	ImageReference      string                 `protobuf:"bytes,5,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
+	ImageManifestDigest string                 `protobuf:"bytes,6,opt,name=image_manifest_digest,json=imageManifestDigest,proto3" json:"image_manifest_digest,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ApplianceContentReference) Reset() {
+	*x = ApplianceContentReference{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplianceContentReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplianceContentReference) ProtoMessage() {}
+
+func (x *ApplianceContentReference) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplianceContentReference.ProtoReflect.Descriptor instead.
+func (*ApplianceContentReference) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *ApplianceContentReference) GetRole() ApplianceContentRole {
+	if x != nil {
+		return x.Role
+	}
+	return ApplianceContentRole_APPLIANCE_CONTENT_ROLE_UNSPECIFIED
+}
+
+func (x *ApplianceContentReference) GetArchiveSha256() []byte {
+	if x != nil {
+		return x.ArchiveSha256
+	}
+	return nil
+}
+
+func (x *ApplianceContentReference) GetArchiveSize() uint64 {
+	if x != nil {
+		return x.ArchiveSize
+	}
+	return 0
+}
+
+func (x *ApplianceContentReference) GetPlatform() string {
+	if x != nil {
+		return x.Platform
+	}
+	return ""
+}
+
+func (x *ApplianceContentReference) GetImageReference() string {
+	if x != nil {
+		return x.ImageReference
+	}
+	return ""
+}
+
+func (x *ApplianceContentReference) GetImageManifestDigest() string {
+	if x != nil {
+		return x.ImageManifestDigest
+	}
+	return ""
+}
+
+type ApplianceContentMount struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Content       *ApplianceContentReference `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
+	ArchivePath   string                     `protobuf:"bytes,2,opt,name=archive_path,json=archivePath,proto3" json:"archive_path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplianceContentMount) Reset() {
+	*x = ApplianceContentMount{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplianceContentMount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplianceContentMount) ProtoMessage() {}
+
+func (x *ApplianceContentMount) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplianceContentMount.ProtoReflect.Descriptor instead.
+func (*ApplianceContentMount) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *ApplianceContentMount) GetContent() *ApplianceContentReference {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *ApplianceContentMount) GetArchivePath() string {
+	if x != nil {
+		return x.ArchivePath
+	}
+	return ""
+}
+
+type StageContentHeader struct {
+	state              protoimpl.MessageState     `protogen:"open.v1"`
+	RequestId          string                     `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	DeadlineUnixMillis int64                      `protobuf:"varint,2,opt,name=deadline_unix_millis,json=deadlineUnixMillis,proto3" json:"deadline_unix_millis,omitempty"`
+	ContentRef         *ApplianceContentReference `protobuf:"bytes,3,opt,name=content_ref,json=contentRef,proto3" json:"content_ref,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *StageContentHeader) Reset() {
+	*x = StageContentHeader{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StageContentHeader) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StageContentHeader) ProtoMessage() {}
+
+func (x *StageContentHeader) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StageContentHeader.ProtoReflect.Descriptor instead.
+func (*StageContentHeader) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *StageContentHeader) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *StageContentHeader) GetDeadlineUnixMillis() int64 {
+	if x != nil {
+		return x.DeadlineUnixMillis
+	}
+	return 0
+}
+
+func (x *StageContentHeader) GetContentRef() *ApplianceContentReference {
+	if x != nil {
+		return x.ContentRef
+	}
+	return nil
+}
+
+type StageContentRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*StageContentRequest_Header
+	//	*StageContentRequest_ArchiveChunk
+	Payload       isStageContentRequest_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StageContentRequest) Reset() {
+	*x = StageContentRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StageContentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StageContentRequest) ProtoMessage() {}
+
+func (x *StageContentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StageContentRequest.ProtoReflect.Descriptor instead.
+func (*StageContentRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *StageContentRequest) GetPayload() isStageContentRequest_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *StageContentRequest) GetHeader() *StageContentHeader {
+	if x != nil {
+		if x, ok := x.Payload.(*StageContentRequest_Header); ok {
+			return x.Header
+		}
+	}
+	return nil
+}
+
+func (x *StageContentRequest) GetArchiveChunk() []byte {
+	if x != nil {
+		if x, ok := x.Payload.(*StageContentRequest_ArchiveChunk); ok {
+			return x.ArchiveChunk
+		}
+	}
+	return nil
+}
+
+type isStageContentRequest_Payload interface {
+	isStageContentRequest_Payload()
+}
+
+type StageContentRequest_Header struct {
+	Header *StageContentHeader `protobuf:"bytes,1,opt,name=header,proto3,oneof"`
+}
+
+type StageContentRequest_ArchiveChunk struct {
+	ArchiveChunk []byte `protobuf:"bytes,2,opt,name=archive_chunk,json=archiveChunk,proto3,oneof"`
+}
+
+func (*StageContentRequest_Header) isStageContentRequest_Payload() {}
+
+func (*StageContentRequest_ArchiveChunk) isStageContentRequest_Payload() {}
+
+type ApplianceContentStatus struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	ContentRef    *ApplianceContentReference `protobuf:"bytes,1,opt,name=content_ref,json=contentRef,proto3" json:"content_ref,omitempty"`
+	Available     bool                       `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplianceContentStatus) Reset() {
+	*x = ApplianceContentStatus{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplianceContentStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplianceContentStatus) ProtoMessage() {}
+
+func (x *ApplianceContentStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplianceContentStatus.ProtoReflect.Descriptor instead.
+func (*ApplianceContentStatus) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *ApplianceContentStatus) GetContentRef() *ApplianceContentReference {
+	if x != nil {
+		return x.ContentRef
+	}
+	return nil
+}
+
+func (x *ApplianceContentStatus) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+type GetContentStatusRequest struct {
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	ContentRefs   []*ApplianceContentReference `protobuf:"bytes,1,rep,name=content_refs,json=contentRefs,proto3" json:"content_refs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContentStatusRequest) Reset() {
+	*x = GetContentStatusRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContentStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContentStatusRequest) ProtoMessage() {}
+
+func (x *GetContentStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContentStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetContentStatusRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *GetContentStatusRequest) GetContentRefs() []*ApplianceContentReference {
+	if x != nil {
+		return x.ContentRefs
+	}
+	return nil
+}
+
+type GetContentStatusResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Contents      []*ApplianceContentStatus `protobuf:"bytes,1,rep,name=contents,proto3" json:"contents,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContentStatusResponse) Reset() {
+	*x = GetContentStatusResponse{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContentStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContentStatusResponse) ProtoMessage() {}
+
+func (x *GetContentStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContentStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetContentStatusResponse) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *GetContentStatusResponse) GetContents() []*ApplianceContentStatus {
+	if x != nil {
+		return x.Contents
+	}
+	return nil
+}
+
+type CreateApplianceServiceImportRequest struct {
+	state                       protoimpl.MessageState `protogen:"open.v1"`
+	RequestId                   string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	InstallationId              string                 `protobuf:"bytes,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	ExpectedRevision            uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	ExpectedGrantRevision       uint64                 `protobuf:"varint,4,opt,name=expected_grant_revision,json=expectedGrantRevision,proto3" json:"expected_grant_revision,omitempty"`
+	ExpectedBootId              string                 `protobuf:"bytes,5,opt,name=expected_boot_id,json=expectedBootId,proto3" json:"expected_boot_id,omitempty"`
+	ExpectedContainerInstanceId string                 `protobuf:"bytes,6,opt,name=expected_container_instance_id,json=expectedContainerInstanceId,proto3" json:"expected_container_instance_id,omitempty"`
+	DestinationExportId         string                 `protobuf:"bytes,7,opt,name=destination_export_id,json=destinationExportId,proto3" json:"destination_export_id,omitempty"`
+	ExpectedExportRevision      uint64                 `protobuf:"varint,8,opt,name=expected_export_revision,json=expectedExportRevision,proto3" json:"expected_export_revision,omitempty"`
+	VirtualServiceName          string                 `protobuf:"bytes,9,opt,name=virtual_service_name,json=virtualServiceName,proto3" json:"virtual_service_name,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
+}
+
+func (x *CreateApplianceServiceImportRequest) Reset() {
+	*x = CreateApplianceServiceImportRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateApplianceServiceImportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateApplianceServiceImportRequest) ProtoMessage() {}
+
+func (x *CreateApplianceServiceImportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateApplianceServiceImportRequest.ProtoReflect.Descriptor instead.
+func (*CreateApplianceServiceImportRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *CreateApplianceServiceImportRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateApplianceServiceImportRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *CreateApplianceServiceImportRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *CreateApplianceServiceImportRequest) GetExpectedGrantRevision() uint64 {
+	if x != nil {
+		return x.ExpectedGrantRevision
+	}
+	return 0
+}
+
+func (x *CreateApplianceServiceImportRequest) GetExpectedBootId() string {
+	if x != nil {
+		return x.ExpectedBootId
+	}
+	return ""
+}
+
+func (x *CreateApplianceServiceImportRequest) GetExpectedContainerInstanceId() string {
+	if x != nil {
+		return x.ExpectedContainerInstanceId
+	}
+	return ""
+}
+
+func (x *CreateApplianceServiceImportRequest) GetDestinationExportId() string {
+	if x != nil {
+		return x.DestinationExportId
+	}
+	return ""
+}
+
+func (x *CreateApplianceServiceImportRequest) GetExpectedExportRevision() uint64 {
+	if x != nil {
+		return x.ExpectedExportRevision
+	}
+	return 0
+}
+
+func (x *CreateApplianceServiceImportRequest) GetVirtualServiceName() string {
+	if x != nil {
+		return x.VirtualServiceName
+	}
+	return ""
+}
+
+type ListApplianceServiceImportsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	InstallationId string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListApplianceServiceImportsRequest) Reset() {
+	*x = ListApplianceServiceImportsRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListApplianceServiceImportsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListApplianceServiceImportsRequest) ProtoMessage() {}
+
+func (x *ListApplianceServiceImportsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListApplianceServiceImportsRequest.ProtoReflect.Descriptor instead.
+func (*ListApplianceServiceImportsRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *ListApplianceServiceImportsRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+type ListApplianceServiceImportsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Imports       []*v12.ServiceImport   `protobuf:"bytes,1,rep,name=imports,proto3" json:"imports,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListApplianceServiceImportsResponse) Reset() {
+	*x = ListApplianceServiceImportsResponse{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListApplianceServiceImportsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListApplianceServiceImportsResponse) ProtoMessage() {}
+
+func (x *ListApplianceServiceImportsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListApplianceServiceImportsResponse.ProtoReflect.Descriptor instead.
+func (*ListApplianceServiceImportsResponse) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *ListApplianceServiceImportsResponse) GetImports() []*v12.ServiceImport {
+	if x != nil {
+		return x.Imports
+	}
+	return nil
+}
+
+type RevokeApplianceServiceImportRequest struct {
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	RequestId                    string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	InstallationId               string                 `protobuf:"bytes,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	ExpectedInstallationRevision uint64                 `protobuf:"varint,3,opt,name=expected_installation_revision,json=expectedInstallationRevision,proto3" json:"expected_installation_revision,omitempty"`
+	ImportId                     string                 `protobuf:"bytes,4,opt,name=import_id,json=importId,proto3" json:"import_id,omitempty"`
+	ExpectedRevision             uint64                 `protobuf:"varint,5,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
+}
+
+func (x *RevokeApplianceServiceImportRequest) Reset() {
+	*x = RevokeApplianceServiceImportRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeApplianceServiceImportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeApplianceServiceImportRequest) ProtoMessage() {}
+
+func (x *RevokeApplianceServiceImportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeApplianceServiceImportRequest.ProtoReflect.Descriptor instead.
+func (*RevokeApplianceServiceImportRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *RevokeApplianceServiceImportRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *RevokeApplianceServiceImportRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *RevokeApplianceServiceImportRequest) GetExpectedInstallationRevision() uint64 {
+	if x != nil {
+		return x.ExpectedInstallationRevision
+	}
+	return 0
+}
+
+func (x *RevokeApplianceServiceImportRequest) GetImportId() string {
+	if x != nil {
+		return x.ImportId
+	}
+	return ""
+}
+
+func (x *RevokeApplianceServiceImportRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+type CreateApplianceFrontendServiceImportRequest struct {
+	state                       protoimpl.MessageState `protogen:"open.v1"`
+	RequestId                   string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	InstallationId              string                 `protobuf:"bytes,2,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	ExpectedRevision            uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	ExpectedGrantRevision       uint64                 `protobuf:"varint,4,opt,name=expected_grant_revision,json=expectedGrantRevision,proto3" json:"expected_grant_revision,omitempty"`
+	ExpectedBootId              string                 `protobuf:"bytes,5,opt,name=expected_boot_id,json=expectedBootId,proto3" json:"expected_boot_id,omitempty"`
+	ExpectedContainerInstanceId string                 `protobuf:"bytes,6,opt,name=expected_container_instance_id,json=expectedContainerInstanceId,proto3" json:"expected_container_instance_id,omitempty"`
+	SourceEnvironmentId         string                 `protobuf:"bytes,7,opt,name=source_environment_id,json=sourceEnvironmentId,proto3" json:"source_environment_id,omitempty"`
+	SourceContainerId           string                 `protobuf:"bytes,8,opt,name=source_container_id,json=sourceContainerId,proto3" json:"source_container_id,omitempty"`
+	SourceContainerInstanceId   string                 `protobuf:"bytes,9,opt,name=source_container_instance_id,json=sourceContainerInstanceId,proto3" json:"source_container_instance_id,omitempty"`
+	FrontendName                string                 `protobuf:"bytes,10,opt,name=frontend_name,json=frontendName,proto3" json:"frontend_name,omitempty"`
+	VirtualServiceName          string                 `protobuf:"bytes,11,opt,name=virtual_service_name,json=virtualServiceName,proto3" json:"virtual_service_name,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) Reset() {
+	*x = CreateApplianceFrontendServiceImportRequest{}
+	mi := &file_appliance_v1_appliance_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateApplianceFrontendServiceImportRequest) ProtoMessage() {}
+
+func (x *CreateApplianceFrontendServiceImportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_appliance_v1_appliance_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateApplianceFrontendServiceImportRequest.ProtoReflect.Descriptor instead.
+func (*CreateApplianceFrontendServiceImportRequest) Descriptor() ([]byte, []int) {
+	return file_appliance_v1_appliance_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetExpectedGrantRevision() uint64 {
+	if x != nil {
+		return x.ExpectedGrantRevision
+	}
+	return 0
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetExpectedBootId() string {
+	if x != nil {
+		return x.ExpectedBootId
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetExpectedContainerInstanceId() string {
+	if x != nil {
+		return x.ExpectedContainerInstanceId
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetSourceEnvironmentId() string {
+	if x != nil {
+		return x.SourceEnvironmentId
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetSourceContainerId() string {
+	if x != nil {
+		return x.SourceContainerId
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetSourceContainerInstanceId() string {
+	if x != nil {
+		return x.SourceContainerInstanceId
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetFrontendName() string {
+	if x != nil {
+		return x.FrontendName
+	}
+	return ""
+}
+
+func (x *CreateApplianceFrontendServiceImportRequest) GetVirtualServiceName() string {
+	if x != nil {
+		return x.VirtualServiceName
+	}
+	return ""
+}
+
 var File_appliance_v1_appliance_proto protoreflect.FileDescriptor
 
 const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\n" +
-	"\x1cappliance/v1/appliance.proto\x12\x15agentvmm.appliance.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x12host/v1/host.proto\x1a\x14trust/v1/trust.proto\"\xc5\x02\n" +
+	"\x1cappliance/v1/appliance.proto\x12\x15agentvmm.appliance.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x12host/v1/host.proto\x1a\x14trust/v1/trust.proto\x1a\x18service/v1/service.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xc5\x02\n" +
 	"\x13BuildArtifactHeader\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
@@ -3918,29 +5100,29 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\bprogress\x18\x01 \x01(\tH\x00R\bprogress\x12%\n" +
 	"\rarchive_chunk\x18\x02 \x01(\fH\x00R\farchiveChunk\x12D\n" +
 	"\x06result\x18\x03 \x01(\v2*.agentvmm.appliance.v1.BuildArtifactResultH\x00R\x06resultB\a\n" +
-	"\x05event\"\x86\x02\n" +
+	"\x05event\"\xf7\x01\n" +
 	"\fStreamBounds\x12&\n" +
 	"\x0fmax_frame_bytes\x18\x01 \x01(\rR\rmaxFrameBytes\x12&\n" +
 	"\x0fmax_total_bytes\x18\x02 \x01(\x04R\rmaxTotalBytes\x12)\n" +
 	"\x10deadline_seconds\x18\x03 \x01(\rR\x0fdeadlineSeconds\x12!\n" +
 	"\fidle_seconds\x18\x04 \x01(\rR\vidleSeconds\x124\n" +
-	"\x16max_concurrent_streams\x18\x05 \x01(\rR\x14maxConcurrentStreams\x12\"\n" +
-	"\rmax_use_count\x18\x06 \x01(\rR\vmaxUseCount\"\xf2\x01\n" +
+	"\x16max_concurrent_streams\x18\x05 \x01(\rR\x14maxConcurrentStreamsJ\x04\b\x06\x10\aR\rmax_use_count\"\xf2\x01\n" +
 	"\x12ControllerFrontend\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12F\n" +
 	"\ttransport\x18\x02 \x01(\x0e2(.agentvmm.appliance.v1.FrontendTransportR\ttransport\x12C\n" +
 	"\bexposure\x18\x03 \x01(\x0e2'.agentvmm.appliance.v1.FrontendExposureR\bexposure\x12;\n" +
-	"\x06bounds\x18\x04 \x01(\v2#.agentvmm.appliance.v1.StreamBoundsR\x06bounds\"\x9a\x03\n" +
+	"\x06bounds\x18\x04 \x01(\v2#.agentvmm.appliance.v1.StreamBoundsR\x06bounds\"\xbe\x03\n" +
 	"\x18DynamicHostLoopbackGrant\x12*\n" +
 	"\x11max_active_leases\x18\x01 \x01(\rR\x0fmaxActiveLeases\x12F\n" +
 	" max_active_leases_per_allocation\x18\x02 \x01(\rR\x1cmaxActiveLeasesPerAllocation\x12*\n" +
 	"\x11max_lease_seconds\x18\x03 \x01(\rR\x0fmaxLeaseSeconds\x12<\n" +
 	"\x1amax_concurrent_connections\x18\x04 \x01(\rR\x18maxConcurrentConnections\x12N\n" +
 	"$max_concurrent_connections_per_lease\x18\x05 \x01(\rR maxConcurrentConnectionsPerLease\x12P\n" +
-	"\x11connection_bounds\x18\x06 \x01(\v2#.agentvmm.appliance.v1.StreamBoundsR\x10connectionBounds\"\x96\x02\n" +
+	"\x11connection_bounds\x18\x06 \x01(\v2#.agentvmm.appliance.v1.StreamBoundsR\x10connectionBounds\x12\"\n" +
+	"\rmax_use_count\x18\a \x01(\rR\vmaxUseCount\"\x96\x02\n" +
 	"\rCapacityGrant\x12V\n" +
 	"\x16per_environment_limits\x18\x03 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\x14perEnvironmentLimits\x12D\n" +
-	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressModeJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x10max_environmentsR\x10aggregate_limitsR\x11max_lease_secondsR\x18disconnect_grace_seconds\"\xd4\b\n" +
+	"\x0fmax_egress_mode\x18\x04 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\rmaxEgressModeJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x10max_environmentsR\x10aggregate_limitsR\x11max_lease_secondsR\x18disconnect_grace_seconds\"\xdb\t\n" +
 	"\x1bControllerApplianceManifest\x12)\n" +
 	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12\x1d\n" +
 	"\n" +
@@ -3959,8 +5141,13 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x11probation_seconds\x18\x10 \x01(\rR\x10probationSeconds\x124\n" +
 	"\x16health_timeout_seconds\x18\x11 \x01(\rR\x14healthTimeoutSeconds\x12v\n" +
 	"\x1frequested_dynamic_host_loopback\x18\x13 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x1crequestedDynamicHostLoopback\x12E\n" +
-	"\rsystem_limits\x18\x14 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\fsystemLimitsJ\x04\b\x03\x10\x04J\x04\b\n" +
-	"\x10\vJ\x04\b\x12\x10\x13R\x10publisher_key_idR\x10system_resourcesR\x19minimum_appliance_runtime\"\xb9\x03\n" +
+	"\rsystem_limits\x18\x14 \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\fsystemLimits\x120\n" +
+	"\x14requested_lan_egress\x18\x15 \x01(\bR\x12requestedLanEgress\x12S\n" +
+	"\fcontent_refs\x18\x16 \x03(\v20.agentvmm.appliance.v1.ApplianceContentReferenceR\vcontentRefsJ\x04\b\x03\x10\x04J\x04\b\n" +
+	"\x10\vJ\x04\b\x12\x10\x13R\x10publisher_key_idR\x10system_resourcesR\x19minimum_appliance_runtime\"5\n" +
+	"\x0fHostTcpEndpoint\x12\x0e\n" +
+	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\"\xae\x04\n" +
 	"\rApprovedGrant\x12@\n" +
 	"\bcapacity\x18\x02 \x01(\v2$.agentvmm.appliance.v1.CapacityGrantR\bcapacity\x12=\n" +
 	"\vegress_mode\x18\x03 \x01(\x0e2\x1c.agentvmm.host.v1.EgressModeR\n" +
@@ -3968,7 +5155,10 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\tfrontends\x18\x04 \x03(\v2).agentvmm.appliance.v1.ControllerFrontendR\tfrontends\x12\x1a\n" +
 	"\brevision\x18\x05 \x01(\x04R\brevision\x12c\n" +
 	"\x15dynamic_host_loopback\x18\x06 \x01(\v2/.agentvmm.appliance.v1.DynamicHostLoopbackGrantR\x13dynamicHostLoopback\x12E\n" +
-	"\rsystem_limits\x18\a \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\fsystemLimitsJ\x04\b\x01\x10\x02R\x10system_resources\"\xb5\x05\n" +
+	"\rsystem_limits\x18\a \x01(\v2 .agentvmm.host.v1.ResourceLimitsR\fsystemLimits\x12\x1d\n" +
+	"\n" +
+	"lan_egress\x18\b \x01(\bR\tlanEgress\x12T\n" +
+	"\x12host_tcp_endpoints\x18\t \x03(\v2&.agentvmm.appliance.v1.HostTcpEndpointR\x10hostTcpEndpointsJ\x04\b\x01\x10\x02R\x10system_resources\"\x8a\x06\n" +
 	"\x14ApplianceLaunchClaim\x12'\n" +
 	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1f\n" +
 	"\vartifact_id\x18\x02 \x01(\tR\n" +
@@ -3987,7 +5177,8 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x16device_root_public_key\x18\f \x01(\fR\x13deviceRootPublicKey\x120\n" +
 	"\x14device_root_revision\x18\r \x01(\x04R\x12deviceRootRevision\x12'\n" +
 	"\x0fregistration_id\x18\x0e \x01(\tR\x0eregistrationId\x12J\n" +
-	"\x0fdevice_identity\x18\x0f \x01(\v2!.agentvmm.trust.v1.DeviceIdentityR\x0edeviceIdentity\"\xa0\x03\n" +
+	"\x0fdevice_identity\x18\x0f \x01(\v2!.agentvmm.trust.v1.DeviceIdentityR\x0edeviceIdentity\x12S\n" +
+	"\x0econtent_mounts\x18\x10 \x03(\v2,.agentvmm.appliance.v1.ApplianceContentMountR\rcontentMounts\"\xa0\x03\n" +
 	"\x1bApplianceManagedTrustBundle\x12'\n" +
 	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12'\n" +
 	"\x0fregistration_id\x18\x02 \x01(\tR\x0eregistrationId\x12'\n" +
@@ -4038,7 +5229,7 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\bexposure\x18\x03 \x01(\x0e2'.agentvmm.appliance.v1.FrontendExposureR\bexposure\x12\x1a\n" +
 	"\bendpoint\x18\x04 \x01(\tR\bendpoint\x12-\n" +
 	"\x12container_instance\x18\x05 \x01(\tR\x11containerInstance\x12\x1c\n" +
-	"\tavailable\x18\x06 \x01(\bR\tavailable\"\xd1\x05\n" +
+	"\tavailable\x18\x06 \x01(\bR\tavailable\"\x93\x06\n" +
 	"\x0fApplianceStatus\x12'\n" +
 	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1d\n" +
 	"\n" +
@@ -4056,7 +5247,9 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x06health\x18\v \x01(\v2&.agentvmm.appliance.v1.ApplianceHealthR\x06health\x12\x18\n" +
 	"\aenabled\x18\f \x01(\bR\aenabled\x12\x17\n" +
 	"\aboot_id\x18\r \x01(\tR\x06bootId\x12-\n" +
-	"\x12container_instance\x18\x0e \x01(\tR\x11containerInstance\"\xad\x01\n" +
+	"\x12container_instance\x18\x0e \x01(\tR\x11containerInstance\x12,\n" +
+	"\x0fruntime_stopped\x18\x0f \x01(\bH\x00R\x0eruntimeStopped\x88\x01\x01B\x12\n" +
+	"\x10_runtime_stopped\"\xad\x01\n" +
 	"\x0fApplianceImpact\x12#\n" +
 	"\rresource_type\x18\x01 \x01(\tR\fresourceType\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
@@ -4073,7 +5266,7 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\aimpacts\x18\x05 \x03(\v2&.agentvmm.appliance.v1.ApplianceImpactR\aimpacts\"K\n" +
 	"\x17ApplianceOperationError\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xaa\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xb8\x06\n" +
 	"\x12ApplianceOperation\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12'\n" +
 	"\x0finstallation_id\x18\x02 \x01(\tR\x0einstallationId\x12\x1d\n" +
@@ -4090,7 +5283,10 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x05error\x18\n" +
 	" \x01(\v2..agentvmm.appliance.v1.ApplianceOperationErrorR\x05error\x12W\n" +
 	"\x0fterminal_reason\x18\v \x01(\x0e2..agentvmm.appliance.v1.ApplianceTerminalReasonR\x0eterminalReason\x12\x18\n" +
-	"\areceipt\x18\f \x01(\fR\areceipt\"\x86\x01\n" +
+	"\areceipt\x18\f \x01(\fR\areceipt\x12,\n" +
+	"\x12source_artifact_id\x18\r \x01(\tR\x10sourceArtifactId\x12,\n" +
+	"\x12target_artifact_id\x18\x0e \x01(\tR\x10targetArtifactId\x120\n" +
+	"\x14deadline_unix_millis\x18\x0f \x01(\x03R\x12deadlineUnixMillis\"\x86\x01\n" +
 	"\x1aApplianceOperationResponse\x12G\n" +
 	"\toperation\x18\x01 \x01(\v2).agentvmm.appliance.v1.ApplianceOperationR\toperation\x12\x1f\n" +
 	"\vartifact_id\x18\x02 \x01(\tR\n" +
@@ -4162,20 +5358,7 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12+\n" +
 	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x120\n" +
-	"\x14deadline_unix_millis\x18\x04 \x01(\x03R\x12deadlineUnixMillis\"\xc0\x01\n" +
-	"\x17PlanSealedRepairRequest\x12'\n" +
-	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x02 \x01(\tR\trequestId\x12+\n" +
-	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x120\n" +
-	"\x14deadline_unix_millis\x18\x04 \x01(\x03R\x12deadlineUnixMillis\"\xf6\x01\n" +
-	"\x1aExecuteSealedRepairRequest\x12'\n" +
-	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\x02 \x01(\tR\trequestId\x12+\n" +
-	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x120\n" +
-	"\x14deadline_unix_millis\x18\x04 \x01(\x03R\x12deadlineUnixMillis\x12+\n" +
-	"\x11recovery_material\x18\x06 \x01(\fR\x10recoveryMaterialJ\x04\b\x05\x10\x06\"\xba\x01\n" +
+	"\x14deadline_unix_millis\x18\x04 \x01(\x03R\x12deadlineUnixMillis\"\xba\x01\n" +
 	"\x11PlanRemoveRequest\x12'\n" +
 	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1d\n" +
 	"\n" +
@@ -4188,15 +5371,109 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12+\n" +
 	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x120\n" +
 	"\x14deadline_unix_millis\x18\x04 \x01(\x03R\x12deadlineUnixMillis\x124\n" +
-	"\x16confirmed_resource_ids\x18\x06 \x03(\tR\x14confirmedResourceIdsJ\x04\b\x05\x10\x06*x\n" +
+	"\x16confirmed_resource_ids\x18\x06 \x03(\tR\x14confirmedResourceIdsJ\x04\b\x05\x10\x06\"\xa8\x02\n" +
+	"\x11PlanUpdateRequest\x12'\n" +
+	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12+\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x12\x1f\n" +
+	"\vartifact_id\x18\x04 \x01(\tR\n" +
+	"artifactId\x120\n" +
+	"\x14deadline_unix_millis\x18\x05 \x01(\x03R\x12deadlineUnixMillis\x12K\n" +
+	"\x0eapproved_grant\x18\x06 \x01(\v2$.agentvmm.appliance.v1.ApprovedGrantR\rapprovedGrant\"\xad\x02\n" +
+	"\x16UpdateApplianceRequest\x12'\n" +
+	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12+\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x12\x1f\n" +
+	"\vartifact_id\x18\x04 \x01(\tR\n" +
+	"artifactId\x120\n" +
+	"\x14deadline_unix_millis\x18\x05 \x01(\x03R\x12deadlineUnixMillis\x12K\n" +
+	"\x0eapproved_grant\x18\x06 \x01(\v2$.agentvmm.appliance.v1.ApprovedGrantR\rapprovedGrant\"\xe2\x01\n" +
+	"\x1dRecoverApplianceUpdateRequest\x12'\n" +
+	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12=\n" +
+	"\x1bexpected_updated_unix_nanos\x18\x04 \x01(\x03R\x18expectedUpdatedUnixNanos\x120\n" +
+	"\x14deadline_unix_millis\x18\x05 \x01(\x03R\x12deadlineUnixMillisJ\x04\b\x03\x10\x04\"\xe0\x02\n" +
+	"\x17ApplianceUpdateProgress\x12G\n" +
+	"\arequest\x18\x01 \x01(\v2-.agentvmm.appliance.v1.UpdateApplianceRequestR\arequest\x12,\n" +
+	"\x12source_artifact_id\x18\x02 \x01(\tR\x10sourceArtifactId\x123\n" +
+	"\x15installation_revision\x18\x03 \x01(\x04R\x14installationRevision\x12G\n" +
+	"\fsource_grant\x18\x04 \x01(\v2$.agentvmm.appliance.v1.ApprovedGrantR\vsourceGrant\x12P\n" +
+	"\brecovery\x18\x05 \x01(\v24.agentvmm.appliance.v1.RecoverApplianceUpdateRequestR\brecovery\"\x9f\x02\n" +
+	"\x19ApplianceContentReference\x12?\n" +
+	"\x04role\x18\x01 \x01(\x0e2+.agentvmm.appliance.v1.ApplianceContentRoleR\x04role\x12%\n" +
+	"\x0earchive_sha256\x18\x02 \x01(\fR\rarchiveSha256\x12!\n" +
+	"\farchive_size\x18\x03 \x01(\x04R\varchiveSize\x12\x1a\n" +
+	"\bplatform\x18\x04 \x01(\tR\bplatform\x12'\n" +
+	"\x0fimage_reference\x18\x05 \x01(\tR\x0eimageReference\x122\n" +
+	"\x15image_manifest_digest\x18\x06 \x01(\tR\x13imageManifestDigest\"\x86\x01\n" +
+	"\x15ApplianceContentMount\x12J\n" +
+	"\acontent\x18\x01 \x01(\v20.agentvmm.appliance.v1.ApplianceContentReferenceR\acontent\x12!\n" +
+	"\farchive_path\x18\x02 \x01(\tR\varchivePath\"\xb8\x01\n" +
+	"\x12StageContentHeader\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x120\n" +
+	"\x14deadline_unix_millis\x18\x02 \x01(\x03R\x12deadlineUnixMillis\x12Q\n" +
+	"\vcontent_ref\x18\x03 \x01(\v20.agentvmm.appliance.v1.ApplianceContentReferenceR\n" +
+	"contentRef\"\x8c\x01\n" +
+	"\x13StageContentRequest\x12C\n" +
+	"\x06header\x18\x01 \x01(\v2).agentvmm.appliance.v1.StageContentHeaderH\x00R\x06header\x12%\n" +
+	"\rarchive_chunk\x18\x02 \x01(\fH\x00R\farchiveChunkB\t\n" +
+	"\apayload\"\x89\x01\n" +
+	"\x16ApplianceContentStatus\x12Q\n" +
+	"\vcontent_ref\x18\x01 \x01(\v20.agentvmm.appliance.v1.ApplianceContentReferenceR\n" +
+	"contentRef\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\"n\n" +
+	"\x17GetContentStatusRequest\x12S\n" +
+	"\fcontent_refs\x18\x01 \x03(\v20.agentvmm.appliance.v1.ApplianceContentReferenceR\vcontentRefs\"e\n" +
+	"\x18GetContentStatusResponse\x12I\n" +
+	"\bcontents\x18\x01 \x03(\v2-.agentvmm.appliance.v1.ApplianceContentStatusR\bcontents\"\xe1\x03\n" +
+	"#CreateApplianceServiceImportRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
+	"\x0finstallation_id\x18\x02 \x01(\tR\x0einstallationId\x12+\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x126\n" +
+	"\x17expected_grant_revision\x18\x04 \x01(\x04R\x15expectedGrantRevision\x12(\n" +
+	"\x10expected_boot_id\x18\x05 \x01(\tR\x0eexpectedBootId\x12C\n" +
+	"\x1eexpected_container_instance_id\x18\x06 \x01(\tR\x1bexpectedContainerInstanceId\x122\n" +
+	"\x15destination_export_id\x18\a \x01(\tR\x13destinationExportId\x128\n" +
+	"\x18expected_export_revision\x18\b \x01(\x04R\x16expectedExportRevision\x120\n" +
+	"\x14virtual_service_name\x18\t \x01(\tR\x12virtualServiceName\"M\n" +
+	"\"ListApplianceServiceImportsRequest\x12'\n" +
+	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\"c\n" +
+	"#ListApplianceServiceImportsResponse\x12<\n" +
+	"\aimports\x18\x01 \x03(\v2\".agentvmm.service.v1.ServiceImportR\aimports\"\xfd\x01\n" +
+	"#RevokeApplianceServiceImportRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
+	"\x0finstallation_id\x18\x02 \x01(\tR\x0einstallationId\x12D\n" +
+	"\x1eexpected_installation_revision\x18\x03 \x01(\x04R\x1cexpectedInstallationRevision\x12\x1b\n" +
+	"\timport_id\x18\x04 \x01(\tR\bimportId\x12+\n" +
+	"\x11expected_revision\x18\x05 \x01(\x04R\x10expectedRevision\"\xc5\x04\n" +
+	"+CreateApplianceFrontendServiceImportRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
+	"\x0finstallation_id\x18\x02 \x01(\tR\x0einstallationId\x12+\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x126\n" +
+	"\x17expected_grant_revision\x18\x04 \x01(\x04R\x15expectedGrantRevision\x12(\n" +
+	"\x10expected_boot_id\x18\x05 \x01(\tR\x0eexpectedBootId\x12C\n" +
+	"\x1eexpected_container_instance_id\x18\x06 \x01(\tR\x1bexpectedContainerInstanceId\x122\n" +
+	"\x15source_environment_id\x18\a \x01(\tR\x13sourceEnvironmentId\x12.\n" +
+	"\x13source_container_id\x18\b \x01(\tR\x11sourceContainerId\x12?\n" +
+	"\x1csource_container_instance_id\x18\t \x01(\tR\x19sourceContainerInstanceId\x12#\n" +
+	"\rfrontend_name\x18\n" +
+	" \x01(\tR\ffrontendName\x120\n" +
+	"\x14virtual_service_name\x18\v \x01(\tR\x12virtualServiceName*x\n" +
 	"\x11FrontendTransport\x12\"\n" +
 	"\x1eFRONTEND_TRANSPORT_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eFRONTEND_TRANSPORT_BYTE_STREAM\x10\x01\x12\x1b\n" +
-	"\x17FRONTEND_TRANSPORT_HTTP\x10\x02*\x7f\n" +
+	"\x17FRONTEND_TRANSPORT_HTTP\x10\x02*\x9f\x01\n" +
 	"\x10FrontendExposure\x12!\n" +
 	"\x1dFRONTEND_EXPOSURE_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fFRONTEND_EXPOSURE_HOST_LOOPBACK\x10\x01\x12#\n" +
-	"\x1fFRONTEND_EXPOSURE_OUTBOUND_ONLY\x10\x02*\xdf\x01\n" +
+	"\x1fFRONTEND_EXPOSURE_OUTBOUND_ONLY\x10\x02\x12\x1e\n" +
+	"\x1aFRONTEND_EXPOSURE_LAN_HTTP\x10\x03*\xdf\x01\n" +
 	"\x0eApplianceState\x12\x1f\n" +
 	"\x1bAPPLIANCE_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17APPLIANCE_STATE_STOPPED\x10\x01\x12\x1c\n" +
@@ -4218,13 +5495,13 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"!APPLIANCE_OPERATION_STATE_RUNNING\x10\x01\x12'\n" +
 	"#APPLIANCE_OPERATION_STATE_SUCCEEDED\x10\x02\x12$\n" +
 	" APPLIANCE_OPERATION_STATE_FAILED\x10\x03\x12)\n" +
-	"%APPLIANCE_OPERATION_STATE_INTERRUPTED\x10\x04*\xc2\x01\n" +
+	"%APPLIANCE_OPERATION_STATE_INTERRUPTED\x10\x04*\xe4\x01\n" +
 	"\x11AppliancePlanKind\x12#\n" +
 	"\x1fAPPLIANCE_PLAN_KIND_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bAPPLIANCE_PLAN_KIND_INSTALL\x10\x01\x12 \n" +
 	"\x1cAPPLIANCE_PLAN_KIND_ACTIVATE\x10\x02\x12\x1e\n" +
-	"\x1aAPPLIANCE_PLAN_KIND_REMOVE\x10\x03\x12%\n" +
-	"!APPLIANCE_PLAN_KIND_SEALED_REPAIR\x10\x04*\xf2\x02\n" +
+	"\x1aAPPLIANCE_PLAN_KIND_REMOVE\x10\x03\x12\x1e\n" +
+	"\x1aAPPLIANCE_PLAN_KIND_UPDATE\x10\x05\"\x04\b\x04\x10\x04*!APPLIANCE_PLAN_KIND_SEALED_REPAIR*\xc5\x03\n" +
 	"\x16ApplianceOperationKind\x12(\n" +
 	"$APPLIANCE_OPERATION_KIND_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eAPPLIANCE_OPERATION_KIND_STAGE\x10\x01\x12$\n" +
@@ -4233,15 +5510,23 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x1dAPPLIANCE_OPERATION_KIND_STOP\x10\x04\x12$\n" +
 	" APPLIANCE_OPERATION_KIND_RESTART\x10\x05\x12#\n" +
 	"\x1fAPPLIANCE_OPERATION_KIND_REVOKE\x10\x06\x12#\n" +
-	"\x1fAPPLIANCE_OPERATION_KIND_REMOVE\x10\a\x12*\n" +
-	"&APPLIANCE_OPERATION_KIND_SEALED_REPAIR\x10\b*\x9b\x02\n" +
+	"\x1fAPPLIANCE_OPERATION_KIND_REMOVE\x10\a\x12#\n" +
+	"\x1fAPPLIANCE_OPERATION_KIND_UPDATE\x10\t\x12*\n" +
+	"&APPLIANCE_OPERATION_KIND_STAGE_CONTENT\x10\n" +
+	"\"\x04\b\b\x10\b*&APPLIANCE_OPERATION_KIND_SEALED_REPAIR*\xe7\x03\n" +
 	"\x17ApplianceOperationPhase\x12)\n" +
 	"%APPLIANCE_OPERATION_PHASE_UNSPECIFIED\x10\x00\x12%\n" +
 	"!APPLIANCE_OPERATION_PHASE_PLANNED\x10\x01\x12'\n" +
 	"#APPLIANCE_OPERATION_PHASE_PROBATION\x10\x02\x12.\n" +
 	"*APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED\x10\x03\x12-\n" +
 	")APPLIANCE_OPERATION_PHASE_PENDING_DESTROY\x10\x04\x12&\n" +
-	"\"APPLIANCE_OPERATION_PHASE_TERMINAL\x10\x05*\xa7\x03\n" +
+	"\"APPLIANCE_OPERATION_PHASE_TERMINAL\x10\x05\x12'\n" +
+	"#APPLIANCE_OPERATION_PHASE_PREPARING\x10\x06\x12&\n" +
+	"\"APPLIANCE_OPERATION_PHASE_DRAINING\x10\a\x12&\n" +
+	"\"APPLIANCE_OPERATION_PHASE_STOPPING\x10\b\x12'\n" +
+	"#APPLIANCE_OPERATION_PHASE_SWITCHING\x10\t\x12(\n" +
+	"$APPLIANCE_OPERATION_PHASE_ACTIVATING\x10\n" +
+	"*\xd7\x03\n" +
 	"\x17ApplianceTerminalReason\x12)\n" +
 	"%APPLIANCE_TERMINAL_REASON_UNSPECIFIED\x10\x00\x12'\n" +
 	"#APPLIANCE_TERMINAL_REASON_SUCCEEDED\x10\x01\x12,\n" +
@@ -4250,12 +5535,28 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\"APPLIANCE_TERMINAL_REASON_KEY_LOST\x10\x04\x12.\n" +
 	"*APPLIANCE_TERMINAL_REASON_OPERATOR_REVOKED\x10\x06\x12%\n" +
 	"!APPLIANCE_TERMINAL_REASON_REMOVED\x10\a\x12.\n" +
-	"*APPLIANCE_TERMINAL_REASON_OPERATION_FAILED\x10\b\"\x04\b\x05\x10\x05*+APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED2\xf4\r\n" +
-	"\x15ApplianceAdminService\x12n\n" +
+	"*APPLIANCE_TERMINAL_REASON_OPERATION_FAILED\x10\b\x12.\n" +
+	"*APPLIANCE_TERMINAL_REASON_OPERATOR_STOPPED\x10\t\"\x04\b\x05\x10\x05*+APPLIANCE_TERMINAL_REASON_PUBLISHER_REVOKED*\xae\x01\n" +
+	"\x14ApplianceContentRole\x12&\n" +
+	"\"APPLIANCE_CONTENT_ROLE_UNSPECIFIED\x10\x00\x12%\n" +
+	"!APPLIANCE_CONTENT_ROLE_CONTROLLER\x10\x01\x12\"\n" +
+	"\x1eAPPLIANCE_CONTENT_ROLE_HARNESS\x10\x02\x12#\n" +
+	"\x1fAPPLIANCE_CONTENT_ROLE_WORKLOAD\x10\x032\xaf\x14\n" +
+	"\x15ApplianceAdminService\x12u\n" +
+	"\x13CreateServiceImport\x12:.agentvmm.appliance.v1.CreateApplianceServiceImportRequest\x1a\".agentvmm.service.v1.ServiceImport\x12\x85\x01\n" +
+	"\x1bCreateFrontendServiceImport\x12B.agentvmm.appliance.v1.CreateApplianceFrontendServiceImportRequest\x1a\".agentvmm.service.v1.ServiceImport\x12\x8b\x01\n" +
+	"\x12ListServiceImports\x129.agentvmm.appliance.v1.ListApplianceServiceImportsRequest\x1a:.agentvmm.appliance.v1.ListApplianceServiceImportsResponse\x12i\n" +
+	"\x13RevokeServiceImport\x12:.agentvmm.appliance.v1.RevokeApplianceServiceImportRequest\x1a\x16.google.protobuf.Empty\x12n\n" +
 	"\rBuildArtifact\x12+.agentvmm.appliance.v1.BuildArtifactRequest\x1a,.agentvmm.appliance.v1.BuildArtifactResponse(\x010\x01\x12o\n" +
+	"\fStageContent\x12*.agentvmm.appliance.v1.StageContentRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse(\x01\x12s\n" +
+	"\x10GetContentStatus\x12..agentvmm.appliance.v1.GetContentStatusRequest\x1a/.agentvmm.appliance.v1.GetContentStatusResponse\x12o\n" +
 	"\rStageArtifact\x12+.agentvmm.appliance.v1.StageArtifactRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12f\n" +
 	"\vPlanInstall\x12).agentvmm.appliance.v1.PlanInstallRequest\x1a,.agentvmm.appliance.v1.AppliancePlanResponse\x12c\n" +
-	"\aInstall\x12%.agentvmm.appliance.v1.InstallRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12l\n" +
+	"\aInstall\x12%.agentvmm.appliance.v1.InstallRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12d\n" +
+	"\n" +
+	"PlanUpdate\x12(.agentvmm.appliance.v1.PlanUpdateRequest\x1a,.agentvmm.appliance.v1.AppliancePlanResponse\x12j\n" +
+	"\x06Update\x12-.agentvmm.appliance.v1.UpdateApplianceRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12x\n" +
+	"\rRecoverUpdate\x124.agentvmm.appliance.v1.RecoverApplianceUpdateRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12l\n" +
 	"\x0ePlanActivation\x12,.agentvmm.appliance.v1.PlanActivationRequest\x1a,.agentvmm.appliance.v1.AppliancePlanResponse\x12e\n" +
 	"\bActivate\x12&.agentvmm.appliance.v1.ActivateRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12c\n" +
 	"\x04List\x12,.agentvmm.appliance.v1.ListAppliancesRequest\x1a-.agentvmm.appliance.v1.ListAppliancesResponse\x12m\n" +
@@ -4263,9 +5564,7 @@ const file_appliance_v1_appliance_proto_rawDesc = "" +
 	"\x0eWatchOperation\x125.agentvmm.appliance.v1.WatchApplianceOperationRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse0\x01\x12f\n" +
 	"\x04Stop\x12+.agentvmm.appliance.v1.StopApplianceRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12l\n" +
 	"\aRestart\x12..agentvmm.appliance.v1.RestartApplianceRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12j\n" +
-	"\x06Revoke\x12-.agentvmm.appliance.v1.RevokeApplianceRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12p\n" +
-	"\x10PlanSealedRepair\x12..agentvmm.appliance.v1.PlanSealedRepairRequest\x1a,.agentvmm.appliance.v1.AppliancePlanResponse\x12{\n" +
-	"\x13ExecuteSealedRepair\x121.agentvmm.appliance.v1.ExecuteSealedRepairRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12d\n" +
+	"\x06Revoke\x12-.agentvmm.appliance.v1.RevokeApplianceRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse\x12d\n" +
 	"\n" +
 	"PlanRemove\x12(.agentvmm.appliance.v1.PlanRemoveRequest\x1a,.agentvmm.appliance.v1.AppliancePlanResponse\x12o\n" +
 	"\rExecuteRemove\x12+.agentvmm.appliance.v1.ExecuteRemoveRequest\x1a1.agentvmm.appliance.v1.ApplianceOperationResponse2\x87\x01\n" +
@@ -4284,167 +5583,215 @@ func file_appliance_v1_appliance_proto_rawDescGZIP() []byte {
 	return file_appliance_v1_appliance_proto_rawDescData
 }
 
-var file_appliance_v1_appliance_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_appliance_v1_appliance_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_appliance_v1_appliance_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
+var file_appliance_v1_appliance_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_appliance_v1_appliance_proto_goTypes = []any{
-	(FrontendTransport)(0),                 // 0: agentvmm.appliance.v1.FrontendTransport
-	(FrontendExposure)(0),                  // 1: agentvmm.appliance.v1.FrontendExposure
-	(ApplianceState)(0),                    // 2: agentvmm.appliance.v1.ApplianceState
-	(ControllerChannelState)(0),            // 3: agentvmm.appliance.v1.ControllerChannelState
-	(ApplianceOperationState)(0),           // 4: agentvmm.appliance.v1.ApplianceOperationState
-	(AppliancePlanKind)(0),                 // 5: agentvmm.appliance.v1.AppliancePlanKind
-	(ApplianceOperationKind)(0),            // 6: agentvmm.appliance.v1.ApplianceOperationKind
-	(ApplianceOperationPhase)(0),           // 7: agentvmm.appliance.v1.ApplianceOperationPhase
-	(ApplianceTerminalReason)(0),           // 8: agentvmm.appliance.v1.ApplianceTerminalReason
-	(*BuildArtifactHeader)(nil),            // 9: agentvmm.appliance.v1.BuildArtifactHeader
-	(*BuildArtifactRequest)(nil),           // 10: agentvmm.appliance.v1.BuildArtifactRequest
-	(*BuildArtifactResult)(nil),            // 11: agentvmm.appliance.v1.BuildArtifactResult
-	(*BuildArtifactResponse)(nil),          // 12: agentvmm.appliance.v1.BuildArtifactResponse
-	(*StreamBounds)(nil),                   // 13: agentvmm.appliance.v1.StreamBounds
-	(*ControllerFrontend)(nil),             // 14: agentvmm.appliance.v1.ControllerFrontend
-	(*DynamicHostLoopbackGrant)(nil),       // 15: agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	(*CapacityGrant)(nil),                  // 16: agentvmm.appliance.v1.CapacityGrant
-	(*ControllerApplianceManifest)(nil),    // 17: agentvmm.appliance.v1.ControllerApplianceManifest
-	(*ApprovedGrant)(nil),                  // 18: agentvmm.appliance.v1.ApprovedGrant
-	(*ApplianceLaunchClaim)(nil),           // 19: agentvmm.appliance.v1.ApplianceLaunchClaim
-	(*ApplianceManagedTrustBundle)(nil),    // 20: agentvmm.appliance.v1.ApplianceManagedTrustBundle
-	(*OpaqueBootstrapEnvelope)(nil),        // 21: agentvmm.appliance.v1.OpaqueBootstrapEnvelope
-	(*BootstrapReceipt)(nil),               // 22: agentvmm.appliance.v1.BootstrapReceipt
-	(*ApplianceHealth)(nil),                // 23: agentvmm.appliance.v1.ApplianceHealth
-	(*HostBootstrapFrame)(nil),             // 24: agentvmm.appliance.v1.HostBootstrapFrame
-	(*ApplianceBootstrapFrame)(nil),        // 25: agentvmm.appliance.v1.ApplianceBootstrapFrame
-	(*ApplianceFrontendStatus)(nil),        // 26: agentvmm.appliance.v1.ApplianceFrontendStatus
-	(*ApplianceStatus)(nil),                // 27: agentvmm.appliance.v1.ApplianceStatus
-	(*ApplianceImpact)(nil),                // 28: agentvmm.appliance.v1.ApplianceImpact
-	(*AppliancePlan)(nil),                  // 29: agentvmm.appliance.v1.AppliancePlan
-	(*ApplianceOperationError)(nil),        // 30: agentvmm.appliance.v1.ApplianceOperationError
-	(*ApplianceOperation)(nil),             // 31: agentvmm.appliance.v1.ApplianceOperation
-	(*ApplianceOperationResponse)(nil),     // 32: agentvmm.appliance.v1.ApplianceOperationResponse
-	(*AppliancePlanResponse)(nil),          // 33: agentvmm.appliance.v1.AppliancePlanResponse
-	(*ApplianceStatusResponse)(nil),        // 34: agentvmm.appliance.v1.ApplianceStatusResponse
-	(*StageArtifactRequest)(nil),           // 35: agentvmm.appliance.v1.StageArtifactRequest
-	(*PlanInstallRequest)(nil),             // 36: agentvmm.appliance.v1.PlanInstallRequest
-	(*InstallRequest)(nil),                 // 37: agentvmm.appliance.v1.InstallRequest
-	(*PlanActivationRequest)(nil),          // 38: agentvmm.appliance.v1.PlanActivationRequest
-	(*ActivateRequest)(nil),                // 39: agentvmm.appliance.v1.ActivateRequest
-	(*ListAppliancesRequest)(nil),          // 40: agentvmm.appliance.v1.ListAppliancesRequest
-	(*ListAppliancesResponse)(nil),         // 41: agentvmm.appliance.v1.ListAppliancesResponse
-	(*GetApplianceStatusRequest)(nil),      // 42: agentvmm.appliance.v1.GetApplianceStatusRequest
-	(*WatchApplianceOperationRequest)(nil), // 43: agentvmm.appliance.v1.WatchApplianceOperationRequest
-	(*StopApplianceRequest)(nil),           // 44: agentvmm.appliance.v1.StopApplianceRequest
-	(*RestartApplianceRequest)(nil),        // 45: agentvmm.appliance.v1.RestartApplianceRequest
-	(*RevokeApplianceRequest)(nil),         // 46: agentvmm.appliance.v1.RevokeApplianceRequest
-	(*PlanSealedRepairRequest)(nil),        // 47: agentvmm.appliance.v1.PlanSealedRepairRequest
-	(*ExecuteSealedRepairRequest)(nil),     // 48: agentvmm.appliance.v1.ExecuteSealedRepairRequest
-	(*PlanRemoveRequest)(nil),              // 49: agentvmm.appliance.v1.PlanRemoveRequest
-	(*ExecuteRemoveRequest)(nil),           // 50: agentvmm.appliance.v1.ExecuteRemoveRequest
-	(*v1.BuildArgument)(nil),               // 51: agentvmm.host.v1.BuildArgument
-	(v1.BuildNetworkMode)(0),               // 52: agentvmm.host.v1.BuildNetworkMode
-	(*v1.BuildSecret)(nil),                 // 53: agentvmm.host.v1.BuildSecret
-	(*v1.BuildContextChunk)(nil),           // 54: agentvmm.host.v1.BuildContextChunk
-	(*v1.BuildSecretChunk)(nil),            // 55: agentvmm.host.v1.BuildSecretChunk
-	(*v1.ResourceLimits)(nil),              // 56: agentvmm.host.v1.ResourceLimits
-	(v1.EgressMode)(0),                     // 57: agentvmm.host.v1.EgressMode
-	(*v11.DeviceIdentity)(nil),             // 58: agentvmm.trust.v1.DeviceIdentity
-	(*v11.TrustAnchor)(nil),                // 59: agentvmm.trust.v1.TrustAnchor
-	(*v11.MembershipCredential)(nil),       // 60: agentvmm.trust.v1.MembershipCredential
-	(*timestamppb.Timestamp)(nil),          // 61: google.protobuf.Timestamp
+	(FrontendTransport)(0),                              // 0: agentvmm.appliance.v1.FrontendTransport
+	(FrontendExposure)(0),                               // 1: agentvmm.appliance.v1.FrontendExposure
+	(ApplianceState)(0),                                 // 2: agentvmm.appliance.v1.ApplianceState
+	(ControllerChannelState)(0),                         // 3: agentvmm.appliance.v1.ControllerChannelState
+	(ApplianceOperationState)(0),                        // 4: agentvmm.appliance.v1.ApplianceOperationState
+	(AppliancePlanKind)(0),                              // 5: agentvmm.appliance.v1.AppliancePlanKind
+	(ApplianceOperationKind)(0),                         // 6: agentvmm.appliance.v1.ApplianceOperationKind
+	(ApplianceOperationPhase)(0),                        // 7: agentvmm.appliance.v1.ApplianceOperationPhase
+	(ApplianceTerminalReason)(0),                        // 8: agentvmm.appliance.v1.ApplianceTerminalReason
+	(ApplianceContentRole)(0),                           // 9: agentvmm.appliance.v1.ApplianceContentRole
+	(*BuildArtifactHeader)(nil),                         // 10: agentvmm.appliance.v1.BuildArtifactHeader
+	(*BuildArtifactRequest)(nil),                        // 11: agentvmm.appliance.v1.BuildArtifactRequest
+	(*BuildArtifactResult)(nil),                         // 12: agentvmm.appliance.v1.BuildArtifactResult
+	(*BuildArtifactResponse)(nil),                       // 13: agentvmm.appliance.v1.BuildArtifactResponse
+	(*StreamBounds)(nil),                                // 14: agentvmm.appliance.v1.StreamBounds
+	(*ControllerFrontend)(nil),                          // 15: agentvmm.appliance.v1.ControllerFrontend
+	(*DynamicHostLoopbackGrant)(nil),                    // 16: agentvmm.appliance.v1.DynamicHostLoopbackGrant
+	(*CapacityGrant)(nil),                               // 17: agentvmm.appliance.v1.CapacityGrant
+	(*ControllerApplianceManifest)(nil),                 // 18: agentvmm.appliance.v1.ControllerApplianceManifest
+	(*HostTcpEndpoint)(nil),                             // 19: agentvmm.appliance.v1.HostTcpEndpoint
+	(*ApprovedGrant)(nil),                               // 20: agentvmm.appliance.v1.ApprovedGrant
+	(*ApplianceLaunchClaim)(nil),                        // 21: agentvmm.appliance.v1.ApplianceLaunchClaim
+	(*ApplianceManagedTrustBundle)(nil),                 // 22: agentvmm.appliance.v1.ApplianceManagedTrustBundle
+	(*OpaqueBootstrapEnvelope)(nil),                     // 23: agentvmm.appliance.v1.OpaqueBootstrapEnvelope
+	(*BootstrapReceipt)(nil),                            // 24: agentvmm.appliance.v1.BootstrapReceipt
+	(*ApplianceHealth)(nil),                             // 25: agentvmm.appliance.v1.ApplianceHealth
+	(*HostBootstrapFrame)(nil),                          // 26: agentvmm.appliance.v1.HostBootstrapFrame
+	(*ApplianceBootstrapFrame)(nil),                     // 27: agentvmm.appliance.v1.ApplianceBootstrapFrame
+	(*ApplianceFrontendStatus)(nil),                     // 28: agentvmm.appliance.v1.ApplianceFrontendStatus
+	(*ApplianceStatus)(nil),                             // 29: agentvmm.appliance.v1.ApplianceStatus
+	(*ApplianceImpact)(nil),                             // 30: agentvmm.appliance.v1.ApplianceImpact
+	(*AppliancePlan)(nil),                               // 31: agentvmm.appliance.v1.AppliancePlan
+	(*ApplianceOperationError)(nil),                     // 32: agentvmm.appliance.v1.ApplianceOperationError
+	(*ApplianceOperation)(nil),                          // 33: agentvmm.appliance.v1.ApplianceOperation
+	(*ApplianceOperationResponse)(nil),                  // 34: agentvmm.appliance.v1.ApplianceOperationResponse
+	(*AppliancePlanResponse)(nil),                       // 35: agentvmm.appliance.v1.AppliancePlanResponse
+	(*ApplianceStatusResponse)(nil),                     // 36: agentvmm.appliance.v1.ApplianceStatusResponse
+	(*StageArtifactRequest)(nil),                        // 37: agentvmm.appliance.v1.StageArtifactRequest
+	(*PlanInstallRequest)(nil),                          // 38: agentvmm.appliance.v1.PlanInstallRequest
+	(*InstallRequest)(nil),                              // 39: agentvmm.appliance.v1.InstallRequest
+	(*PlanActivationRequest)(nil),                       // 40: agentvmm.appliance.v1.PlanActivationRequest
+	(*ActivateRequest)(nil),                             // 41: agentvmm.appliance.v1.ActivateRequest
+	(*ListAppliancesRequest)(nil),                       // 42: agentvmm.appliance.v1.ListAppliancesRequest
+	(*ListAppliancesResponse)(nil),                      // 43: agentvmm.appliance.v1.ListAppliancesResponse
+	(*GetApplianceStatusRequest)(nil),                   // 44: agentvmm.appliance.v1.GetApplianceStatusRequest
+	(*WatchApplianceOperationRequest)(nil),              // 45: agentvmm.appliance.v1.WatchApplianceOperationRequest
+	(*StopApplianceRequest)(nil),                        // 46: agentvmm.appliance.v1.StopApplianceRequest
+	(*RestartApplianceRequest)(nil),                     // 47: agentvmm.appliance.v1.RestartApplianceRequest
+	(*RevokeApplianceRequest)(nil),                      // 48: agentvmm.appliance.v1.RevokeApplianceRequest
+	(*PlanRemoveRequest)(nil),                           // 49: agentvmm.appliance.v1.PlanRemoveRequest
+	(*ExecuteRemoveRequest)(nil),                        // 50: agentvmm.appliance.v1.ExecuteRemoveRequest
+	(*PlanUpdateRequest)(nil),                           // 51: agentvmm.appliance.v1.PlanUpdateRequest
+	(*UpdateApplianceRequest)(nil),                      // 52: agentvmm.appliance.v1.UpdateApplianceRequest
+	(*RecoverApplianceUpdateRequest)(nil),               // 53: agentvmm.appliance.v1.RecoverApplianceUpdateRequest
+	(*ApplianceUpdateProgress)(nil),                     // 54: agentvmm.appliance.v1.ApplianceUpdateProgress
+	(*ApplianceContentReference)(nil),                   // 55: agentvmm.appliance.v1.ApplianceContentReference
+	(*ApplianceContentMount)(nil),                       // 56: agentvmm.appliance.v1.ApplianceContentMount
+	(*StageContentHeader)(nil),                          // 57: agentvmm.appliance.v1.StageContentHeader
+	(*StageContentRequest)(nil),                         // 58: agentvmm.appliance.v1.StageContentRequest
+	(*ApplianceContentStatus)(nil),                      // 59: agentvmm.appliance.v1.ApplianceContentStatus
+	(*GetContentStatusRequest)(nil),                     // 60: agentvmm.appliance.v1.GetContentStatusRequest
+	(*GetContentStatusResponse)(nil),                    // 61: agentvmm.appliance.v1.GetContentStatusResponse
+	(*CreateApplianceServiceImportRequest)(nil),         // 62: agentvmm.appliance.v1.CreateApplianceServiceImportRequest
+	(*ListApplianceServiceImportsRequest)(nil),          // 63: agentvmm.appliance.v1.ListApplianceServiceImportsRequest
+	(*ListApplianceServiceImportsResponse)(nil),         // 64: agentvmm.appliance.v1.ListApplianceServiceImportsResponse
+	(*RevokeApplianceServiceImportRequest)(nil),         // 65: agentvmm.appliance.v1.RevokeApplianceServiceImportRequest
+	(*CreateApplianceFrontendServiceImportRequest)(nil), // 66: agentvmm.appliance.v1.CreateApplianceFrontendServiceImportRequest
+	(*v1.BuildArgument)(nil),                            // 67: agentvmm.host.v1.BuildArgument
+	(v1.BuildNetworkMode)(0),                            // 68: agentvmm.host.v1.BuildNetworkMode
+	(*v1.BuildSecret)(nil),                              // 69: agentvmm.host.v1.BuildSecret
+	(*v1.BuildContextChunk)(nil),                        // 70: agentvmm.host.v1.BuildContextChunk
+	(*v1.BuildSecretChunk)(nil),                         // 71: agentvmm.host.v1.BuildSecretChunk
+	(*v1.ResourceLimits)(nil),                           // 72: agentvmm.host.v1.ResourceLimits
+	(v1.EgressMode)(0),                                  // 73: agentvmm.host.v1.EgressMode
+	(*v11.DeviceIdentity)(nil),                          // 74: agentvmm.trust.v1.DeviceIdentity
+	(*v11.TrustAnchor)(nil),                             // 75: agentvmm.trust.v1.TrustAnchor
+	(*v11.MembershipCredential)(nil),                    // 76: agentvmm.trust.v1.MembershipCredential
+	(*timestamppb.Timestamp)(nil),                       // 77: google.protobuf.Timestamp
+	(*v12.ServiceImport)(nil),                           // 78: agentvmm.service.v1.ServiceImport
+	(*emptypb.Empty)(nil),                               // 79: google.protobuf.Empty
 }
 var file_appliance_v1_appliance_proto_depIdxs = []int32{
-	51, // 0: agentvmm.appliance.v1.BuildArtifactHeader.build_args:type_name -> agentvmm.host.v1.BuildArgument
-	52, // 1: agentvmm.appliance.v1.BuildArtifactHeader.network_mode:type_name -> agentvmm.host.v1.BuildNetworkMode
-	53, // 2: agentvmm.appliance.v1.BuildArtifactHeader.secrets:type_name -> agentvmm.host.v1.BuildSecret
-	9,  // 3: agentvmm.appliance.v1.BuildArtifactRequest.header:type_name -> agentvmm.appliance.v1.BuildArtifactHeader
-	54, // 4: agentvmm.appliance.v1.BuildArtifactRequest.context:type_name -> agentvmm.host.v1.BuildContextChunk
-	55, // 5: agentvmm.appliance.v1.BuildArtifactRequest.secret:type_name -> agentvmm.host.v1.BuildSecretChunk
-	11, // 6: agentvmm.appliance.v1.BuildArtifactResponse.result:type_name -> agentvmm.appliance.v1.BuildArtifactResult
+	67, // 0: agentvmm.appliance.v1.BuildArtifactHeader.build_args:type_name -> agentvmm.host.v1.BuildArgument
+	68, // 1: agentvmm.appliance.v1.BuildArtifactHeader.network_mode:type_name -> agentvmm.host.v1.BuildNetworkMode
+	69, // 2: agentvmm.appliance.v1.BuildArtifactHeader.secrets:type_name -> agentvmm.host.v1.BuildSecret
+	10, // 3: agentvmm.appliance.v1.BuildArtifactRequest.header:type_name -> agentvmm.appliance.v1.BuildArtifactHeader
+	70, // 4: agentvmm.appliance.v1.BuildArtifactRequest.context:type_name -> agentvmm.host.v1.BuildContextChunk
+	71, // 5: agentvmm.appliance.v1.BuildArtifactRequest.secret:type_name -> agentvmm.host.v1.BuildSecretChunk
+	12, // 6: agentvmm.appliance.v1.BuildArtifactResponse.result:type_name -> agentvmm.appliance.v1.BuildArtifactResult
 	0,  // 7: agentvmm.appliance.v1.ControllerFrontend.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
 	1,  // 8: agentvmm.appliance.v1.ControllerFrontend.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
-	13, // 9: agentvmm.appliance.v1.ControllerFrontend.bounds:type_name -> agentvmm.appliance.v1.StreamBounds
-	13, // 10: agentvmm.appliance.v1.DynamicHostLoopbackGrant.connection_bounds:type_name -> agentvmm.appliance.v1.StreamBounds
-	56, // 11: agentvmm.appliance.v1.CapacityGrant.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	57, // 12: agentvmm.appliance.v1.CapacityGrant.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	16, // 13: agentvmm.appliance.v1.ControllerApplianceManifest.requested_capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
-	57, // 14: agentvmm.appliance.v1.ControllerApplianceManifest.requested_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	14, // 15: agentvmm.appliance.v1.ControllerApplianceManifest.requested_frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
-	15, // 16: agentvmm.appliance.v1.ControllerApplianceManifest.requested_dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	56, // 17: agentvmm.appliance.v1.ControllerApplianceManifest.system_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	16, // 18: agentvmm.appliance.v1.ApprovedGrant.capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
-	57, // 19: agentvmm.appliance.v1.ApprovedGrant.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	14, // 20: agentvmm.appliance.v1.ApprovedGrant.frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
-	15, // 21: agentvmm.appliance.v1.ApprovedGrant.dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
-	56, // 22: agentvmm.appliance.v1.ApprovedGrant.system_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	18, // 23: agentvmm.appliance.v1.ApplianceLaunchClaim.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	58, // 24: agentvmm.appliance.v1.ApplianceLaunchClaim.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	59, // 25: agentvmm.appliance.v1.ApplianceManagedTrustBundle.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
-	60, // 26: agentvmm.appliance.v1.ApplianceManagedTrustBundle.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
-	19, // 27: agentvmm.appliance.v1.HostBootstrapFrame.launch_claim:type_name -> agentvmm.appliance.v1.ApplianceLaunchClaim
-	21, // 28: agentvmm.appliance.v1.HostBootstrapFrame.envelope:type_name -> agentvmm.appliance.v1.OpaqueBootstrapEnvelope
-	22, // 29: agentvmm.appliance.v1.ApplianceBootstrapFrame.receipt:type_name -> agentvmm.appliance.v1.BootstrapReceipt
-	23, // 30: agentvmm.appliance.v1.ApplianceBootstrapFrame.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
-	20, // 31: agentvmm.appliance.v1.ApplianceBootstrapFrame.managed_trust:type_name -> agentvmm.appliance.v1.ApplianceManagedTrustBundle
-	0,  // 32: agentvmm.appliance.v1.ApplianceFrontendStatus.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
-	1,  // 33: agentvmm.appliance.v1.ApplianceFrontendStatus.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
-	2,  // 34: agentvmm.appliance.v1.ApplianceStatus.appliance_state:type_name -> agentvmm.appliance.v1.ApplianceState
-	3,  // 35: agentvmm.appliance.v1.ApplianceStatus.channel_state:type_name -> agentvmm.appliance.v1.ControllerChannelState
-	18, // 36: agentvmm.appliance.v1.ApplianceStatus.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	26, // 37: agentvmm.appliance.v1.ApplianceStatus.frontends:type_name -> agentvmm.appliance.v1.ApplianceFrontendStatus
-	23, // 38: agentvmm.appliance.v1.ApplianceStatus.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
-	5,  // 39: agentvmm.appliance.v1.AppliancePlan.kind:type_name -> agentvmm.appliance.v1.AppliancePlanKind
-	28, // 40: agentvmm.appliance.v1.AppliancePlan.impacts:type_name -> agentvmm.appliance.v1.ApplianceImpact
-	6,  // 41: agentvmm.appliance.v1.ApplianceOperation.kind:type_name -> agentvmm.appliance.v1.ApplianceOperationKind
-	4,  // 42: agentvmm.appliance.v1.ApplianceOperation.state:type_name -> agentvmm.appliance.v1.ApplianceOperationState
-	7,  // 43: agentvmm.appliance.v1.ApplianceOperation.phase:type_name -> agentvmm.appliance.v1.ApplianceOperationPhase
-	61, // 44: agentvmm.appliance.v1.ApplianceOperation.started_at:type_name -> google.protobuf.Timestamp
-	61, // 45: agentvmm.appliance.v1.ApplianceOperation.updated_at:type_name -> google.protobuf.Timestamp
-	30, // 46: agentvmm.appliance.v1.ApplianceOperation.error:type_name -> agentvmm.appliance.v1.ApplianceOperationError
-	8,  // 47: agentvmm.appliance.v1.ApplianceOperation.terminal_reason:type_name -> agentvmm.appliance.v1.ApplianceTerminalReason
-	31, // 48: agentvmm.appliance.v1.ApplianceOperationResponse.operation:type_name -> agentvmm.appliance.v1.ApplianceOperation
-	29, // 49: agentvmm.appliance.v1.AppliancePlanResponse.plan:type_name -> agentvmm.appliance.v1.AppliancePlan
-	27, // 50: agentvmm.appliance.v1.ApplianceStatusResponse.status:type_name -> agentvmm.appliance.v1.ApplianceStatus
-	17, // 51: agentvmm.appliance.v1.StageArtifactRequest.manifest:type_name -> agentvmm.appliance.v1.ControllerApplianceManifest
-	18, // 52: agentvmm.appliance.v1.PlanInstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	18, // 53: agentvmm.appliance.v1.InstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
-	27, // 54: agentvmm.appliance.v1.ListAppliancesResponse.appliances:type_name -> agentvmm.appliance.v1.ApplianceStatus
-	10, // 55: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:input_type -> agentvmm.appliance.v1.BuildArtifactRequest
-	35, // 56: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:input_type -> agentvmm.appliance.v1.StageArtifactRequest
-	36, // 57: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:input_type -> agentvmm.appliance.v1.PlanInstallRequest
-	37, // 58: agentvmm.appliance.v1.ApplianceAdminService.Install:input_type -> agentvmm.appliance.v1.InstallRequest
-	38, // 59: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:input_type -> agentvmm.appliance.v1.PlanActivationRequest
-	39, // 60: agentvmm.appliance.v1.ApplianceAdminService.Activate:input_type -> agentvmm.appliance.v1.ActivateRequest
-	40, // 61: agentvmm.appliance.v1.ApplianceAdminService.List:input_type -> agentvmm.appliance.v1.ListAppliancesRequest
-	42, // 62: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:input_type -> agentvmm.appliance.v1.GetApplianceStatusRequest
-	43, // 63: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:input_type -> agentvmm.appliance.v1.WatchApplianceOperationRequest
-	44, // 64: agentvmm.appliance.v1.ApplianceAdminService.Stop:input_type -> agentvmm.appliance.v1.StopApplianceRequest
-	45, // 65: agentvmm.appliance.v1.ApplianceAdminService.Restart:input_type -> agentvmm.appliance.v1.RestartApplianceRequest
-	46, // 66: agentvmm.appliance.v1.ApplianceAdminService.Revoke:input_type -> agentvmm.appliance.v1.RevokeApplianceRequest
-	47, // 67: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:input_type -> agentvmm.appliance.v1.PlanSealedRepairRequest
-	48, // 68: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:input_type -> agentvmm.appliance.v1.ExecuteSealedRepairRequest
-	49, // 69: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:input_type -> agentvmm.appliance.v1.PlanRemoveRequest
-	50, // 70: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:input_type -> agentvmm.appliance.v1.ExecuteRemoveRequest
-	24, // 71: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:input_type -> agentvmm.appliance.v1.HostBootstrapFrame
-	12, // 72: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:output_type -> agentvmm.appliance.v1.BuildArtifactResponse
-	32, // 73: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 74: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	32, // 75: agentvmm.appliance.v1.ApplianceAdminService.Install:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 76: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	32, // 77: agentvmm.appliance.v1.ApplianceAdminService.Activate:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	41, // 78: agentvmm.appliance.v1.ApplianceAdminService.List:output_type -> agentvmm.appliance.v1.ListAppliancesResponse
-	34, // 79: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:output_type -> agentvmm.appliance.v1.ApplianceStatusResponse
-	32, // 80: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	32, // 81: agentvmm.appliance.v1.ApplianceAdminService.Stop:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	32, // 82: agentvmm.appliance.v1.ApplianceAdminService.Restart:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	32, // 83: agentvmm.appliance.v1.ApplianceAdminService.Revoke:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 84: agentvmm.appliance.v1.ApplianceAdminService.PlanSealedRepair:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	32, // 85: agentvmm.appliance.v1.ApplianceAdminService.ExecuteSealedRepair:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	33, // 86: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
-	32, // 87: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
-	25, // 88: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:output_type -> agentvmm.appliance.v1.ApplianceBootstrapFrame
-	72, // [72:89] is the sub-list for method output_type
-	55, // [55:72] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	14, // 9: agentvmm.appliance.v1.ControllerFrontend.bounds:type_name -> agentvmm.appliance.v1.StreamBounds
+	14, // 10: agentvmm.appliance.v1.DynamicHostLoopbackGrant.connection_bounds:type_name -> agentvmm.appliance.v1.StreamBounds
+	72, // 11: agentvmm.appliance.v1.CapacityGrant.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	73, // 12: agentvmm.appliance.v1.CapacityGrant.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	17, // 13: agentvmm.appliance.v1.ControllerApplianceManifest.requested_capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
+	73, // 14: agentvmm.appliance.v1.ControllerApplianceManifest.requested_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	15, // 15: agentvmm.appliance.v1.ControllerApplianceManifest.requested_frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
+	16, // 16: agentvmm.appliance.v1.ControllerApplianceManifest.requested_dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
+	72, // 17: agentvmm.appliance.v1.ControllerApplianceManifest.system_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	55, // 18: agentvmm.appliance.v1.ControllerApplianceManifest.content_refs:type_name -> agentvmm.appliance.v1.ApplianceContentReference
+	17, // 19: agentvmm.appliance.v1.ApprovedGrant.capacity:type_name -> agentvmm.appliance.v1.CapacityGrant
+	73, // 20: agentvmm.appliance.v1.ApprovedGrant.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	15, // 21: agentvmm.appliance.v1.ApprovedGrant.frontends:type_name -> agentvmm.appliance.v1.ControllerFrontend
+	16, // 22: agentvmm.appliance.v1.ApprovedGrant.dynamic_host_loopback:type_name -> agentvmm.appliance.v1.DynamicHostLoopbackGrant
+	72, // 23: agentvmm.appliance.v1.ApprovedGrant.system_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	19, // 24: agentvmm.appliance.v1.ApprovedGrant.host_tcp_endpoints:type_name -> agentvmm.appliance.v1.HostTcpEndpoint
+	20, // 25: agentvmm.appliance.v1.ApplianceLaunchClaim.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	74, // 26: agentvmm.appliance.v1.ApplianceLaunchClaim.device_identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	56, // 27: agentvmm.appliance.v1.ApplianceLaunchClaim.content_mounts:type_name -> agentvmm.appliance.v1.ApplianceContentMount
+	75, // 28: agentvmm.appliance.v1.ApplianceManagedTrustBundle.trust_anchor:type_name -> agentvmm.trust.v1.TrustAnchor
+	76, // 29: agentvmm.appliance.v1.ApplianceManagedTrustBundle.membership_credential:type_name -> agentvmm.trust.v1.MembershipCredential
+	21, // 30: agentvmm.appliance.v1.HostBootstrapFrame.launch_claim:type_name -> agentvmm.appliance.v1.ApplianceLaunchClaim
+	23, // 31: agentvmm.appliance.v1.HostBootstrapFrame.envelope:type_name -> agentvmm.appliance.v1.OpaqueBootstrapEnvelope
+	24, // 32: agentvmm.appliance.v1.ApplianceBootstrapFrame.receipt:type_name -> agentvmm.appliance.v1.BootstrapReceipt
+	25, // 33: agentvmm.appliance.v1.ApplianceBootstrapFrame.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
+	22, // 34: agentvmm.appliance.v1.ApplianceBootstrapFrame.managed_trust:type_name -> agentvmm.appliance.v1.ApplianceManagedTrustBundle
+	0,  // 35: agentvmm.appliance.v1.ApplianceFrontendStatus.transport:type_name -> agentvmm.appliance.v1.FrontendTransport
+	1,  // 36: agentvmm.appliance.v1.ApplianceFrontendStatus.exposure:type_name -> agentvmm.appliance.v1.FrontendExposure
+	2,  // 37: agentvmm.appliance.v1.ApplianceStatus.appliance_state:type_name -> agentvmm.appliance.v1.ApplianceState
+	3,  // 38: agentvmm.appliance.v1.ApplianceStatus.channel_state:type_name -> agentvmm.appliance.v1.ControllerChannelState
+	20, // 39: agentvmm.appliance.v1.ApplianceStatus.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	28, // 40: agentvmm.appliance.v1.ApplianceStatus.frontends:type_name -> agentvmm.appliance.v1.ApplianceFrontendStatus
+	25, // 41: agentvmm.appliance.v1.ApplianceStatus.health:type_name -> agentvmm.appliance.v1.ApplianceHealth
+	5,  // 42: agentvmm.appliance.v1.AppliancePlan.kind:type_name -> agentvmm.appliance.v1.AppliancePlanKind
+	30, // 43: agentvmm.appliance.v1.AppliancePlan.impacts:type_name -> agentvmm.appliance.v1.ApplianceImpact
+	6,  // 44: agentvmm.appliance.v1.ApplianceOperation.kind:type_name -> agentvmm.appliance.v1.ApplianceOperationKind
+	4,  // 45: agentvmm.appliance.v1.ApplianceOperation.state:type_name -> agentvmm.appliance.v1.ApplianceOperationState
+	7,  // 46: agentvmm.appliance.v1.ApplianceOperation.phase:type_name -> agentvmm.appliance.v1.ApplianceOperationPhase
+	77, // 47: agentvmm.appliance.v1.ApplianceOperation.started_at:type_name -> google.protobuf.Timestamp
+	77, // 48: agentvmm.appliance.v1.ApplianceOperation.updated_at:type_name -> google.protobuf.Timestamp
+	32, // 49: agentvmm.appliance.v1.ApplianceOperation.error:type_name -> agentvmm.appliance.v1.ApplianceOperationError
+	8,  // 50: agentvmm.appliance.v1.ApplianceOperation.terminal_reason:type_name -> agentvmm.appliance.v1.ApplianceTerminalReason
+	33, // 51: agentvmm.appliance.v1.ApplianceOperationResponse.operation:type_name -> agentvmm.appliance.v1.ApplianceOperation
+	31, // 52: agentvmm.appliance.v1.AppliancePlanResponse.plan:type_name -> agentvmm.appliance.v1.AppliancePlan
+	29, // 53: agentvmm.appliance.v1.ApplianceStatusResponse.status:type_name -> agentvmm.appliance.v1.ApplianceStatus
+	18, // 54: agentvmm.appliance.v1.StageArtifactRequest.manifest:type_name -> agentvmm.appliance.v1.ControllerApplianceManifest
+	20, // 55: agentvmm.appliance.v1.PlanInstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	20, // 56: agentvmm.appliance.v1.InstallRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	29, // 57: agentvmm.appliance.v1.ListAppliancesResponse.appliances:type_name -> agentvmm.appliance.v1.ApplianceStatus
+	20, // 58: agentvmm.appliance.v1.PlanUpdateRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	20, // 59: agentvmm.appliance.v1.UpdateApplianceRequest.approved_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	52, // 60: agentvmm.appliance.v1.ApplianceUpdateProgress.request:type_name -> agentvmm.appliance.v1.UpdateApplianceRequest
+	20, // 61: agentvmm.appliance.v1.ApplianceUpdateProgress.source_grant:type_name -> agentvmm.appliance.v1.ApprovedGrant
+	53, // 62: agentvmm.appliance.v1.ApplianceUpdateProgress.recovery:type_name -> agentvmm.appliance.v1.RecoverApplianceUpdateRequest
+	9,  // 63: agentvmm.appliance.v1.ApplianceContentReference.role:type_name -> agentvmm.appliance.v1.ApplianceContentRole
+	55, // 64: agentvmm.appliance.v1.ApplianceContentMount.content:type_name -> agentvmm.appliance.v1.ApplianceContentReference
+	55, // 65: agentvmm.appliance.v1.StageContentHeader.content_ref:type_name -> agentvmm.appliance.v1.ApplianceContentReference
+	57, // 66: agentvmm.appliance.v1.StageContentRequest.header:type_name -> agentvmm.appliance.v1.StageContentHeader
+	55, // 67: agentvmm.appliance.v1.ApplianceContentStatus.content_ref:type_name -> agentvmm.appliance.v1.ApplianceContentReference
+	55, // 68: agentvmm.appliance.v1.GetContentStatusRequest.content_refs:type_name -> agentvmm.appliance.v1.ApplianceContentReference
+	59, // 69: agentvmm.appliance.v1.GetContentStatusResponse.contents:type_name -> agentvmm.appliance.v1.ApplianceContentStatus
+	78, // 70: agentvmm.appliance.v1.ListApplianceServiceImportsResponse.imports:type_name -> agentvmm.service.v1.ServiceImport
+	62, // 71: agentvmm.appliance.v1.ApplianceAdminService.CreateServiceImport:input_type -> agentvmm.appliance.v1.CreateApplianceServiceImportRequest
+	66, // 72: agentvmm.appliance.v1.ApplianceAdminService.CreateFrontendServiceImport:input_type -> agentvmm.appliance.v1.CreateApplianceFrontendServiceImportRequest
+	63, // 73: agentvmm.appliance.v1.ApplianceAdminService.ListServiceImports:input_type -> agentvmm.appliance.v1.ListApplianceServiceImportsRequest
+	65, // 74: agentvmm.appliance.v1.ApplianceAdminService.RevokeServiceImport:input_type -> agentvmm.appliance.v1.RevokeApplianceServiceImportRequest
+	11, // 75: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:input_type -> agentvmm.appliance.v1.BuildArtifactRequest
+	58, // 76: agentvmm.appliance.v1.ApplianceAdminService.StageContent:input_type -> agentvmm.appliance.v1.StageContentRequest
+	60, // 77: agentvmm.appliance.v1.ApplianceAdminService.GetContentStatus:input_type -> agentvmm.appliance.v1.GetContentStatusRequest
+	37, // 78: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:input_type -> agentvmm.appliance.v1.StageArtifactRequest
+	38, // 79: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:input_type -> agentvmm.appliance.v1.PlanInstallRequest
+	39, // 80: agentvmm.appliance.v1.ApplianceAdminService.Install:input_type -> agentvmm.appliance.v1.InstallRequest
+	51, // 81: agentvmm.appliance.v1.ApplianceAdminService.PlanUpdate:input_type -> agentvmm.appliance.v1.PlanUpdateRequest
+	52, // 82: agentvmm.appliance.v1.ApplianceAdminService.Update:input_type -> agentvmm.appliance.v1.UpdateApplianceRequest
+	53, // 83: agentvmm.appliance.v1.ApplianceAdminService.RecoverUpdate:input_type -> agentvmm.appliance.v1.RecoverApplianceUpdateRequest
+	40, // 84: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:input_type -> agentvmm.appliance.v1.PlanActivationRequest
+	41, // 85: agentvmm.appliance.v1.ApplianceAdminService.Activate:input_type -> agentvmm.appliance.v1.ActivateRequest
+	42, // 86: agentvmm.appliance.v1.ApplianceAdminService.List:input_type -> agentvmm.appliance.v1.ListAppliancesRequest
+	44, // 87: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:input_type -> agentvmm.appliance.v1.GetApplianceStatusRequest
+	45, // 88: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:input_type -> agentvmm.appliance.v1.WatchApplianceOperationRequest
+	46, // 89: agentvmm.appliance.v1.ApplianceAdminService.Stop:input_type -> agentvmm.appliance.v1.StopApplianceRequest
+	47, // 90: agentvmm.appliance.v1.ApplianceAdminService.Restart:input_type -> agentvmm.appliance.v1.RestartApplianceRequest
+	48, // 91: agentvmm.appliance.v1.ApplianceAdminService.Revoke:input_type -> agentvmm.appliance.v1.RevokeApplianceRequest
+	49, // 92: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:input_type -> agentvmm.appliance.v1.PlanRemoveRequest
+	50, // 93: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:input_type -> agentvmm.appliance.v1.ExecuteRemoveRequest
+	26, // 94: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:input_type -> agentvmm.appliance.v1.HostBootstrapFrame
+	78, // 95: agentvmm.appliance.v1.ApplianceAdminService.CreateServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	78, // 96: agentvmm.appliance.v1.ApplianceAdminService.CreateFrontendServiceImport:output_type -> agentvmm.service.v1.ServiceImport
+	64, // 97: agentvmm.appliance.v1.ApplianceAdminService.ListServiceImports:output_type -> agentvmm.appliance.v1.ListApplianceServiceImportsResponse
+	79, // 98: agentvmm.appliance.v1.ApplianceAdminService.RevokeServiceImport:output_type -> google.protobuf.Empty
+	13, // 99: agentvmm.appliance.v1.ApplianceAdminService.BuildArtifact:output_type -> agentvmm.appliance.v1.BuildArtifactResponse
+	34, // 100: agentvmm.appliance.v1.ApplianceAdminService.StageContent:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	61, // 101: agentvmm.appliance.v1.ApplianceAdminService.GetContentStatus:output_type -> agentvmm.appliance.v1.GetContentStatusResponse
+	34, // 102: agentvmm.appliance.v1.ApplianceAdminService.StageArtifact:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	35, // 103: agentvmm.appliance.v1.ApplianceAdminService.PlanInstall:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	34, // 104: agentvmm.appliance.v1.ApplianceAdminService.Install:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	35, // 105: agentvmm.appliance.v1.ApplianceAdminService.PlanUpdate:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	34, // 106: agentvmm.appliance.v1.ApplianceAdminService.Update:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 107: agentvmm.appliance.v1.ApplianceAdminService.RecoverUpdate:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	35, // 108: agentvmm.appliance.v1.ApplianceAdminService.PlanActivation:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	34, // 109: agentvmm.appliance.v1.ApplianceAdminService.Activate:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	43, // 110: agentvmm.appliance.v1.ApplianceAdminService.List:output_type -> agentvmm.appliance.v1.ListAppliancesResponse
+	36, // 111: agentvmm.appliance.v1.ApplianceAdminService.GetStatus:output_type -> agentvmm.appliance.v1.ApplianceStatusResponse
+	34, // 112: agentvmm.appliance.v1.ApplianceAdminService.WatchOperation:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 113: agentvmm.appliance.v1.ApplianceAdminService.Stop:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 114: agentvmm.appliance.v1.ApplianceAdminService.Restart:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	34, // 115: agentvmm.appliance.v1.ApplianceAdminService.Revoke:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	35, // 116: agentvmm.appliance.v1.ApplianceAdminService.PlanRemove:output_type -> agentvmm.appliance.v1.AppliancePlanResponse
+	34, // 117: agentvmm.appliance.v1.ApplianceAdminService.ExecuteRemove:output_type -> agentvmm.appliance.v1.ApplianceOperationResponse
+	27, // 118: agentvmm.appliance.v1.ApplianceBootstrapService.Bootstrap:output_type -> agentvmm.appliance.v1.ApplianceBootstrapFrame
+	95, // [95:119] is the sub-list for method output_type
+	71, // [71:95] is the sub-list for method input_type
+	71, // [71:71] is the sub-list for extension type_name
+	71, // [71:71] is the sub-list for extension extendee
+	0,  // [0:71] is the sub-list for field type_name
 }
 
 func init() { file_appliance_v1_appliance_proto_init() }
@@ -4463,24 +5810,29 @@ func file_appliance_v1_appliance_proto_init() {
 		(*BuildArtifactResponse_ArchiveChunk)(nil),
 		(*BuildArtifactResponse_Result)(nil),
 	}
-	file_appliance_v1_appliance_proto_msgTypes[15].OneofWrappers = []any{
+	file_appliance_v1_appliance_proto_msgTypes[16].OneofWrappers = []any{
 		(*HostBootstrapFrame_LaunchClaim)(nil),
 		(*HostBootstrapFrame_Envelope)(nil),
 		(*HostBootstrapFrame_CloseWrite)(nil),
 	}
-	file_appliance_v1_appliance_proto_msgTypes[16].OneofWrappers = []any{
+	file_appliance_v1_appliance_proto_msgTypes[17].OneofWrappers = []any{
 		(*ApplianceBootstrapFrame_Receipt)(nil),
 		(*ApplianceBootstrapFrame_Health)(nil),
 		(*ApplianceBootstrapFrame_CloseWrite)(nil),
 		(*ApplianceBootstrapFrame_ManagedTrust)(nil),
+	}
+	file_appliance_v1_appliance_proto_msgTypes[19].OneofWrappers = []any{}
+	file_appliance_v1_appliance_proto_msgTypes[48].OneofWrappers = []any{
+		(*StageContentRequest_Header)(nil),
+		(*StageContentRequest_ArchiveChunk)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_appliance_v1_appliance_proto_rawDesc), len(file_appliance_v1_appliance_proto_rawDesc)),
-			NumEnums:      9,
-			NumMessages:   42,
+			NumEnums:      10,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

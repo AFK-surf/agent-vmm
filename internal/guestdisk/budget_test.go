@@ -1,6 +1,7 @@
 package guestdisk
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -44,24 +45,39 @@ func TestOverflowFailsClosed(t *testing.T) {
 }
 
 func TestImportHasTwoGiBMinimumReservation(t *testing.T) {
-	snapshot := Snapshot{CapacityBytes: 32 << 30, UsedBytes: 20 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
-	var reserved uint64
-	if err := new(Budget).ReserveImportHeadroom(func(*Transaction) (Snapshot, error) { return snapshot, nil }, func(value uint64) error { reserved = value; return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if reserved != 7<<30 {
-		t.Fatalf("reserved = %d", reserved)
+	for _, available := range []uint64{7 << 30, 2551894016, MinimumImportBytes, MinimumImportBytes - 4096} {
+		snapshot := Snapshot{CapacityBytes: 64 << 30, NamespaceCommitmentBytes: 8<<30 - 452395008, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30, AllocationUnitBytes: 4096}
+		snapshot.UsedBytes = snapshot.CapacityBytes - snapshot.NamespaceCommitmentBytes - snapshot.EmergencyBytes - snapshot.MetadataGrowthBytes - available
+		var reserved uint64
+		err := new(Budget).ReserveImportHeadroom(func(*Transaction) (Snapshot, error) { return snapshot, nil }, func(value uint64) error { reserved = value; return nil })
+		if available < MinimumImportBytes {
+			if !errors.Is(err, ErrCapacityUnavailable) || reserved != 0 {
+				t.Fatalf("insufficient headroom reserved=%d err=%v", reserved, err)
+			}
+		} else if err != nil || reserved != available {
+			t.Fatalf("available=%d reserved=%d err=%v", available, reserved, err)
+		}
 	}
 }
 
 func TestColdImportReservesAllUncommittedHeadroomWithoutCompressionGuess(t *testing.T) {
-	snapshot := Snapshot{CapacityBytes: 32 << 30, UsedBytes: 13 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}
-	var reserved uint64
-	if err := new(Budget).ReserveImportHeadroom(func(*Transaction) (Snapshot, error) { return snapshot, nil }, func(value uint64) error { reserved = value; return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if reserved != 14<<30 {
-		t.Fatalf("reserved=%d want=%d", reserved, uint64(14<<30))
+	for _, test := range []struct {
+		name     string
+		snapshot Snapshot
+		reserved uint64
+	}{
+		{name: "normal", snapshot: Snapshot{CapacityBytes: 32 << 30, UsedBytes: 13 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30}, reserved: 14 << 30},
+		{name: "committed guest below pressure watermark", snapshot: Snapshot{CapacityBytes: 55837716480, UsedBytes: 15151292416, NamespaceCommitmentBytes: 30053478400, EmergencyBytes: DefaultEmergencyBytes, MetadataGrowthBytes: DefaultMetadataBytes, AllocationUnitBytes: 4096, Inodes: 3670016, FreeInodes: 3475784}, reserved: 5264236544},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var reserved uint64
+			if err := new(Budget).ReserveImportHeadroom(func(*Transaction) (Snapshot, error) { return test.snapshot, nil }, func(value uint64) error { reserved = value; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if reserved != test.reserved {
+				t.Fatalf("reserved=%d want=%d", reserved, test.reserved)
+			}
+		})
 	}
 }
 
@@ -88,10 +104,10 @@ func TestInodePressureRejectsColdGrowthWithFreeBytes(t *testing.T) {
 }
 
 func TestControlPartitionBudgetsLeaveFixedReserve(t *testing.T) {
-	if ControlSystemBytes+ControlImageBytes+ControlReserveBytes != ControlPartitionBytes {
+	if ControlSystemBytes+ControlReserveBytes != ControlPartitionBytes {
 		t.Fatal("control filesystem budgets do not cover the partition")
 	}
-	if ControlReserveBytes != 2<<30 {
+	if ControlReserveBytes != 4<<30 {
 		t.Fatalf("control filesystem reserve=%d", ControlReserveBytes)
 	}
 }

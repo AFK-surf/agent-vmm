@@ -237,11 +237,27 @@ public nonisolated struct Agentvmm_Service_V1_ServiceExport: Sendable {
   /// Clears the value of `createdAt`. Subsequent reads from it will return its default value.
   public mutating func clearCreatedAt() {self._createdAt = nil}
 
+  public var containerGenerationID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _createdAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+}
+
+public nonisolated struct Agentvmm_Service_V1_ApplianceFrontendDestination: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var installationID: String = String()
+
+  public var name: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 public nonisolated struct Agentvmm_Service_V1_ServiceImport: Sendable {
@@ -269,62 +285,139 @@ public nonisolated struct Agentvmm_Service_V1_ServiceImport: Sendable {
 
   public var destinationPort: UInt32 = 0
 
+  public var sourceInstallationID: String = String()
+
+  public var destinationFrontend: Agentvmm_Service_V1_ApplianceFrontendDestination {
+    get {_destinationFrontend ?? Agentvmm_Service_V1_ApplianceFrontendDestination()}
+    set {_destinationFrontend = newValue}
+  }
+  /// Returns true if `destinationFrontend` has been explicitly set.
+  public var hasDestinationFrontend: Bool {self._destinationFrontend != nil}
+  /// Clears the value of `destinationFrontend`. Subsequent reads from it will return its default value.
+  public mutating func clearDestinationFrontend() {self._destinationFrontend = nil}
+
+  public var sourceContainerGenerationID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _destinationFrontend: Agentvmm_Service_V1_ApplianceFrontendDestination? = nil
 }
 
-public nonisolated struct Agentvmm_Service_V1_AccessRoute: Sendable {
+public nonisolated struct Agentvmm_Service_V1_AccessRoute: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var routeID: String = String()
+  public var routeID: String {
+    get {_storage._routeID}
+    set {_uniqueStorage()._routeID = newValue}
+  }
 
-  public var routeClass: Agentvmm_Service_V1_RouteClass = .unspecified
+  public var routeClass: Agentvmm_Service_V1_RouteClass {
+    get {_storage._routeClass}
+    set {_uniqueStorage()._routeClass = newValue}
+  }
 
-  public var sourceDeviceID: String = String()
+  public var sourceDeviceID: String {
+    get {_storage._sourceDeviceID}
+    set {_uniqueStorage()._sourceDeviceID = newValue}
+  }
 
   public var sourceAllocationID: String {
-    get {_sourceAllocationID ?? String()}
-    set {_sourceAllocationID = newValue}
+    get {_storage._sourceAllocationID ?? String()}
+    set {_uniqueStorage()._sourceAllocationID = newValue}
   }
   /// Returns true if `sourceAllocationID` has been explicitly set.
-  public var hasSourceAllocationID: Bool {self._sourceAllocationID != nil}
+  public var hasSourceAllocationID: Bool {_storage._sourceAllocationID != nil}
   /// Clears the value of `sourceAllocationID`. Subsequent reads from it will return its default value.
-  public mutating func clearSourceAllocationID() {self._sourceAllocationID = nil}
+  public mutating func clearSourceAllocationID() {_uniqueStorage()._sourceAllocationID = nil}
 
-  public var destinationDeviceID: String = String()
+  public var destinationDeviceID: String {
+    get {_storage._destinationDeviceID}
+    set {_uniqueStorage()._destinationDeviceID = newValue}
+  }
 
-  public var destinationExportID: String = String()
+  public var destinationExportID: String {
+    get {_storage._destinationExportID}
+    set {_uniqueStorage()._destinationExportID = newValue}
+  }
 
-  public var state: Agentvmm_Service_V1_RouteState = .unspecified
+  public var state: Agentvmm_Service_V1_RouteState {
+    get {_storage._state}
+    set {_uniqueStorage()._state = newValue}
+  }
 
-  public var revision: UInt64 = 0
+  public var revision: UInt64 {
+    get {_storage._revision}
+    set {_uniqueStorage()._revision = newValue}
+  }
 
-  public var generation: UInt64 = 0
+  public var generation: UInt64 {
+    get {_storage._generation}
+    set {_uniqueStorage()._generation = newValue}
+  }
 
   public var expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {_expiresAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
-    set {_expiresAt = newValue}
+    get {_storage._expiresAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_uniqueStorage()._expiresAt = newValue}
   }
   /// Returns true if `expiresAt` has been explicitly set.
-  public var hasExpiresAt: Bool {self._expiresAt != nil}
+  public var hasExpiresAt: Bool {_storage._expiresAt != nil}
   /// Clears the value of `expiresAt`. Subsequent reads from it will return its default value.
-  public mutating func clearExpiresAt() {self._expiresAt = nil}
+  public mutating func clearExpiresAt() {_uniqueStorage()._expiresAt = nil}
 
-  public var sourceEnvironmentID: String = String()
+  public var sourceEnvironmentID: String {
+    get {_storage._sourceEnvironmentID}
+    set {_uniqueStorage()._sourceEnvironmentID = newValue}
+  }
 
-  public var sourceContainerInstanceID: String = String()
+  public var sourceContainerInstanceID: String {
+    get {_storage._sourceContainerInstanceID}
+    set {_uniqueStorage()._sourceContainerInstanceID = newValue}
+  }
 
-  public var policyRevision: UInt64 = 0
+  public var policyRevision: UInt64 {
+    get {_storage._policyRevision}
+    set {_uniqueStorage()._policyRevision = newValue}
+  }
+
+  public var sourceInstallationID: String {
+    get {_storage._sourceInstallationID}
+    set {_uniqueStorage()._sourceInstallationID = newValue}
+  }
+
+  public var sourceBootID: String {
+    get {_storage._sourceBootID}
+    set {_uniqueStorage()._sourceBootID = newValue}
+  }
+
+  public var destinationInstallationID: String {
+    get {_storage._destinationInstallationID}
+    set {_uniqueStorage()._destinationInstallationID = newValue}
+  }
+
+  public var destinationBootID: String {
+    get {_storage._destinationBootID}
+    set {_uniqueStorage()._destinationBootID = newValue}
+  }
+
+  public var destinationContainerInstanceID: String {
+    get {_storage._destinationContainerInstanceID}
+    set {_uniqueStorage()._destinationContainerInstanceID = newValue}
+  }
+
+  public var destinationGrantRevision: UInt64 {
+    get {_storage._destinationGrantRevision}
+    set {_uniqueStorage()._destinationGrantRevision = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _sourceAllocationID: String? = nil
-  fileprivate var _expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Agentvmm_Service_V1_RouteLease: Sendable {
@@ -667,7 +760,7 @@ nonisolated extension Agentvmm_Service_V1_ServiceProtocol: SwiftProtobuf._ProtoN
 
 nonisolated extension Agentvmm_Service_V1_ServiceExport: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ServiceExport"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}export_id\0\u{3}environment_id\0\u{3}container_id\0\u{3}container_instance_id\0\u{1}port\0\u{1}protocol\0\u{1}revision\0\u{1}revoked\0\u{3}created_at\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}export_id\0\u{3}environment_id\0\u{3}container_id\0\u{3}container_instance_id\0\u{1}port\0\u{1}protocol\0\u{1}revision\0\u{1}revoked\0\u{3}created_at\0\u{3}container_generation_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -684,6 +777,7 @@ nonisolated extension Agentvmm_Service_V1_ServiceExport: SwiftProtobuf.Message, 
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
       case 8: try { try decoder.decodeSingularBoolField(value: &self.revoked) }()
       case 9: try { try decoder.decodeSingularMessageField(value: &self._createdAt) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.containerGenerationID) }()
       default: break
       }
     }
@@ -721,6 +815,9 @@ nonisolated extension Agentvmm_Service_V1_ServiceExport: SwiftProtobuf.Message, 
     try { if let v = self._createdAt {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
     } }()
+    if !self.containerGenerationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerGenerationID, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -734,6 +831,42 @@ nonisolated extension Agentvmm_Service_V1_ServiceExport: SwiftProtobuf.Message, 
     if lhs.revision != rhs.revision {return false}
     if lhs.revoked != rhs.revoked {return false}
     if lhs._createdAt != rhs._createdAt {return false}
+    if lhs.containerGenerationID != rhs.containerGenerationID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Service_V1_ApplianceFrontendDestination: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ApplianceFrontendDestination"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}installation_id\0\u{1}name\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.installationID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.installationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.installationID, fieldNumber: 1)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Service_V1_ApplianceFrontendDestination, rhs: Agentvmm_Service_V1_ApplianceFrontendDestination) -> Bool {
+    if lhs.installationID != rhs.installationID {return false}
+    if lhs.name != rhs.name {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -741,7 +874,7 @@ nonisolated extension Agentvmm_Service_V1_ServiceExport: SwiftProtobuf.Message, 
 
 nonisolated extension Agentvmm_Service_V1_ServiceImport: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ServiceImport"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}import_id\0\u{3}source_environment_id\0\u{3}source_container_id\0\u{3}source_container_instance_id\0\u{3}destination_device_id\0\u{3}destination_export_id\0\u{3}virtual_service_name\0\u{1}revision\0\u{1}revoked\0\u{3}destination_port\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}import_id\0\u{3}source_environment_id\0\u{3}source_container_id\0\u{3}source_container_instance_id\0\u{3}destination_device_id\0\u{3}destination_export_id\0\u{3}virtual_service_name\0\u{1}revision\0\u{1}revoked\0\u{3}destination_port\0\u{3}source_installation_id\0\u{3}destination_frontend\0\u{3}source_container_generation_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -759,12 +892,19 @@ nonisolated extension Agentvmm_Service_V1_ServiceImport: SwiftProtobuf.Message, 
       case 8: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
       case 9: try { try decoder.decodeSingularBoolField(value: &self.revoked) }()
       case 10: try { try decoder.decodeSingularUInt32Field(value: &self.destinationPort) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self.sourceInstallationID) }()
+      case 12: try { try decoder.decodeSingularMessageField(value: &self._destinationFrontend) }()
+      case 13: try { try decoder.decodeSingularStringField(value: &self.sourceContainerGenerationID) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.importID.isEmpty {
       try visitor.visitSingularStringField(value: self.importID, fieldNumber: 1)
     }
@@ -795,6 +935,15 @@ nonisolated extension Agentvmm_Service_V1_ServiceImport: SwiftProtobuf.Message, 
     if self.destinationPort != 0 {
       try visitor.visitSingularUInt32Field(value: self.destinationPort, fieldNumber: 10)
     }
+    if !self.sourceInstallationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sourceInstallationID, fieldNumber: 11)
+    }
+    try { if let v = self._destinationFrontend {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
+    } }()
+    if !self.sourceContainerGenerationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sourceContainerGenerationID, fieldNumber: 13)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -809,6 +958,9 @@ nonisolated extension Agentvmm_Service_V1_ServiceImport: SwiftProtobuf.Message, 
     if lhs.revision != rhs.revision {return false}
     if lhs.revoked != rhs.revoked {return false}
     if lhs.destinationPort != rhs.destinationPort {return false}
+    if lhs.sourceInstallationID != rhs.sourceInstallationID {return false}
+    if lhs._destinationFrontend != rhs._destinationFrontend {return false}
+    if lhs.sourceContainerGenerationID != rhs.sourceContainerGenerationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -816,93 +968,195 @@ nonisolated extension Agentvmm_Service_V1_ServiceImport: SwiftProtobuf.Message, 
 
 nonisolated extension Agentvmm_Service_V1_AccessRoute: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AccessRoute"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}route_id\0\u{3}route_class\0\u{3}source_device_id\0\u{3}source_allocation_id\0\u{3}destination_device_id\0\u{3}destination_export_id\0\u{1}state\0\u{1}revision\0\u{1}generation\0\u{3}expires_at\0\u{3}source_environment_id\0\u{3}source_container_instance_id\0\u{3}policy_revision\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}route_id\0\u{3}route_class\0\u{3}source_device_id\0\u{3}source_allocation_id\0\u{3}destination_device_id\0\u{3}destination_export_id\0\u{1}state\0\u{1}revision\0\u{1}generation\0\u{3}expires_at\0\u{3}source_environment_id\0\u{3}source_container_instance_id\0\u{3}policy_revision\0\u{3}source_installation_id\0\u{3}source_boot_id\0\u{3}destination_installation_id\0\u{3}destination_boot_id\0\u{3}destination_container_instance_id\0\u{3}destination_grant_revision\0")
+
+  fileprivate class _StorageClass {
+    var _routeID: String = String()
+    var _routeClass: Agentvmm_Service_V1_RouteClass = .unspecified
+    var _sourceDeviceID: String = String()
+    var _sourceAllocationID: String? = nil
+    var _destinationDeviceID: String = String()
+    var _destinationExportID: String = String()
+    var _state: Agentvmm_Service_V1_RouteState = .unspecified
+    var _revision: UInt64 = 0
+    var _generation: UInt64 = 0
+    var _expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+    var _sourceEnvironmentID: String = String()
+    var _sourceContainerInstanceID: String = String()
+    var _policyRevision: UInt64 = 0
+    var _sourceInstallationID: String = String()
+    var _sourceBootID: String = String()
+    var _destinationInstallationID: String = String()
+    var _destinationBootID: String = String()
+    var _destinationContainerInstanceID: String = String()
+    var _destinationGrantRevision: UInt64 = 0
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _routeID = source._routeID
+      _routeClass = source._routeClass
+      _sourceDeviceID = source._sourceDeviceID
+      _sourceAllocationID = source._sourceAllocationID
+      _destinationDeviceID = source._destinationDeviceID
+      _destinationExportID = source._destinationExportID
+      _state = source._state
+      _revision = source._revision
+      _generation = source._generation
+      _expiresAt = source._expiresAt
+      _sourceEnvironmentID = source._sourceEnvironmentID
+      _sourceContainerInstanceID = source._sourceContainerInstanceID
+      _policyRevision = source._policyRevision
+      _sourceInstallationID = source._sourceInstallationID
+      _sourceBootID = source._sourceBootID
+      _destinationInstallationID = source._destinationInstallationID
+      _destinationBootID = source._destinationBootID
+      _destinationContainerInstanceID = source._destinationContainerInstanceID
+      _destinationGrantRevision = source._destinationGrantRevision
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.routeID) }()
-      case 2: try { try decoder.decodeSingularEnumField(value: &self.routeClass) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.sourceDeviceID) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self._sourceAllocationID) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.destinationDeviceID) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.destinationExportID) }()
-      case 7: try { try decoder.decodeSingularEnumField(value: &self.state) }()
-      case 8: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
-      case 9: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
-      case 10: try { try decoder.decodeSingularMessageField(value: &self._expiresAt) }()
-      case 11: try { try decoder.decodeSingularStringField(value: &self.sourceEnvironmentID) }()
-      case 12: try { try decoder.decodeSingularStringField(value: &self.sourceContainerInstanceID) }()
-      case 13: try { try decoder.decodeSingularUInt64Field(value: &self.policyRevision) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._routeID) }()
+        case 2: try { try decoder.decodeSingularEnumField(value: &_storage._routeClass) }()
+        case 3: try { try decoder.decodeSingularStringField(value: &_storage._sourceDeviceID) }()
+        case 4: try { try decoder.decodeSingularStringField(value: &_storage._sourceAllocationID) }()
+        case 5: try { try decoder.decodeSingularStringField(value: &_storage._destinationDeviceID) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._destinationExportID) }()
+        case 7: try { try decoder.decodeSingularEnumField(value: &_storage._state) }()
+        case 8: try { try decoder.decodeSingularUInt64Field(value: &_storage._revision) }()
+        case 9: try { try decoder.decodeSingularUInt64Field(value: &_storage._generation) }()
+        case 10: try { try decoder.decodeSingularMessageField(value: &_storage._expiresAt) }()
+        case 11: try { try decoder.decodeSingularStringField(value: &_storage._sourceEnvironmentID) }()
+        case 12: try { try decoder.decodeSingularStringField(value: &_storage._sourceContainerInstanceID) }()
+        case 13: try { try decoder.decodeSingularUInt64Field(value: &_storage._policyRevision) }()
+        case 14: try { try decoder.decodeSingularStringField(value: &_storage._sourceInstallationID) }()
+        case 15: try { try decoder.decodeSingularStringField(value: &_storage._sourceBootID) }()
+        case 16: try { try decoder.decodeSingularStringField(value: &_storage._destinationInstallationID) }()
+        case 17: try { try decoder.decodeSingularStringField(value: &_storage._destinationBootID) }()
+        case 18: try { try decoder.decodeSingularStringField(value: &_storage._destinationContainerInstanceID) }()
+        case 19: try { try decoder.decodeSingularUInt64Field(value: &_storage._destinationGrantRevision) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.routeID.isEmpty {
-      try visitor.visitSingularStringField(value: self.routeID, fieldNumber: 1)
-    }
-    if self.routeClass != .unspecified {
-      try visitor.visitSingularEnumField(value: self.routeClass, fieldNumber: 2)
-    }
-    if !self.sourceDeviceID.isEmpty {
-      try visitor.visitSingularStringField(value: self.sourceDeviceID, fieldNumber: 3)
-    }
-    try { if let v = self._sourceAllocationID {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 4)
-    } }()
-    if !self.destinationDeviceID.isEmpty {
-      try visitor.visitSingularStringField(value: self.destinationDeviceID, fieldNumber: 5)
-    }
-    if !self.destinationExportID.isEmpty {
-      try visitor.visitSingularStringField(value: self.destinationExportID, fieldNumber: 6)
-    }
-    if self.state != .unspecified {
-      try visitor.visitSingularEnumField(value: self.state, fieldNumber: 7)
-    }
-    if self.revision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 8)
-    }
-    if self.generation != 0 {
-      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 9)
-    }
-    try { if let v = self._expiresAt {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
-    } }()
-    if !self.sourceEnvironmentID.isEmpty {
-      try visitor.visitSingularStringField(value: self.sourceEnvironmentID, fieldNumber: 11)
-    }
-    if !self.sourceContainerInstanceID.isEmpty {
-      try visitor.visitSingularStringField(value: self.sourceContainerInstanceID, fieldNumber: 12)
-    }
-    if self.policyRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.policyRevision, fieldNumber: 13)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      if !_storage._routeID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._routeID, fieldNumber: 1)
+      }
+      if _storage._routeClass != .unspecified {
+        try visitor.visitSingularEnumField(value: _storage._routeClass, fieldNumber: 2)
+      }
+      if !_storage._sourceDeviceID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourceDeviceID, fieldNumber: 3)
+      }
+      try { if let v = _storage._sourceAllocationID {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 4)
+      } }()
+      if !_storage._destinationDeviceID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._destinationDeviceID, fieldNumber: 5)
+      }
+      if !_storage._destinationExportID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._destinationExportID, fieldNumber: 6)
+      }
+      if _storage._state != .unspecified {
+        try visitor.visitSingularEnumField(value: _storage._state, fieldNumber: 7)
+      }
+      if _storage._revision != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._revision, fieldNumber: 8)
+      }
+      if _storage._generation != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._generation, fieldNumber: 9)
+      }
+      try { if let v = _storage._expiresAt {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+      } }()
+      if !_storage._sourceEnvironmentID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourceEnvironmentID, fieldNumber: 11)
+      }
+      if !_storage._sourceContainerInstanceID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourceContainerInstanceID, fieldNumber: 12)
+      }
+      if _storage._policyRevision != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._policyRevision, fieldNumber: 13)
+      }
+      if !_storage._sourceInstallationID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourceInstallationID, fieldNumber: 14)
+      }
+      if !_storage._sourceBootID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourceBootID, fieldNumber: 15)
+      }
+      if !_storage._destinationInstallationID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._destinationInstallationID, fieldNumber: 16)
+      }
+      if !_storage._destinationBootID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._destinationBootID, fieldNumber: 17)
+      }
+      if !_storage._destinationContainerInstanceID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._destinationContainerInstanceID, fieldNumber: 18)
+      }
+      if _storage._destinationGrantRevision != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._destinationGrantRevision, fieldNumber: 19)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Service_V1_AccessRoute, rhs: Agentvmm_Service_V1_AccessRoute) -> Bool {
-    if lhs.routeID != rhs.routeID {return false}
-    if lhs.routeClass != rhs.routeClass {return false}
-    if lhs.sourceDeviceID != rhs.sourceDeviceID {return false}
-    if lhs._sourceAllocationID != rhs._sourceAllocationID {return false}
-    if lhs.destinationDeviceID != rhs.destinationDeviceID {return false}
-    if lhs.destinationExportID != rhs.destinationExportID {return false}
-    if lhs.state != rhs.state {return false}
-    if lhs.revision != rhs.revision {return false}
-    if lhs.generation != rhs.generation {return false}
-    if lhs._expiresAt != rhs._expiresAt {return false}
-    if lhs.sourceEnvironmentID != rhs.sourceEnvironmentID {return false}
-    if lhs.sourceContainerInstanceID != rhs.sourceContainerInstanceID {return false}
-    if lhs.policyRevision != rhs.policyRevision {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._routeID != rhs_storage._routeID {return false}
+        if _storage._routeClass != rhs_storage._routeClass {return false}
+        if _storage._sourceDeviceID != rhs_storage._sourceDeviceID {return false}
+        if _storage._sourceAllocationID != rhs_storage._sourceAllocationID {return false}
+        if _storage._destinationDeviceID != rhs_storage._destinationDeviceID {return false}
+        if _storage._destinationExportID != rhs_storage._destinationExportID {return false}
+        if _storage._state != rhs_storage._state {return false}
+        if _storage._revision != rhs_storage._revision {return false}
+        if _storage._generation != rhs_storage._generation {return false}
+        if _storage._expiresAt != rhs_storage._expiresAt {return false}
+        if _storage._sourceEnvironmentID != rhs_storage._sourceEnvironmentID {return false}
+        if _storage._sourceContainerInstanceID != rhs_storage._sourceContainerInstanceID {return false}
+        if _storage._policyRevision != rhs_storage._policyRevision {return false}
+        if _storage._sourceInstallationID != rhs_storage._sourceInstallationID {return false}
+        if _storage._sourceBootID != rhs_storage._sourceBootID {return false}
+        if _storage._destinationInstallationID != rhs_storage._destinationInstallationID {return false}
+        if _storage._destinationBootID != rhs_storage._destinationBootID {return false}
+        if _storage._destinationContainerInstanceID != rhs_storage._destinationContainerInstanceID {return false}
+        if _storage._destinationGrantRevision != rhs_storage._destinationGrantRevision {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

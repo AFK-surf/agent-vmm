@@ -8,10 +8,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"math/bits"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -30,6 +32,9 @@ type importReservation struct {
 }
 
 func (r *Runtime) guardBuilderOCIGrowth(ctx context.Context, identity string, run func() error) error {
+	if strings.HasPrefix(identity, "cache-write\x00") {
+		return r.guardBuilderCacheGrowth(ctx, identity, run)
+	}
 	return r.guardOCIPhysicalGrowth(ctx, "builder\x00"+identity, true, run)
 }
 
@@ -42,7 +47,7 @@ func (r *Runtime) lockImportSlot(digest string) (func(), error) {
 }
 
 // guardOCIPhysicalGrowth serializes any operation that can materialize bulk
-// content or native-snapshot blocks through the same physical I reservation
+// content or overlay-snapshot blocks through the same physical I reservation
 // and project-9000 hard ceiling as image import. BuildMaterializationBudget.tla
 // keeps local reserve-to-settle indivisible to metadata and fences canceled waits.
 func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, waitForSlot bool, run func() error) error {
@@ -60,11 +65,15 @@ func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, w
 	}
 	defer unlock()
 	header := &vmmdv1.ImportImageHeader{RequestId: "oci-growth-" + hex.EncodeToString(digest[:24]), ManifestDigest: digestText}
+	return r.guardOCIPhysicalGrowthLocked(ctx, header, run)
+}
+
+func (r *Runtime) guardOCIPhysicalGrowthLocked(ctx context.Context, header *vmmdv1.ImportImageHeader, run func() error) error {
 	return r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		reservation, err := r.reserveImportLocked(ctx, header, true, transaction)
+		reservation, err := r.reserveImportLocked(ctx, header, transaction)
 		if err != nil {
 			return err
 		}
@@ -145,17 +154,17 @@ func (r *Runtime) guardOCIProjectGrowth(transaction *guestdisk.Transaction, rese
 	return run()
 }
 
-func (r *Runtime) reserveImport(ctx context.Context, header *vmmdv1.ImportImageHeader, materializerHeld bool) (*importReservation, error) {
+func (r *Runtime) reserveImport(ctx context.Context, header *vmmdv1.ImportImageHeader) (*importReservation, error) {
 	var reservation *importReservation
 	err := r.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
 		var err error
-		reservation, err = r.reserveImportLocked(ctx, header, materializerHeld, transaction)
+		reservation, err = r.reserveImportLocked(ctx, header, transaction)
 		return err
 	})
 	return reservation, err
 }
 
-func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.ImportImageHeader, materializerHeld bool, transaction *guestdisk.Transaction) (*importReservation, error) {
+func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.ImportImageHeader, transaction *guestdisk.Transaction) (*importReservation, error) {
 	var lastSnapshot guestdisk.Snapshot
 	loadSnapshot := func(transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
 		snapshot, err := r.guestDiskSnapshot(ctx)
@@ -163,19 +172,7 @@ func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.Import
 			return guestdisk.Snapshot{}, err
 		}
 		lastSnapshot = snapshot
-		if snapshot.Pressure() >= guestdisk.PressureGC {
-			if _, err := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, materializerHeld, transaction); err != nil {
-				return guestdisk.Snapshot{}, err
-			}
-			snapshot, err = r.guestDiskSnapshot(ctx)
-			if err != nil {
-				return guestdisk.Snapshot{}, err
-			}
-			lastSnapshot = snapshot
-		}
-		if snapshot.Pressure() >= guestdisk.PressureRejectCold {
-			return guestdisk.Snapshot{}, guestdisk.ErrCapacityUnavailable
-		}
+
 		return snapshot, nil
 	}
 	identity := sha256.Sum256([]byte(header.GetManifestDigest() + "\x00" + header.GetRequestId()))
@@ -200,7 +197,8 @@ func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.Import
 	}
 	err := transaction.ReserveImportHeadroom(loadSnapshot, commit)
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		if _, gcErr := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, materializerHeld, transaction); gcErr != nil {
+		log.Printf("OCI import reservation unavailable: request_id=%q manifest_digest=%q capacity=%q", header.GetRequestId(), header.GetManifestDigest(), ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot))
+		if _, gcErr := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, true, transaction, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot)); gcErr != nil {
 			return nil, gcErr
 		}
 		err = transaction.ReserveImportHeadroom(loadSnapshot, commit)
@@ -315,19 +313,26 @@ func writeImportReservation(path, holdPath string, value uint64) error {
 	return handle.Sync()
 }
 
-// Project 9000 bounds shared image materialization independently on each
-// filesystem. Workload content and overlay snapshots use it on /state. Native
-// system image snapshots use it on /control; writable system snapshots are
-// reassigned to their namespace project after creation.
-func PrepareOCIStorage(stateDevice, controlDevice string) error {
-	return prepareOCIStorage(stateDevice, controlDevice,
-		[]string{stateRoot + "/containerd", stateRoot + "/containerd/content", stateRoot + "/containerd/overlayfs", stateRoot + "/imports"},
-		controlRoot+"/containerd/io.containerd.snapshotter.v1.native", os.MkdirAll, projectID, assignProject, setProjectQuota, tightenOCIProjectQuota)
+// PrepareOCIStorage assigns immutable OCI data to the shared pool project.
+func PrepareOCIStorage(stateDevice string) error {
+	if err := prepareOCIStorage(stateDevice,
+		[]string{stateRoot + "/containerd", stateRoot + "/containerd/content", stateRoot + "/containerd/overlayfs", stateRoot + "/imports", stateRoot + "/appliance-content", stateRoot + "/appliance-content-projections"},
+		os.MkdirAll, projectID, assignProject, tightenOCIProjectQuota); err != nil {
+		return err
+	}
+	root := filepath.Join(stateRoot, "preparation-cache")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return err
+	}
+	if err := assignProject(root, cacheProjectID); err != nil {
+		return err
+	}
+	return tightenCacheProjectQuota(stateDevice)
 }
 
-func prepareOCIStorage(stateDevice, controlDevice string, stateRoots []string, nativeRoot string,
+func prepareOCIStorage(stateDevice string, stateRoots []string,
 	mkdir func(string, os.FileMode) error, readProject func(string) (uint32, error), assign func(string, uint32) error,
-	setQuota func(string, uint32, uint64) error, tightenState func(string) error,
+	tightenState func(string) error,
 ) error {
 	for _, root := range stateRoots {
 		if err := mkdir(root, 0700); err != nil {
@@ -336,15 +341,6 @@ func prepareOCIStorage(stateDevice, controlDevice string, stateRoots []string, n
 		if err := assignOCIRoot(root, readProject, assign); err != nil {
 			return err
 		}
-	}
-	if err := mkdir(nativeRoot, 0700); err != nil {
-		return err
-	}
-	if err := assignOCIRoot(nativeRoot, readProject, assign); err != nil {
-		return err
-	}
-	if err := setQuota(controlDevice, ociProjectID, guestdisk.ControlImageBytes); err != nil {
-		return err
 	}
 	return tightenState(stateDevice)
 }
@@ -362,7 +358,9 @@ func tightenOCIProjectQuota(stateDevice string) error {
 }
 
 func (r *Runtime) settleOCIProjectQuota(ctx context.Context) error {
-	return retryOCIProjectQuota(func() error { return tightenOCIProjectQuota(r.stateDevice) }, 10, 100*time.Millisecond)
+	return retryOCIProjectQuota(func() error {
+		return errors.Join(tightenOCIProjectQuota(r.stateDevice), tightenCacheProjectQuota(r.stateDevice))
+	}, 10, 100*time.Millisecond)
 }
 func assignOCIRoot(root string, readProject func(string) (uint32, error), assign func(string, uint32) error) error {
 	current, err := readProject(root)
@@ -373,4 +371,9 @@ func assignOCIRoot(root string, readProject func(string) (uint32, error), assign
 		return fmt.Errorf("OCI root %s belongs to foreign project %d", root, current)
 	}
 	return assign(root, ociProjectID)
+}
+
+func ociReclaimCapacityReason(trigger string, snapshot guestdisk.Snapshot) string {
+	available, valid := snapshot.AvailableBytes()
+	return fmt.Sprintf("%s pressure=%d available_bytes=%d available_valid=%t required_import_bytes=%d capacity_bytes=%d used_bytes=%d import_reserved_bytes=%d namespace_committed_bytes=%d inodes=%d free_inodes=%d", trigger, snapshot.Pressure(), available, valid, guestdisk.MinimumImportBytes, snapshot.CapacityBytes, snapshot.UsedBytes, snapshot.ImportReservationBytes, snapshot.NamespaceCommitmentBytes, snapshot.Inodes, snapshot.FreeInodes)
 }

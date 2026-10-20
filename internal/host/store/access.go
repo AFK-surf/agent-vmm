@@ -94,23 +94,6 @@ func scanAgentIntegration(row rowScanner) (AgentIntegration, error) {
 	return integration, nil
 }
 
-func (store *Store) CommitAgentIntegration(ctx context.Context, id string, expectedRevision uint64, fingerprint string, configState int32) (AgentIntegration, error) {
-	now := time.Now().UnixNano()
-	result, err := store.db.ExecContext(ctx, `UPDATE agent_integrations SET config_state=?, config_fingerprint=?,
-		last_error_code='', last_error_message='', last_verified_at=?, updated_at=?, revision=revision+1
-		WHERE id=? AND revision=? AND desired_state=1 AND config_state IN (1,3,4,5,6,8)`, configState, fingerprint, now, now, id, expectedRevision)
-	if err != nil {
-		return AgentIntegration{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return AgentIntegration{}, err
-		}
-		return AgentIntegration{}, errors.New("integration revision conflict")
-	}
-	return store.GetAgentIntegration(ctx, id)
-}
-
 func (store *Store) BeginAgentIntegrationConfiguration(ctx context.Context, id string, expectedRevision uint64) (AgentIntegration, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE agent_integrations SET config_state=8,
 		last_error_code='CONFIGURATION_STARTED', last_error_message='', updated_at=?, revision=revision+1
@@ -147,73 +130,11 @@ func (store *Store) FailAgentIntegration(ctx context.Context, id string, expecte
 	return store.GetAgentIntegration(ctx, id)
 }
 
-func (store *Store) BeginAgentIntegrationRemoval(ctx context.Context, id string, expectedRevision uint64) (AgentIntegration, error) {
-	result, err := store.db.ExecContext(ctx, `UPDATE agent_integrations SET config_state=6, updated_at=?, revision=revision+1
-		WHERE id=? AND revision=? AND desired_state=1 AND config_state != 8`, time.Now().UnixNano(), id, expectedRevision)
-	if err != nil {
-		return AgentIntegration{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return AgentIntegration{}, err
-		}
-		return AgentIntegration{}, errors.New("integration revision conflict")
-	}
-	return store.GetAgentIntegration(ctx, id)
-}
-
-func (store *Store) CompleteAgentIntegrationRemoval(ctx context.Context, id string, expectedRevision uint64) (AgentIntegration, error) {
-	transaction, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return AgentIntegration{}, err
-	}
-	defer transaction.Rollback()
-	current, err := scanAgentIntegration(transaction.QueryRowContext(ctx, agentIntegrationSelect+" WHERE id=?", id))
-	if err != nil || current.Revision != expectedRevision || current.ConfigState != 6 {
-		return AgentIntegration{}, errors.New("integration revision conflict")
-	}
-	if current.ConfigFingerprint == "" && current.LastErrorCode == "" && current.EnvironmentID == "integration-"+current.ID {
-		result, err := transaction.ExecContext(ctx, `DELETE FROM agent_integrations WHERE id=? AND revision=?`, id, expectedRevision)
-		if err != nil {
-			return AgentIntegration{}, err
-		}
-		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-			return AgentIntegration{}, errors.New("integration revision conflict")
-		}
-		result, err = transaction.ExecContext(ctx, `DELETE FROM environments WHERE id=?
-			AND NOT EXISTS (SELECT 1 FROM agent_integrations WHERE environment_id=?)
-			AND NOT EXISTS (SELECT 1 FROM sessions WHERE environment_id=?)`, current.EnvironmentID, current.EnvironmentID, current.EnvironmentID)
-		if err != nil {
-			return AgentIntegration{}, err
-		}
-		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-			return AgentIntegration{}, errors.New("cancelled integration environment is not empty")
-		}
-		if err := transaction.Commit(); err != nil {
-			return AgentIntegration{}, err
-		}
-		current.DesiredState, current.ConfigState, current.Revision = 2, 7, current.Revision+1
-		return current, nil
-	}
-	result, err := transaction.ExecContext(ctx, `UPDATE agent_integrations SET desired_state=2, config_state=7,
-		config_fingerprint='', updated_at=?, revision=revision+1 WHERE id=? AND revision=? AND config_state=6`, time.Now().UnixNano(), id, expectedRevision)
-	if err != nil {
-		return AgentIntegration{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		return AgentIntegration{}, errors.New("integration revision conflict")
-	}
-	if err := transaction.Commit(); err != nil {
-		return AgentIntegration{}, err
-	}
-	return store.GetAgentIntegration(ctx, id)
-}
-
-func (store *Store) VerifyAgentIntegration(ctx context.Context, id string) error {
+func (store *Store) VerifyAgentIntegration(ctx context.Context, id string, expectedRevision uint64) error {
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `UPDATE agent_integrations SET config_state=2,
-		last_verified_at=?, updated_at=?, revision=revision+1
-		WHERE id=? AND desired_state=1 AND config_state=3`, now, now, id)
+		last_verified_at=?, updated_at=?
+		WHERE id=? AND revision=? AND desired_state=1 AND config_state=3`, now, now, id, expectedRevision)
 	return err
 }
 

@@ -10,6 +10,7 @@
 
 import GRPCCore
 import GRPCProtobuf
+import SwiftProtobuf
 
 // MARK: - agentvmm.appliance.v1.ApplianceAdminService
 
@@ -20,6 +21,58 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
     public static let descriptor = GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService")
     /// Namespace for method metadata.
     public enum Method: Sendable {
+        /// Namespace for "CreateServiceImport" metadata.
+        public enum CreateServiceImport: Sendable {
+            /// Request type for "CreateServiceImport".
+            public typealias Input = Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest
+            /// Response type for "CreateServiceImport".
+            public typealias Output = Agentvmm_Service_V1_ServiceImport
+            /// Descriptor for "CreateServiceImport".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "CreateServiceImport",
+                type: .unary
+            )
+        }
+        /// Namespace for "CreateFrontendServiceImport" metadata.
+        public enum CreateFrontendServiceImport: Sendable {
+            /// Request type for "CreateFrontendServiceImport".
+            public typealias Input = Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest
+            /// Response type for "CreateFrontendServiceImport".
+            public typealias Output = Agentvmm_Service_V1_ServiceImport
+            /// Descriptor for "CreateFrontendServiceImport".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "CreateFrontendServiceImport",
+                type: .unary
+            )
+        }
+        /// Namespace for "ListServiceImports" metadata.
+        public enum ListServiceImports: Sendable {
+            /// Request type for "ListServiceImports".
+            public typealias Input = Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest
+            /// Response type for "ListServiceImports".
+            public typealias Output = Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse
+            /// Descriptor for "ListServiceImports".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "ListServiceImports",
+                type: .unary
+            )
+        }
+        /// Namespace for "RevokeServiceImport" metadata.
+        public enum RevokeServiceImport: Sendable {
+            /// Request type for "RevokeServiceImport".
+            public typealias Input = Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest
+            /// Response type for "RevokeServiceImport".
+            public typealias Output = SwiftProtobuf.Google_Protobuf_Empty
+            /// Descriptor for "RevokeServiceImport".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "RevokeServiceImport",
+                type: .unary
+            )
+        }
         /// Namespace for "BuildArtifact" metadata.
         public enum BuildArtifact: Sendable {
             /// Request type for "BuildArtifact".
@@ -31,6 +84,32 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
                 method: "BuildArtifact",
                 type: .bidirectionalStreaming
+            )
+        }
+        /// Namespace for "StageContent" metadata.
+        public enum StageContent: Sendable {
+            /// Request type for "StageContent".
+            public typealias Input = Agentvmm_Appliance_V1_StageContentRequest
+            /// Response type for "StageContent".
+            public typealias Output = Agentvmm_Appliance_V1_ApplianceOperationResponse
+            /// Descriptor for "StageContent".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "StageContent",
+                type: .clientStreaming
+            )
+        }
+        /// Namespace for "GetContentStatus" metadata.
+        public enum GetContentStatus: Sendable {
+            /// Request type for "GetContentStatus".
+            public typealias Input = Agentvmm_Appliance_V1_GetContentStatusRequest
+            /// Response type for "GetContentStatus".
+            public typealias Output = Agentvmm_Appliance_V1_GetContentStatusResponse
+            /// Descriptor for "GetContentStatus".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "GetContentStatus",
+                type: .unary
             )
         }
         /// Namespace for "StageArtifact" metadata.
@@ -69,6 +148,45 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
                 method: "Install",
+                type: .unary
+            )
+        }
+        /// Namespace for "PlanUpdate" metadata.
+        public enum PlanUpdate: Sendable {
+            /// Request type for "PlanUpdate".
+            public typealias Input = Agentvmm_Appliance_V1_PlanUpdateRequest
+            /// Response type for "PlanUpdate".
+            public typealias Output = Agentvmm_Appliance_V1_AppliancePlanResponse
+            /// Descriptor for "PlanUpdate".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "PlanUpdate",
+                type: .unary
+            )
+        }
+        /// Namespace for "Update" metadata.
+        public enum Update: Sendable {
+            /// Request type for "Update".
+            public typealias Input = Agentvmm_Appliance_V1_UpdateApplianceRequest
+            /// Response type for "Update".
+            public typealias Output = Agentvmm_Appliance_V1_ApplianceOperationResponse
+            /// Descriptor for "Update".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "Update",
+                type: .unary
+            )
+        }
+        /// Namespace for "RecoverUpdate" metadata.
+        public enum RecoverUpdate: Sendable {
+            /// Request type for "RecoverUpdate".
+            public typealias Input = Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest
+            /// Response type for "RecoverUpdate".
+            public typealias Output = Agentvmm_Appliance_V1_ApplianceOperationResponse
+            /// Descriptor for "RecoverUpdate".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
+                method: "RecoverUpdate",
                 type: .unary
             )
         }
@@ -176,32 +294,6 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
                 type: .unary
             )
         }
-        /// Namespace for "PlanSealedRepair" metadata.
-        public enum PlanSealedRepair: Sendable {
-            /// Request type for "PlanSealedRepair".
-            public typealias Input = Agentvmm_Appliance_V1_PlanSealedRepairRequest
-            /// Response type for "PlanSealedRepair".
-            public typealias Output = Agentvmm_Appliance_V1_AppliancePlanResponse
-            /// Descriptor for "PlanSealedRepair".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
-                method: "PlanSealedRepair",
-                type: .unary
-            )
-        }
-        /// Namespace for "ExecuteSealedRepair" metadata.
-        public enum ExecuteSealedRepair: Sendable {
-            /// Request type for "ExecuteSealedRepair".
-            public typealias Input = Agentvmm_Appliance_V1_ExecuteSealedRepairRequest
-            /// Response type for "ExecuteSealedRepair".
-            public typealias Output = Agentvmm_Appliance_V1_ApplianceOperationResponse
-            /// Descriptor for "ExecuteSealedRepair".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.appliance.v1.ApplianceAdminService"),
-                method: "ExecuteSealedRepair",
-                type: .unary
-            )
-        }
         /// Namespace for "PlanRemove" metadata.
         public enum PlanRemove: Sendable {
             /// Request type for "PlanRemove".
@@ -230,10 +322,19 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
         }
         /// Descriptors for all methods in the "agentvmm.appliance.v1.ApplianceAdminService" service.
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
+            CreateServiceImport.descriptor,
+            CreateFrontendServiceImport.descriptor,
+            ListServiceImports.descriptor,
+            RevokeServiceImport.descriptor,
             BuildArtifact.descriptor,
+            StageContent.descriptor,
+            GetContentStatus.descriptor,
             StageArtifact.descriptor,
             PlanInstall.descriptor,
             Install.descriptor,
+            PlanUpdate.descriptor,
+            Update.descriptor,
+            RecoverUpdate.descriptor,
             PlanActivation.descriptor,
             Activate.descriptor,
             List.descriptor,
@@ -242,8 +343,6 @@ public enum Agentvmm_Appliance_V1_ApplianceAdminService: Sendable {
             Stop.descriptor,
             Restart.descriptor,
             Revoke.descriptor,
-            PlanSealedRepair.descriptor,
-            ExecuteSealedRepair.descriptor,
             PlanRemove.descriptor,
             ExecuteRemove.descriptor
         ]
@@ -265,6 +364,82 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
     /// You don't need to implement this protocol directly, use the generated
     /// implementation, ``Client``.
     public protocol ClientProtocol: Sendable {
+        /// Call the "CreateServiceImport" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Service_V1_ServiceImport` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func createServiceImport<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Service_V1_ServiceImport>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "CreateFrontendServiceImport" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Service_V1_ServiceImport` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func createFrontendServiceImport<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Service_V1_ServiceImport>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ListServiceImports" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func listServiceImports<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "RevokeServiceImport" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func revokeServiceImport<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
         /// Call the "BuildArtifact" method.
         ///
         /// - Parameters:
@@ -282,6 +457,44 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_BuildArtifactResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Agentvmm_Appliance_V1_BuildArtifactResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "StageContent" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Appliance_V1_StageContentRequest` messages.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_StageContentRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func stageContent<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_StageContentRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_StageContentRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "GetContentStatus" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_GetContentStatusRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_GetContentStatusRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_GetContentStatusResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func getContentStatus<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_GetContentStatusRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_GetContentStatusRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_GetContentStatusResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_GetContentStatusResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "StageArtifact" method.
@@ -336,6 +549,63 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
         func install<Result>(
             request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_InstallRequest>,
             serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_InstallRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "PlanUpdate" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_PlanUpdateRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_PlanUpdateRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_AppliancePlanResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func planUpdate<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanUpdateRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_PlanUpdateRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_AppliancePlanResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "Update" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_UpdateApplianceRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_UpdateApplianceRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func update<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_UpdateApplianceRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_UpdateApplianceRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "RecoverUpdate" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func recoverUpdate<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest>,
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result
@@ -493,44 +763,6 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
-        /// Call the "PlanSealedRepair" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Appliance_V1_PlanSealedRepairRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_PlanSealedRepairRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_AppliancePlanResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func planSealedRepair<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanSealedRepairRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_PlanSealedRepairRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_AppliancePlanResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
-        /// Call the "ExecuteSealedRepair" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Appliance_V1_ExecuteSealedRepairRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_ExecuteSealedRepairRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func executeSealedRepair<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ExecuteSealedRepairRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_ExecuteSealedRepairRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
         /// Call the "PlanRemove" method.
         ///
         /// - Parameters:
@@ -586,6 +818,126 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
             self.client = client
         }
 
+        /// Call the "CreateServiceImport" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Service_V1_ServiceImport` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func createServiceImport<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Service_V1_ServiceImport>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.CreateServiceImport.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "CreateFrontendServiceImport" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Service_V1_ServiceImport` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func createFrontendServiceImport<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Service_V1_ServiceImport>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.CreateFrontendServiceImport.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ListServiceImports" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func listServiceImports<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.ListServiceImports.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "RevokeServiceImport" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest` messages.
+        ///   - deserializer: A deserializer for `SwiftProtobuf.Google_Protobuf_Empty` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func revokeServiceImport<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<SwiftProtobuf.Google_Protobuf_Empty>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.RevokeServiceImport.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
         /// Call the "BuildArtifact" method.
         ///
         /// - Parameters:
@@ -607,6 +959,66 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
             try await self.client.bidirectionalStreaming(
                 request: request,
                 descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.BuildArtifact.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "StageContent" method.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Agentvmm_Appliance_V1_StageContentRequest` messages.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_StageContentRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func stageContent<Result>(
+            request: GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_StageContentRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_StageContentRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.clientStreaming(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.StageContent.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "GetContentStatus" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_GetContentStatusRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_GetContentStatusRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_GetContentStatusResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func getContentStatus<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_GetContentStatusRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_GetContentStatusRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_GetContentStatusResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_GetContentStatusResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.GetContentStatus.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -697,6 +1109,96 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
             try await self.client.unary(
                 request: request,
                 descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.Install.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "PlanUpdate" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_PlanUpdateRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_PlanUpdateRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_AppliancePlanResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func planUpdate<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanUpdateRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_PlanUpdateRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_AppliancePlanResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.PlanUpdate.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "Update" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_UpdateApplianceRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_UpdateApplianceRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func update<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_UpdateApplianceRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_UpdateApplianceRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.Update.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "RecoverUpdate" method.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func recoverUpdate<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.RecoverUpdate.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -942,66 +1444,6 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
             )
         }
 
-        /// Call the "PlanSealedRepair" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Appliance_V1_PlanSealedRepairRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_PlanSealedRepairRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_AppliancePlanResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func planSealedRepair<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanSealedRepairRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_PlanSealedRepairRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_AppliancePlanResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.PlanSealedRepair.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
-        /// Call the "ExecuteSealedRepair" method.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Appliance_V1_ExecuteSealedRepairRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Appliance_V1_ExecuteSealedRepairRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Appliance_V1_ApplianceOperationResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func executeSealedRepair<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ExecuteSealedRepairRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Appliance_V1_ExecuteSealedRepairRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Appliance_V1_ApplianceAdminService.Method.ExecuteSealedRepair.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
         /// Call the "PlanRemove" method.
         ///
         /// - Parameters:
@@ -1067,6 +1509,106 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService {
 // Helpers providing default arguments to 'ClientProtocol' methods.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
+    /// Call the "CreateServiceImport" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createServiceImport<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.createServiceImport(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Service_V1_ServiceImport>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "CreateFrontendServiceImport" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createFrontendServiceImport<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.createFrontendServiceImport(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Service_V1_ServiceImport>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListServiceImports" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listServiceImports<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.listServiceImports(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RevokeServiceImport" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func revokeServiceImport<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.revokeServiceImport(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "BuildArtifact" method.
     ///
     /// - Parameters:
@@ -1085,6 +1627,56 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_BuildArtifactRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_BuildArtifactResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "StageContent" method.
+    ///
+    /// - Parameters:
+    ///   - request: A streaming request producing `Agentvmm_Appliance_V1_StageContentRequest` messages.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func stageContent<Result>(
+        request: GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_StageContentRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.stageContent(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_StageContentRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetContentStatus" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_GetContentStatusRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getContentStatus<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_GetContentStatusRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_GetContentStatusResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.getContentStatus(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_GetContentStatusRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_GetContentStatusResponse>(),
             options: options,
             onResponse: handleResponse
         )
@@ -1159,6 +1751,81 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
         try await self.install(
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_InstallRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "PlanUpdate" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_PlanUpdateRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func planUpdate<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanUpdateRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.planUpdate(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_PlanUpdateRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_AppliancePlanResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "Update" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_UpdateApplianceRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func update<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_UpdateApplianceRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.update(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_UpdateApplianceRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RecoverUpdate" method.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func recoverUpdate<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.recoverUpdate(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>(),
             options: options,
             onResponse: handleResponse
@@ -1363,56 +2030,6 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
         )
     }
 
-    /// Call the "PlanSealedRepair" method.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Appliance_V1_PlanSealedRepairRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func planSealedRepair<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanSealedRepairRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.planSealedRepair(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_PlanSealedRepairRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_AppliancePlanResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "ExecuteSealedRepair" method.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Appliance_V1_ExecuteSealedRepairRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func executeSealedRepair<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ExecuteSealedRepairRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.executeSealedRepair(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Appliance_V1_ExecuteSealedRepairRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Appliance_V1_ApplianceOperationResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
     /// Call the "PlanRemove" method.
     ///
     /// - Parameters:
@@ -1467,6 +2084,122 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
 // Helpers providing sugared APIs for 'ClientProtocol' methods.
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
+    /// Call the "CreateServiceImport" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createServiceImport<Result>(
+        _ message: Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.createServiceImport(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "CreateFrontendServiceImport" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func createFrontendServiceImport<Result>(
+        _ message: Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Service_V1_ServiceImport>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.createFrontendServiceImport(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListServiceImports" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listServiceImports<Result>(
+        _ message: Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.listServiceImports(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RevokeServiceImport" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func revokeServiceImport<Result>(
+        _ message: Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<SwiftProtobuf.Google_Protobuf_Empty>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.revokeServiceImport(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "BuildArtifact" method.
     ///
     /// - Parameters:
@@ -1489,6 +2222,65 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
             producer: producer
         )
         return try await self.buildArtifact(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "StageContent" method.
+    ///
+    /// - Parameters:
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - producer: A closure producing request messages to send to the server. The request
+    ///       stream is closed when the closure returns.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func stageContent<Result>(
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        requestProducer producer: @Sendable @escaping (GRPCCore.RPCWriter<Agentvmm_Appliance_V1_StageContentRequest>) async throws -> Void,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.StreamingClientRequest<Agentvmm_Appliance_V1_StageContentRequest>(
+            metadata: metadata,
+            producer: producer
+        )
+        return try await self.stageContent(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "GetContentStatus" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func getContentStatus<Result>(
+        _ message: Agentvmm_Appliance_V1_GetContentStatusRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_GetContentStatusResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_GetContentStatusRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.getContentStatus(
             request: request,
             options: options,
             onResponse: handleResponse
@@ -1576,6 +2368,93 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
             metadata: metadata
         )
         return try await self.install(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "PlanUpdate" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func planUpdate<Result>(
+        _ message: Agentvmm_Appliance_V1_PlanUpdateRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanUpdateRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.planUpdate(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "Update" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func update<Result>(
+        _ message: Agentvmm_Appliance_V1_UpdateApplianceRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_UpdateApplianceRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.update(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RecoverUpdate" method.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func recoverUpdate<Result>(
+        _ message: Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.recoverUpdate(
             request: request,
             options: options,
             onResponse: handleResponse
@@ -1806,64 +2685,6 @@ extension Agentvmm_Appliance_V1_ApplianceAdminService.ClientProtocol {
             metadata: metadata
         )
         return try await self.revoke(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "PlanSealedRepair" method.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func planSealedRepair<Result>(
-        _ message: Agentvmm_Appliance_V1_PlanSealedRepairRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_AppliancePlanResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_PlanSealedRepairRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.planSealedRepair(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "ExecuteSealedRepair" method.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func executeSealedRepair<Result>(
-        _ message: Agentvmm_Appliance_V1_ExecuteSealedRepairRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Appliance_V1_ApplianceOperationResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Appliance_V1_ExecuteSealedRepairRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.executeSealedRepair(
             request: request,
             options: options,
             onResponse: handleResponse

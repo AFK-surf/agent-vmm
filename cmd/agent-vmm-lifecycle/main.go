@@ -116,6 +116,7 @@ type serviceStatus struct {
 	ConnectorLoaded      bool                              `json:"connectorLoaded"`
 	HostReadable         bool                              `json:"hostReadable"`
 	HostHealthy          bool                              `json:"hostHealthy"`
+	HostHealth           *hostv1.HealthStatus              `json:"hostHealth,omitempty"`
 	RegistrationRead     string                            `json:"registrationRead,omitempty"`
 	RegistrationState    string                            `json:"registrationState,omitempty"`
 	RegistrationReason   string                            `json:"registrationReason,omitempty"`
@@ -863,6 +864,7 @@ func readStatusContext(ctx context.Context, value paths, registrationIDs ...stri
 		result.ConnectorLoaded = facts.connectorConnected
 		result.Snapshot = facts.snapshot
 		if facts.snapshot != nil {
+			result.HostHealth = facts.snapshot.GetHealth()
 			result.HostResources = facts.snapshot.GetHostResources()
 			result.GuestResources = facts.snapshot.GetGuestResources()
 			if facts.snapshot.GetCollectedAt() != nil {
@@ -1649,7 +1651,7 @@ func startVMWithProgress(ctx context.Context, operator hostv1.OperatorServiceCli
 	if err != nil || summary.GetVm() == nil {
 		return errors.New("Agent VMM whole-VM impact could not be acknowledged before VM start")
 	}
-	fence := vmMutationFence(summary)
+	fence := vmMutationFence(summary.GetVm())
 	result := make(chan error, 1)
 	go func() {
 		_, err := operator.StartVM(ctx, &hostv1.StartVMRequest{RequestId: requestID, Fence: fence})
@@ -1852,9 +1854,19 @@ func drainWithContext(ctx context.Context, value paths, run func(context.Context
 			return fmt.Errorf("host process identity could not be read before drain: %w", err)
 		}
 	}
-	if err := drainVMForUpdate(ctx, value, newOperationID("update-drain")); err != nil {
-		if len(pids) > 0 {
+	needsVMStop := len(pids) > 0
+	if !needsVMStop {
+		owners, err := stateDiskOpenOwners(ctx, filepath.Join(value.applicationData, "instance", "state.raw"))
+		if err != nil {
 			return err
+		}
+		needsVMStop = len(owners) > 0
+	}
+	if needsVMStop {
+		if err := drainVMForUpdate(ctx, value, newOperationID("update-drain")); err != nil {
+			if len(pids) > 0 {
+				return err
+			}
 		}
 	}
 	for _, domain := range domains {
@@ -1890,7 +1902,6 @@ func stopVMForUpdate(ctx context.Context, value paths, requestID string) error {
 
 type updateVMClient interface {
 	GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.VMResponse, error)
-	GetVMImpactSummary(context.Context, *hostv1.GetVMImpactSummaryRequest, ...grpc.CallOption) (*hostv1.GetVMImpactSummaryResponse, error)
 	StopVM(context.Context, *hostv1.StopVMRequest, ...grpc.CallOption) (*hostv1.OperationResponse, error)
 }
 
@@ -1902,22 +1913,22 @@ func stopVMForUpdateWith(ctx context.Context, client updateVMClient, requestID s
 	if vm.GetVm().GetState() == hostv1.VMState_VM_STATE_STOPPED {
 		return nil
 	}
-	summary, err := client.GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
-	if err != nil || summary.GetVm() == nil {
-		return errors.New("whole-VM impact could not be acknowledged before update")
-	}
-	fence := vmMutationFence(summary)
+	fence := vmMutationFence(vm.GetVm())
 	gracefulCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	_, gracefulErr := client.StopVM(gracefulCtx, &hostv1.StopVMRequest{RequestId: requestID + "-graceful", Fence: fence})
 	cancel()
 	if gracefulErr != nil {
 		forceCtx, forceCancel := context.WithTimeout(ctx, 20*time.Second)
-		latest, latestErr := client.GetVMImpactSummary(forceCtx, &hostv1.GetVMImpactSummaryRequest{})
+		latest, latestErr := client.GetVM(forceCtx, &hostv1.GetVMRequest{})
 		if latestErr != nil || latest.GetVm() == nil {
 			forceCancel()
-			return errors.New("whole-VM impact could not be re-acknowledged before forced stop")
+			return errors.New("VM state could not be read before forced stop")
 		}
-		_, forceErr := client.StopVM(forceCtx, &hostv1.StopVMRequest{RequestId: requestID + "-force", Force: true, Fence: vmMutationFence(latest)})
+		if latest.GetVm().GetBootId() != fence.GetBootId() {
+			forceCancel()
+			return errors.New("VM boot identity changed during update stop")
+		}
+		_, forceErr := client.StopVM(forceCtx, &hostv1.StopVMRequest{RequestId: requestID + "-force", Force: true, Fence: vmMutationFence(latest.GetVm())})
 		forceCancel()
 		if forceErr != nil {
 			return fmt.Errorf("VM did not reach terminal state before update: graceful stop: %v; force stop: %w", gracefulErr, forceErr)
@@ -1930,8 +1941,8 @@ func stopVMForUpdateWith(ctx context.Context, client updateVMClient, requestID s
 	return nil
 }
 
-func vmMutationFence(summary *hostv1.GetVMImpactSummaryResponse) *hostv1.VMMutationFence {
-	return &hostv1.VMMutationFence{State: summary.GetVm().GetState(), BootId: summary.GetVm().GetBootId(), ObservedWorkloads: summary.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
+func vmMutationFence(vm *hostv1.VM) *hostv1.VMMutationFence {
+	return &hostv1.VMMutationFence{State: vm.GetState(), BootId: vm.GetBootId(), WholeVmImpactAcknowledged: true}
 }
 
 var launchctlPID = launchctlServicePID

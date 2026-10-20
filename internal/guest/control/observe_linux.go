@@ -111,7 +111,7 @@ func (r *Runtime) volumeSnapshot(namespaceID, volumeID string, limit uint64, con
 	volume := &vmmdv1.Volume{Id: volumeID, NamespaceId: namespaceID, CurrentBytes: usage, LimitBytes: limit, GenerationId: generationID}
 	for _, container := range containers {
 		for _, mount := range container.GetVolumes() {
-			if mount.GetVolumeId() == volumeID {
+			if mount.GetOwnedVolume() == volumeID {
 				volume.MountedBy = append(volume.MountedBy, container.GetId())
 			}
 		}
@@ -253,7 +253,7 @@ func (r *Runtime) ListVolumesBounded(ctx context.Context, namespaceID string, li
 		}
 		for _, container := range containers {
 			for _, mount := range container.GetVolumes() {
-				if mount.GetVolumeId() == entry.Name() {
+				if mount.GetOwnedVolume() == entry.Name() {
 					volume.MountedBy = append(volume.MountedBy, container.GetId())
 				}
 			}
@@ -297,7 +297,7 @@ func (r *Runtime) ListImagesBounded(ctx context.Context, namespaceID string, lim
 		if err != nil {
 			return nil, err
 		}
-		unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), namespaceSnapshotter(namespaceID))
+		unpacked, err := runtimeImage.IsUnpacked(runtimeContext(ctx), containerSnapshotter)
 		if err != nil {
 			// A cancelled or interrupted import can leave containerd image
 			// metadata behind after its content or snapshot has disappeared.
@@ -319,7 +319,7 @@ func (r *Runtime) ListImagesBounded(ctx context.Context, namespaceID string, lim
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata)})
+		result = append(result, &vmmdv1.Image{Reference: image.Name(), Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata), BuildReceipt: imageOperationReceipt(metadata, "build"), CopyReceipt: imageOperationReceipt(metadata, "copy")})
 	}
 	return result, nil
 }
@@ -329,6 +329,9 @@ func directoryEntriesBounded(path string, limit uint32) ([]os.DirEntry, error) {
 		return directoryEntries(path)
 	}
 	directory, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +390,7 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 	if logical.Target().Digest != image.Target().Digest {
 		return nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "image grant does not match materialized root filesystem", canonical)
 	}
-	unpacked, err := image.IsUnpacked(nsctx, namespaceSnapshotter(namespaceID))
+	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
 	if err != nil {
 		return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonical)
 	}
@@ -402,7 +405,7 @@ func (r *Runtime) getImageForRole(ctx context.Context, namespaceID, reference st
 	if err != nil {
 		return nil, err
 	}
-	return &vmmdv1.Image{Reference: canonical, Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata)}, nil
+	return &vmmdv1.Image{Reference: canonical, Digest: image.Target().Digest.String(), LogicalBytes: uint64(size), Platforms: []string{"linux/arm64"}, GenerationId: imageGenerationID(metadata), BuildReceipt: imageOperationReceipt(metadata, "build"), CopyReceipt: imageOperationReceipt(metadata, "copy")}, nil
 }
 
 func (r *Runtime) NamespaceUsage(ctx context.Context, namespaceID string) (*vmmdv1.Usage, error) {

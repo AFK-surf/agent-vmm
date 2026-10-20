@@ -2,7 +2,8 @@ package remoteconnector
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"log"
 	"sort"
 	"strconv"
 	"time"
@@ -40,12 +41,17 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		response, err = handler.client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{RegistrationId: handler.registrationID, AllocationId: request.GetAllocationId(), DisplayLabel: boundedLabel(request.GetDisplayLabel()), EgressMode: request.GetEgressMode(), PolicyRevision: request.GetPolicyRevision(), ConnectionInstance: handler.connectionInstance, Generation: request.GetGeneration(), ResourcesV2: request.GetResourcesV2()})
 		if err == nil {
 			result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(response.GetAllocation())}
+		} else {
+			for _, detail := range status.Convert(err).Details() {
+				if allocation, ok := detail.(*hostv1.RemoteAllocation); ok {
+					result.Result = &remotev1.CommandResult_Allocation{Allocation: allocationToRemote(allocation)}
+				}
+			}
 		}
 	case *remotev1.ControllerCommand_ReleaseAllocation:
 		var response *hostv1.AllocationResponse
 		if value.ReleaseAllocation.GetExpectedRevision() == 0 || value.ReleaseAllocation.GetExpectedRevision() != command.GetTargetRevision() || value.ReleaseAllocation.GetExpectedGeneration() == 0 {
-			err = status.Error(codes.Aborted, "allocation release revision is stale")
-			break
+			return fail(result, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation release revision is stale")
 		}
 		response, err = handler.client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: value.ReleaseAllocation.GetAllocationId(), ExpectedPolicyRevision: value.ReleaseAllocation.GetExpectedRevision(), ExpectedGeneration: value.ReleaseAllocation.GetExpectedGeneration()})
 		if err == nil {
@@ -57,8 +63,7 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 	case *remotev1.ControllerCommand_DisposeAllocation:
 		request := value.DisposeAllocation
 		if request.GetExpectedRevision() == 0 || request.GetExpectedRevision() != command.GetTargetRevision() || request.GetExpectedGeneration() == 0 {
-			err = status.Error(codes.Aborted, "allocation deletion revision is stale")
-			break
+			return fail(result, remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, "allocation deletion revision is stale")
 		}
 		var response *hostv1.AllocationResponse
 		response, err = handler.client.DisposeAllocation(ctx, &hostv1.DisposeAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: request.GetAllocationId(), ExpectedPolicyRevision: request.GetExpectedRevision(), ExpectedGeneration: request.GetExpectedGeneration(), RequestId: request.GetRequestId()})
@@ -86,7 +91,7 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		response, err = handler.client.PlanCleanupAllocation(ctx, &hostv1.PlanCleanupAllocationRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, AllocationId: request.GetAllocationId(), Kind: request.GetKind()})
 		if err == nil {
 			plan := response.GetPlan()
-			result.Result = &remotev1.CommandResult_CleanupPlan{CleanupPlan: &remotev1.CleanupPlan{AllocationId: plan.GetAllocationId(), Revision: plan.GetRevision(), VolumeIds: append([]string(nil), plan.GetVolumeIds()...), Kind: plan.GetKind(), Impacts: cloneCleanupImpacts(plan.GetImpacts())}}
+			result.Result = &remotev1.CommandResult_CleanupPlan{CleanupPlan: &remotev1.CleanupPlan{AllocationId: plan.GetAllocationId(), AllocationGeneration: plan.GetAllocationGeneration(), Revision: plan.GetRevision(), VolumeIds: append([]string(nil), plan.GetVolumeIds()...), Kind: plan.GetKind(), Impacts: cloneCleanupImpacts(plan.GetImpacts())}}
 		}
 	case *remotev1.ControllerCommand_ExecuteCleanupAllocation:
 		var response *hostv1.AllocationResponse
@@ -104,8 +109,7 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		_, err = handler.client.SetRemoteAdmissionState(ctx, &hostv1.SetRemoteAdmissionStateRequest{RegistrationId: handler.registrationID, ConnectionInstance: handler.connectionInstance, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING})
 	case *remotev1.ControllerCommand_OpenSession:
 		if handler.tunnels == nil {
-			err = status.Error(codes.Unavailable, "session transport is unavailable")
-			break
+			return fail(result, remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE, "session transport is unavailable")
 		}
 		var ready *remotev1.SessionReady
 		ready, err = handler.tunnels.Open(ctx, value.OpenSession)
@@ -139,8 +143,20 @@ func (handler commandHandler) handle(ctx context.Context, command *remotev1.Cont
 		return fail(result, remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, "unknown command")
 	}
 	if err != nil {
+		log.Printf("remote compute command failed: command=%s kind=%T deadline_ms=%d error=%v details=%v", command.GetCommandId(), command.GetCommand(), command.GetDeadlineUnixMillis(), err, status.Convert(err).Details())
 		result.CapacityDimension = capacityDimensionFor(err)
-		return fail(result, reasonFor(err), safeErrorMessage(err))
+		var local *localRejection
+		if errors.As(err, &local) {
+			return fail(result, local.reason, err.Error())
+		}
+		reason, rejected := hostRejection(err)
+		result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_UNKNOWN
+		if rejected {
+			result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED
+		}
+		result.Reason = reason
+		result.Message = err.Error()
+		return result
 	}
 	result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED
 	return result
@@ -187,19 +203,6 @@ func cloneCleanupImpacts(values []*hostv1.CleanupImpact) []*hostv1.CleanupImpact
 	return result
 }
 
-func safeErrorMessage(err error) string {
-	switch reasonFor(err) {
-	case remotev1.ErrorReason_ERROR_REASON_STALE_REVISION:
-		return "revision is stale"
-	case remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED:
-		return "capacity is exhausted"
-	case remotev1.ErrorReason_ERROR_REASON_ALLOCATION_NOT_FOUND:
-		return "allocation does not exist"
-	default:
-		return "command rejected"
-	}
-}
-
 func fail(result *remotev1.CommandResult, reason remotev1.ErrorReason, message string) *remotev1.CommandResult {
 	result.Outcome = remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED
 	result.Reason = reason
@@ -207,44 +210,58 @@ func fail(result *remotev1.CommandResult, reason remotev1.ErrorReason, message s
 	return result
 }
 
+type localRejection struct {
+	reason  remotev1.ErrorReason
+	message string
+}
+
+func (rejection *localRejection) Error() string { return rejection.message }
+
 func reasonFor(err error) remotev1.ErrorReason {
-	if current, ok := status.FromError(err); ok {
-		for _, detail := range current.Details() {
-			if info, ok := detail.(*errdetails.ErrorInfo); ok {
-				switch info.GetReason() {
-				case "DISPOSAL_REVISION_NOT_ACCEPTED":
-					return remotev1.ErrorReason_ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED
-				case "POLICY_REVISION_CONFLICT":
-					return remotev1.ErrorReason_ERROR_REASON_STALE_REVISION
-				case "POOL_PER_ENVIRONMENT_LIMIT":
-					return remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED
-				case "POOL_ENVIRONMENT_LIMIT":
-					return remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT
-				case "ALLOCATION_NOT_FOUND":
-					return remotev1.ErrorReason_ERROR_REASON_ALLOCATION_NOT_FOUND
+	reason, _ := hostRejection(err)
+	return reason
+}
+
+func hostRejection(err error) (remotev1.ErrorReason, bool) {
+	for _, detail := range status.Convert(err).Details() {
+		info, ok := detail.(*errdetails.ErrorInfo)
+		if !ok {
+			continue
+		}
+		switch info.GetReason() {
+		case "VM_ADMISSION_CLOSED", "REGISTRATION_DRAINING":
+			return remotev1.ErrorReason_ERROR_REASON_ADMISSION_PAUSED, true
+		case "INVALID_ARGUMENT":
+			return remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, true
+		case "REGISTRATION_MISMATCH":
+			return remotev1.ErrorReason_ERROR_REASON_UNAUTHENTICATED, true
+		case "DISPOSAL_REVISION_NOT_ACCEPTED":
+			return remotev1.ErrorReason_ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED, true
+		case "STALE_CONNECTION", "POLICY_REVISION_CONFLICT", "STALE_GENERATION", "STALE_RUNTIME_SESSION", "PLAN_STALE", "ALLOCATION_DISPOSAL_CONFLICT", "INVENTORY_REVISION_CONFLICT", "ADMISSION_STATE_CONFLICT", "POOL_REVISION_CONFLICT":
+			return remotev1.ErrorReason_ERROR_REASON_STALE_REVISION, true
+		case "STALE_CONNECTION_EPOCH":
+			return remotev1.ErrorReason_ERROR_REASON_STALE_CONNECTION_EPOCH, true
+		case "REGISTRATION_NOT_ENABLED", "ALLOCATION_CONFLICT", "POOL_EGRESS_LIMIT":
+			return remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT, true
+		case "RESOURCE_LEDGER_EXHAUSTED", "POOL_PER_ENVIRONMENT_LIMIT":
+			return remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED, true
+		case "ALLOCATION_NOT_FOUND":
+			return remotev1.ErrorReason_ERROR_REASON_ALLOCATION_NOT_FOUND, true
+		case "ALLOCATION_PROJECTION_FAILED", "RESOURCE_CAPACITY_EXHAUSTED":
+			for _, detail := range status.Convert(err).Details() {
+				if allocation, ok := detail.(*hostv1.RemoteAllocation); ok && allocation.GetAllocationId() != "" && allocation.GetGeneration() != 0 {
+					if info.GetReason() == "RESOURCE_CAPACITY_EXHAUSTED" {
+						return remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED, true
+					}
+					return remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE, true
 				}
 			}
 		}
 	}
 	switch status.Code(err) {
-	case codes.InvalidArgument:
-		return remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT
-	case codes.Unauthenticated, codes.PermissionDenied:
-		return remotev1.ErrorReason_ERROR_REASON_UNAUTHENTICATED
-	case codes.NotFound:
-		return remotev1.ErrorReason_ERROR_REASON_ALLOCATION_NOT_FOUND
-	case codes.AlreadyExists:
-		return remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT
-	case codes.ResourceExhausted:
-		return remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED
-	case codes.Aborted:
-		return remotev1.ErrorReason_ERROR_REASON_STALE_REVISION
-	case codes.FailedPrecondition:
-		return remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT
-	case codes.Unavailable, codes.DeadlineExceeded:
-		return remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
+		return remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE, false
 	default:
-		_ = fmt.Sprintf("%v", err)
-		return remotev1.ErrorReason_ERROR_REASON_INTERNAL
+		return remotev1.ErrorReason_ERROR_REASON_INTERNAL, false
 	}
 }

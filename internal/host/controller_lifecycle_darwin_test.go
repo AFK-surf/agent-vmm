@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -16,7 +17,11 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/egress"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestVMLifecycleOwnerSerializesOperations(t *testing.T) {
@@ -188,11 +193,61 @@ func TestOnlyVMLifecycleOwnerCallsManagerStartStop(t *testing.T) {
 			if !ok || (selector.Sel.Name != "Start" && selector.Sel.Name != "Stop") {
 				return true
 			}
+			if name == "appliance_data_darwin.go" {
+				t.Errorf("%s owns VM %s outside the lifecycle owner", name, selector.Sel.Name)
+			}
 			receiver, ok := selector.X.(*ast.SelectorExpr)
 			if ok && receiver.Sel.Name == "manager" {
 				t.Errorf("%s calls Manager.%s outside VMLifecycleOwner", name, selector.Sel.Name)
 			}
 			return true
 		})
+	}
+}
+
+func TestVMStartDoesNotReenterLifecycleOwnerForPendingApplianceRemoval(t *testing.T) {
+	if os.Getenv("AGENT_VMM_TEST_START_PENDING_REMOVE") != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestVMStartDoesNotReenterLifecycleOwnerForPendingApplianceRemoval$")
+		command.Env = append(os.Environ(), "AGENT_VMM_TEST_START_PENDING_REMOVE=1", "TMPDIR="+t.TempDir())
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("VM Start recursively blocked on its owned lifecycle lock: %v: %v\n%s", err, ctx.Err(), output)
+		}
+		return
+	}
+	controller, installation := updateDrainFixture(t)
+	ctx := context.Background()
+	registration, err := controller.store.GetRemoteRegistration(ctx, installation.RegistrationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.store.SetRemoteEnrollment(ctx, registration.ID, registration.Revision, registration.EnrollmentState,
+		int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.store.CreateApplianceOperation(ctx, store.ApplianceOperation{ID: "pending-remove", InstallationID: installation.ID,
+		RequestID: "original-remove", Kind: 7, State: 1, Phase: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.store.CreateApplianceOperation(ctx, store.ApplianceOperation{ID: "active-appliance", InstallationID: installation.ID,
+		RequestID: "active-appliance", Kind: 3, State: 1, Phase: 2}); err != nil {
+		t.Fatal(err)
+	}
+	controller.manager = &vmm.Manager{}
+	controller.egress = egress.New()
+	controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
+	_, err = controller.startVM(ctx, "start-with-pending-remove", &hostv1.VMMutationFence{})
+	if status.Code(err) != codes.Aborted {
+		t.Fatalf("VM Start did not reach its own fence without consuming Remove: %v", err)
+	}
+	operation, err := controller.store.ApplianceOperationByRequest(ctx, "original-remove")
+	if err != nil || operation.State != 1 || operation.Phase != 4 {
+		t.Fatalf("VM Start consumed another operation's pending removal: %+v %v", operation, err)
+	}
+	operation, err = controller.store.ApplianceOperationByRequest(ctx, "active-appliance")
+	if err != nil || operation.State != 1 || operation.Phase != 2 {
+		t.Fatalf("VM Start classified an active appliance command as Host restart: %+v %v", operation, err)
 	}
 }

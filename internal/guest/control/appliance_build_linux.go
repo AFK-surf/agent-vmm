@@ -3,7 +3,10 @@
 package control
 
 import (
+	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"io"
 	"os"
@@ -16,7 +19,7 @@ import (
 
 const applianceBuildNamespace = "system.appliance-build"
 
-var applianceBuildLimits = &vmmdv1.NamespaceLimits{CpuMillis: 2000, MemoryBytes: 4 << 30, Pids: 1024, DiskBytes: 64 << 30}
+var applianceBuildLimits = &vmmdv1.NamespaceLimits{CpuMillis: 2000, MemoryBytes: 4 << 30, Pids: 1024}
 
 // BuildAppliance is an operator-only build lane. Unlike BuildImage, its OCI
 // archive is returned to the host and never becomes an allocation image.
@@ -27,7 +30,7 @@ func (s *Server) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildAppl
 	return rpcError(s.runtime.BuildAppliance(stream))
 }
 
-func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApplianceRequest, vmmdv1.BuildApplianceResponse]) error {
+func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApplianceRequest, vmmdv1.BuildApplianceResponse]) (operationErr error) {
 	first, err := stream.Recv()
 	if err != nil {
 		return err
@@ -37,7 +40,7 @@ func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApp
 		return errors.New("first appliance build event must be a valid header")
 	}
 	header = &vmmdv1.BuildImageHeader{RequestId: header.GetRequestId(), ActorNamespaceId: applianceBuildNamespace,
-		DockerfilePath: header.GetDockerfilePath(), Image: "agent-vmm.local/appliance-build:" + header.GetRequestId(), Target: header.Target,
+		DockerfilePath: header.GetDockerfilePath(), Image: fmt.Sprintf("agent-vmm.local/appliance-build:%x", sha256.Sum256([]byte(header.GetRequestId()))), Target: header.Target,
 		BuildArgs: header.GetBuildArgs(), NetworkMode: header.GetNetworkMode(), Secrets: header.GetSecrets()}
 	if _, err := r.ensureNamespace(stream.Context(), &vmmdv1.EnsureNamespaceRequest{RequestId: header.GetRequestId(), NamespaceId: applianceBuildNamespace,
 		Limits: applianceBuildLimits, EgressMode: vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, true); err != nil {
@@ -47,7 +50,34 @@ func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApp
 	if err != nil {
 		return err
 	}
-	defer workspace.Close()
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+	key := "appliance-build\x00" + workspace.ID()
+	run := &imageOperationRun{cancel: cancel, done: make(chan struct{})}
+	run.cleanup = func(ctx context.Context) error {
+		if err := workspace.RecoverClose(ctx); err != nil {
+			return err
+		}
+		return r.settleBuilderCacheReservation(ctx, "cache-write\x00"+workspace.ID())
+	}
+	r.mu.Lock()
+	if r.imageOperationsClosing {
+		r.mu.Unlock()
+		return errors.Join(status.Error(codes.Unavailable, "vmmd is shutting down"), workspace.Close())
+	}
+	r.imageOperations.Store(key, run)
+	r.mu.Unlock()
+	defer func() {
+		cleanupErr := workspace.Close()
+		if cleanupErr == nil {
+			cleanupErr = r.settleBuilderCacheReservation(context.Background(), "cache-write\x00"+workspace.ID())
+		}
+		if cleanupErr == nil {
+			r.imageOperations.Delete(key)
+		}
+		close(run.done)
+		operationErr = errors.Join(operationErr, cleanupErr)
+	}()
 	if err := stream.Send(&vmmdv1.BuildApplianceResponse{Event: &vmmdv1.BuildApplianceResponse_Progress{Progress: "receiving context"}}); err != nil {
 		return err
 	}
@@ -75,7 +105,7 @@ func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApp
 	if err := stream.Send(&vmmdv1.BuildApplianceResponse{Event: &vmmdv1.BuildApplianceResponse_Progress{Progress: "building in isolated sandbox"}}); err != nil {
 		return err
 	}
-	return workspace.RunArchive(stream.Context(), applianceBuildLimits, func(progress string) error {
+	return workspace.RunArchive(ctx, applianceBuildLimits, func(progress string) error {
 		return stream.Send(&vmmdv1.BuildApplianceResponse{Event: &vmmdv1.BuildApplianceResponse_Progress{Progress: progress}})
 	}, func(archive *os.File, result guestbuild.ArchiveResult) error {
 		if _, err := io.Copy(applianceArchiveWriter{stream: stream}, archive); err != nil {

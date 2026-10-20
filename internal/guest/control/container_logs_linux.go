@@ -64,6 +64,13 @@ func (r *Runtime) cleanupTasks(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			current, err := task.Status(nsctx)
+			if err != nil {
+				return err
+			}
+			if current.Status != containerd.Stopped {
+				continue
+			}
 			status, deleteErr := task.Delete(nsctx, containerd.WithProcessKill)
 			if deleteErr != nil && !errdefs.IsNotFound(deleteErr) {
 				return deleteErr
@@ -74,19 +81,6 @@ func (r *Runtime) cleanupTasks(ctx context.Context) error {
 			}
 			_, _ = container.SetLabels(nsctx, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10)})
 		}
-	}
-	monitorsDone := make(chan struct{})
-	go func() {
-		r.tasks.Wait()
-		close(monitorsDone)
-	}()
-	select {
-	case <-monitorsDone:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	if err := os.RemoveAll("/run/containerd/fifo"); err != nil {
-		return err
 	}
 	return os.MkdirAll("/run/containerd/fifo", 0o700)
 }

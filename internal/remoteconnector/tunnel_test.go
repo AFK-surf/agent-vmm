@@ -2,10 +2,16 @@ package remoteconnector
 
 import (
 	"context"
+	"fmt"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,14 +30,22 @@ type sessionLocal struct {
 	sessionID string
 	expiresAt time.Time
 	revoked   chan *hostv1.RevokeRuntimeSessionRequest
+	open      func(context.Context) (*hostv1.CreateAgentSessionResponse, error)
+	revoke    func(context.Context, *hostv1.RevokeRuntimeSessionRequest) error
 }
 
-func (server sessionLocal) OpenRuntimeSession(context.Context, *hostv1.OpenRuntimeSessionRequest) (*hostv1.CreateAgentSessionResponse, error) {
+func (server sessionLocal) OpenRuntimeSession(ctx context.Context, _ *hostv1.OpenRuntimeSessionRequest) (*hostv1.CreateAgentSessionResponse, error) {
+	if server.open != nil {
+		return server.open(ctx)
+	}
 	return &hostv1.CreateAgentSessionResponse{SocketPath: server.socket, SessionId: server.sessionID, ExpiresAt: timestamppb.New(server.expiresAt)}, nil
 
 }
 
-func (server sessionLocal) RevokeRuntimeSession(_ context.Context, request *hostv1.RevokeRuntimeSessionRequest) (*emptypb.Empty, error) {
+func (server sessionLocal) RevokeRuntimeSession(ctx context.Context, request *hostv1.RevokeRuntimeSessionRequest) (*emptypb.Empty, error) {
+	if server.revoke != nil {
+		return &emptypb.Empty{}, server.revoke(ctx, request)
+	}
 	server.revoked <- request
 	return &emptypb.Empty{}, nil
 }
@@ -270,4 +284,185 @@ func controllerSessionClient(t *testing.T, service remotev1.RemoteControllerServ
 		t.Fatal(err)
 	}
 	return connection, func() { connection.Close(); server.Stop(); listener.Close() }
+}
+
+type holdingSessionController struct {
+	remotev1.UnimplementedRemoteControllerServiceServer
+}
+
+func (holdingSessionController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+	for {
+		if _, err := stream.Recv(); err != nil {
+			return err
+		}
+	}
+}
+
+func TestTunnelSessionReplacement(t *testing.T) {
+	for _, mode := range []string{"concurrent", "revoke-failure", "cancel", "gate-deadline", "revoke-deadline", "already-revoked"} {
+		t.Run(mode, func(t *testing.T) {
+			directory, err := os.MkdirTemp("/tmp", "vmm-replace-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(directory)
+			socket := filepath.Join(directory, "r.sock")
+			listener, err := net.Listen("unix", socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			if err := os.Chmod(socket, 0600); err != nil {
+				t.Fatal(err)
+			}
+			accepted := make(chan net.Conn, 20)
+			go func() {
+				for {
+					c, err := listener.Accept()
+					if err != nil {
+						return
+					}
+					accepted <- c
+				}
+			}()
+			defer func() {
+				listener.Close()
+				for {
+					select {
+					case c := <-accepted:
+						c.Close()
+					default:
+						return
+					}
+				}
+			}()
+			var mu sync.Mutex
+			current := ""
+			opens := 0
+			reject := false
+			revocations := map[string]int{}
+			local := sessionLocal{open: func(ctx context.Context) (*hostv1.CreateAgentSessionResponse, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				if current != "" {
+					return nil, status.Error(codes.FailedPrecondition, "previous capability still live")
+				}
+				opens++
+				current = fmt.Sprintf("session-%d", opens)
+				return &hostv1.CreateAgentSessionResponse{SessionId: current, SocketPath: socket, ExpiresAt: timestamppb.Now()}, nil
+			}, revoke: func(ctx context.Context, r *hostv1.RevokeRuntimeSessionRequest) error {
+				mu.Lock()
+				defer mu.Unlock()
+				if reject {
+					if mode == "already-revoked" {
+						current = ""
+						rejected, _ := status.New(codes.Aborted, "absent").WithDetails(&errdetails.ErrorInfo{Reason: "STALE_RUNTIME_SESSION"})
+						return rejected.Err()
+					}
+					failure, _ := status.New(codes.Unavailable, "revoke unavailable").WithDetails(&errdetails.ErrorInfo{Reason: "REVOCATION_BACKEND_UNAVAILABLE"})
+					return failure.Err()
+				}
+				if current != r.GetSessionId() {
+					return status.Error(codes.Aborted, "wrong session")
+				}
+				revocations[current]++
+				current = ""
+				return nil
+			}}
+			lc, cleanup := localSessionClient(t, local)
+			defer cleanup()
+			cc, controllerCleanup := controllerSessionClient(t, holdingSessionController{})
+			defer controllerCleanup()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(cc), hostv1.NewRemoteComputeServiceClient(lc), "registration", "connection", 1, nil)
+			defer manager.Close()
+			request := &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 1, ExecutionOwnerId: "owner"}
+			if _, err := manager.Open(ctx, request); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "concurrent" {
+				results := make(chan error, 8)
+				for i := 0; i < 8; i++ {
+					go func() { _, err := manager.Open(ctx, request); results <- err }()
+				}
+				for i := 0; i < 8; i++ {
+					if err := <-results; err != nil {
+						t.Fatal(err)
+					}
+				}
+				mu.Lock()
+				if opens != 9 || revocations["session-1"] != 1 {
+					t.Errorf("opens=%d revocations=%v", opens, revocations)
+				}
+				mu.Unlock()
+			} else if mode == "gate-deadline" || mode == "revoke-deadline" {
+				gate := manager.openGate
+				if mode == "revoke-deadline" {
+					manager.mu.Lock()
+					gate = manager.active[allocationTunnelKey("allocation", 1)].revokeGate
+					manager.mu.Unlock()
+				}
+				gate <- struct{}{}
+				attempt, cancelAttempt := context.WithTimeout(ctx, 20*time.Millisecond)
+				defer cancelAttempt()
+				started := time.Now()
+				_, err := manager.Open(attempt, request)
+				<-gate
+				if (mode == "gate-deadline" && err != context.DeadlineExceeded || mode == "revoke-deadline" && err == nil) || time.Since(started) > time.Second {
+					t.Fatalf("gate wait err=%v duration=%v", err, time.Since(started))
+				}
+				if mode == "revoke-deadline" {
+					if _, err := manager.Open(ctx, request); err != nil {
+						t.Fatal(err)
+					}
+				}
+			} else if mode == "already-revoked" {
+				mu.Lock()
+				reject = true
+				mu.Unlock()
+				if _, err := manager.Open(ctx, request); err != nil {
+					t.Fatal(err)
+				}
+				mu.Lock()
+				reject = false
+				mu.Unlock()
+			} else {
+				mu.Lock()
+				reject = true
+				mu.Unlock()
+				openCtx := ctx
+				if mode == "cancel" {
+					c, cancelAttempt := context.WithCancel(ctx)
+					cancelAttempt()
+					openCtx = c
+				}
+				if _, err := manager.Open(openCtx, request); err == nil {
+					t.Fatal("replacement unexpectedly succeeded")
+				} else if mode == "revoke-failure" && (status.Code(err) != codes.Unavailable || !strings.Contains(err.Error(), "revoke unavailable") || len(status.Convert(err).Details()) == 0) {
+					t.Fatalf("replacement lost revocation failure: %v", err)
+				}
+				mu.Lock()
+				if opens != 1 {
+					t.Errorf("opened replacement before revoke: %d", opens)
+				}
+				reject = false
+				mu.Unlock()
+				if _, err := manager.Open(ctx, request); err != nil {
+					t.Fatal(err)
+				}
+			}
+			manager.mu.Lock()
+			active := manager.active[allocationTunnelKey("allocation", 1)]
+			manager.mu.Unlock()
+			if active == nil {
+				t.Fatal("old bridge removed replacement")
+			}
+			mu.Lock()
+			if active.sessionID != current {
+				t.Errorf("active=%s current=%s", active.sessionID, current)
+			}
+			mu.Unlock()
+		})
+	}
 }

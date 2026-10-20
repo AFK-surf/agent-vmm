@@ -18,41 +18,65 @@ import (
 const maxImportReservationDirectoryEntries = 64
 
 func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, error) {
-	var stats unix.Statfs_t
-	if err := unix.Statfs(stateRoot, &stats); err != nil {
-		return guestdisk.Snapshot{}, err
-	}
-	used := (stats.Blocks - stats.Bfree) * uint64(stats.Bsize)
-	capacity := used + stats.Bavail*uint64(stats.Bsize)
-	imports, _, err := importReservationSummary(filepath.Join(stateRoot, "import-reservations"))
+	root := filepath.Join(stateRoot, "import-reservations")
+	limit, err := activeBuilderQuotaLimit(root)
 	if err != nil {
 		return guestdisk.Snapshot{}, err
 	}
-	if imports > used {
-		return guestdisk.Snapshot{}, errors.New("Guest import reservation exceeds physical usage")
-	}
-	return guestdisk.Snapshot{Inodes: stats.Files, FreeInodes: stats.Ffree, CapacityBytes: capacity, UsedBytes: used - imports, ImportReservationBytes: imports,
-		EmergencyBytes: guestdisk.DefaultEmergencyBytes, MetadataGrowthBytes: guestdisk.DefaultMetadataBytes, AllocationUnitBytes: uint64(stats.Bsize)}, nil
-}
-
-func (r *Runtime) diskAdmissionSnapshot(ctx context.Context, cold bool, transaction *guestdisk.Transaction) (guestdisk.Snapshot, error) {
-	snapshot, err := r.guestDiskSnapshot(ctx)
-	if err != nil {
-		return guestdisk.Snapshot{}, err
-	}
-	if snapshot.Pressure() >= guestdisk.PressureGC {
-		if _, err := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, false, transaction); err != nil {
-			return guestdisk.Snapshot{}, err
-		}
-		snapshot, err = r.guestDiskSnapshot(ctx)
+	var usageBefore uint64
+	if limit != 0 {
+		usageBefore, err = projectUsage(r.stateDevice, cacheProjectID)
 		if err != nil {
 			return guestdisk.Snapshot{}, err
 		}
 	}
-	if snapshot.Pressure() == guestdisk.PressureCritical || cold && snapshot.Pressure() >= guestdisk.PressureRejectCold {
-		return snapshot, guestdisk.ErrCapacityUnavailable
+	namespaceBefore, err := r.namespaceDiskCommitments(ctx, false)
+	if err != nil {
+		return guestdisk.Snapshot{}, err
 	}
-	return snapshot, nil
+	var before unix.Statfs_t
+	if err := unix.Statfs(stateRoot, &before); err != nil {
+		return guestdisk.Snapshot{}, err
+	}
+	imports, _, err := importReservationSummary(root)
+	if err != nil {
+		return guestdisk.Snapshot{}, err
+	}
+	namespaceAfter, err := r.namespaceDiskCommitments(ctx, false)
+	if err != nil {
+		return guestdisk.Snapshot{}, err
+	}
+	namespaceRemaining, err := namespaceRemainingCommitments(namespaceBefore, namespaceAfter)
+	if err != nil {
+		return guestdisk.Snapshot{}, err
+	}
+	stats := before
+	var credit uint64
+	if limit != 0 {
+		usageAfter, err := projectUsage(r.stateDevice, cacheProjectID)
+		if err != nil {
+			return guestdisk.Snapshot{}, err
+		}
+		usage := min(usageBefore, usageAfter)
+		if limit > usage {
+			credit = limit - usage
+		}
+	}
+	if err := unix.Statfs(stateRoot, &stats); err != nil {
+		return guestdisk.Snapshot{}, err
+	}
+	used := max((before.Blocks-before.Bfree)*uint64(before.Bsize), (stats.Blocks-stats.Bfree)*uint64(stats.Bsize))
+	available := min(before.Bavail*uint64(before.Bsize), stats.Bavail*uint64(stats.Bsize))
+	capacity := used + available
+	if imports > used {
+		return guestdisk.Snapshot{}, errors.New("Guest import reservation exceeds physical usage")
+	}
+	reservations, carry := bits.Add64(imports, credit, 0)
+	if carry != 0 {
+		return guestdisk.Snapshot{}, errors.New("Guest writer reservation accounting overflow")
+	}
+	return guestdisk.Snapshot{Inodes: min(before.Files, stats.Files), FreeInodes: min(before.Ffree, stats.Ffree), CapacityBytes: capacity, UsedBytes: used - imports, ImportReservationBytes: reservations, NamespaceCommitmentBytes: namespaceRemaining,
+		EmergencyBytes: guestdisk.DefaultEmergencyBytes, MetadataGrowthBytes: guestdisk.DefaultMetadataBytes, AllocationUnitBytes: uint64(stats.Bsize)}, nil
 }
 
 func importReservationSummary(directory string) (uint64, uint32, error) {

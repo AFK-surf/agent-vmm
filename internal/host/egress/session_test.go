@@ -113,7 +113,7 @@ func (fixedResolver) LookupCNAME(context.Context, string) (string, error) {
 }
 
 func (fixedResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, error) {
-	return []netip.Addr{netip.MustParseAddr("192.168.1.10"), netip.MustParseAddr("1.1.1.1")}, nil
+	return []netip.Addr{netip.MustParseAddr("192.168.1.10"), netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("169.254.169.254"), netip.MustParseAddr("10.64.2.8")}, nil
 }
 
 func TestVirtualDNSFiltersAnswersAndReturnsNoAAAA(t *testing.T) {
@@ -235,4 +235,134 @@ func TestInvalidFrameIsCounted(t *testing.T) {
 		t.Fatalf("invalid frame metric = %d", subsystem.Metrics().InvalidFrames)
 	}
 	_ = guest.Close()
+}
+
+func TestVirtualDNSUsesInstallationLANGrant(t *testing.T) {
+	subsystem := New()
+	subsystem.resolver = fixedResolver{}
+	source := netip.MustParseAddr("10.64.1.8")
+	if err := subsystem.Policies.Publish(Snapshot{BootID: "boot", Revision: 1, Sources: []Source{{EnvironmentID: "appliance:a", NamespaceID: "system.a", Subnet: netip.MustParsePrefix("10.64.1.0/24"), LANEgress: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	message := dnsmessage.Message{Questions: []dnsmessage.Question{{Name: dnsmessage.MustNewName("alias.example."), Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}}}
+	query, err := message.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := subsystem.resolveSourceDNS(context.Background(), query, "boot", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response dnsmessage.Message
+	if err := response.Unpack(wire); err != nil {
+		t.Fatal(err)
+	}
+	var answers []netip.Addr
+	for _, resource := range response.Answers {
+		if a, ok := resource.Body.(*dnsmessage.AResource); ok {
+			answers = append(answers, netip.AddrFrom4(a.A))
+		}
+	}
+	if len(answers) != 1 || answers[0] != netip.MustParseAddr("192.168.1.10") {
+		t.Fatalf("LAN-only DNS answers = %v", answers)
+	}
+	subsystem.Policies.RevokeEnvironment("appliance:a")
+	wire, err = subsystem.resolveSourceDNS(context.Background(), query, "boot", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.Unpack(wire); err != nil {
+		t.Fatal(err)
+	}
+	for _, resource := range response.Answers {
+		if _, ok := resource.Body.(*dnsmessage.AResource); ok {
+			t.Fatal("DNS returned an address after LAN grant revocation")
+		}
+	}
+}
+
+func TestUDPRevocationClosesContinuousBidirectionalTraffic(t *testing.T) {
+	policies := new(Policies)
+	source := Source{EnvironmentID: "appliance:a", NamespaceID: "system.a", Subnet: netip.MustParsePrefix("10.64.1.0/24"), LANEgress: true}
+	if err := policies.Publish(Snapshot{BootID: "boot", Revision: 1, Sources: []Source{source}}); err != nil {
+		t.Fatal(err)
+	}
+	flow, cancel := policies.Context(context.Background(), "boot", source.Subnet.Addr().Next(), source)
+	defer cancel()
+	var connections [2]*net.UDPConn
+	var peers [2]*net.UDPConn
+	var received [2]chan struct{}
+	var workers []chan struct{}
+	for index := range connections {
+		peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = peer.Close() })
+		connection, err := net.DialUDP("udp4", nil, peer.LocalAddr().(*net.UDPAddr))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = connection.Close() })
+		peers[index] = peer
+		connections[index] = connection
+		received[index] = make(chan struct{}, 1)
+		signal := received[index]
+		writerDone := make(chan struct{})
+		readerDone := make(chan struct{})
+		workers = append(workers, writerDone, readerDone)
+		go func() {
+			defer close(writerDone)
+			for {
+				if _, err := peer.WriteToUDP([]byte("traffic"), connection.LocalAddr().(*net.UDPAddr)); err != nil {
+					return
+				}
+			}
+		}()
+		go func() {
+			defer close(readerDone)
+			buffer := make([]byte, 64)
+			for {
+				if _, _, err := peer.ReadFromUDP(buffer); err != nil {
+					return
+				}
+				select {
+				case signal <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() { proxyUDP(flow, connections[0], connections[1]); close(done) }()
+	for _, signal := range received {
+		select {
+		case <-signal:
+		case <-time.After(time.Second):
+			t.Fatal("bidirectional UDP traffic did not start")
+		}
+	}
+	policies.RevokeEnvironment(source.EnvironmentID)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("continuous UDP traffic survived revocation")
+	}
+	for _, connection := range connections {
+		if _, err := connection.Write([]byte("after-revoke")); err == nil {
+			t.Fatal("revoked UDP endpoint remained open")
+		}
+	}
+	t.Cleanup(func() {
+		for _, peer := range peers {
+			_ = peer.Close()
+		}
+		for _, worker := range workers {
+			select {
+			case <-worker:
+			case <-time.After(time.Second):
+				t.Error("UDP peer traffic worker did not stop")
+			}
+		}
+	})
 }

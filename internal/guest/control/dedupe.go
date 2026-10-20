@@ -15,7 +15,7 @@ const (
 type completion struct {
 	fingerprint string
 	value       any
-	err         error
+	succeeded   bool
 	completed   time.Time
 }
 
@@ -33,11 +33,14 @@ type deduper struct {
 func (d *deduper) do(ctx context.Context, key, fingerprint string, operation func() (any, error)) (any, error) {
 	d.mu.Lock()
 	if item, ok := d.done[key]; ok && time.Since(item.completed) < dedupeTTL {
-		d.mu.Unlock()
 		if item.fingerprint != fingerprint {
+			d.mu.Unlock()
 			return nil, errors.New("request_id was reused with different input")
 		}
-		return item.value, item.err
+		if item.succeeded {
+			d.mu.Unlock()
+			return item.value, nil
+		}
 	}
 	if call, ok := d.pending[key]; ok {
 		d.mu.Unlock()
@@ -71,7 +74,11 @@ func (d *deduper) do(ctx context.Context, key, fingerprint string, operation fun
 	if len(d.done) >= dedupeLimit {
 		dropOldest(d.done)
 	}
-	d.done[key] = completion{fingerprint: fingerprint, value: value, err: err, completed: time.Now()}
+	item := completion{fingerprint: fingerprint, succeeded: err == nil, completed: time.Now()}
+	if err == nil {
+		item.value = value
+	}
+	d.done[key] = item
 	close(call.done)
 	d.mu.Unlock()
 	return value, err

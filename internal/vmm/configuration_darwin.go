@@ -17,6 +17,8 @@ import (
 
 const hostEmergencyBytes int64 = 10 << 30
 
+const hostDirectoryShareTag = "agent.hostshares"
+
 func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File, initializing bool, observation startObservation) (*vz.VirtualMachineConfiguration, error) {
 	artifact := verified.Manifest.Artifacts
 	commandLine := "console=hvc0 panic=-1 psi=1"
@@ -65,16 +67,6 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 		}
 		storage = append(storage, legacy)
 	}
-	manager.mu.Lock()
-	blocks := append([]ApplianceBlock(nil), manager.applianceBlocks...)
-	manager.mu.Unlock()
-	for _, block := range blocks {
-		device, err := blockDevice(block.Path, false, block.DeviceIdentifier)
-		if err != nil {
-			return nil, err
-		}
-		storage = append(storage, device)
-	}
 	configuration.SetStorageDevicesVirtualMachineConfiguration(storage)
 	entropy, err := vz.NewVirtioEntropyDeviceConfiguration()
 	if err != nil {
@@ -91,6 +83,16 @@ func (manager *Manager) configuration(verified *bundle.Verified, serial *os.File
 		return nil, err
 	}
 	configuration.SetSocketDevicesVirtualMachineConfiguration([]vz.SocketDeviceConfiguration{socket})
+	sharing, err := vz.NewVirtioFileSystemDeviceConfiguration(hostDirectoryShareTag)
+	if err != nil {
+		return nil, err
+	}
+	share, err := vz.NewMultipleDirectoryShare(manager.hostDirectoryShares)
+	if err != nil {
+		return nil, err
+	}
+	sharing.SetDirectoryShare(share)
+	configuration.SetDirectorySharingDevicesVirtualMachineConfiguration([]vz.DirectorySharingDeviceConfiguration{sharing})
 	return configuration, nil
 }
 

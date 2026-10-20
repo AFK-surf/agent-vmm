@@ -334,12 +334,7 @@ func (m *Manager) reconcileLocked() error {
 		}
 		sets[id] = set
 		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: interfacePairRule(namespace.Bridge, namespace.Bridge, expr.VerdictAccept)})
-		if namespace.EgressMode == vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET {
-			for _, blocked := range blockedEgressPrefixes {
-				connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), prefixDestinationRule(blocked, expr.VerdictDrop)...)})
-			}
-			connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), outputInterfaceRule(netprotocol.TunName, expr.VerdictAccept)...)})
-		}
+
 	}
 
 	linkIDs := make([]string, 0, len(m.links))
@@ -399,6 +394,20 @@ func (m *Manager) reconcileLocked() error {
 			return err
 		}
 		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: linkRule(sourceSet, destinationSet, portSet)})
+	}
+
+	for _, id := range namespaceIDs {
+		namespace := m.namespaces[id]
+		set := sets[id]
+		if namespace.EgressMode == vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET || namespace.LANEgress {
+			for _, blocked := range blockedEgressPrefixes {
+				if namespace.LANEgress && blocked.Addr().IsPrivate() {
+					continue
+				}
+				connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), prefixDestinationRule(blocked, expr.VerdictDrop)...)})
+			}
+			connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), outputInterfaceRule(netprotocol.TunName, expr.VerdictAccept)...)})
+		}
 	}
 
 	return connection.Flush()

@@ -170,7 +170,8 @@ type ContainerData struct {
 }
 
 type MountData struct {
-	VolumeID    string `json:"volume_id"`
+	OwnedVolume string `json:"owned_volume,omitempty"`
+	HostShare   string `json:"host_share,omitempty"`
 	Destination string `json:"destination"`
 	ReadOnly    bool   `json:"read_only"`
 }

@@ -61,10 +61,17 @@ func (server *applianceAdminServer) exactInstallation(ctx context.Context, mutat
 	return installation, artifact, nil
 }
 
+func applianceAdmissionDeadline(mutation applianceMutation) error {
+	if mutation.deadlineUnixMillis <= time.Now().UnixMilli() {
+		return resourceErrorWithMetadata(codes.DeadlineExceeded, "APPLIANCE_OPERATION_NOT_ADMITTED", "appliance_installation", mutation.installationID, "appliance intent expired before admission; review and approve a new plan", map[string]string{"admission": "not_accepted"})
+	}
+	return nil
+}
+
 func (server *applianceAdminServer) existingApplianceOperation(ctx context.Context, mutation applianceMutation, kind appliancev1.ApplianceOperationKind) (store.ApplianceOperation, bool, error) {
 	existing, err := server.controller.store.ApplianceOperationByRequest(ctx, mutation.requestID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.ApplianceOperation{}, false, nil
+		return store.ApplianceOperation{}, false, applianceAdmissionDeadline(mutation)
 	}
 	if err != nil {
 		return store.ApplianceOperation{}, false, err
@@ -124,20 +131,55 @@ func (server *applianceAdminServer) failApplianceOperation(ctx context.Context, 
 func (server *applianceAdminServer) setDesiredState(ctx context.Context, mutation applianceMutation,
 	planRevision uint64, enabled bool, state appliancev1.ApplianceState, kind appliancev1.ApplianceOperationKind,
 	stage string) (*appliancev1.ApplianceOperationResponse, error) {
+	unlock := server.controller.lockIntegration("appliance-lifecycle:" + mutation.installationID)
+	defer unlock()
 	server.controller.remoteAdmissionMu.Lock()
 	defer server.controller.remoteAdmissionMu.Unlock()
 	if existing, found, err := server.existingApplianceOperation(ctx, mutation, kind); err != nil {
 		return nil, err
 	} else if found {
+		if enabled && existing.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED) {
+			current, err := server.controller.store.GetApplianceInstallation(ctx, mutation.installationID)
+			if err != nil {
+				return nil, err
+			}
+			revoked, err := server.controller.store.HasApplianceRevocation(ctx, current.ID)
+			if err != nil {
+				return nil, err
+			}
+			if revoked {
+				return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_REVOKED", "appliance_installation", current.ID, "revoked appliance cannot start")
+			}
+			if current.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_SEALED) {
+				return nil, resourceError(codes.FailedPrecondition, "SEALED_INTEGRITY", "appliance_installation",
+					current.ID, "sealed appliance cannot start")
+			}
+		}
 		return applianceOperationResponse(existing), nil
 	}
 	installation, _, err := server.exactInstallation(ctx, mutation)
 	if err != nil {
 		return nil, err
 	}
+	if enabled {
+		revoked, err := server.controller.store.HasApplianceRevocation(ctx, installation.ID)
+		if err != nil {
+			return nil, err
+		}
+		if revoked {
+			return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_REVOKED", "appliance_installation", installation.ID, "revoked appliance cannot start")
+		}
+	}
 	if planRevision != installation.Revision {
 		return nil, resourceError(codes.Aborted, "PLAN_REVISION_CONFLICT", "appliance_installation",
 			installation.ID, "operation plan is stale")
+	}
+	if installation.State == int32(appliancev1.ApplianceState_APPLIANCE_STATE_SEALED) {
+		if enabled {
+			return nil, resourceError(codes.FailedPrecondition, "SEALED_INTEGRITY", "appliance_installation",
+				installation.ID, "sealed appliance cannot start")
+		}
+		state = appliancev1.ApplianceState_APPLIANCE_STATE_SEALED
 	}
 	installation.DesiredEnabled, installation.State = enabled, int32(state)
 	operationID, err := randomID()
@@ -155,7 +197,8 @@ func (server *applianceAdminServer) setDesiredState(ctx context.Context, mutatio
 	}
 	registration, registrationErr := server.controller.store.GetRemoteRegistration(ctx, installation.RegistrationID)
 	if registrationErr == nil && registration.OwnerKind == store.RemoteRegistrationPrivate &&
-		registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED) {
+		registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED) &&
+		registration.EnrollmentState == int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY) {
 		_, registrationErr = server.controller.store.SetRemoteRegistrationState(ctx, registration.ID, registration.Revision,
 			int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING))
 	}

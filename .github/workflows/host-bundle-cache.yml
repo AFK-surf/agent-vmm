@@ -48,20 +48,15 @@ jobs:
         with:
           ref: ${{ needs.resolve-source.outputs.revision }}
           persist-credentials: false
-      - uses: actions/setup-go@v6
+      - name: Set up persistent Guest builder
+        uses: useblacksmith/setup-docker-builder@v2
         with:
-          go-version-file: go.mod
-          cache: true
+          cache-key: build/guest/Dockerfile
+          platforms: linux/arm64
       - name: Build and verify Guest bundle
         run: |
           test "$(git rev-parse HEAD)" = '${{ needs.resolve-source.outputs.revision }}'
-          mkdir -p "$RUNNER_TEMP/guest-bundle"
-          docker run --rm --platform linux/arm64 --privileged \
-            -v "$GITHUB_WORKSPACE:/src" \
-            -v "$RUNNER_TEMP/guest-bundle:/bundle" \
-            -w /src alpine:latest \
-            sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && git config --global --add safe.directory /src && build/guest/build.sh /bundle release runtime'
-          sudo chown -R "$USER":"$(id -gn)" "$RUNNER_TEMP/guest-bundle"
+          build/guest/build.sh "$RUNNER_TEMP/guest-bundle" release runtime
           cd "$RUNNER_TEMP/guest-bundle"
           jq -e '.architecture == "arm64"' manifest.json >/dev/null
       - name: Publish Guest CI intermediate to R2

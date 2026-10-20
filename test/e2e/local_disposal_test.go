@@ -32,7 +32,7 @@ func TestLocalDisposalE2E(t *testing.T) {
 	ensureNamespace(t, local, "disposal-local", 256<<20)
 	createVolume(t, local, "disposal-local", "data")
 	importRegistryImage(t, local, "disposal-local")
-	container := createContainerWithImageAndVolumes(t, local, "disposal-local", "running", workloadImage, idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	container := createContainerWithImageAndVolumes(t, local, "disposal-local", "running", workloadImage, idleProcess(), []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}})
 	startContainer(t, local, "disposal-local", container.GetId())
 	if out, code := execContainer(t, local, "disposal-local", container.GetId(), []string{"sh", "-c", "echo local-private > /data/value; echo local-layer > /root/value; sync"}); code != 0 {
 		t.Fatalf("local sentinel: %q, exit %d", out, code)
@@ -126,7 +126,7 @@ func TestLocalDisposalE2E(t *testing.T) {
 	remote.archiveDirectory, remote.archiveURL, remote.registryArchives = local.archiveDirectory, local.archiveURL, local.registryArchives
 	remote.sessions[domains[0].environment] = &productSession{connection: domains[0].connection, client: domains[0].runtime}
 	importRegistryImage(t, remote, domains[0].environment)
-	remoteContainer := createContainerWithImageAndVolumes(t, remote, domains[0].environment, "retained", workloadImage, idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data-000", Destination: "/data"}})
+	remoteContainer := createContainerWithImageAndVolumes(t, remote, domains[0].environment, "retained", workloadImage, idleProcess(), []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data-000"}, Destination: "/data"}})
 	startContainer(t, remote, domains[0].environment, remoteContainer.GetId())
 	if out, code := execContainer(t, remote, domains[0].environment, remoteContainer.GetId(), []string{"sh", "-c", "echo remote-layer > /root/value; sync"}); code != 0 {
 		t.Fatalf("remote layer sentinel: %q, exit %d", out, code)

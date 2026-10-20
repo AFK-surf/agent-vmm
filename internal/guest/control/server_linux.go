@@ -16,6 +16,9 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"github.com/containerd/errdefs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -33,18 +36,20 @@ type HealthState struct {
 
 type Server struct {
 	vmmdv1.UnimplementedVMMDServiceServer
-	runtime      *Runtime
-	health       HealthState
-	dedupe       deduper
-	shuttingDown atomic.Bool
-	operationMu  sync.Mutex
-	operations   sync.WaitGroup
-	execMu       sync.Mutex
-	executions   map[string]*execRecord
-	prepareHost  func(context.Context) error
-	healthProbe  func(context.Context) healthProbeResult
-	events       eventBuffer
-	appliances   *applianceSupervisor
+	runtime       *Runtime
+	health        HealthState
+	dedupe        deduper
+	shuttingDown  atomic.Bool
+	operationMu   sync.Mutex
+	operations    sync.WaitGroup
+	streamContext context.Context
+	cancelStreams context.CancelFunc
+	execMu        sync.Mutex
+	executions    map[string]*execRecord
+	prepareHost   func(context.Context) error
+	healthProbe   func(context.Context) healthProbeResult
+	events        eventBuffer
+	appliances    *applianceSupervisor
 }
 
 func NewServer(runtime *Runtime, health HealthState, prepareHost func(context.Context) error) *Server {
@@ -56,8 +61,8 @@ func NewServer(runtime *Runtime, health HealthState, prepareHost func(context.Co
 
 func NewGRPCServer() *grpc.Server {
 	return grpc.NewServer(
-		grpc.ChainUnaryInterceptor(deadlineUnaryInterceptor),
-		grpc.ChainStreamInterceptor(deadlineStreamInterceptor),
+		grpc.ChainUnaryInterceptor(deadlineUnaryInterceptor, shutdownUnaryInterceptor),
+		grpc.ChainStreamInterceptor(deadlineStreamInterceptor, shutdownStreamInterceptor),
 		grpc.MaxRecvMsgSize(4<<20), grpc.MaxSendMsgSize(4<<20),
 		grpc.MaxConcurrentStreams(128),
 	)
@@ -67,7 +72,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if err := s.beginShutdown(ctx); err != nil {
 		return err
 	}
-	return errors.Join(s.appliances.shutdown(ctx), s.runtime.cleanupTasks(ctx))
+	return s.stopWriters(ctx)
 }
 
 func (s *Server) Health(context.Context, *vmmdv1.HealthRequest) (*vmmdv1.HealthResponse, error) {
@@ -82,7 +87,7 @@ func (s *Server) PrepareShutdown(ctx context.Context, request *vmmdv1.PrepareShu
 		return nil, rpcError(err)
 	}
 	_, err := s.mutate(ctx, "prepare", request, func() (any, error) {
-		return &vmmdv1.PrepareShutdownResponse{}, s.runtime.cleanupTasks(ctx)
+		return &vmmdv1.PrepareShutdownResponse{}, s.stopWriters(ctx)
 	})
 	if err != nil {
 		return nil, rpcError(err)
@@ -135,6 +140,9 @@ func (s *Server) PullImage(request *vmmdv1.PullImageRequest, stream grpc.ServerS
 
 func (s *Server) DeleteImage(ctx context.Context, request *vmmdv1.DeleteImageRequest) (*vmmdv1.DeleteImageResponse, error) {
 	value, err := s.mutate(ctx, "delete-image", request, func() (any, error) {
+		if request.ControllerCacheScope != "" {
+			return &vmmdv1.DeleteImageResponse{}, s.runtime.deleteRetainedImage(ctx, request.ControllerCacheScope, request.Reference, request.ExpectedGenerationId, request.ExpectedDigest)
+		}
 		return &vmmdv1.DeleteImageResponse{}, s.runtime.DeleteImage(ctx, request.GetActorNamespaceId(), request.GetReference(), request.GetExpectedGenerationId(), request.GetExpectedDigest())
 	})
 	if err != nil {
@@ -177,7 +185,7 @@ func (s *Server) CreateContainer(ctx context.Context, request *vmmdv1.CreateCont
 
 func (s *Server) StartContainer(ctx context.Context, request *vmmdv1.StartContainerRequest) (*vmmdv1.StartContainerResponse, error) {
 	value, err := s.mutate(ctx, "start-container", request, func() (any, error) {
-		container, err := s.runtime.StartContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId())
+		container, err := s.runtime.startContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId(), false, request)
 		return &vmmdv1.StartContainerResponse{Container: container}, err
 	})
 	if err != nil {
@@ -187,7 +195,7 @@ func (s *Server) StartContainer(ctx context.Context, request *vmmdv1.StartContai
 }
 
 func (s *Server) StopContainer(ctx context.Context, request *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
-	timeout := 10 * time.Second
+	timeout := defaultContainerStopTimeout
 	if request.TimeoutSeconds != nil {
 		if request.GetTimeoutSeconds() > 60 {
 			return nil, invalid(errors.New("stop timeout exceeds 60 seconds"))
@@ -242,13 +250,13 @@ func (s *Server) ListContainers(ctx context.Context, request *vmmdv1.ListContain
 		}
 		containers, next, err := s.runtime.ListContainersPage(ctx, request.GetActorNamespaceId(), request.GetAfterContainerId(), request.GetPageSize())
 		if err != nil {
-			return nil, rpcError(err)
+			return nil, rpcError(atRuntimeStage("list_containers", err))
 		}
 		return &vmmdv1.ListContainersResponse{Containers: containers, NextCursor: next}, nil
 	}
 	containers, err := s.runtime.ListContainersBounded(ctx, request.GetActorNamespaceId(), request.GetLimit())
 	if err != nil {
-		return nil, rpcError(err)
+		return nil, rpcError(atRuntimeStage("list_containers", err))
 	}
 	return &vmmdv1.ListContainersResponse{Containers: containers}, nil
 }
@@ -306,6 +314,12 @@ func (s *Server) mutate(ctx context.Context, operation string, request proto.Mes
 func (s *Server) beginShutdown(ctx context.Context) error {
 	s.operationMu.Lock()
 	s.shuttingDown.Store(true)
+	if s.cancelStreams != nil {
+		s.cancelStreams()
+	}
+	if s.runtime != nil {
+		s.runtime.closeImageOperationAdmission()
+	}
 	s.operationMu.Unlock()
 	done := make(chan struct{})
 	go func() {
@@ -322,6 +336,8 @@ func (s *Server) beginShutdown(ctx context.Context) error {
 
 func mutationRequestID(request proto.Message) string {
 	switch request := request.(type) {
+	case *vmmdv1.ReconcileSystemImagesRequest:
+		return request.GetRequestId()
 	case *vmmdv1.PrepareShutdownRequest:
 		return request.GetRequestId()
 	case *vmmdv1.EnsureSystemApplianceRequest:
@@ -390,6 +406,9 @@ func deadlineUnaryInterceptor(ctx context.Context, request any, info *grpc.Unary
 }
 
 func deadlineStreamInterceptor(server any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if info.FullMethod == vmmdv1.VMMDService_OpenSystemStream_FullMethodName {
+		return handler(server, stream)
+	}
 	if _, ok := stream.Context().Deadline(); ok {
 		return handler(server, stream)
 	}
@@ -415,26 +434,33 @@ func rpcError(err error) error {
 	if err == nil {
 		return nil
 	}
+	log.Printf("guest runtime operation failed: %v", err)
+	var buildExit *guestbuild.ExitError
+	if errors.As(err, &buildExit) {
+		return detailedError(codes.Internal, "RUNTIME_OPERATION_FAILED", "runtime operation failed: "+buildExit.Summary(), "runtime", "")
+	}
 	var stageError runtimeStageError
 	if errors.As(err, &stageError) && (status.Code(err) == codes.NotFound || errdefs.IsNotFound(err) || errors.Is(err, os.ErrNotExist)) {
 		return detailedErrorMetadata(codes.NotFound, "RUNTIME_RESOURCE_NOT_FOUND",
-			"runtime resource was not found during "+stageError.stage, "runtime", "", map[string]string{"stage": stageError.stage})
+			"runtime resource was not found during "+stageError.stage+": "+err.Error(), "runtime", "", map[string]string{"stage": stageError.stage})
 	}
 	if status.Code(err) != codes.Unknown {
 		return err
 	}
 	switch {
 	case errdefs.IsNotFound(err), errors.Is(err, os.ErrNotExist):
-		return status.Error(codes.NotFound, "resource was not found")
+		return status.Error(codes.NotFound, err.Error())
 	case errdefs.IsAlreadyExists(err):
-		return status.Error(codes.AlreadyExists, "resource already exists")
+		return status.Error(codes.AlreadyExists, err.Error())
 	case errdefs.IsFailedPrecondition(err):
-		log.Printf("guest runtime precondition failed: %v", err)
 		message := err.Error()
-		if len(message) > 512 {
-			message = message[:512]
-		}
 		return detailedError(codes.FailedPrecondition, "RUNTIME_PRECONDITION_FAILED", "runtime precondition failed: "+message, "runtime", "")
+	case errors.Is(err, guestdisk.ErrCapacityUnavailable):
+		stage := "storage_admission"
+		if stageError.stage != "" {
+			stage = stageError.stage
+		}
+		return resourceCapacityExhausted(resourcev2.CapacityStorageHeadroom, stage, err.Error())
 	case errors.Is(err, errResourceExhausted):
 		return status.Error(codes.ResourceExhausted, err.Error())
 	case errors.Is(err, syscall.EAGAIN) || strings.Contains(strings.ToLower(err.Error()), "resource temporarily unavailable"):
@@ -446,11 +472,7 @@ func rpcError(err error) error {
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, err.Error())
 	default:
-		log.Printf("guest runtime operation failed: %v", err)
 		message := err.Error()
-		if len(message) > 512 {
-			message = message[:512]
-		}
 		return detailedError(codes.Internal, "RUNTIME_OPERATION_FAILED", "runtime operation failed: "+message, "runtime", "")
 	}
 }

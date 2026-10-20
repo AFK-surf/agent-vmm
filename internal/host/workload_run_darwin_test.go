@@ -3,14 +3,17 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,7 +25,7 @@ import (
 func TestIndependentWorkloadStartsOverlapAndUnknownStopsKeepInstanceFence(t *testing.T) {
 	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container), entered: make(chan struct{}), release: make(chan struct{})}
 	client := workloadGuestClient(t, guest)
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	first := make(chan error, 1)
 	entered := guest.entered
 	go func() {
@@ -67,7 +70,7 @@ func TestIndependentWorkloadStartsOverlapAndUnknownStopsKeepInstanceFence(t *tes
 }
 
 func TestUnknownStartDoesNotReleaseBeforeOriginalDeadline(t *testing.T) {
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	now := time.Now()
 	run, err := controller.admitWorkloadStart("env-a", "a", "main", now)
 	if err != nil {
@@ -90,7 +93,7 @@ func TestUnknownStartDoesNotReleaseBeforeOriginalDeadline(t *testing.T) {
 
 func TestConfirmedAbsentContainersReleaseAllRunSlots(t *testing.T) {
 	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container), notFound: make(map[string]bool)}
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	for _, id := range []string{"a", "b", "c", "d"} {
 		run := &workloadRun{environmentID: "env-" + id, namespaceID: id, containerID: "main", instanceID: "instance-" + id}
 		controller.workloadRuns[workloadRunKey(run.environmentID, run.containerID)] = run
@@ -112,7 +115,7 @@ func TestPressureAndStaleSamplesDoNotBlockWorkloadStarts(t *testing.T) {
 	for _, pressure := range []bool{false, true} {
 		guest := &workloadGuest{states: make(map[string]*vmmdv1.Container)}
 		client := workloadGuestClient(t, guest)
-		controller := workloadTestController()
+		controller := workloadTestController(t)
 		controller.workloadPressureAt = time.Time{}
 		controller.workloadMemoryPressure = pressure
 		for _, id := range []string{"a", "b"} {
@@ -126,7 +129,7 @@ func TestPressureAndStaleSamplesDoNotBlockWorkloadStarts(t *testing.T) {
 func TestSixIdleWorkloadsRemainRunnable(t *testing.T) {
 	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container)}
 	client := workloadGuestClient(t, guest)
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	for _, id := range []string{"a", "b", "c", "d", "e", "f"} {
 		if _, err := controller.startWorkloadContainer(context.Background(), client, "env-"+id, workloadStart(id)); err != nil {
 			t.Fatalf("start idle workload %s: %v", id, err)
@@ -143,14 +146,20 @@ func TestSixIdleWorkloadsRemainRunnable(t *testing.T) {
 	}
 }
 
-func workloadTestController() *Controller {
-	return &Controller{workloadRuns: make(map[string]*workloadRun), workloadRunsRecovered: true, workloadPressureAt: time.Now()}
+func workloadTestController(t *testing.T) *Controller {
+	t.Helper()
+	database, err := store.Open(filepath.Join(t.TempDir(), "workload.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	return &Controller{store: database, workloadRuns: make(map[string]*workloadRun), workloadRunsRecovered: true, workloadPressureAt: time.Now()}
 }
 func workloadStart(namespace string) *vmmdv1.StartContainerRequest {
 	return &vmmdv1.StartContainerRequest{RequestId: "start-" + namespace, ActorNamespaceId: namespace, ContainerId: "main"}
 }
 
-func workloadGuestClient(t *testing.T, guest *workloadGuest) vmmdv1.VMMDServiceClient {
+func workloadGuestClient(t *testing.T, guest vmmdv1.VMMDServiceServer) vmmdv1.VMMDServiceClient {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
@@ -172,6 +181,7 @@ type workloadGuest struct {
 	entered, release          chan struct{}
 	starting, maxStarting     int
 	loseStop                  bool
+	omitStoppedInstance       bool
 	usageUnavailable          bool
 	systemUsageErr            error
 	notFound                  map[string]bool
@@ -251,6 +261,9 @@ func (g *workloadGuest) StopContainer(_ context.Context, r *vmmdv1.StopContainer
 	if current := g.states[r.GetActorNamespaceId()]; current != nil {
 		instanceID = current.GetInstanceId()
 	}
+	if g.omitStoppedInstance {
+		instanceID = ""
+	}
 	c := &vmmdv1.Container{Id: r.GetContainerId(), InstanceId: instanceID, State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}
 	g.states[r.GetActorNamespaceId()] = c
 	if g.loseStop {
@@ -274,7 +287,7 @@ func TestWorkloadSamplingStillInspectsAndRetriesStopWhenPressureIsUnavailable(t 
 		inspectHits:    make(map[string]int),
 		systemUsageErr: status.Error(codes.Unavailable, "pressure unavailable"),
 	}
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	run := &workloadRun{
 		environmentID: "env-a", namespaceID: "a", containerID: "main", instanceID: "instance-a",
 		stopping: true, stopDeadline: time.Now().Add(time.Minute), stopRequestID: "stop-a",
@@ -293,7 +306,7 @@ func TestWorkloadSamplingStillInspectsAndRetriesStopWhenPressureIsUnavailable(t 
 	guest.mu.Lock()
 	inspectHits, stopHits := guest.inspectHits[run.namespaceID], guest.stopHits
 	guest.mu.Unlock()
-	if inspectHits != 1 || stopHits != 1 {
+	if inspectHits != 2 || stopHits != 1 {
 		t.Fatalf("pressure failure skipped exact work: inspect=%d stop=%d", inspectHits, stopHits)
 	}
 }
@@ -308,7 +321,7 @@ func (g *workloadGuest) GetNamespaceUsage(context.Context, *vmmdv1.GetNamespaceU
 
 func TestWorkloadSamplingBoundsRPCFanoutAndAdvancesCursor(t *testing.T) {
 	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container), inspectHits: make(map[string]int), inspectDelay: 5 * time.Millisecond}
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	for index := range 40 {
 		id := fmt.Sprintf("env-%02d", index)
 		run := &workloadRun{environmentID: id, namespaceID: id, containerID: "main", instanceID: "instance-" + id}
@@ -329,6 +342,167 @@ func TestWorkloadSamplingBoundsRPCFanoutAndAdvancesCursor(t *testing.T) {
 		guest.mu.Unlock()
 		if total != (round+1)*16 || peak > 4 || covered != min((round+1)*16, 40) {
 			t.Fatalf("round=%d RPCs=%d peak=%d covered=%d", round, total, peak, covered)
+		}
+	}
+}
+
+type workloadStopResultClient struct {
+	vmmdv1.VMMDServiceClient
+	stop func(*vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error)
+}
+
+func (client workloadStopResultClient) InspectContainer(context.Context, *vmmdv1.InspectContainerRequest, ...grpc.CallOption) (*vmmdv1.InspectContainerResponse, error) {
+	return &vmmdv1.InspectContainerResponse{Container: &vmmdv1.Container{Id: "main", GenerationId: "generation-a", InstanceId: "instance-a", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}}, nil
+}
+
+func (client workloadStopResultClient) StopContainer(_ context.Context, request *vmmdv1.StopContainerRequest, _ ...grpc.CallOption) (*vmmdv1.StopContainerResponse, error) {
+	return client.stop(request)
+}
+
+func TestSuccessfulStopCannotSettleDifferentWorkloadRun(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		replace bool
+	}{{name: "different response instance"}, {name: "replaced run", replace: true}} {
+		t.Run(test.name, func(t *testing.T) {
+			controller := workloadTestController(t)
+			run := &workloadRun{environmentID: "env-a", namespaceID: "a", containerID: "main", instanceID: "instance-a"}
+			key := workloadRunKey(run.environmentID, run.containerID)
+			controller.mu.Lock()
+			controller.setWorkloadRunLocked(key, run)
+			controller.mu.Unlock()
+			current := run
+			client := workloadStopResultClient{stop: func(*vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
+				instanceID := "different-instance"
+				if test.replace {
+					instanceID = ""
+					current = &workloadRun{environmentID: "env-a", namespaceID: "a", containerID: "main", instanceID: "replacement"}
+					controller.mu.Lock()
+					controller.setWorkloadRunLocked(key, current)
+					controller.mu.Unlock()
+				}
+				return &vmmdv1.StopContainerResponse{Container: &vmmdv1.Container{Id: "main", State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED, InstanceId: instanceID}}, nil
+			}}
+			unlock := controller.lockEnvironment("env-a")
+			_, err := controller.stopWorkloadContainerLocked(context.Background(), client, "env-a", &vmmdv1.StopContainerRequest{RequestId: "stop", ActorNamespaceId: "a", ContainerId: "main"})
+			unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			controller.mu.Lock()
+			defer controller.mu.Unlock()
+			if controller.workloadRuns[key] != current {
+				t.Fatal("Stop settled a different current run")
+			}
+			if len(controller.stoppedWorkloadInstances) != 0 {
+				t.Fatal("Stop recorded evidence for a different current run")
+			}
+		})
+	}
+}
+
+type cachedWorkloadStopGuest struct {
+	workloadGuest
+	receipts map[string]*vmmdv1.StopContainerResponse
+}
+
+func (guest *cachedWorkloadStopGuest) StopContainer(ctx context.Context, request *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
+	guest.mu.Lock()
+	receipt := guest.receipts[request.GetRequestId()]
+	guest.mu.Unlock()
+	if receipt != nil {
+		return proto.Clone(receipt).(*vmmdv1.StopContainerResponse), nil
+	}
+	receipt, err := guest.workloadGuest.StopContainer(ctx, request)
+	if err == nil {
+		guest.mu.Lock()
+		guest.receipts[request.GetRequestId()] = proto.Clone(receipt).(*vmmdv1.StopContainerResponse)
+		guest.mu.Unlock()
+	}
+	return receipt, err
+}
+
+func TestStopReceiptIsBoundToCapturedWorkloadInstance(t *testing.T) {
+	guest := &cachedWorkloadStopGuest{workloadGuest: workloadGuest{states: make(map[string]*vmmdv1.Container), omitStoppedInstance: true}, receipts: make(map[string]*vmmdv1.StopContainerResponse)}
+	client := workloadGuestClient(t, guest)
+	controller := workloadTestController(t)
+	request := &vmmdv1.StopContainerRequest{RequestId: "remote-stop-main", ActorNamespaceId: "a", ContainerId: "main"}
+	key := workloadRunKey("env-a", "main")
+	for index, instance := range []string{"instance-a", "instance-a", "instance-b"} {
+		if index != 1 {
+			guest.mu.Lock()
+			guest.states["a"] = &vmmdv1.Container{Id: "main", NamespaceId: "a", InstanceId: instance, State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}
+			guest.mu.Unlock()
+		}
+		run := &workloadRun{environmentID: "env-a", namespaceID: "a", containerID: "main", instanceID: instance, executions: map[string]*workloadExecution{"exec": {}}}
+		controller.mu.Lock()
+		controller.setWorkloadRunLocked(key, run)
+		controller.mu.Unlock()
+		unlock := controller.lockEnvironment("env-a")
+		response, err := controller.stopWorkloadContainerLocked(context.Background(), client, "env-a", request)
+		unlock()
+		if err != nil || response.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+			t.Fatalf("stop %d: response=%v err=%v", index, response, err)
+		}
+		guest.mu.Lock()
+		state, hits := guest.states["a"].GetState(), guest.stopHits
+		guest.mu.Unlock()
+		expectedHits := 1
+		if index == 2 {
+			expectedHits = 2
+		}
+		if state != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED || hits != expectedHits {
+			t.Fatalf("stop %d guest state=%v actual stops=%d want=%d", index, state, hits, expectedHits)
+		}
+		controller.mu.Lock()
+		retained, evidence := controller.workloadRuns[key], controller.stoppedWorkloadInstances[key]
+		controller.mu.Unlock()
+		if retained != nil || evidence != instance {
+			t.Fatalf("stop %d retained=%v evidence=%q want=%q", index, retained, evidence, instance)
+		}
+		if request.GetRequestId() != "remote-stop-main" || run.stopRequestID != "remote-stop-main" {
+			t.Fatal("instance binding changed caller recovery request identity")
+		}
+	}
+}
+
+func TestStopRetryPreservesOriginalRequestFingerprint(t *testing.T) {
+	for name, timeout := range map[string]*uint32{"omitted": nil, "immediate": optional(uint32(0)), "graceful": optional(uint32(17))} {
+		for _, quiesced := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/quiesced=%t", name, quiesced), func(t *testing.T) {
+				controller := workloadTestController(t)
+				run := &workloadRun{environmentID: "env-a", namespaceID: "a", containerID: "main", instanceID: "instance-a"}
+				if quiesced {
+					run.quiescing = true
+					run.stopDeadline = time.Now().Add(time.Minute)
+				}
+				controller.setWorkloadRunLocked(workloadRunKey(run.environmentID, run.containerID), run)
+				var original []byte
+				calls := 0
+				client := workloadStopResultClient{stop: func(request *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
+					calls++
+					fingerprint := runtimeRequestHash(request)
+					if calls == 1 {
+						original = fingerprint
+						return nil, status.Error(codes.Canceled, "first stop canceled")
+					}
+					if !bytes.Equal(fingerprint, original) {
+						t.Fatal("retry changed request fingerprint")
+					}
+					return &vmmdv1.StopContainerResponse{Container: &vmmdv1.Container{Id: "main", State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}}, nil
+				}}
+				request := &vmmdv1.StopContainerRequest{RequestId: "original-stop", ActorNamespaceId: "a", ContainerId: "main", TimeoutSeconds: timeout}
+				unlock := controller.lockEnvironment("env-a")
+				_, err := controller.stopWorkloadContainerLocked(t.Context(), client, "env-a", request)
+				unlock()
+				if status.Code(err) != codes.Canceled {
+					t.Fatal(err)
+				}
+				controller.retryWorkloadStop(t.Context(), client, run)
+				if calls != 2 || controller.workloadRuns[workloadRunKey("env-a", "main")] != nil {
+					t.Fatalf("calls=%d retry did not settle", calls)
+				}
+			})
 		}
 	}
 }

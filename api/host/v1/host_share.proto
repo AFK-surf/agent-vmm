@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package agentvmm.host.v1;
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
+
+enum HostShareState {
+  HOST_SHARE_STATE_UNSPECIFIED = 0;
+  HOST_SHARE_STATE_AVAILABLE = 1;
+  HOST_SHARE_STATE_UNAVAILABLE = 2;
+  HOST_SHARE_STATE_REVOKING = 3;
+  HOST_SHARE_STATE_REVOKED = 4;
+}
+
+message HostShare {
+  string id = 1;
+  string environment_id = 2;
+  string source_path = 3;
+  bool read_only = 4;
+  uint64 revision = 5;
+  HostShareState state = 6;
+  string unavailable_reason = 7;
+}
+
+message CreateHostShareRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string source_path = 3;
+  bool read_only = 4;
+}
+
+message RebindHostShareRequest {
+  string request_id = 1;
+  string share_id = 2;
+  uint64 expected_revision = 3;
+  string source_path = 4;
+  bool read_only = 5;
+}
+
+message RevokeHostShareRequest {
+  string request_id = 1;
+  string share_id = 2;
+  uint64 expected_revision = 3;
+}
+
+message HostShareResponse { HostShare share = 1; }
+message ListHostSharesRequest { optional string environment_id = 1; }
+message ListHostSharesResponse { repeated HostShare shares = 1; }

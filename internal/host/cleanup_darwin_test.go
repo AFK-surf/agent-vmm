@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -53,20 +55,43 @@ func TestValidateCleanupKindRejectsNonTerminalValues(t *testing.T) {
 	}
 }
 
-func TestDiscardTreatsNotFoundFromAnyGuestInventoryStageAsMissingNamespace(t *testing.T) {
-	if !isMissingNamespaceDiscard(hostv1.CleanupKind_CLEANUP_KIND_DISCARD, status.Error(codes.NotFound, "resource was not found")) {
-		t.Fatal("missing namespace was not recognized as a recoverable discard")
-	}
+type cleanupNamespaceClient struct {
+	vmmdv1.VMMDServiceClient
+	err         error
+	called      int
+	namespaceID string
+}
+
+func (client *cleanupNamespaceClient) GetNamespace(_ context.Context, request *vmmdv1.GetNamespaceRequest, _ ...grpc.CallOption) (*vmmdv1.GetNamespaceResponse, error) {
+	client.called++
+	client.namespaceID = request.GetNamespaceId()
+	return &vmmdv1.GetNamespaceResponse{}, client.err
+}
+func TestDiscardRequiresExactNamespaceAbsence(t *testing.T) {
 	for _, test := range []struct {
-		kind hostv1.CleanupKind
-		err  error
+		name                 string
+		kind                 hostv1.CleanupKind
+		inventory, namespace error
+		missing              bool
+		calls                int
+		code                 codes.Code
 	}{
-		{kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, err: status.Error(codes.NotFound, "missing")},
-		{kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, err: errors.New("guest unavailable")},
+		{"resource missing namespace present", hostv1.CleanupKind_CLEANUP_KIND_DISCARD, status.Error(codes.NotFound, "volume missing"), nil, false, 1, codes.OK},
+		{"namespace absent", hostv1.CleanupKind_CLEANUP_KIND_DISCARD, status.Error(codes.NotFound, "missing"), status.Error(codes.NotFound, "namespace missing"), true, 1, codes.OK},
+		{"namespace unknown", hostv1.CleanupKind_CLEANUP_KIND_DISCARD, status.Error(codes.NotFound, "missing"), status.Error(codes.Unavailable, "unknown"), false, 1, codes.Unavailable},
+		{"reset", hostv1.CleanupKind_CLEANUP_KIND_RESET, status.Error(codes.NotFound, "missing"), nil, false, 0, codes.OK},
+		{"inventory unavailable", hostv1.CleanupKind_CLEANUP_KIND_DISCARD, status.Error(codes.Unavailable, "unknown"), nil, false, 0, codes.OK},
 	} {
-		if isMissingNamespaceDiscard(test.kind, test.err) {
-			t.Fatalf("non-discard/not-found error was swallowed: kind=%s err=%v", test.kind, test.err)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			client := &cleanupNamespaceClient{err: test.namespace}
+			missing, err := confirmMissingNamespaceDiscard(context.Background(), client, "exact-namespace", test.kind, test.inventory)
+			if missing != test.missing || status.Code(err) != test.code || client.called != test.calls {
+				t.Fatalf("missing=%v err=%v calls=%d", missing, err, client.called)
+			}
+			if client.called != 0 && client.namespaceID != "exact-namespace" {
+				t.Fatal("wrong namespace queried")
+			}
+		})
 	}
 }
 
@@ -162,7 +187,7 @@ func TestFailedCleanupRequestReplaysPriorResultWithoutReplanningOrDeletingNewDat
 	replayed, err := server.executeCleanupAdmissionLockedWithFence(context.Background(), "request-cleanup", &hostv1.CleanupPlan{
 		EnvironmentId: "environment-a", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, Revision: 999,
 		Impacts: []*hostv1.CleanupImpact{{Resource: &hostv1.ResourceReference{Kind: "volume", ResourceId: "new-volume", GenerationId: "new-generation"}}},
-	}, []string{"new-volume"}, "", false, false, func(context.Context) error {
+	}, []string{"new-volume"}, "", false, false, func(context.Context, *hostv1.CleanupPlan) error {
 		mutated = true
 		return nil
 	})
@@ -281,9 +306,9 @@ func TestAcceptedCleanupPersistsFailureWithOwnerContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &operatorServer{controller: &Controller{store: database}}
-	result, resultErr := server.executeAcceptedCleanup(operation, &hostv1.CleanupPlan{
+	result, resultErr := server.executeAcceptedCleanup(nil, operation, &hostv1.CleanupPlan{
 		EnvironmentId: "environment-a", Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, Revision: 1,
-	}, "", func(context.Context) error {
+	}, "", func(context.Context, *hostv1.CleanupPlan) error {
 		stored, loadErr := database.OperationByRequestID(context.Background(), operation.RequestID)
 		if loadErr != nil || stored.ID != operation.ID || stored.State != int32(hostv1.OperationState_OPERATION_STATE_RUNNING) {
 			t.Fatalf("cleanup side effect ran before durable acceptance: stored=%+v err=%v", stored, loadErr)
@@ -315,9 +340,9 @@ func TestAcceptedCleanupReturnsTerminalPersistenceFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &operatorServer{controller: &Controller{store: database}}
-	_, resultErr := server.executeAcceptedCleanup(operation, &hostv1.CleanupPlan{
+	_, resultErr := server.executeAcceptedCleanup(nil, operation, &hostv1.CleanupPlan{
 		EnvironmentId: "environment-a", Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, Revision: 1,
-	}, "", func(context.Context) error {
+	}, "", func(context.Context, *hostv1.CleanupPlan) error {
 		return errors.New("execution failed")
 	})
 	if resultErr == nil || !strings.Contains(resultErr.Error(), "execution failed") || !strings.Contains(resultErr.Error(), "persist cleanup failure") {
@@ -605,11 +630,37 @@ func TestCleanupFenceStopsActualImageAndLinkHandlersBeforeOwnerMutation(t *testi
 }
 
 func TestAllocationCleanupPlanPreservesKindAndImpacts(t *testing.T) {
-	plan := allocationCleanupPlan("allocation", &hostv1.CleanupPlan{Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, Revision: 9, Impacts: []*hostv1.CleanupImpact{
+	plan := allocationCleanupPlan("allocation", 13, &hostv1.CleanupPlan{Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, Revision: 9, Impacts: []*hostv1.CleanupImpact{
 		{Resource: &hostv1.ResourceReference{Kind: "volume", ResourceId: "state"}, Effect: "retained"},
 		{Resource: &hostv1.ResourceReference{Kind: "container", ResourceId: "worker"}, Effect: "deleted", Irreversible: true},
 	}})
-	if plan.GetAllocationId() != "allocation" || plan.GetKind() != hostv1.CleanupKind_CLEANUP_KIND_RESET || plan.GetRevision() != 9 || len(plan.GetImpacts()) != 2 || len(plan.GetVolumeIds()) != 1 || plan.GetVolumeIds()[0] != "state" {
+	if plan.GetAllocationId() != "allocation" || plan.GetAllocationGeneration() != 13 || plan.GetKind() != hostv1.CleanupKind_CLEANUP_KIND_RESET || plan.GetRevision() != 9 || len(plan.GetImpacts()) != 2 || len(plan.GetVolumeIds()) != 1 || plan.GetVolumeIds()[0] != "state" {
 		t.Fatalf("allocation cleanup projection = %+v", plan)
+	}
+}
+
+func TestCleanupRevisionRejectsReplacementNamespaceWithEmptyInventory(t *testing.T) {
+	original := store.Environment{ID: "original-environment", NamespaceID: "original-namespace", RegistrationID: "controller", AllocationID: "allocation", AllocationGeneration: 1, PolicyRevision: 1}
+	replacement := store.Environment{ID: "replacement-environment", NamespaceID: "replacement-namespace", RegistrationID: original.RegistrationID, AllocationID: original.AllocationID, AllocationGeneration: 2, PolicyRevision: original.PolicyRevision}
+	for _, missing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("missing=%t", missing), func(t *testing.T) {
+			planFor := func(environment store.Environment) *hostv1.CleanupPlan {
+				if missing {
+					return missingNamespaceCleanupPlan(environment, nil)
+				}
+				return &hostv1.CleanupPlan{EnvironmentId: environment.ID, Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, Revision: cleanupInventoryRevision(hostv1.CleanupKind_CLEANUP_KIND_DISCARD, environment.PolicyRevision, environment.NamespaceID, nil, nil, nil, nil)}
+			}
+			originalPlan := planFor(original)
+			currentPlan := planFor(replacement)
+			if originalPlan.GetRevision() == 0 || currentPlan.GetRevision() == 0 {
+				t.Fatal("namespace plans must have a nonzero revision")
+			}
+			if currentPlan.GetRevision() == originalPlan.GetRevision() {
+				t.Fatal("old plan revision admits cleanup of the replacement generation")
+			}
+			if planFor(replacement).GetRevision() != currentPlan.GetRevision() {
+				t.Fatal("replacement plan is not stable")
+			}
+		})
 	}
 }

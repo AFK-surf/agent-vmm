@@ -4,6 +4,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -35,34 +36,11 @@ func main() {
 		build(os.Args[3:])
 		return
 	}
-	if len(os.Args) >= 3 && os.Args[1] == "appliance" && os.Args[2] == "status" {
-		applianceStatus(os.Args[3:])
+	if dispatchApplianceCLI(os.Args[1:]) {
 		return
 	}
 	fmt.Fprintln(os.Stderr, managedUsage)
 	os.Exit(2)
-}
-
-func applianceStatus(arguments []string) {
-	flags := flag.NewFlagSet("appliance status", flag.ExitOnError)
-	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
-	flags.Parse(arguments)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	connection, err := grpc.NewClient("passthrough:///agent-vmm", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", *socket)
-	}))
-	check(err)
-	defer connection.Close()
-	response, err := appliancev1.NewApplianceAdminServiceClient(connection).List(ctx, &appliancev1.ListAppliancesRequest{})
-	check(err)
-	for _, appliance := range response.GetAppliances() {
-		health := appliance.GetHealth()
-		fmt.Printf("id=%s state=%s channel=%s enabled=%t healthy=%t status=%s boot=%s container=%s\n", appliance.GetInstallationId(), appliance.GetApplianceState(), appliance.GetChannelState(), appliance.GetEnabled(), health.GetHealthy(), health.GetStatus(), appliance.GetBootId(), appliance.GetContainerInstance())
-		for _, frontend := range appliance.GetFrontends() {
-			fmt.Printf("  frontend=%s endpoint=%s available=%t\n", frontend.GetName(), frontend.GetEndpoint(), frontend.GetAvailable())
-		}
-	}
 }
 
 func build(arguments []string) {
@@ -73,7 +51,6 @@ func build(arguments []string) {
 	product := flags.String("product", "", "appliance product id")
 	release := flags.String("release", "", "appliance release")
 	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
-	artifactStore := flags.String("artifact-store", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/instance/support/appliance-artifacts"), "Agent VMM appliance archive store")
 	flags.Parse(arguments)
 	if *contextDirectory == "" || *output == "" || *product == "" || *release == "" {
 		flags.Usage()
@@ -125,17 +102,18 @@ func build(arguments []string) {
 	if result == nil {
 		check(errors.New("build returned no artifact result"))
 	}
-	image, err := os.ReadFile(temporaryPath)
+	image, err := os.Open(temporaryPath)
 	check(err)
-	hash := sha256.Sum256(image)
-	if uint64(len(image)) != result.GetArchiveSize() || !strings.EqualFold(hex.EncodeToString(hash[:]), hex.EncodeToString(result.GetArchiveSha256())) {
+	hash := sha256.New()
+	size, err := io.Copy(hash, image)
+	check(err)
+	check(image.Close())
+	if uint64(size) != result.GetArchiveSize() || !bytes.Equal(hash.Sum(nil), result.GetArchiveSha256()) {
 		check(errors.New("build archive does not match guest commitment"))
 	}
 	check(os.Rename(temporaryPath, filepath.Join(*output, "image.oci.tar")))
-	canonicalHash := writeManifest(*output, *product, *release, result.GetManifestDigest())
-	check(os.MkdirAll(*artifactStore, 0o700))
-	storePath := filepath.Join(*artifactStore, hex.EncodeToString(canonicalHash)+".oci.tar")
-	check(copyFile(filepath.Join(*output, "image.oci.tar"), storePath))
+	writeManifest(*output, *product, *release, &appliancev1.ApplianceContentReference{Role: appliancev1.ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER, ArchiveSha256: result.GetArchiveSha256(), ArchiveSize: result.GetArchiveSize(), Platform: "linux/arm64", ImageReference: "agent-vmm.local/appliance@" + result.GetManifestDigest(), ImageManifestDigest: result.GetManifestDigest()})
+
 }
 
 func archiveContext(root string) ([]byte, error) {
@@ -220,43 +198,11 @@ func randomID() string {
 	}
 	return hex.EncodeToString(value)
 }
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
-func copyFile(source, destination string) error {
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	temporary, err := os.CreateTemp(filepath.Dir(destination), ".appliance-*.oci.tar")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if _, err := io.Copy(temporary, input); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, destination)
-}
-
-func writeManifest(output, product, release, imageDigest string) []byte {
+func writeManifest(output, product, release string, content *appliancev1.ApplianceContentReference) []byte {
 	limits := func(pids uint32, disk uint64) *hostv1.ResourceLimits {
 		return &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk}
 	}
-	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: product, Release: release, ImageReference: "agent-vmm.local/appliance@" + imageDigest, ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1", ControllerProtocolVersion: "controller-ready-v1", SystemLimits: limits(256, 2<<30), DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{PerEnvironmentLimits: limits(1024, 16<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, RequestedFrontends: []*appliancev1.ControllerFrontend{{Name: "mcp-http", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP, Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16, MaxUseCount: 1024}}}, StartupDeadlineSeconds: 60, ProbationSeconds: 5, HealthTimeoutSeconds: 10}
+	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: product, Release: release, ImageReference: content.GetImageReference(), ImageManifestDigest: content.GetImageManifestDigest(), ContentRefs: []*appliancev1.ApplianceContentReference{content}, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1", ControllerProtocolVersion: "controller-ready-v1", SystemLimits: limits(256, 2<<30), DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{PerEnvironmentLimits: limits(1024, 16<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, RequestedFrontends: []*appliancev1.ControllerFrontend{{Name: "mcp-http", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP, Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16}}}, StartupDeadlineSeconds: 60, ProbationSeconds: 5, HealthTimeoutSeconds: 10}
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
 	check(err)
 	check(os.WriteFile(filepath.Join(output, "manifest.pb"), canonical, 0o644))

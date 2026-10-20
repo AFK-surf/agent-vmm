@@ -5,7 +5,13 @@ package host
 import (
 	"context"
 	"fmt"
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/egress"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"net/netip"
+	"path/filepath"
 	"testing"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"google.golang.org/grpc"
@@ -75,4 +81,89 @@ func TestGetSystemApplianceDoesNotScanInventory(t *testing.T) {
 	if err != nil || missing != nil {
 		t.Fatalf("missing appliance=%+v err=%v", missing, err)
 	}
+}
+
+func TestApplianceSourcePolicyFollowsPersistedInstanceAndRecovery(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	_, _, err = database.StageApplianceArtifact(ctx, store.ApplianceArtifact{ID: "artifact", ProductID: "product", CanonicalHash: []byte("hash"), ImageDigest: "digest", ImageReference: "image", Platform: "linux/arm64", Release: "1", Manifest: []byte("{}")}, store.ApplianceOperation{ID: "stage", RequestID: "stage", State: 2, Phase: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation, _, _, err := database.InstallApplianceDomain(ctx, store.ApplianceInstallation{ID: "installation", ProductID: "product", ArtifactID: "artifact", State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED), Revision: 1, DataVolumeID: "volume", DataVolumeBytes: 1024}, store.ApplianceGrant{Revision: 1, System: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, PerEnvironment: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, LANEgress: true, EgressMode: 1, MaxEgressMode: 1, HostTCPEndpoints: store.HostTCPEndpoints{netip.MustParseAddrPort("192.168.88.16:3000")}}, store.RemoteRegistration{ID: "registration", InstallationID: "installation", OwnerKind: store.RemoteRegistrationPrivate, DisplayName: "private", ProtocolVersion: "1", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1}, nil, store.ApplianceOperation{ID: "install", RequestID: "install", State: 2, Phase: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation.DesiredEnabled = true
+	installation, err = database.UpdateApplianceInstallation(ctx, installation, installation.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &Controller{store: database}
+	identity := &vmmdv1.SystemApplianceIdentity{InstallationId: installation.ID, BootId: "boot", NamespaceId: systemNamespaceID(installation.ID), ContainerInstanceId: "instance"}
+	inventory := &applianceInventoryClient{appliances: []*vmmdv1.SystemAppliance{{Identity: identity, NetworkSubnet: "10.77.0.0/24", State: vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING}}}
+	policies := new(egress.Policies)
+	revision := uint64(0)
+	publish := func(expected bool) egress.Source {
+		t.Helper()
+		sources, err := controller.applianceEgressSources(ctx, inventory, "boot")
+		if err != nil || len(sources) != 1 {
+			t.Fatalf("source count=%d error=%v", len(sources), err)
+		}
+		revision++
+		if err := policies.Publish(egress.Snapshot{BootID: "boot", Revision: revision, Sources: sources}); err != nil {
+			t.Fatal(err)
+		}
+		source, allowed := policies.Resolve("boot", netip.MustParseAddr("10.77.0.2"))
+		if allowed != expected {
+			t.Fatalf("allowed=%t want=%t source=%+v", allowed, expected, source)
+		}
+		return source
+	}
+	publish(false)
+	installation.State = int32(appliancev1.ApplianceState_APPLIANCE_STATE_STARTING)
+	installation.CurrentBootID = "boot"
+	installation.CurrentContainerInstance = "instance"
+	installation, err = database.UpdateApplianceInstallation(ctx, installation, installation.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := publish(true)
+	if !source.LANEgress || source.InstanceID != "instance" || source.GrantRevision != 1 || len(source.HostTCPEndpoints) != 1 {
+		t.Fatalf("persisted source=%+v", source)
+	}
+	flow, cancel := policies.Context(context.Background(), "boot", netip.MustParseAddr("10.77.0.2"), source)
+	defer cancel()
+	recovered := &Controller{store: database}
+	controller = recovered
+	publish(true)
+	select {
+	case <-flow.Done():
+		t.Fatal("recovery canceled unchanged instance")
+	default:
+	}
+	installation.CurrentContainerInstance = "replacement"
+	installation, err = database.UpdateApplianceInstallation(ctx, installation, installation.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish(false)
+	select {
+	case <-flow.Done():
+	case <-time.After(time.Second):
+		t.Fatal("replacement retained old connection")
+	}
+	identity.ContainerInstanceId = "replacement"
+	publish(true)
+	installation.DesiredEnabled = false
+	installation.State = int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED)
+	installation, err = database.UpdateApplianceInstallation(ctx, installation, installation.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish(false)
 }

@@ -35,7 +35,7 @@ func main() {
 		RequestedFrontends: []*appliancev1.ControllerFrontend{
 			{Name: "mcp-http", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP,
 				Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK,
-				Bounds:   &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16, MaxUseCount: 1024}},
+				Bounds:   &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16}},
 		},
 		StartupDeadlineSeconds: 60, ProbationSeconds: 5, HealthTimeoutSeconds: 10,
 	}

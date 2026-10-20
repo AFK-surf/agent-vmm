@@ -262,6 +262,9 @@ func (r *Runtime) rebuildRuntimeInventory(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read runtime container %q: %w", container.ID(), err)
 		}
+		if err := convertContainerMountLabel(runtimeContext(ctx), container, info.Labels); err != nil {
+			return fmt.Errorf("convert container mount label %q: %w", container.ID(), err)
+		}
 		containerRecords = append(containerRecords, info)
 	}
 
@@ -287,6 +290,15 @@ func (r *Runtime) rebuildRuntimeInventory(ctx context.Context) error {
 		return fmt.Errorf("read internal runtime images: %w", err)
 	}
 	for _, record := range runtimeImages {
+		if scope := record.Labels[retainedScopeLabel]; scope != "" {
+			rebuilt.addRuntimeImage(record.Name)
+			owner := retainedImageOwner(scope)
+			rebuilt.ensureNamespace(owner)
+			if err := rebuilt.addImage(owner, record.Name, record.Target.Digest.String()); err != nil {
+				return err
+			}
+			continue
+		}
 		rebuilt.addRuntimeImage(record.Name)
 	}
 	r.inventory = rebuilt
@@ -315,6 +327,9 @@ func buildRuntimeInventoryIndex(knownNamespaces map[string]bool, containers []co
 			return nil, fmt.Errorf("runtime images name unknown namespace %q", namespaceID)
 		}
 		for reference, targetDigest := range references {
+			if reference == guestbuild.InternalImageReference {
+				continue
+			}
 			if reference == "" {
 				return nil, fmt.Errorf("runtime image in namespace %q has no name", namespaceID)
 			}

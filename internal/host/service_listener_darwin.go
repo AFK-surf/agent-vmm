@@ -25,11 +25,17 @@ import (
 )
 
 type serviceListenerRuntime struct {
-	listener net.Listener
-	expires  time.Time
-	cancel   context.CancelFunc
-	done     chan struct{}
-	wg       sync.WaitGroup
+	listener    net.Listener
+	expires     time.Time
+	cancel      context.CancelFunc
+	done        chan struct{}
+	wg          sync.WaitGroup
+	mu          sync.Mutex
+	closed      bool
+	connections map[net.Conn]struct{}
+	instance    string
+	environment string
+	container   string
 }
 
 func (server *operatorServer) CreatePersonalServiceListener(ctx context.Context, request *hostv1.CreatePersonalServiceListenerRequest) (*hostv1.ServiceListenerResponse, error) {
@@ -39,7 +45,7 @@ func (server *operatorServer) CreatePersonalServiceListener(ctx context.Context,
 		return nil, invalidField("service_listener", "complete personal service listener and budget are required")
 	}
 	if existing, err := server.controller.store.GetServiceListenerByRequest(ctx, request.GetRequestId()); err == nil {
-		return &hostv1.ServiceListenerResponse{Listener: existing.Listener}, nil
+		return &hostv1.ServiceListenerResponse{Listener: server.controller.observePersonalServiceListener(existing.Listener)}, nil
 	}
 	identity, err := server.controller.trust.Identity(ctx)
 	if err != nil || identity.Identity.GetDeviceId() == request.GetDestinationDeviceId() {
@@ -106,24 +112,73 @@ func (server *operatorServer) CreatePersonalServiceListener(ctx context.Context,
 	if err != nil || created.GetId() != listenerID {
 		listener.Close()
 		if err == nil {
-			return &hostv1.ServiceListenerResponse{Listener: created}, nil
+			return &hostv1.ServiceListenerResponse{Listener: server.controller.observePersonalServiceListener(created)}, nil
 		}
 		return nil, err
 	}
 	header := &servicev1.OpenServiceForwardHeader{RouteId: routeID, LeaseId: leaseID, RouteGeneration: generation, Capability: capability}
 	server.controller.startServiceListener(listener, created, header, endpoint)
-	return &hostv1.ServiceListenerResponse{Listener: created}, nil
+	return &hostv1.ServiceListenerResponse{Listener: server.controller.observePersonalServiceListener(created)}, nil
 }
 
 func (server *operatorServer) ListServiceListeners(ctx context.Context, _ *hostv1.ListServiceListenersRequest) (*hostv1.ListServiceListenersResponse, error) {
+	server.controller.projectionMu.Lock()
+	defer server.controller.projectionMu.Unlock()
 	listeners, err := server.controller.store.ListServiceListeners(ctx)
 	if err != nil {
 		return nil, err
 	}
+	for index, value := range listeners {
+		if value.GetLocal() {
+			listeners[index] = server.controller.observeLocalServiceListenerLocked(ctx, value)
+		} else {
+			listeners[index] = server.controller.observePersonalServiceListener(value)
+		}
+	}
 	return &hostv1.ListServiceListenersResponse{Listeners: listeners}, nil
 }
 
+func (runtime *serviceListenerRuntime) listening() bool {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed {
+		return false
+	}
+	select {
+	case <-runtime.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func (controller *Controller) observePersonalServiceListener(value *hostv1.ServiceListener) *hostv1.ServiceListener {
+	observed := proto.Clone(value).(*hostv1.ServiceListener)
+	controller.serviceListenerMu.Lock()
+	current := controller.serviceListeners[value.GetId()]
+	controller.serviceListenerMu.Unlock()
+	available := !value.GetRevoked() && value.GetExpiresAt().AsTime().After(time.Now()) && current != nil && current.listening()
+	observed.Available = optional(available)
+	observed.UnavailableReason = ""
+	if !available {
+		observed.UnavailableReason = "personal listener is not active"
+		return observed
+	}
+	address, _, err := net.SplitHostPort(value.GetListenAddress())
+	if err == nil {
+		_, err = serviceBindAddress(value.GetExposure(), address)
+	}
+	if err != nil {
+		controller.stopServiceListener(value.GetId())
+		observed.Available = optional(false)
+		observed.UnavailableReason = err.Error()
+	}
+	return observed
+}
+
 func (server *operatorServer) RevokeServiceListener(ctx context.Context, request *hostv1.RevokeServiceListenerRequest) (*emptypb.Empty, error) {
+	server.controller.projectionMu.Lock()
+	defer server.controller.projectionMu.Unlock()
 	if request.GetRequestId() == "" || request.GetListenerId() == "" || request.GetExpectedRevision() == 0 {
 		return nil, invalidField("service_listener", "request id, listener id, and expected revision are required")
 	}
@@ -145,22 +200,35 @@ func listenerRouteClass(exposure hostv1.ServiceListenerExposure) (servicev1.Rout
 	}
 }
 
-func listenServiceAddress(ctx context.Context, exposure hostv1.ServiceListenerExposure, address string, port uint16) (net.Listener, error) {
+var errServiceInterfaceUnavailable = errors.New("approved LAN interface address is not currently available")
+
+func serviceBindAddress(exposure hostv1.ServiceListenerExposure, address string) (netip.Addr, error) {
 	if address == "" && exposure == hostv1.ServiceListenerExposure_SERVICE_LISTENER_EXPOSURE_DEVICE_LOOPBACK {
 		address = "127.0.0.1"
 	}
 	parsed, err := netip.ParseAddr(address)
 	if err != nil {
-		return nil, errors.New("bind address must be a literal IP")
+		return netip.Addr{}, errors.New("bind address must be a literal IP")
 	}
 	if exposure == hostv1.ServiceListenerExposure_SERVICE_LISTENER_EXPOSURE_DEVICE_LOOPBACK {
 		if !parsed.IsLoopback() {
-			return nil, errors.New("device listener must bind loopback")
+			return netip.Addr{}, errors.New("device listener must bind loopback")
 		}
 	} else {
-		if parsed.IsLoopback() || parsed.IsUnspecified() || parsed.IsMulticast() || !parsed.IsPrivate() || !localInterfaceContains(parsed) {
-			return nil, errors.New("LAN listener must bind one explicit local private interface address")
+		if parsed.IsLoopback() || parsed.IsUnspecified() || parsed.IsMulticast() || !parsed.IsPrivate() {
+			return netip.Addr{}, errors.New("LAN listener must bind one explicit local private interface address")
 		}
+		if !localInterfaceContains(parsed) {
+			return netip.Addr{}, errServiceInterfaceUnavailable
+		}
+	}
+	return parsed, nil
+}
+
+func listenServiceAddress(ctx context.Context, exposure hostv1.ServiceListenerExposure, address string, port uint16) (net.Listener, error) {
+	parsed, err := serviceBindAddress(exposure, address)
+	if err != nil {
+		return nil, err
 	}
 	var listenConfig net.ListenConfig
 	return listenConfig.Listen(ctx, "tcp", net.JoinHostPort(parsed.String(), strconv.Itoa(int(port))))
@@ -201,9 +269,12 @@ func (controller *Controller) startServiceListener(listener net.Listener, value 
 				controller.stopServiceListener(value.GetId())
 				return
 			}
-			runtime.wg.Add(1)
+			if !runtime.track(connection) {
+				connection.Close()
+				return
+			}
 			go func() {
-				defer runtime.wg.Done()
+				defer runtime.release(connection)
 				defer connection.Close()
 				remote, err := controller.dialRemoteService(ctx, header, endpoint)
 				if err != nil {
@@ -249,8 +320,18 @@ func (controller *Controller) stopServiceListener(id string) {
 	if runtime == nil {
 		return
 	}
+	runtime.mu.Lock()
+	runtime.closed = true
+	connections := make([]net.Conn, 0, len(runtime.connections))
+	for connection := range runtime.connections {
+		connections = append(connections, connection)
+	}
+	runtime.mu.Unlock()
 	runtime.cancel()
 	_ = runtime.listener.Close()
+	for _, connection := range connections {
+		_ = connection.Close()
+	}
 	runtime.wg.Wait()
 }
 
@@ -264,4 +345,25 @@ func (controller *Controller) closeAllServiceListeners() {
 	for _, id := range ids {
 		controller.stopServiceListener(id)
 	}
+}
+
+func (runtime *serviceListenerRuntime) track(connection net.Conn) bool {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed {
+		return false
+	}
+	if runtime.connections == nil {
+		runtime.connections = make(map[net.Conn]struct{})
+	}
+	runtime.connections[connection] = struct{}{}
+	runtime.wg.Add(1)
+	return true
+}
+
+func (runtime *serviceListenerRuntime) release(connection net.Conn) {
+	runtime.mu.Lock()
+	delete(runtime.connections, connection)
+	runtime.mu.Unlock()
+	runtime.wg.Done()
 }

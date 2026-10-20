@@ -5,7 +5,7 @@ repo=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 output=${OUTPUT_DIRECTORY:-"$repo/dist"}
 identity=${CODE_SIGN_IDENTITY:--}
 guest=${AGENT_VMM_GUEST_BUNDLE:-/tmp/agent-vmm-e2e-bundle}
-derived="$output/DerivedData"
+rust_target=${CARGO_TARGET_DIR:-"$repo/target/host-rust"}
 product="$output/Agent VMM Host.app"
 release_id=${AGENT_VMM_RELEASE_ID:-agent-vmm-host}
 phase=${AGENT_VMM_PACKAGE_PHASE:-all}
@@ -106,15 +106,18 @@ GOOS=darwin GOARCH=arm64 go build -tags=managedonly -trimpath -o "$product/Conte
 for command in inspect diagnose logs operation repair update vm cleanup; do
 	"$product/Contents/Helpers/agent-vmm" "$command" --help >/dev/null
 done
-if "$product/Contents/Helpers/agent-vmm" appliance status >/dev/null 2>&1; then
-	echo "managed Agent VMM CLI exposed standalone appliance commands" >&2
+for command in install update status recover stop start activate restart revoke remove; do
+ "$product/Contents/Helpers/agent-vmm" appliance "$command" --help >/dev/null 2>&1
+done
+if "$product/Contents/Helpers/agent-vmm" appliance build --help >/dev/null 2>&1; then
+	echo "managed Agent VMM CLI exposed development appliance build" >&2
 	exit 1
 else
 	test "$?" -eq 2
 fi
 GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-service-executor" "$repo/cmd/agent-vmm-service-executor"
-CARGO_TARGET_DIR="$derived/rust" cargo build --locked --release --target aarch64-apple-darwin --manifest-path "$repo/data/agent-vmm-data/Cargo.toml"
-cp "$derived/rust/aarch64-apple-darwin/release/agent-vmm-data" "$product/Contents/Helpers/agent-vmm-data"
+CARGO_TARGET_DIR="$rust_target" cargo build --locked --release --target aarch64-apple-darwin --manifest-path "$repo/data/agent-vmm-data/Cargo.toml"
+cp "$rust_target/aarch64-apple-darwin/release/agent-vmm-data" "$product/Contents/Helpers/agent-vmm-data"
 cp "$repo/LICENSE" "$product/Contents/Resources/LICENSE"
 cp "$repo/build/host/com.afk-surf.agent-vmm-host.plist.template" "$product/Contents/Resources/com.afk-surf.agent-vmm-host.plist.template"
 source_revision=$(jq -r '(.Settings | map({key:.Key, value:.Value}) | from_entries) | (."vcs.revision" // "")' "$host_info")

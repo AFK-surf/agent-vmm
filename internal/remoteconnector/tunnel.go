@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +18,9 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	"golang.org/x/time/rate"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -39,6 +43,7 @@ type tunnelManager struct {
 	connectionInstance string
 	connectionEpoch    uint64
 	logger             Logger
+	openGate           chan struct{}
 	mu                 sync.Mutex
 	active             map[string]*activeTunnel
 	completed          []TunnelMetrics
@@ -53,6 +58,8 @@ type activeTunnel struct {
 	cancel               context.CancelFunc
 	connection           net.Conn
 	ctx                  context.Context
+	revokeGate           chan struct{}
+	revoked              bool
 	metrics              TunnelMetrics
 	toController         atomic.Uint64
 	toRuntime            atomic.Uint64
@@ -61,26 +68,42 @@ type activeTunnel struct {
 }
 
 func newTunnelManager(ctx context.Context, controller remotev1.RemoteControllerServiceClient, local hostv1.RemoteComputeServiceClient, registrationID, connectionInstance string, connectionEpoch uint64, logger Logger) *tunnelManager {
-	manager := &tunnelManager{ctx: ctx, controller: controller, local: local, registrationID: registrationID, connectionInstance: connectionInstance, connectionEpoch: connectionEpoch, logger: logger, active: make(map[string]*activeTunnel), bandwidth: rate.NewLimiter(rate.Limit(MaxTunnelBytesPerSecond), MaxInFlightBytes)}
+	manager := &tunnelManager{ctx: ctx, controller: controller, local: local, registrationID: registrationID, connectionInstance: connectionInstance, connectionEpoch: connectionEpoch, logger: logger, active: make(map[string]*activeTunnel), openGate: make(chan struct{}, 1), bandwidth: rate.NewLimiter(rate.Limit(MaxTunnelBytesPerSecond), MaxInFlightBytes)}
 	manager.pool.New = func() any { return make([]byte, FrameBytes) }
 	return manager
 }
 
 func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSession) (*remotev1.SessionReady, error) {
 	if request.GetAllocationId() == "" || request.GetAllocationGeneration() == 0 || request.GetExecutionOwnerId() == "" || len(request.GetExecutionOwnerId()) > 256 {
-		return nil, fmt.Errorf("session identity is invalid")
+		return nil, &localRejection{reason: remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT, message: "session identity is invalid"}
 	}
+	select {
+	case manager.openGate <- struct{}{}:
+		defer func() { <-manager.openGate }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-manager.ctx.Done():
+		return nil, manager.ctx.Err()
+	}
+	ctx, cancelOpen := context.WithCancel(ctx)
+	stop := context.AfterFunc(manager.ctx, cancelOpen)
+	defer stop()
+	defer cancelOpen()
 	tunnelKey := allocationTunnelKey(request.GetAllocationId(), request.GetAllocationGeneration())
 	manager.mu.Lock()
-	if len(manager.active) >= MaxActiveTunnels {
-		manager.mu.Unlock()
-		return nil, fmt.Errorf("active session limit reached")
-	}
-	if _, exists := manager.active[tunnelKey]; exists {
-		manager.mu.Unlock()
-		return nil, fmt.Errorf("allocation generation already has an active session")
-	}
+	previous := manager.active[tunnelKey]
+	atLimit := previous == nil && len(manager.active) >= MaxActiveTunnels
 	manager.mu.Unlock()
+	if atLimit {
+		return nil, &localRejection{reason: remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED, message: "active session limit reached"}
+	}
+	if previous != nil {
+		previous.cancel()
+		previous.connection.Close()
+		if err := manager.revokeTunnel(ctx, previous); err != nil {
+			return nil, fmt.Errorf("previous runtime session revocation failed: %w", err)
+		}
+	}
 	opened, err := manager.local.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{RegistrationId: manager.registrationID, ConnectionInstance: manager.connectionInstance, AllocationGeneration: request.GetAllocationGeneration(), AllocationId: request.GetAllocationId(), ExecutionOwnerId: request.GetExecutionOwnerId()})
 	if err != nil {
 		return nil, err
@@ -99,6 +122,8 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 		return nil, fmt.Errorf("runtime session unavailable")
 	}
 	tunnelContext, cancel := context.WithCancel(manager.ctx)
+	stopHandshake := context.AfterFunc(ctx, cancel)
+	defer stopHandshake()
 	stream, err := manager.controller.ServeSession(tunnelContext)
 	if err != nil {
 		cancel()
@@ -118,14 +143,14 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 		connection.Close()
 		return nil, fmt.Errorf("controller session handshake failed")
 	}
-	active := &activeTunnel{allocationID: request.GetAllocationId(), sessionID: opened.GetSessionId(), allocationGeneration: request.GetAllocationGeneration(), cancel: cancel, connection: connection, ctx: tunnelContext, metrics: TunnelMetrics{AllocationID: request.GetAllocationId(), AllocationGeneration: request.GetAllocationGeneration(), StartedAt: time.Now()}}
-	manager.mu.Lock()
-	if _, exists := manager.active[tunnelKey]; exists {
-		manager.mu.Unlock()
+	stopHandshake()
+	if err := ctx.Err(); err != nil {
 		cancel()
 		connection.Close()
-		return nil, fmt.Errorf("allocation generation already has an active session")
+		return nil, err
 	}
+	active := &activeTunnel{revokeGate: make(chan struct{}, 1), allocationID: request.GetAllocationId(), sessionID: opened.GetSessionId(), allocationGeneration: request.GetAllocationGeneration(), cancel: cancel, connection: connection, ctx: tunnelContext, metrics: TunnelMetrics{AllocationID: request.GetAllocationId(), AllocationGeneration: request.GetAllocationGeneration(), StartedAt: time.Now()}}
+	manager.mu.Lock()
 	manager.active[tunnelKey] = active
 	manager.mu.Unlock()
 	revokeOpened = false
@@ -161,9 +186,12 @@ func (manager *tunnelManager) bridge(active *activeTunnel, stream remotev1.Remot
 	}
 	active.cancel()
 	active.connection.Close()
-	manager.revokeSession(active.sessionID, active.allocationID, active.allocationGeneration)
+	revokeErr := manager.revokeTunnel(context.Background(), active)
 	manager.mu.Lock()
-	delete(manager.active, allocationTunnelKey(active.allocationID, active.allocationGeneration))
+	key := allocationTunnelKey(active.allocationID, active.allocationGeneration)
+	if manager.active[key] == active && revokeErr == nil {
+		delete(manager.active, key)
+	}
 	active.metrics.BytesToController = active.toController.Load()
 	active.metrics.BytesToRuntime = active.toRuntime.Load()
 	active.metrics.SendStalls = active.stalls.Load()
@@ -179,19 +207,46 @@ func (manager *tunnelManager) bridge(active *activeTunnel, stream remotev1.Remot
 	}
 }
 
-func (manager *tunnelManager) revokeSession(sessionID, allocationID string, allocationGeneration uint64) {
-	if sessionID == "" {
-		return
+func (manager *tunnelManager) revokeTunnel(ctx context.Context, active *activeTunnel) error {
+	select {
+	case active.revokeGate <- struct{}{}:
+		defer func() { <-active.revokeGate }()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if active.revoked {
+		return nil
+	}
+	err := manager.revokeSessionContext(ctx, active.sessionID, active.allocationID, active.allocationGeneration)
+	active.revoked = err == nil
+	return err
+}
+
+func (manager *tunnelManager) revokeSession(sessionID, allocationID string, allocationGeneration uint64) {
+	_ = manager.revokeSessionContext(context.Background(), sessionID, allocationID, allocationGeneration)
+}
+
+func (manager *tunnelManager) revokeSessionContext(parent context.Context, sessionID, allocationID string, allocationGeneration uint64) error {
+	if sessionID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	_, err := manager.local.RevokeRuntimeSession(ctx, &hostv1.RevokeRuntimeSessionRequest{
 		SessionId: sessionID, AllocationId: allocationID, AllocationGeneration: allocationGeneration,
 		RegistrationId: manager.registrationID, ConnectionInstance: manager.connectionInstance,
 	})
-	if err != nil && manager.logger != nil {
-		manager.logger.Printf("runtime session revoke failed allocation=%s generation=%d session=%s: %v", allocationID, allocationGeneration, sessionID, err)
+	if status.Code(err) == codes.Aborted {
+		for _, detail := range status.Convert(err).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.GetReason() == "STALE_RUNTIME_SESSION" {
+				return nil
+			}
+		}
 	}
+	if err != nil {
+		log.Printf("runtime session revoke failed: registration=%s allocation=%s generation=%d session=%s error=%v details=%v", manager.registrationID, allocationID, allocationGeneration, sessionID, err, status.Convert(err).Details())
+	}
+	return err
 }
 
 func (manager *tunnelManager) runtimeToController(active *activeTunnel, stream remotev1.RemoteControllerService_ServeSessionClient) error {

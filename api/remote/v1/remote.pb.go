@@ -256,6 +256,7 @@ const (
 	ErrorReason_ERROR_REASON_DEADLINE_EXCEEDED              ErrorReason = 15
 	ErrorReason_ERROR_REASON_FEATURE_MISMATCH               ErrorReason = 16
 	ErrorReason_ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED ErrorReason = 17
+	ErrorReason_ERROR_REASON_ADMISSION_PAUSED               ErrorReason = 18
 )
 
 // Enum value maps for ErrorReason.
@@ -277,6 +278,7 @@ var (
 		15: "ERROR_REASON_DEADLINE_EXCEEDED",
 		16: "ERROR_REASON_FEATURE_MISMATCH",
 		17: "ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED",
+		18: "ERROR_REASON_ADMISSION_PAUSED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":                    0,
@@ -295,6 +297,7 @@ var (
 		"ERROR_REASON_DEADLINE_EXCEEDED":              15,
 		"ERROR_REASON_FEATURE_MISMATCH":               16,
 		"ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED": 17,
+		"ERROR_REASON_ADMISSION_PAUSED":               18,
 	}
 )
 
@@ -2962,14 +2965,15 @@ func (x *CommandEvidence) GetObservedUnixMillis() int64 {
 }
 
 type CleanupPlan struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AllocationId  string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
-	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
-	VolumeIds     []string               `protobuf:"bytes,3,rep,name=volume_ids,json=volumeIds,proto3" json:"volume_ids,omitempty"`
-	Kind          v11.CleanupKind        `protobuf:"varint,4,opt,name=kind,proto3,enum=agentvmm.host.v1.CleanupKind" json:"kind,omitempty"`
-	Impacts       []*v11.CleanupImpact   `protobuf:"bytes,5,rep,name=impacts,proto3" json:"impacts,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	AllocationId         string                 `protobuf:"bytes,1,opt,name=allocation_id,json=allocationId,proto3" json:"allocation_id,omitempty"`
+	Revision             uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	VolumeIds            []string               `protobuf:"bytes,3,rep,name=volume_ids,json=volumeIds,proto3" json:"volume_ids,omitempty"`
+	Kind                 v11.CleanupKind        `protobuf:"varint,4,opt,name=kind,proto3,enum=agentvmm.host.v1.CleanupKind" json:"kind,omitempty"`
+	Impacts              []*v11.CleanupImpact   `protobuf:"bytes,5,rep,name=impacts,proto3" json:"impacts,omitempty"`
+	AllocationGeneration uint64                 `protobuf:"varint,6,opt,name=allocation_generation,json=allocationGeneration,proto3" json:"allocation_generation,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *CleanupPlan) Reset() {
@@ -3035,6 +3039,13 @@ func (x *CleanupPlan) GetImpacts() []*v11.CleanupImpact {
 		return x.Impacts
 	}
 	return nil
+}
+
+func (x *CleanupPlan) GetAllocationGeneration() uint64 {
+	if x != nil {
+		return x.AllocationGeneration
+	}
+	return 0
 }
 
 type SessionReady struct {
@@ -3801,14 +3812,15 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12)\n" +
 	"\x10connection_epoch\x18\x03 \x01(\x04R\x0fconnectionEpoch\x128\n" +
 	"\x05stage\x18\x04 \x01(\x0e2\".agentvmm.remote.v1.ExecutionStageR\x05stage\x120\n" +
-	"\x14observed_unix_millis\x18\x05 \x01(\x03R\x12observedUnixMillis\"\xdb\x01\n" +
+	"\x14observed_unix_millis\x18\x05 \x01(\x03R\x12observedUnixMillis\"\x90\x02\n" +
 	"\vCleanupPlan\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x12\x1d\n" +
 	"\n" +
 	"volume_ids\x18\x03 \x03(\tR\tvolumeIds\x121\n" +
 	"\x04kind\x18\x04 \x01(\x0e2\x1d.agentvmm.host.v1.CleanupKindR\x04kind\x129\n" +
-	"\aimpacts\x18\x05 \x03(\v2\x1f.agentvmm.host.v1.CleanupImpactR\aimpacts\"\xcb\x01\n" +
+	"\aimpacts\x18\x05 \x03(\v2\x1f.agentvmm.host.v1.CleanupImpactR\aimpacts\x123\n" +
+	"\x15allocation_generation\x18\x06 \x01(\x04R\x14allocationGeneration\"\xcb\x01\n" +
 	"\fSessionReady\x12#\n" +
 	"\rallocation_id\x18\x01 \x01(\tR\fallocationId\x123\n" +
 	"\x15allocation_generation\x18\x03 \x01(\x04R\x14allocationGeneration\x12!\n" +
@@ -3871,7 +3883,7 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x1bCOMMAND_OUTCOME_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19COMMAND_OUTCOME_SUCCEEDED\x10\x01\x12\x1c\n" +
 	"\x18COMMAND_OUTCOME_REJECTED\x10\x02\x12\x1b\n" +
-	"\x17COMMAND_OUTCOME_UNKNOWN\x10\x03*\x8d\x05\n" +
+	"\x17COMMAND_OUTCOME_UNKNOWN\x10\x03*\xb0\x05\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dERROR_REASON_INVALID_ARGUMENT\x10\x01\x12 \n" +
@@ -3889,7 +3901,8 @@ const file_remote_v1_remote_proto_rawDesc = "" +
 	"\x1eERROR_REASON_SEQUENCE_CONFLICT\x10\x0e\x12\"\n" +
 	"\x1eERROR_REASON_DEADLINE_EXCEEDED\x10\x0f\x12!\n" +
 	"\x1dERROR_REASON_FEATURE_MISMATCH\x10\x10\x12/\n" +
-	"+ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED\x10\x11\"\x04\b\b\x10\b\"\x04\b\t\x10\t*\x1bERROR_REASON_LEASE_CONFLICT*\x1aERROR_REASON_LEASE_REVOKED2\x9a\x03\n" +
+	"+ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED\x10\x11\x12!\n" +
+	"\x1dERROR_REASON_ADMISSION_PAUSED\x10\x12\"\x04\b\b\x10\b\"\x04\b\t\x10\t*\x1bERROR_REASON_LEASE_CONFLICT*\x1aERROR_REASON_LEASE_REVOKED2\x9a\x03\n" +
 	"\x17RemoteControllerService\x12O\n" +
 	"\x06Enroll\x12!.agentvmm.remote.v1.EnrollRequest\x1a\".agentvmm.remote.v1.EnrollResponse\x12c\n" +
 	"\aConnect\x12&.agentvmm.remote.v1.HostControlMessage\x1a,.agentvmm.remote.v1.ControllerControlMessage(\x010\x01\x12d\n" +

@@ -865,7 +865,10 @@ func TestServiceUserDaemonDrainStopsVMBeforeAdministratorAction(t *testing.T) {
 
 type updateVMClientStub struct {
 	state        hostv1.VMState
+	bootID       string
+	replaceBoot  bool
 	stopRequests []*hostv1.StopVMRequest
+	forceErr     error
 }
 
 type startVMClientStub struct {
@@ -897,17 +900,19 @@ func TestStartVMWithProgressAcknowledgesWholeVMImpact(t *testing.T) {
 }
 
 func (client *updateVMClientStub) GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.VMResponse, error) {
-	return &hostv1.VMResponse{Vm: &hostv1.VM{State: client.state}}, nil
-}
-
-func (client *updateVMClientStub) GetVMImpactSummary(context.Context, *hostv1.GetVMImpactSummaryRequest, ...grpc.CallOption) (*hostv1.GetVMImpactSummaryResponse, error) {
-	return &hostv1.GetVMImpactSummaryResponse{Vm: &hostv1.VM{State: client.state}, Complete: true}, nil
+	return &hostv1.VMResponse{Vm: &hostv1.VM{State: client.state, BootId: client.bootID}}, nil
 }
 
 func (client *updateVMClientStub) StopVM(_ context.Context, request *hostv1.StopVMRequest, _ ...grpc.CallOption) (*hostv1.OperationResponse, error) {
 	client.stopRequests = append(client.stopRequests, request)
 	if !request.GetForce() {
+		if client.replaceBoot {
+			client.bootID = "replacement-boot"
+		}
 		return nil, errors.New("graceful deadline")
+	}
+	if client.forceErr != nil {
+		return nil, client.forceErr
 	}
 	client.state = hostv1.VMState_VM_STATE_STOPPED
 	return &hostv1.OperationResponse{}, nil
@@ -924,6 +929,10 @@ func TestUpdateDrainForcesAndConfirmsTerminalAfterGracefulFailure(t *testing.T) 
 	if client.stopRequests[0].GetRequestId() == client.stopRequests[1].GetRequestId() {
 		t.Fatal("graceful and force stop reused one durable request")
 	}
+	replaced := &updateVMClientStub{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "original-boot", replaceBoot: true}
+	if err := stopVMForUpdateWith(context.Background(), replaced, "replaced-update"); err == nil || !strings.Contains(err.Error(), "boot identity changed") || len(replaced.stopRequests) != 1 {
+		t.Fatalf("replacement boot was stopped: requests=%v error=%v", replaced.stopRequests, err)
+	}
 }
 
 func TestDrainStopsReachableOrphanHostWithoutLaunchdJob(t *testing.T) {
@@ -935,7 +944,12 @@ func TestDrainStopsReachableOrphanHostWithoutLaunchdJob(t *testing.T) {
 		stopCalls++
 		return nil
 	}
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	stateDiskOpenOwners = func(context.Context, string) ([]int, error) {
+		if stopCalls == 0 {
+			return []int{456}, nil
+		}
+		return nil, nil
+	}
 	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
 		if arguments[0] == "print" {
 			return errLaunchctlServiceNotFound
@@ -947,6 +961,16 @@ func TestDrainStopsReachableOrphanHostWithoutLaunchdJob(t *testing.T) {
 	}
 	if stopCalls != 1 {
 		t.Fatalf("orphan Host stop attempts=%d", stopCalls)
+	}
+	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	stopCalls = 0
+	if err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+		if arguments[0] == "print" {
+			return errLaunchctlServiceNotFound
+		}
+		return nil
+	}); err != nil || stopCalls != 0 {
+		t.Fatalf("absent Host required VM stop: calls=%d error=%v", stopCalls, err)
 	}
 }
 
@@ -1988,5 +2012,13 @@ func TestRevokeRefreshesExactRevisionWithinBound(t *testing.T) {
 	client = &revocationRaceClient{alwaysConflict: true}
 	if err := completeRemoteRevocation(context.Background(), client, "failed", "remove"); !registrationRevisionConflict(err) || client.reads != 3 || client.completes != 0 {
 		t.Fatalf("client=%+v err=%v", client, err)
+	}
+}
+
+func TestUpdateDrainPreservesFailedForceStop(t *testing.T) {
+	client := &updateVMClientStub{state: hostv1.VMState_VM_STATE_FAILED, forceErr: errors.New("retained instance stop failed")}
+	err := stopVMForUpdateWith(context.Background(), client, "failed-stop-update")
+	if err == nil || !strings.Contains(err.Error(), "retained instance stop failed") || client.state != hostv1.VMState_VM_STATE_FAILED || len(client.stopRequests) != 2 {
+		t.Fatalf("err=%v state=%v requests=%d", err, client.state, len(client.stopRequests))
 	}
 }

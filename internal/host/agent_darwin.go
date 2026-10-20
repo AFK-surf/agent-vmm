@@ -20,6 +20,7 @@ import (
 type agentServer struct {
 	hostv1.UnimplementedAgentRuntimeServiceServer
 	controller     *Controller
+	buildLifetime  context.Context
 	openGuestExec  func(context.Context) (vmmdv1.VMMDService_ExecClient, io.Closer, error)
 	openGuestBuild func(context.Context) (vmmdv1.VMMDService_BuildImageClient, io.Closer, error)
 }
@@ -80,8 +81,12 @@ func (server *agentServer) PullImage(request *hostv1.PullImageRequest, stream ho
 	}
 }
 
-func (server *agentServer) ListImages(ctx context.Context, _ *hostv1.ListImagesRequest) (*hostv1.ListImagesResponse, error) {
+func (server *agentServer) ListImages(ctx context.Context, request *hostv1.ListImagesRequest) (*hostv1.ListImagesResponse, error) {
 	identity, err := auth.AgentIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := server.controllerImageScope(ctx, identity, request.Origin)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +95,7 @@ func (server *agentServer) ListImages(ctx context.Context, _ *hostv1.ListImagesR
 		return nil, err
 	}
 	defer connection.Close()
-	response, err := client.ListImages(ctx, &vmmdv1.ListImagesRequest{ActorNamespaceId: identity.NamespaceID})
+	response, err := client.ListImages(ctx, &vmmdv1.ListImagesRequest{ActorNamespaceId: identity.NamespaceID, ControllerCacheScope: scope})
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +127,10 @@ func (server *agentServer) DeleteImage(ctx context.Context, request *hostv1.Dele
 	if err := server.validateAgentInventoryTarget(ctx, identity.EnvironmentID, identity.NamespaceID); err != nil {
 		return nil, err
 	}
+	scope, err := server.controllerImageScope(ctx, identity, request.Origin)
+	if err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
@@ -129,7 +138,7 @@ func (server *agentServer) DeleteImage(ctx context.Context, request *hostv1.Dele
 	defer connection.Close()
 	_, err = client.DeleteImage(ctx, &vmmdv1.DeleteImageRequest{
 		RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, Reference: request.GetReference(),
-		ExpectedGenerationId: request.GetExpectedGenerationId(), ExpectedDigest: request.GetExpectedDigest(),
+		ExpectedGenerationId: request.GetExpectedGenerationId(), ExpectedDigest: request.GetExpectedDigest(), ControllerCacheScope: scope,
 	})
 	if err != nil {
 		return nil, err
@@ -151,102 +160,31 @@ func (server *agentServer) validateAgentInventoryTarget(ctx context.Context, env
 	return nil
 }
 
-func (server *agentServer) CreateContainer(ctx context.Context, request *hostv1.CreateContainerRequest) (*hostv1.ContainerResponse, error) {
-	identity, err := auth.AgentIdentity(ctx)
-	if err != nil {
-		return nil, err
-	}
-	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer releaseInventory()
-	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
-		return nil, err
-	}
-	client, connection, err := server.controller.guestClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
-	guestRequest := &vmmdv1.CreateContainerRequest{
-		RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), Image: request.GetImage(),
-		Env: request.GetEnv(), Workdir: request.Workdir, User: request.User, ReadOnlyRoot: request.GetReadOnlyRoot(), LogLimitBytes: request.GetLogLimitBytes(),
-	}
-	if request.GetEntrypointOverride() != nil {
-		guestRequest.EntrypointOverride = &vmmdv1.StringList{Values: append([]string(nil), request.GetEntrypointOverride().GetValues()...)}
-	}
-	if request.GetCommandOverride() != nil {
-		guestRequest.CommandOverride = &vmmdv1.StringList{Values: append([]string(nil), request.GetCommandOverride().GetValues()...)}
-	}
-	if limits := request.GetLimits(); limits != nil {
-		guestRequest.Limits = &vmmdv1.ResourceLimits{CpuMillis: limits.CpuMillis, MemoryBytes: limits.MemoryBytes, Pids: limits.Pids}
-	}
-	for _, volume := range request.GetVolumes() {
-		guestRequest.Volumes = append(guestRequest.Volumes, &vmmdv1.VolumeMount{VolumeId: volume.GetVolumeId(), Destination: volume.GetDestination(), ReadOnly: volume.GetReadOnly()})
-	}
-	response, err := client.CreateContainer(ctx, guestRequest)
-	if err != nil {
-		return nil, err
-	}
-	return &hostv1.ContainerResponse{Container: containerFromGuest(response.GetContainer())}, nil
-}
-
-func (server *agentServer) StartContainer(ctx context.Context, request *hostv1.ContainerMutationRequest) (*hostv1.ContainerResponse, error) {
-	identity, err := auth.AgentIdentity(ctx)
-	if err != nil {
-		return nil, err
-	}
-	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer releaseInventory()
-	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
-		return nil, err
-	}
-	client, connection, err := server.controller.guestClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
-	response, err := server.controller.startWorkloadContainer(ctx, client, identity.EnvironmentID, &vmmdv1.StartContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId()}, identity.RegistrationID)
-	if err != nil {
-		return nil, err
-	}
-	instanceID := response.GetContainer().GetInstanceId()
-	if response.GetContainer().GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
-		instanceID = ""
-	}
-	if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), instanceID); err != nil {
-		return nil, err
-	}
-	return &hostv1.ContainerResponse{Container: containerFromGuest(response.GetContainer())}, nil
-}
-
 func (server *agentServer) StopContainer(ctx context.Context, request *hostv1.StopContainerRequest) (*hostv1.ContainerResponse, error) {
 	identity, err := auth.AgentIdentity(ctx)
 	if err != nil {
 		return nil, err
 	}
+	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
+	defer unlock()
+	if err := server.controller.validateExplicitStop(identity, request); err != nil {
+		return nil, err
+	}
+	guestRequest := &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds}
+	if err := server.controller.acceptWorkloadStopLocked(ctx, identity.EnvironmentID, guestRequest); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer connection.Close()
-	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
-	defer unlock()
-	if request.GetQuiesceRequestId() != "" {
-		if err := server.controller.validateQuiescedStop(identity, request); err != nil {
-			return nil, err
-		}
-	}
-	response, err := server.controller.stopWorkloadContainerLocked(ctx, client, identity.EnvironmentID, &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds})
+	response, err := server.controller.stopWorkloadContainerLocked(ctx, client, identity.EnvironmentID, guestRequest)
 	if err != nil {
 		return nil, err
 	}
 	if response.GetContainer().GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
-		if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
+		if err := server.controller.invalidateStaleServiceExports(ctx, client, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
 			return nil, err
 		}
 	}
@@ -269,7 +207,7 @@ func (server *agentServer) WaitContainer(ctx context.Context, request *hostv1.Co
 	}
 	// Waiting observes the terminal generation.  Revoke any routes that still
 	// reference that generation before reporting the exit to the caller.
-	if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
+	if err := server.controller.invalidateStaleServiceExports(ctx, client, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
 		return nil, err
 	}
 	return &hostv1.WaitContainerResponse{ExitCode: response.GetExitCode()}, nil
@@ -298,13 +236,7 @@ func (server *agentServer) DeleteContainer(ctx context.Context, request *hostv1.
 	defer connection.Close()
 	unlock := server.controller.lockEnvironment(identity.EnvironmentID)
 	defer unlock()
-	if _, err := client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), ExpectedGenerationId: request.GetExpectedGenerationId()}); err != nil {
-		return nil, err
-	}
-	server.controller.mu.Lock()
-	delete(server.controller.workloadRuns, workloadRunKey(identity.EnvironmentID, request.GetContainerId()))
-	server.controller.mu.Unlock()
-	if err := server.controller.invalidateStaleServiceExports(ctx, identity.EnvironmentID, request.GetContainerId(), ""); err != nil {
+	if err := server.controller.deleteWorkloadContainerLocked(ctx, client, identity.EnvironmentID, &vmmdv1.DeleteContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ContainerId: request.GetContainerId(), ExpectedGenerationId: request.GetExpectedGenerationId()}); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -324,7 +256,11 @@ func (server *agentServer) GetContainer(ctx context.Context, request *hostv1.Con
 	if err != nil {
 		return nil, err
 	}
-	return &hostv1.ContainerResponse{Container: containerFromGuest(response.GetContainer())}, nil
+	container := containerConfigurationObservation(response.GetContainer(), request.GetExpectedConfiguration())
+	if err := server.controller.projectManagedContainerIntent(ctx, identity.EnvironmentID, container); err != nil {
+		return nil, err
+	}
+	return &hostv1.ContainerResponse{Container: container}, nil
 }
 
 func (server *agentServer) ListContainers(ctx context.Context, _ *hostv1.ListContainersRequest) (*hostv1.ListContainersResponse, error) {
@@ -343,9 +279,25 @@ func (server *agentServer) ListContainers(ctx context.Context, _ *hostv1.ListCon
 	}
 	result := &hostv1.ListContainersResponse{}
 	for _, container := range response.GetContainers() {
-		result.Containers = append(result.Containers, containerFromGuest(container))
+		observed := containerFromGuest(container)
+		if err := server.controller.projectManagedContainerIntent(ctx, identity.EnvironmentID, observed); err != nil {
+			return nil, err
+		}
+		result.Containers = append(result.Containers, observed)
 	}
 	return result, nil
+}
+
+func (controller *Controller) projectManagedContainerIntent(ctx context.Context, environment string, container *hostv1.Container) error {
+	intent, err := controller.store.GetManagedContainer(ctx, environment, container.GetId())
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	container.DesiredRunning = &intent.DesiredRunning
+	return nil
 }
 
 func (server *agentServer) Logs(request *hostv1.LogsRequest, stream hostv1.AgentRuntimeService_LogsServer) error {

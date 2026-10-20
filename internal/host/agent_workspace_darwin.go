@@ -6,10 +6,31 @@ import (
 	"context"
 	"io"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 )
+
+func (server *agentServer) requireWorkspaceVolume(ctx context.Context, identity auth.Identity, volumeID string) error {
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+		return err
+	}
+	if volumeID == "" {
+		return nil
+	}
+	owned, err := server.controller.store.HasVolumePolicy(ctx, volumeID, identity.NamespaceID)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return status.Error(codes.PermissionDenied, "workspace volume is not owned by this namespace")
+	}
+	return nil
+}
 
 func (server *agentServer) StatWorkspace(ctx context.Context, request *hostv1.WorkspacePathRequest) (*hostv1.WorkspaceEntry, error) {
 	identity, err := auth.AgentIdentity(ctx)
@@ -33,12 +54,15 @@ func (server *agentServer) ListWorkspace(ctx context.Context, request *hostv1.Li
 	if err != nil {
 		return nil, err
 	}
+	if err := server.requireWorkspaceVolume(ctx, identity, request.GetVolumeId()); err != nil {
+		return nil, err
+	}
 	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer connection.Close()
-	guest, err := client.ListWorkspace(ctx, &vmmdv1.ListWorkspaceRequest{ActorNamespaceId: identity.NamespaceID, Path: request.GetPath(), Limit: request.GetLimit()})
+	guest, err := client.ListWorkspace(ctx, &vmmdv1.ListWorkspaceRequest{ActorNamespaceId: identity.NamespaceID, Path: request.GetPath(), Limit: request.GetLimit(), VolumeId: request.GetVolumeId()})
 	if err != nil {
 		return nil, err
 	}
@@ -54,28 +78,33 @@ func (server *agentServer) ReadWorkspace(request *hostv1.ReadWorkspaceRequest, s
 	if err != nil {
 		return err
 	}
+	if err := server.requireWorkspaceVolume(stream.Context(), identity, request.GetVolumeId()); err != nil {
+		return err
+	}
 	client, connection, err := server.controller.guestClient(stream.Context())
 	if err != nil {
-		return err
+		return workspaceGuestReadError(err, "start")
 	}
 	defer connection.Close()
 	guest, err := client.ReadWorkspace(stream.Context(), &vmmdv1.ReadWorkspaceRequest{ActorNamespaceId: identity.NamespaceID,
 		Path: request.GetPath(), Offset: request.GetOffset(), MaxBytes: request.GetMaxBytes(), VolumeId: request.GetVolumeId()})
 	if err != nil {
-		return err
+		return workspaceGuestReadError(err, "start")
 	}
+	phase := "start"
 	for {
 		message, err := guest.Recv()
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
-			return err
+			return workspaceGuestReadError(err, phase)
 		}
 		if err := stream.Send(&hostv1.ReadWorkspaceResponse{Data: message.GetData(), Offset: message.GetOffset(),
 			Sha256: message.GetSha256(), Final: message.GetFinal()}); err != nil {
 			return err
 		}
+		phase = "receive"
 	}
 }
 
@@ -208,4 +237,19 @@ func extractWorkspaceToGuest(message *hostv1.ExtractWorkspaceRequest, namespaceI
 		result.Payload = &vmmdv1.ExtractWorkspaceRequest_Finish{Finish: payload.Finish}
 	}
 	return result
+}
+
+func workspaceGuestReadError(err error, phase string) error {
+	original := status.Convert(err)
+	if len(original.Proto().GetDetails()) != 0 {
+		return err
+	}
+	annotated, detailErr := status.New(original.Code(), "workspace guest relay failed").WithDetails(&errdetails.ErrorInfo{
+		Reason: "WORKSPACE_GUEST_RELAY_FAILURE", Domain: "agentvmm.afk.surf",
+		Metadata: map[string]string{"hop": "guest", "phase": phase},
+	})
+	if detailErr != nil {
+		return err
+	}
+	return annotated.Err()
 }

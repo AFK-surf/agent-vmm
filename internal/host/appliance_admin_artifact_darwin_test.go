@@ -11,6 +11,7 @@ import (
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,7 +25,15 @@ func TestStageArtifactReplaysExactSucceededRequestAfterDeadline(t *testing.T) {
 	}
 	defer database.Close()
 	server := &applianceAdminServer{controller: &Controller{store: database}}
-	request := &appliancev1.StageArtifactRequest{RequestId: "stage-replay", DeadlineUnixMillis: time.Now().Add(50 * time.Millisecond).UnixMilli(), Manifest: verifierManifest()}
+	manifest := verifierManifest()
+	encoded, err := proto.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.controller.stageBundledApplianceArtifactManifest(context.Background(), encoded, manifest.ImageManifestDigest); err != nil {
+		t.Fatal(err)
+	}
+	request := &appliancev1.StageArtifactRequest{RequestId: "stage-replay", DeadlineUnixMillis: time.Now().Add(50 * time.Millisecond).UnixMilli(), Manifest: manifest}
 
 	first, err := callAsOperator(t, func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
 		return server.StageArtifact(ctx, request)
@@ -45,6 +54,42 @@ func TestStageArtifactReplaysExactSucceededRequestAfterDeadline(t *testing.T) {
 		return server.StageArtifact(ctx, changed)
 	}); status.Code(err) != codes.AlreadyExists {
 		t.Fatalf("changed replay error = %v", err)
+	}
+}
+
+func TestStageArtifactRequiresContentOrVerifiedBundledArtifact(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	server := &applianceAdminServer{controller: &Controller{store: database}}
+	manifest := verifierManifest()
+	stage := func(id string) (*appliancev1.ApplianceOperationResponse, error) {
+		return callAsOperator(t, func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+			return server.StageArtifact(ctx, &appliancev1.StageArtifactRequest{RequestId: id, DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli(), Manifest: manifest})
+		})
+	}
+	if _, err := stage("unverified-bundled-reference"); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("unverified local reference admitted: %v", err)
+	}
+	encoded, err := proto.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.controller.stageBundledApplianceArtifactManifest(context.Background(), encoded, manifest.ImageManifestDigest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stage("verified-bundled-reference"); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Release = "unverified"
+	if _, err := stage("altered-bundled-manifest"); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("altered bundle admitted: %v", err)
+	}
+	manifest.ContentRefs = []*appliancev1.ApplianceContentReference{{Role: appliancev1.ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER, ImageReference: manifest.ImageReference, ImageManifestDigest: manifest.ImageManifestDigest, Platform: manifest.Platform, ArchiveSize: 1, ArchiveSha256: make([]byte, 32)}}
+	if _, err := stage("explicit-controller-content"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -94,4 +139,64 @@ func callAsOperator[T any](t *testing.T, call func(context.Context) (T, error)) 
 		return zero, err
 	}
 	return value.(T), nil
+}
+
+func TestExpiredApplianceMutationProvesNonAdmissionAfterReceiptLookup(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	controller := &Controller{store: database}
+	server := &applianceAdminServer{controller: controller}
+	deadline := time.Now().Add(-time.Minute).UnixMilli()
+	for name, invoke := range map[string]func(context.Context) (*appliancev1.ApplianceOperationResponse, error){
+		"stop": func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+			return server.Stop(ctx, &appliancev1.StopApplianceRequest{InstallationId: "installation", RequestId: "expired-stop", ExpectedRevision: 1, DeadlineUnixMillis: deadline})
+		},
+		"install": func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+			return server.Install(ctx, &appliancev1.InstallRequest{InstallationId: "installation", RequestId: "expired-install", ArtifactId: "artifact", DeadlineUnixMillis: deadline})
+		},
+		"update": func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+			return server.Update(ctx, &appliancev1.UpdateApplianceRequest{InstallationId: "installation", RequestId: "expired-update", ExpectedRevision: 1, ArtifactId: "artifact", DeadlineUnixMillis: deadline})
+		},
+		"stage": func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+			return server.StageArtifact(ctx, &appliancev1.StageArtifactRequest{RequestId: "expired-stage", DeadlineUnixMillis: deadline, Manifest: verifierManifest()})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := callAsOperator(t, invoke)
+			typed := false
+			for _, detail := range status.Convert(err).Details() {
+				if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "APPLIANCE_OPERATION_NOT_ADMITTED" && info.Metadata["admission"] == "not_accepted" {
+					typed = true
+				}
+			}
+			if status.Code(err) != codes.DeadlineExceeded || !typed {
+				t.Fatalf("expired mutation did not prove non-admission: %v", err)
+			}
+		})
+	}
+	if _, err := database.CreateApplianceOperation(context.Background(), store.ApplianceOperation{ID: "accepted", InstallationID: "installation", RequestID: "expired-stop", Kind: 4, State: 2, Phase: 5, ExpectedRevision: 1, DeadlineUnixMillis: deadline}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := callAsOperator(t, func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+		return server.Stop(ctx, &appliancev1.StopApplianceRequest{InstallationId: "installation", RequestId: "expired-stop", ExpectedRevision: 1, DeadlineUnixMillis: deadline})
+	})
+	if err != nil || response.GetOperation().GetOperationId() != "accepted" {
+		t.Fatal("expired accepted intent was not replayed", response, err)
+	}
+	lock := controller.integrationLock("appliance-lifecycle:installation")
+	lock.Lock()
+	go func() { time.Sleep(25 * time.Millisecond); lock.Unlock() }()
+	_, err = callAsOperator(t, func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+		bounded, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+		defer cancel()
+		return server.Stop(bounded, &appliancev1.StopApplianceRequest{InstallationId: "installation", RequestId: "busy-stop", ExpectedRevision: 1, DeadlineUnixMillis: deadline})
+	})
+	for _, detail := range status.Convert(err).Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Metadata["admission"] == "not_accepted" {
+			t.Fatal("busy admission invented non-admission", err)
+		}
+	}
 }

@@ -13,6 +13,7 @@ import (
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
+	"github.com/AFK-surf/agent-vmm/internal/guest/containerddaemon"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
@@ -28,31 +29,39 @@ const (
 	controlRoot      = "/control"
 	stateRoot        = "/state"
 	ociProjectID     = uint32(9000)
+	cacheProjectID   = uint32(9001)
 	runscRuntime     = "io.containerd.runsc.v1"
 )
 
 type Runtime struct {
-	client               *containerd.Client
-	network              *guestnetwork.Manager
-	builder              *guestbuild.Builder
-	stateDevice          string
-	controlDevice        string
-	mu                   sync.Mutex
-	waiters              map[string][]chan uint32
-	resourceLocks        sync.Map
-	volumeUsageMu        sync.Mutex
-	volumeUsage          map[string]volumeUsageEntry
-	volumeSampling       map[string]bool
-	volumeGeneration     map[string]uint64
-	volumeSampleSlots    chan struct{}
-	workspaceSlots       chan struct{}
-	diskBudget           *guestdisk.Budget
-	materializer         *ocimaterializer.Manager
-	inventory            *runtimeInventoryIndex
-	gcMu                 sync.Mutex
-	gcRuntimeImageCursor string
-	volumeSampler        func(string) (uint64, error)
-	tasks                sync.WaitGroup
+	hostShareMu              sync.RWMutex
+	hostShares               map[string]*vmmdv1.HostShareProjection
+	client                   *containerd.Client
+	network                  *guestnetwork.Manager
+	builder                  *guestbuild.Builder
+	stateDevice              string
+	controlDevice            string
+	mu                       sync.Mutex
+	waiters                  map[string][]chan uint32
+	resourceLocks            sync.Map
+	imageOperations          sync.Map
+	imageOperationsClosing   bool
+	imageOperationsRecovered bool
+	imageOperationWriterID   string
+	volumeUsageMu            sync.Mutex
+	volumeUsage              map[string]volumeUsageEntry
+	volumeSampling           map[string]bool
+	volumeGeneration         map[string]uint64
+	volumeSampleSlots        chan struct{}
+	workspaceSlots           chan struct{}
+	diskBudget               *guestdisk.Budget
+	materializer             *ocimaterializer.Manager
+	inventory                *runtimeInventoryIndex
+	gcMu                     sync.Mutex
+	gcRuntimeImageCursor     string
+	gcRetainedImageCursor    string
+	volumeSampler            func(string) (uint64, error)
+	tasks                    sync.WaitGroup
 }
 
 func (r *Runtime) lockNamespace(namespaceID string) func() {
@@ -74,6 +83,12 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool),
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
 		inventory: newRuntimeInventoryIndex(), volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
+	writerID, err := containerddaemon.Identity(containerdSocket)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("read containerd execution owner: %w", err)
+	}
+	runtime.imageOperationWriterID = writerID
 	runtime.builder = guestbuild.NewBuilder(client, network, runtime.guardBuilderOCIGrowth)
 	if err := ensureRuntimeContainerdNamespace(context.Background(), client); err != nil {
 		client.Close()
@@ -83,6 +98,10 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
 	}
+	if err := runtime.cleanupTasks(context.Background()); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("clean stale tasks: %w", err)
+	}
 	if err := os.RemoveAll(filepath.Join(stateRoot, "imports")); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete image imports: %w", err)
@@ -91,10 +110,7 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete import reservations: %w", err)
 	}
-	if err := runtime.cleanupTasks(context.Background()); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("clean stale tasks: %w", err)
-	}
+	runtime.imageOperationsRecovered = true
 	if err := runtime.completeLegacyStateMigration(context.Background()); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("complete legacy state migration: %w", err)
@@ -109,6 +125,10 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 	if err := runtime.rehydrateNetwork(context.Background()); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("rebuild namespace network: %w", err)
+	}
+	if err := runtime.recoverTaskMonitors(context.Background()); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("recover workload monitors: %w", err)
 	}
 	return runtime, nil
 }
@@ -146,9 +166,28 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 			return err
 		}
 		for _, containerID := range containerIDs {
-			_, err := ownedRuntimeContainer(ctx, r.client, name, containerID)
+			container, err := ownedRuntimeContainer(ctx, r.client, name, containerID)
 			if err != nil {
 				return fmt.Errorf("load indexed runtime container %s/%s: %w", name, containerID, err)
+			}
+			task, err := container.Task(runtimeContext(ctx), nil)
+			if err == nil {
+				status, err := task.Status(runtimeContext(ctx))
+				if err != nil {
+					return err
+				}
+				if status.Status != containerd.Stopped {
+					labels, err := container.Labels(runtimeContext(ctx))
+					if err != nil {
+						return err
+					}
+					if err := r.network.RestoreEndpoint(ctx, name, containerID, labels[containerInstanceLabel]); err != nil {
+						return err
+					}
+					continue
+				}
+			} else if !errdefs.IsNotFound(err) {
+				return err
 			}
 			if err := r.network.CleanupStaleEndpoint(name, containerID); err != nil {
 				return err
@@ -257,11 +296,4 @@ func (r *Runtime) namespaceStateDevice(namespaceID string) string {
 		return r.controlDevice
 	}
 	return r.stateDevice
-}
-
-func namespaceSnapshotter(namespaceID string) string {
-	if isSystemNamespace(namespaceID) {
-		return "native"
-	}
-	return containerSnapshotter
 }

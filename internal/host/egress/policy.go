@@ -3,8 +3,11 @@ package egress
 import (
 	"context"
 	"errors"
+	"log"
 	"net/netip"
+	"slices"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,10 +22,14 @@ const (
 )
 
 type Source struct {
-	EnvironmentID string
-	NamespaceID   string
-	Subnet        netip.Prefix
-	Mode          Mode
+	EnvironmentID    string
+	NamespaceID      string
+	Subnet           netip.Prefix
+	Mode             Mode
+	LANEgress        bool
+	InstanceID       string
+	GrantRevision    uint64
+	HostTCPEndpoints []netip.AddrPort
 }
 
 type Snapshot struct {
@@ -35,17 +42,21 @@ type policyState struct {
 	bootID   string
 	revision uint64
 	sources  []Source
+	changed  chan struct{}
 }
 
 type Policies struct {
 	state atomic.Pointer[policyState]
+	mu    sync.Mutex
 }
 
 func (policies *Policies) Publish(snapshot Snapshot) error {
+	policies.mu.Lock()
+	defer policies.mu.Unlock()
 	if snapshot.BootID == "" || snapshot.Revision == 0 {
 		return errors.New("boot ID and policy revision are required")
 	}
-	sources := append([]Source(nil), snapshot.Sources...)
+	sources := cloneSources(snapshot.Sources)
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Subnet.Addr().Less(sources[j].Subnet.Addr()) })
 	for index, source := range sources {
 		if source.EnvironmentID == "" || source.NamespaceID == "" || !source.Subnet.IsValid() || !source.Subnet.Addr().Is4() || source.Subnet.Bits() != 24 || source.Subnet != source.Subnet.Masked() {
@@ -59,15 +70,24 @@ func (policies *Policies) Publish(snapshot Snapshot) error {
 	if current != nil && current.bootID == snapshot.BootID && snapshot.Revision <= current.revision {
 		return errors.New("stale policy revision")
 	}
-	policies.state.Store(&policyState{bootID: snapshot.BootID, revision: snapshot.Revision, sources: sources})
+	policies.state.Store(&policyState{bootID: snapshot.BootID, revision: snapshot.Revision, sources: sources, changed: make(chan struct{})})
+	if current != nil {
+		close(current.changed)
+	}
 	return nil
 }
 
-func (policies *Policies) Clear() { policies.state.Store(nil) }
+func (policies *Policies) Clear() {
+	policies.mu.Lock()
+	defer policies.mu.Unlock()
+	if current := policies.state.Swap(nil); current != nil {
+		close(current.changed)
+	}
+}
 
 func (policies *Policies) Resolve(bootID string, address netip.Addr) (Source, bool) {
 	result, found := policies.Lookup(bootID, address)
-	return result, found && result.Mode == PublicInternet
+	return result, found && (result.Mode == PublicInternet || result.LANEgress || len(result.HostTCPEndpoints) > 0)
 }
 
 func (policies *Policies) Lookup(bootID string, address netip.Addr) (Source, bool) {
@@ -85,7 +105,7 @@ func (policies *Policies) Lookup(bootID string, address netip.Addr) (Source, boo
 			result, found = source, true
 		}
 	}
-	return result, found
+	return result.Clone(), found
 }
 
 var deniedDestinations = []netip.Prefix{
@@ -99,6 +119,8 @@ var deniedDestinations = []netip.Prefix{
 	netip.MustParsePrefix("203.0.113.0/24"), netip.MustParsePrefix("224.0.0.0/4"),
 	netip.MustParsePrefix("240.0.0.0/4"),
 }
+
+var namespacePool = netip.MustParsePrefix("10.64.0.0/10")
 
 var transparentTest = netip.MustParsePrefix("198.18.0.0/15")
 
@@ -271,3 +293,97 @@ const (
 	MaxInfrastructureUDP    = 16
 	MaxInfrastructureDNS    = 16
 )
+
+func (policies *Policies) Context(parent context.Context, bootID string, address netip.Addr, expected Source) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	expected = expected.Clone()
+	current, ok := policies.Lookup(bootID, address)
+	if !ok || !current.Equal(expected) {
+		log.Printf("egress flow authorization changed before attachment: boot=%s source=%s environment=%s namespace=%s expected_instance=%s observed_instance=%s source_present=%t", bootID, address, expected.EnvironmentID, expected.NamespaceID, expected.InstanceID, current.InstanceID, ok)
+		cancel()
+		return ctx, cancel
+	}
+	go func() {
+		for {
+			state := policies.state.Load()
+			current, exists := policies.Lookup(bootID, address)
+			if state == nil || !exists || !current.Equal(expected) {
+				reason, observedBoot := "source_changed", ""
+				if state == nil {
+					reason = "policy_removed"
+				} else {
+					observedBoot = state.bootID
+					if state.bootID != bootID {
+						reason = "boot_changed"
+					} else if !exists {
+						reason = "source_missing"
+					}
+				}
+				log.Printf("egress flow authorization ended: reason=%s boot=%s observed_boot=%s source=%s environment=%s namespace=%s expected_instance=%s observed_instance=%s", reason, bootID, observedBoot, address, expected.EnvironmentID, expected.NamespaceID, expected.InstanceID, current.InstanceID)
+				cancel()
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-state.changed:
+			}
+		}
+	}()
+	return ctx, cancel
+}
+
+func LANDestinationAllowed(address netip.Addr, namespaceSubnets []netip.Prefix, hostAddresses []netip.Addr) bool {
+	if !address.Is4() || !address.IsPrivate() {
+		return false
+	}
+	_, _, transport := netprotocol.Addresses()
+	if transport.Contains(address) || namespacePool.Contains(address) {
+		return false
+	}
+	for _, subnet := range namespaceSubnets {
+		if subnet.Contains(address) {
+			return false
+		}
+	}
+	for _, host := range hostAddresses {
+		if address == host.Unmap() {
+			return false
+		}
+	}
+	return true
+}
+
+func (policies *Policies) RevokeEnvironment(environmentID string) {
+	policies.mu.Lock()
+	defer policies.mu.Unlock()
+	current := policies.state.Load()
+	if current == nil {
+		return
+	}
+	sources := cloneSources(current.sources)
+	for index := range sources {
+		if sources[index].EnvironmentID == environmentID {
+			sources[index].Mode = DenyAll
+			sources[index].LANEgress = false
+			sources[index].HostTCPEndpoints = nil
+		}
+	}
+	policies.state.Store(&policyState{bootID: current.bootID, revision: current.revision, sources: sources, changed: make(chan struct{})})
+	close(current.changed)
+}
+
+func (source Source) Clone() Source {
+	source.HostTCPEndpoints = slices.Clone(source.HostTCPEndpoints)
+	return source
+}
+func (source Source) Equal(other Source) bool {
+	return source.EnvironmentID == other.EnvironmentID && source.NamespaceID == other.NamespaceID && source.Subnet == other.Subnet && source.Mode == other.Mode && source.LANEgress == other.LANEgress && source.InstanceID == other.InstanceID && source.GrantRevision == other.GrantRevision && slices.Equal(source.HostTCPEndpoints, other.HostTCPEndpoints)
+}
+func cloneSources(sources []Source) []Source {
+	result := make([]Source, len(sources))
+	for index, source := range sources {
+		result[index] = source.Clone()
+	}
+	return result
+}

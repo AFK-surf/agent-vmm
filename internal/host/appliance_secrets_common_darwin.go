@@ -14,8 +14,6 @@ var errBootstrapNotFound = errors.New("protected bootstrap envelope is not found
 var errBootstrapStoreIntegrity = errors.New("protected bootstrap store integrity failure")
 
 type applianceSecretStore interface {
-	EnsureVolumeKey(context.Context, string) ([]byte, error)
-	ReplaceVolumeKey(context.Context, string, []byte) error
 	StoreBootstrap(context.Context, string, string, []byte) error
 	LoadBootstrap(context.Context, string, string) ([]byte, error)
 	DeleteBootstrap(context.Context, string, string) error

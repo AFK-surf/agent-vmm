@@ -51,7 +51,7 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 	if _, err := durable.CreateVolume(ctx, &hostv1.CreateVolumeRequest{RequestId: "reference-state", VolumeId: "state"}); err != nil {
 		return err
 	}
-	mount := []*hostv1.VolumeMount{{VolumeId: "state", Destination: "/data"}}
+	mount := []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "state"}, Destination: "/data"}}
 	service, err := createReferenceContainer(ctx, durable, "service", "service", mount)
 	if err != nil {
 		return err

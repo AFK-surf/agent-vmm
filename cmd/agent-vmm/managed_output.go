@@ -83,6 +83,7 @@ func fitManagedLogEnvelope(envelope managedEnvelope) managedEnvelope {
 	if err != nil || len(encoded)+1 <= managedLogBytes {
 		return envelope
 	}
+	envelope.Gap = true
 	original := append([]managedLogRecord(nil), envelope.Logs...)
 	for index := range envelope.Logs {
 		envelope.Logs[index].Data = ""
@@ -90,12 +91,20 @@ func fitManagedLogEnvelope(envelope managedEnvelope) managedEnvelope {
 			envelope.Logs[index].Truncated = true
 		}
 	}
-	for index := range original {
+	local := len(envelope.Source) == 1 && (envelope.Source[0] == "guest_log" || envelope.Source[0] == "host_log")
+	for step := range original {
+		index := step
+		if local {
+			index = len(original) - 1 - step
+		}
 		value := []rune(strings.ToValidUTF8(original[index].Data, "�"))
 		low, high := 0, len(value)
 		for low < high {
 			middle := low + (high-low+1)/2
 			envelope.Logs[index].Data = string(value[:middle])
+			if local {
+				envelope.Logs[index].Data = string(value[len(value)-middle:])
+			}
 			candidate, marshalErr := json.Marshal(envelope)
 			if marshalErr == nil && len(candidate)+1 <= managedLogBytes {
 				low = middle
@@ -104,6 +113,9 @@ func fitManagedLogEnvelope(envelope managedEnvelope) managedEnvelope {
 			}
 		}
 		envelope.Logs[index].Data = string(value[:low])
+		if local {
+			envelope.Logs[index].Data = string(value[len(value)-low:])
+		}
 		envelope.Logs[index].Truncated = original[index].Truncated || low < len(value)
 		if low < len(value) {
 			break

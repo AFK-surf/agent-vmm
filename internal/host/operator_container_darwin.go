@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"errors"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -16,6 +17,9 @@ func (server *operatorServer) StopContainer(ctx context.Context, request *hostv1
 	if _, err := auth.OperatorIdentity(ctx); err != nil {
 		return nil, err
 	}
+	if request.GetRequestId() == "" || request.GetContainerId() == "" {
+		return nil, invalidField("request_id/container_id", "request and container IDs are required")
+	}
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
 	if err != nil {
 		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
@@ -23,18 +27,50 @@ func (server *operatorServer) StopContainer(ctx context.Context, request *hostv1
 	if err := requireLocalOperatorEnvironment(environment); err != nil {
 		return nil, err
 	}
-	client, connection, err := server.controller.guestClient(ctx)
-	if err != nil {
-		return nil, err
+	if request.ExpectedIntegrationRevision != nil || request.IntegrationId != nil {
+		if request.GetIntegrationId() == "" || request.ExpectedIntegrationRevision == nil || request.GetExpectedIntegrationRevision() == 0 {
+			return nil, invalidField("integration_id/expected_integration_revision", "exact integration intent is required")
+		}
+		unlock, err := server.controller.lockIntegrationRead(ctx, request.GetIntegrationId())
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+		integration, err := server.controller.store.GetAgentIntegration(ctx, request.GetIntegrationId())
+		if err != nil || integration.EnvironmentID != environment.ID || integration.Revision != request.GetExpectedIntegrationRevision() || integration.DesiredState != 1 {
+			return nil, integrationConflict(request.GetIntegrationId(), errors.New("stop belongs to an ended integration intent"))
+		}
 	}
-	defer connection.Close()
 	unlock := server.controller.lockEnvironment(environment.ID)
 	defer unlock()
-	response, err := server.controller.stopWorkloadContainerLocked(ctx, client, environment.ID, &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds})
+	pending := func(cause error) error {
+		intent, err := server.controller.store.GetManagedContainer(ctx, environment.ID, request.GetContainerId())
+		if err != nil || intent.DesiredRunning {
+			return cause
+		}
+		return resourceErrorWithMetadata(codes.Unavailable, "SERVICE_STOP_PENDING", "container", request.GetContainerId(), "stop intent was saved; actual stop is not confirmed: "+cause.Error(), map[string]string{"desired_running": "false", "actual_state": "unknown"})
+	}
+	guestRequest := &vmmdv1.StopContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID, ContainerId: request.GetContainerId(), TimeoutSeconds: request.TimeoutSeconds}
+	if err := server.controller.acceptWorkloadStopLocked(ctx, environment.ID, guestRequest); err != nil {
+		return nil, pending(err)
+	}
+	client, connection, err := server.controller.guestClient(ctx)
 	if err != nil {
+		return nil, pending(err)
+	}
+	defer connection.Close()
+	response, err := server.controller.stopWorkloadContainerLocked(ctx, client, environment.ID, guestRequest)
+	if err != nil {
+		return nil, pending(err)
+	}
+	if state := response.GetContainer().GetState(); state != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED && state != vmmdv1.ContainerState_CONTAINER_STATE_CREATED {
+		return nil, pending(errors.New("Guest has not observed a stopped container"))
+	}
+	current := containerFromGuest(response.GetContainer())
+	if err := server.controller.projectManagedContainerIntent(ctx, environment.ID, current); err != nil {
 		return nil, err
 	}
-	return &hostv1.ContainerResponse{Container: containerFromGuest(response.GetContainer())}, nil
+	return &hostv1.ContainerResponse{Container: current}, nil
 }
 
 func (server *operatorServer) ContinueContainer(ctx context.Context, request *hostv1.OperatorContainerMutationRequest) (*hostv1.ContainerResponse, error) {
@@ -116,11 +152,10 @@ func (server *operatorServer) DeleteContainer(ctx context.Context, request *host
 		return nil, err
 	}
 	defer connection.Close()
-	_, err = client.DeleteContainer(ctx, &vmmdv1.DeleteContainerRequest{
+	if err := server.controller.deleteWorkloadContainerLocked(ctx, client, environment.ID, &vmmdv1.DeleteContainerRequest{
 		RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID,
 		ContainerId: request.GetContainerId(), ExpectedGenerationId: request.GetExpectedGenerationId(),
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil

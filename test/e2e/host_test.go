@@ -658,7 +658,7 @@ func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
 		RequestId: "create-pgvector", ContainerId: "postgres", Image: image,
 		User:    &user,
 		Env:     []string{"POSTGRES_PASSWORD=agent-vmm-e2e", "PGDATA=/var/lib/postgresql/data/pgdata"},
-		Volumes: []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/var/lib/postgresql/data"}}, LogLimitBytes: 1 << 20,
+		Volumes: []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/var/lib/postgresql/data"}}, LogLimitBytes: 1 << 20,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1163,7 +1163,7 @@ func testNamedVolume(t *testing.T, client *productClient) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	mount := []*hostv1.VolumeMount{{VolumeId: "salix-vol-provider-state", Destination: "/workspace"}}
+	mount := []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "salix-vol-provider-state"}, Destination: "/workspace"}}
 	env := []string{"HOME=/workspace"}
 	writer := createContainerAsUser(t, client, "volume-owner", "writer", image, "1000:1000", []string{"/bin/provider-state", "write-codex"}, env, mount)
 	startAndWaitContainer(t, client, "volume-owner", writer.GetId(), 0)
@@ -1213,7 +1213,7 @@ func testDiskQuota(t *testing.T, client *productClient) {
 		t.Fatal("shared image identity differs across writable quota sizes")
 	}
 	createVolume(t, client, "quota", "data")
-	full := createContainer(t, client, "quota", "full", []string{"dd", "if=/dev/zero", "of=/data/blob", "bs=1048576", "count=64"}, []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	full := createContainer(t, client, "quota", "full", []string{"dd", "if=/dev/zero", "of=/data/blob", "bs=1048576", "count=64"}, []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}})
 	startContainer(t, client, "quota", full.GetId())
 	if code := waitContainer(t, client, "quota", full.GetId(), 1); code == 0 {
 		t.Fatal("write beyond project quota succeeded")
@@ -1571,7 +1571,7 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 		importRegistryImage(t, client, namespaceID)
 	}
 	createVolume(t, client, "restart-source", "data")
-	caller := createContainer(t, client, "restart-source", "caller", idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	caller := createContainer(t, client, "restart-source", "caller", idleProcess(), []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}})
 	server := createContainer(t, client, "restart-destination", "server", idleProcess(), nil)
 	startContainer(t, client, "restart-source", caller.GetId())
 	startContainer(t, client, "restart-destination", server.GetId())
@@ -1715,7 +1715,7 @@ func testProviderStateVMRestart(t *testing.T, harness *hostHarness) {
 		t.Fatal(err)
 	}
 	cancel()
-	mount := []*hostv1.VolumeMount{{VolumeId: volumeID, Destination: "/workspace"}}
+	mount := []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: volumeID}, Destination: "/workspace"}}
 	provider := createContainerAsUser(t, client, namespaceID, "provider", image, "1000:1000", []string{"/bin/provider-state", "idle"}, []string{"HOME=/workspace"}, mount)
 	startContainer(t, client, namespaceID, provider.GetId())
 	if output, code := execContainer(t, client, namespaceID, provider.GetId(), []string{"/bin/provider-state", "write-pi"}); code != 0 || string(output) != "authenticated\n" {
@@ -1746,7 +1746,7 @@ func testForcedVMStop(t *testing.T, harness *hostHarness) {
 		importRegistryImage(t, client, namespaceID)
 	}
 	createVolume(t, client, "force-source", "data")
-	caller := createContainer(t, client, "force-source", "caller", idleProcess(), []*hostv1.VolumeMount{{VolumeId: "data", Destination: "/data"}})
+	caller := createContainer(t, client, "force-source", "caller", idleProcess(), []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}})
 	server := createContainer(t, client, "force-destination", "server", idleProcess(), nil)
 	startContainer(t, client, "force-source", caller.GetId())
 	startContainer(t, client, "force-destination", server.GetId())

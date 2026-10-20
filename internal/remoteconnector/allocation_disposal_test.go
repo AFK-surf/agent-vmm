@@ -13,11 +13,32 @@ import (
 
 type disposalClient struct {
 	hostv1.RemoteComputeServiceClient
-	failure error
+	failure      error
+	plan         *hostv1.AllocationCleanupPlan
+	planRequests *[]*hostv1.PlanCleanupAllocationRequest
 }
 
 func (client disposalClient) DisposeAllocation(context.Context, *hostv1.DisposeAllocationRequest, ...grpc.CallOption) (*hostv1.AllocationResponse, error) {
 	return nil, client.failure
+}
+
+func (client disposalClient) PlanCleanupAllocation(_ context.Context, request *hostv1.PlanCleanupAllocationRequest, _ ...grpc.CallOption) (*hostv1.AllocationCleanupPlanResponse, error) {
+	*client.planRequests = append(*client.planRequests, request)
+	return &hostv1.AllocationCleanupPlanResponse{Plan: client.plan}, client.failure
+}
+
+func TestCleanupPlanCarriesCurrentGenerationAndOwnerScope(t *testing.T) {
+	var requests []*hostv1.PlanCleanupAllocationRequest
+	handler := commandHandler{registrationID: "controller", connectionInstance: "connection", client: disposalClient{planRequests: &requests, plan: &hostv1.AllocationCleanupPlan{AllocationId: "allocation", AllocationGeneration: 13, Revision: 9, Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, VolumeIds: []string{"state"}}}}
+	command := &remotev1.ControllerCommand{CommandId: "observe-cleanup", Sequence: 7, ConnectionEpoch: 3, Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: "allocation", Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET}}}
+	result := handler.handle(context.Background(), command)
+	plan := result.GetCleanupPlan()
+	if plan.GetAllocationGeneration() != 13 || plan.GetRevision() != 9 || plan.GetAllocationId() != "allocation" || plan.GetKind() != hostv1.CleanupKind_CLEANUP_KIND_RESET || len(plan.GetVolumeIds()) != 1 {
+		t.Fatalf("cleanup projection lost current facts: %v", result)
+	}
+	if len(requests) != 1 || requests[0].GetRegistrationId() != "controller" || requests[0].GetConnectionInstance() != "connection" || requests[0].GetAllocationId() != "allocation" {
+		t.Fatalf("cleanup observation lost current owner: %v", requests)
+	}
 }
 
 func TestDisposalRefreshCarriesOnlyExactPreAcceptanceAuthority(t *testing.T) {

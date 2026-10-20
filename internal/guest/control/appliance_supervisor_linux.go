@@ -4,7 +4,7 @@ package control
 
 import (
 	"context"
-	"crypto/subtle"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -14,12 +14,10 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	containerd "github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/core/containers"
-	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/google/btree"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -27,18 +25,20 @@ const (
 	systemContainerUID = 1000
 	systemLogLimit     = 1 << 20
 	systemRestartLimit = 3
-	systemNonceLimit   = 1024
 )
 
 type systemApplianceRecord struct {
-	status       *vmmdv1.SystemAppliance
-	volume       applianceVolume
-	runtimePath  string
-	bootstrapUse uint32
-	streams      map[string]uint32
-	streamUses   map[string]uint32
-	usedNonces   map[string]struct{}
-	stopping     bool
+	status              *vmmdv1.SystemAppliance
+	volume              applianceVolume
+	runtimePath         string
+	contentPath         string
+	streams             map[string]uint32
+	bootstrapNonces     map[string]struct{}
+	inFlightNonces      map[string]struct{}
+	stopping            bool
+	cleanupMu           sync.Mutex
+	launchFingerprint   [32]byte
+	containerDispatched bool
 }
 
 type applianceSupervisor struct {
@@ -52,7 +52,11 @@ type applianceSupervisor struct {
 }
 
 func newApplianceSupervisor(runtime *Runtime, bootID string) *applianceSupervisor {
-	return &applianceSupervisor{runtime: runtime, bootID: bootID, volumes: newApplianceVolumeManager(), records: make(map[string]*systemApplianceRecord),
+	device := ""
+	if runtime != nil {
+		device = runtime.stateDevice
+	}
+	return &applianceSupervisor{runtime: runtime, bootID: bootID, volumes: newApplianceVolumeManager(device), records: make(map[string]*systemApplianceRecord),
 		order: btree.NewG(8, func(left, right string) bool { return left < right })}
 }
 
@@ -62,56 +66,91 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	}
 	identity := request.GetIdentity()
 	if err := validateSystemIdentity(identity, supervisor.bootID, false); err != nil {
-		clearBytes(request.DataVolumeKey)
 		return nil, err
 	}
 	if request.GetConfigRevision() == 0 || request.GetImageReference() == "" || identity.GetImageManifestDigest() == "" || request.GetDataVolumeId() == "" || request.GetLimits() == nil || request.GetEgressMode() == vmmdv1.EgressMode_EGRESS_MODE_UNSPECIFIED {
-		clearBytes(request.DataVolumeKey)
 		return nil, errors.New("system appliance launch configuration is incomplete")
 	}
+	requestBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	fingerprint := sha256.Sum256(requestBytes)
+	clearBytes(requestBytes)
 	supervisor.mu.Lock()
 	if record := supervisor.records[identity.GetInstallationId()]; record != nil {
 		status := cloneSystemAppliance(record.status)
+		matches := record.launchFingerprint == fingerprint
+		pending := record.stopping && (status.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_FAILED || status.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_SEALED)
 		supervisor.mu.Unlock()
-		clearBytes(request.DataVolumeKey)
-		if !sameSystemLaunch(status.GetIdentity(), identity, false) || status.GetConfigRevision() != request.GetConfigRevision() || status.GetDataVolumeId() != request.GetDataVolumeId() || status.GetDataVolumeIdentity() != request.GetDataVolumeIdentity() {
-			return nil, errors.New("installation already has a different system appliance instance")
+		if !matches {
+			return nil, errors.New("installation already has a different system appliance launch")
+		}
+		if pending {
+			record.cleanupMu.Lock()
+			supervisor.mu.Lock()
+			current := supervisor.records[identity.GetInstallationId()] == record && record.launchFingerprint == fingerprint
+			supervisor.mu.Unlock()
+			if current {
+				supervisor.releaseFailedRecord(record)
+			}
+			supervisor.mu.Lock()
+			retained := supervisor.records[identity.GetInstallationId()]
+			if retained == record {
+				status = cloneSystemAppliance(record.status)
+			}
+			supervisor.mu.Unlock()
+			record.cleanupMu.Unlock()
+			if retained == nil {
+				return supervisor.ensure(ctx, request)
+			}
+			if retained != record {
+				return nil, errors.New("system appliance launch changed during cleanup")
+			}
+			return status, errors.New("system appliance launch cleanup incomplete")
 		}
 		return status, nil
 	}
-	record := &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: cloneSystemIdentity(identity), DataVolumeId: request.GetDataVolumeId(), DataVolumeIdentity: request.GetDataVolumeIdentity(), State: vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_STARTING, ConfigRevision: request.GetConfigRevision(), Status: "starting"}, streams: make(map[string]uint32), streamUses: make(map[string]uint32), usedNonces: make(map[string]struct{})}
+
+	record := &systemApplianceRecord{launchFingerprint: fingerprint, status: &vmmdv1.SystemAppliance{Identity: cloneSystemIdentity(identity), DataVolumeId: request.GetDataVolumeId(), State: vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_STARTING, ConfigRevision: request.GetConfigRevision(), Status: "starting"}, streams: make(map[string]uint32), bootstrapNonces: make(map[string]struct{}), inFlightNonces: make(map[string]struct{})}
 	supervisor.records[identity.GetInstallationId()] = record
 	supervisor.order.ReplaceOrInsert(identity.GetInstallationId())
 	supervisor.mu.Unlock()
 
-	volume, err := supervisor.volumes.unlock(ctx, identity.GetInstallationId(), request.GetDataVolumeId(), request.GetLegacyDataDeviceIdentifier(), request.GetDataVolumeIdentity(), request.GetDataVolumeBytes(), request.DataVolumeKey)
-	if err != nil {
-		var sealed sealedVolumeError
-		if errors.As(err, &sealed) {
-			return supervisor.seal(identity.GetInstallationId(), sealed.reason), err
+	if supervisor.runtime != nil {
+		if err := supervisor.replaceStoppedContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId()); err != nil {
+			err = atRuntimeStage("stopped_container_cleanup", err)
+			return supervisor.fail(identity.GetInstallationId(), err), err
 		}
+	}
+
+	volume, err := supervisor.prepareData(identity.GetInstallationId(), request.GetDataVolumeId(), request.GetDataVolumeBytes())
+	record.volume = volume
+	if err != nil {
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
-	record.volume = volume
 	runtimePath := filepath.Join(applianceMountRoot, identity.GetInstallationId(), "run")
 	if err := ensureDirectory(runtimePath, 0o700); err != nil {
-		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	if err := os.Chown(runtimePath, systemContainerUID, systemContainerUID); err != nil {
-		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	if err := os.Chown(volume.mountPath, systemContainerUID, systemContainerUID); err != nil {
-		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	record.runtimePath = runtimePath
 
 	namespaceRequest := &vmmdv1.EnsureNamespaceRequest{RequestId: request.GetRequestId(), NamespaceId: identity.GetNamespaceId(), Limits: request.GetLimits(), EgressMode: request.GetEgressMode()}
-	if _, err := supervisor.runtime.ensureNamespace(ctx, namespaceRequest, true); err != nil {
+	namespace, err := supervisor.runtime.ensureNamespace(ctx, namespaceRequest, true)
+	if err != nil {
 		err = atRuntimeStage("namespace", err)
-		_ = supervisor.volumes.close(context.Background(), volume)
+		return supervisor.fail(identity.GetInstallationId(), err), err
+	}
+	supervisor.mu.Lock()
+	record.status.NetworkSubnet = namespace.GetSubnet()
+	supervisor.mu.Unlock()
+	if err := supervisor.runtime.network.SetSystemLAN(identity.GetNamespaceId(), request.GetLanEgress()); err != nil {
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	var canonical, digest string
@@ -122,29 +161,26 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	}
 	if err != nil {
 		err = atRuntimeStage("image_materialization", err)
-		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	if digest != identity.GetImageManifestDigest() {
-		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.seal(identity.GetInstallationId(), "IMAGE_DIGEST_MISMATCH"), errors.New("system appliance image digest does not match the selected artifact")
-	}
-	if err := supervisor.replaceStoppedContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId()); err != nil {
-		err = atRuntimeStage("stopped_container_cleanup", err)
-		_ = supervisor.volumes.close(context.Background(), volume)
-		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	containerRequest := &vmmdv1.CreateContainerRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.GetNamespaceId(), ContainerId: identity.GetContainerId(), Image: canonical,
 		ReadOnlyRoot: true, User: stringPointer("1000:1000"), LogLimitBytes: systemLogLimit,
 		Limits: &vmmdv1.ResourceLimits{Pids: uint32Pointer(request.GetLimits().GetPids())}}
-	if _, err := supervisor.runtime.createContainer(ctx, containerRequest, true, systemSpecOption(runtimePath, volume.mountPath)); err != nil {
-		_ = supervisor.volumes.close(context.Background(), volume)
+	contentPath, err := supervisor.runtime.projectApplianceContent(ctx, request)
+	if err != nil {
+		return supervisor.fail(identity.GetInstallationId(), err), err
+	}
+	record.contentPath = contentPath
+	record.containerDispatched = true
+	if _, err := supervisor.runtime.createContainer(ctx, containerRequest, true, systemSpecOption(runtimePath, volume.mountPath, contentPath)); err != nil {
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	container, err := supervisor.runtime.startContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId(), true)
 	if err != nil {
 		err = atRuntimeStage("container_start", err)
-		_ = supervisor.volumes.close(context.Background(), volume)
 		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 	supervisor.mu.Lock()
@@ -158,53 +194,17 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	return result, nil
 }
 
-func (supervisor *applianceSupervisor) stop(ctx context.Context, request *vmmdv1.StopSystemApplianceRequest) (*vmmdv1.SystemAppliance, error) {
-	if err := validateRequestID(request.GetRequestId()); err != nil {
-		return nil, err
+func (supervisor *applianceSupervisor) prepareData(installationID, volumeID string, size uint64) (applianceVolume, error) {
+	if supervisor.runtime == nil {
+		return supervisor.volumes.prepare(installationID, volumeID, size)
 	}
-	if err := validateSystemIdentity(request.GetIdentity(), supervisor.bootID, true); err != nil {
-		return nil, err
-	}
-	supervisor.mu.Lock()
-	record := supervisor.records[request.GetIdentity().GetInstallationId()]
-	if record == nil || !sameSystemLaunch(record.status.GetIdentity(), request.GetIdentity(), true) {
-		supervisor.mu.Unlock()
-		return nil, errdefs.ErrNotFound
-	}
-	record.stopping = true
-	record.status.Status = "stopping"
-	supervisor.mu.Unlock()
-	timeout := time.Duration(request.GetTimeoutSeconds()) * time.Second
-	if timeout == 0 || timeout > 30*time.Second {
-		timeout = 10 * time.Second
-	}
-	_, stopErr := supervisor.runtime.stopContainer(ctx, request.GetIdentity().GetNamespaceId(), request.GetIdentity().GetContainerId(), timeout, true)
-	closeErr := supervisor.volumes.close(ctx, record.volume)
-	_ = os.RemoveAll(record.runtimePath)
-	supervisor.mu.Lock()
-	record.status.State = vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_STOPPED
-	record.status.Status = "stopped"
-	result := cloneSystemAppliance(record.status)
-	delete(supervisor.records, request.GetIdentity().GetInstallationId())
-	supervisor.order.Delete(request.GetIdentity().GetInstallationId())
-	supervisor.mu.Unlock()
-	return result, errors.Join(stopErr, closeErr)
-}
-
-func (supervisor *applianceSupervisor) deleteData(ctx context.Context, installationID, volumeID string) error {
-	if err := validateID("installation_id", installationID); err != nil {
+	var volume applianceVolume
+	err := supervisor.runtime.diskBudget.MutateInventory(func(*guestdisk.Transaction) error {
+		var err error
+		volume, err = supervisor.volumes.prepare(installationID, volumeID, size)
 		return err
-	}
-	if err := validateID("data_volume_id", volumeID); err != nil {
-		return err
-	}
-	supervisor.mu.Lock()
-	_, active := supervisor.records[installationID]
-	supervisor.mu.Unlock()
-	if active {
-		return errors.New("system appliance must stop before its data is deleted")
-	}
-	return supervisor.volumes.delete(installationID, volumeID)
+	})
+	return volume, err
 }
 
 func (supervisor *applianceSupervisor) get(installationID string) (*vmmdv1.SystemAppliance, error) {
@@ -245,23 +245,6 @@ func (supervisor *applianceSupervisor) list(after string, limit int) ([]*vmmdv1.
 	return result, next
 }
 
-func (supervisor *applianceSupervisor) shutdown(ctx context.Context) error {
-	supervisor.mu.Lock()
-	identities := make([]*vmmdv1.SystemApplianceIdentity, 0, len(supervisor.records))
-	for _, record := range supervisor.records {
-		if record.status.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING {
-			identities = append(identities, cloneSystemIdentity(record.status.GetIdentity()))
-		}
-	}
-	supervisor.mu.Unlock()
-	var result error
-	for index, identity := range identities {
-		_, err := supervisor.stop(ctx, &vmmdv1.StopSystemApplianceRequest{RequestId: fmt.Sprintf("shutdown-%d", index), Identity: identity, TimeoutSeconds: 5})
-		result = errors.Join(result, err)
-	}
-	return result
-}
-
 func (supervisor *applianceSupervisor) observe(installationID, namespaceID, containerID, instanceID string) {
 	exitCode, waitErr := supervisor.runtime.waitContainerForRole(context.Background(), namespaceID, containerID, true)
 	supervisor.mu.Lock()
@@ -274,16 +257,9 @@ func (supervisor *applianceSupervisor) observe(installationID, namespaceID, cont
 		record.status.State = vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_FAILED
 		record.status.Status = "restart limit reached"
 		record.status.BoundedLog = boundedStatus(fmt.Errorf("system appliance payload exited with code %d after %d restarts: %v", exitCode, record.status.GetRestartCount(), waitErr))
-		volume, runtimePath := record.volume, record.runtimePath
-		delete(supervisor.records, installationID)
-		supervisor.order.Delete(installationID)
+		record.stopping = true
 		supervisor.mu.Unlock()
-		if volume.mapper != "" {
-			_ = supervisor.volumes.close(context.Background(), volume)
-		}
-		if runtimePath != "" {
-			_ = os.RemoveAll(runtimePath)
-		}
+		supervisor.cleanupFailedRecord(record)
 		return
 	}
 	record.status.RestartCount++
@@ -303,6 +279,17 @@ func (supervisor *applianceSupervisor) restartAfterBackoff(installationID, names
 
 	supervisor.mu.Lock()
 	record := supervisor.records[installationID]
+	supervisor.mu.Unlock()
+	if record == nil {
+		return
+	}
+	record.cleanupMu.Lock()
+	defer record.cleanupMu.Unlock()
+	supervisor.mu.Lock()
+	if supervisor.records[installationID] != record {
+		supervisor.mu.Unlock()
+		return
+	}
 	if record == nil || record.stopping || record.status.GetIdentity().GetContainerInstanceId() != previousInstanceID || record.status.GetRestartCount() != restartCount {
 		supervisor.mu.Unlock()
 		return
@@ -319,16 +306,9 @@ func (supervisor *applianceSupervisor) restartAfterBackoff(installationID, names
 			record.status.State = vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_FAILED
 			record.status.Status = "restart failed"
 			record.status.BoundedLog = boundedStatus(err)
-			volume, runtimePath := record.volume, record.runtimePath
-			delete(supervisor.records, installationID)
-			supervisor.order.Delete(installationID)
+			record.stopping = true
 			supervisor.mu.Unlock()
-			if volume.mapper != "" {
-				_ = supervisor.volumes.close(context.Background(), volume)
-			}
-			if runtimePath != "" {
-				_ = os.RemoveAll(runtimePath)
-			}
+			supervisor.releaseFailedRecord(record)
 			return
 		}
 		supervisor.mu.Unlock()
@@ -344,10 +324,9 @@ func (supervisor *applianceSupervisor) restartAfterBackoff(installationID, names
 	record.status.Identity.ContainerInstanceId = container.GetInstanceId()
 	record.status.State = vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING
 	record.status.Status = "running after restart"
-	record.bootstrapUse = 0
 	record.streams = make(map[string]uint32)
-	record.streamUses = make(map[string]uint32)
-	record.usedNonces = make(map[string]struct{})
+	record.bootstrapNonces = make(map[string]struct{})
+	record.inFlightNonces = make(map[string]struct{})
 	newInstanceID := container.GetInstanceId()
 	supervisor.mu.Unlock()
 	go supervisor.observe(installationID, namespaceID, containerID, newInstanceID)
@@ -366,8 +345,8 @@ func (supervisor *applianceSupervisor) replaceStoppedContainer(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-		return errors.New("an unowned system appliance task is still running")
+	if current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED && current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_CREATED {
+		return errors.New("system appliance container stop is unconfirmed")
 	}
 	if err := container.Delete(nsctx, containerd.WithSnapshotCleanup); err != nil {
 		return err
@@ -390,20 +369,9 @@ func (supervisor *applianceSupervisor) fail(installationID string, err error) *v
 	record.status.Status = "launch failed"
 	record.status.BoundedLog = boundedStatus(err)
 	result := cloneSystemAppliance(record.status)
-	volume, runtimePath := record.volume, record.runtimePath
-	delete(supervisor.records, installationID)
-	supervisor.order.Delete(installationID)
+	record.stopping = true
 	supervisor.mu.Unlock()
-	// A fallible launch must not leave a FAILED record that rejects the next
-	// exact activation. Keep the durable data volume, but release its mount and
-	// remove the private runtime directory; a subsequent launch will recreate
-	// the container after replaceStoppedContainer fences any partial task.
-	if volume.mapper != "" {
-		_ = supervisor.volumes.close(context.Background(), volume)
-	}
-	if runtimePath != "" {
-		_ = os.RemoveAll(runtimePath)
-	}
+	supervisor.cleanupFailedRecord(record)
 	return result
 }
 
@@ -418,71 +386,10 @@ func (supervisor *applianceSupervisor) seal(installationID, reason string) *vmmd
 	record.status.Status = reason
 	record.status.BoundedLog = []byte(reason)
 	result := cloneSystemAppliance(record.status)
-	volume, runtimePath := record.volume, record.runtimePath
-	delete(supervisor.records, installationID)
-	supervisor.order.Delete(installationID)
+	record.stopping = true
 	supervisor.mu.Unlock()
-	if volume.mapper != "" {
-		_ = supervisor.volumes.close(context.Background(), volume)
-	}
-	if runtimePath != "" {
-		_ = os.RemoveAll(runtimePath)
-	}
+	supervisor.cleanupFailedRecord(record)
 	return result
-}
-
-func systemSpecOption(runtimePath, dataPath string) oci.SpecOpts {
-	return func(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
-		spec.Root.Readonly = true
-		spec.Process.User = specs.User{UID: systemContainerUID, GID: systemContainerUID}
-		spec.Process.NoNewPrivileges = true
-		spec.Process.Capabilities = &specs.LinuxCapabilities{}
-		spec.Process.Rlimits = append(spec.Process.Rlimits, specs.POSIXRlimit{Type: "RLIMIT_CORE", Hard: 0, Soft: 0})
-		if spec.Linux == nil {
-			spec.Linux = &specs.Linux{}
-		}
-		spec.Linux.Devices = nil
-		if spec.Linux.Resources == nil {
-			spec.Linux.Resources = &specs.LinuxResources{}
-		}
-		spec.Linux.Resources.Devices = []specs.LinuxDeviceCgroup{{Allow: false, Access: "rwm"}}
-		spec.Mounts = append(spec.Mounts,
-			specs.Mount{Destination: "/run/agent-vmm", Type: "bind", Source: runtimePath, Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
-			specs.Mount{Destination: "/var/lib/agent-vmm", Type: "bind", Source: dataPath, Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
-		)
-		return nil
-	}
-}
-
-func validateSystemIdentity(identity *vmmdv1.SystemApplianceIdentity, bootID string, requireInstance bool) error {
-	if identity == nil || validateID("installation_id", identity.GetInstallationId()) != nil || validateSystemNamespace(identity.GetNamespaceId()) != nil || validateID("container_id", identity.GetContainerId()) != nil || identity.GetBootId() != bootID || identity.GetImageManifestDigest() == "" || len(identity.GetBootNonce()) != 32 {
-		return errors.New("system appliance identity is incomplete or belongs to another boot")
-	}
-	if requireInstance && identity.GetContainerInstanceId() == "" {
-		return errors.New("system appliance container instance is required")
-	}
-	return nil
-}
-
-func sameSystemLaunch(left, right *vmmdv1.SystemApplianceIdentity, includeInstance bool) bool {
-	if left == nil || right == nil || left.GetInstallationId() != right.GetInstallationId() || left.GetBootId() != right.GetBootId() || left.GetNamespaceId() != right.GetNamespaceId() || left.GetContainerId() != right.GetContainerId() || left.GetImageManifestDigest() != right.GetImageManifestDigest() || subtle.ConstantTimeCompare(left.GetBootNonce(), right.GetBootNonce()) != 1 {
-		return false
-	}
-	return !includeInstance || left.GetContainerInstanceId() == right.GetContainerInstanceId()
-}
-
-func cloneSystemIdentity(value *vmmdv1.SystemApplianceIdentity) *vmmdv1.SystemApplianceIdentity {
-	if value == nil {
-		return nil
-	}
-	return proto.Clone(value).(*vmmdv1.SystemApplianceIdentity)
-}
-
-func cloneSystemAppliance(value *vmmdv1.SystemAppliance) *vmmdv1.SystemAppliance {
-	if value == nil {
-		return nil
-	}
-	return proto.Clone(value).(*vmmdv1.SystemAppliance)
 }
 
 func boundedStatus(err error) []byte {

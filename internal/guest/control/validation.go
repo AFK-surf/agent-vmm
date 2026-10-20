@@ -32,8 +32,8 @@ func validateSystemNamespace(value string) error {
 }
 
 func validateRequestID(value string) error {
-	if !opaqueID.MatchString(value) {
-		return errors.New("request_id must be a 1-63 character opaque identifier")
+	if value == "" {
+		return errors.New("request_id is required")
 	}
 	return nil
 }

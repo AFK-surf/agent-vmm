@@ -1,3 +1,5 @@
+//go:build darwin
+
 package main
 
 // guestManifestDigest is injected from the canonical Guest manifest when the

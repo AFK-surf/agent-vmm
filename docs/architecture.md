@@ -48,14 +48,13 @@ below where they conflict. The current implementation has not yet converged.
   Retain real disk, PID, address-space, and request-size constraints.
 - Appliance install, restart, and maintenance must not require sibling readiness
   or stop the shared VM merely to attach that appliance's storage.
-  Preserve encrypted data and isolation when changing the storage layout.
+  Preserve persistent data and isolation when changing the storage layout.
 - File-descriptor checks protect one operation against path replacement.
   They do not define permanent workload, controller, or volume identity.
   Preserve stale-target deletion protection without deriving volume identity from ctime.
 
-The Guest stores each appliance data image on the shared control filesystem.
-It mounts the image through loop and LUKS before it starts the appliance.
-The Host attaches an old image only for its one-time schema-23 conversion.
+The Guest stores appliance data under `/state/appliance-data/<installation>/<volume>` on the pool filesystem.
+Each directory has an independent project quota bounded by `data_volume_bytes`.
 These rules do not authorize data deletion or an authorization bypass.
 
 ### Supported operations
@@ -65,7 +64,7 @@ The system must let multiple agents do these tasks in one guest:
 1. Change files and install tools in separate Linux workspaces.
 2. Keep selected data after a container or virtual machine restart.
 3. Start services that can discover approved peers.
-4. Mount named volumes from the encrypted guest state disk.
+4. Mount named volumes from the guest state disk.
 5. Build OCI images from Dockerfiles.
 6. Start containers and use exec or a TTY.
 7. Grant specific access between agent namespaces.
@@ -112,33 +111,28 @@ host-owned registry operations, snapshots, and the bounded endpoint projection.
 
 ## Compatibility Position
 
-The Host accepts schema 23. It converts schema 18 through 22 to schema 23 in one
-transaction before startup. Other database formats fail closed. The conversion
-preserves workload identity, policies, credentials, volumes, artifact manifests,
-and product data. For schema 18, it copies each exact allocation generation to
-its environment. It removes retired reservation, aggregate-capacity, and artifact
-trust projections. Schema 23 records the appliance volume location. Existing
-rows start in the Host block layout. New installations start in the Guest image
-layout.
+The Host uses the current metadata schema.
+An older database with appliance rows fails closed before metadata conversion.
+An older database without appliance rows can update metadata.
+Startup preserves diagnostic disks and keys and performs no appliance-data conversion or deletion.
 The signed Host provides an offline conversion from the legacy single-filesystem
 state disk to the control and workload layout. That command attaches the source
 read-only and writes a separate target. The first target boot converts legacy
 namespace quota labels and removes retired receipt labels. It rebuilds disposable
-system container root filesystems with the native snapshotter. The conversion
+system container root filesystems with the overlayfs snapshotter. The conversion
 preserves system private volumes and all workload container state.
 
 The target design starts with one shared virtual machine, one host controller, and one guest controller.
 It does not use a temporary Docker or Podman backend.
 
-## Design Convergence
+## Runtime ownership
 
-### Use one shared virtual machine
+### Shared virtual machine
 
-A virtual machine for each agent conflicts with the shared-machine requirement.
-The final design uses the agent namespace as the policy key.
-The virtual machine remains the boundary between macOS and Linux.
+The shared virtual machine is the boundary between macOS and Linux.
+Each agent namespace defines the scope for resource authorization and policy.
 
-### Remove direct runtime access
+### Privileged runtime control
 
 A workspace with a Docker or containerd socket has guest-root authority.
 It can inspect, mount, or delete resources from another agent namespace.
@@ -146,18 +140,16 @@ It can inspect, mount, or delete resources from another agent namespace.
 Only `agent-vmmd` can access containerd, CNI, nftables, and BuildKit control interfaces.
 Agents use high-level requests with a host-authenticated identity.
 
-### Use explicit capabilities
+### Explicit capabilities
 
-One broad isolation switch cannot express safe collaboration.
-The design uses `NetworkLink`, `VolumeGrant`, and `ControlGrant` as separate resources.
+`NetworkLink`, `VolumeGrant`, and `ControlGrant` authorize network, volume, and control access separately.
 
 Each resource records its parties, scope, rights, expiry, and revocation state.
 
-### Keep authorization outside containerd namespaces
+### Resource authorization
 
-Containerd namespaces are management scopes, not a security boundary. Creating one per agent duplicates
-snapshot metadata and immutable root files without protecting them from a caller that can reach the
-containerd socket. Workloads never receive that socket.
+Containerd namespaces are management scopes. Host-authenticated ownership checks enforce agent resource isolation.
+Workloads have no access to the containerd socket.
 
 `agent-vmmd` uses one private containerd namespace, keys physical image records by manifest digest, and
 generates opaque internal container and snapshot keys. Every runtime object carries its logical owner;
@@ -166,15 +158,8 @@ logical namespace records retain tag-to-digest image authorization,
 resource contracts, cgroup, network, volume, and build-cache ownership without duplicating read-only
 root files.
 
-### Remove Podman and libpod
-
-Podman adds its own storage, network, process, build, and database layers.
-These layers do not remove any Agent VMM policy component.
-
-A rootless Podman service for each agent also creates separate storage and lifecycle domains.
-Cross-user collaboration then needs another privileged policy layer.
-
-The final design uses the containerd client and the isolated BuildKit worker directly.
+`agent-vmmd` calls containerd and the isolated BuildKit worker directly.
+It owns authorization and lifecycle across both interfaces.
 
 ### Put gVisor on each untrusted execution boundary
 
@@ -196,6 +181,30 @@ A shared BuildKit daemon would mix build control, contexts, secrets, and caches.
 `agent-vmmd` starts a short-lived outer runsc sandbox for each build.
 The sandbox runs the CI-tested RootlessKit, BuildKit, and `buildkit-runc`
 components as UID 1000.
+Nested BuildKit uses overlayfs snapshots on the controller-scoped, VMM-owned
+ext4-backed preparation cache. The cache survives allocation release and can be
+collected only after its accepted builders settle. Each build starts a fresh worker.
+Its sandbox capabilities are SETUID, SETGID, and SETPCAP for RootlessKit user mapping.
+Overlay copy-up and whiteouts use the existing gofer filesystem interface.
+The readonly base and nodev cache mounts remain enforced.
+The builder image contains all fixed mount destinations, including the authorized
+base image’s `/base-image` directory, before its read-only snapshot is mounted.
+The build leaf cgroup shares CPU and memory with its workload namespace, with
+`cpu.max`, `memory.max`, and `memory.high` set to `max`. Its PID limit and
+namespace parent cgroup remain enforced.
+Namespace deletion first settles internal build tasks, then removes that namespace’s
+internal builder image with synchronous GC. Build cleanup does not remove image
+records from another namespace.
+Build sandbox creation uses a private non-debug runsc error log. On creation
+failure, the Guest reads the first error-level fatal message before cleanup and
+retains up to 2048 bytes in the creation error. Debug logging and spec dumps stay
+disabled. The private startup files are removed with the build workspace.
+Build stdout and stderr flow through the caller’s authorized BuildImage progress
+stream in small frames, with backpressure. The Guest retains six bytes to match
+BuildKit cache markers across writes. It drains containerd stdout and stderr
+before reporting the exit code, within the existing cleanup deadline. Output
+frames use lossy UTF-8 conversion. Repository output does not enter the shared
+Guest log.
 
 The sandbox mounts only the current context, temporary secrets, one cache, and one OCI output.
 `agent-vmmd` verifies the output, records the caller's logical image grant, and materializes its rootfs in
@@ -247,25 +256,55 @@ separate credentials and membership state.
 
 Environment ownership is explicit and persistent. A local environment has no registration or allocation identity. A remote environment belongs to one registration and one controller-scoped allocation ID; its host environment ID and guest namespace ID are generated locally and are never returned to the controller.
 
-The operator socket and the remote-compute socket are separate `0600` Unix sockets. The remote-compute service exposes remote inventory, allocation admission, frontend lease management, cleanup plan/execute, connection state, and filtered runtime session creation. It cannot manage the VM or local environments. This is an application least-privilege boundary under the same macOS UID, not an OS sandbox.
+The operator socket and the remote-compute socket are separate `0600` Unix sockets. The remote-compute service exposes remote inventory, allocation admission, frontend lease management, cleanup plan/execute, connection state, and allocation-scoped runtime session creation.
+
+Runtime handlers authorize resources through the session namespace and execution
+identity. Remote runtime sessions can observe and cancel their exact image
+operations. Environment reset and discard belong to the controller's typed
+lifecycle API. OperatorService is not registered on runtime sessions. Runtime sessions use the existing concurrent-stream, message-size and Guest resource bounds; serial workspace reads do not consume a calls-per-second budget.
+
+Container create and start operations retain accepted request identities. Successful Guest evidence completes their receipts. Only a typed `admission=not_accepted` rejection stores a failed receipt with the original RPC status. Replay returns that receipt. Uncertain mutations require exact observation or allocation cleanup. Cached container creation uses the existing unpacked image and its namespace quota.
+
+The Host computes an internal configuration fingerprint from the complete `CreateContainerRequest` with `request_id` cleared. The Guest stores this value in its container label. `GetContainer` can include an expected creation declaration; the Host compares both values with its own protobuf encoder and returns optional `configuration_matches`. It does not store the expected declaration or the comparison. List, mutation receipts, and queries without an expected declaration leave the comparison unset. An explicit Install can detect environment, resource, mount, and launch changes with the same image, or recognize a completed Create after a lost response. A missing internal fingerprint compares false. The comparison does not authorize a request or restrict upgrades.
+
+An integration commit stores its revision change and original operation receipt in one transaction. Replaying the request returns that original receipt. Local sessions bind to the accepted integration revision; callers can require an exact revision when opening a session. Mutation admission checks that binding under the integration lock. A new intent cancels sessions of the previous revision and waits for their admitted Host mutation handlers to finish before committing. Guest operations retain their existing cancellation, instance, and receipt boundaries. Long Exec and ForwardTCP streams do not hold the integration lock for their full lifetime. Connection verification does not advance the operator intent revision and cannot verify a newer intent.
+
+Operator Stop can carry the exact integration ID and revision. The Host saves the false running intent before connecting to the Guest, including a component that has not started yet. It does not start the VM or require a runtime session for this command. If the Guest cannot confirm the stop, `SERVICE_STOP_PENDING` reports the saved intent and unknown actual state as a failed RPC. A later intent fences replay of the old Stop.
+
+A new runtime session for an allocation generation replaces its current session. The connector closes the old tunnel and confirms exact capability revocation before it opens the replacement. Revocation failure blocks replacement. Session replacement does not stop the workload.
+
+Closing or revoking an already ended session succeeds and preserves its first terminal reason and timestamp. Cleanup still closes any remaining listener and tunnel. Both closed and revoked sessions reject authorization; an unknown session ID remains an error.
+
+A rejected allocation projection includes the saved `RemoteAllocation` as a typed gRPC status detail.
+The connector retains it in the rejected command result with the original capacity dimension.
+A capacity rejection without that detail occurs before allocation admission. Transport uncertainty does not prove non-admission.
+
+Update PREPARING retains the source installation state, grant, boot, and instance.
+Explicit import-slot or storage-headroom rejection waits under the original operation and deadline.
+Other failures retain their failed receipt. They do not withdraw the source controller during preparation.
+A single transaction advances the installation revision, records DRAINING, and disables source admission after preparation succeeds.
+Stop, revoke, and remove interrupt the original update in their existing mutation transaction.
+Post-preparation phases use the existing installation lifecycle lock. Activation retains its existing instance and revision checks.
+
+The remote-compute service cannot manage the VM or local environments. This is an application least-privilege boundary under the same macOS UID, not an OS sandbox.
 
 The Virtualization.framework configuration contains these devices:
 
 - one native Linux kernel and one immutable guest image
 - one writable state disk
-- no host-directory sharing device; workspace bytes live on the encrypted guest state disk
+- one VirtioFS device configured at boot for approved static service directories
+- workspace bytes and owned volumes on the guest state disk
 - one virtio-vsock device for control, byte streams, and the dedicated egress packet session
 - entropy and memory balloon devices
 
-New appliance installations do not add a block device. During the schema-23
-conversion, the Host can attach an old appliance image for one boot. The Guest
-copies it to the control filesystem and verifies its LUKS identity before the
-Host commits the new location. The Host then removes the old image.
+Appliance installations use directories on the shared state disk and add no block devices.
 
 ### `agent-vmmd`
 
 `agent-vmmd` is the only privileged guest orchestration endpoint.
 It listens on a fixed vsock port and does not listen on TCP.
+The Host owns each pending VMMD connection until it transfers the connection to its caller.
+If cancellation wins, the Host closes any connection that VZ returns later.
 
 It controls these resources:
 
@@ -293,9 +332,8 @@ Persistent workloads use the containerd overlayfs snapshotter and runsc `overlay
 has one immutable committed lower tree; every container gets its own writable upper/work directory and
 runsc sandbox. Containerd owns the only persistent overlay layer.
 
-The encrypted state disk has two filesystems. The 8 GiB control filesystem
-stores containerd metadata, VMMD state, system appliance data, and native
-snapshots. The 56 GiB workload filesystem stores OCI content, overlay
+The state disk has two filesystems. The 8 GiB control filesystem
+stores containerd metadata, VMMD state, and system private volumes. The 56 GiB workload filesystem stores OCI content, overlay
 snapshots, workload volumes, logs, and build temporary files. Fixed mount paths
 keep containerd metadata available when the workload pool is full. A workload
 project quota includes its overlay upper and work directories and its private
@@ -305,16 +343,128 @@ but it does not count against every workload quota.
 The system and workload parent cgroups share Guest CPU and memory. They use CPU
 weight 100 and no CPU or memory quota. The Host does not reserve compute capacity
 for an installation. System appliance grants retain PID and disk limits.
-Shared native system images use project 9000 with a fixed 2 GiB hard limit.
+System appliance grants share one 4 GiB Guest control-system budget.
+The existing short disk-budget lock serializes every namespace grant.
+Admission sums each appliance project's hard or declared limit and any usage above that limit. Written bytes count once.
+A rejection reports the requested and previous quota, total commitment, budget, and each existing namespace's quota and usage.
+These commitments belong to the control filesystem, independently of workload-pool import headroom.
+The other 4 GiB remains available for trusted metadata and recovery work.
+The internal appliance-build namespace declares no writable control quota. Its control directories contain trusted namespace metadata and use that metadata reserve.
+Build context, output, and reusable cache use the existing workload-pool builder growth accounting.
+Successful appliance removal cleans up stopped payloads, image references, and private data before deleting its system namespace and clearing its quota.
+Failed cleanup retains the namespace commitment for retry. Stop and Revoke retain data and its quota.
+Per-environment
+grants use the workload pool ceiling: configured state disk bytes minus the
+8 GiB control partition and the existing 4 GiB emergency and 1 GiB metadata
+reserves. A 64 GiB state disk has a nominal 51 GiB workload quota ceiling.
+Quota grants do not preallocate files. Guest admission counts their unused hard-quota commitments as promised physical capacity, then checks filesystem usage, overhead, and import headroom before growth. Namespace growth rejection logs the requested delta, current quota, remaining commitments, available capacity, reserves, and combined import and builder credit from that admission snapshot. Guest RPC maps the storage owner's `ErrCapacityUnavailable` identity to `ResourceExhausted` with `storage_headroom` detail. It preserves the runtime stage and original cause. The same error text from another owner does not prove capacity exhaustion.
+Cold OCI import reserves the remaining uncommitted bytes after the emergency and metadata reserves. It requires at least 2 GiB.
+A cold import first reserves the available byte budget. It collects discardable caches only when the required reservation cannot fit.
+After collection it recalculates usage and commitments before admission. Percentage pressure is diagnostic and does not trigger cache deletion.
+Actual filesystem inode exhaustion still fails the write. No fixed percentage predicts the inode count an image requires.
+System, builder, and workload images use the shared overlayfs snapshotter.
+Immutable layers count against pool project 9000. Writable workload snapshots
+retain their namespace quotas. System views mount existing layers read-only.
+Creating a view uses the pool metadata allowance, not a cold-import reservation.
+The Guest logs pool capacity, available bytes, and shared image project usage.
+The Host projects the durable installation's active image and unfinished update target through private `ReconcileSystemImages` and system Import. Guest namespace labels retain those roots across VMMD restart. The installation revision rejects late older projections before GC. The existing Host reconciliation also updates stopped or missing Guest records, so cancellation does not require a later import to release pending roots.
+Containerd metadata stays on the control filesystem so pool pressure does not
+consume its recovery space.
+Permanent appliance Remove releases its exact installation namespace's stopped
+containers and image retention roots. Synchronous GC preserves images referenced
+by other namespaces. Stop and Revoke retain their separate lifecycle contracts.
+
+Host removal deletes the installation's incoming frontend approvals and outgoing
+service imports, including revoked approvals, with their routes and leases. This
+cleanup and the final removal receipt commit together. A pending-destroy operation
+resumes under its original request after an interrupted commit.
+
+The lifecycle owner serializes shared-VM startup and target data cleanup. Remove
+leaves that VM running so other services retain their runtime and caches; it does
+not own a whole-VM shutdown. Removal admission releases its installation lock
+before waiting for the lifecycle owner. Cleanup takes the owner before the
+installation lock and reads the original pending operation again.
+Host construction classifies interrupted commands from local receipts. The
+existing appliance reconciliation loop retries pending removal effects with a
+bounded context for each target. Each attempt uses the existing VM execution
+budget, shortened by a future original operation deadline. Background cleanup
+checks the VM state after it takes the lifecycle owner and runs only while the
+VM runs. Only an explicit Remove can start the VM for cleanup. An expired deadline
+does not discard an accepted pending deletion. A failed cleanup retains its
+pending receipt, records its error, and leaves the Operator available for
+inspection and retry. An accepted ExecuteRemove returns its operation when cleanup
+must wait. The operation remains RUNNING/PENDING_DESTROY and records the cleanup
+error. The CLI watches that operation. Store transition failures still return errors. An ordinary VM Start does not repeat command recovery or consume a pending Remove;
+the original Remove request remains the explicit retry path.
+
+Normal Guest shutdown closes admission to filesystem operations, cancels active streams, and waits for their handlers and cleanup.
+It freezes all appliance records before waiting for an in-flight restart, including records in startup or restart backoff.
+Build and Copy use their existing writer cancellation and settlement records.
+Archive-only appliance builds share the in-memory run lifecycle without a persistent image receipt or retention root.
+Successful cleanup removes that run. Failed cleanup keeps its exact workspace cleanup action available for the next shutdown attempt.
+The Guest then stops system and ordinary workload tasks and waits for task monitors to close logs and process handles.
+Ordinary container configurations and Host desired-running intent remain available for the next VM start.
+Unresolved writer teardown prevents host preparation and filesystem unmount. The same prepare request can retry cleanup.
+Startup cleanup has a separate responsibility and preserves running workloads after a control-daemon restart.
+
+Before sending ExecuteRemove, the operator CLI saves its confirmed command and
+original timeout under `~/Library/Application Support/AgentVMM/appliance-requests/`,
+indexed by the canonical operator socket and request ID. Retries reuse the saved
+revision and deadline and require the same confirmation and timeout. The command
+remains after success so a repeated invocation can observe the same receipt.
+This file holds no runtime state. Its consumer is the same command's retry:
+after a lost response, the public API cannot recover its original deadline by
+request ID.
+
+System containers use read-only snapshot views. They do not copy the image
+root or change its project quota. System images must contain `/run/agent-vmm`
+and `/var/lib/agent-vmm` directories and regular `/etc/resolv.conf` and `/.agent-vmm-supervisor` files.
+Each parent component must be a directory, not a symbolic link. The Guest
+checks these mountpoints before task start and reports `system_mountpoints`
+if a target is missing or has the wrong type. It does not create targets in
+the shared image. The trusted supervisor has a read-only,
+executable file mount at `/.agent-vmm-supervisor`. The runtime
+and data mounts remain non-executable.
+
+Before a system image import reserves space, the Guest removes confirmed
+stopped containers and unused old image records from that installation's
+namespace. It retains the selected image and every image still referenced by
+a container. The shared image collector checks references from all namespaces
+before it deletes physical content and snapshots. A successful Stop removes
+the exact stopped container and its view. It retains appliance data and the
+selected image record.
+
 The remaining control capacity covers containerd metadata, VMMD state, and
 filesystem overhead. A full workload filesystem cannot consume this control
 reserve.
 
-Each appliance data volume is a sparse image under the control filesystem.
-VMMD attaches it to a loop device and opens it with the installation key. The
-appliance container receives only the mounted data directory. It receives no
-block device or Host capability. Appliance stop and removal close only that
-mount and do not stop the shared VM.
+Each appliance data directory has mode `0700` and owner UID/GID 1000.
+The appliance receives only its projected directory, without a block device or Host capability.
+Its project quota is independent of the workload namespace quota.
+`data_volume_bytes` is a hard limit, not reserved capacity. The shared pool accounts
+for actual allocated bytes and can run out of space before a directory reaches its limit.
+Stop and restart remove runtime projections and preserve persistent data and its quota.
+They do not unmount the backing filesystem.
+
+Normal appliance Stop keeps the installation's managed trust and private registration.
+A Host restart preserves pending private registration preparation.
+Private activation can resume pending or incomplete preparation under the same installation, registration, and revision fences.
+External enrollment interrupted before credential completion still requires its operator retry.
+Activation can reuse managed trust and private registration with a new boot and container fence. Disabled reconciliation
+rechecks the installation fence and checks the durable revocation operation before it
+revokes authority. Explicit Revoke still retires the private controller domain and
+revokes its managed trust. A later stop does not cancel revocation. Activation cannot restore that authority.
+
+Replacement waits until the exact old writer has stopped.
+Typed deletion rejects active references and removes only the exact installation and volume.
+
+The ordinary `state.raw` file and its directories do not encrypt themselves.
+Offline device confidentiality requires FileVault or equivalent full-disk encryption on the actual backing disk.
+A logical raw-file copy contains plaintext. Encrypt backups independently.
+Host identity, bootstrap authority, and device trust retain their separate cryptographic controls.
+`SEALED` records integrity failures unrelated to data encryption.
+A sealed installation cannot start or restart. Stop and revoke preserve its sealed state.
+Removal requires the current revision and an approved impact plan.
 
 A fixed supervisor runs as the sandbox init.
 The user process runs as a retained exec process in the same sandbox.
@@ -381,6 +531,21 @@ A positive minimum idle period requires a current reclaim candidate. Zero-idle
 quiesce remains available for bootstrap repair and other explicit lifecycle stops.
 No eligible idle instance means no voluntary reclaim. Kernel OOM remains possible.
 
+Guest request IDs are nonempty opaque business keys. They have no resource-name
+character or length constraint.
+Namespace, container, and volume names have separate resource validation.
+The Guest retains the original request ID and checks the complete input
+fingerprint for replay.
+A repeated key with different input fails.
+The Guest keeps at most 1024 completed request identities in memory for five minutes. It caches only successful results.
+Failed calls retain only their fingerprint. The same input can run again, including after cancellation.
+A Guest restart clears this cache.
+
+Exec replay uses the original execution record while that record remains retained.
+Only the first admitted execution creates an independent containerd process ID.
+Stream input, signals, and resize target that process handle.
+Host execution authority binds the original execution ID and exact container instance.
+
 The Host keeps at most 64 execution activities for an active sandbox. Each
 activity binds an execution ID, trusted owner, operation kind, allocation
 authority, and exact container instance. Main execution activities have no
@@ -390,8 +555,12 @@ becomes unknown and continues to block quiesce until its owner settles it.
 An acquire of the same activity is idempotent. A release settles only the exact
 activity on the exact target. It cannot change another activity or a replacement
 instance. `ListExecutions` returns one atomic view with explicit recovering,
-stale, stopped, empty, and present states. A Host restart first stops the real
-instance, then clears its activities. A transport reconnect does not clear them.
+stale, stopped, empty, and present states. Host restart recovery stops running
+instances before clearing their activities. For a stopped container, Guest retains
+its successful Start fingerprint, exact instance, and start time in container metadata.
+Host rebuilds bounded stopped-instance evidence from these fields when current instance
+is empty. Created containers and missing Start evidence do not prove an instance stopped.
+A replacement never supplies evidence for the old instance. Transport reconnect preserves activities.
 Safe sleep first closes new execution admission with a quiesce command. The
 matching instance and command
 must then be present on the stop request. Cancellation can reopen admission only
@@ -405,7 +574,50 @@ A workspace is a long-lived container.
 Its writable layer can persist while the container exists.
 Data that must survive container replacement belongs in a named volume.
 
-Stateful services use Linux volumes on the encrypted state disk.
+Stateful databases and SQLite WAL use owned volumes on the Guest state disk.
+
+### Approved Host directories
+
+Operator `CreateHostShare`, `RebindHostShare`, `RevokeHostShare`, and `ListHostShares`
+manage directory grants for local service environments. Controller-domain allocations cannot use them.
+A grant trusts the service environment, including its sessions and container replacements.
+A container ID or image hash does not narrow this trust boundary.
+
+`VolumeMount.source` selects `owned_volume` or `host_share`. A runtime session receives only the grant ID.
+Operator responses include the source path for diagnostics. The Host records its filesystem UUID, directory file ID,
+access mode, revision, and state in `host_shares`. The existing operation stores its request identity and receipt.
+Accepted share operations retain their candidate source identity and access mode across Host restart until they settle.
+Recovery and replays use that frozen candidate under the current share operation ID and revision.
+A lost operation handler does not revoke that authority.
+An old successful request cannot restore a later revoked grant.
+An explicit operator command with the current revision can supersede an unresolved rebind.
+The same transaction interrupts the old operation and fences its completion.
+
+Host shares are static VM configuration. New Create, Rebind, and Revoke commands require the VM to be stopped with no attached machine. A successful original receipt can replay while the VM runs. The inventory transition lock serializes mutations with all VM start paths. Original pending commands can settle when the VM is stopped or failed without an attachment; this does not authorize a new command in a failed VM.
+
+Before each boot, the Host checks canonical paths, filesystem UUIDs, directory file IDs, and volume properties. Sources must be on internal local volumes that are neither removable nor ejectable. External, ejectable, and network volumes are not supported. A missing or changed source remains unavailable and does not prevent unrelated workloads from starting. The Host builds the complete directory map with upstream `vz.NewSharedDirectory` and sets it before VM Start. Guest `ApplyHostShares` observes the configured private directories and publishes only the complete valid environment-scoped authority array.
+
+The upstream API uses paths. The operator must not move or replace configured sources while the VM runs; this is not an FD-bound projection or a guarantee against every path replacement race. An RW grant permits changes to the authorized tree, including changes made through another share of its parent. The Host does not claim additional isolation between those paths.
+
+Source loss or loss of environment approval rejects new mounts, stops affected consumers, and withdraws Guest authority.
+A failed stop remains unresolved. The VZ device mapping stays attached until VM shutdown.
+Restoring a path does not restore its writer during that boot.
+Stop the VM, repair or explicitly rebind the source, then start the VM.
+
+Environment removal withdraws Guest authority and closes sessions and listeners while the VM runs.
+Static grants retain REVOKING until the VM stops and their physical configuration can be removed.
+The original pending operation continues Guest deletion after the operator starts the VM.
+Environments without active shares retain their normal removal path.
+Removing a share never deletes its source contents or applies owned-volume quota claims.
+
+A missing Guest directory makes only that share unavailable.
+Guest projection observes directories once per reconcile call and reports applied share IDs.
+Background reconciliation retries unavailable projections.
+
+Create and Start validate the grant and access mode. The Guest binds only the approved private source. The container label and request identity include the typed mount source and access mode. Existing owned-volume labels convert once during the normal inventory rebuild.
+
+The Host does not recursively change directory ownership or permissions. Numeric container users can receive permission errors. On the tested platform, Host 501:20 directories appeared as Guest 0:0. UID 1000 could not use a 0700 directory. It could read and write a test-only 0777 directory. Read-only projection still rejected writes. These results do not guarantee write access for every image user, filesystem, or ACL configuration. Host share contents are outside controller backups.
+
 
 Provider-native credential stores use the same provider-neutral volume
 primitive. The product controller allocates and retains one opaque volume ID,
@@ -419,6 +631,13 @@ restart preserve the volume; another namespace cannot name it and another UID
 cannot read it. Workload-generation and connection-epoch fencing remain the
 controller/runtime-carrier authority and do not create a second Agent VMM
 volume lifecycle.
+
+Volume creation accepts permission bits and the sticky bit (`01777` maximum).
+It rejects setuid, setgid, and other mode bits. Guest applies numeric ownership
+before the final directory mode. A root-owned sticky job directory lets the job
+UID create files while protecting root-owned registration files from deletion.
+Create receipts include the requested mode in their input fingerprint. Replaying
+a settled create returns its original result without changing directory permissions.
 
 ## Cross-Namespace Collaboration
 
@@ -481,7 +700,7 @@ An agreement between agents is only an input to host authorization.
 | Per-agent image authorization and retention | The logical agent namespace record |
 | Volume ownership, quotas, and grants | Host SQLite database |
 | Volume contents | One directory on the guest state disk |
-| Build cache contents | One cache volume for each agent namespace |
+| Build cache contents | VMM-owned preparation directory scoped to the controller registration, or to the namespace for operator builds |
 | Network, address, DNS, and firewall state | Rebuildable `agent-vmmd` projections |
 | Processes, TTY sessions, and active connections | Temporary runtime state |
 | Device identity public metadata, trust anchors, mesh snapshots/tombstones, and route deny state | Host SQLite plus service-user-protected root private key |
@@ -533,15 +752,67 @@ device-root-bound membership credential. The connector cannot install either
 without the install-scoped trust capability, and a managed service capability
 is self-contained with its signed source membership credential.
 
+Operator-approved appliance imports reuse the service import and route owners.
+The import freezes an installation and an exact destination export. Its active
+route binds the current source grant revision, boot, and container instance.
+Stop withdraws the route and preserves the intent. Activate and same-product
+Update validate the same export and project the new source instance. Revoke
+and Remove terminate the intent. A revoked import cannot be restored by a new
+grant. An export keeps the approved environment, container ID, and port.
+Container replacement updates its observed generation and instance without changing that authorization.
+
+VM network recovery observes ordinary source and destination containers before restoring service projections.
+Imports and exports follow their approved container IDs across generation and instance changes.
+The Host closes old projections before it publishes current instances.
+A missing container leaves the intent unavailable. Recovery does not create a replacement container. Appliance source projections are restored by the appliance lifecycle
+owner after the current boot and running instance are committed. Transport
+observation failures remain recovery errors.
+
+Service DNS resolves `<alias>.services.agent` within the caller's approved
+imports. The alias does not grant access: Guest projection enforcement checks
+both exact container instances and the destination port. Gitea uses
+`http://gitea.services.agent:3000/` for its root and clone URLs.
+
 The complete route class set is `LOCAL`, `DEVICE`, `COMPUTE`, `LAN`, and
 `PUBLIC_HTTP`. Reachability and transport selection never grant authority.
 Same-host optimization, direct Iroh, relay Iroh, and platform-specific transport all
 validate the same source/destination/container/generation/capability fences.
+### Personal mesh listeners
+
 Operator-created personal service listeners use the same destination-signed
 capability: `DEVICE` binds only loopback, while `LAN` requires one explicit
 private address currently owned by a local interface. Listener facts persist
 for audit/idempotency but are revoked on host restart; a live socket is never
 reconstructed without a new authorization exchange.
+
+### Local service intent and listeners
+
+The Host stores service running intent by environment and container ID, independently of exports and ports.
+Only operator-approved integration environments use this supervisor. Controllers manage their own allocation containers.
+Start and Stop set running intent. Recovery starts only existing containers with the recorded generation.
+Removal clears running intent. A missing container requires explicit Create before it can run again.
+Agent and Operator container deletion clear Host running intent and service projections only after the Guest confirms absence.
+An old successful Delete replay preserves a replacement container. An unavailable observation preserves Host facts for retry.
+Stop retries preserve the original request ID and timeout, including an omitted timeout.
+Guest mutations use the same retry rule: failures can run again with the original request ID and complete fingerprint.
+Successful results replay from the in-memory cache. Each Delete retry checks the namespace and container generation.
+Container Get and List return optional `desired_running` from this running intent separately from Guest state.
+Unmanaged containers omit that field. A missing container still returns NotFound.
+
+Operator-created local service listeners target an environment, container ID, and port.
+Loopback is the default. LAN exposure requires one explicit private address on a current local interface.
+The Host persists the selected bind address and port and restores that endpoint after restart.
+Generation or instance replacement closes old connections and publishes the current target.
+Stop closes the endpoint while preserving its address. Listener revocation and owner removal terminate the publication intent.
+Create, same-request replay, and List return current `available` and `unavailable_reason` observations.
+A missing approved interface or failed socket bind makes only that listener unavailable.
+These observations do not fail completed container mutations or unrelated appliance publication.
+These fields describe the bound socket, not application readiness, and are never stored in authorization or mutation receipts.
+List retries each local publication independently. An occupied port, absent interface, or stopped target reports unavailable;
+a failed publication does not hide other rows. Once the original address is available and the target is running,
+the Host restores the same listener identity and port. It does not select a different port or interface.
+The CLI can exit after creation. Forwarding goes directly to Guest TCP and has no mesh capability expiry.
+Local service listeners have no total byte or connection limit. Backpressure does not bound aggregate concurrent resource use.
 All control follows one direction from the harness through the host to `agent-vmmd`.
 The operator read and restricted connector read each return at most 32 durable
 local mesh snapshots. The connector uses its read only to synchronize signed
@@ -616,13 +887,26 @@ archive repairs that materialization in place; a different digest or import
 fingerprint remains a conflict and cannot replace the logical grant.
 
 Before containerd starts, VMMD establishes project 9000 and directory
-inheritance on the workload containerd and import roots and on the control
-filesystem's native snapshot root. CAS content, overlay lower snapshots, and
-native system image snapshots inherit that project as containerd creates them.
-The workload project quota opens only for an admitted import and then returns to
-its metadata allowance. The control project has a fixed 2 GiB hard limit. The
-import archive owner restores inheritance when startup cleanup has removed the
-import root.
+inheritance on the pool containerd and import roots. New CAS content and immutable
+overlay layers inherit that project. Startup does not traverse layer payloads.
+Containerd GC removes entries without retention references.
+System image retirement preserves retained environments and BuildKit caches.
+Disk-pressure GC can reclaim these caches after their accepted writers settle.
+Appliance content staging checks the published archive and its receipt before
+acquiring an import slot. A complete cache hit needs no writer capacity.
+Missing or incomplete archives use the import slot and disk reservation, with
+the cache checked again after admission.
+The pool project quota opens for admitted image materialization and then returns
+to its metadata allowance. The import archive owner restores inheritance when
+startup cleanup has removed the import root.
+Cached workload creation does not take the cold import slot or change its quota allowance.
+Overlay snapshot preparation writes directory metadata before the writable project assignment.
+The namespace lock preserves the source grant through snapshot creation.
+Cached image copy also bypasses the cold import slot.
+Copy records its exact source digest before it releases the source namespace lock.
+Unsettled copy receipts retain that shared image until the target grant exists or the writer settles.
+Retained-cache GC and shared-image GC use these existing receipt references.
+Cold materialization still uses the import slot and physical growth reservation.
 The writable-snapshot owner assigns the workload project to both overlay upper
 and work directories before mounting. Copy-up can then move temporary inodes
 into upper without crossing the project boundary. Startup never recursively
@@ -722,7 +1006,7 @@ Cancellation stops the complete outer sandbox.
 | Data collaboration | `VolumeGrant` | The system must copy data or expose all volumes |
 | Controlled operations | `ControlGrant` | Collaboration requires a runtime socket |
 | Persistent data | State disk and named volumes | Container replacement deletes data |
-| Safe persistent data | Host-approved guest-volume grants on the encrypted state disk | A guest can select arbitrary macOS paths |
+| Safe persistent data | Host-approved guest-volume grants on the state disk | A guest can select arbitrary macOS paths |
 | Image builds | Isolated BuildKit and Dockerfile frontend | Existing environment definitions cannot run |
 | Interactive access | Containerd exec and PTY over vsock | The guest needs an SSH service and keys |
 
@@ -790,22 +1074,58 @@ The implementation has no raw runtime socket forwarding, native runc path, or du
 
 The Cue/BFT Host bundle uses `build/guest/build.sh OUTPUT release runtime`.
 The Guest contains the VM runtime, supervisor, and BuildKit.
+`build/guest/build.sh OUTPUT [PROFILE] [FLAVOR]` is the common build entry point.
+It requires Docker with Buildx. It exports the Linux arm64 bundle from the
+multi-stage Dockerfile into `OUTPUT`. The default profile is `development`.
+The default flavor is `standalone`.
+
+The builder runs on Linux arm64 with a case-sensitive filesystem.
+The dependency stage resolves current Alpine stable packages and runtime releases.
+It downloads and verifies each APK before installation, then installs packages without network access.
+APK downloads have a 15-minute total budget and a six-minute limit per package,
+with at most two retries. Required packages remain explicit APK world entries.
+Transitive dependencies do not become world entries.
+
+BuildKit cache mounts retain Go modules, Go compilation results, and downloaded artifacts within the builder.
+Guest builds reuse Docker layers and cache mounts by default.
+Set `AGENT_VMM_REFRESH_DEPENDENCIES=1` when dependency refresh is required.
+This pulls the current base images and rebuilds the tools and dependency stages;
+the existing download and Go cache mounts remain available.
+The positional output directory, profile, and flavor arguments are unchanged.
+A persistent local builder can reuse these mounts after successful or failed builds.
+CI uses the [Blacksmith persistent builder](https://docs.blacksmith.sh/blacksmith-caching/docker-builds) with the same Guest cache key across both workflows.
+Its persistent disk contains layers and cache mounts. Blacksmith saves the disk only after the complete job succeeds.
+The action can fall back to a local builder. A fallback build has no cache from previous jobs and still builds normally.
+Standard layer cache exports do not contain cache-mount data.
+The runner's host Go cache does not supply the Docker build's Go cache.
+
 The Host package adds the managed CLI, lifecycle helper, data worker, and fixed
-service executor. The managed CLI contains only its eight command families.
+service executor. The managed CLI exposes Host observation, maintenance, VM,
+cleanup, and Appliance lifecycle commands.
+Host packaging retains the Rust compilation cache at `target/host-rust`, or the
+operator's `CARGO_TARGET_DIR`, independently of the package output directory.
 The package contains no MCP executable, OCI archive, grant, or bootstrap seed.
 Lifecycle status uses `GetSystemHealthSummary`, a constant-fan-out read with
 one Host observation and at most two Guest health calls. It does not load the
-inventory. Whole-VM confirmation uses the separate bounded
-`GetVMImpactSummary` projection. Rich UI and diagnostic observation continues
+inventory. Operator VM mutations require whole-VM acknowledgement and the current VM state and boot identity.
+Workload observation revisions do not constrain that whole-VM authorization.
+`GetVMImpactSummary` provides a bounded diagnostic projection. Rich UI and diagnostic observation continues
 to use `GetSystemSnapshot`.
+An update reads `GetVM` before graceful stop and again before force stop. A replacement boot rejects force stop.
+The installer waits for the stopped VM, Host process exit, and state-disk release before replacing the bundle.
+When launchd has no Host PID and the state disk has no open owner, update proceeds without a VM stop request.
 The default `standalone` Guest build includes the optional MCP appliance.
 The macOS standalone app installs that appliance through `ApplianceAdminService`.
 
-Managed installation registers the external controller directly. It does not
-install an appliance or use appliance health as the Cue node readiness signal.
-Standalone appliance lifecycle behavior is unchanged. On a Host that already
-has enabled appliances, the bounded background reconciler restores missing
-instances from their installed artifact after the VM starts. A runtime bundle omits bundled upgrade material,
+External-controller enrollment and Appliance installation are separate operator workflows.
+An external controller uses registration health for readiness.
+Appliance readiness requires a healthy installed instance.
+On a Host with enabled appliances, the bounded background reconciler restores missing
+instances from their installed artifact after the VM starts. An unfinished Update
+owns its installation and excludes automatic recovery. Verified bundled upgrade
+material is staged; the explicit durable Update operation freezes new writers,
+settles existing executions, stops the exact controller, switches artifact and
+grant, and validates target bootstrap and health. A runtime bundle omits bundled upgrade material,
 so it does not install or upgrade the standalone MCP appliance.
 
 ## Local MCP and remote compute boundaries
@@ -845,9 +1165,20 @@ Host admission outcome.
 `controller/remote.ControlSession` validates the durable command's exact epoch
 and next sequence and sends them unchanged; it does not allocate a second wire
 identity after the controller has claimed the command.
-Loss after admission is an `unknown_outcome`; a controller reads authoritative
-inventory and must not automatically replay the side effect. Only a completed
+The connector reports `REJECTED` for local refusals before dispatch and recognized Host `ErrorInfo` reasons.
+VM admission closure and registration drain report `ERROR_REASON_ADMISSION_PAUSED`.
+Deadline, cancellation, transport loss, and unrecognized Host errors report `UNKNOWN`.
+An allocation projection rejection includes the exact allocation that the Host already accepted.
+The controller must clean that allocation before it treats the attempt as settled.
+A same-identity Ensure with unchanged parameters reuses the allocation before a new pool policy revision check.
+Loss after admission is an `unknown_outcome`. A controller must not automatically replay an external side effect. Only a completed
 duplicate in the same epoch may reuse the connector's bounded result cache.
+
+PrepareAgentIntegration uses the caller's ResourceLimits when it creates a local
+environment. It returns an existing environment without changing its policy.
+Policy changes use UpdateEnvironmentPolicy with the current revision.
+
+An operator can commit a new configuration fingerprint for a ready integration with its current revision. This atomic update retains the integration owner and environment. Removed or revoked integrations cannot be reactivated by a configuration commit.
 
 Controller integrations use `controller/remote.ControlSession` and
 `controller/remote.AcceptSession`. These public helpers own conformance checks,
@@ -869,7 +1200,20 @@ returns a typed error with safe fields; it does not create a periodic management
 projection.
 
 Release retains allocation data. Destruction requires a fresh plan and an execute
-request matching its revision and volume set. A control request expiry does not
+request matching its revision and volume set. Remote cleanup keeps planning read-only.
+Both ordinary and missing-namespace plan revisions include the exact namespace ID.
+A replacement allocation receives a new namespace, so an old plan cannot authorize its cleanup.
+After durable acceptance, the Host closes allocation capabilities, confirms workload stop and enters `RETAINED` before deletion.
+Reset preserves named volumes and the retained allocation. Discard removes the confirmed resources and then the Host allocation.
+A missing container, volume directory, or image does not prove that its namespace
+is absent. A discard plan can remove retained Host policy without Guest resource
+cleanup only after `GetNamespace` confirms that exact namespace is absent.
+An unavailable namespace query preserves the Host owner.
+Release also confirms the exact namespace with `GetNamespace` when container
+inventory returns `NotFound`. An absent namespace has no workloads to stop;
+the existing allocation owner, generation, and revision checks still apply.
+Retirement failure prevents resource deletion and produces a failed receipt.
+A control request expiry does not
 remove an accepted allocation or prevent runtime-session recovery. Runtime
 sessions and loopback frontends keep their own finite capability periods.
 Explicit release or revocation closes the affected capabilities. A connection
@@ -891,10 +1235,21 @@ registration/allocation/session protocol.
 Workspace RPCs are bounded guest operations rooted at
 `/state/workspaces/<namespace>`. The guest opens every component with
 `openat2(RESOLVE_BENEATH|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_SYMLINKS)`, rejects
-links and special archive entries, caps files/archives at 256 MiB, and limits
-concurrent transfers. Interrupted uploads retain a request-scoped staging file;
+links and special archive entries, and limits concurrent transfers.
+Reads, digest queries, and archives retain their 256 MiB limit.
+WriteWorkspace limits each chunk to 64 KiB. The namespace disk quota bounds the stored bytes.
+The Guest computes the write receipt digest during transfer. Interrupted uploads retain a request-scoped staging file;
 resume requires the exact offset and prefix SHA-256 before the final atomic
-rename. No host path or VirtioFS mount participates in this contract.
+rename. The upload staging filename encodes the complete request ID with
+SHA-256, so retries use the same file.
+WriteWorkspace creates missing parent directories beneath the selected root without following links.
+New directories inherit the root owner. Existing directories retain their ownership.
+Write failures include the volume, path, request ID, phase, and original error in Guest logs.
+Extraction and OCI import use independent temporary names.
+Appliance builds encode the request ID with SHA-256 for their internal OCI tag.
+These physical names do not replace the original business key or restrict
+its contents.
+No host path or VirtioFS mount participates in this contract.
 
 Service exports persist an exact destination container instance, port, protocol,
 owner, and revision. Imports persist the host-injected source environment and
@@ -904,6 +1259,12 @@ containers, port, and expiry into the guest; the guest removes the nftables/DNS
 projection at expiry and container replacement removes the address projection.
 Restart reconciliation recreates only ACTIVE routes whose route and lease
 revision/generation still match.
+
+Guest namespace DNS logs listener start, close, and unexpected receive or accept exits.
+Request failures identify the UDP or TCP read, answer, and send phase with namespace, gateway, peer, and original error.
+A receive or accept loop exit removes only its exact listener instance and closes both sockets.
+Network reconciliation rebuilds missing listeners for namespaces with retained endpoints.
+Old workers cannot remove a replacement listener. This fixes a reproduced listener failure, but does not identify the historical runner timeout.
 
 `OpenServiceForward` is available only on the capability-authenticated connector
 socket. It re-reads the import, export, route, lease, device identity, both
@@ -945,3 +1306,133 @@ authority or persistent route state.
 - [Podman service security](https://docs.podman.io/en/latest/markdown/podman-system-service.1.html#security)
 - [Firecracker design](https://github.com/firecracker-microvm/firecracker/blob/main/docs/design.md)
 - [Firecracker KVM requirements](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md)
+
+
+### Installation LAN access
+
+An appliance manifest can request `requested_lan_egress` and a static `LAN_HTTP` frontend.
+The operator approves each capability in `ApprovedGrant` during installation.
+A request does not authorize access.
+The Host stores the LAN approval with the installation grant revision.
+Ordinary allocations retain their separate `DENY_ALL` or `PUBLIC_INTERNET` policy.
+They do not inherit appliance LAN access.
+
+LAN egress permits IPv4 RFC 1918 destinations.
+The Host rejects unapproved Host interface addresses, the namespace pool `10.64.0.0/10`, and current namespace subnets.
+Loopback, link-local, metadata, multicast, and IPv6 destinations remain blocked.
+The Host applies this policy to TCP, UDP, and virtual DNS answers.
+A redirect must open another connection, which receives the same destination check.
+The public policy continues to reject private destinations.
+An installation that needs public access must also receive the public egress grant.
+
+Host interface addresses require a separate operator-approved `host_tcp_endpoints` grant.
+The grant contains exact IPv4 addresses and TCP ports for one installation.
+The Host publishes source policy after it persists the exact controller boot and container instance, before it admits the private controller route. Restart recovery uses the same publication path. Stopped and replaced instances lose their source authority.
+Environment and session reconciliation publish the complete source set with an atomic policy replacement.
+Flows retain authorization when their source facts remain equal, including after another allocation appears.
+Source removal, revocation, instance replacement, or boot replacement cancels the affected flow.
+The Host logs the cancellation reason and each TCP direction's transferred bytes and original error.
+The CLI accepts `--host-tcp-endpoints IP:PORT,IP:PORT` during install or update.
+These endpoints require a Host-reachable IPv4 listener. Loopback addresses remain blocked.
+An update preserves the current grant unless the operator supplies `--approve-grant-changes`.
+An explicit endpoint parameter changes only that list. An empty endpoint parameter clears the list.
+The CLI shows the package request, current grant, and proposed grant before update.
+The Host rejects a retained grant that exceeds the new package permission limits.
+The operator must explicitly adjust the grant before that update can proceed.
+These addresses belong to installation configuration and do not enter the product manifest.
+The Host binds access to the current appliance instance and grant revision.
+Workload allocations do not inherit these endpoints.
+
+The Host checks infrastructure exclusions before endpoint grants.
+Appliance frontend listeners, dynamic Host loopback frontends, and personal service listeners remain blocked.
+Other namespaces, transport, loopback, and metadata remain blocked.
+A wildcard frontend listener blocks its port on every Host interface.
+DNS can return an approved Host address. Each TCP connection must match an approved port.
+UDP does not receive TCP endpoint access. Redirects and DNS changes require another destination check.
+The grant controls Layer 4 access. It does not restrict HTTP paths.
+Revocation cancels existing installation flows through the source policy fence.
+Unrelated installations and workload flows remain active.
+
+A `LAN_HTTP` frontend requires HTTP transport and explicit approval for the same manifest frontend.
+The Host selects an active private IPv4 interface and a TCP port.
+The manifest cannot select an interface or an address.
+The Host returns the actual endpoint through appliance status.
+The Host preserves the selected port when it can bind that port after restart.
+The frontend does not promise public reachability or TLS termination.
+The appliance must restrict HTTP routes and authenticate webhook requests.
+
+System streams use a fixed Bootstrap, Controller, or Frontend purpose.
+Bootstrap requires a positive total byte limit.
+Controller rejects a lifetime byte limit and does not count accumulated connection traffic.
+Controller retains frame, concurrency, idle, and synchronous backpressure limits.
+OpenSystemStream preserves caller deadlines and cancellation but adds no fixed connection lifetime.
+Runtime operations retain their own execution deadlines; a long-running Build does not expire the controller transport.
+The Guest uses one sender per stream and permits one in-flight frame without a queued frame buffer.
+The declared idle timeout bounds socket I/O and blocked gRPC sends.
+After output half-close, successful input writes refresh the bounded wait for input closure.
+The RPC deadline and cancellation also end these waits and release the endpoint connection.
+Each OCI import retains its independent archive size, chunk size, hash, and deadline checks.
+
+Static LAN and loopback frontends use the same bounded system stream.
+The Host enforces frame size, concurrent streams, idle timeout, and connection deadline.
+A static frontend with `max_total_bytes=0` has no cumulative byte limit.
+Nonzero totals bound each direction. An operator cannot approve an unlimited total for a finite request.
+Bootstrap retains its finite total. Controller streams require an unlimited total.
+Dynamic Host loopback grants retain their lease use count and independent connection byte limit.
+Ordinary frontend and controller streams retain nonces only while the connection is active.
+Bootstrap retains committed nonces for the current launch and rejects their replay.
+
+`ApplianceStatus.runtime_stopped` reports a current Guest lifecycle observation.
+The Host sets it only after a successful Guest lookup confirms a stopped appliance or its absence.
+The field stays absent when the VM is not running or the Guest query fails.
+Stored installation `STOPPED` and historical health reports cannot prove that the writer has stopped.
+A restore source fence also requires the same private registration to be `REVOKED`.
+Stop, revoke, instance replacement, and Host shutdown close listener connections and remove the endpoint file.
+Installation revocation cancels existing egress connections and rejects new connections.
+A new VM boot starts without source grants.
+The Host restores source policies only from the current installation grant and Guest identity.
+
+
+Runtime `ImportImage` accepts one header, then EOF for a public HTTPS `archive_url`.
+An empty `archive_url` selects local upload: the header, archive chunks, then EOF.
+The Host accepts no local file path. Both modes use the current namespace authorization and Guest disk quota.
+Local chunks must contain 1 byte to 3 MiB. The archive must match its declared size and SHA256, within 8 GiB.
+The complete request has a ten-minute limit. Each wait for an incoming message has a thirty-second limit.
+The Host sends chunks synchronously to the Guest to bound memory and apply backpressure.
+The Guest verifies the manifest. A reused Guest image still requires a complete, valid local upload before Host success.
+
+### Controller environment preparation
+
+BuildImage can select an owned base image by reference and manifest digest.
+The Guest exports that immutable content into namespace scratch and exposes a read-only OCI layout to BuildKit.
+The namespace quota accounts for this scratch. Export does not reserve OCI content capacity or hold the materializer slot.
+It checks the complete uploaded context hash before extraction.
+A successful image carries a receipt for the original build input.
+Image operation receipts retain `google.rpc.Status`, including typed error details.
+Their complete containerd label, including its key and encoding, fits within 4 KiB.
+Build failure RPC status carries a short summary and typed details. Build progress carries the output; the receipt retains the UTF-8 end of the failure message within its label budget.
+
+Each Build records its authenticated controller cache scope, root path, existing state, and worker ID before execution.
+Cache GC records its capacity reason, deleted root, observed filesystem free-byte change, duration, and original errors.
+The free-byte change includes concurrent filesystem activity. It is not an exact per-directory storage measurement.
+These observations do not change cache ownership or the exact admission budget.
+
+CopyImage accepts exact source and target allocation IDs and generations.
+Both allocations must belong to the current enabled controller registration.
+The Host derives their namespaces and checks their current state.
+The Guest uses containerd content storage, checks target quota, and verifies the digest.
+Cached copy publishes metadata without the cold materializer slot. Copy that needs
+physical growth holds that slot during capacity admission and physical materialization.
+The growth budget uses the held slot.
+The copied image retains its build receipt and records the original copy request hash.
+A receipt is valid only for the image digest stored with that receipt.
+
+The controller can use a separate PUBLIC allocation for dependency preparation.
+Its task allocation retains DENY_ALL.
+Preparation cleanup must confirm all build descendants stopped before it reports success.
+An unknown build or copy result requires observation of the original receipt.
+A disconnected caller does not cancel an accepted build. Its execution deadline
+and explicit Host session stop can cancel the Guest RPC. Host session stop waits
+for its own handlers to exit. Cancellation alone does not clear the build execution
+right or prove that Guest cleanup has stopped every writer.
+These APIs do not permit raw storage paths or access to another owner.

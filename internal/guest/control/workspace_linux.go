@@ -5,6 +5,7 @@ package control
 import (
 	"archive/tar"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"io"
@@ -19,9 +20,10 @@ import (
 )
 
 const (
-	maxWorkspaceBytes   = 256 << 20
-	maxWorkspaceChunk   = 64 << 10
-	maxWorkspaceEntries = 1000
+	maxWorkspaceBytes       = 256 << 20
+	maxWorkspaceChunk       = 64 << 10
+	maxWorkspaceEntries     = 1000
+	maxWorkspaceListEntries = 4096
 )
 
 func cleanWorkspaceRelative(value string) (string, error) {
@@ -130,15 +132,15 @@ func (s *Server) StatWorkspace(ctx context.Context, request *vmmdv1.WorkspacePat
 
 func (s *Server) ListWorkspace(ctx context.Context, request *vmmdv1.ListWorkspaceRequest) (*vmmdv1.ListWorkspaceResponse, error) {
 	limit := request.GetLimit()
-	if limit == 0 || limit > maxWorkspaceEntries {
-		limit = maxWorkspaceEntries
+	if limit == 0 || limit > maxWorkspaceListEntries {
+		limit = maxWorkspaceListEntries
 	}
 	release, err := s.runtime.acquireWorkspace(ctx)
 	if err != nil {
 		return nil, rpcError(err)
 	}
 	defer release()
-	directory, err := openWorkspace(request.GetActorNamespaceId(), request.GetPath(), unix.O_RDONLY|unix.O_DIRECTORY)
+	directory, err := openWorkspaceRoot(request.GetActorNamespaceId(), request.GetVolumeId(), request.GetPath(), unix.O_RDONLY|unix.O_DIRECTORY)
 	if err != nil {
 		return nil, rpcError(err)
 	}
@@ -155,7 +157,7 @@ func (s *Server) ListWorkspace(ctx context.Context, request *vmmdv1.ListWorkspac
 	base := path.Clean(request.GetPath())
 	for _, name := range names {
 		relative := path.Join(base, name)
-		file, err := openWorkspace(request.GetActorNamespaceId(), relative, unix.O_RDONLY)
+		file, err := openWorkspaceRoot(request.GetActorNamespaceId(), request.GetVolumeId(), relative, unix.O_RDONLY|unix.O_NONBLOCK)
 		if err != nil {
 			return nil, rpcError(err)
 		}
@@ -218,122 +220,6 @@ func (s *Server) ReadWorkspace(request *vmmdv1.ReadWorkspaceRequest, stream vmmd
 	return stream.Send(&vmmdv1.ReadWorkspaceResponse{Offset: offset, Sha256: digest.Sum(nil), Final: true})
 }
 
-func (s *Server) WriteWorkspace(stream vmmdv1.VMMDService_WriteWorkspaceServer) error {
-	first, err := stream.Recv()
-	if err != nil || first.GetHeader() == nil {
-		return rpcError(errors.New("workspace write header must be first"))
-	}
-	header := first.GetHeader()
-	if err := validateRequestID(header.GetRequestId()); err != nil {
-		return rpcError(err)
-	}
-	release, err := s.runtime.acquireWorkspace(stream.Context())
-	if err != nil {
-		return rpcError(err)
-	}
-	defer release()
-	clean, err := cleanWorkspaceRelative(header.GetPath())
-	if err != nil || clean == "." {
-		return rpcError(errors.New("workspace write requires a file path"))
-	}
-	parentPath, name := path.Dir(clean), path.Base(clean)
-	parent, err := openWorkspaceRoot(header.GetActorNamespaceId(), header.GetVolumeId(), parentPath, unix.O_RDONLY|unix.O_DIRECTORY)
-	if err != nil {
-		return rpcError(err)
-	}
-	defer parent.Close()
-	stagingName := "." + name + ".upload-" + header.GetRequestId()
-	flags := unix.O_RDWR | unix.O_CREAT | unix.O_CLOEXEC | unix.O_NOFOLLOW
-	if header.GetOffset() == 0 {
-		flags |= unix.O_TRUNC
-	}
-	fd, err := unix.Openat(int(parent.Fd()), stagingName, flags, 0o600)
-	if err != nil {
-		return rpcError(err)
-	}
-	staging := os.NewFile(uintptr(fd), stagingName)
-	defer staging.Close()
-	info, err := staging.Stat()
-	if err != nil || uint64(info.Size()) != header.GetOffset() {
-		return rpcError(errors.New("workspace resume offset does not match staging file"))
-	}
-	if header.GetOffset() != 0 {
-		digest := sha256.New()
-		if _, err := io.Copy(digest, staging); err != nil || !equalDigest(digest.Sum(nil), header.GetExpectedPrefixSha256()) {
-			return rpcError(errors.New("workspace resume prefix digest mismatch"))
-		}
-	}
-	if _, err := staging.Seek(int64(header.GetOffset()), io.SeekStart); err != nil {
-		return rpcError(err)
-	}
-	total := header.GetOffset()
-	finished := false
-	for {
-		message, recvErr := stream.Recv()
-		if errors.Is(recvErr, io.EOF) {
-			break
-		}
-		if recvErr != nil {
-			return recvErr
-		}
-		if data := message.GetData(); data != nil {
-			if len(data) > maxWorkspaceChunk || total+uint64(len(data)) > maxWorkspaceBytes {
-				return rpcError(errors.New("workspace write exceeds chunk or file limit"))
-			}
-			if _, err := staging.Write(data); err != nil {
-				return rpcError(err)
-			}
-			total += uint64(len(data))
-		} else if message.GetFinish() {
-			finished = true
-			break
-		} else {
-			return rpcError(errors.New("workspace write stream is invalid"))
-		}
-	}
-	if !finished {
-		return rpcError(errors.New("workspace write did not finish"))
-	}
-	if err := staging.Sync(); err != nil {
-		return rpcError(err)
-	}
-	mode := os.FileMode(header.GetMode())
-	if mode == 0 {
-		mode = 0o600
-	}
-	if mode&^0o777 != 0 {
-		return rpcError(errors.New("workspace mode is invalid"))
-	}
-	if err := staging.Chmod(mode); err != nil {
-		return rpcError(err)
-	}
-	if header.GetVolumeId() != "" {
-		var owner unix.Stat_t
-		if err := unix.Fstat(int(parent.Fd()), &owner); err != nil {
-			return rpcError(err)
-		}
-		if err := unix.Fchown(int(staging.Fd()), int(owner.Uid), int(owner.Gid)); err != nil {
-			return rpcError(err)
-		}
-	}
-	if err := unix.Renameat(int(parent.Fd()), stagingName, int(parent.Fd()), name); err != nil {
-		return rpcError(err)
-	}
-	if err := parent.Sync(); err != nil {
-		return rpcError(err)
-	}
-	result, err := openWorkspaceRoot(header.GetActorNamespaceId(), header.GetVolumeId(), clean, unix.O_RDONLY)
-	if err != nil {
-		return rpcError(err)
-	}
-	defer result.Close()
-	entry, err := workspaceEntry(clean, result, true)
-	if err != nil {
-		return rpcError(err)
-	}
-	return stream.SendAndClose(&vmmdv1.WriteWorkspaceResponse{Entry: entry, Sha256: entry.GetSha256()})
-}
-
 func equalDigest(left, right []byte) bool {
 	if len(left) != len(right) {
 		return false
@@ -358,7 +244,10 @@ func (s *Server) ArchiveWorkspace(request *vmmdv1.ArchiveWorkspaceRequest, strea
 		return rpcError(err)
 	}
 	reader, writer := io.Pipe()
+	done := make(chan struct{})
+	defer func() { _ = reader.Close(); <-done }()
 	go func() {
+		defer close(done)
 		archive := tar.NewWriter(writer)
 		err := walkWorkspaceArchive(request.GetActorNamespaceId(), clean, archive)
 		if closeErr := archive.Close(); err == nil {
@@ -472,7 +361,7 @@ func (s *Server) ExtractWorkspace(stream vmmdv1.VMMDService_ExtractWorkspaceServ
 		return rpcError(err)
 	}
 	defer parent.Close()
-	stagingName := "." + targetName + ".extract-" + header.GetRequestId()
+	stagingName := "." + targetName + ".extract-" + rand.Text()
 	parentAbsolute := filepath.Join(workspacePath(header.GetActorNamespaceId()), filepath.FromSlash(parentRelative))
 	stagingAbsolute := filepath.Join(parentAbsolute, stagingName)
 	if err := os.RemoveAll(stagingAbsolute); err != nil {

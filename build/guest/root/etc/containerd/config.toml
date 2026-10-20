@@ -1,13 +1,10 @@
 version = 3
 root = "/control/containerd"
 state = "/run/containerd"
-disabled_plugins = ["io.containerd.cri.v1.images", "io.containerd.cri.v1.runtime"]
+disabled_plugins = ["io.containerd.cri.v1.images", "io.containerd.cri.v1.runtime", "io.containerd.snapshotter.v1.native"]
 
 [grpc]
   address = "/run/containerd/containerd.sock"
-
-[plugins."io.containerd.snapshotter.v1.native"]
-  root_path = "/control/containerd/native"
 
 [plugins."io.containerd.snapshotter.v1.overlayfs"]
   root_path = "/state/containerd/overlayfs"

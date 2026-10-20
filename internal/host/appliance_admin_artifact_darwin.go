@@ -22,25 +22,53 @@ func (server *applianceAdminServer) StageArtifact(ctx context.Context, request *
 	if request.GetRequestId() == "" {
 		return nil, invalidField("request_id", "artifact staging identity is invalid")
 	}
-	if existing, err := server.controller.store.ApplianceOperationByRequest(ctx, request.GetRequestId()); err == nil {
+	lookup := func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, bool, error) {
+		existing, err := server.controller.store.ApplianceOperationByRequest(ctx, request.GetRequestId())
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, true, err
+		}
 		if existing.InstallationID != "" || existing.DeadlineUnixMillis != request.GetDeadlineUnixMillis() {
-			return nil, resourceError(codes.AlreadyExists, "REQUEST_ID_CONFLICT", "appliance_artifact", "", "request ID was reused")
+			return nil, true, resourceError(codes.AlreadyExists, "REQUEST_ID_CONFLICT", "appliance_artifact", "", "request ID was reused")
 		}
 		response := applianceOperationResponse(existing)
 		response.ArtifactId = string(existing.Receipt)
-		return response, nil
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+		return response, true, nil
 	}
-	if request.GetDeadlineUnixMillis() <= time.Now().UnixMilli() {
-		return nil, invalidField("deadline_unix_millis", "artifact staging deadline expired")
+	if response, found, err := lookup(ctx); found || err != nil {
+		return response, err
 	}
 	canonical, canonicalHash, err := (applianceArtifactVerifier{}).verify(request.GetManifest(), nil)
 	if err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "ARTIFACT_VERIFICATION_FAILED", "appliance_artifact", "", err.Error())
 	}
+	admission, cancel := context.WithDeadline(ctx, time.UnixMilli(request.GetDeadlineUnixMillis()))
+	defer cancel()
+	contentLock := server.controller.applianceContentStageLock()
+	for !contentLock.TryLock() {
+		if err := waitForControllerLock(admission); err != nil {
+			return nil, err
+		}
+	}
+	defer contentLock.Unlock()
+	if response, found, err := lookup(ctx); found || err != nil {
+		return response, err
+	}
+	if err := applianceAdmissionDeadline(applianceMutation{requestID: request.GetRequestId(), deadlineUnixMillis: request.GetDeadlineUnixMillis()}); err != nil {
+		return nil, err
+	}
+	ctx = admission
 	artifact, err := server.controller.store.GetApplianceArtifactByCanonicalHash(ctx, canonicalHash)
 	if errors.Is(err, sql.ErrNoRows) {
+		controllerSource := false
+		for _, content := range request.GetManifest().GetContentRefs() {
+			controllerSource = controllerSource || content.GetRole() == appliancev1.ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER
+		}
+		if !controllerSource {
+			return nil, resourceError(codes.FailedPrecondition, "ARTIFACT_VERIFICATION_FAILED", "appliance_artifact", "", "new appliance artifact requires a controller content reference")
+		}
 		artifactID, idErr := randomID()
 		if idErr != nil {
 			return nil, idErr
@@ -104,7 +132,7 @@ func (server *applianceAdminServer) PlanInstall(ctx context.Context, request *ap
 	if err := validateApprovedGrant(manifest, request.GetApprovedGrant()); err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, err.Error())
 	}
-	if err := validateApplianceIsolationLimits(request.GetApprovedGrant(), controllerIsolationCapacity(server.controller)); err != nil {
+	if err := validateApplianceIsolationLimits(request.GetApprovedGrant(), controllerSystemIsolationCapacity(server.controller), controllerWorkloadIsolationCapacity(server.controller)); err != nil {
 		return nil, resourceError(codes.ResourceExhausted, "RESOURCE_LEDGER_EXHAUSTED", "appliance_installation", request.GetInstallationId(), err.Error())
 	}
 	return &appliancev1.AppliancePlanResponse{Plan: &appliancev1.AppliancePlan{InstallationId: request.GetInstallationId(),
@@ -152,14 +180,13 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 	if err := validateApprovedGrant(manifest, request.GetApprovedGrant()); err != nil {
 		return nil, resourceError(codes.FailedPrecondition, "GRANT_EXPANSION", "appliance_artifact", artifact.ID, err.Error())
 	}
-	if err := validateApplianceIsolationLimits(request.GetApprovedGrant(), controllerIsolationCapacity(server.controller)); err != nil {
+	if err := validateApplianceIsolationLimits(request.GetApprovedGrant(), controllerSystemIsolationCapacity(server.controller), controllerWorkloadIsolationCapacity(server.controller)); err != nil {
 		return nil, resourceError(codes.ResourceExhausted, "RESOURCE_LEDGER_EXHAUSTED", "appliance_installation", request.GetInstallationId(), err.Error())
 	}
-	volumeID, err := randomID()
-	if err != nil {
-		return nil, err
+	if err := server.controller.requireApplianceContent(ctx, manifest); err != nil {
+		return nil, resourceError(codes.FailedPrecondition, "CONTENT_NOT_STAGED", "appliance_artifact", artifact.ID, err.Error())
 	}
-	volumeIdentity, err := newLUKSIdentity()
+	volumeID, err := randomID()
 	if err != nil {
 		return nil, err
 	}
@@ -177,17 +204,11 @@ func (server *applianceAdminServer) Install(ctx context.Context, request *applia
 	}
 	installation := store.ApplianceInstallation{ID: request.GetInstallationId(), ProductID: artifact.ProductID,
 		ArtifactID: artifact.ID, State: int32(appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED),
-		Revision: 1, EncryptedVolumeID: volumeID, EncryptedVolumeIdentity: volumeIdentity,
-		DataVolumeBytes: manifest.GetDataVolumeBytes(), BootstrapID: bootstrapID}
+		Revision: 1, DataVolumeID: volumeID, DataVolumeBytes: manifest.GetDataVolumeBytes(), BootstrapID: bootstrapID}
 	grant := grantFromProto(installation.ID, 1, request.GetApprovedGrant())
 	if server.controller.applianceSecrets == nil {
 		return nil, errors.New("appliance protected store is unavailable")
 	}
-	volumeKey, err := server.controller.applianceSecrets.EnsureVolumeKey(ctx, installation.ID)
-	if err != nil {
-		return nil, err
-	}
-	clearSecret(volumeKey)
 	if err := server.controller.applianceSecrets.StoreBootstrap(ctx, installation.ID, bootstrapID, request.GetOpaqueBootstrapSeed()); err != nil {
 		return nil, err
 	}

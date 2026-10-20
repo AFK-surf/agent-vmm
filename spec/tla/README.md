@@ -45,8 +45,9 @@ physical disk arithmetic stay in their own narrow models.
 
 - `ApplianceActivationLifecycle.tla` owns one installation's coupled bundled
   artifact upgrade, bounded missing-instance recovery, bootstrap, instance
-  publication, sealed recovery, revoke, interrupted operation, and
-  revision-fenced removal lifecycle.
+  publication, sealed integrity, revoke, interrupted operation, and
+  revision-fenced removal lifecycle. A sealed installation can stop, revoke,
+  or enter removal. It cannot reopen through a repair operation.
 - `ApplianceInstallationIsolation.tla` uses two installation identities only
   for the remove-ownership non-interference proof; it does not multiply two
   complete lifecycles.
@@ -95,7 +96,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `BundledArtifactUpgrade`, `ActiveUsesBundledArtifact`, `RecoveryEventuallyStarts` | verified Host bundle reader, appliance supervisor, and appliance store | bundled artifact atomic switch and missing-runtime recovery tests |
 | `PlanRemove`, `ExecuteRemove`, `RemoveRevisionExact` | `internal/host/appliance_admin_remove_darwin.go`, `internal/host/store/appliance_operation.go` | pending-destroy tombstone and revision-fence tests |
 | `CrossDomainRemove`, `InstallationNonInterference` | appliance admin authorization | cross-domain remove tests |
-| `Seal`, `RecoverSealed`, `SealedRecoveryIsBounded` | appliance supervisor and appliance admin operations | key loss, corruption, schema, and bounded repair tests |
+| `Seal`, `UnsafeReopenSealed`, `SealedRemainsClosed` | appliance supervisor and appliance admin operations | artifact/bootstrap integrity failure, sealed start rejection, and revision-fenced removal tests |
 | `HostVMRestartRecovery.ResumeSuccess`, `UnexpectedStop`, `RecoverySuccess`, `RecoveryCommit`, `RecoveryFailure`, `BeginShutdown`, `GuestQuiesceSuccess`, `VZTerminal`, `ReleaseDisk`, `ExitHost`, `NoFreshVMStart`, `RecoveryRevokesAdmission`, `RecoveryClearsSession`, `HostExitRequiresDiskRelease` | `cmd/agent-vmm-host.shutdown`, `internal/vmm.Manager.Stop`, `internal/vmm.Manager.observeStateChanges`, `internal/vmm.Manager.terminalTransition`, `internal/host.VMLifecycleOwner.Shutdown` | startup state-disk guard, session and admission revocation, one shutdown-exclusive lifecycle owner, guest quiesce before clean stop, VZ terminal completion before disk release and host exit, fresh boot, closed-notification fail-closed behavior, and terminal failure tests |
 
 Consumer repositories may refine these actions, but they must not redefine host inventory, epoch, or lifecycle ownership.

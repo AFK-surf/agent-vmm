@@ -146,6 +146,10 @@ If the Host cannot save this repair, retry the same request and restart the Host
 service if the failure remains. Reclaimable bytes are unavailable when the
 owner cannot supply them. Remote allocation cleanup uses the same admission
 fence and budgets.
+Remote cleanup planning is read-only. After acceptance, the Host closes allocation capabilities,
+confirms workload stop and marks the allocation `RETAINED` before resource deletion.
+Reset retains the allocation and named volumes. Discard removes the confirmed objects and the Host allocation.
+A retirement failure stops deletion and produces a failed operation receipt.
 
 ## Status
 
@@ -185,6 +189,8 @@ go test -race ./... -count=1
 go vet ./...
 ```
 
+Linux Guest tests for fixed runtime paths, numeric ownership, and DNS port 53 require root. CI compiles the race binaries as the runner user, then runs the control and network packages with `sudo`. The kernel networking test uses its own isolated network namespace. Other tests continue to run without root.
+
 Run the complete macOS and guest test suite:
 
 ```sh
@@ -202,3 +208,15 @@ The agent-vmm source code uses the [MIT License](LICENSE).
 Guest artifacts also contain third-party components. Their own licenses continue to apply.
 
 The canonical Guest manifest records only the artifacts and filesystem format needed to start the VM. CI unpacks the built SquashFS and generates the Guest SPDX inventory from that output. The inventory check requires every installed APK to appear with a declared license; it does not apply a legal license allow/deny policy. Trivy separately blocks fixable high or critical dependency advisories. The SBOM is CI inventory, not runtime authority.
+
+### Appliance data
+
+An installation and volume ID select one persistent Guest directory under `/state/appliance-data`.
+An independent project quota enforces `data_volume_bytes`.
+Stop and restart retain data and do not unmount the backing filesystem.
+Replacement waits for the exact old writer to stop. Typed deletion rejects active references.
+
+The ordinary `state.raw` file and its directories do not encrypt themselves.
+Offline device confidentiality requires FileVault or equivalent full-disk encryption on the actual backing disk.
+A logical raw-file copy contains plaintext. Encrypt backups independently.
+Keep diagnostic disks and keys until their owner approves exact deletion.

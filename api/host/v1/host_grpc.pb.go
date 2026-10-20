@@ -46,6 +46,9 @@ const (
 	AgentRuntimeService_ListVolumes_FullMethodName                 = "/agentvmm.host.v1.AgentRuntimeService/ListVolumes"
 	AgentRuntimeService_ForwardTCP_FullMethodName                  = "/agentvmm.host.v1.AgentRuntimeService/ForwardTCP"
 	AgentRuntimeService_BuildImage_FullMethodName                  = "/agentvmm.host.v1.AgentRuntimeService/BuildImage"
+	AgentRuntimeService_CopyImage_FullMethodName                   = "/agentvmm.host.v1.AgentRuntimeService/CopyImage"
+	AgentRuntimeService_ObserveImageOperation_FullMethodName       = "/agentvmm.host.v1.AgentRuntimeService/ObserveImageOperation"
+	AgentRuntimeService_CancelImageOperation_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/CancelImageOperation"
 	AgentRuntimeService_ReleaseSession_FullMethodName              = "/agentvmm.host.v1.AgentRuntimeService/ReleaseSession"
 	AgentRuntimeService_PlanResetEnvironment_FullMethodName        = "/agentvmm.host.v1.AgentRuntimeService/PlanResetEnvironment"
 	AgentRuntimeService_PlanDiscardEnvironment_FullMethodName      = "/agentvmm.host.v1.AgentRuntimeService/PlanDiscardEnvironment"
@@ -97,6 +100,9 @@ type AgentRuntimeServiceClient interface {
 	ListVolumes(ctx context.Context, in *ListVolumesRequest, opts ...grpc.CallOption) (*ListVolumesResponse, error)
 	ForwardTCP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ForwardTCPRequest, ForwardTCPResponse], error)
 	BuildImage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse], error)
+	CopyImage(ctx context.Context, in *CopyImageRequest, opts ...grpc.CallOption) (*Image, error)
+	ObserveImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error)
+	CancelImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error)
 	ReleaseSession(ctx context.Context, in *ReleaseSessionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	PlanResetEnvironment(ctx context.Context, in *GetOwnEnvironmentRequest, opts ...grpc.CallOption) (*CleanupPlanResponse, error)
 	PlanDiscardEnvironment(ctx context.Context, in *GetOwnEnvironmentRequest, opts ...grpc.CallOption) (*CleanupPlanResponse, error)
@@ -407,6 +413,36 @@ func (c *agentRuntimeServiceClient) BuildImage(ctx context.Context, opts ...grpc
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentRuntimeService_BuildImageClient = grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse]
 
+func (c *agentRuntimeServiceClient) CopyImage(ctx context.Context, in *CopyImageRequest, opts ...grpc.CallOption) (*Image, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Image)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_CopyImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) ObserveImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ImageOperationReceipt)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_ObserveImageOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentRuntimeServiceClient) CancelImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ImageOperationReceipt)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_CancelImageOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentRuntimeServiceClient) ReleaseSession(ctx context.Context, in *ReleaseSessionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -660,6 +696,9 @@ type AgentRuntimeServiceServer interface {
 	ListVolumes(context.Context, *ListVolumesRequest) (*ListVolumesResponse, error)
 	ForwardTCP(grpc.BidiStreamingServer[ForwardTCPRequest, ForwardTCPResponse]) error
 	BuildImage(grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]) error
+	CopyImage(context.Context, *CopyImageRequest) (*Image, error)
+	ObserveImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error)
+	CancelImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error)
 	ReleaseSession(context.Context, *ReleaseSessionRequest) (*emptypb.Empty, error)
 	PlanResetEnvironment(context.Context, *GetOwnEnvironmentRequest) (*CleanupPlanResponse, error)
 	PlanDiscardEnvironment(context.Context, *GetOwnEnvironmentRequest) (*CleanupPlanResponse, error)
@@ -764,6 +803,15 @@ func (UnimplementedAgentRuntimeServiceServer) ForwardTCP(grpc.BidiStreamingServe
 }
 func (UnimplementedAgentRuntimeServiceServer) BuildImage(grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]) error {
 	return status.Error(codes.Unimplemented, "method BuildImage not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) CopyImage(context.Context, *CopyImageRequest) (*Image, error) {
+	return nil, status.Error(codes.Unimplemented, "method CopyImage not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) ObserveImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error) {
+	return nil, status.Error(codes.Unimplemented, "method ObserveImageOperation not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) CancelImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelImageOperation not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) ReleaseSession(context.Context, *ReleaseSessionRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseSession not implemented")
@@ -1238,6 +1286,60 @@ func _AgentRuntimeService_BuildImage_Handler(srv interface{}, stream grpc.Server
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentRuntimeService_BuildImageServer = grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]
 
+func _AgentRuntimeService_CopyImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).CopyImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_CopyImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).CopyImage(ctx, req.(*CopyImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_ObserveImageOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImageOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).ObserveImageOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_ObserveImageOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).ObserveImageOperation(ctx, req.(*ImageOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentRuntimeService_CancelImageOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImageOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).CancelImageOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_CancelImageOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).CancelImageOperation(ctx, req.(*ImageOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentRuntimeService_ReleaseSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReleaseSessionRequest)
 	if err := dec(in); err != nil {
@@ -1646,6 +1748,18 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AgentRuntimeService_ListVolumes_Handler,
 		},
 		{
+			MethodName: "CopyImage",
+			Handler:    _AgentRuntimeService_CopyImage_Handler,
+		},
+		{
+			MethodName: "ObserveImageOperation",
+			Handler:    _AgentRuntimeService_ObserveImageOperation_Handler,
+		},
+		{
+			MethodName: "CancelImageOperation",
+			Handler:    _AgentRuntimeService_CancelImageOperation_Handler,
+		},
+		{
 			MethodName: "ReleaseSession",
 			Handler:    _AgentRuntimeService_ReleaseSession_Handler,
 		},
@@ -1837,9 +1951,14 @@ const (
 	OperatorService_ConfirmPersonalMeshPairing_FullMethodName         = "/agentvmm.host.v1.OperatorService/ConfirmPersonalMeshPairing"
 	OperatorService_RejectPersonalMeshPairing_FullMethodName          = "/agentvmm.host.v1.OperatorService/RejectPersonalMeshPairing"
 	OperatorService_RepairDeviceIdentity_FullMethodName               = "/agentvmm.host.v1.OperatorService/RepairDeviceIdentity"
+	OperatorService_CreateLocalServiceListener_FullMethodName         = "/agentvmm.host.v1.OperatorService/CreateLocalServiceListener"
 	OperatorService_CreatePersonalServiceListener_FullMethodName      = "/agentvmm.host.v1.OperatorService/CreatePersonalServiceListener"
 	OperatorService_ListServiceListeners_FullMethodName               = "/agentvmm.host.v1.OperatorService/ListServiceListeners"
 	OperatorService_RevokeServiceListener_FullMethodName              = "/agentvmm.host.v1.OperatorService/RevokeServiceListener"
+	OperatorService_CreateHostShare_FullMethodName                    = "/agentvmm.host.v1.OperatorService/CreateHostShare"
+	OperatorService_RebindHostShare_FullMethodName                    = "/agentvmm.host.v1.OperatorService/RebindHostShare"
+	OperatorService_RevokeHostShare_FullMethodName                    = "/agentvmm.host.v1.OperatorService/RevokeHostShare"
+	OperatorService_ListHostShares_FullMethodName                     = "/agentvmm.host.v1.OperatorService/ListHostShares"
 )
 
 // OperatorServiceClient is the client API for OperatorService service.
@@ -1914,9 +2033,14 @@ type OperatorServiceClient interface {
 	ConfirmPersonalMeshPairing(ctx context.Context, in *ConfirmPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error)
 	RejectPersonalMeshPairing(ctx context.Context, in *RejectPersonalMeshPairingRequest, opts ...grpc.CallOption) (*PersonalMeshPairingResponse, error)
 	RepairDeviceIdentity(ctx context.Context, in *RepairDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentityResponse, error)
+	CreateLocalServiceListener(ctx context.Context, in *CreateLocalServiceListenerRequest, opts ...grpc.CallOption) (*ServiceListenerResponse, error)
 	CreatePersonalServiceListener(ctx context.Context, in *CreatePersonalServiceListenerRequest, opts ...grpc.CallOption) (*ServiceListenerResponse, error)
 	ListServiceListeners(ctx context.Context, in *ListServiceListenersRequest, opts ...grpc.CallOption) (*ListServiceListenersResponse, error)
 	RevokeServiceListener(ctx context.Context, in *RevokeServiceListenerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	CreateHostShare(ctx context.Context, in *CreateHostShareRequest, opts ...grpc.CallOption) (*HostShareResponse, error)
+	RebindHostShare(ctx context.Context, in *RebindHostShareRequest, opts ...grpc.CallOption) (*HostShareResponse, error)
+	RevokeHostShare(ctx context.Context, in *RevokeHostShareRequest, opts ...grpc.CallOption) (*HostShareResponse, error)
+	ListHostShares(ctx context.Context, in *ListHostSharesRequest, opts ...grpc.CallOption) (*ListHostSharesResponse, error)
 }
 
 type operatorServiceClient struct {
@@ -2634,6 +2758,16 @@ func (c *operatorServiceClient) RepairDeviceIdentity(ctx context.Context, in *Re
 	return out, nil
 }
 
+func (c *operatorServiceClient) CreateLocalServiceListener(ctx context.Context, in *CreateLocalServiceListenerRequest, opts ...grpc.CallOption) (*ServiceListenerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ServiceListenerResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CreateLocalServiceListener_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *operatorServiceClient) CreatePersonalServiceListener(ctx context.Context, in *CreatePersonalServiceListenerRequest, opts ...grpc.CallOption) (*ServiceListenerResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ServiceListenerResponse)
@@ -2658,6 +2792,46 @@ func (c *operatorServiceClient) RevokeServiceListener(ctx context.Context, in *R
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, OperatorService_RevokeServiceListener_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) CreateHostShare(ctx context.Context, in *CreateHostShareRequest, opts ...grpc.CallOption) (*HostShareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HostShareResponse)
+	err := c.cc.Invoke(ctx, OperatorService_CreateHostShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RebindHostShare(ctx context.Context, in *RebindHostShareRequest, opts ...grpc.CallOption) (*HostShareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HostShareResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RebindHostShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RevokeHostShare(ctx context.Context, in *RevokeHostShareRequest, opts ...grpc.CallOption) (*HostShareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HostShareResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RevokeHostShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListHostShares(ctx context.Context, in *ListHostSharesRequest, opts ...grpc.CallOption) (*ListHostSharesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListHostSharesResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListHostShares_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2736,9 +2910,14 @@ type OperatorServiceServer interface {
 	ConfirmPersonalMeshPairing(context.Context, *ConfirmPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error)
 	RejectPersonalMeshPairing(context.Context, *RejectPersonalMeshPairingRequest) (*PersonalMeshPairingResponse, error)
 	RepairDeviceIdentity(context.Context, *RepairDeviceIdentityRequest) (*DeviceIdentityResponse, error)
+	CreateLocalServiceListener(context.Context, *CreateLocalServiceListenerRequest) (*ServiceListenerResponse, error)
 	CreatePersonalServiceListener(context.Context, *CreatePersonalServiceListenerRequest) (*ServiceListenerResponse, error)
 	ListServiceListeners(context.Context, *ListServiceListenersRequest) (*ListServiceListenersResponse, error)
 	RevokeServiceListener(context.Context, *RevokeServiceListenerRequest) (*emptypb.Empty, error)
+	CreateHostShare(context.Context, *CreateHostShareRequest) (*HostShareResponse, error)
+	RebindHostShare(context.Context, *RebindHostShareRequest) (*HostShareResponse, error)
+	RevokeHostShare(context.Context, *RevokeHostShareRequest) (*HostShareResponse, error)
+	ListHostShares(context.Context, *ListHostSharesRequest) (*ListHostSharesResponse, error)
 	mustEmbedUnimplementedOperatorServiceServer()
 }
 
@@ -2953,6 +3132,9 @@ func (UnimplementedOperatorServiceServer) RejectPersonalMeshPairing(context.Cont
 func (UnimplementedOperatorServiceServer) RepairDeviceIdentity(context.Context, *RepairDeviceIdentityRequest) (*DeviceIdentityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RepairDeviceIdentity not implemented")
 }
+func (UnimplementedOperatorServiceServer) CreateLocalServiceListener(context.Context, *CreateLocalServiceListenerRequest) (*ServiceListenerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateLocalServiceListener not implemented")
+}
 func (UnimplementedOperatorServiceServer) CreatePersonalServiceListener(context.Context, *CreatePersonalServiceListenerRequest) (*ServiceListenerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreatePersonalServiceListener not implemented")
 }
@@ -2961,6 +3143,18 @@ func (UnimplementedOperatorServiceServer) ListServiceListeners(context.Context, 
 }
 func (UnimplementedOperatorServiceServer) RevokeServiceListener(context.Context, *RevokeServiceListenerRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method RevokeServiceListener not implemented")
+}
+func (UnimplementedOperatorServiceServer) CreateHostShare(context.Context, *CreateHostShareRequest) (*HostShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateHostShare not implemented")
+}
+func (UnimplementedOperatorServiceServer) RebindHostShare(context.Context, *RebindHostShareRequest) (*HostShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RebindHostShare not implemented")
+}
+func (UnimplementedOperatorServiceServer) RevokeHostShare(context.Context, *RevokeHostShareRequest) (*HostShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeHostShare not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListHostShares(context.Context, *ListHostSharesRequest) (*ListHostSharesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListHostShares not implemented")
 }
 func (UnimplementedOperatorServiceServer) mustEmbedUnimplementedOperatorServiceServer() {}
 func (UnimplementedOperatorServiceServer) testEmbeddedByValue()                         {}
@@ -4186,6 +4380,24 @@ func _OperatorService_RepairDeviceIdentity_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_CreateLocalServiceListener_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateLocalServiceListenerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CreateLocalServiceListener(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CreateLocalServiceListener_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CreateLocalServiceListener(ctx, req.(*CreateLocalServiceListenerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OperatorService_CreatePersonalServiceListener_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreatePersonalServiceListenerRequest)
 	if err := dec(in); err != nil {
@@ -4236,6 +4448,78 @@ func _OperatorService_RevokeServiceListener_Handler(srv interface{}, ctx context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OperatorServiceServer).RevokeServiceListener(ctx, req.(*RevokeServiceListenerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_CreateHostShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateHostShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).CreateHostShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_CreateHostShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).CreateHostShare(ctx, req.(*CreateHostShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RebindHostShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RebindHostShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RebindHostShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RebindHostShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RebindHostShare(ctx, req.(*RebindHostShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RevokeHostShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeHostShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RevokeHostShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RevokeHostShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RevokeHostShare(ctx, req.(*RevokeHostShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListHostShares_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListHostSharesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListHostShares(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListHostShares_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListHostShares(ctx, req.(*ListHostSharesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -4508,6 +4792,10 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OperatorService_RepairDeviceIdentity_Handler,
 		},
 		{
+			MethodName: "CreateLocalServiceListener",
+			Handler:    _OperatorService_CreateLocalServiceListener_Handler,
+		},
+		{
 			MethodName: "CreatePersonalServiceListener",
 			Handler:    _OperatorService_CreatePersonalServiceListener_Handler,
 		},
@@ -4518,6 +4806,22 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RevokeServiceListener",
 			Handler:    _OperatorService_RevokeServiceListener_Handler,
+		},
+		{
+			MethodName: "CreateHostShare",
+			Handler:    _OperatorService_CreateHostShare_Handler,
+		},
+		{
+			MethodName: "RebindHostShare",
+			Handler:    _OperatorService_RebindHostShare_Handler,
+		},
+		{
+			MethodName: "RevokeHostShare",
+			Handler:    _OperatorService_RevokeHostShare_Handler,
+		},
+		{
+			MethodName: "ListHostShares",
+			Handler:    _OperatorService_ListHostShares_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -8,6 +8,7 @@ package vmmdv1
 
 import (
 	context "context"
+	v1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -21,6 +22,8 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	VMMDService_Health_FullMethodName                    = "/agentvmm.vmmd.v1.VMMDService/Health"
 	VMMDService_PrepareShutdown_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/PrepareShutdown"
+	VMMDService_StageApplianceContent_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/StageApplianceContent"
+	VMMDService_ReconcileSystemImages_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/ReconcileSystemImages"
 	VMMDService_EnsureSystemAppliance_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/EnsureSystemAppliance"
 	VMMDService_StopSystemAppliance_FullMethodName       = "/agentvmm.vmmd.v1.VMMDService/StopSystemAppliance"
 	VMMDService_DeleteSystemApplianceData_FullMethodName = "/agentvmm.vmmd.v1.VMMDService/DeleteSystemApplianceData"
@@ -32,6 +35,7 @@ const (
 	VMMDService_DisposeNamespaceBatch_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/DisposeNamespaceBatch"
 	VMMDService_GetNamespace_FullMethodName              = "/agentvmm.vmmd.v1.VMMDService/GetNamespace"
 	VMMDService_ListNamespaces_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/ListNamespaces"
+	VMMDService_ApplyHostShares_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/ApplyHostShares"
 	VMMDService_GetNamespaceUsage_FullMethodName         = "/agentvmm.vmmd.v1.VMMDService/GetNamespaceUsage"
 	VMMDService_GetSystemUsage_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/GetSystemUsage"
 	VMMDService_PullImage_FullMethodName                 = "/agentvmm.vmmd.v1.VMMDService/PullImage"
@@ -60,6 +64,9 @@ const (
 	VMMDService_DeleteServiceProjection_FullMethodName   = "/agentvmm.vmmd.v1.VMMDService/DeleteServiceProjection"
 	VMMDService_ForwardTCP_FullMethodName                = "/agentvmm.vmmd.v1.VMMDService/ForwardTCP"
 	VMMDService_BuildImage_FullMethodName                = "/agentvmm.vmmd.v1.VMMDService/BuildImage"
+	VMMDService_CopyImage_FullMethodName                 = "/agentvmm.vmmd.v1.VMMDService/CopyImage"
+	VMMDService_ObserveImageOperation_FullMethodName     = "/agentvmm.vmmd.v1.VMMDService/ObserveImageOperation"
+	VMMDService_CancelImageOperation_FullMethodName      = "/agentvmm.vmmd.v1.VMMDService/CancelImageOperation"
 	VMMDService_BuildAppliance_FullMethodName            = "/agentvmm.vmmd.v1.VMMDService/BuildAppliance"
 	VMMDService_ComponentHealth_FullMethodName           = "/agentvmm.vmmd.v1.VMMDService/ComponentHealth"
 	VMMDService_ProbeEgress_FullMethodName               = "/agentvmm.vmmd.v1.VMMDService/ProbeEgress"
@@ -78,6 +85,8 @@ const (
 type VMMDServiceClient interface {
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
 	PrepareShutdown(ctx context.Context, in *PrepareShutdownRequest, opts ...grpc.CallOption) (*PrepareShutdownResponse, error)
+	StageApplianceContent(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[v1.StageContentRequest, v1.ApplianceContentStatus], error)
+	ReconcileSystemImages(ctx context.Context, in *ReconcileSystemImagesRequest, opts ...grpc.CallOption) (*ReconcileSystemImagesResponse, error)
 	EnsureSystemAppliance(ctx context.Context, in *EnsureSystemApplianceRequest, opts ...grpc.CallOption) (*SystemApplianceResponse, error)
 	StopSystemAppliance(ctx context.Context, in *StopSystemApplianceRequest, opts ...grpc.CallOption) (*SystemApplianceResponse, error)
 	DeleteSystemApplianceData(ctx context.Context, in *DeleteSystemApplianceDataRequest, opts ...grpc.CallOption) (*DeleteSystemApplianceDataResponse, error)
@@ -89,6 +98,7 @@ type VMMDServiceClient interface {
 	DisposeNamespaceBatch(ctx context.Context, in *DisposeNamespaceBatchRequest, opts ...grpc.CallOption) (*DisposeNamespaceBatchResponse, error)
 	GetNamespace(ctx context.Context, in *GetNamespaceRequest, opts ...grpc.CallOption) (*GetNamespaceResponse, error)
 	ListNamespaces(ctx context.Context, in *ListNamespacesRequest, opts ...grpc.CallOption) (*ListNamespacesResponse, error)
+	ApplyHostShares(ctx context.Context, in *ApplyHostSharesRequest, opts ...grpc.CallOption) (*ApplyHostSharesResponse, error)
 	GetNamespaceUsage(ctx context.Context, in *GetNamespaceUsageRequest, opts ...grpc.CallOption) (*GetUsageResponse, error)
 	GetSystemUsage(ctx context.Context, in *GetSystemUsageRequest, opts ...grpc.CallOption) (*GetUsageResponse, error)
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PullImageResponse], error)
@@ -117,6 +127,9 @@ type VMMDServiceClient interface {
 	DeleteServiceProjection(ctx context.Context, in *DeleteServiceProjectionRequest, opts ...grpc.CallOption) (*DeleteServiceProjectionResponse, error)
 	ForwardTCP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ForwardTCPRequest, ForwardTCPResponse], error)
 	BuildImage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse], error)
+	CopyImage(ctx context.Context, in *CopyImageRequest, opts ...grpc.CallOption) (*Image, error)
+	ObserveImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error)
+	CancelImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error)
 	// BuildAppliance is reserved for the host operator. It runs the locked
 	// BuildKit worker without importing the result into an environment.
 	BuildAppliance(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildApplianceRequest, BuildApplianceResponse], error)
@@ -153,6 +166,29 @@ func (c *vMMDServiceClient) PrepareShutdown(ctx context.Context, in *PrepareShut
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PrepareShutdownResponse)
 	err := c.cc.Invoke(ctx, VMMDService_PrepareShutdown_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) StageApplianceContent(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[v1.StageContentRequest, v1.ApplianceContentStatus], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[0], VMMDService_StageApplianceContent_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[v1.StageContentRequest, v1.ApplianceContentStatus]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_StageApplianceContentClient = grpc.ClientStreamingClient[v1.StageContentRequest, v1.ApplianceContentStatus]
+
+func (c *vMMDServiceClient) ReconcileSystemImages(ctx context.Context, in *ReconcileSystemImagesRequest, opts ...grpc.CallOption) (*ReconcileSystemImagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReconcileSystemImagesResponse)
+	err := c.cc.Invoke(ctx, VMMDService_ReconcileSystemImages_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +247,7 @@ func (c *vMMDServiceClient) ListSystemAppliances(ctx context.Context, in *ListSy
 
 func (c *vMMDServiceClient) OpenSystemStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SystemStreamFrame, SystemStreamFrame], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[0], VMMDService_OpenSystemStream_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[1], VMMDService_OpenSystemStream_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +308,16 @@ func (c *vMMDServiceClient) ListNamespaces(ctx context.Context, in *ListNamespac
 	return out, nil
 }
 
+func (c *vMMDServiceClient) ApplyHostShares(ctx context.Context, in *ApplyHostSharesRequest, opts ...grpc.CallOption) (*ApplyHostSharesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyHostSharesResponse)
+	err := c.cc.Invoke(ctx, VMMDService_ApplyHostShares_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vMMDServiceClient) GetNamespaceUsage(ctx context.Context, in *GetNamespaceUsageRequest, opts ...grpc.CallOption) (*GetUsageResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetUsageResponse)
@@ -294,7 +340,7 @@ func (c *vMMDServiceClient) GetSystemUsage(ctx context.Context, in *GetSystemUsa
 
 func (c *vMMDServiceClient) PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PullImageResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[1], VMMDService_PullImage_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[2], VMMDService_PullImage_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +359,7 @@ type VMMDService_PullImageClient = grpc.ServerStreamingClient[PullImageResponse]
 
 func (c *vMMDServiceClient) ImportImage(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ImportImageRequest, Image], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[2], VMMDService_ImportImage_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[3], VMMDService_ImportImage_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +522,7 @@ func (c *vMMDServiceClient) GetContainerUsage(ctx context.Context, in *GetContai
 
 func (c *vMMDServiceClient) Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[3], VMMDService_Logs_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[4], VMMDService_Logs_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -495,7 +541,7 @@ type VMMDService_LogsClient = grpc.ServerStreamingClient[LogsResponse]
 
 func (c *vMMDServiceClient) Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecRequest, ExecResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[4], VMMDService_Exec_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[5], VMMDService_Exec_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +604,7 @@ func (c *vMMDServiceClient) DeleteServiceProjection(ctx context.Context, in *Del
 
 func (c *vMMDServiceClient) ForwardTCP(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ForwardTCPRequest, ForwardTCPResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[5], VMMDService_ForwardTCP_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[6], VMMDService_ForwardTCP_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +617,7 @@ type VMMDService_ForwardTCPClient = grpc.BidiStreamingClient[ForwardTCPRequest, 
 
 func (c *vMMDServiceClient) BuildImage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[6], VMMDService_BuildImage_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[7], VMMDService_BuildImage_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -582,9 +628,39 @@ func (c *vMMDServiceClient) BuildImage(ctx context.Context, opts ...grpc.CallOpt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type VMMDService_BuildImageClient = grpc.BidiStreamingClient[BuildImageRequest, BuildImageResponse]
 
+func (c *vMMDServiceClient) CopyImage(ctx context.Context, in *CopyImageRequest, opts ...grpc.CallOption) (*Image, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Image)
+	err := c.cc.Invoke(ctx, VMMDService_CopyImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) ObserveImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ImageOperationReceipt)
+	err := c.cc.Invoke(ctx, VMMDService_ObserveImageOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vMMDServiceClient) CancelImageOperation(ctx context.Context, in *ImageOperationRequest, opts ...grpc.CallOption) (*ImageOperationReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ImageOperationReceipt)
+	err := c.cc.Invoke(ctx, VMMDService_CancelImageOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vMMDServiceClient) BuildAppliance(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildApplianceRequest, BuildApplianceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[7], VMMDService_BuildAppliance_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[8], VMMDService_BuildAppliance_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +693,7 @@ func (c *vMMDServiceClient) ProbeEgress(ctx context.Context, in *ProbeEgressRequ
 
 func (c *vMMDServiceClient) WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RuntimeEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[8], VMMDService_WatchEvents_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[9], VMMDService_WatchEvents_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -656,7 +732,7 @@ func (c *vMMDServiceClient) ListWorkspace(ctx context.Context, in *ListWorkspace
 
 func (c *vMMDServiceClient) ReadWorkspace(ctx context.Context, in *ReadWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[9], VMMDService_ReadWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[10], VMMDService_ReadWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +751,7 @@ type VMMDService_ReadWorkspaceClient = grpc.ServerStreamingClient[ReadWorkspaceR
 
 func (c *vMMDServiceClient) WriteWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteWorkspaceRequest, WriteWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[10], VMMDService_WriteWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[11], VMMDService_WriteWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -688,7 +764,7 @@ type VMMDService_WriteWorkspaceClient = grpc.ClientStreamingClient[WriteWorkspac
 
 func (c *vMMDServiceClient) ArchiveWorkspace(ctx context.Context, in *ArchiveWorkspaceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArchiveWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[11], VMMDService_ArchiveWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[12], VMMDService_ArchiveWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -707,7 +783,7 @@ type VMMDService_ArchiveWorkspaceClient = grpc.ServerStreamingClient[ArchiveWork
 
 func (c *vMMDServiceClient) ExtractWorkspace(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[ExtractWorkspaceRequest, WriteWorkspaceResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[12], VMMDService_ExtractWorkspace_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &VMMDService_ServiceDesc.Streams[13], VMMDService_ExtractWorkspace_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -724,6 +800,8 @@ type VMMDService_ExtractWorkspaceClient = grpc.ClientStreamingClient[ExtractWork
 type VMMDServiceServer interface {
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
 	PrepareShutdown(context.Context, *PrepareShutdownRequest) (*PrepareShutdownResponse, error)
+	StageApplianceContent(grpc.ClientStreamingServer[v1.StageContentRequest, v1.ApplianceContentStatus]) error
+	ReconcileSystemImages(context.Context, *ReconcileSystemImagesRequest) (*ReconcileSystemImagesResponse, error)
 	EnsureSystemAppliance(context.Context, *EnsureSystemApplianceRequest) (*SystemApplianceResponse, error)
 	StopSystemAppliance(context.Context, *StopSystemApplianceRequest) (*SystemApplianceResponse, error)
 	DeleteSystemApplianceData(context.Context, *DeleteSystemApplianceDataRequest) (*DeleteSystemApplianceDataResponse, error)
@@ -735,6 +813,7 @@ type VMMDServiceServer interface {
 	DisposeNamespaceBatch(context.Context, *DisposeNamespaceBatchRequest) (*DisposeNamespaceBatchResponse, error)
 	GetNamespace(context.Context, *GetNamespaceRequest) (*GetNamespaceResponse, error)
 	ListNamespaces(context.Context, *ListNamespacesRequest) (*ListNamespacesResponse, error)
+	ApplyHostShares(context.Context, *ApplyHostSharesRequest) (*ApplyHostSharesResponse, error)
 	GetNamespaceUsage(context.Context, *GetNamespaceUsageRequest) (*GetUsageResponse, error)
 	GetSystemUsage(context.Context, *GetSystemUsageRequest) (*GetUsageResponse, error)
 	PullImage(*PullImageRequest, grpc.ServerStreamingServer[PullImageResponse]) error
@@ -763,6 +842,9 @@ type VMMDServiceServer interface {
 	DeleteServiceProjection(context.Context, *DeleteServiceProjectionRequest) (*DeleteServiceProjectionResponse, error)
 	ForwardTCP(grpc.BidiStreamingServer[ForwardTCPRequest, ForwardTCPResponse]) error
 	BuildImage(grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]) error
+	CopyImage(context.Context, *CopyImageRequest) (*Image, error)
+	ObserveImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error)
+	CancelImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error)
 	// BuildAppliance is reserved for the host operator. It runs the locked
 	// BuildKit worker without importing the result into an environment.
 	BuildAppliance(grpc.BidiStreamingServer[BuildApplianceRequest, BuildApplianceResponse]) error
@@ -790,6 +872,12 @@ func (UnimplementedVMMDServiceServer) Health(context.Context, *HealthRequest) (*
 }
 func (UnimplementedVMMDServiceServer) PrepareShutdown(context.Context, *PrepareShutdownRequest) (*PrepareShutdownResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PrepareShutdown not implemented")
+}
+func (UnimplementedVMMDServiceServer) StageApplianceContent(grpc.ClientStreamingServer[v1.StageContentRequest, v1.ApplianceContentStatus]) error {
+	return status.Error(codes.Unimplemented, "method StageApplianceContent not implemented")
+}
+func (UnimplementedVMMDServiceServer) ReconcileSystemImages(context.Context, *ReconcileSystemImagesRequest) (*ReconcileSystemImagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReconcileSystemImages not implemented")
 }
 func (UnimplementedVMMDServiceServer) EnsureSystemAppliance(context.Context, *EnsureSystemApplianceRequest) (*SystemApplianceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EnsureSystemAppliance not implemented")
@@ -823,6 +911,9 @@ func (UnimplementedVMMDServiceServer) GetNamespace(context.Context, *GetNamespac
 }
 func (UnimplementedVMMDServiceServer) ListNamespaces(context.Context, *ListNamespacesRequest) (*ListNamespacesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListNamespaces not implemented")
+}
+func (UnimplementedVMMDServiceServer) ApplyHostShares(context.Context, *ApplyHostSharesRequest) (*ApplyHostSharesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyHostShares not implemented")
 }
 func (UnimplementedVMMDServiceServer) GetNamespaceUsage(context.Context, *GetNamespaceUsageRequest) (*GetUsageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetNamespaceUsage not implemented")
@@ -908,6 +999,15 @@ func (UnimplementedVMMDServiceServer) ForwardTCP(grpc.BidiStreamingServer[Forwar
 func (UnimplementedVMMDServiceServer) BuildImage(grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]) error {
 	return status.Error(codes.Unimplemented, "method BuildImage not implemented")
 }
+func (UnimplementedVMMDServiceServer) CopyImage(context.Context, *CopyImageRequest) (*Image, error) {
+	return nil, status.Error(codes.Unimplemented, "method CopyImage not implemented")
+}
+func (UnimplementedVMMDServiceServer) ObserveImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error) {
+	return nil, status.Error(codes.Unimplemented, "method ObserveImageOperation not implemented")
+}
+func (UnimplementedVMMDServiceServer) CancelImageOperation(context.Context, *ImageOperationRequest) (*ImageOperationReceipt, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelImageOperation not implemented")
+}
 func (UnimplementedVMMDServiceServer) BuildAppliance(grpc.BidiStreamingServer[BuildApplianceRequest, BuildApplianceResponse]) error {
 	return status.Error(codes.Unimplemented, "method BuildAppliance not implemented")
 }
@@ -991,6 +1091,31 @@ func _VMMDService_PrepareShutdown_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VMMDServiceServer).PrepareShutdown(ctx, req.(*PrepareShutdownRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_StageApplianceContent_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(VMMDServiceServer).StageApplianceContent(&grpc.GenericServerStream[v1.StageContentRequest, v1.ApplianceContentStatus]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VMMDService_StageApplianceContentServer = grpc.ClientStreamingServer[v1.StageContentRequest, v1.ApplianceContentStatus]
+
+func _VMMDService_ReconcileSystemImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReconcileSystemImagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).ReconcileSystemImages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_ReconcileSystemImages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).ReconcileSystemImages(ctx, req.(*ReconcileSystemImagesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1178,6 +1303,24 @@ func _VMMDService_ListNamespaces_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VMMDServiceServer).ListNamespaces(ctx, req.(*ListNamespacesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_ApplyHostShares_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyHostSharesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).ApplyHostShares(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_ApplyHostShares_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).ApplyHostShares(ctx, req.(*ApplyHostSharesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1628,6 +1771,60 @@ func _VMMDService_BuildImage_Handler(srv interface{}, stream grpc.ServerStream) 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type VMMDService_BuildImageServer = grpc.BidiStreamingServer[BuildImageRequest, BuildImageResponse]
 
+func _VMMDService_CopyImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).CopyImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_CopyImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).CopyImage(ctx, req.(*CopyImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_ObserveImageOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImageOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).ObserveImageOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_ObserveImageOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).ObserveImageOperation(ctx, req.(*ImageOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VMMDService_CancelImageOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImageOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VMMDServiceServer).CancelImageOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VMMDService_CancelImageOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VMMDServiceServer).CancelImageOperation(ctx, req.(*ImageOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _VMMDService_BuildAppliance_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(VMMDServiceServer).BuildAppliance(&grpc.GenericServerStream[BuildApplianceRequest, BuildApplianceResponse]{ServerStream: stream})
 }
@@ -1770,6 +1967,10 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _VMMDService_PrepareShutdown_Handler,
 		},
 		{
+			MethodName: "ReconcileSystemImages",
+			Handler:    _VMMDService_ReconcileSystemImages_Handler,
+		},
+		{
 			MethodName: "EnsureSystemAppliance",
 			Handler:    _VMMDService_EnsureSystemAppliance_Handler,
 		},
@@ -1808,6 +2009,10 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNamespaces",
 			Handler:    _VMMDService_ListNamespaces_Handler,
+		},
+		{
+			MethodName: "ApplyHostShares",
+			Handler:    _VMMDService_ApplyHostShares_Handler,
 		},
 		{
 			MethodName: "GetNamespaceUsage",
@@ -1898,6 +2103,18 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _VMMDService_DeleteServiceProjection_Handler,
 		},
 		{
+			MethodName: "CopyImage",
+			Handler:    _VMMDService_CopyImage_Handler,
+		},
+		{
+			MethodName: "ObserveImageOperation",
+			Handler:    _VMMDService_ObserveImageOperation_Handler,
+		},
+		{
+			MethodName: "CancelImageOperation",
+			Handler:    _VMMDService_CancelImageOperation_Handler,
+		},
+		{
 			MethodName: "ComponentHealth",
 			Handler:    _VMMDService_ComponentHealth_Handler,
 		},
@@ -1915,6 +2132,11 @@ var VMMDService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StageApplianceContent",
+			Handler:       _VMMDService_StageApplianceContent_Handler,
+			ClientStreams: true,
+		},
 		{
 			StreamName:    "OpenSystemStream",
 			Handler:       _VMMDService_OpenSystemStream_Handler,

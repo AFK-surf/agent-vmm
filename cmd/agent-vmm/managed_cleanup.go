@@ -11,6 +11,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -27,8 +28,11 @@ func (runtime managedRuntime) cleanup(ctx context.Context, action string, opts m
 	envelope.Freshness = "current"
 	if action == "preview" {
 		plan, err := runtime.planCleanup(ctx, opts.operatorSocket, opts.environmentID, kind)
-		if err != nil || plan == nil {
-			return managedEnvelope{}, errors.New("current cleanup plan is not readable")
+		if err != nil {
+			return managedEnvelope{}, cleanupRejection("preview", err)
+		}
+		if plan == nil {
+			return managedEnvelope{}, errors.New("Host returned no cleanup plan")
 		}
 		if plan.GetEnvironmentId() != opts.environmentID || plan.GetKind() != kind || plan.GetRevision() == 0 {
 			return managedEnvelope{}, errors.New("Host returned an unbound cleanup plan")
@@ -97,7 +101,7 @@ func (runtime managedRuntime) cleanup(ctx context.Context, action string, opts m
 			envelope.Facts["request_id"] = opts.requestID
 			return envelope, nil
 		}
-		return managedEnvelope{}, fmt.Errorf("Host cleanup owner rejected execution: %w", err)
+		return managedEnvelope{}, cleanupRejection("execute", err)
 	}
 	if operation == nil || operation.GetRequestId() != opts.requestID {
 		return managedEnvelope{}, errors.New("Host cleanup owner returned an unbound operation")
@@ -113,6 +117,25 @@ func (runtime managedRuntime) cleanup(ctx context.Context, action string, opts m
 		envelope.NextAction = []managedNextAction{{Action: "cleanup_preview_new_request", Permission: "service_user"}}
 	}
 	return envelope, nil
+}
+
+func cleanupRejection(action string, err error) error {
+	code := status.Code(err)
+	if code > codes.Unauthenticated {
+		code = codes.Unknown
+	}
+	reason := "UNKNOWN"
+	guidance := ""
+	if info := cleanupErrorInfo(err); info != nil {
+		switch info.GetReason() {
+		case "AGENT_ACCESS_ACTIVE":
+			reason = info.GetReason()
+			guidance = "; complete removal of the exact agent integration before environment discard"
+		case "REMOTE_ALLOCATION_ACTIVE", "REMOTE_ALLOCATION_CONTROLLER_OWNED", "ENVIRONMENT_NOT_FOUND", "CLEANUP_INVENTORY_LIMIT", "CLEANUP_PLAN_STALE", "CLEANUP_ADMISSION_CANCELED", "CLEANUP_ADMISSION_OUTCOME_UNKNOWN", "CLEANUP_ADMISSION_TIMEOUT", "CLEANUP_FAILED", "CLEANUP_TERMINAL_PERSIST_FAILED", "CLEANUP_TERMINAL_RESULT_UNKNOWN", "REQUEST_ID_REUSED", "VOLUME_CONFIRMATION_REQUIRED":
+			reason = info.GetReason()
+		}
+	}
+	return fmt.Errorf("Host cleanup %s rejected: rpc_code=%s reason=%s%s", action, code.String(), reason, guidance)
 }
 
 func cleanupErrorInfo(err error) *errdetails.ErrorInfo {

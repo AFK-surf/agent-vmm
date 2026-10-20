@@ -194,6 +194,7 @@ func (controller *Controller) reconcileLocalDisposal(ctx context.Context, root s
 	if err != nil {
 		return err
 	}
+	shareErr := controller.settleEnvironmentHostShares(ctx, child.TargetID)
 	unlock, err := controller.lockEnvironmentContext(ctx, child.TargetID)
 	if err != nil {
 		return err
@@ -216,6 +217,9 @@ func (controller *Controller) reconcileLocalDisposal(ctx context.Context, root s
 		if err := controller.store.CloseDisposedSession(ctx, child.TargetID, id); err != nil {
 			return err
 		}
+	}
+	if shareErr != nil {
+		return shareErr
 	}
 	if len(sessions) > 0 {
 		controller.wakeLocalDisposal()

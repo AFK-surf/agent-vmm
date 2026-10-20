@@ -339,6 +339,7 @@ enum ErrorReason {
   ERROR_REASON_DEADLINE_EXCEEDED = 15;
   ERROR_REASON_FEATURE_MISMATCH = 16;
   ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED = 17;
+  ERROR_REASON_ADMISSION_PAUSED = 18;
 }
 
 message CleanupPlan {
@@ -347,6 +348,7 @@ message CleanupPlan {
   repeated string volume_ids = 3;
   agentvmm.host.v1.CleanupKind kind = 4;
   repeated agentvmm.host.v1.CleanupImpact impacts = 5;
+  uint64 allocation_generation = 6;
 }
 message SessionReady {
   reserved 2;

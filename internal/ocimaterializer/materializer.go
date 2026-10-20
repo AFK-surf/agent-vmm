@@ -45,6 +45,14 @@ func (manager *Manager) LockImport(digest string) (func(), bool) {
 
 // Admitted build workers wait within their request deadline. Their existing
 // two-worker semaphore remains held through output materialization.
+func (manager *Manager) TryLockBuild() (func(), bool) {
+	slot := manager.slot()
+	if !slot.TryAcquire(1) {
+		return nil, false
+	}
+	return func() { slot.Release(1) }, true
+}
+
 func (manager *Manager) LockBuild(ctx context.Context) (func(), error) {
 	slot := manager.slot()
 	if err := slot.Acquire(ctx, 1); err != nil {

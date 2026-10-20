@@ -4,6 +4,7 @@ package network
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -11,11 +12,14 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
+	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/proto"
 )
@@ -183,6 +187,24 @@ func TestServiceProjectionIsSourceScopedAndInstanceFenced(t *testing.T) {
 	if got := manager.localDNSAddresses("destination", "database.source.agent."); len(got) != 0 {
 		t.Fatalf("destination namespace saw source projection: %v", got)
 	}
+	for _, test := range []struct {
+		namespace, name string
+		want            bool
+	}{
+		{"source", "database.services.agent.", true},
+		{"destination", "database.services.agent.", false},
+		{"source", "neighbor.services.agent.", false},
+		{"source", "client.services.agent.", false},
+	} {
+		if got := manager.localDNSAddresses(test.namespace, test.name); (len(got) > 0) != test.want {
+			t.Fatalf("source-scoped %s/%s = %v", test.namespace, test.name, got)
+		}
+	}
+	delete(manager.services, "route")
+	if got := manager.localDNSAddresses("source", "database.services.agent."); len(got) != 0 {
+		t.Fatalf("revoked import still resolved: %v", got)
+	}
+	manager.services["route"] = projection
 	manager.endpoints["destination"]["server"] = Endpoint{ContainerID: "server", InstanceID: "server-v2", Address: netip.MustParseAddr("10.64.2.3")}
 	if got := manager.localDNSAddresses("source", "database.source.agent."); len(got) != 0 {
 		t.Fatalf("stale destination instance remained projected: %v", got)
@@ -269,6 +291,7 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 	manager := &Manager{
 		namespaces: make(map[string]Namespace),
 		endpoints:  make(map[string]map[string]Endpoint),
+		dns:        make(map[string]*dnsServer),
 	}
 	t.Cleanup(func() {
 		connection := &nftables.Conn{}
@@ -277,19 +300,105 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 			t.Errorf("remove test policy: %v", err)
 		}
 	})
+	t.Cleanup(func() { manager.Close() })
 	for index := range 16 {
 		id := fmt.Sprintf("public-%d", index)
-		manager.namespaces[id] = Namespace{ID: id, Bridge: fmt.Sprintf("bridge%d", index), EgressMode: vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}
+		manager.namespaces[id] = Namespace{ID: id, Gateway: netip.MustParseAddr(fmt.Sprintf("127.64.%d.1", index)), Bridge: fmt.Sprintf("bridge%d", index), EgressMode: vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}
 		manager.endpoints[id] = map[string]Endpoint{"worker": {Address: netip.MustParseAddr(fmt.Sprintf("10.64.%d.2", index))}}
 		if err := manager.Health(); err != nil {
 			t.Fatalf("reconcile %d public namespaces: %v", index+1, err)
+		}
+	}
+	manager.settledOK = make(map[string]bool)
+	for _, id := range []string{"system.lan-replay", "workload-no-lan"} {
+		subnet := "127.65.0.0/24"
+		if id == "workload-no-lan" {
+			subnet = "127.65.1.0/24"
+		}
+		if err := manager.EnsureNamespace(id, subnet, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(resolvPath(id)) })
+		if id == "system.lan-replay" {
+			if err := manager.SetSystemLAN(id, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := manager.EnsureNamespace(id, subnet, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
+			t.Fatal(err)
+		}
+		if got := manager.namespaces[id].LANEgress; got != (id == "system.lan-replay") {
+			t.Fatalf("namespace replay changed LAN grant: %s %t", id, got)
 		}
 	}
 	// Health replaces the table again after all namespaces exist.
 	if err := manager.Health(); err != nil {
 		t.Fatalf("repeat policy reconciliation: %v", err)
 	}
-	chains, err := (&nftables.Conn{}).ListChains()
+	manager.services = map[string]*vmmdv1.ServiceProjection{"gitea": {Id: "gitea", SourceNamespaceId: "public-0", SourceContainerId: "worker", DestinationNamespaceId: "public-1", DestinationContainerId: "worker", DestinationPort: 3000, ExpiresUnixMillis: time.Now().Add(time.Hour).UnixMilli()}}
+	manager.links = map[string]*vmmdv1.NetworkLink{"approved-link": {Id: "approved-link", SourceNamespaceId: "public-0", DestinationNamespaceId: "public-1", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{22}}}
+	if err := manager.Health(); err != nil {
+		t.Fatal(err)
+	}
+	connection := &nftables.Conn{}
+	table := &nftables.Table{Name: "agent-vmm", Family: nftables.TableFamilyINet}
+	rules, err := connection.GetRules(table, &nftables.Chain{Name: "forward", Table: table})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDrop, serviceAccept, linkAccept := -1, -1, -1
+	for index, rule := range rules {
+		kind := ""
+		for _, expression := range rule.Exprs {
+			if lookup, ok := expression.(*expr.Lookup); ok {
+				if strings.HasPrefix(lookup.SetName, "ss") {
+					kind = "service"
+				}
+				if strings.HasPrefix(lookup.SetName, "ls") {
+					kind = "link"
+				}
+			}
+			if verdict, ok := expression.(*expr.Verdict); ok {
+				if verdict.Kind == expr.VerdictDrop && firstDrop < 0 {
+					firstDrop = index
+				}
+				if verdict.Kind == expr.VerdictAccept && kind == "service" {
+					serviceAccept = index
+				}
+				if verdict.Kind == expr.VerdictAccept && kind == "link" {
+					linkAccept = index
+				}
+			}
+		}
+	}
+	if firstDrop < 0 || serviceAccept < 0 || linkAccept < 0 || serviceAccept > firstDrop || linkAccept > firstDrop {
+		t.Fatalf("installed rule order: service=%d link=%d RFC1918 deny=%d", serviceAccept, linkAccept, firstDrop)
+	}
+	oldDNS := manager.dns["public-0"]
+	oldDNS.udp.Close()
+	deadline := time.Now().Add(time.Second)
+	for {
+		manager.mu.RLock()
+		retired := manager.dns["public-0"] == nil
+		manager.mu.RUnlock()
+		if retired {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("dead DNS listener remains registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := manager.Health(); err != nil {
+		t.Fatalf("restore listener in network reconciliation: %v", err)
+	}
+	manager.mu.RLock()
+	replacementDNS := manager.dns["public-0"]
+	manager.mu.RUnlock()
+	if replacementDNS == nil || replacementDNS == oldDNS {
+		t.Fatal("network reconciliation did not replace dead DNS listener")
+	}
+	chains, err := connection.ListChains()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,4 +408,112 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 		}
 	}
 	t.Fatal("reconciled policy has no default-drop forward chain")
+}
+
+func TestDNSListenerFailureRetiresExactServerAndRestarts(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires Guest root to bind the DNS port")
+	}
+	for _, transport := range []string{"udp", "tcp"} {
+		t.Run(transport, func(t *testing.T) {
+			manager := &Manager{namespaces: map[string]Namespace{"dns": {ID: "dns", Gateway: netip.MustParseAddr("127.0.0.2")}}, dns: make(map[string]*dnsServer)}
+			manager.mu.Lock()
+			err := manager.startDNSLocked("dns")
+			old := manager.dns["dns"]
+			manager.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { manager.Close() })
+			queryDNS := func(network string) {
+				t.Helper()
+				query, err := (&dnsmessage.Message{Header: dnsmessage.Header{ID: 17}, Questions: []dnsmessage.Question{{Name: dnsmessage.MustNewName("missing.dns.agent."), Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}}}).Pack()
+				if err != nil {
+					t.Fatal(err)
+				}
+				connection, err := net.DialTimeout(network, "127.0.0.2:53", time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer connection.Close()
+				connection.SetDeadline(time.Now().Add(time.Second))
+				if network == "tcp4" {
+					query = append([]byte{byte(len(query) >> 8), byte(len(query))}, query...)
+				}
+				if _, err := connection.Write(query); err != nil {
+					t.Fatal(err)
+				}
+				response := make([]byte, 1024)
+				var count int
+				if network == "tcp4" {
+					var size [2]byte
+					if _, err := io.ReadFull(connection, size[:]); err != nil {
+						t.Fatal(err)
+					}
+					count = int(binary.BigEndian.Uint16(size[:]))
+					_, err = io.ReadFull(connection, response[:count])
+				} else {
+					count, err = connection.Read(response)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				var answer dnsmessage.Message
+				if err := answer.Unpack(response[:count]); err != nil || answer.RCode != dnsmessage.RCodeNameError {
+					t.Fatalf("expected NXDOMAIN: %v %v", answer, err)
+				}
+			}
+			queryDNS("udp4")
+			queryDNS("tcp4")
+			manager.mu.Lock()
+			answered := make(chan struct{})
+			go func() { queryDNS("udp4"); close(answered) }()
+			select {
+			case <-answered:
+				manager.mu.Unlock()
+				t.Fatal("local DNS bypassed the manager write lock")
+			case <-time.After(20 * time.Millisecond):
+			}
+			manager.mu.Unlock()
+			select {
+			case <-answered:
+			case <-time.After(time.Second):
+				t.Fatal("local DNS did not resume after projection lock release")
+			}
+			if transport == "udp" {
+				old.udp.Close()
+			} else {
+				old.tcp.Close()
+			}
+			deadline := time.Now().Add(time.Second)
+			for {
+				manager.mu.RLock()
+				retired := manager.dns["dns"] == nil
+				manager.mu.RUnlock()
+				if retired {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("dead listener remains registered")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			manager.mu.Lock()
+			err = manager.startDNSLocked("dns")
+			replacement := manager.dns["dns"]
+			manager.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager.retireDNS("dns", old)
+			manager.mu.RLock()
+			current := manager.dns["dns"]
+			manager.mu.RUnlock()
+			if replacement == old || current != replacement {
+				t.Fatal("old worker retired replacement")
+			}
+			queryDNS("udp4")
+			queryDNS("tcp4")
+		})
+	}
 }

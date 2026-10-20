@@ -469,7 +469,7 @@ extension GRPCHostClient {
                 return Workload(
                     id: $0.id, generationID: $0.generationID, image: $0.image, state: state, exitCode: $0.hasExitCode ? $0.exitCode : nil,
                     argv: $0.argv, environmentKeys: $0.environmentKeys, workdir: $0.hasWorkdir ? $0.workdir : nil,
-                    user: $0.hasUser ? $0.user : nil, mounts: $0.volumes.map { "\($0.volumeID) → \($0.destination)" },
+                    user: $0.hasUser ? $0.user : nil, mounts: $0.volumes.map { "\($0.hostShare.isEmpty ? $0.ownedVolume : $0.hostShare) → \($0.destination)" },
                     instanceID: $0.instanceID.nilIfEmpty,
                     createdAt: optionalDate($0.createdAt), startedAt: optionalDate($0.startedAt), finishedAt: optionalDate($0.finishedAt)
                 )

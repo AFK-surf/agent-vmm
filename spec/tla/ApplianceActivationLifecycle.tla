@@ -3,7 +3,7 @@ EXTENDS Naturals
 
 CONSTANTS EnforceVerification, EnforceSingleUse, EnforceInstanceFence,
           EnforceSeedDeletionFence, EnforcePublicationFence,
-          EnforceSealedRecovery, EnforceRemoveRevision, EnforceBundledArtifact,
+          EnforceSealedFence, EnforceRemoveRevision, EnforceBundledArtifact,
           EnforceBundleValidation, EnforceDomainPreservation,
           EnforceInstallationIsolation
 
@@ -24,7 +24,7 @@ Init ==
        seedConsumed |-> FALSE, seedPresent |-> FALSE, seedIssued |-> FALSE,
        seedFenceCommitted |-> FALSE, fenceCommitted |-> FALSE, published |-> FALSE,
        operationPhase |-> "IDLE", revision |-> 1, plannedRevision |-> 0,
-       repairPending |-> FALSE, sealedUsed |-> FALSE]
+       sealedUsed |-> FALSE]
   /\ violations = {}
 
 StageArtifact ==
@@ -195,7 +195,7 @@ Seal ==
   /\ ~state.recoveryPending
   /\ state' = [state EXCEPT !.phase = "SEALED", !.replacementPending = FALSE,
        !.session = 0, !.frontend = 0, !.published = FALSE,
-       !.sealedUsed = TRUE, !.repairPending = FALSE, !.recoveryPending = FALSE]
+       !.sealedUsed = TRUE, !.recoveryPending = FALSE]
   /\ UNCHANGED violations
 
 Revoke ==
@@ -214,28 +214,10 @@ CompleteRevoke ==
   /\ state' = [state EXCEPT !.phase = "REVOKED", !.operationPhase = "IDLE"]
   /\ UNCHANGED violations
 
-PlanSealedRepair ==
-  /\ state.phase = "SEALED" /\ EnforceSealedRecovery /\ ~state.repairPending
-  /\ state.operationPhase # "RUNNING"
-  /\ state' = [state EXCEPT !.repairPending = TRUE, !.operationPhase = "RUNNING"]
-  /\ UNCHANGED violations
-
-RecoverSealed ==
-  /\ state.phase = "SEALED" /\ EnforceSealedRecovery /\ state.repairPending
-  /\ state' = [state EXCEPT !.phase = "STOPPED", !.repairPending = FALSE,
-       !.sealedUsed = FALSE, !.revision = NextCounter(state.revision),
-       !.operationPhase = "IDLE"]
-  /\ UNCHANGED violations
-
-RepairCrash ==
-  /\ state.phase = "SEALED" /\ state.repairPending
-  /\ state' = [state EXCEPT !.repairPending = FALSE, !.operationPhase = "IDLE"]
-  /\ UNCHANGED violations
-
 UnsafeReopenSealed ==
-  /\ ~EnforceSealedRecovery /\ state.phase = "SEALED"
+  /\ ~EnforceSealedFence /\ state.phase = "SEALED"
   /\ state' = [state EXCEPT !.phase = "ACTIVE"]
-  /\ violations' = violations \cup {"SEALED_RECOVERY_BYPASS"}
+  /\ violations' = violations \cup {"SEALED_REOPEN"}
 
 PlanRemove ==
   /\ state.phase \in {"ACTIVE", "STOPPED", "REVOKED", "SEALED"}
@@ -266,8 +248,8 @@ Next == StageArtifact \/ Install \/ Start \/ CommitInstanceFence \/
   BootstrapInitial \/ Bootstrap \/ ReplayBootstrap \/ DeleteSeed \/ Settle \/
   Stop \/ Restart \/ Crash \/ BundledArtifactUpgrade \/ RejectInvalidBundledArtifact \/ PayloadCrash \/ AdoptReplacement \/
   StaleInstance \/ StaleSession \/ StaleFrontend \/ UnsafePublishBeforeFence \/
-  UnsafeConsumeSeed \/ Seal \/ Revoke \/ CompleteRevoke \/ PlanSealedRepair \/
-  RecoverSealed \/ RepairCrash \/ UnsafeReopenSealed \/ PlanRemove \/
+  UnsafeConsumeSeed \/ Seal \/ Revoke \/ CompleteRevoke \/
+  UnsafeReopenSealed \/ PlanRemove \/
   ExecuteRemove \/ RecoverOperation
 
 TypeOK ==
@@ -287,7 +269,7 @@ TypeOK ==
   /\ state.fenceCommitted \in BOOLEAN /\ state.published \in BOOLEAN
   /\ state.operationPhase \in {"IDLE", "RUNNING", "INTERRUPTED"}
   /\ state.revision \in 1..2 /\ state.plannedRevision \in 0..2
-  /\ state.repairPending \in BOOLEAN /\ state.sealedUsed \in BOOLEAN
+  /\ state.sealedUsed \in BOOLEAN
 
 ActiveVerifiedExact == state.phase = "ACTIVE" => state.verified = state.artifact
 ActiveUsesBundledArtifact == state.phase = "ACTIVE" => state.artifact = state.bundleArtifact
@@ -304,7 +286,7 @@ CurrentInstanceFence == state.phase = "ACTIVE" =>
 PublicationFence == state.phase = "ACTIVE" => state.fenceCommitted /\ state.published
 SeedConsumptionFence == state.phase = "BOOTSTRAPPING" /\ state.seedConsumed => state.fenceCommitted
 InitialSeedDeletionFence == state.seedIssued /\ ~state.seedPresent => state.seedFenceCommitted
-SealedRecoveryIsBounded == state.sealedUsed =>
+SealedRemainsClosed == state.sealedUsed =>
   state.phase \in {"SEALED", "PENDING_DESTROY", "REMOVED"}
 RemoveRevisionExact == state.phase = "REMOVED" => state.plannedRevision = state.revision
 NoActiveRuntimeDuringOperation == state.operationPhase = "RUNNING" =>
@@ -323,7 +305,6 @@ RecoveryEventuallyStarts == [] (state.recoveryPending => <> ~state.recoveryPendi
 Spec == Init /\ [][Next]_vars /\ WF_vars(Install) /\ WF_vars(Start) /\ WF_vars(BootstrapInitial) /\
   WF_vars(Bootstrap) /\ WF_vars(CommitInstanceFence) /\ WF_vars(DeleteSeed) /\
   WF_vars(Settle) /\ WF_vars(AdoptReplacement) /\ WF_vars(CompleteRevoke) /\
-  WF_vars(ExecuteRemove) /\ WF_vars(RecoverOperation) /\ WF_vars(RecoverSealed) /\
-  WF_vars(PlanSealedRepair) /\ WF_vars(RepairCrash)
+  WF_vars(ExecuteRemove) /\ WF_vars(RecoverOperation)
 
 =============================================================================

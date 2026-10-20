@@ -18,14 +18,35 @@ func (r *Runtime) reclaimOCI(ctx context.Context, limit int) (int, error) {
 }
 
 func (r *Runtime) reclaimOCIWithMaterializer(ctx context.Context, limit int, materializerHeld bool) (int, error) {
-	return r.reclaimOCIWithMaterializerTransaction(ctx, limit, materializerHeld, nil)
+	return r.reclaimOCIWithMaterializerTransaction(ctx, limit, materializerHeld, nil, "explicit_oci_reclaim")
 }
 
-func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, limit int, materializerHeld bool, _ *guestdisk.Transaction) (int, error) {
+func (r *Runtime) reclaimOCIWithMaterializerTransaction(ctx context.Context, limit int, materializerHeld bool, _ *guestdisk.Transaction, reason string) (int, error) {
 	if limit <= 0 || limit > maxGCDeletes {
 		limit = maxGCDeletes
 	}
-	return r.pruneUnreferencedRuntimeImages(ctx, limit, materializerHeld)
+	if !materializerHeld {
+		unlock, acquired := r.materializer.TryLockBuild()
+		if !acquired {
+			if r.builder == nil {
+				return 0, nil
+			}
+			return r.builder.ReclaimCache(ctx, limit, reason+" oci_slot_occupied=true")
+		}
+		defer unlock()
+		materializerHeld = true
+	}
+	retained, err := r.reclaimRetainedImageCache(ctx, max(1, limit/2), materializerHeld)
+	if err != nil || retained >= limit {
+		return retained, err
+	}
+	removed, err := r.pruneUnreferencedRuntimeImages(ctx, limit-retained, materializerHeld)
+	removed += retained
+	if err != nil || removed >= limit || r.builder == nil {
+		return removed, err
+	}
+	caches, err := r.builder.ReclaimCache(ctx, limit-removed, reason)
+	return removed + caches, err
 }
 
 // Logical image records are retention grants. The rebuildable index selects a
@@ -61,18 +82,18 @@ func (r *Runtime) pruneUnreferencedRuntimeImages(ctx context.Context, limit int,
 		if err != nil {
 			return deleted, err
 		}
-		retained, err := r.runtimeImageRetained(image.Target.Digest)
-		if err != nil {
-			return deleted, err
-		}
-		if retained {
-			continue
-		}
 		unlock := func() {}
 		if !materializerHeld {
+			retained, err := r.runtimeImageRetained(ctx, image.Target.Digest)
+			if err != nil {
+				return deleted, err
+			}
+			if retained {
+				continue
+			}
 			unlock = r.materializer.Lock(image.Target.Digest.String())
 		}
-		retained, err = r.runtimeImageRetained(image.Target.Digest)
+		retained, err := r.runtimeImageRetained(ctx, image.Target.Digest)
 		if err == nil && !retained {
 			err = r.client.ImageService().Delete(runtimeContext(ctx), image.Name, coreimages.SynchronousDelete())
 			if errdefs.IsNotFound(err) {
@@ -91,10 +112,22 @@ func (r *Runtime) pruneUnreferencedRuntimeImages(ctx context.Context, limit int,
 	return deleted, nil
 }
 
-func (r *Runtime) runtimeImageRetained(wanted digest.Digest) (bool, error) {
+func (r *Runtime) runtimeImageRetained(ctx context.Context, wanted digest.Digest) (bool, error) {
 	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return false, err
 	}
-	return inventory.imageDigestReferenced(wanted.String()), nil
+	if inventory.imageDigestReferenced(wanted.String()) {
+		return true, nil
+	}
+	references, err := r.unsettledImageReferences(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, reference := range references {
+		if reference.Digest == wanted.String() {
+			return true, nil
+		}
+	}
+	return false, nil
 }

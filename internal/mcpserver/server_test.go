@@ -31,6 +31,7 @@ import (
 type fakeRuntime struct {
 	hostv1.UnimplementedAgentRuntimeServiceServer
 	mu                sync.Mutex
+	createdContainers []*hostv1.CreateContainerRequest
 	requestIDs        []string
 	containerState    hostv1.ContainerState
 	containerInstance string
@@ -187,6 +188,9 @@ func (server *fakeRuntime) PullImage(request *hostv1.PullImageRequest, stream gr
 }
 func (server *fakeRuntime) CreateContainer(_ context.Context, request *hostv1.CreateContainerRequest) (*hostv1.ContainerResponse, error) {
 	server.record(request.GetRequestId())
+	server.mu.Lock()
+	server.createdContainers = append(server.createdContainers, proto.Clone(request).(*hostv1.CreateContainerRequest))
+	server.mu.Unlock()
 	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), Image: request.GetImage(), State: hostv1.ContainerState_CONTAINER_STATE_CREATED}}, nil
 }
 func (server *fakeRuntime) StartContainer(_ context.Context, request *hostv1.ContainerMutationRequest) (*hostv1.ContainerResponse, error) {
@@ -604,7 +608,7 @@ func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 		arguments map[string]any
 	}{
 		{name: "image_pull", arguments: map[string]any{"reference": "example.invalid/image:test"}},
-		{name: "container_run", arguments: map[string]any{"container_id": "job", "image": "example.invalid/image:test", "entrypoint": []string{"/bin/true"}, "command": []string{}, "startup_observation_ms": 1}},
+		{name: "container_run", arguments: map[string]any{"container_id": "job", "image": "example.invalid/image:test", "entrypoint": []string{"/bin/true"}, "command": []string{}, "startup_observation_ms": 1, "volumes": []map[string]any{{"owned_volume": "cache", "destination": "/data"}, {"host_share": "approved-share", "destination": "/external", "read_only": true}}}},
 		{name: "container_start", arguments: map[string]any{"container_id": "job"}},
 		{name: "container_exec", arguments: map[string]any{"container_id": "job", "argv": []string{"printf", "ok"}}},
 		{name: "container_stop", arguments: map[string]any{"container_id": "job", "timeout_seconds": 1}},
@@ -629,6 +633,10 @@ func TestMutationLifecycleAndGeneratedRequestIDs(t *testing.T) {
 	runtime.mu.Unlock()
 	if deletedGeneration != "generation-job" {
 		t.Fatalf("delete generation = %q", deletedGeneration)
+	}
+	mounts := runtime.createdContainers[0].GetVolumes()
+	if len(mounts) != 2 || mounts[0].GetOwnedVolume() != "cache" || mounts[1].GetHostShare() != "approved-share" || !mounts[1].GetReadOnly() {
+		t.Fatalf("typed mount input was not preserved: %v", mounts)
 	}
 	seen := make(map[string]bool)
 	for _, id := range ids {

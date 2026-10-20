@@ -61,15 +61,16 @@ type Subsystem struct {
 	Policies Policies
 	Leases   Leases
 
-	mu         sync.Mutex
-	session    context.CancelFunc
-	connection net.Conn
-	bootID     string
-	counters   counters
-	metrics    metrics
-	dialer     net.Dialer
-	resolver   dnsResolver
-	services   serviceRoutes
+	mu                    sync.Mutex
+	session               context.CancelFunc
+	connection            net.Conn
+	bootID                string
+	counters              counters
+	metrics               metrics
+	dialer                net.Dialer
+	resolver              dnsResolver
+	services              serviceRoutes
+	HostTCPInfrastructure func(netip.AddrPort) bool
 }
 
 func New() *Subsystem {
@@ -251,18 +252,21 @@ func headerIPv4EmptySubnet() tcpip.Subnet {
 	return subnet
 }
 
-func (subsystem *Subsystem) authorize(bootID string, sourceAddress, destinationAddress tcpip.Address, virtualDNS bool) (string, bool, bool) {
+func (subsystem *Subsystem) authorizeEndpoint(bootID string, sourceAddress, destinationAddress tcpip.Address, virtualDNS bool, port uint16, tcp bool, dnsAnswer bool) (string, bool, bool, Source) {
+	var sourcePolicy Source
 	source, ok := addressFromTCPIP(sourceAddress)
 	if !ok {
-		return "", false, false
+		return "", false, false, sourcePolicy
 	}
 	destination, ok := addressFromTCPIP(destinationAddress)
 	if !ok {
-		return "", false, false
+		return "", false, false, sourcePolicy
 	}
 	guest, _, _ := netprotocol.Addresses()
 	infrastructure := source == guest
 	environment := ""
+	lan := false
+	public := infrastructure
 	var subnets []netip.Prefix
 	if state := subsystem.Policies.state.Load(); state != nil && state.bootID == bootID {
 		subnets = make([]netip.Prefix, 0, len(state.sources))
@@ -272,20 +276,66 @@ func (subsystem *Subsystem) authorize(bootID string, sourceAddress, destinationA
 	}
 	if infrastructure {
 		if !subsystem.Leases.Active(time.Now()) {
-			return "", true, false
+			return "", true, false, sourcePolicy
 		}
 	} else {
 		resolved, allowed := subsystem.Policies.Resolve(bootID, source)
 		if !allowed {
-			return "", false, false
+			return "", false, false, sourcePolicy
 		}
+		sourcePolicy = resolved
 		environment = resolved.EnvironmentID
+		lan = resolved.LANEgress
+		public = resolved.Mode == PublicInternet
 	}
 	_, host, _ := netprotocol.Addresses()
 	if virtualDNS && destination == host {
-		return environment, infrastructure, true
+		return environment, infrastructure, true, sourcePolicy
 	}
-	return environment, infrastructure, DestinationAllowed(destination, subnets, true)
+	var hosts []netip.Addr
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return environment, infrastructure, false, sourcePolicy
+	}
+	isHost := false
+	for _, value := range addresses {
+		if prefix, err := netip.ParsePrefix(value.String()); err == nil {
+			address := prefix.Addr().Unmap()
+			hosts = append(hosts, address)
+			if destination == address {
+				isHost = true
+			}
+		}
+	}
+	if isHost {
+		_, _, transport := netprotocol.Addresses()
+		if destination.IsLoopback() || destination.IsLinkLocalUnicast() || transport.Contains(destination) || namespacePool.Contains(destination) {
+			return environment, infrastructure, false, sourcePolicy
+		}
+		for _, subnet := range subnets {
+			if subnet.Contains(destination) {
+				return environment, infrastructure, false, sourcePolicy
+			}
+		}
+		for _, granted := range sourcePolicy.HostTCPEndpoints {
+			if granted.Addr() != destination || (!dnsAnswer && (!tcp || granted.Port() != port)) {
+				continue
+			}
+			if subsystem.HostTCPInfrastructure != nil && subsystem.HostTCPInfrastructure(granted) {
+				continue
+			}
+			return environment, infrastructure, true, sourcePolicy
+		}
+		return environment, infrastructure, false, sourcePolicy
+	}
+	if public && DestinationAllowed(destination, subnets, true) {
+		return environment, infrastructure, true, sourcePolicy
+	}
+	if lan {
+		return environment, infrastructure, LANDestinationAllowed(destination, subnets, hosts), sourcePolicy
+	}
+
+	return environment, infrastructure, false, sourcePolicy
 }
 
 func addressFromTCPIP(address tcpip.Address) (netip.Addr, bool) {

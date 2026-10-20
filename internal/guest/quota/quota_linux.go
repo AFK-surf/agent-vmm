@@ -4,6 +4,7 @@ package quota
 
 import (
 	"fmt"
+	"math/bits"
 	"os"
 	"unsafe"
 
@@ -29,18 +30,32 @@ type fsXAttr struct {
 	Pad        [8]byte
 }
 
+type State struct {
+	UsageBytes     uint64
+	HardLimitBytes uint64
+}
+
 func Usage(device string, projectID uint32) (uint64, error) {
+	state, err := Read(device, projectID)
+	return state.UsageBytes, err
+}
+
+func Read(device string, projectID uint32) (State, error) {
 	devicePointer, err := unix.BytePtrFromString(device)
 	if err != nil {
-		return 0, err
+		return State{}, err
 	}
 	quota := quotaBlock{}
 	command := uintptr(quotaGetQuota<<8 | projectQuota)
 	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, command, uintptr(unsafe.Pointer(devicePointer)), uintptr(projectID), uintptr(unsafe.Pointer(&quota)), 0, 0)
 	if errno != 0 {
-		return 0, fmt.Errorf("read project quota %d: %w", projectID, errno)
+		return State{}, fmt.Errorf("read project quota %d: %w", projectID, errno)
 	}
-	return quota.CurrentSpace, nil
+	high, limit := bits.Mul64(quota.BlockHardLimit, 1024)
+	if high != 0 {
+		return State{}, fmt.Errorf("project quota %d limit overflows byte accounting", projectID)
+	}
+	return State{UsageBytes: quota.CurrentSpace, HardLimitBytes: limit}, nil
 }
 
 type quotaBlock struct {

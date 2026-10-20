@@ -4,16 +4,18 @@ package control
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
 	"errors"
-	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
@@ -23,14 +25,32 @@ import (
 	"github.com/containerd/typeurl/v2"
 	securejoin "github.com/cyphar/filepath-securejoin"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
+
+func containerRequestHash(request proto.Message) string {
+	body, _ := proto.MarshalOptions{Deterministic: true}.Marshal(request)
+	return fmt.Sprintf("%x", sha256.Sum256(body))
+}
 
 func (r *Runtime) CreateContainer(ctx context.Context, request *vmmdv1.CreateContainerRequest) (*vmmdv1.Container, error) {
 	return r.createContainer(ctx, request, false, nil)
 }
 
-func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateContainerRequest, system bool, systemOption oci.SpecOpts) (*vmmdv1.Container, error) {
+func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateContainerRequest, system bool, systemOption oci.SpecOpts) (_ *vmmdv1.Container, createErr error) {
+	dispatched := false
+	defer func() {
+		if createErr == nil || dispatched {
+			return
+		}
+		failure, err := status.Convert(rpcError(createErr)).WithDetails(&errdetails.ErrorInfo{Reason: "CONTAINER_CREATE_NOT_ADMITTED", Domain: "agent-vmm", Metadata: map[string]string{"admission": "not_accepted"}})
+		if err == nil {
+			createErr = failure.Err()
+		}
+	}()
 	namespaceID := request.GetActorNamespaceId()
 	if system {
 		if err := validateSystemNamespace(namespaceID); err != nil {
@@ -42,6 +62,9 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if err := validateID("container_id", request.GetContainerId()); err != nil {
 		return nil, err
 	}
+	if len(request.GetEntrypointOverride().GetValues()) > 256 || len(request.GetCommandOverride().GetValues()) > 256 || len(request.GetEnv()) > 256 || request.GetLogLimitBytes() == 0 || request.GetLogLimitBytes() > 64<<20 {
+		return nil, detailedError(codes.InvalidArgument, "CONTAINER_LAUNCH_INVALID", "entrypoint, command, env, or log limit is outside the allowed range", "container", request.GetContainerId())
+	}
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
 	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
@@ -50,9 +73,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if request.GetImage() == "" {
 		return nil, errors.New("image is required")
 	}
-	if len(request.GetEntrypointOverride().GetValues()) > 256 || len(request.GetCommandOverride().GetValues()) > 256 || len(request.GetEnv()) > 256 || request.GetLogLimitBytes() == 0 || request.GetLogLimitBytes() > 64<<20 {
-		return nil, errors.New("entrypoint, command, env, or log limit is outside the allowed range")
-	}
+
 	if err := validateEnvironment(request.GetEnv()); err != nil {
 		return nil, detailedError(codes.InvalidArgument, "ENVIRONMENT_INVALID", err.Error(), "container", request.GetContainerId())
 	}
@@ -73,14 +94,15 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		return nil, err
 	}
 	for _, mount := range request.GetVolumes() {
-		if err := validateID("volume_id", mount.GetVolumeId()); err != nil {
-			return nil, err
-		}
 		if err := validateDestination(mount.GetDestination()); err != nil {
 			return nil, err
 		}
-		if info, err := os.Stat(volumePath(namespaceID, mount.GetVolumeId())); err != nil || !info.IsDir() {
-			return nil, errors.New("named volume does not exist")
+		source, err := r.mountSource(namespaceID, mount)
+		if err != nil {
+			return nil, err
+		}
+		if info, err := os.Stat(source); err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("mount source is unavailable: %s", mount.GetDestination())
 		}
 	}
 	logicalContext := namespaceContext(ctx, namespaceID)
@@ -103,14 +125,14 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		}
 		return nil, err
 	}
-	unpacked, err := image.IsUnpacked(nsctx, namespaceSnapshotter(namespaceID))
+	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
 	if err != nil {
 		return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonicalImage)
 	}
 	if !unpacked {
 		return nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "image root filesystem is not materialized; import the exact image again", canonicalImage)
 	}
-	volumeJSON, err := json.Marshal(request.GetVolumes())
+	volumeJSON, err := encodeContainerMounts(request.GetVolumes())
 	if err != nil {
 		return nil, err
 	}
@@ -118,42 +140,45 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if systemOption != nil {
 		specOptions = append(specOptions, systemOption)
 	}
-	var container containerd.Container
-	create := func() error {
-		var createErr error
-		container, createErr = r.client.NewContainer(nsctx, runtimeContainerKey(namespaceID, request.GetContainerId()),
-			containerd.WithImage(image), containerd.WithSnapshotter(namespaceSnapshotter(namespaceID)),
-			atContainerStage("rootfs_snapshot", containerd.WithNewSnapshot(runtimeSnapshotKey(namespaceID, request.GetContainerId()), image)),
-			containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
-			containerd.WithContainerLabels(map[string]string{containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10), runtimeOwnerLabel: namespaceID, runtimeExternalIDLabel: request.GetContainerId(), runtimeImageLabel: canonicalImage}),
-			atContainerStage("oci_spec", containerd.WithNewSpec(specOptions...)), atContainerStage("supervisor_spec", withSupervisedProcess()),
-		)
-		return createErr
+	snapshot := containerd.WithNewSnapshot(runtimeSnapshotKey(namespaceID, request.GetContainerId()), image)
+	if system {
+		snapshot = containerd.WithNewSnapshotView(runtimeSnapshotKey(namespaceID, request.GetContainerId()), image)
 	}
-	if namespaceSnapshotter(namespaceID) == "native" {
-		err = create()
-	} else {
-		err = r.guardOCIPhysicalGrowth(ctx, "container-snapshot\x00"+namespaceID+"\x00"+request.GetContainerId()+"\x00"+canonicalImage, false, create)
-	}
+	dispatched = true
+	container, err := r.client.NewContainer(nsctx, runtimeContainerKey(namespaceID, request.GetContainerId()),
+		containerd.WithImage(image), containerd.WithSnapshotter(containerSnapshotter),
+		atContainerStage("rootfs_snapshot", snapshot),
+		containerd.WithRuntime(runscRuntime, &runtimeoptions.Options{TypeUrl: "io.containerd.runsc.v1.options", ConfigPath: "/etc/containerd/runsc.toml"}),
+		containerd.WithContainerLabels(map[string]string{containerCreateRequestLabel: containerRequestHash(request), containerConfigurationLabel: request.GetConfigurationFingerprint(), containerStateLabel: "created", containerVolumeLabel: string(volumeJSON), containerLogLimitLabel: strconv.FormatUint(request.GetLogLimitBytes(), 10), runtimeOwnerLabel: namespaceID, runtimeExternalIDLabel: request.GetContainerId(), runtimeImageLabel: canonicalImage}),
+		atContainerStage("oci_spec", containerd.WithNewSpec(specOptions...)), atContainerStage("supervisor_spec", withSupervisedProcess()),
+	)
 	if err != nil {
 		return nil, atRuntimeStage("container_record", err)
 	}
+	if system {
+		if err := validateSystemSnapshotMountpoints(nsctx, r.client, container); err != nil {
+			cleanupErr := r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
+			return nil, errors.Join(err, cleanupErr)
+		}
+	}
 	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
-		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		_ = r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
 		return nil, atRuntimeStage("container_inventory", err)
 	}
 	if err := inventory.addContainer(namespaceID, request.GetContainerId()); err != nil {
-		_ = container.Delete(nsctx, containerd.WithSnapshotCleanup)
+		_ = r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
 		return nil, atRuntimeStage("container_inventory", err)
 	}
-	if err := r.assignSnapshotProject(nsctx, namespaceID, container); err != nil {
-		r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
-		return nil, atRuntimeStage("snapshot_quota", err)
-	}
-	if err := r.materializeSupervisor(nsctx, namespaceID, container); err != nil {
-		r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
-		return nil, atRuntimeStage("supervisor_materialization", err)
+	if !system {
+		if err := r.assignSnapshotProject(nsctx, namespaceID, container); err != nil {
+			r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
+			return nil, atRuntimeStage("snapshot_quota", err)
+		}
+		if err := r.materializeSupervisor(nsctx, namespaceID, container); err != nil {
+			r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
+			return nil, atRuntimeStage("supervisor_materialization", err)
+		}
 	}
 	current, err := r.inspectContainer(nsctx, namespaceID, container)
 	if err != nil {
@@ -167,12 +192,16 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	return current, nil
 }
 
-func (r *Runtime) rollbackNewContainer(ctx context.Context, namespaceID, containerID string, container containerd.Container) {
-	if err := container.Delete(ctx, containerd.WithSnapshotCleanup); err == nil {
-		if inventory, inventoryErr := r.requireRuntimeInventory(); inventoryErr == nil {
-			_ = inventory.removeContainer(namespaceID, containerID)
-		}
+func (r *Runtime) rollbackNewContainer(ctx context.Context, namespaceID, containerID string, container containerd.Container) error {
+	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := container.Delete(cleanupContext, containerd.WithSnapshotCleanup); err != nil {
+		return err
 	}
+	if inventory, inventoryErr := r.requireRuntimeInventory(); inventoryErr == nil {
+		return inventory.removeContainer(namespaceID, containerID)
+	}
+	return nil
 }
 
 func atContainerStage(stage string, option containerd.NewContainerOpts) containerd.NewContainerOpts {
@@ -329,7 +358,11 @@ func (r *Runtime) specOptions(namespaceID string, request *vmmdv1.CreateContaine
 			if mount.GetReadOnly() {
 				mode = "ro"
 			}
-			spec.Mounts = append(spec.Mounts, specs.Mount{Destination: mount.GetDestination(), Type: "bind", Source: volumePath(namespaceID, mount.GetVolumeId()), Options: []string{"rbind", mode, "nosuid", "nodev"}})
+			source, err := r.mountSource(namespaceID, mount)
+			if err != nil {
+				return err
+			}
+			spec.Mounts = append(spec.Mounts, specs.Mount{Destination: mount.GetDestination(), Type: "bind", Source: source, Options: []string{"rbind", mode, "nosuid", "nodev"}})
 		}
 		if request.GetReadOnlyRoot() && !containerHasVolumeAt(request, "/tmp") {
 			spec.Mounts = append(spec.Mounts, specs.Mount{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"rw", "nosuid", "nodev", "noexec", "mode=1777", "size=64m"}})

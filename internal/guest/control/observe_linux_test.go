@@ -355,3 +355,13 @@ func TestExistingVolumeGenerationRecoversAfterInterruptedBackfill(t *testing.T) 
 		t.Fatalf("recovered generation was not durable: persisted=%q err=%v", persisted, err)
 	}
 }
+
+func TestBoundedVolumeDirectoryMissingIsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "removed-volume-root")
+	for _, limit := range []uint32{0, 1, 32} {
+		entries, err := directoryEntriesBounded(path, limit)
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("missing volume root limit %d: %v, %v", limit, entries, err)
+		}
+	}
+}

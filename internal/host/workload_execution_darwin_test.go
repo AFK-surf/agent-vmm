@@ -8,6 +8,9 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -238,6 +241,130 @@ func TestHostStreamOwnsAcceptedChildUntilTerminalEvidence(t *testing.T) {
 	}
 }
 
+type detachedExecGuest struct {
+	testGuestClientStream
+	accepted   chan struct{}
+	released   chan struct{}
+	closed     chan struct{}
+	terminal   bool
+	acceptOnce sync.Once
+	closeOnce  sync.Once
+}
+
+func (guest *detachedExecGuest) Send(*vmmdv1.ExecRequest) error {
+	guest.acceptOnce.Do(func() { close(guest.accepted) })
+	return nil
+}
+func (guest *detachedExecGuest) Recv() (*vmmdv1.ExecResponse, error) {
+	<-guest.released
+	if guest.terminal {
+		return &vmmdv1.ExecResponse{Event: &vmmdv1.ExecResponse_ExitCode{ExitCode: 0}}, nil
+	}
+	return nil, io.EOF
+}
+func (guest *detachedExecGuest) Close() error {
+	guest.closeOnce.Do(func() { close(guest.closed) })
+	return nil
+}
+
+func TestExecDisconnectReleasesSessionAndRetainsTerminalObservation(t *testing.T) {
+	for _, mode := range []string{"terminal", "unknown", "exact-stop", "cancel-race"} {
+		t.Run(mode, func(t *testing.T) {
+			controller, run, _ := executionTestFixture(t)
+			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			controller.store = database
+			if _, err := database.CreateEnvironment(context.Background(), store.Environment{ID: "env-a", NamespaceID: "a", OwnerKind: store.OwnerLocal, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.CreateSession(context.Background(), store.Session{ID: "old-session", EnvironmentID: "env-a", NamespaceID: "a", SocketPath: "/unused", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+				t.Fatal(err)
+			}
+			guest := &detachedExecGuest{accepted: make(chan struct{}), released: make(chan struct{}), closed: make(chan struct{}), terminal: mode != "unknown"}
+			var release sync.Once
+			t.Cleanup(func() { release.Do(func() { close(guest.released) }) })
+			listener := bufconn.Listen(1 << 20)
+			identity := auth.Identity{Role: auth.Agent, SessionID: "old-session", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-a:1"}
+			server := grpc.NewServer(grpc.WaitForHandlers(true), grpc.StreamInterceptor(auth.StreamInterceptor(identity)))
+			hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{controller: controller, openGuestExec: func(ctx context.Context) (vmmdv1.VMMDService_ExecClient, io.Closer, error) {
+				guest.ctx = ctx
+				return guest, guest, nil
+			}})
+			controller.mu.Lock()
+			controller.sessions = map[string]*sessionServer{identity.SessionID: {server: server, listener: listener, stopDone: make(chan struct{})}}
+			controller.mu.Unlock()
+			go server.Serve(listener)
+			defer server.Stop()
+			connection, err := grpc.NewClient("passthrough:///exec-revoke", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			stream, err := hostv1.NewAgentRuntimeServiceClient(connection).Exec(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "pending-callback", ContainerId: "main", ExpectedInstanceId: "instance-a", ExecutionId: "exec:callback", ExecutionKind: hostv1.ExecutionKind_EXECUTION_KIND_EXEC, ExecutionDeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()}}}); err != nil {
+				t.Fatal(err)
+			}
+			<-guest.accepted
+			if mode == "cancel-race" {
+				go cancel()
+			} else {
+				cancel()
+			}
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+			defer stopCancel()
+			if err := controller.revokeSession(stopCtx, identity.SessionID); err != nil {
+				t.Fatalf("unresolved callback blocked session revoke: %v", err)
+			}
+			if guest.Context().Err() != nil {
+				t.Fatal("session revoke cancelled accepted Guest execution")
+			}
+			replacement := identity
+			replacement.SessionID = "new-session"
+			client := executionClient(t, controller, replacement)
+			listed, err := client.ListExecutions(context.Background(), listExecutions())
+			if err != nil || len(listed.GetExecutions()) != 1 {
+				t.Fatalf("replacement lost accepted execution: %v %v", listed, err)
+			}
+			if mode == "exact-stop" {
+				stopped := &workloadGuest{omitStoppedInstance: true, states: map[string]*vmmdv1.Container{"a": {Id: "main", InstanceId: "instance-a", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}}}
+				guestClient := workloadGuestClient(t, stopped)
+				unlock := controller.lockEnvironment("env-a")
+				request := &hostv1.StopContainerRequest{RequestId: "replacement-stop", ContainerId: "main", ExpectedInstanceId: "instance-a"}
+				if err := controller.validateExplicitStop(replacement, request); err != nil {
+					t.Fatal(err)
+				}
+				_, err := controller.stopWorkloadContainerLocked(context.Background(), guestClient, "env-a", &vmmdv1.StopContainerRequest{RequestId: request.RequestId, ActorNamespaceId: "a", ContainerId: "main"})
+				unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			release.Do(func() { close(guest.released) })
+			select {
+			case <-guest.closed:
+			case <-time.After(time.Second):
+				t.Fatal("Host terminal observer did not finish")
+			}
+			controller.mu.Lock()
+			retained := run.executions["exec:callback"] != nil
+			controller.mu.Unlock()
+			if mode == "exact-stop" {
+				assertListStatus(t, client, context.Background(), listExecutions(), hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_STOPPED)
+			} else if retained != (mode == "unknown") {
+				t.Fatalf("terminal=%s retained=%v", mode, retained)
+			}
+		})
+	}
+}
+
 func TestExecAmbiguousFirstGuestSendKeepsExecutionRight(t *testing.T) {
 	controller, run, _ := executionTestFixture(t)
 	guest := &ambiguousExecGuestStream{testGuestClientStream: testGuestClientStream{ctx: context.Background()}}
@@ -274,7 +401,8 @@ func TestBuildAmbiguousFirstGuestSendKeepsExecutionRight(t *testing.T) {
 	controller, run, _ := executionTestFixture(t)
 	guest := &ambiguousBuildGuestStream{testGuestClientStream: testGuestClientStream{ctx: context.Background()}}
 	client := executionClientWithServer(t, controller, &agentServer{
-		controller: controller,
+		controller:    controller,
+		buildLifetime: context.Background(),
 		openGuestBuild: func(context.Context) (vmmdv1.VMMDService_BuildImageClient, io.Closer, error) {
 			return guest, io.NopCloser(nilReader{}), nil
 		},
@@ -352,6 +480,10 @@ func TestListExecutionsDistinguishesTargetStates(t *testing.T) {
 	controller.workloadRunsRecovered = true
 	assertListStatus(t, client, ctx, &hostv1.ListExecutionsRequest{ContainerId: "missing", ExpectedInstanceId: "instance-a"}, hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_NOT_FOUND)
 	assertListStatus(t, client, ctx, &hostv1.ListExecutionsRequest{ContainerId: "main", ExpectedInstanceId: "old-instance"}, hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_STALE)
+	assertListStatus(t, client, ctx, listExecutions(), hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_EMPTY)
+	controller.mu.Lock()
+	controller.observeWorkloadRunLocked(run, &vmmdv1.Container{Id: "main", State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}, time.Now())
+	controller.mu.Unlock()
 	assertListStatus(t, client, ctx, listExecutions(), hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_EMPTY)
 	controller.mu.Lock()
 	controller.observeWorkloadRunLocked(run, &vmmdv1.Container{Id: "main", InstanceId: "instance-b", State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}, time.Now())
@@ -436,7 +568,7 @@ func TestHostRestartRecoversRunningInstanceClosedToAdmissionUntilActualStop(t *t
 		states: map[string]*vmmdv1.Container{environment.NamespaceID: {Id: "main", InstanceId: "instance-a", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}},
 		pool:   &vmmdv1.GetUsageResponse{WorkloadPool: &vmmdv1.Usage{}, WorkloadMemoryLimitBytes: 1},
 	}
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	controller.store = database
 	controller.workloadRunsRecovered = false
 	guestClient := workloadGuestClient(t, guest)
@@ -484,7 +616,7 @@ func listExecutions() *hostv1.ListExecutionsRequest {
 
 func executionTestFixture(t *testing.T) (*Controller, *workloadRun, hostv1.AgentRuntimeServiceClient) {
 	t.Helper()
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	run, err := controller.admitWorkloadStart("env-a", "a", "main", time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -529,4 +661,270 @@ func executionClientWithIdentityAndServer(t *testing.T, identity auth.Identity, 
 	}
 	t.Cleanup(func() { connection.Close() })
 	return hostv1.NewAgentRuntimeServiceClient(connection)
+}
+
+func TestExplicitStopFencesInstanceAndSettlesActiveExecution(t *testing.T) {
+	controller, run, client := executionTestFixture(t)
+	identity := auth.Identity{Role: auth.Agent, SessionID: "host-control-a", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-a:1"}
+	if _, err := client.AcquireExecution(context.Background(), mainExecution("main:active")); err != nil {
+		t.Fatal(err)
+	}
+	guest := &workloadGuest{omitStoppedInstance: true, states: map[string]*vmmdv1.Container{"a": {Id: "main", InstanceId: "instance-a", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}}}
+	guestClient := workloadGuestClient(t, guest)
+	request := &hostv1.StopContainerRequest{RequestId: "stop-exact", ContainerId: "main", ExpectedInstanceId: "old-instance"}
+	unlock := controller.lockEnvironment("env-a")
+	if err := controller.validateExplicitStop(identity, request); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale stop = %v", err)
+	}
+	if guest.stopHits != 0 || run.stopping || len(run.executions) != 1 {
+		t.Fatal("stale instance stop changed current execution")
+	}
+	request.ExpectedInstanceId = "instance-a"
+	request.QuiesceRequestId = "unowned-quiesce"
+	if err := controller.validateExplicitStop(identity, request); status.Code(err) != codes.Aborted {
+		t.Fatalf("unowned quiet stop = %v", err)
+	}
+	request.QuiesceRequestId = ""
+	if err := controller.validateExplicitStop(identity, request); err != nil {
+		t.Fatal(err)
+	}
+	response, err := controller.stopWorkloadContainerLocked(context.Background(), guestClient, "env-a", &vmmdv1.StopContainerRequest{RequestId: request.RequestId, ActorNamespaceId: "a", ContainerId: "main"})
+	unlock()
+	if err != nil || response.GetContainer().GetState() != vmmdv1.ContainerState_CONTAINER_STATE_STOPPED || response.GetContainer().GetInstanceId() != "" || guest.stopHits != 1 {
+		t.Fatalf("exact active stop = %+v, %v", response, err)
+	}
+	assertListStatus(t, client, context.Background(), listExecutions(), hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_STOPPED)
+}
+
+func TestExecTerminalExitPreservesOutputDespiteClosedInput(t *testing.T) {
+	for _, terminal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("terminal=%v", terminal), func(t *testing.T) {
+			controller, run, _ := executionTestFixture(t)
+			guest := &closedInputExecGuest{testGuestClientStream: testGuestClientStream{ctx: context.Background()}, closed: make(chan struct{}), terminal: terminal}
+			client := executionClientWithServer(t, controller, &agentServer{controller: controller, openGuestExec: func(context.Context) (vmmdv1.VMMDService_ExecClient, io.Closer, error) {
+				return guest, io.NopCloser(nilReader{}), nil
+			}})
+			stream, err := client.Exec(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "fast-exec", ContainerId: "main", ExpectedInstanceId: "instance-a", ExecutionId: "exec:fast", ExecutionKind: hostv1.ExecutionKind_EXECUTION_KIND_EXEC, ExecutionDeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_CloseStdin{CloseStdin: true}}); err != nil {
+				t.Fatal(err)
+			}
+			stdout, err := stream.Recv()
+			if err != nil || string(stdout.GetStdout()) != "out" {
+				t.Fatalf("stdout=%v,%v", stdout, err)
+			}
+			stderr, err := stream.Recv()
+			if err != nil || string(stderr.GetStderr()) != "err" {
+				t.Fatalf("stderr=%v,%v", stderr, err)
+			}
+			if terminal {
+				exit, err := stream.Recv()
+				if err != nil || exit.GetExitCode() != 0 {
+					t.Fatalf("exit=%v,%v", exit, err)
+				}
+				if _, err := stream.Recv(); err != io.EOF {
+					t.Fatalf("terminal exit overwritten by input error: %v", err)
+				}
+				if len(run.executions) != 0 {
+					t.Fatalf("terminal exec still holds right: %+v", run.executions)
+				}
+			} else {
+				if _, err := stream.Recv(); status.Code(err) != codes.Unavailable {
+					t.Fatalf("missing exit became success: %v", err)
+				}
+				if run.executions["exec:fast"] == nil {
+					t.Fatal("unknown exec lost its right")
+				}
+			}
+		})
+	}
+}
+
+type closedInputExecGuest struct {
+	testGuestClientStream
+	closed    chan struct{}
+	terminal  bool
+	responses int
+}
+
+func (s *closedInputExecGuest) Send(request *vmmdv1.ExecRequest) error {
+	if request.GetCloseStdin() {
+		close(s.closed)
+		return status.Error(codes.Unavailable, "stdin closed after process completion")
+	}
+	return nil
+}
+func (s *closedInputExecGuest) Recv() (*vmmdv1.ExecResponse, error) {
+	s.responses++
+	switch s.responses {
+	case 1:
+		return &vmmdv1.ExecResponse{Event: &vmmdv1.ExecResponse_Stdout{Stdout: []byte("out")}}, nil
+	case 2:
+		return &vmmdv1.ExecResponse{Event: &vmmdv1.ExecResponse_Stderr{Stderr: []byte("err")}}, nil
+	case 3:
+		<-s.closed
+		time.Sleep(10 * time.Millisecond)
+		if s.terminal {
+			return &vmmdv1.ExecResponse{Event: &vmmdv1.ExecResponse_ExitCode{ExitCode: 0}}, nil
+		}
+	}
+	return nil, io.EOF
+}
+
+func TestHostRestartRestoresOnlyProvenStoppedStartIdentity(t *testing.T) {
+	for _, evidence := range []string{"proven", "created", "missing-start", "replacement", "nonempty-instance"} {
+		t.Run(evidence, func(t *testing.T) {
+			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			ctx := context.Background()
+			registration := observationTestRegistration("registration")
+			if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
+				t.Fatal(err)
+			}
+			environment := observationTestEnvironment("env-a", registration.ID)
+			if _, err := database.CreateEnvironment(ctx, environment); err != nil {
+				t.Fatal(err)
+			}
+			container := &vmmdv1.Container{Id: "main", GenerationId: "generation-a", State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED, StartRequestInstanceId: "instance-a", StartRequestSha256: strings.Repeat("a", 64), StartedAtUnixNano: 1}
+			switch evidence {
+			case "created":
+				container.State = vmmdv1.ContainerState_CONTAINER_STATE_CREATED
+			case "missing-start":
+				container.StartRequestSha256 = ""
+			case "replacement":
+				container.GenerationId = "generation-b"
+				container.StartRequestInstanceId = "instance-b"
+			case "nonempty-instance":
+				container.InstanceId = "instance-b"
+			}
+			guest := &workloadGuest{states: map[string]*vmmdv1.Container{environment.NamespaceID: container}, pool: &vmmdv1.GetUsageResponse{WorkloadPool: &vmmdv1.Usage{}, WorkloadMemoryLimitBytes: 1}}
+			controller := workloadTestController(t)
+			controller.store = database
+			controller.workloadRunsRecovered = false
+			if err := controller.recoverWorkloadRunsFromGuest(ctx, workloadGuestClient(t, guest)); err != nil {
+				t.Fatal(err)
+			}
+			client := executionClient(t, controller, auth.Identity{Role: auth.Agent, SessionID: "control", EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, AllocationGeneration: 1})
+			want := hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_NOT_FOUND
+			if evidence == "proven" {
+				want = hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_STOPPED
+			}
+			assertListStatus(t, client, ctx, listExecutions(), want)
+			wrong := listExecutions()
+			wrong.ExpectedInstanceId = "unproven-instance"
+			assertListStatus(t, client, ctx, wrong, hostv1.ExecutionListStatus_EXECUTION_LIST_STATUS_NOT_FOUND)
+			if _, err := client.AcquireExecution(ctx, mainExecution("main:after-restart")); status.Code(err) != codes.Aborted {
+				t.Fatalf("stopped instance admitted execution: %v", err)
+			}
+		})
+	}
+}
+
+type revocationBuildGuestStream struct {
+	testGuestClientStream
+	accepted chan struct{}
+}
+
+func (stream *revocationBuildGuestStream) Send(*vmmdv1.BuildImageRequest) error {
+	close(stream.accepted)
+	return nil
+}
+func (stream *revocationBuildGuestStream) Recv() (*vmmdv1.BuildImageResponse, error) {
+	<-stream.ctx.Done()
+	return nil, stream.ctx.Err()
+}
+
+func TestBuildDisconnectPreservesWorkAndSessionRevokeBoundsStop(t *testing.T) {
+	controller, run, _ := executionTestFixture(t)
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	controller.store = database
+	if _, err := database.CreateEnvironment(context.Background(), store.Environment{ID: "env-a", NamespaceID: "a", OwnerKind: store.OwnerLocal, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateSession(context.Background(), store.Session{ID: "build-session", EnvironmentID: "env-a", NamespaceID: "a", SocketPath: "/unused", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	lifetime, cancelBuilds := context.WithCancel(context.Background())
+	defer cancelBuilds()
+	accepted := make(chan struct{})
+	guestContext := make(chan context.Context, 1)
+	listener := bufconn.Listen(1 << 20)
+	identity := auth.Identity{Role: auth.Agent, SessionID: "build-session", EnvironmentID: "env-a", NamespaceID: "a", AllocationID: "allocation-a", AllocationGeneration: 1, ExecutionOwnerID: "runtime-instance-a:1"}
+	statsHandler := &sessionStats{controller: controller, sessionID: identity.SessionID, connections: new(atomic.Uint32)}
+	server := grpc.NewServer(grpc.WaitForHandlers(true), grpc.StreamInterceptor(auth.StreamInterceptor(identity)), grpc.StatsHandler(statsHandler))
+	hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{controller: controller, buildLifetime: lifetime, openGuestBuild: func(ctx context.Context) (vmmdv1.VMMDService_BuildImageClient, io.Closer, error) {
+		guestContext <- ctx
+		return &revocationBuildGuestStream{testGuestClientStream: testGuestClientStream{ctx: ctx}, accepted: accepted}, io.NopCloser(nilReader{}), nil
+	}})
+	controller.mu.Lock()
+	controller.sessions = make(map[string]*sessionServer)
+	controller.sessions[identity.SessionID] = &sessionServer{server: server, listener: listener, cancelBuilds: cancelBuilds, stopDone: make(chan struct{})}
+	controller.mu.Unlock()
+	go server.Serve(listener)
+	defer server.Stop()
+	connection, err := grpc.NewClient("passthrough:///build-revoke", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	caller, cancelCaller := context.WithCancel(context.Background())
+	stream, err := hostv1.NewAgentRuntimeServiceClient(connection).BuildImage(caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Header{Header: &hostv1.BuildImageHeader{RequestId: "revoke-build", ContainerId: "main", ExpectedInstanceId: "instance-a", ExecutionId: "build:revoke", ExecutionDeadlineUnixNano: time.Now().Add(time.Minute).UnixNano()}}}); err != nil {
+		t.Fatal(err)
+	}
+	<-accepted
+	ctx := <-guestContext
+	cancelCaller()
+	if _, err := stream.Recv(); status.Code(err) != codes.Canceled {
+		t.Fatalf("caller disconnect=%v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("RPC cancellation canceled accepted build")
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil := time.Now().Add(time.Second)
+	for {
+		stored, err := database.GetSession(context.Background(), identity.SessionID)
+		if err == nil && stored.ClosedAt != nil {
+			break
+		}
+		if time.Now().After(waitUntil) {
+			t.Fatal("connection close was not observed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("connection close canceled accepted build")
+	}
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), time.Second)
+	defer cancelStop()
+	if err := controller.stopSession(stopCtx, identity.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("explicit session stop did not cancel build")
+	}
+	controller.mu.Lock()
+	retained := run.executions["build:revoke"] != nil
+	controller.mu.Unlock()
+	if !retained {
+		t.Fatal("cancellation was treated as terminal execution evidence")
+	}
 }

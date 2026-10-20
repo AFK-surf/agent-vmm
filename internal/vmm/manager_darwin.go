@@ -85,28 +85,22 @@ type Config struct {
 	GuestManifestDigest string
 }
 
-type ApplianceBlock struct {
-	InstallationID, VolumeID, Identity, Path, DeviceIdentifier string
-	Bytes                                                      int64
-	Initializing                                               bool
-}
-
 type Manager struct {
-	config Config
+	config              Config
+	hostDirectoryShares map[string]*vz.SharedDirectory
 
-	mu              sync.Mutex
-	state           hostv1.VMState
-	bootID          string
-	lastErr         string
-	machine         *vz.VirtualMachine
-	socket          *vz.VirtioSocketDevice
-	egressListener  net.Listener
-	verified        *bundle.Verified
-	applianceBlocks []ApplianceBlock
-	invalidate      func()
-	admissionFence  func()
-	recover         func(string)
-	recoveryUsed    bool
+	mu             sync.Mutex
+	state          hostv1.VMState
+	bootID         string
+	lastErr        string
+	machine        *vz.VirtualMachine
+	socket         *vz.VirtioSocketDevice
+	egressListener net.Listener
+	verified       *bundle.Verified
+	invalidate     func()
+	admissionFence func()
+	recover        func(string)
+	recoveryUsed   bool
 }
 
 func (manager *Manager) SetInvalidationHandler(handler func()) {
@@ -218,56 +212,6 @@ func (manager *Manager) HasMachineAttachment() bool {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	return manager.machine != nil
-}
-
-func (manager *Manager) ConfigureApplianceBlocks(blocks []ApplianceBlock) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if applianceBlocksEqual(manager.applianceBlocks, blocks) {
-		return nil
-	}
-	if manager.state != hostv1.VMState_VM_STATE_STOPPED && manager.state != hostv1.VMState_VM_STATE_FAILED || manager.machine != nil {
-		return errors.New("appliance block attachments can only change while the VM is stopped")
-	}
-	paths, identifiers, installations := make(map[string]bool), make(map[string]bool), make(map[string]bool)
-	for _, block := range blocks {
-		if block.InstallationID == "" || block.VolumeID == "" || block.Identity == "" || block.Path == "" || block.DeviceIdentifier == "" || block.Bytes < 1<<30 {
-			return errors.New("appliance block attachment is incomplete")
-		}
-		if paths[block.Path] || identifiers[block.DeviceIdentifier] || installations[block.InstallationID] {
-			return errors.New("appliance block attachment identity is not unique")
-		}
-		info, err := os.Stat(block.Path)
-		if err != nil || !info.Mode().IsRegular() || info.Size() != block.Bytes {
-			return errors.New("appliance block image has an unexpected size")
-		}
-		paths[block.Path], identifiers[block.DeviceIdentifier], installations[block.InstallationID] = true, true, true
-	}
-	manager.applianceBlocks = append([]ApplianceBlock(nil), blocks...)
-	return nil
-}
-
-func applianceBlocksEqual(left, right []ApplianceBlock) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
-func (manager *Manager) HasApplianceBlock(installationID string) bool {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	for _, block := range manager.applianceBlocks {
-		if block.InstallationID == installationID {
-			return true
-		}
-	}
-	return false
 }
 
 func (manager *Manager) Start(ctx context.Context) (*hostv1.VM, error) {
@@ -469,6 +413,12 @@ func rotateSerialLog(path string) error {
 
 func (manager *Manager) Stop(ctx context.Context, force bool) (*hostv1.VM, error) {
 	manager.mu.Lock()
+	if manager.state == hostv1.VMState_VM_STATE_FAILED && manager.machine == nil {
+		manager.state = hostv1.VMState_VM_STATE_STOPPED
+		manager.socket = nil
+		manager.bootID = ""
+		manager.closeEgressLocked()
+	}
 	if manager.state == hostv1.VMState_VM_STATE_STOPPED {
 		result := manager.snapshotLocked()
 		manager.mu.Unlock()
@@ -593,21 +543,9 @@ func (manager *Manager) connectVMMD(ctx context.Context, allowStopping bool) (ne
 	if !running || socket == nil {
 		return nil, errors.New("VM is not available")
 	}
-	type result struct {
-		connection net.Conn
-		err        error
-	}
-	ready := make(chan result, 1)
-	go func() {
-		connection, err := socket.Connect(VMMDPort)
-		ready <- result{connection: connection, err: err}
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case result := <-ready:
-		return result.connection, result.err
-	}
+	return awaitVMMDConnection(ctx, func() (net.Conn, error) {
+		return socket.Connect(VMMDPort)
+	})
 }
 
 func (manager *Manager) DialVMMD(ctx context.Context) (*grpc.ClientConn, error) {

@@ -78,7 +78,7 @@ func Prepare() (*Result, error) {
 	if err := unix.Mount(contentSource, contentTarget, "", unix.MS_BIND, ""); err != nil {
 		return nil, fmt.Errorf("mount content pool: %w", err)
 	}
-	for _, directory := range []string{"containerd", "volumes", "workspaces", "logs", "build-cache", "build-tmp", "cni"} {
+	for _, directory := range []string{"containerd", "volumes", "workspaces", "logs", "preparation-cache", "build-tmp", "cni"} {
 		if err := os.MkdirAll(filepath.Join(StateMount, directory), 0o700); err != nil {
 			return nil, err
 		}

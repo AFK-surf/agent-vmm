@@ -4,6 +4,8 @@ package host
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net"
 	"path/filepath"
 	"testing"
@@ -11,6 +13,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
@@ -225,15 +228,22 @@ func TestAllocationProjectionPreservesGuestPhysicalCapacityDimension(t *testing.
 	for _, dimension := range []string{"storage_headroom", "import_slot"} {
 		guestErr := resourceErrorWithMetadata(codes.ResourceExhausted, "RESOURCE_CAPACITY_EXHAUSTED", "guest_capacity", dimension,
 			"Guest capacity is unavailable", map[string]string{"resource_dimension": dimension})
-		got := allocationProjectionError(guestErr, "projection failed")
+		got := allocationProjectionError(guestErr, "projection failed", &hostv1.RemoteAllocation{AllocationId: "allocation", Generation: 2, Revision: 7})
 		if status.Code(got) != codes.ResourceExhausted {
 			t.Fatalf("dimension %q code=%v", dimension, status.Code(got))
 		}
 		found := false
+		foundAllocation := false
 		for _, detail := range status.Convert(got).Details() {
+			if allocation, ok := detail.(*hostv1.RemoteAllocation); ok && allocation.GetAllocationId() == "allocation" && allocation.GetGeneration() == 2 && allocation.GetRevision() == 7 {
+				foundAllocation = true
+			}
 			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.GetMetadata()["resource_dimension"] == dimension {
 				found = true
 			}
+		}
+		if !foundAllocation {
+			t.Fatal("saved allocation identity was lost")
 		}
 		if !found {
 			t.Fatalf("dimension %q was lost across Host projection: %v", dimension, got)
@@ -251,45 +261,51 @@ func capacityDimensionMetadata(err error) string {
 	return ""
 }
 
-func TestRemoteRuntimeMethodFilter(t *testing.T) {
-	for _, method := range []string{
-		hostv1.AgentRuntimeService_PlanResetEnvironment_FullMethodName,
-		hostv1.AgentRuntimeService_PlanDiscardEnvironment_FullMethodName,
-		hostv1.AgentRuntimeService_RequestReset_FullMethodName,
-		hostv1.AgentRuntimeService_RequestDiscard_FullMethodName,
-	} {
-		if !remoteRuntimeDenied(method) {
-			t.Fatalf("remote lifecycle method was allowed: %s", method)
+func TestRemoteRuntimeRecoveryUsesHandlerAuthorityAndKeepsControllerLifecycle(t *testing.T) {
+	listener := bufconn.Listen(1 << 20)
+	identity := auth.Identity{Role: auth.Agent, SessionID: "session", EnvironmentID: "environment", NamespaceID: "namespace", RegistrationID: "registration", AllocationID: "allocation", AllocationGeneration: 7}
+	server := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), remoteRuntimeUnary(store.OwnerRemoteRegistration)))
+	hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{})
+	go server.Serve(listener)
+	t.Cleanup(server.Stop)
+	connection, err := grpc.NewClient("passthrough:///runtime", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { connection.Close() })
+	client := hostv1.NewAgentRuntimeServiceClient(connection)
+	ctx := context.Background()
+	for _, invoke := range []func(context.Context, *hostv1.ImageOperationRequest, ...grpc.CallOption) (*hostv1.ImageOperationReceipt, error){client.ObserveImageOperation, client.CancelImageOperation} {
+		if _, err := invoke(ctx, &hostv1.ImageOperationRequest{Kind: hostv1.ImageOperationKind_IMAGE_OPERATION_KIND_BUILD}); status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("recovery did not reach exact build identity validation: %v", err)
+		}
+		for _, target := range []struct {
+			id         string
+			generation uint64
+		}{{"neighbor", 7}, {"allocation", 6}} {
+			if _, err := invoke(ctx, &hostv1.ImageOperationRequest{Kind: hostv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, TargetAllocationId: target.id, TargetAllocationGeneration: target.generation}); status.Code(err) != codes.PermissionDenied || status.Convert(err).Message() != "copy observation target differs from current allocation" {
+				t.Fatalf("copy target authority bypassed: %v", err)
+			}
 		}
 	}
-	for _, method := range []string{
-		hostv1.AgentRuntimeService_GetEnvironment_FullMethodName,
-		hostv1.AgentRuntimeService_BuildImage_FullMethodName,
-		hostv1.AgentRuntimeService_ImportImage_FullMethodName,
-		hostv1.AgentRuntimeService_ForwardTCP_FullMethodName,
-		hostv1.AgentRuntimeService_DeleteImage_FullMethodName,
+	for _, invoke := range []func() error{
+		func() error {
+			_, err := client.PlanResetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+			return err
+		},
+		func() error {
+			_, err := client.PlanDiscardEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+			return err
+		},
+		func() error { _, err := client.RequestReset(ctx, &hostv1.EnvironmentOperationRequest{}); return err },
+		func() error { _, err := client.RequestDiscard(ctx, &hostv1.EnvironmentOperationRequest{}); return err },
 	} {
-		if remoteRuntimeDenied(method) {
-			t.Fatalf("ordinary runtime method was denied: %s", method)
+		if err := invoke(); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("runtime managed controller lifecycle: %v", err)
 		}
 	}
-	for _, method := range []string{
-		hostv1.AgentRuntimeService_CreateServiceExport_FullMethodName,
-		hostv1.AgentRuntimeService_ListServiceExports_FullMethodName,
-		hostv1.AgentRuntimeService_GetServiceExport_FullMethodName,
-		hostv1.AgentRuntimeService_RevokeServiceExport_FullMethodName,
-		hostv1.AgentRuntimeService_CreateServiceImport_FullMethodName,
-		hostv1.AgentRuntimeService_CreatePersonalServiceImport_FullMethodName,
-		hostv1.AgentRuntimeService_ListServiceImports_FullMethodName,
-		hostv1.AgentRuntimeService_GetServiceImport_FullMethodName,
-		hostv1.AgentRuntimeService_RevokeServiceImport_FullMethodName,
-	} {
-		if remoteRuntimeDenied(method) {
-			t.Fatalf("service method was denied: %s", method)
-		}
-	}
-	if !remoteRuntimeDenied("/agentvmm.host.v1.AgentRuntimeService/FutureOperatorMethod") {
-		t.Fatal("unknown future runtime method was allowed")
+	if _, err := hostv1.NewOperatorServiceClient(connection).GetVM(ctx, &hostv1.GetVMRequest{}); status.Code(err) != codes.Unimplemented {
+		t.Fatalf("runtime exposed operator service: %v", err)
 	}
 }
 
@@ -375,6 +391,61 @@ func TestRemoteAllocationInventoryAndConnectionFences(t *testing.T) {
 		AllocationGeneration: 6, ExecutionOwnerId: "runtime:workload:1",
 	}); status.Code(err) != codes.Aborted {
 		t.Fatalf("stale allocation generation opened a session: %v", err)
+	}
+	pool, err := database.GetRemoteRegistration(ctx, registration.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.PerEnvPIDs++
+	pool, err = database.UpdateRemotePool(ctx, pool, pool.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated := &hostv1.EnsureAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-b", AllocationId: "allocation", Generation: 7,
+		PolicyRevision: registration.PoolPolicyRevision, EgressMode: hostv1.EgressMode(1), ResourcesV2: &hostv1.WorkloadResourcesV2{CpuMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PidMax: 128, WritableQuotaBytes: 4 << 30}}
+	_, repeatErr := client.EnsureAllocation(ctx, repeated)
+	partial := false
+	for _, detail := range status.Convert(repeatErr).Details() {
+		if allocation, ok := detail.(*hostv1.RemoteAllocation); ok && allocation.GetAllocationId() == "allocation" && allocation.GetGeneration() == 7 && allocation.GetEnvironmentId() == "" {
+			partial = true
+		}
+	}
+	if !partial || status.Code(repeatErr) != codes.Unavailable {
+		t.Fatalf("same identity was blocked by changed pool policy: %v", repeatErr)
+	}
+	repeated.ResourcesV2.PidMax++
+	if _, err := client.EnsureAllocation(ctx, repeated); status.Code(err) != codes.Aborted {
+		t.Fatalf("changed parameters bypassed policy revision: %v", err)
+	}
+	repeated.PolicyRevision = pool.PoolPolicyRevision
+	if _, err := client.EnsureAllocation(ctx, repeated); status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("changed parameters replaced durable allocation: %v", err)
+	}
+
+	currentRegistration, err := database.GetRemoteRegistration(ctx, registration.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SetRemoteRegistrationState(ctx, registration.ID, currentRegistration.Revision, int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING)); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []struct {
+		allocation string
+		generation uint64
+		code       codes.Code
+	}{
+		{"allocation", 6, codes.Aborted},
+		{"neighbor", 7, codes.NotFound},
+	} {
+		if _, err := client.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-b", AllocationId: target.allocation, AllocationGeneration: target.generation, ExecutionOwnerId: "runtime:workload:1"}); status.Code(err) != target.code {
+			t.Fatalf("draining recovery bypassed allocation scope: %v", err)
+		}
+	}
+	if _, err := client.EnsureAllocation(ctx, &hostv1.EnsureAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-b", AllocationId: "new-allocation", Generation: 1, PolicyRevision: environment.PolicyRevision}); status.Code(err) != codes.Unavailable {
+		t.Fatalf("draining admitted a new allocation: %v", err)
+	}
+	if _, err := client.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{RegistrationId: registration.ID, ConnectionInstance: "connection-a", AllocationId: "allocation", AllocationGeneration: 7, ExecutionOwnerId: "runtime:workload:1"}); status.Code(err) != codes.Aborted {
+		t.Fatalf("draining allowed a stale controller connection: %v", err)
 	}
 	if _, err := client.ReleaseAllocation(ctx, &hostv1.ReleaseAllocationRequest{
 		RegistrationId: registration.ID, ConnectionInstance: "connection-b", AllocationId: "allocation",
@@ -503,7 +574,12 @@ func TestConnectionReplacementFencesOldTransportWithoutRevokingAcceptedAllocatio
 
 func testOptional[T any](value T) *T { return &value }
 func TestNormalRetirementPagesEveryContainerAndRequiresObservedStop(t *testing.T) {
-	controller := &Controller{}
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	controller := &Controller{store: database}
 	environment := store.Environment{ID: "retained", NamespaceID: "private"}
 	guest := &retirementGuest{containerCount: 101}
 	client, closeGuest := startRetirementGuest(t, guest)
@@ -522,5 +598,114 @@ func TestNormalRetirementPagesEveryContainerAndRequiresObservedStop(t *testing.T
 	}
 	if guest.stops.Load() != 1 {
 		t.Fatal("retirement continued after unconfirmed stop")
+	}
+	for _, code := range []codes.Code{codes.Unavailable, codes.NotFound} {
+		guest := &retirementGuest{containerCount: 2, stopError: status.Error(code, "stop failed")}
+		client, closeGuest := startRetirementGuest(t, guest)
+		err := controller.stopRemoteNamespace(context.Background(), client, environment, 1)
+		closeGuest()
+		if status.Code(err) != code || guest.stops.Load() != 1 {
+			t.Fatalf("stop failure swallowed: code=%s stops=%d err=%v", code, guest.stops.Load(), err)
+		}
+	}
+
+	for _, test := range []struct {
+		name                          string
+		listCode, namespaceCode, want codes.Code
+		reads                         int32
+	}{
+		{"exact namespace absent", codes.NotFound, codes.NotFound, codes.OK, 1},
+		{"namespace present", codes.NotFound, codes.OK, codes.NotFound, 1},
+		{"namespace observation unavailable", codes.NotFound, codes.Unavailable, codes.Unavailable, 1},
+		{"inventory unavailable", codes.Unavailable, codes.NotFound, codes.Unavailable, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			guest := &retirementGuest{listError: status.Error(test.listCode, "inventory failed"), namespaceError: status.Error(test.namespaceCode, "namespace observation")}
+			client, closeGuest := startRetirementGuest(t, guest)
+			defer closeGuest()
+			err := controller.stopRemoteNamespace(context.Background(), client, environment, 1)
+			if status.Code(err) != test.want || guest.stops.Load() != 0 || guest.namespaceReads.Load() != test.reads {
+				t.Fatalf("err=%v stops=%d namespace reads=%d", err, guest.stops.Load(), guest.namespaceReads.Load())
+			}
+			if test.reads != 0 && guest.queriedNamespace != environment.NamespaceID {
+				t.Fatalf("observed namespace %q", guest.queriedNamespace)
+			}
+		})
+	}
+}
+
+func TestAcceptedRemoteCleanupRetirementAndMissingNamespaceRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		retained, missing bool
+	}{
+		{name: "missing namespace", missing: true},
+		{name: "already retained missing namespace", retained: true, missing: true},
+		{name: "stop unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			_, err = database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := hostv1.AllocationState_ALLOCATION_STATE_READY
+			if test.retained {
+				state = hostv1.AllocationState_ALLOCATION_STATE_RETAINED
+			}
+			environment, err := database.BeginWorkloadAdmission(ctx, store.Environment{ID: "environment", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "allocation", AllocationGeneration: 1, AllocationState: int32(state), CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30}, resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30})
+			if err != nil {
+				t.Fatal(err)
+			}
+			controller := &Controller{manager: &vmm.Manager{}, store: database, sessions: make(map[string]*sessionServer)}
+			controller.hostFrontends = newHostLoopbackFrontendManager(controller)
+			operation, _, err := controller.beginOperation(ctx, "environment-CLEANUP_KIND_DISCARD", environment.ID, "cleanup")
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := &hostv1.CleanupPlan{EnvironmentId: environment.ID, Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}
+			if test.missing {
+				plan = missingNamespaceCleanupPlan(environment, nil)
+			}
+			result, err := (&operatorServer{controller: controller}).executeAcceptedCleanup(nil, operation, plan, "", func(executionCtx context.Context, accepted *hostv1.CleanupPlan) error {
+				stored, loadErr := database.OperationByRequestID(executionCtx, operation.RequestID)
+				if loadErr != nil || stored.State != int32(hostv1.OperationState_OPERATION_STATE_RUNNING) {
+					t.Fatalf("retirement before durable acceptance: %+v %v", stored, loadErr)
+				}
+				if accepted != plan {
+					t.Fatal("callback did not receive accepted plan")
+				}
+				current, retainErr := controller.retainRemoteEnvironmentLocked(executionCtx, environment, cleanupPlanHasMissingNamespace(accepted))
+				if retainErr == nil {
+					if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+						t.Fatal("cleanup did not retain allocation")
+					}
+					if test.retained && current.PolicyRevision != environment.PolicyRevision {
+						t.Fatal("already retained revision changed")
+					}
+				}
+				return retainErr
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			storedOperation, err := database.OperationByRequestID(ctx, operation.RequestID)
+			if err != nil || storedOperation.State != result.State {
+				t.Fatalf("terminal receipt: %+v %v", storedOperation, err)
+			}
+			current, err := database.GetEnvironment(ctx, environment.ID)
+			if test.missing {
+				if result.State != int32(hostv1.OperationState_OPERATION_STATE_SUCCEEDED) || !errors.Is(err, sql.ErrNoRows) {
+					t.Fatalf("missing namespace discard: %+v %+v %v", result, current, err)
+				}
+			} else if result.State != int32(hostv1.OperationState_OPERATION_STATE_FAILED) || storedOperation.ErrorReason != "CLEANUP_FAILED" || err != nil || current.AllocationState != int32(state) {
+				t.Fatalf("failed stop changed allocation: %+v %+v %v", storedOperation, current, err)
+			}
+		})
 	}
 }

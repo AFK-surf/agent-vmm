@@ -63,6 +63,8 @@ func (controller *Controller) markSessionActivity(sessionID string) {
 }
 
 type sessionServer struct {
+	integrationID        string
+	integrationRevision  uint64
 	server               *grpc.Server
 	listener             net.Listener
 	path                 string
@@ -70,6 +72,9 @@ type sessionServer struct {
 	allocationID         string
 	allocationGeneration uint64
 	connections          atomic.Uint32
+	cancelBuilds         context.CancelFunc
+	stopOnce             sync.Once
+	stopDone             chan struct{}
 }
 
 type sessionStats struct {
@@ -94,7 +99,12 @@ func (handler *sessionStats) HandleConn(_ context.Context, event stats.ConnStats
 		handler.connections.Add(1)
 		_ = handler.controller.store.MarkSessionConnected(context.Background(), handler.sessionID)
 		if session, err := handler.controller.store.GetSession(context.Background(), handler.sessionID); err == nil && session.IntegrationID != "" {
-			_ = handler.controller.store.VerifyAgentIntegration(context.Background(), session.IntegrationID)
+			handler.controller.mu.Lock()
+			tracked := handler.controller.sessions[handler.sessionID]
+			handler.controller.mu.Unlock()
+			if tracked != nil {
+				_ = handler.controller.store.VerifyAgentIntegration(context.Background(), session.IntegrationID, tracked.integrationRevision)
+			}
 		}
 	case *stats.ConnEnd:
 		if handler.connections.Add(^uint32(0)) == 0 {
@@ -112,4 +122,45 @@ type readyListener struct {
 func (listener *readyListener) Accept() (net.Conn, error) {
 	listener.once.Do(func() { close(listener.ready) })
 	return listener.Listener.Accept()
+}
+
+func (controller *Controller) stopSession(ctx context.Context, id string) error {
+	controller.mu.Lock()
+	session := controller.sessions[id]
+	controller.mu.Unlock()
+	if session != nil && session.cancelBuilds != nil {
+		session.cancelBuilds()
+	}
+	return controller.stopSessionHandlers(ctx, id)
+}
+
+func (controller *Controller) stopSessionHandlers(ctx context.Context, id string) error {
+	controller.mu.Lock()
+	session := controller.sessions[id]
+	if session != nil && session.stopDone == nil {
+		session.stopDone = make(chan struct{})
+	}
+	controller.mu.Unlock()
+	if session == nil {
+		return nil
+	}
+	session.stopOnce.Do(func() {
+		go func() {
+			session.server.Stop()
+			session.listener.Close()
+			_ = os.Remove(session.path)
+			controller.mu.Lock()
+			if controller.sessions[id] == session {
+				delete(controller.sessions, id)
+			}
+			controller.mu.Unlock()
+			close(session.stopDone)
+		}()
+	})
+	select {
+	case <-session.stopDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

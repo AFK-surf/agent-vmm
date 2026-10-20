@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/distribution/reference"
+	"github.com/opencontainers/go-digest"
 )
 
 func NormalizeReference(value string) (string, error) {
@@ -13,4 +14,10 @@ func NormalizeReference(value string) (string, error) {
 		return "", errors.New("image reference must name a public HTTPS registry")
 	}
 	return reference.TagNameOnly(named).String(), nil
+}
+
+const MaterializedNamespace = "agent-vmm.runtime.v1"
+
+func MaterializedReference(value digest.Digest) string {
+	return "agent-vmm.internal/materialized@" + value.String()
 }

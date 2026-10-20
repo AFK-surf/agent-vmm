@@ -244,18 +244,19 @@ func (ServiceProtocol) EnumDescriptor() ([]byte, []int) {
 }
 
 type ServiceExport struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	ExportId            string                 `protobuf:"bytes,1,opt,name=export_id,json=exportId,proto3" json:"export_id,omitempty"`
-	EnvironmentId       string                 `protobuf:"bytes,2,opt,name=environment_id,json=environmentId,proto3" json:"environment_id,omitempty"`
-	ContainerId         string                 `protobuf:"bytes,3,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	ContainerInstanceId string                 `protobuf:"bytes,4,opt,name=container_instance_id,json=containerInstanceId,proto3" json:"container_instance_id,omitempty"`
-	Port                uint32                 `protobuf:"varint,5,opt,name=port,proto3" json:"port,omitempty"`
-	Protocol            ServiceProtocol        `protobuf:"varint,6,opt,name=protocol,proto3,enum=agentvmm.service.v1.ServiceProtocol" json:"protocol,omitempty"`
-	Revision            uint64                 `protobuf:"varint,7,opt,name=revision,proto3" json:"revision,omitempty"`
-	Revoked             bool                   `protobuf:"varint,8,opt,name=revoked,proto3" json:"revoked,omitempty"`
-	CreatedAt           *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	ExportId              string                 `protobuf:"bytes,1,opt,name=export_id,json=exportId,proto3" json:"export_id,omitempty"`
+	EnvironmentId         string                 `protobuf:"bytes,2,opt,name=environment_id,json=environmentId,proto3" json:"environment_id,omitempty"`
+	ContainerId           string                 `protobuf:"bytes,3,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	ContainerInstanceId   string                 `protobuf:"bytes,4,opt,name=container_instance_id,json=containerInstanceId,proto3" json:"container_instance_id,omitempty"`
+	Port                  uint32                 `protobuf:"varint,5,opt,name=port,proto3" json:"port,omitempty"`
+	Protocol              ServiceProtocol        `protobuf:"varint,6,opt,name=protocol,proto3,enum=agentvmm.service.v1.ServiceProtocol" json:"protocol,omitempty"`
+	Revision              uint64                 `protobuf:"varint,7,opt,name=revision,proto3" json:"revision,omitempty"`
+	Revoked               bool                   `protobuf:"varint,8,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	CreatedAt             *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ContainerGenerationId string                 `protobuf:"bytes,10,opt,name=container_generation_id,json=containerGenerationId,proto3" json:"container_generation_id,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ServiceExport) Reset() {
@@ -351,25 +352,87 @@ func (x *ServiceExport) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ServiceExport) GetContainerGenerationId() string {
+	if x != nil {
+		return x.ContainerGenerationId
+	}
+	return ""
+}
+
+type ApplianceFrontendDestination struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	InstallationId string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ApplianceFrontendDestination) Reset() {
+	*x = ApplianceFrontendDestination{}
+	mi := &file_service_v1_service_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplianceFrontendDestination) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplianceFrontendDestination) ProtoMessage() {}
+
+func (x *ApplianceFrontendDestination) ProtoReflect() protoreflect.Message {
+	mi := &file_service_v1_service_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplianceFrontendDestination.ProtoReflect.Descriptor instead.
+func (*ApplianceFrontendDestination) Descriptor() ([]byte, []int) {
+	return file_service_v1_service_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ApplianceFrontendDestination) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *ApplianceFrontendDestination) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 type ServiceImport struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	ImportId                  string                 `protobuf:"bytes,1,opt,name=import_id,json=importId,proto3" json:"import_id,omitempty"`
-	SourceEnvironmentId       string                 `protobuf:"bytes,2,opt,name=source_environment_id,json=sourceEnvironmentId,proto3" json:"source_environment_id,omitempty"`
-	SourceContainerId         string                 `protobuf:"bytes,3,opt,name=source_container_id,json=sourceContainerId,proto3" json:"source_container_id,omitempty"`
-	SourceContainerInstanceId string                 `protobuf:"bytes,4,opt,name=source_container_instance_id,json=sourceContainerInstanceId,proto3" json:"source_container_instance_id,omitempty"`
-	DestinationDeviceId       string                 `protobuf:"bytes,5,opt,name=destination_device_id,json=destinationDeviceId,proto3" json:"destination_device_id,omitempty"`
-	DestinationExportId       string                 `protobuf:"bytes,6,opt,name=destination_export_id,json=destinationExportId,proto3" json:"destination_export_id,omitempty"`
-	VirtualServiceName        string                 `protobuf:"bytes,7,opt,name=virtual_service_name,json=virtualServiceName,proto3" json:"virtual_service_name,omitempty"`
-	Revision                  uint64                 `protobuf:"varint,8,opt,name=revision,proto3" json:"revision,omitempty"`
-	Revoked                   bool                   `protobuf:"varint,9,opt,name=revoked,proto3" json:"revoked,omitempty"`
-	DestinationPort           uint32                 `protobuf:"varint,10,opt,name=destination_port,json=destinationPort,proto3" json:"destination_port,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state                       protoimpl.MessageState        `protogen:"open.v1"`
+	ImportId                    string                        `protobuf:"bytes,1,opt,name=import_id,json=importId,proto3" json:"import_id,omitempty"`
+	SourceEnvironmentId         string                        `protobuf:"bytes,2,opt,name=source_environment_id,json=sourceEnvironmentId,proto3" json:"source_environment_id,omitempty"`
+	SourceContainerId           string                        `protobuf:"bytes,3,opt,name=source_container_id,json=sourceContainerId,proto3" json:"source_container_id,omitempty"`
+	SourceContainerInstanceId   string                        `protobuf:"bytes,4,opt,name=source_container_instance_id,json=sourceContainerInstanceId,proto3" json:"source_container_instance_id,omitempty"`
+	DestinationDeviceId         string                        `protobuf:"bytes,5,opt,name=destination_device_id,json=destinationDeviceId,proto3" json:"destination_device_id,omitempty"`
+	DestinationExportId         string                        `protobuf:"bytes,6,opt,name=destination_export_id,json=destinationExportId,proto3" json:"destination_export_id,omitempty"`
+	VirtualServiceName          string                        `protobuf:"bytes,7,opt,name=virtual_service_name,json=virtualServiceName,proto3" json:"virtual_service_name,omitempty"`
+	Revision                    uint64                        `protobuf:"varint,8,opt,name=revision,proto3" json:"revision,omitempty"`
+	Revoked                     bool                          `protobuf:"varint,9,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	DestinationPort             uint32                        `protobuf:"varint,10,opt,name=destination_port,json=destinationPort,proto3" json:"destination_port,omitempty"`
+	SourceInstallationId        string                        `protobuf:"bytes,11,opt,name=source_installation_id,json=sourceInstallationId,proto3" json:"source_installation_id,omitempty"`
+	DestinationFrontend         *ApplianceFrontendDestination `protobuf:"bytes,12,opt,name=destination_frontend,json=destinationFrontend,proto3" json:"destination_frontend,omitempty"`
+	SourceContainerGenerationId string                        `protobuf:"bytes,13,opt,name=source_container_generation_id,json=sourceContainerGenerationId,proto3" json:"source_container_generation_id,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *ServiceImport) Reset() {
 	*x = ServiceImport{}
-	mi := &file_service_v1_service_proto_msgTypes[1]
+	mi := &file_service_v1_service_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -381,7 +444,7 @@ func (x *ServiceImport) String() string {
 func (*ServiceImport) ProtoMessage() {}
 
 func (x *ServiceImport) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[1]
+	mi := &file_service_v1_service_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -394,7 +457,7 @@ func (x *ServiceImport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceImport.ProtoReflect.Descriptor instead.
 func (*ServiceImport) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{1}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ServiceImport) GetImportId() string {
@@ -467,28 +530,55 @@ func (x *ServiceImport) GetDestinationPort() uint32 {
 	return 0
 }
 
+func (x *ServiceImport) GetSourceInstallationId() string {
+	if x != nil {
+		return x.SourceInstallationId
+	}
+	return ""
+}
+
+func (x *ServiceImport) GetDestinationFrontend() *ApplianceFrontendDestination {
+	if x != nil {
+		return x.DestinationFrontend
+	}
+	return nil
+}
+
+func (x *ServiceImport) GetSourceContainerGenerationId() string {
+	if x != nil {
+		return x.SourceContainerGenerationId
+	}
+	return ""
+}
+
 type AccessRoute struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	RouteId                   string                 `protobuf:"bytes,1,opt,name=route_id,json=routeId,proto3" json:"route_id,omitempty"`
-	RouteClass                RouteClass             `protobuf:"varint,2,opt,name=route_class,json=routeClass,proto3,enum=agentvmm.service.v1.RouteClass" json:"route_class,omitempty"`
-	SourceDeviceId            string                 `protobuf:"bytes,3,opt,name=source_device_id,json=sourceDeviceId,proto3" json:"source_device_id,omitempty"`
-	SourceAllocationId        *string                `protobuf:"bytes,4,opt,name=source_allocation_id,json=sourceAllocationId,proto3,oneof" json:"source_allocation_id,omitempty"`
-	DestinationDeviceId       string                 `protobuf:"bytes,5,opt,name=destination_device_id,json=destinationDeviceId,proto3" json:"destination_device_id,omitempty"`
-	DestinationExportId       string                 `protobuf:"bytes,6,opt,name=destination_export_id,json=destinationExportId,proto3" json:"destination_export_id,omitempty"`
-	State                     RouteState             `protobuf:"varint,7,opt,name=state,proto3,enum=agentvmm.service.v1.RouteState" json:"state,omitempty"`
-	Revision                  uint64                 `protobuf:"varint,8,opt,name=revision,proto3" json:"revision,omitempty"`
-	Generation                uint64                 `protobuf:"varint,9,opt,name=generation,proto3" json:"generation,omitempty"`
-	ExpiresAt                 *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	SourceEnvironmentId       string                 `protobuf:"bytes,11,opt,name=source_environment_id,json=sourceEnvironmentId,proto3" json:"source_environment_id,omitempty"`
-	SourceContainerInstanceId string                 `protobuf:"bytes,12,opt,name=source_container_instance_id,json=sourceContainerInstanceId,proto3" json:"source_container_instance_id,omitempty"`
-	PolicyRevision            uint64                 `protobuf:"varint,13,opt,name=policy_revision,json=policyRevision,proto3" json:"policy_revision,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state                          protoimpl.MessageState `protogen:"open.v1"`
+	RouteId                        string                 `protobuf:"bytes,1,opt,name=route_id,json=routeId,proto3" json:"route_id,omitempty"`
+	RouteClass                     RouteClass             `protobuf:"varint,2,opt,name=route_class,json=routeClass,proto3,enum=agentvmm.service.v1.RouteClass" json:"route_class,omitempty"`
+	SourceDeviceId                 string                 `protobuf:"bytes,3,opt,name=source_device_id,json=sourceDeviceId,proto3" json:"source_device_id,omitempty"`
+	SourceAllocationId             *string                `protobuf:"bytes,4,opt,name=source_allocation_id,json=sourceAllocationId,proto3,oneof" json:"source_allocation_id,omitempty"`
+	DestinationDeviceId            string                 `protobuf:"bytes,5,opt,name=destination_device_id,json=destinationDeviceId,proto3" json:"destination_device_id,omitempty"`
+	DestinationExportId            string                 `protobuf:"bytes,6,opt,name=destination_export_id,json=destinationExportId,proto3" json:"destination_export_id,omitempty"`
+	State                          RouteState             `protobuf:"varint,7,opt,name=state,proto3,enum=agentvmm.service.v1.RouteState" json:"state,omitempty"`
+	Revision                       uint64                 `protobuf:"varint,8,opt,name=revision,proto3" json:"revision,omitempty"`
+	Generation                     uint64                 `protobuf:"varint,9,opt,name=generation,proto3" json:"generation,omitempty"`
+	ExpiresAt                      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	SourceEnvironmentId            string                 `protobuf:"bytes,11,opt,name=source_environment_id,json=sourceEnvironmentId,proto3" json:"source_environment_id,omitempty"`
+	SourceContainerInstanceId      string                 `protobuf:"bytes,12,opt,name=source_container_instance_id,json=sourceContainerInstanceId,proto3" json:"source_container_instance_id,omitempty"`
+	PolicyRevision                 uint64                 `protobuf:"varint,13,opt,name=policy_revision,json=policyRevision,proto3" json:"policy_revision,omitempty"`
+	SourceInstallationId           string                 `protobuf:"bytes,14,opt,name=source_installation_id,json=sourceInstallationId,proto3" json:"source_installation_id,omitempty"`
+	SourceBootId                   string                 `protobuf:"bytes,15,opt,name=source_boot_id,json=sourceBootId,proto3" json:"source_boot_id,omitempty"`
+	DestinationInstallationId      string                 `protobuf:"bytes,16,opt,name=destination_installation_id,json=destinationInstallationId,proto3" json:"destination_installation_id,omitempty"`
+	DestinationBootId              string                 `protobuf:"bytes,17,opt,name=destination_boot_id,json=destinationBootId,proto3" json:"destination_boot_id,omitempty"`
+	DestinationContainerInstanceId string                 `protobuf:"bytes,18,opt,name=destination_container_instance_id,json=destinationContainerInstanceId,proto3" json:"destination_container_instance_id,omitempty"`
+	DestinationGrantRevision       uint64                 `protobuf:"varint,19,opt,name=destination_grant_revision,json=destinationGrantRevision,proto3" json:"destination_grant_revision,omitempty"`
+	unknownFields                  protoimpl.UnknownFields
+	sizeCache                      protoimpl.SizeCache
 }
 
 func (x *AccessRoute) Reset() {
 	*x = AccessRoute{}
-	mi := &file_service_v1_service_proto_msgTypes[2]
+	mi := &file_service_v1_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -500,7 +590,7 @@ func (x *AccessRoute) String() string {
 func (*AccessRoute) ProtoMessage() {}
 
 func (x *AccessRoute) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[2]
+	mi := &file_service_v1_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -513,7 +603,7 @@ func (x *AccessRoute) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccessRoute.ProtoReflect.Descriptor instead.
 func (*AccessRoute) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{2}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AccessRoute) GetRouteId() string {
@@ -607,6 +697,48 @@ func (x *AccessRoute) GetPolicyRevision() uint64 {
 	return 0
 }
 
+func (x *AccessRoute) GetSourceInstallationId() string {
+	if x != nil {
+		return x.SourceInstallationId
+	}
+	return ""
+}
+
+func (x *AccessRoute) GetSourceBootId() string {
+	if x != nil {
+		return x.SourceBootId
+	}
+	return ""
+}
+
+func (x *AccessRoute) GetDestinationInstallationId() string {
+	if x != nil {
+		return x.DestinationInstallationId
+	}
+	return ""
+}
+
+func (x *AccessRoute) GetDestinationBootId() string {
+	if x != nil {
+		return x.DestinationBootId
+	}
+	return ""
+}
+
+func (x *AccessRoute) GetDestinationContainerInstanceId() string {
+	if x != nil {
+		return x.DestinationContainerInstanceId
+	}
+	return ""
+}
+
+func (x *AccessRoute) GetDestinationGrantRevision() uint64 {
+	if x != nil {
+		return x.DestinationGrantRevision
+	}
+	return 0
+}
+
 type RouteLease struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LeaseId       string                 `protobuf:"bytes,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
@@ -621,7 +753,7 @@ type RouteLease struct {
 
 func (x *RouteLease) Reset() {
 	*x = RouteLease{}
-	mi := &file_service_v1_service_proto_msgTypes[3]
+	mi := &file_service_v1_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -633,7 +765,7 @@ func (x *RouteLease) String() string {
 func (*RouteLease) ProtoMessage() {}
 
 func (x *RouteLease) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[3]
+	mi := &file_service_v1_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -646,7 +778,7 @@ func (x *RouteLease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteLease.ProtoReflect.Descriptor instead.
 func (*RouteLease) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{3}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RouteLease) GetLeaseId() string {
@@ -700,7 +832,7 @@ type ListServiceExportsRequest struct {
 
 func (x *ListServiceExportsRequest) Reset() {
 	*x = ListServiceExportsRequest{}
-	mi := &file_service_v1_service_proto_msgTypes[4]
+	mi := &file_service_v1_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -712,7 +844,7 @@ func (x *ListServiceExportsRequest) String() string {
 func (*ListServiceExportsRequest) ProtoMessage() {}
 
 func (x *ListServiceExportsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[4]
+	mi := &file_service_v1_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -725,7 +857,7 @@ func (x *ListServiceExportsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServiceExportsRequest.ProtoReflect.Descriptor instead.
 func (*ListServiceExportsRequest) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{4}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListServiceExportsRequest) GetEnvironmentId() string {
@@ -744,7 +876,7 @@ type ListServiceExportsResponse struct {
 
 func (x *ListServiceExportsResponse) Reset() {
 	*x = ListServiceExportsResponse{}
-	mi := &file_service_v1_service_proto_msgTypes[5]
+	mi := &file_service_v1_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -756,7 +888,7 @@ func (x *ListServiceExportsResponse) String() string {
 func (*ListServiceExportsResponse) ProtoMessage() {}
 
 func (x *ListServiceExportsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[5]
+	mi := &file_service_v1_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -769,7 +901,7 @@ func (x *ListServiceExportsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListServiceExportsResponse.ProtoReflect.Descriptor instead.
 func (*ListServiceExportsResponse) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{5}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListServiceExportsResponse) GetExports() []*ServiceExport {
@@ -788,7 +920,7 @@ type GetServiceExportRequest struct {
 
 func (x *GetServiceExportRequest) Reset() {
 	*x = GetServiceExportRequest{}
-	mi := &file_service_v1_service_proto_msgTypes[6]
+	mi := &file_service_v1_service_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -800,7 +932,7 @@ func (x *GetServiceExportRequest) String() string {
 func (*GetServiceExportRequest) ProtoMessage() {}
 
 func (x *GetServiceExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[6]
+	mi := &file_service_v1_service_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -813,7 +945,7 @@ func (x *GetServiceExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServiceExportRequest.ProtoReflect.Descriptor instead.
 func (*GetServiceExportRequest) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{6}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetServiceExportRequest) GetExportId() string {
@@ -833,7 +965,7 @@ type RevokeServiceExportRequest struct {
 
 func (x *RevokeServiceExportRequest) Reset() {
 	*x = RevokeServiceExportRequest{}
-	mi := &file_service_v1_service_proto_msgTypes[7]
+	mi := &file_service_v1_service_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -845,7 +977,7 @@ func (x *RevokeServiceExportRequest) String() string {
 func (*RevokeServiceExportRequest) ProtoMessage() {}
 
 func (x *RevokeServiceExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[7]
+	mi := &file_service_v1_service_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -858,7 +990,7 @@ func (x *RevokeServiceExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeServiceExportRequest.ProtoReflect.Descriptor instead.
 func (*RevokeServiceExportRequest) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{7}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RevokeServiceExportRequest) GetExportId() string {
@@ -889,7 +1021,7 @@ type OpenServiceForwardHeader struct {
 
 func (x *OpenServiceForwardHeader) Reset() {
 	*x = OpenServiceForwardHeader{}
-	mi := &file_service_v1_service_proto_msgTypes[8]
+	mi := &file_service_v1_service_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -901,7 +1033,7 @@ func (x *OpenServiceForwardHeader) String() string {
 func (*OpenServiceForwardHeader) ProtoMessage() {}
 
 func (x *OpenServiceForwardHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[8]
+	mi := &file_service_v1_service_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -914,7 +1046,7 @@ func (x *OpenServiceForwardHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenServiceForwardHeader.ProtoReflect.Descriptor instead.
 func (*OpenServiceForwardHeader) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{8}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *OpenServiceForwardHeader) GetRouteId() string {
@@ -973,7 +1105,7 @@ type OpenServiceForwardRequest struct {
 
 func (x *OpenServiceForwardRequest) Reset() {
 	*x = OpenServiceForwardRequest{}
-	mi := &file_service_v1_service_proto_msgTypes[9]
+	mi := &file_service_v1_service_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -985,7 +1117,7 @@ func (x *OpenServiceForwardRequest) String() string {
 func (*OpenServiceForwardRequest) ProtoMessage() {}
 
 func (x *OpenServiceForwardRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[9]
+	mi := &file_service_v1_service_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -998,7 +1130,7 @@ func (x *OpenServiceForwardRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenServiceForwardRequest.ProtoReflect.Descriptor instead.
 func (*OpenServiceForwardRequest) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{9}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *OpenServiceForwardRequest) GetPayload() isOpenServiceForwardRequest_Payload {
@@ -1070,7 +1202,7 @@ type OpenServiceForwardResponse struct {
 
 func (x *OpenServiceForwardResponse) Reset() {
 	*x = OpenServiceForwardResponse{}
-	mi := &file_service_v1_service_proto_msgTypes[10]
+	mi := &file_service_v1_service_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1082,7 +1214,7 @@ func (x *OpenServiceForwardResponse) String() string {
 func (*OpenServiceForwardResponse) ProtoMessage() {}
 
 func (x *OpenServiceForwardResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[10]
+	mi := &file_service_v1_service_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1095,7 +1227,7 @@ func (x *OpenServiceForwardResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenServiceForwardResponse.ProtoReflect.Descriptor instead.
 func (*OpenServiceForwardResponse) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{10}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *OpenServiceForwardResponse) GetPayload() isOpenServiceForwardResponse_Payload {
@@ -1161,7 +1293,7 @@ type PersonalRouteRequest struct {
 
 func (x *PersonalRouteRequest) Reset() {
 	*x = PersonalRouteRequest{}
-	mi := &file_service_v1_service_proto_msgTypes[11]
+	mi := &file_service_v1_service_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1173,7 +1305,7 @@ func (x *PersonalRouteRequest) String() string {
 func (*PersonalRouteRequest) ProtoMessage() {}
 
 func (x *PersonalRouteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[11]
+	mi := &file_service_v1_service_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1186,7 +1318,7 @@ func (x *PersonalRouteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersonalRouteRequest.ProtoReflect.Descriptor instead.
 func (*PersonalRouteRequest) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{11}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PersonalRouteRequest) GetRequestId() string {
@@ -1297,7 +1429,7 @@ type PersonalRouteResponse struct {
 
 func (x *PersonalRouteResponse) Reset() {
 	*x = PersonalRouteResponse{}
-	mi := &file_service_v1_service_proto_msgTypes[12]
+	mi := &file_service_v1_service_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1309,7 +1441,7 @@ func (x *PersonalRouteResponse) String() string {
 func (*PersonalRouteResponse) ProtoMessage() {}
 
 func (x *PersonalRouteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_v1_service_proto_msgTypes[12]
+	mi := &file_service_v1_service_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1322,7 +1454,7 @@ func (x *PersonalRouteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersonalRouteResponse.ProtoReflect.Descriptor instead.
 func (*PersonalRouteResponse) Descriptor() ([]byte, []int) {
-	return file_service_v1_service_proto_rawDescGZIP(), []int{12}
+	return file_service_v1_service_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *PersonalRouteResponse) GetCapability() *v1.RouteCapability {
@@ -1343,7 +1475,7 @@ var File_service_v1_service_proto protoreflect.FileDescriptor
 
 const file_service_v1_service_proto_rawDesc = "" +
 	"\n" +
-	"\x18service/v1/service.proto\x12\x13agentvmm.service.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14trust/v1/trust.proto\"\xf1\x02\n" +
+	"\x18service/v1/service.proto\x12\x13agentvmm.service.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14trust/v1/trust.proto\"\xa9\x03\n" +
 	"\rServiceExport\x12\x1b\n" +
 	"\texport_id\x18\x01 \x01(\tR\bexportId\x12%\n" +
 	"\x0eenvironment_id\x18\x02 \x01(\tR\renvironmentId\x12!\n" +
@@ -1354,7 +1486,12 @@ const file_service_v1_service_proto_rawDesc = "" +
 	"\brevision\x18\a \x01(\x04R\brevision\x12\x18\n" +
 	"\arevoked\x18\b \x01(\bR\arevoked\x129\n" +
 	"\n" +
-	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xcc\x03\n" +
+	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x126\n" +
+	"\x17container_generation_id\x18\n" +
+	" \x01(\tR\x15containerGenerationId\"[\n" +
+	"\x1cApplianceFrontendDestination\x12'\n" +
+	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xad\x05\n" +
 	"\rServiceImport\x12\x1b\n" +
 	"\timport_id\x18\x01 \x01(\tR\bimportId\x122\n" +
 	"\x15source_environment_id\x18\x02 \x01(\tR\x13sourceEnvironmentId\x12.\n" +
@@ -1366,7 +1503,10 @@ const file_service_v1_service_proto_rawDesc = "" +
 	"\brevision\x18\b \x01(\x04R\brevision\x12\x18\n" +
 	"\arevoked\x18\t \x01(\bR\arevoked\x12)\n" +
 	"\x10destination_port\x18\n" +
-	" \x01(\rR\x0fdestinationPort\"\x98\x05\n" +
+	" \x01(\rR\x0fdestinationPort\x124\n" +
+	"\x16source_installation_id\x18\v \x01(\tR\x14sourceInstallationId\x12d\n" +
+	"\x14destination_frontend\x18\f \x01(\v21.agentvmm.service.v1.ApplianceFrontendDestinationR\x13destinationFrontend\x12C\n" +
+	"\x1esource_container_generation_id\x18\r \x01(\tR\x1bsourceContainerGenerationId\"\xed\a\n" +
 	"\vAccessRoute\x12\x19\n" +
 	"\broute_id\x18\x01 \x01(\tR\arouteId\x12@\n" +
 	"\vroute_class\x18\x02 \x01(\x0e2\x1f.agentvmm.service.v1.RouteClassR\n" +
@@ -1385,7 +1525,13 @@ const file_service_v1_service_proto_rawDesc = "" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x122\n" +
 	"\x15source_environment_id\x18\v \x01(\tR\x13sourceEnvironmentId\x12?\n" +
 	"\x1csource_container_instance_id\x18\f \x01(\tR\x19sourceContainerInstanceId\x12'\n" +
-	"\x0fpolicy_revision\x18\r \x01(\x04R\x0epolicyRevisionB\x17\n" +
+	"\x0fpolicy_revision\x18\r \x01(\x04R\x0epolicyRevision\x124\n" +
+	"\x16source_installation_id\x18\x0e \x01(\tR\x14sourceInstallationId\x12$\n" +
+	"\x0esource_boot_id\x18\x0f \x01(\tR\fsourceBootId\x12>\n" +
+	"\x1bdestination_installation_id\x18\x10 \x01(\tR\x19destinationInstallationId\x12.\n" +
+	"\x13destination_boot_id\x18\x11 \x01(\tR\x11destinationBootId\x12I\n" +
+	"!destination_container_instance_id\x18\x12 \x01(\tR\x1edestinationContainerInstanceId\x12<\n" +
+	"\x1adestination_grant_revision\x18\x13 \x01(\x04R\x18destinationGrantRevisionB\x17\n" +
 	"\x15_source_allocation_id\"\x88\x02\n" +
 	"\n" +
 	"RouteLease\x12\x19\n" +
@@ -1499,61 +1645,63 @@ func file_service_v1_service_proto_rawDescGZIP() []byte {
 }
 
 var file_service_v1_service_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_service_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_service_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_service_v1_service_proto_goTypes = []any{
-	(TransportAlpn)(0),                 // 0: agentvmm.service.v1.TransportAlpn
-	(RouteClass)(0),                    // 1: agentvmm.service.v1.RouteClass
-	(RouteState)(0),                    // 2: agentvmm.service.v1.RouteState
-	(ServiceProtocol)(0),               // 3: agentvmm.service.v1.ServiceProtocol
-	(*ServiceExport)(nil),              // 4: agentvmm.service.v1.ServiceExport
-	(*ServiceImport)(nil),              // 5: agentvmm.service.v1.ServiceImport
-	(*AccessRoute)(nil),                // 6: agentvmm.service.v1.AccessRoute
-	(*RouteLease)(nil),                 // 7: agentvmm.service.v1.RouteLease
-	(*ListServiceExportsRequest)(nil),  // 8: agentvmm.service.v1.ListServiceExportsRequest
-	(*ListServiceExportsResponse)(nil), // 9: agentvmm.service.v1.ListServiceExportsResponse
-	(*GetServiceExportRequest)(nil),    // 10: agentvmm.service.v1.GetServiceExportRequest
-	(*RevokeServiceExportRequest)(nil), // 11: agentvmm.service.v1.RevokeServiceExportRequest
-	(*OpenServiceForwardHeader)(nil),   // 12: agentvmm.service.v1.OpenServiceForwardHeader
-	(*OpenServiceForwardRequest)(nil),  // 13: agentvmm.service.v1.OpenServiceForwardRequest
-	(*OpenServiceForwardResponse)(nil), // 14: agentvmm.service.v1.OpenServiceForwardResponse
-	(*PersonalRouteRequest)(nil),       // 15: agentvmm.service.v1.PersonalRouteRequest
-	(*PersonalRouteResponse)(nil),      // 16: agentvmm.service.v1.PersonalRouteResponse
-	(*timestamppb.Timestamp)(nil),      // 17: google.protobuf.Timestamp
-	(*v1.RouteCapability)(nil),         // 18: agentvmm.trust.v1.RouteCapability
-	(*v1.RouteBudget)(nil),             // 19: agentvmm.trust.v1.RouteBudget
-	(*emptypb.Empty)(nil),              // 20: google.protobuf.Empty
+	(TransportAlpn)(0),                   // 0: agentvmm.service.v1.TransportAlpn
+	(RouteClass)(0),                      // 1: agentvmm.service.v1.RouteClass
+	(RouteState)(0),                      // 2: agentvmm.service.v1.RouteState
+	(ServiceProtocol)(0),                 // 3: agentvmm.service.v1.ServiceProtocol
+	(*ServiceExport)(nil),                // 4: agentvmm.service.v1.ServiceExport
+	(*ApplianceFrontendDestination)(nil), // 5: agentvmm.service.v1.ApplianceFrontendDestination
+	(*ServiceImport)(nil),                // 6: agentvmm.service.v1.ServiceImport
+	(*AccessRoute)(nil),                  // 7: agentvmm.service.v1.AccessRoute
+	(*RouteLease)(nil),                   // 8: agentvmm.service.v1.RouteLease
+	(*ListServiceExportsRequest)(nil),    // 9: agentvmm.service.v1.ListServiceExportsRequest
+	(*ListServiceExportsResponse)(nil),   // 10: agentvmm.service.v1.ListServiceExportsResponse
+	(*GetServiceExportRequest)(nil),      // 11: agentvmm.service.v1.GetServiceExportRequest
+	(*RevokeServiceExportRequest)(nil),   // 12: agentvmm.service.v1.RevokeServiceExportRequest
+	(*OpenServiceForwardHeader)(nil),     // 13: agentvmm.service.v1.OpenServiceForwardHeader
+	(*OpenServiceForwardRequest)(nil),    // 14: agentvmm.service.v1.OpenServiceForwardRequest
+	(*OpenServiceForwardResponse)(nil),   // 15: agentvmm.service.v1.OpenServiceForwardResponse
+	(*PersonalRouteRequest)(nil),         // 16: agentvmm.service.v1.PersonalRouteRequest
+	(*PersonalRouteResponse)(nil),        // 17: agentvmm.service.v1.PersonalRouteResponse
+	(*timestamppb.Timestamp)(nil),        // 18: google.protobuf.Timestamp
+	(*v1.RouteCapability)(nil),           // 19: agentvmm.trust.v1.RouteCapability
+	(*v1.RouteBudget)(nil),               // 20: agentvmm.trust.v1.RouteBudget
+	(*emptypb.Empty)(nil),                // 21: google.protobuf.Empty
 }
 var file_service_v1_service_proto_depIdxs = []int32{
 	3,  // 0: agentvmm.service.v1.ServiceExport.protocol:type_name -> agentvmm.service.v1.ServiceProtocol
-	17, // 1: agentvmm.service.v1.ServiceExport.created_at:type_name -> google.protobuf.Timestamp
-	1,  // 2: agentvmm.service.v1.AccessRoute.route_class:type_name -> agentvmm.service.v1.RouteClass
-	2,  // 3: agentvmm.service.v1.AccessRoute.state:type_name -> agentvmm.service.v1.RouteState
-	17, // 4: agentvmm.service.v1.AccessRoute.expires_at:type_name -> google.protobuf.Timestamp
-	17, // 5: agentvmm.service.v1.RouteLease.expires_at:type_name -> google.protobuf.Timestamp
-	18, // 6: agentvmm.service.v1.RouteLease.capability:type_name -> agentvmm.trust.v1.RouteCapability
-	4,  // 7: agentvmm.service.v1.ListServiceExportsResponse.exports:type_name -> agentvmm.service.v1.ServiceExport
-	18, // 8: agentvmm.service.v1.OpenServiceForwardHeader.capability:type_name -> agentvmm.trust.v1.RouteCapability
-	12, // 9: agentvmm.service.v1.OpenServiceForwardRequest.header:type_name -> agentvmm.service.v1.OpenServiceForwardHeader
-	19, // 10: agentvmm.service.v1.PersonalRouteRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
-	17, // 11: agentvmm.service.v1.PersonalRouteRequest.expires_at:type_name -> google.protobuf.Timestamp
-	1,  // 12: agentvmm.service.v1.PersonalRouteRequest.route_class:type_name -> agentvmm.service.v1.RouteClass
-	18, // 13: agentvmm.service.v1.PersonalRouteResponse.capability:type_name -> agentvmm.trust.v1.RouteCapability
-	4,  // 14: agentvmm.service.v1.PersonalRouteResponse.destination_export:type_name -> agentvmm.service.v1.ServiceExport
-	8,  // 15: agentvmm.service.v1.ServiceRouteService.ListServiceExports:input_type -> agentvmm.service.v1.ListServiceExportsRequest
-	10, // 16: agentvmm.service.v1.ServiceRouteService.GetServiceExport:input_type -> agentvmm.service.v1.GetServiceExportRequest
-	11, // 17: agentvmm.service.v1.ServiceRouteService.RevokeServiceExport:input_type -> agentvmm.service.v1.RevokeServiceExportRequest
-	13, // 18: agentvmm.service.v1.ServiceRouteService.OpenServiceForward:input_type -> agentvmm.service.v1.OpenServiceForwardRequest
-	15, // 19: agentvmm.service.v1.MeshControlService.RequestPersonalRoute:input_type -> agentvmm.service.v1.PersonalRouteRequest
-	9,  // 20: agentvmm.service.v1.ServiceRouteService.ListServiceExports:output_type -> agentvmm.service.v1.ListServiceExportsResponse
-	4,  // 21: agentvmm.service.v1.ServiceRouteService.GetServiceExport:output_type -> agentvmm.service.v1.ServiceExport
-	20, // 22: agentvmm.service.v1.ServiceRouteService.RevokeServiceExport:output_type -> google.protobuf.Empty
-	14, // 23: agentvmm.service.v1.ServiceRouteService.OpenServiceForward:output_type -> agentvmm.service.v1.OpenServiceForwardResponse
-	16, // 24: agentvmm.service.v1.MeshControlService.RequestPersonalRoute:output_type -> agentvmm.service.v1.PersonalRouteResponse
-	20, // [20:25] is the sub-list for method output_type
-	15, // [15:20] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	18, // 1: agentvmm.service.v1.ServiceExport.created_at:type_name -> google.protobuf.Timestamp
+	5,  // 2: agentvmm.service.v1.ServiceImport.destination_frontend:type_name -> agentvmm.service.v1.ApplianceFrontendDestination
+	1,  // 3: agentvmm.service.v1.AccessRoute.route_class:type_name -> agentvmm.service.v1.RouteClass
+	2,  // 4: agentvmm.service.v1.AccessRoute.state:type_name -> agentvmm.service.v1.RouteState
+	18, // 5: agentvmm.service.v1.AccessRoute.expires_at:type_name -> google.protobuf.Timestamp
+	18, // 6: agentvmm.service.v1.RouteLease.expires_at:type_name -> google.protobuf.Timestamp
+	19, // 7: agentvmm.service.v1.RouteLease.capability:type_name -> agentvmm.trust.v1.RouteCapability
+	4,  // 8: agentvmm.service.v1.ListServiceExportsResponse.exports:type_name -> agentvmm.service.v1.ServiceExport
+	19, // 9: agentvmm.service.v1.OpenServiceForwardHeader.capability:type_name -> agentvmm.trust.v1.RouteCapability
+	13, // 10: agentvmm.service.v1.OpenServiceForwardRequest.header:type_name -> agentvmm.service.v1.OpenServiceForwardHeader
+	20, // 11: agentvmm.service.v1.PersonalRouteRequest.budget:type_name -> agentvmm.trust.v1.RouteBudget
+	18, // 12: agentvmm.service.v1.PersonalRouteRequest.expires_at:type_name -> google.protobuf.Timestamp
+	1,  // 13: agentvmm.service.v1.PersonalRouteRequest.route_class:type_name -> agentvmm.service.v1.RouteClass
+	19, // 14: agentvmm.service.v1.PersonalRouteResponse.capability:type_name -> agentvmm.trust.v1.RouteCapability
+	4,  // 15: agentvmm.service.v1.PersonalRouteResponse.destination_export:type_name -> agentvmm.service.v1.ServiceExport
+	9,  // 16: agentvmm.service.v1.ServiceRouteService.ListServiceExports:input_type -> agentvmm.service.v1.ListServiceExportsRequest
+	11, // 17: agentvmm.service.v1.ServiceRouteService.GetServiceExport:input_type -> agentvmm.service.v1.GetServiceExportRequest
+	12, // 18: agentvmm.service.v1.ServiceRouteService.RevokeServiceExport:input_type -> agentvmm.service.v1.RevokeServiceExportRequest
+	14, // 19: agentvmm.service.v1.ServiceRouteService.OpenServiceForward:input_type -> agentvmm.service.v1.OpenServiceForwardRequest
+	16, // 20: agentvmm.service.v1.MeshControlService.RequestPersonalRoute:input_type -> agentvmm.service.v1.PersonalRouteRequest
+	10, // 21: agentvmm.service.v1.ServiceRouteService.ListServiceExports:output_type -> agentvmm.service.v1.ListServiceExportsResponse
+	4,  // 22: agentvmm.service.v1.ServiceRouteService.GetServiceExport:output_type -> agentvmm.service.v1.ServiceExport
+	21, // 23: agentvmm.service.v1.ServiceRouteService.RevokeServiceExport:output_type -> google.protobuf.Empty
+	15, // 24: agentvmm.service.v1.ServiceRouteService.OpenServiceForward:output_type -> agentvmm.service.v1.OpenServiceForwardResponse
+	17, // 25: agentvmm.service.v1.MeshControlService.RequestPersonalRoute:output_type -> agentvmm.service.v1.PersonalRouteResponse
+	21, // [21:26] is the sub-list for method output_type
+	16, // [16:21] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_service_v1_service_proto_init() }
@@ -1561,13 +1709,13 @@ func file_service_v1_service_proto_init() {
 	if File_service_v1_service_proto != nil {
 		return
 	}
-	file_service_v1_service_proto_msgTypes[2].OneofWrappers = []any{}
-	file_service_v1_service_proto_msgTypes[9].OneofWrappers = []any{
+	file_service_v1_service_proto_msgTypes[3].OneofWrappers = []any{}
+	file_service_v1_service_proto_msgTypes[10].OneofWrappers = []any{
 		(*OpenServiceForwardRequest_Header)(nil),
 		(*OpenServiceForwardRequest_Data)(nil),
 		(*OpenServiceForwardRequest_CloseWrite)(nil),
 	}
-	file_service_v1_service_proto_msgTypes[10].OneofWrappers = []any{
+	file_service_v1_service_proto_msgTypes[11].OneofWrappers = []any{
 		(*OpenServiceForwardResponse_Data)(nil),
 		(*OpenServiceForwardResponse_CloseWrite)(nil),
 	}
@@ -1577,7 +1725,7 @@ func file_service_v1_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_service_v1_service_proto_rawDesc), len(file_service_v1_service_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

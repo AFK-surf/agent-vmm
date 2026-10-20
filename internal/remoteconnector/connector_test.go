@@ -27,6 +27,7 @@ import (
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"github.com/AFK-surf/agent-vmm/pkg/signing"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -163,6 +164,7 @@ type fakeEnrollmentTrust struct {
 	trustv1.UnimplementedTrustServiceServer
 	identity  *trustv1.DeviceIdentity
 	installed bool
+	reject    string
 }
 
 func (server *fakeEnrollmentTrust) GetDeviceIdentity(context.Context, *trustv1.GetDeviceIdentityRequest) (*trustv1.DeviceIdentity, error) {
@@ -170,6 +172,9 @@ func (server *fakeEnrollmentTrust) GetDeviceIdentity(context.Context, *trustv1.G
 }
 
 func (server *fakeEnrollmentTrust) InstallManagedTrust(_ context.Context, request *trustv1.InstallManagedTrustRequest) (*trustv1.InstallManagedTrustResponse, error) {
+	if server.reject != "" {
+		return nil, status.Error(codes.PermissionDenied, server.reject)
+	}
 	if request.GetMembershipCredential().GetSubjectDeviceId() != server.identity.GetDeviceId() {
 		return nil, status.Error(codes.PermissionDenied, "wrong subject")
 	}
@@ -227,6 +232,20 @@ func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.H
 		return err
 	}
 	return stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_RevokeCredential{RevokeCredential: &remotev1.RevokeCredential{Reason: "test"}}})
+}
+
+func TestEnrollKeepsManagedTrustFailureReason(t *testing.T) {
+	local := &fakeLocal{registration: testRegistration(ProtocolVersion)}
+	socket := startLocalServer(t, local)
+	endpoint, roots := startTLSServer(t, "localhost", &fakeController{t: t})
+	store := &memoryCredentials{}
+	config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: socket, CredentialStore: store, TLSRoots: roots}
+	trust := configureEnrollmentTrust(t, &config)
+	trust.reject = "managed trust bundle is invalid: managed trust stage=anchor_time reason=not_yet_valid excess_ms=360000"
+	_, err := Enroll(context.Background(), config, []byte("one-time"))
+	if err == nil || !strings.Contains(err.Error(), "reason=not_yet_valid") {
+		t.Fatalf("enrollment error lost the trust failure reason: %v", err)
+	}
 }
 
 func TestEnrollAndControlTranscript(t *testing.T) {
@@ -502,6 +521,13 @@ func startLocalServer(t *testing.T, service hostv1.RemoteComputeServiceServer) s
 
 func startTLSServer(t *testing.T, name string, service remotev1.RemoteControllerServiceServer) (string, *x509.CertPool) {
 	t.Helper()
+	socket, roots := startTLSSocketServer(t, name, service)
+	_, port, _ := net.SplitHostPort(socket)
+	return net.JoinHostPort("localhost", port), roots
+}
+
+func startTLSSocketServer(t *testing.T, name string, service remotev1.RemoteControllerServiceServer) (string, *x509.CertPool) {
+	t.Helper()
 	certificate, roots := certificateFor(t, name)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -511,7 +537,7 @@ func startTLSServer(t *testing.T, name string, service remotev1.RemoteController
 	remotev1.RegisterRemoteControllerServiceServer(server, service)
 	go server.Serve(listener)
 	t.Cleanup(func() { server.Stop(); listener.Close() })
-	return net.JoinHostPort("localhost", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)), roots
+	return listener.Addr().String(), roots
 }
 
 func certificateFor(t *testing.T, name string) (tls.Certificate, *x509.CertPool) {
@@ -556,3 +582,81 @@ func TestLoadTLSRootsAddsConfiguredCA(t *testing.T) {
 }
 
 func uint32Pointer(value uint32) *uint32 { return &value }
+
+type unavailableAllocationClient struct {
+	hostv1.RemoteComputeServiceClient
+}
+
+func (unavailableAllocationClient) EnsureAllocation(context.Context, *hostv1.EnsureAllocationRequest, ...grpc.CallOption) (*hostv1.AllocationResponse, error) {
+	return nil, status.Error(codes.Unavailable, "local remote-compute socket connection refused")
+}
+
+func TestAllocationFailureRetainsRPCMessage(t *testing.T) {
+	handler := commandHandler{client: unavailableAllocationClient{}}
+	result := handler.handle(context.Background(), &remotev1.ControllerCommand{CommandId: "failed-ensure", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation"}}})
+	if result.GetReason() != remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE || !strings.Contains(result.GetMessage(), "local remote-compute socket connection refused") {
+		t.Fatalf("allocation failure lost RPC context: %v", result)
+	}
+}
+
+func TestRunnerDeadlineSurvivesLocalGRPC(t *testing.T) {
+	local := &fakeLocal{registration: testRegistration(ProtocolVersion)}
+	connection, err := newLocalClient(context.Background(), startLocalServer(t, local), "registration-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.connection.Close()
+	for _, deadline := range []int64{time.Now().Add(time.Minute).UnixMilli(), 9223372036854775807} {
+		t.Run(strconv.FormatInt(deadline, 10), func(t *testing.T) {
+			ctx, cancel := context.WithDeadline(context.Background(), time.UnixMilli(deadline))
+			defer cancel()
+			if err := ctx.Err(); err != nil {
+				t.Fatalf("deadline context expired: %v", err)
+			}
+			handler := commandHandler{client: connection.client, registrationID: "registration-a"}
+			result := handler.handle(ctx, &remotev1.ControllerCommand{CommandId: "deadline-ensure", DeadlineUnixMillis: deadline, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b"}}})
+			if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
+				t.Fatalf("real local gRPC rejected deadline: %v", result)
+			}
+		})
+	}
+}
+
+type rejectedAllocationLocal struct {
+	fakeLocal
+	failure error
+}
+
+func (server *rejectedAllocationLocal) EnsureAllocation(context.Context, *hostv1.EnsureAllocationRequest) (*hostv1.AllocationResponse, error) {
+	return nil, server.failure
+}
+
+func TestRejectedAllocationRetainsPartialAdmissionAcrossLocalGRPC(t *testing.T) {
+	for _, dimension := range []string{"storage_headroom", "import_slot"} {
+		t.Run(dimension, func(t *testing.T) {
+			allocation := &hostv1.RemoteAllocation{AllocationId: "allocation-b", Generation: 2, Revision: 7, State: hostv1.AllocationState_ALLOCATION_STATE_DRAINING}
+			failure, err := status.New(codes.ResourceExhausted, "guest projection rejected").WithDetails(
+				&errdetails.ErrorInfo{Reason: "RESOURCE_CAPACITY_EXHAUSTED", Metadata: map[string]string{"resource_dimension": dimension}}, allocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			local := &rejectedAllocationLocal{failure: failure.Err()}
+			connection, err := newLocalClient(context.Background(), startLocalServer(t, local), "registration-a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.connection.Close()
+			handler := commandHandler{client: connection.client, registrationID: "registration-a"}
+			result := handler.handle(context.Background(), &remotev1.ControllerCommand{CommandId: "partial-ensure", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", Generation: 2}}})
+			if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED || result.GetReason() != remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED {
+				t.Fatalf("rejection changed: %v", result)
+			}
+			if got := result.GetAllocation(); got.GetAllocationId() != "allocation-b" || got.GetGeneration() != 2 || got.GetRevision() != 7 || got.GetState() != hostv1.AllocationState_ALLOCATION_STATE_DRAINING {
+				t.Fatalf("partial admission lost: %v", result)
+			}
+			if result.GetCapacityDimension() != capacityDimensionFor(failure.Err()) {
+				t.Fatalf("capacity dimension lost: %v", result)
+			}
+		})
+	}
+}

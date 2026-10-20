@@ -1,8 +1,8 @@
 .PHONY: e2e proto proto-check tla swift-project release-bundle headless-release test-data-worker lint-data-worker audit-data-worker
 
 proto:
-	PATH="$$(go env GOPATH)/bin:$$PATH" buf generate
-	buf generate --template buf.gen.swift.yaml --path api/appliance/v1 --path api/host/v1 --path api/trust/v1 --path api/service/v1
+	PATH="$$(go env GOPATH)/bin:$$PATH" buf generate --exclude-path api/google
+	buf generate --template buf.gen.swift.yaml --path api/appliance/v1 --path api/host/v1 --path api/trust/v1 --path api/service/v1 --path api/vmmd/v1 --path api/google/rpc
 
 proto-check:
 	buf lint

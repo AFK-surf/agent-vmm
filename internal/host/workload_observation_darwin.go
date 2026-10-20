@@ -12,6 +12,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -25,11 +26,53 @@ func (controller *Controller) recoverWorkloadRuns(ctx context.Context) error {
 		return err
 	}
 	defer connection.Close()
-	return controller.recoverWorkloadRunsFromGuest(ctx, client)
+	return controller.recoverRunningWorkloadsFromGuest(ctx, client)
+}
+
+func (controller *Controller) recoverRunningWorkloadsFromGuest(ctx context.Context, client vmmdv1.VMMDServiceClient) error {
+	environments, err := controller.store.ListEnvironments(ctx)
+	if err != nil {
+		return fmt.Errorf("read namespace projection owners: %w", err)
+	}
+	for _, environment := range environments {
+		if environment.OwnerKind == store.OwnerRemoteRegistration {
+			_, err := client.GetNamespace(ctx, &vmmdv1.GetNamespaceRequest{NamespaceId: environment.NamespaceID})
+			if status.Code(err) == codes.NotFound {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("observe allocation environment %s namespace %s: %w", environment.ID, environment.NamespaceID, err)
+			}
+		}
+		if err := controller.projectEnvironmentFromGuest(ctx, client, environment); err != nil {
+			return fmt.Errorf("project environment %s namespace %s: %w", environment.ID, environment.NamespaceID, err)
+		}
+	}
+	if err := controller.recoverWorkloadRunsFromGuest(ctx, client); err != nil {
+		return err
+	}
+	if err := controller.reconcileHostShares(ctx, client); err != nil {
+		log.Printf("host share recovery failed: %v", err)
+	}
+	if err := controller.restoreManagedServiceContainers(ctx, client); err != nil {
+		log.Printf("service container recovery failed: %v", err)
+	}
+	return nil
 }
 
 func (controller *Controller) recoverWorkloadRunsFromGuest(ctx context.Context, client vmmdv1.VMMDServiceClient) error {
+	containers, err := controller.store.ListManagedContainers(ctx)
+	if err != nil {
+		return err
+	}
+	managed := make(map[string]string)
+	for _, container := range containers {
+		if container.DesiredRunning {
+			managed[workloadRunKey(container.EnvironmentID, container.ContainerID)] = container.ContainerGenerationID
+		}
+	}
 	runs := make(map[string]*workloadRun)
+	stopped := make(map[string]string)
 	cursor := ""
 	for {
 		page, err := controller.store.ListWorkloadEnvironmentPage(ctx, cursor, 32)
@@ -40,24 +83,43 @@ func (controller *Controller) recoverWorkloadRunsFromGuest(ctx context.Context, 
 			break
 		}
 		for _, environment := range page {
+			cursor = environment.ID
 			response, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
 			if err != nil {
-				return err
+				if status.Code(err) == codes.NotFound && environment.OwnerKind == store.OwnerRemoteRegistration {
+					_, namespaceErr := client.GetNamespace(ctx, &vmmdv1.GetNamespaceRequest{NamespaceId: environment.NamespaceID})
+					if status.Code(namespaceErr) == codes.NotFound {
+						continue
+					}
+					if namespaceErr != nil {
+						return fmt.Errorf("confirm allocation environment %s namespace %s: %w", environment.ID, environment.NamespaceID, namespaceErr)
+					}
+				}
+				return fmt.Errorf("list workload containers environment %s namespace %s: %w", environment.ID, environment.NamespaceID, err)
 			}
 			for _, container := range response.GetContainers() {
 				if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_CREATED || container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+					if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED && container.GetInstanceId() == "" &&
+						container.GetStartRequestInstanceId() != "" && container.GetStartRequestSha256() != "" && container.GetStartedAtUnixNano() != 0 &&
+						len(stopped) < maxStoppedWorkloadInstances {
+						stopped[workloadRunKey(environment.ID, container.GetId())] = container.GetStartRequestInstanceId()
+					}
 					continue
 				}
-				run := &workloadRun{environmentID: environment.ID, registrationID: environment.RegistrationID, namespaceID: environment.NamespaceID, containerID: container.GetId(), instanceID: container.GetInstanceId(), stopping: true, stopDeadline: time.Now().Add(workloadStopBudget), stopRequestID: derivedRequestID("recover-stop-" + environment.ID + "-" + container.GetId() + "-" + container.GetInstanceId())}
+				run := &workloadRun{environmentID: environment.ID, registrationID: environment.RegistrationID, namespaceID: environment.NamespaceID, containerID: container.GetId(), instanceID: container.GetInstanceId(), stopping: true, stopDeadline: time.Now().Add(workloadStopBudget), stopRequestID: derivedRequestID("recover-stop-" + environment.ID + "-" + container.GetId() + "-" + container.GetInstanceId()), stopTimeoutSeconds: optional(uint32(0))}
+				if generation, present := managed[workloadRunKey(environment.ID, container.GetId())]; present && generation == container.GetGenerationId() {
+					run.stopping = false
+					run.stopDeadline = time.Time{}
+					run.stopRequestID = ""
+				}
 				runs[workloadRunKey(environment.ID, container.GetId())] = run
 			}
-			cursor = environment.ID
 		}
 	}
 	controller.mu.Lock()
 	controller.clearWorkloadReclaimLocked("recovery")
 	controller.resetWorkloadRunsLocked(runs)
-	controller.stoppedWorkloadInstances = make(map[string]string)
+	controller.stoppedWorkloadInstances = stopped
 	controller.workloadOOMKills, controller.workloadOOMEvents = 0, 0
 	controller.workloadPressureHigh, controller.workloadPressureLow = 0, 0
 	controller.workloadMemoryPressure = false
@@ -83,7 +145,12 @@ func (controller *Controller) workloadObservationLoop(ctx context.Context) {
 			sampleContext, cancel := context.WithTimeout(ctx, workloadSampleInterval)
 			client, connection, err := controller.guestClient(sampleContext)
 			if err == nil {
+				_ = controller.reconcileHostShares(sampleContext, client)
 				_ = controller.sampleWorkloadRuns(sampleContext, client)
+				_ = controller.restoreManagedServiceContainers(sampleContext, client)
+				controller.projectionMu.Lock()
+				_ = controller.restoreServiceProjectionsLocked(sampleContext, client)
+				controller.projectionMu.Unlock()
 				connection.Close()
 			}
 			cancel()
@@ -348,12 +415,11 @@ func (controller *Controller) retryWorkloadStop(ctx context.Context, client vmmd
 		controller.mu.Unlock()
 		return
 	}
-	run.stopAttempt++
-	requestID := derivedRequestID(fmt.Sprintf("%s-retry-%d", run.stopRequestID, run.stopAttempt))
+	requestID := run.stopRequestID
+	timeoutSeconds := run.stopTimeoutSeconds
 	deadline := run.stopDeadline
 	controller.mu.Unlock()
 	stopContext, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	immediate := uint32(0)
-	_, _ = controller.stopWorkloadContainerLocked(stopContext, client, run.environmentID, &vmmdv1.StopContainerRequest{RequestId: requestID, ActorNamespaceId: run.namespaceID, ContainerId: run.containerID, TimeoutSeconds: &immediate})
+	_, _ = controller.stopWorkloadContainerLocked(stopContext, client, run.environmentID, &vmmdv1.StopContainerRequest{RequestId: requestID, ActorNamespaceId: run.namespaceID, ContainerId: run.containerID, TimeoutSeconds: timeoutSeconds})
 }

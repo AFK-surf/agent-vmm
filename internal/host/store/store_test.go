@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -49,7 +51,7 @@ func TestServiceRoutePersistenceAndRevocationFences(t *testing.T) {
 	if err != nil || record.Import.GetSourceContainerId() != "client" || record.Export.GetContainerInstanceId() != "server-instance" || record.Capability.GetCapabilityId() != "capability" {
 		t.Fatalf("record=%+v err=%v", record, err)
 	}
-	if _, err := database.CreateServiceExport(ctx, "export-request", &servicev1.ServiceExport{ExportId: "different"}); err != nil {
+	if _, err := database.CreateServiceExport(ctx, "export-request", &servicev1.ServiceExport{ExportId: "different", EnvironmentId: "destination", ContainerId: "server", ContainerInstanceId: "new-instance", Port: 8080, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP}); err != nil {
 		t.Fatalf("export request idempotency failed: %v", err)
 	}
 	if err := database.RevokeServiceExport(ctx, "destination", "export", exported.GetRevision()); err != nil {
@@ -67,6 +69,39 @@ func TestServiceRoutePersistenceAndRevocationFences(t *testing.T) {
 	if err := database.db.QueryRowContext(ctx, `SELECT state, generation FROM access_routes WHERE route_id='route'`).Scan(&state, &generation); err != nil || state != servicev1.RouteState_ROUTE_STATE_REVOKED || generation != 8 {
 		t.Fatalf("state=%s generation=%d err=%v", state, generation, err)
 	}
+	if !record.Import.GetRevoked() || record.Import.GetRevision() != created.GetRevision()+1 {
+		t.Fatalf("export revoke retained import approval: %v", record.Import)
+	}
+	if err := database.RevokeServiceImport(ctx, "source", created.GetImportId(), created.GetRevision()); !errors.Is(err, ErrTrustRevisionConflict) {
+		t.Fatalf("stale import revision after export revoke=%v", err)
+	}
+	replay, err := database.CreateServiceImport(ctx, "import-request", serviceImport, route, lease)
+	if err != nil || !replay.GetRevoked() || replay.GetImportId() != created.GetImportId() {
+		t.Fatalf("revoked request replay=%v err=%v", replay, err)
+	}
+	nextExport := proto.Clone(exported).(*servicev1.ServiceExport)
+	nextExport.ExportId = "next-export"
+	nextExport.ContainerInstanceId = "next-server-instance"
+	if _, err := database.CreateServiceExport(ctx, "next-export-request", nextExport); err != nil {
+		t.Fatal(err)
+	}
+	nextImport := proto.Clone(serviceImport).(*servicev1.ServiceImport)
+	nextImport.ImportId = "next-import"
+	nextImport.DestinationExportId = "next-export"
+	nextRoute := proto.Clone(route).(*servicev1.AccessRoute)
+	nextRoute.RouteId = "next-route"
+	nextRoute.DestinationExportId = "next-export"
+	nextLease := proto.Clone(lease).(*servicev1.RouteLease)
+	nextLease.LeaseId = "next-lease"
+	nextLease.RouteId = nextRoute.RouteId
+	if _, err := database.CreateServiceImport(ctx, "next-request", nextImport, nextRoute, nextLease); err != nil {
+		t.Fatalf("explicit new request could not reuse revoked alias: %v", err)
+	}
+	nextImport.DestinationExportId = "replacement-export"
+	if _, err := database.CreateServiceImport(ctx, "import-request", nextImport, nextRoute, nextLease); !errors.Is(err, ErrTrustRevisionConflict) {
+		t.Fatalf("old request changed target: %v", err)
+	}
+
 }
 
 func TestMutationReceiptsAreAgeAndCountBounded(t *testing.T) {
@@ -197,7 +232,7 @@ func TestWALConvergesAfterLongReaderReleasesSnapshot(t *testing.T) {
 	}
 }
 
-func TestStaleServiceExportsAreRevokedWithTheirRoutes(t *testing.T) {
+func TestServiceExportsAndImportsFollowReplacementContainerGeneration(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -224,22 +259,33 @@ func TestStaleServiceExportsAreRevokedWithTheirRoutes(t *testing.T) {
 		&servicev1.RouteLease{LeaseId: "stale-lease", RouteId: "stale-route", RouteRevision: 1, Generation: 1, ExpiresAt: expires, Capability: capability}); err != nil {
 		t.Fatal(err)
 	}
-	imports, err := database.RevokeStaleServiceExports(ctx, "destination", "server", "new-instance")
+	imports, err := database.ProjectServiceContainer(ctx, "destination", "server", "replacement-generation", "new-instance")
 	if err != nil || len(imports) != 1 || imports[0] != "stale-import" {
 		t.Fatalf("invalidated imports=%v err=%v", imports, err)
 	}
 	updatedExport, err := database.GetServiceExport(ctx, exported.GetExportId())
-	if err != nil || !updatedExport.GetRevoked() || updatedExport.GetRevision() != 2 {
+	if err != nil || updatedExport.GetRevoked() || updatedExport.GetRevision() != 1 || updatedExport.GetContainerGenerationId() != "replacement-generation" || updatedExport.GetContainerInstanceId() != "new-instance" {
 		t.Fatalf("stale export=%+v err=%v", updatedExport, err)
 	}
 	updatedImport, err := database.GetServiceImport(ctx, "stale-import")
-	if err != nil || !updatedImport.GetRevoked() || updatedImport.GetRevision() != 2 {
+	if err != nil || updatedImport.GetRevoked() || updatedImport.GetRevision() != 1 {
 		t.Fatalf("stale import=%+v err=%v", updatedImport, err)
 	}
-	record, err := database.GetServiceRoute(ctx, "stale-route", "stale-lease", 2)
-	if err != nil || record.Route.GetState() != servicev1.RouteState_ROUTE_STATE_REVOKED || record.Route.GetGeneration() != 2 {
+	record, err := database.GetServiceRoute(ctx, "stale-route", "stale-lease", 1)
+	if err != nil || record.Route.GetState() != servicev1.RouteState_ROUTE_STATE_PREPARING || record.Route.GetGeneration() != 1 {
 		t.Fatalf("stale route=%+v err=%v", record, err)
 	}
+	if err := database.ActivateServiceProjection(ctx, "stale-import", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ProjectServiceContainer(ctx, "source", "client", "source-replacement", "new-client"); err != nil {
+		t.Fatal(err)
+	}
+	updatedImport, err = database.GetServiceImport(ctx, "stale-import")
+	if err != nil || updatedImport.GetRevoked() || updatedImport.GetSourceContainerGenerationId() != "source-replacement" || updatedImport.GetSourceContainerInstanceId() != "new-client" {
+		t.Fatal(updatedImport, err)
+	}
+
 }
 
 func TestServiceListenerPersistenceRevocationAndRestartFence(t *testing.T) {
@@ -471,7 +517,7 @@ func TestEnvironmentPolicyAndSessionPersistence(t *testing.T) {
 	if session.RevokedAt == nil || session.TerminalReason != "SIDECAR_RESTARTED" {
 		t.Fatalf("live session survived host restart: %+v", session)
 	}
-	if err := store.RevokeSession(ctx, session.ID); err != sql.ErrNoRows {
+	if err := store.RevokeSession(ctx, session.ID); err != nil {
 		t.Fatalf("revoke after restart error = %v", err)
 	}
 }
@@ -498,16 +544,24 @@ func TestAgentIntegrationOwnsSessionAuthorizationAndRemovalKeepsEnvironment(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	waiting, err := database.CommitAgentIntegration(ctx, prepared.ID, prepared.Revision, "fingerprint", 3)
+	waiting, err := database.CommitAgentIntegration(ctx, "commit-store_test-547", prepared.ID, prepared.Revision, "fingerprint", 3)
 	if err != nil || waiting.ConfigState != 3 || waiting.Revision != 2 {
 		t.Fatalf("waiting=%+v err=%v", waiting, err)
 	}
-	if err := database.VerifyAgentIntegration(ctx, waiting.ID); err != nil {
+	if err := database.VerifyAgentIntegration(ctx, waiting.ID, waiting.Revision); err != nil {
 		t.Fatal(err)
 	}
 	ready, err := database.GetAgentIntegration(ctx, waiting.ID)
-	if err != nil || ready.ConfigState != 2 || ready.Revision != 3 || ready.LastVerifiedAt == nil {
+	if err != nil || ready.ConfigState != 2 || ready.Revision != waiting.Revision || ready.LastVerifiedAt == nil {
 		t.Fatalf("ready=%+v err=%v", ready, err)
+	}
+	previousRevision := ready.Revision
+	ready, err = database.CommitAgentIntegration(ctx, "commit-store_test-559", ready.ID, ready.Revision, "updated-image", 2)
+	if err != nil || ready.ConfigFingerprint != "updated-image" || ready.Revision != previousRevision+1 {
+		t.Fatalf("configuration update=%+v err=%v", ready, err)
+	}
+	if _, err := database.CommitAgentIntegration(ctx, "commit-store_test-563", ready.ID, previousRevision, "stale-image", 2); err == nil {
+		t.Fatal("stale configuration update was accepted")
 	}
 	createdAt := time.Now().Add(-time.Minute).Truncate(time.Nanosecond)
 	if err := database.CreateSession(ctx, Session{
@@ -523,16 +577,31 @@ func TestAgentIntegrationOwnsSessionAuthorizationAndRemovalKeepsEnvironment(t *t
 	if err != nil || len(sessions) != 1 || sessions[0].IntegrationID != ready.ID || sessions[0].ConnectedAt == nil {
 		t.Fatalf("sessions=%+v err=%v", sessions, err)
 	}
-	removing, err := database.BeginAgentIntegrationRemoval(ctx, ready.ID, ready.Revision)
+	removing, err := database.BeginAgentIntegrationRemoval(ctx, "begin-"+ready.ID, ready.ID, ready.Revision)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if replay, err := database.BeginAgentIntegrationRemoval(ctx, "begin-"+ready.ID, ready.ID, ready.Revision); err != nil || replay.Revision != removing.Revision {
+		t.Fatalf("begin replay=%+v err=%v", replay, err)
+	}
+	if _, err := database.BeginAgentIntegrationRemoval(ctx, "begin-"+ready.ID, ready.ID, ready.Revision+1); !errors.Is(err, ErrOperationReceiptConflict) {
+		t.Fatalf("changed request = %v", err)
+	}
+	if _, err := database.CompleteAgentIntegrationRemoval(ctx, "complete-"+ready.ID, ready.ID, removing.Revision); err == nil {
+		t.Fatal("completed with active session")
 	}
 	if err := database.RevokeSession(ctx, "session-a"); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := database.CompleteAgentIntegrationRemoval(ctx, ready.ID, removing.Revision)
+	removed, err := database.CompleteAgentIntegrationRemoval(ctx, "complete-"+ready.ID, ready.ID, removing.Revision)
 	if err != nil || removed.DesiredState != 2 || removed.ConfigState != 7 {
 		t.Fatalf("removed=%+v err=%v", removed, err)
+	}
+	if replay, err := database.CompleteAgentIntegrationRemoval(ctx, "complete-"+ready.ID, ready.ID, removing.Revision); err != nil || replay.Revision != removed.Revision {
+		t.Fatalf("complete replay=%+v err=%v", replay, err)
+	}
+	if _, err := database.CommitAgentIntegration(ctx, "commit-store_test-603", removed.ID, removed.Revision, "revive", 2); err == nil {
+		t.Fatal("configuration update revived a removed integration")
 	}
 	if _, err := database.GetEnvironment(ctx, "agent-data"); err != nil {
 		t.Fatalf("access removal deleted retained environment: %v", err)
@@ -553,7 +622,7 @@ func TestAgentSessionAuthorizationIsAtomicWithRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready, err := database.CommitAgentIntegration(ctx, prepared.ID, prepared.Revision, "fingerprint", 2)
+	ready, err := database.CommitAgentIntegration(ctx, "commit-store_test-625", prepared.ID, prepared.Revision, "fingerprint", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,11 +630,11 @@ func TestAgentSessionAuthorizationIsAtomicWithRemoval(t *testing.T) {
 	results := make(chan error, 2)
 	go func() {
 		<-start
-		results <- database.CreateAuthorizedSession(ctx, Session{ID: "session", IntegrationID: ready.ID, EnvironmentID: ready.EnvironmentID, SocketPath: "/tmp/session", Origin: 1, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
+		results <- database.CreateAuthorizedSession(ctx, Session{ID: "session", IntegrationID: ready.ID, EnvironmentID: ready.EnvironmentID, SocketPath: "/tmp/session", Origin: 1, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}, ready.Revision)
 	}()
 	go func() {
 		<-start
-		_, err := database.BeginAgentIntegrationRemoval(ctx, ready.ID, ready.Revision)
+		_, err := database.BeginAgentIntegrationRemoval(ctx, "begin-"+ready.ID, ready.ID, ready.Revision)
 		results <- err
 	}()
 	close(start)
@@ -583,7 +652,7 @@ func TestAgentSessionAuthorizationIsAtomicWithRemoval(t *testing.T) {
 	}
 }
 
-func TestCancelledPendingIntegrationRemovesOnlyItsEmptyEnvironment(t *testing.T) {
+func TestCancelledPendingIntegrationPreservesOwnerUntilDiscard(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -599,18 +668,31 @@ func TestCancelledPendingIntegrationRemovesOnlyItsEmptyEnvironment(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	removing, err := database.BeginAgentIntegrationRemoval(ctx, prepared.ID, prepared.Revision)
+	removing, err := database.BeginAgentIntegrationRemoval(ctx, "begin-"+prepared.ID, prepared.ID, prepared.Revision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CompleteAgentIntegrationRemoval(ctx, prepared.ID, removing.Revision); err != nil {
+	if _, err := database.CompleteAgentIntegrationRemoval(ctx, "complete-"+prepared.ID, prepared.ID, removing.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if current, err := database.GetAgentIntegration(ctx, prepared.ID); err != nil || current.ConfigState != 7 {
+		t.Fatalf("removed owner=%+v err=%v", current, err)
+	}
+	if replay, err := database.CompleteAgentIntegrationRemoval(ctx, "complete-"+prepared.ID, prepared.ID, removing.Revision); err != nil || replay.ID != prepared.ID || replay.ConfigState != 7 {
+		t.Fatalf("retained owner receipt=%+v err=%v", replay, err)
+	}
+	if _, _, err := database.CheckAgentIntegrationRemoval(ctx, "complete-"+prepared.ID, "different-owner", removing.Revision); !errors.Is(err, ErrOperationReceiptConflict) {
+		t.Fatalf("exact owner conflict=%v", err)
+	}
+
+	if _, err := database.GetEnvironment(ctx, environmentID); err != nil {
+		t.Fatalf("environment was deleted: %v", err)
+	}
+	if err := database.DiscardEnvironment(ctx, environmentID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.GetAgentIntegration(ctx, prepared.ID); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("integration still exists: %v", err)
-	}
-	if _, err := database.GetEnvironment(ctx, environmentID); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("environment still exists: %v", err)
+		t.Fatalf("explicit discard retained owner: %v", err)
 	}
 }
 
@@ -629,14 +711,14 @@ func TestCancelledIntegrationCleanupRollsBackWhenEnvironmentIsReferenced(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	removing, err := database.BeginAgentIntegrationRemoval(ctx, prepared.ID, prepared.Revision)
+	removing, err := database.BeginAgentIntegrationRemoval(ctx, "begin-"+prepared.ID, prepared.ID, prepared.Revision)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := database.CreateSession(ctx, Session{ID: "reference", IntegrationID: integrationID, EnvironmentID: environmentID, SocketPath: "/tmp/reference", Origin: 1, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CompleteAgentIntegrationRemoval(ctx, integrationID, removing.Revision); err == nil {
+	if _, err := database.CompleteAgentIntegrationRemoval(ctx, "complete-"+integrationID, integrationID, removing.Revision); err == nil {
 		t.Fatal("referenced cancellation succeeded")
 	}
 	current, err := database.GetAgentIntegration(ctx, integrationID)
@@ -829,30 +911,38 @@ func TestCanceledOperationInsertDoesNotCreateAcceptanceRecord(t *testing.T) {
 	}
 }
 
-func TestOpenMarksRunningOperationsInterrupted(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "host.sqlite")
-	first, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	created, _, err := first.PutOperation(context.Background(), Operation{ID: "operation-a", Kind: "diagnostic", State: int32(hostv1.OperationState_OPERATION_STATE_RUNNING), Stage: "started", RequestID: "request-a"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
-	}
-	second, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer second.Close()
-	recovered, err := second.GetOperation(context.Background(), created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if recovered.State != int32(hostv1.OperationState_OPERATION_STATE_INTERRUPTED) || recovered.ErrorReason != "SIDECAR_RESTARTED" {
-		t.Fatalf("recovered operation = %+v", recovered)
+func TestOpenPreservesResumableOperationsAndInterruptsLostHandlers(t *testing.T) {
+	for _, kind := range []string{"diagnostic", "local-disposal", "host-share-create", "host-share-rebind", "host-share-revoke"} {
+		t.Run(kind, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "host.sqlite")
+			first, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, _, err := first.PutOperation(context.Background(), Operation{ID: "operation-a", Kind: kind, State: int32(hostv1.OperationState_OPERATION_STATE_RUNNING), Stage: "accepted", RequestID: "request-a"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := first.Close(); err != nil {
+				t.Fatal(err)
+			}
+			second, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer second.Close()
+			recovered, err := second.GetOperation(context.Background(), created.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "diagnostic" {
+				if recovered.State != int32(hostv1.OperationState_OPERATION_STATE_INTERRUPTED) || recovered.ErrorReason != "SIDECAR_RESTARTED" {
+					t.Fatalf("lost handler operation = %+v", recovered)
+				}
+			} else if recovered.State != int32(hostv1.OperationState_OPERATION_STATE_RUNNING) || recovered.Stage != "accepted" || recovered.ErrorReason != "" {
+				t.Fatalf("resumable operation = %+v", recovered)
+			}
+		})
 	}
 }
 
@@ -965,11 +1055,14 @@ func TestDiscardEnvironmentRemovesOnlyFullyRemovedIntegrationHistory(t *testing.
 	}); err != nil {
 		t.Fatal(err)
 	}
-	removing, err := database.BeginAgentIntegrationRemoval(ctx, prepared.ID, prepared.Revision)
+	removing, err := database.BeginAgentIntegrationRemoval(ctx, "begin-"+prepared.ID, prepared.ID, prepared.Revision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CompleteAgentIntegrationRemoval(ctx, removing.ID, removing.Revision); err != nil {
+	if err := database.RevokeSession(ctx, "historical-session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CompleteAgentIntegrationRemoval(ctx, "complete-"+removing.ID, removing.ID, removing.Revision); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.DiscardEnvironment(ctx, "retained"); err != nil {
@@ -1153,5 +1246,144 @@ func TestDiscardEnvironmentRollsBackRelatedHistoryOnFailure(t *testing.T) {
 	}
 	if _, err := database.GetSession(ctx, "rollback-session"); err != nil {
 		t.Fatalf("rollback lost session: %v", err)
+	}
+}
+
+func TestSessionTerminalReplaysPreserveFirstReasonAndRejectMissing(t *testing.T) {
+	for _, closed := range []bool{false, true} {
+		t.Run(fmt.Sprint(closed), func(t *testing.T) {
+			database, err := Open(filepath.Join(t.TempDir(), "host.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			ctx := context.Background()
+			environment := Environment{ID: "terminal-env", NamespaceID: "terminal-ns", OwnerKind: OwnerLocal, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}
+			if _, err := database.CreateEnvironment(ctx, environment); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.CreateSession(ctx, Session{ID: "terminal-session", EnvironmentID: environment.ID, SocketPath: "/tmp/test.sock", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.EndSession(ctx, "terminal-session", "FIRST", closed); err != nil {
+				t.Fatal(err)
+			}
+			original, err := database.GetSession(ctx, "terminal-session")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, again := range []bool{false, true, false} {
+				if err := database.EndSession(ctx, "terminal-session", "LATER", again); err != nil {
+					t.Fatal(err)
+				}
+			}
+			current, err := database.GetSession(ctx, "terminal-session")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if current.TerminalReason != "FIRST" || !reflect.DeepEqual(current.RevokedAt, original.RevokedAt) || !reflect.DeepEqual(current.ClosedAt, original.ClosedAt) {
+				t.Fatalf("terminal state changed: %+v -> %+v", original, current)
+			}
+			if err := database.RevokeSession(ctx, "missing-session"); !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("missing = %v", err)
+			}
+		})
+	}
+}
+
+func TestPartialServiceRemovalPreservesOwnerForReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	environment := "integration-partial-service"
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: environment, NamespaceID: "partial-namespace", DisplayName: "Partial", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: "partial-service", AdapterID: "agentd-service", DisplayName: "gitea", Scope: 1, ConfigTarget: "image", EnvironmentID: environment, DesiredState: 1, ConfigState: 1, PrepareRequestID: "prepare-partial"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateServiceExport(ctx, "partial-export", &servicev1.ServiceExport{ExportId: "partial-export", EnvironmentId: environment, ContainerId: "gitea", ContainerGenerationId: "generation", ContainerInstanceId: "instance", Port: 3000, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetManagedContainerRunning(ctx, environment, "gitea", "generation", true); err != nil {
+		t.Fatal(err)
+	}
+	removing, err := database.BeginAgentIntegrationRemoval(ctx, "partial-begin", owner.ID, owner.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := database.GetServiceExport(ctx, "partial-export")
+	if err != nil || !exported.GetRevoked() {
+		t.Fatal("removing integration retained running authority", exported, err)
+	}
+	managed, err := database.GetManagedContainer(ctx, environment, "gitea")
+	if err != nil || managed.DesiredRunning {
+		t.Fatal("removal retained container running intent", managed, err)
+	}
+	removed, err := database.CompleteAgentIntegrationRemoval(ctx, "partial-complete", owner.ID, removing.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	replay, err := database.CompleteAgentIntegrationRemoval(ctx, "partial-complete", owner.ID, removing.Revision)
+	if err != nil || replay.Revision != removed.Revision {
+		t.Fatalf("replay=%+v err=%v", replay, err)
+	}
+	current, err := database.GetAgentIntegration(ctx, owner.ID)
+	if err != nil || current.ConfigState != 7 {
+		t.Fatalf("retained owner=%+v err=%v", current, err)
+	}
+	if _, err := database.GetEnvironment(ctx, environment); err != nil {
+		t.Fatalf("retained environment=%v", err)
+	}
+	if err := database.ValidateEnvironmentDiscard(ctx, environment); err != nil {
+		t.Fatalf("removed access still blocks discard=%v", err)
+	}
+}
+
+func TestRemoteEnrollmentRestartPreservesPrivatePreparation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, kind := range []int32{RemoteRegistrationExternal, RemoteRegistrationPrivate} {
+		id := fmt.Sprintf("registration-%d", kind)
+		installationID := ""
+		if kind == RemoteRegistrationPrivate {
+			installationID = "installation"
+		}
+		_, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: id, Endpoint: "controller.example:443", DisplayName: "controller", ProtocolVersion: "1", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 10, State: 1, ConnectionState: 1, EnrollmentState: 1, ConnectorPhase: 2, OwnerKind: kind, InstallationID: installationID})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	external, err := database.GetRemoteRegistration(ctx, "registration-1")
+	if err != nil || external.EnrollmentState != 3 || external.EnrollmentErrorCode != "ENROLLMENT_INTERRUPTED" {
+		t.Fatalf("external interrupted enrollment=%+v %v", external, err)
+	}
+	private, err := database.GetRemoteRegistration(ctx, "registration-2")
+	if err != nil || private.EnrollmentState != 1 || private.EnrollmentErrorCode != "" || private.ConnectionState != 1 {
+		t.Fatalf("private preparation lost after restart=%+v %v", private, err)
 	}
 }

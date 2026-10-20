@@ -27,11 +27,16 @@ import (
 
 type retirementGuest struct {
 	vmmdv1.UnimplementedVMMDServiceServer
-	path           string
-	dropDelete     bool
-	containerCount int
-	stops          atomic.Int32
-	unresolved     bool
+	path             string
+	dropDelete       bool
+	containerCount   int
+	stops            atomic.Int32
+	unresolved       bool
+	stopError        error
+	listError        error
+	namespaceError   error
+	namespaceReads   atomic.Int32
+	queriedNamespace string
 }
 
 func (server *retirementGuest) DeleteNamespace(_ context.Context, request *vmmdv1.DeleteNamespaceRequest) (*vmmdv1.DeleteNamespaceResponse, error) {
@@ -133,7 +138,7 @@ func TestNamespaceRetirementResponseLossAndRestartPreserveIdentity(t *testing.T)
 	if _, err := database.GetEnvironment(ctx, recovered.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("completed retirement remains: %v", err)
 	}
-	if err := controller.retireRemoteEnvironment(ctx, recovered.RegistrationID, recovered); err != nil {
+	if err := controller.retireRemoteEnvironment(ctx, recovered); err != nil {
 		t.Fatalf("registration revocation after concurrent empty allocation retirement: %v", err)
 	}
 }
@@ -159,6 +164,9 @@ func (g *retirementGuest) ListContainers(_ context.Context, r *vmmdv1.ListContai
 	if r.GetPageSize() != 32 || r.GetLimit() != 0 {
 		return nil, errors.New("retirement did not request a bounded cursor page")
 	}
+	if g.listError != nil {
+		return nil, g.listError
+	}
 	page := &vmmdv1.ListContainersResponse{}
 	for n := 0; n < g.containerCount; n++ {
 		id := fmt.Sprintf("container-%03d", n)
@@ -172,8 +180,24 @@ func (g *retirementGuest) ListContainers(_ context.Context, r *vmmdv1.ListContai
 	}
 	return page, nil
 }
+func (g *retirementGuest) GetNamespace(_ context.Context, r *vmmdv1.GetNamespaceRequest) (*vmmdv1.GetNamespaceResponse, error) {
+	g.namespaceReads.Add(1)
+	g.queriedNamespace = r.GetNamespaceId()
+	if g.namespaceError != nil {
+		return nil, g.namespaceError
+	}
+	return &vmmdv1.GetNamespaceResponse{Namespace: &vmmdv1.Namespace{Id: r.GetNamespaceId()}}, nil
+}
+
+func (g *retirementGuest) InspectContainer(_ context.Context, r *vmmdv1.InspectContainerRequest) (*vmmdv1.InspectContainerResponse, error) {
+	return &vmmdv1.InspectContainerResponse{Container: &vmmdv1.Container{Id: r.GetContainerId(), State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING}}, nil
+}
+
 func (g *retirementGuest) StopContainer(_ context.Context, r *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
 	g.stops.Add(1)
+	if g.stopError != nil {
+		return nil, g.stopError
+	}
 	state := vmmdv1.ContainerState_CONTAINER_STATE_STOPPED
 	if g.unresolved {
 		state = vmmdv1.ContainerState_CONTAINER_STATE_RUNNING

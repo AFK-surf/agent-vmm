@@ -4,10 +4,14 @@ package host
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -34,7 +38,7 @@ type workloadRun struct {
 	uncertainStartUntil time.Time
 	stopDeadline        time.Time
 	stopRequestID       string
-	stopAttempt         uint32
+	stopTimeoutSeconds  *uint32
 	usage               *vmmdv1.Usage
 	executions          map[string]*workloadExecution
 	idleSince           time.Time
@@ -169,46 +173,106 @@ func (controller *Controller) observeWorkloadRunLocked(run *workloadRun, contain
 		if run.instanceID != "" && container.GetInstanceId() != run.instanceID {
 			return
 		}
-		if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
-			controller.clearWorkloadReclaimLocked("instance_stopped")
-		}
-		if run.instanceID != "" && len(run.executions) != 0 {
-			if controller.stoppedWorkloadInstances == nil {
-				controller.stoppedWorkloadInstances = make(map[string]string)
-			}
-			if _, present := controller.stoppedWorkloadInstances[key]; present || len(controller.stoppedWorkloadInstances) < maxStoppedWorkloadInstances {
-				controller.stoppedWorkloadInstances[key] = run.instanceID
-			}
-		}
-		controller.deleteWorkloadRunLocked(key)
+		controller.settleStoppedWorkloadRunLocked(run)
 	}
+}
+
+func (controller *Controller) settleStoppedWorkloadRunLocked(run *workloadRun) {
+	key := workloadRunKey(run.environmentID, run.containerID)
+	if controller.workloadRuns[key] != run {
+		return
+	}
+	if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
+		controller.clearWorkloadReclaimLocked("instance_stopped")
+	}
+	if run.instanceID != "" && len(run.executions) != 0 {
+		if controller.stoppedWorkloadInstances == nil {
+			controller.stoppedWorkloadInstances = make(map[string]string)
+		}
+		if _, present := controller.stoppedWorkloadInstances[key]; present || len(controller.stoppedWorkloadInstances) < maxStoppedWorkloadInstances {
+			controller.stoppedWorkloadInstances[key] = run.instanceID
+		}
+	}
+	controller.deleteWorkloadRunLocked(key)
 }
 
 func (controller *Controller) startWorkloadContainer(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StartContainerRequest, registrationID ...string) (*vmmdv1.StartContainerResponse, error) {
 	unlock := controller.lockEnvironment(environmentID)
 	defer unlock()
+	return controller.startWorkloadContainerLocked(ctx, client, environmentID, request, registrationID...)
+}
+
+func (controller *Controller) startWorkloadContainerLocked(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StartContainerRequest, registrationID ...string) (*vmmdv1.StartContainerResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, workloadStartBudget)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
-	observed, err := client.InspectContainer(ctx, &vmmdv1.InspectContainerRequest{ActorNamespaceId: request.GetActorNamespaceId(), ContainerId: request.GetContainerId()})
+	run, observed, err := controller.prepareWorkloadStartLocked(ctx, client, environmentID, request, registrationID...)
 	if err != nil {
 		return nil, err
+	}
+	if err := controller.store.SetManagedContainerRunning(ctx, environmentID, request.GetContainerId(), observed.GetGenerationId(), true); err != nil {
+		controller.releaseUnsentWorkloadStart(run)
+		return nil, err
+	}
+	return controller.sendWorkloadStartLocked(ctx, client, environmentID, request, run, observed, deadline)
+}
+
+func (controller *Controller) prepareWorkloadStartLocked(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StartContainerRequest, registrationID ...string) (*workloadRun, *vmmdv1.Container, error) {
+	observed, err := client.InspectContainer(ctx, &vmmdv1.InspectContainerRequest{ActorNamespaceId: request.GetActorNamespaceId(), ContainerId: request.GetContainerId()})
+	if err != nil {
+		return nil, nil, err
+	}
+	container := observed.GetContainer()
+	if request.GetExpectedGenerationId() != "" && request.GetExpectedGenerationId() != container.GetGenerationId() {
+		return nil, nil, resourceError(codes.FailedPrecondition, "CONTAINER_GENERATION_MISMATCH", "container", request.GetContainerId(), "container generation changed")
+	}
+	if container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_UNKNOWN {
+		return nil, nil, resourceError(codes.FailedPrecondition, "CONTAINER_STATE_UNKNOWN", "container", request.GetContainerId(), "previous sandbox has not stopped; stop and reconcile it before restarting")
+	}
+	if err := controller.authorizeHostShareMounts(ctx, environmentID, container.GetVolumes()); err != nil {
+		return nil, nil, err
 	}
 	controller.mu.Lock()
 	current := controller.workloadRuns[workloadRunKey(environmentID, request.GetContainerId())]
-	if current != nil && !current.starting && !current.stopping && !current.quiescing && !current.inFlight && observed.GetContainer().GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING && current.instanceID == observed.GetContainer().GetInstanceId() {
+	if current != nil && !current.starting && !current.stopping && !current.quiescing && !current.inFlight && container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING && current.instanceID == container.GetInstanceId() {
 		controller.mu.Unlock()
-		return &vmmdv1.StartContainerResponse{Container: observed.GetContainer()}, nil
+		return nil, container, nil
 	}
 	if current != nil {
-		controller.observeWorkloadRunLocked(current, observed.GetContainer(), time.Now())
+		controller.observeWorkloadRunLocked(current, container, time.Now())
 	}
 	controller.mu.Unlock()
 	run, err := controller.admitWorkloadStart(environmentID, request.GetActorNamespaceId(), request.GetContainerId(), time.Now(), registrationID...)
-	if err != nil {
-		return nil, err
+	return run, container, err
+}
+
+func (controller *Controller) releaseUnsentWorkloadStart(run *workloadRun) {
+	if run == nil {
+		return
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	key := workloadRunKey(run.environmentID, run.containerID)
+	if controller.workloadRuns[key] == run {
+		controller.deleteWorkloadRunLocked(key)
+	}
+}
+
+func (controller *Controller) sendWorkloadStartLocked(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StartContainerRequest, run *workloadRun, observed *vmmdv1.Container, deadline time.Time) (*vmmdv1.StartContainerResponse, error) {
+	if run == nil {
+		controller.projectionMu.Lock()
+		err := controller.projectServiceContainerLocked(ctx, client, environmentID, request.GetContainerId(), observed.GetGenerationId(), observed.GetInstanceId())
+		controller.projectionMu.Unlock()
+		return &vmmdv1.StartContainerResponse{Container: observed}, err
 	}
 	response, err := client.StartContainer(ctx, request)
+	if containerMutationAdmissionRejected(err) {
+		completion, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		clearErr := controller.store.SetManagedContainerRunning(completion, environmentID, request.GetContainerId(), observed.GetGenerationId(), false)
+		controller.releaseUnsentWorkloadStart(run)
+		return nil, errors.Join(err, clearErr)
+	}
 	controller.mu.Lock()
 	run.inFlight = false
 	if err != nil && run.starting {
@@ -218,30 +282,107 @@ func (controller *Controller) startWorkloadContainer(ctx context.Context, client
 		controller.observeWorkloadRunLocked(run, response.GetContainer(), time.Now())
 	}
 	controller.mu.Unlock()
+	if err == nil {
+		controller.projectionMu.Lock()
+		container := response.GetContainer()
+		err = controller.projectServiceContainerLocked(ctx, client, environmentID, request.GetContainerId(), container.GetGenerationId(), container.GetInstanceId())
+		controller.projectionMu.Unlock()
+	}
 	return response, err
+}
+
+func (controller *Controller) acceptWorkloadStopLocked(ctx context.Context, environmentID string, request *vmmdv1.StopContainerRequest) error {
+	return controller.acceptWorkloadStopIntentLocked(ctx, environmentID, request, true)
+}
+
+func (controller *Controller) acceptWorkloadStopIntentLocked(ctx context.Context, environmentID string, request *vmmdv1.StopContainerRequest, explicit bool) error {
+	if explicit {
+		managed, err := controller.store.GetManagedContainer(ctx, environmentID, request.GetContainerId())
+		if err == nil {
+			if err := controller.store.SetManagedContainerRunning(ctx, environmentID, request.GetContainerId(), managed.ContainerGenerationID, false); err != nil {
+				return err
+			}
+		} else if errors.Is(err, sql.ErrNoRows) {
+			if err := controller.store.SetManagedContainerRunning(ctx, environmentID, request.GetContainerId(), "", false); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	controller.mu.Lock()
+	run := controller.workloadRuns[workloadRunKey(environmentID, request.GetContainerId())]
+	if run != nil {
+		if !run.stopping {
+			run.stopRequestID = request.GetRequestId()
+			run.stopTimeoutSeconds = proto.Clone(request).(*vmmdv1.StopContainerRequest).TimeoutSeconds
+		}
+		run.stopping = true
+		if run.stopDeadline.IsZero() {
+			run.stopDeadline = time.Now().Add(workloadStopBudget)
+		}
+	}
+	controller.mu.Unlock()
+	controller.projectionMu.Lock()
+	defer controller.projectionMu.Unlock()
+	return controller.restoreContainerServiceListeners(ctx, environmentID, request.GetContainerId())
 }
 
 // Caller holds the environment lock, including lease revocation and cleanup.
 func (controller *Controller) stopWorkloadContainerLocked(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StopContainerRequest) (*vmmdv1.StopContainerResponse, error) {
+	return controller.stopWorkloadContainerWithIntentLocked(ctx, client, environmentID, request, true)
+}
+
+func (controller *Controller) stopWorkloadContainerWithIntentLocked(ctx context.Context, client vmmdv1.VMMDServiceClient, environmentID string, request *vmmdv1.StopContainerRequest, explicit bool) (*vmmdv1.StopContainerResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, workloadStopBudget)
 	defer cancel()
+	if err := controller.acceptWorkloadStopIntentLocked(ctx, environmentID, request, explicit); err != nil {
+		return nil, err
+	}
 	controller.mu.Lock()
 	run := controller.workloadRuns[workloadRunKey(environmentID, request.GetContainerId())]
 	if run != nil {
-		run.stopping = true
 		run.inFlight = true
-		if run.stopDeadline.IsZero() {
-			run.stopDeadline = time.Now().Add(workloadStopBudget)
-			run.stopRequestID = request.GetRequestId()
-		}
+	}
+	if run != nil && request.GetRequestId() != "" {
+		originalRequestID := request.GetRequestId()
+		request = proto.Clone(request).(*vmmdv1.StopContainerRequest)
+		request.RequestId = derivedRequestID(fmt.Sprintf("stop-instance/%q/%q/%q/%q/%q", environmentID, request.GetActorNamespaceId(), request.GetContainerId(), originalRequestID, run.instanceID))
 	}
 	controller.mu.Unlock()
+	defer func() {
+		controller.mu.Lock()
+		if run != nil {
+			run.inFlight = false
+		}
+		controller.mu.Unlock()
+	}()
+	observed, err := client.InspectContainer(ctx, &vmmdv1.InspectContainerRequest{ActorNamespaceId: request.GetActorNamespaceId(), ContainerId: request.GetContainerId()})
+	if err != nil {
+		return nil, err
+	}
+	if explicit {
+		if err := controller.store.SetManagedContainerRunning(ctx, environmentID, request.GetContainerId(), observed.GetContainer().GetGenerationId(), false); err != nil {
+			return nil, err
+		}
+	}
+	controller.projectionMu.Lock()
+	projectionErr := controller.projectServiceContainerLocked(ctx, client, environmentID, request.GetContainerId(), observed.GetContainer().GetGenerationId(), "")
+	controller.projectionMu.Unlock()
+	if projectionErr != nil {
+		return nil, projectionErr
+	}
 	response, err := client.StopContainer(ctx, request)
 	controller.mu.Lock()
 	if run != nil {
 		run.inFlight = false
 		if err == nil {
-			controller.observeWorkloadRunLocked(run, response.GetContainer(), time.Now())
+			observed := response.GetContainer()
+			if observed.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED && observed.GetInstanceId() == "" {
+				controller.settleStoppedWorkloadRunLocked(run)
+			} else {
+				controller.observeWorkloadRunLocked(run, observed, time.Now())
+			}
 		}
 	}
 	controller.mu.Unlock()

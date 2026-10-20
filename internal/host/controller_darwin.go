@@ -9,8 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
-	"net/netip"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +19,6 @@ import (
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
@@ -66,6 +64,10 @@ type Config struct {
 }
 
 type Controller struct {
+	hostShareMu     sync.Mutex
+	hostShares      map[string]store.HostShare
+	hostSharesDirty bool
+
 	localDisposalWake           chan struct{}
 	manager                     *vmm.Manager
 	store                       *store.Store
@@ -121,6 +123,7 @@ type Controller struct {
 	remoteConnectionEpochs   map[string]uint64
 	routeBudgets             routeBudgetTracker
 	applianceHealthMu        sync.Mutex
+	applianceTrustRetry      map[string]time.Time
 	applianceHealth          map[string]*appliancev1.ApplianceHealth
 	pendingApplianceHealth   map[string]*appliancev1.ApplianceHealth
 	serviceListenerMu        sync.Mutex
@@ -144,10 +147,14 @@ type Controller struct {
 }
 
 func (controller *Controller) lockIntegration(id string) func() {
-	value, _ := controller.integrationLocks.LoadOrStore(id, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
+	lock := controller.integrationLock(id)
 	lock.Lock()
 	return lock.Unlock
+}
+
+func (controller *Controller) integrationLock(id string) *sync.RWMutex {
+	value, _ := controller.integrationLocks.LoadOrStore(id, &sync.RWMutex{})
+	return value.(*sync.RWMutex)
 }
 
 func (controller *Controller) lockInventoryMutation(ctx context.Context) (func(), error) {
@@ -297,6 +304,7 @@ func New(config Config) (*Controller, error) {
 	}
 	controller.vmLifecycle = newVMLifecycleOwner(controller, config.Manager)
 	controller.hostFrontends = newHostLoopbackFrontendManager(controller)
+	controller.egress.HostTCPInfrastructure = controller.hostTCPInfrastructure
 	controller.remoteConnectionEpochs = make(map[string]uint64)
 	config.Manager.SetInvalidationHandler(func() {
 		controller.prepareVMTransition(context.Background())
@@ -312,13 +320,8 @@ func New(config Config) (*Controller, error) {
 		database.Close()
 		return nil, fmt.Errorf("recover interrupted appliance operations: %w", err)
 	}
-	if err := controller.recoverPendingApplianceRemovals(context.Background()); err != nil {
-		database.Close()
-		return nil, fmt.Errorf("recover pending appliance removals: %w", err)
-	}
 	if err := controller.reconcileBundledApplianceArtifact(context.Background()); err != nil {
-		database.Close()
-		return nil, fmt.Errorf("reconcile bundled appliance artifact: %w", err)
+		log.Printf("bundled appliance artifact unavailable: %v", err)
 	}
 	reconcileContext, reconcileCancel := context.WithCancel(context.Background())
 	controller.applianceReconcileCancel = reconcileCancel
@@ -344,10 +347,12 @@ const unexpectedVMRecoveryTimeout = 10 * time.Minute
 func remoteWorkloadCapacity(cpuCount uint, memoryBytes uint64, stateBytes int64) resourcev2.Contract {
 	totalCPU := uint64(cpuCount) * 1000
 	pids := uint64(2048)
-	writable := uint64(8 << 30)
-	if stateBytes > 0 && uint64(stateBytes)/4 < writable {
-		writable = uint64(stateBytes) / 4
+	writable := uint64(0)
+	reserved := guestdisk.ControlPartitionBytes + guestdisk.DefaultEmergencyBytes + guestdisk.DefaultMetadataBytes
+	if stateBytes > 0 && uint64(stateBytes) > reserved {
+		writable = uint64(stateBytes) - reserved
 	}
+
 	return resourcev2.Contract{CPUMaxMillis: totalCPU, MemoryMaxBytes: memoryBytes, PIDMax: pids, WritableQuotaBytes: writable}
 }
 
@@ -387,14 +392,14 @@ func (controller *Controller) commitRunningVM(ctx context.Context, excludedInsta
 }
 
 func (controller *Controller) finishRunningVM(ctx context.Context, generation uint64, bootID string) error {
-	if err := controller.reconcilePolicies(ctx); err != nil {
-		return err
-	}
 	if err := controller.recoverWorkloadRuns(ctx); err != nil {
-		return err
+		return fmt.Errorf("recover workload namespaces, inventory, and managed services: %w", err)
+	}
+	if err := controller.reconcilePolicies(ctx); err != nil {
+		return fmt.Errorf("restore VM policy and service routes: %w", err)
 	}
 	if err := controller.ReconcileExternalConnectors(ctx); err != nil {
-		return err
+		return fmt.Errorf("restore external connectors: %w", err)
 	}
 	if !controller.vmLifecycle.openAdmission(generation, bootID) {
 		return errors.New("VM lifecycle is shutting down")
@@ -483,7 +488,7 @@ func (controller *Controller) NewOperatorServer() *grpc.Server {
 	return server
 }
 
-func (controller *Controller) createSession(ctx context.Context, environmentID, integrationID string, ownerKind int32, remoteIdentity auth.Identity) (store.Session, store.Environment, error) {
+func (controller *Controller) createSession(ctx context.Context, environmentID, integrationID string, integrationRevision uint64, ownerKind int32, remoteIdentity auth.Identity) (store.Session, store.Environment, error) {
 	if environmentID == "" {
 		return store.Session{}, store.Environment{}, errors.New("environment ID is required")
 	}
@@ -521,20 +526,22 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 	identity.AllocationID = remoteIdentity.AllocationID
 	identity.AllocationGeneration = remoteIdentity.AllocationGeneration
 	identity.ExecutionOwnerID = remoteIdentity.ExecutionOwnerID
-	limiter := newRPCRateLimiter(100, 200)
 	tracked := &sessionServer{listener: serving, path: socketPath, registrationID: remoteIdentity.RegistrationID,
-		allocationID: remoteIdentity.AllocationID, allocationGeneration: remoteIdentity.AllocationGeneration}
+		allocationID: remoteIdentity.AllocationID, allocationGeneration: remoteIdentity.AllocationGeneration, stopDone: make(chan struct{}), integrationID: integrationID, integrationRevision: integrationRevision}
 	statsHandler := &sessionStats{controller: controller, sessionID: sessionID, connections: &tracked.connections}
 	server := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMessageBytes),
 		grpc.MaxSendMsgSize(maxMessageBytes),
 		grpc.MaxConcurrentStreams(64),
 		grpc.StatsHandler(statsHandler),
-		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), sessionActivityUnary(controller, sessionID), remoteRuntimeUnary(ownerKind), auditUnary(controller), limiter.unary, deadlineUnary, errorDetailsUnary),
-		grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), sessionActivityStream(controller, sessionID), remoteRuntimeStream(ownerKind), auditStream(controller), limiter.stream, deadlineStream, errorDetailsStream),
+		grpc.WaitForHandlers(true),
+		grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), sessionActivityUnary(controller, sessionID), remoteRuntimeUnary(ownerKind), auditUnary(controller), deadlineUnary, errorDetailsUnary),
+		grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), sessionActivityStream(controller, sessionID), remoteRuntimeStream(ownerKind), auditStream(controller), deadlineStream, errorDetailsStream),
 	)
 	tracked.server = server
-	hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{controller: controller})
+	buildLifetime, cancelBuilds := context.WithCancel(context.Background())
+	tracked.cancelBuilds = cancelBuilds
+	hostv1.RegisterAgentRuntimeServiceServer(server, &agentServer{controller: controller, buildLifetime: buildLifetime})
 	origin := int32(hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_LOCAL_INTEGRATION)
 	if ownerKind == store.OwnerRemoteRegistration {
 		origin = int32(hostv1.AgentSessionOrigin_AGENT_SESSION_ORIGIN_REMOTE_ALLOCATION)
@@ -546,7 +553,7 @@ func (controller *Controller) createSession(ctx context.Context, environmentID, 
 	if integrationID == "" {
 		saveErr = controller.store.CreateSession(ctx, session)
 	} else {
-		saveErr = controller.store.CreateAuthorizedSession(ctx, session)
+		saveErr = controller.store.CreateAuthorizedSession(ctx, session, integrationRevision)
 	}
 	if saveErr != nil {
 		listener.Close()
@@ -648,7 +655,6 @@ func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, en
 	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
 		return errors.New("VM is not running")
 	}
-	controller.egress.Policies.Clear()
 	if err := controller.projectEnvironment(ctx, environment); err != nil {
 		return err
 	}
@@ -656,6 +662,16 @@ func (controller *Controller) reconcileEnvironmentLocked(ctx context.Context, en
 }
 
 func (controller *Controller) projectEnvironment(ctx context.Context, environment store.Environment) error {
+	connection, err := controller.manager.DialVMMD(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	client := vmmdv1.NewVMMDServiceClient(connection)
+	return controller.projectEnvironmentFromGuest(ctx, client, environment)
+}
+
+func (controller *Controller) projectEnvironmentFromGuest(ctx context.Context, client vmmdv1.VMMDServiceClient, environment store.Environment) error {
 	disposed, err := controller.store.EnvironmentDisposed(ctx, environment)
 	if err != nil {
 		return err
@@ -666,12 +682,6 @@ func (controller *Controller) projectEnvironment(ctx context.Context, environmen
 	if environment.OwnerKind == store.OwnerRemoteRegistration && environment.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
 		return nil
 	}
-	connection, err := controller.manager.DialVMMD(ctx)
-	if err != nil {
-		return err
-	}
-	defer connection.Close()
-	client := vmmdv1.NewVMMDServiceClient(connection)
 	requestID, err := randomID()
 	if err != nil {
 		return err
@@ -691,31 +701,21 @@ func (controller *Controller) projectEnvironment(ctx context.Context, environmen
 }
 
 func (controller *Controller) reconcilePolicies(ctx context.Context) error {
-	controller.projectionMu.Lock()
-	defer controller.projectionMu.Unlock()
-	return controller.reconcilePoliciesLocked(ctx)
-}
-
-func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error {
-	controller.egress.Policies.Clear()
-	environments, err := controller.store.ListEnvironments(ctx)
-	if err != nil {
-		return err
-	}
-	for _, environment := range environments {
-		if err := controller.projectEnvironment(ctx, environment); err != nil {
-			return err
-		}
-	}
-	grants, err := controller.store.AllGrants(ctx)
-	if err != nil {
-		return err
-	}
 	client, connection, err := controller.guestClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer connection.Close()
+	controller.projectionMu.Lock()
+	defer controller.projectionMu.Unlock()
+	return controller.reconcilePoliciesLocked(ctx, client)
+}
+
+func (controller *Controller) reconcilePoliciesLocked(ctx context.Context, client vmmdv1.VMMDServiceClient) error {
+	grants, err := controller.store.AllGrants(ctx)
+	if err != nil {
+		return err
+	}
 	for _, grant := range grants {
 		if grant.Kind == "network-link" && grant.Revoked {
 			if _, err := client.DeleteNetworkLink(ctx, &vmmdv1.DeleteNetworkLinkRequest{RequestId: derivedRequestID("delete-" + grant.ID), LinkId: grant.ID}); err != nil {
@@ -739,63 +739,8 @@ func (controller *Controller) reconcilePoliciesLocked(ctx context.Context) error
 			return applyErr
 		}
 	}
-	serviceProjections, err := controller.store.ListActiveServiceProjections(ctx, time.Now())
-	if err != nil {
+	if err := controller.restoreServiceProjectionsLocked(ctx, client); err != nil {
 		return err
-	}
-	for _, projection := range serviceProjections {
-		_, err := client.ApplyServiceProjection(ctx, &vmmdv1.ApplyServiceProjectionRequest{
-			RequestId: derivedRequestID(projection.Import.GetImportId()),
-			Projection: &vmmdv1.ServiceProjection{Id: projection.Import.GetImportId(), SourceNamespaceId: projection.SourceNamespace,
-				SourceContainerId: projection.Import.GetSourceContainerId(), SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(),
-				DestinationNamespaceId: projection.DestinationNamespace, DestinationContainerId: projection.Export.GetContainerId(),
-				DestinationContainerInstanceId: projection.Export.GetContainerInstanceId(), DestinationPort: projection.Export.GetPort(),
-				DnsAlias: projection.Import.GetVirtualServiceName(), ExpiresUnixMillis: projection.ExpiresAt.UnixMilli()},
-		})
-		if err != nil {
-			return err
-		}
-	}
-	if controller.trust != nil {
-		identity, identityErr := controller.trust.Identity(ctx)
-		if identityErr != nil {
-			return identityErr
-		}
-		remoteProjections, remoteErr := controller.store.ListActiveRemoteServiceProjections(ctx, identity.Identity.GetDeviceId(), time.Now())
-		if remoteErr != nil {
-			return remoteErr
-		}
-		for _, projection := range remoteProjections {
-			endpoint, endpointErr := controller.trust.GetEndpointObservation(ctx, projection.Import.GetDestinationDeviceId())
-			if endpointErr != nil {
-				return endpointErr
-			}
-			virtualAddress := remoteServiceAddress(projection.Import.GetImportId())
-			response, applyErr := client.ApplyServiceProjection(ctx, &vmmdv1.ApplyServiceProjectionRequest{
-				RequestId: derivedRequestID(projection.Import.GetImportId()),
-				Projection: &vmmdv1.ServiceProjection{Id: projection.Import.GetImportId(), SourceNamespaceId: projection.SourceNamespace,
-					SourceContainerId: projection.Import.GetSourceContainerId(), SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(),
-					DestinationPort: projection.Import.GetDestinationPort(), DnsAlias: projection.Import.GetVirtualServiceName(),
-					ExpiresUnixMillis: projection.Lease.GetExpiresAt().AsTime().UnixMilli(), Remote: true, VirtualAddress: virtualAddress.String()},
-			})
-			if applyErr != nil {
-				return applyErr
-			}
-			sourceAddress, parseErr := netip.ParseAddr(response.GetSourceAddress())
-			if parseErr != nil {
-				return parseErr
-			}
-			header := &servicev1.OpenServiceForwardHeader{RouteId: projection.Route.GetRouteId(), LeaseId: projection.Lease.GetLeaseId(),
-				RouteGeneration: projection.Route.GetGeneration(), SourceEnvironmentId: projection.Import.GetSourceEnvironmentId(),
-				SourceContainerInstanceId: projection.Import.GetSourceContainerInstanceId(), Capability: projection.Capability}
-			if err := controller.egress.ApplyServiceRoute(egress.ServiceRoute{ID: projection.Import.GetImportId(), EnvironmentID: projection.Import.GetSourceEnvironmentId(),
-				SourceAddress: sourceAddress, Destination: netip.AddrPortFrom(virtualAddress, uint16(projection.Import.GetDestinationPort())), ExpiresAt: projection.Lease.GetExpiresAt().AsTime(),
-				Dial: func(routeContext context.Context) (net.Conn, error) {
-					return controller.dialRemoteService(routeContext, header, endpoint)
-				}}); err != nil {
-				return err
-			}
-		}
 	}
 	return controller.publishSourcePoliciesLocked(ctx, "")
 }
@@ -905,30 +850,17 @@ func (controller *Controller) revokeSession(ctx context.Context, id string) erro
 	if err := controller.store.RevokeSession(ctx, id); err != nil {
 		return err
 	}
-	controller.mu.Lock()
-	session := controller.sessions[id]
-	delete(controller.sessions, id)
-	controller.mu.Unlock()
-	if session != nil {
-		session.server.Stop()
-		session.listener.Close()
-		_ = os.Remove(session.path)
-	}
-	return nil
+	return controller.stopSession(ctx, id)
 }
 
 func (controller *Controller) closeSession(id, reason string) {
 	if err := controller.store.EndSession(context.Background(), id, reason, true); err != nil {
 		return
 	}
-	controller.mu.Lock()
-	session := controller.sessions[id]
-	delete(controller.sessions, id)
-	controller.mu.Unlock()
-	if session != nil {
-		session.server.Stop()
-		session.listener.Close()
-		_ = os.Remove(session.path)
+	if reason == "CLIENT_DISCONNECTED" {
+		_ = controller.stopSessionHandlers(context.Background(), id)
+	} else {
+		_ = controller.stopSession(context.Background(), id)
 	}
 }
 
@@ -937,13 +869,5 @@ func (controller *Controller) revokeSessionAfterResponse(id string, environmentD
 	if !environmentDeleted {
 		_ = controller.store.RevokeSession(context.Background(), id)
 	}
-	controller.mu.Lock()
-	session := controller.sessions[id]
-	delete(controller.sessions, id)
-	controller.mu.Unlock()
-	if session != nil {
-		session.server.Stop()
-		session.listener.Close()
-		_ = os.Remove(session.path)
-	}
+	_ = controller.stopSession(context.Background(), id)
 }

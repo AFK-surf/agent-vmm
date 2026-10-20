@@ -29,6 +29,7 @@ type Namespace struct {
 	Gateway    netip.Addr
 	Bridge     string
 	EgressMode vmmdv1.EgressMode
+	LANEgress  bool
 }
 
 type Endpoint struct {
@@ -141,7 +142,7 @@ func (m *Manager) Close() error {
 	defer m.mu.Unlock()
 	m.closed = true
 	for id, server := range m.dns {
-		server.close()
+		server.close(id)
 		delete(m.dns, id)
 	}
 	for _, connections := range m.forwards {
@@ -162,6 +163,13 @@ func (m *Manager) Health() error {
 	if m.closed {
 		return errors.New("network manager is closed")
 	}
+	for id := range m.namespaces {
+		if len(m.endpoints[id]) != 0 {
+			if err := m.startDNSLocked(id); err != nil {
+				return err
+			}
+		}
+	}
 	return m.reconcileLocked()
 }
 
@@ -179,8 +187,11 @@ func (m *Manager) EnsureNamespace(id, subnet string, egress vmmdv1.EgressMode) e
 	if m.closed {
 		return errors.New("network manager is closed")
 	}
-	if current, ok := m.namespaces[id]; ok && (current.ID != namespace.ID || current.Subnet != namespace.Subnet || current.Gateway != namespace.Gateway || current.Bridge != namespace.Bridge) {
-		return errors.New("namespace network allocation changed")
+	if current, ok := m.namespaces[id]; ok {
+		if current.ID != namespace.ID || current.Subnet != namespace.Subnet || current.Gateway != namespace.Gateway || current.Bridge != namespace.Bridge {
+			return errors.New("namespace network allocation changed")
+		}
+		namespace.LANEgress = current.LANEgress
 	}
 	m.namespaces[id] = namespace
 	if m.endpoints[id] == nil {
@@ -212,7 +223,7 @@ func (m *Manager) DeleteNamespace(id string) error {
 		}
 	}
 	if server := m.dns[id]; server != nil {
-		server.close()
+		server.close(id)
 		delete(m.dns, id)
 	}
 	delete(m.endpoints, id)
@@ -263,4 +274,19 @@ func resolvPath(namespaceID string) string {
 		root = systemResolvRoot
 	}
 	return filepath.Join(root, namespaceID+".conf")
+}
+
+func (m *Manager) SetSystemLAN(id string, allowed bool) error {
+	if !strings.HasPrefix(id, "system.") {
+		return errors.New("LAN egress requires a system namespace")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	namespace, ok := m.namespaces[id]
+	if !ok {
+		return errors.New("system namespace does not exist")
+	}
+	namespace.LANEgress = allowed
+	m.namespaces[id] = namespace
+	return m.reconcileLocked()
 }

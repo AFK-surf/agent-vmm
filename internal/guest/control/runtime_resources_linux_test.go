@@ -12,14 +12,17 @@ import (
 
 func TestNamespaceLimitsRequireOnlyPIDAndDiskIsolation(t *testing.T) {
 	limits := &vmmdv1.NamespaceLimits{Pids: 512, DiskBytes: 2 << 30}
-	if err := validateNamespaceLimits(limits); err != nil {
+	if err := validateNamespaceLimits("system.controller", limits); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateNamespaceLimits(&vmmdv1.NamespaceLimits{DiskBytes: 2 << 30}); err == nil {
+	if err := validateNamespaceLimits("system.controller", &vmmdv1.NamespaceLimits{DiskBytes: 2 << 30}); err == nil {
 		t.Fatal("namespace without a PID limit was accepted")
 	}
-	if err := validateNamespaceLimits(&vmmdv1.NamespaceLimits{Pids: 512}); err == nil {
+	if err := validateNamespaceLimits("system.controller", &vmmdv1.NamespaceLimits{Pids: 512}); err == nil {
 		t.Fatal("system namespace without a disk limit was accepted")
+	}
+	if err := validateNamespaceLimits(applianceBuildNamespace, applianceBuildLimits); err != nil || applianceBuildLimits.GetDiskBytes() != 0 {
+		t.Fatalf("operator builder declared writable control data: %v %v", applianceBuildLimits, err)
 	}
 }
 

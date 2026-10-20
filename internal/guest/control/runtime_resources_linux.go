@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 
+	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
@@ -21,7 +22,7 @@ const (
 )
 
 func runtimeImageReference(value digest.Digest) string {
-	return "agent-vmm.internal/materialized@" + value.String()
+	return guestimage.MaterializedReference(value)
 }
 
 func runtimeContext(ctx context.Context) context.Context {

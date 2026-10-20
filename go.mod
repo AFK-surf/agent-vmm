@@ -5,7 +5,7 @@ go 1.26.3
 toolchain go1.26.4
 
 require (
-	github.com/Code-Hex/vz/v3 v3.7.2-0.20260209145837-0d35cf3a3a8b
+	github.com/Code-Hex/vz/v3 v3.8.0
 	github.com/containerd/containerd/api v1.10.0
 	github.com/containerd/containerd/v2 v2.2.6
 	github.com/containerd/errdefs v1.0.0

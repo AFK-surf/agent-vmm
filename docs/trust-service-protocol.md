@@ -92,6 +92,14 @@ destination can verify a remote source against its installed anchor without a
 per-route control-plane lookup. Personal capabilities reject that embedded
 managed credential.
 
+Appliance managed trust uses the current installation's authenticated Bootstrap.
+The Host refreshes within 24 hours of membership expiry and retries failed or unchanged results after one hour.
+Each call uses a fresh nonce, an empty management seed and a one-minute deadline.
+Renewal requires a higher revision with the same issuer, key, subject and permission scope.
+The same revision requires identical bytes. Current instance, configuration and revocation fences apply at commit.
+Membership remaining lifetime cannot exceed 30 days. Anchor remaining lifetime cannot exceed 365 days, and its total span cannot exceed 365 days plus one minute.
+Issuers must account for clock skew within these limits.
+
 `LOCAL`, `DEVICE`, `COMPUTE`, `LAN`, and `PUBLIC_HTTP` are the complete V1 route
 class set. All follow `PREPARING -> ACTIVE -> DRAINING -> REVOKED`; expiry may
 replace any non-revoked state. Revocation and container-instance replacement

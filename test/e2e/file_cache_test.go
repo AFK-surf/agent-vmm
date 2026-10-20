@@ -19,8 +19,8 @@ func testGoferFileCache(t *testing.T, client *productClient) {
 	createVolume(t, client, namespace, "second")
 	container := createContainerWithImageAndVolumes(t, client, namespace, "files", image,
 		[]string{"/bin/file-cache"}, []*hostv1.VolumeMount{
-			{VolumeId: "first", Destination: "/first"},
-			{VolumeId: "second", Destination: "/second"},
+			{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "first"}, Destination: "/first"},
+			{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "second"}, Destination: "/second"},
 		})
 	startContainer(t, client, namespace, container.GetId())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

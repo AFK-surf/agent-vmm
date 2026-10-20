@@ -5,6 +5,8 @@ package host
 import (
 	"context"
 	"io"
+	"log"
+	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -37,73 +39,86 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 	if err != nil {
 		return err
 	}
-	// Once the start has been accepted for forwarding, losing the controller
-	// stream makes the outcome unknown; it is not evidence that the native
-	// process exited. Keep the guest stream alive until it produces terminal
-	// evidence so the durable execution right continues to protect the work.
+	// Accepted execution remains owned by the Host after command transport closes.
 	guestContext := context.WithoutCancel(stream.Context())
 	guest, connection, err := server.guestExec(guestContext)
 	if err != nil {
 		server.controller.releaseStreamExecution(right)
 		return err
 	}
-	defer connection.Close()
 	if err := guest.Send(execRequestToGuest(first, identity.NamespaceID)); err != nil {
-		// Send failure is not rejection evidence: the Guest can accept and start
-		// the child before the response path fails. Retain the right as unknown
-		// until terminal Guest evidence or an exact instance stop settles it.
+		connection.Close()
 		return err
 	}
 	receiveError := make(chan error, 1)
 	go func() {
+		var receiveErr error
+		defer func() {
+			closeErr := guest.CloseSend()
+			if receiveErr == nil {
+				receiveErr = closeErr
+			}
+			receiveError <- receiveErr
+		}()
 		stdinClosed := first.GetCloseStdin()
 		for {
 			request, err := stream.Recv()
 			if err == io.EOF {
 				if !stdinClosed {
-					if sendErr := guest.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_CloseStdin{CloseStdin: true}}); sendErr != nil {
-						receiveError <- sendErr
-						return
-					}
+					receiveErr = guest.Send(&vmmdv1.ExecRequest{Event: &vmmdv1.ExecRequest_CloseStdin{CloseStdin: true}})
 				}
-				receiveError <- guest.CloseSend()
 				return
 			}
 			if err != nil {
-				receiveError <- err
+				receiveErr = err
 				return
 			}
 			if request.GetCloseStdin() {
 				stdinClosed = true
 			}
 			if err := guest.Send(execRequestToGuest(request, identity.NamespaceID)); err != nil {
-				receiveError <- err
+				receiveErr = err
 				return
 			}
 		}
 	}()
-	controllerAttached := true
-	for {
-		response, err := guest.Recv()
-		if err == io.EOF {
+	finished := make(chan error, 1)
+	go func() {
+		defer connection.Close()
+		controllerAttached := true
+		for {
+			response, err := guest.Recv()
+			if err == io.EOF {
+				log.Printf("Guest exec observation ended without terminal evidence: session=%s allocation=%s execution=%s", identity.SessionID, identity.AllocationID, start.GetExecutionId())
+				if controllerAttached {
+					finished <- streamReceiveResult(receiveError)
+				} else {
+					finished <- nil
+				}
+				return
+			}
+			if err != nil {
+				log.Printf("Guest exec observation failed: session=%s allocation=%s execution=%s error=%v details=%v", identity.SessionID, identity.AllocationID, start.GetExecutionId(), err, status.Convert(err).Details())
+				finished <- err
+				return
+			}
 			if controllerAttached {
-				return streamReceiveResult(receiveError)
+				if err := stream.Send(execResponseFromGuest(response)); err != nil {
+					controllerAttached = false
+				}
 			}
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if controllerAttached {
-			if err := stream.Send(execResponseFromGuest(response)); err != nil {
-				controllerAttached = false
-				_ = guest.CloseSend()
+			if _, terminal := response.GetEvent().(*vmmdv1.ExecResponse_ExitCode); terminal {
+				server.controller.releaseStreamExecution(right)
+				finished <- nil
+				return
 			}
 		}
-		if _, terminal := response.GetEvent().(*vmmdv1.ExecResponse_ExitCode); terminal {
-			server.controller.releaseStreamExecution(right)
-			right = nil
-		}
+	}()
+	select {
+	case err := <-finished:
+		return err
+	case <-stream.Context().Done():
+		return stream.Context().Err()
 	}
 }
 
@@ -243,14 +258,17 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 	if err != nil {
 		return err
 	}
-	guestContext := context.WithoutCancel(stream.Context())
+	guestContext, cancelBuild := context.WithDeadline(context.WithoutCancel(stream.Context()), time.Unix(0, header.GetExecutionDeadlineUnixNano()))
+	defer cancelBuild()
+	stopRevocation := context.AfterFunc(server.buildLifetime, cancelBuild)
+	defer stopRevocation()
 	guest, connection, err := server.guestBuild(guestContext)
 	if err != nil {
 		server.controller.releaseStreamExecution(right)
 		return err
 	}
 	defer connection.Close()
-	if err := guest.Send(buildRequestToGuest(first, identity.NamespaceID)); err != nil {
+	if err := guest.Send(buildRequestToGuest(first, identity)); err != nil {
 		// The Guest can accept the build before the stream reports this error.
 		// Keep the right so quiesce remains closed while the result is unknown.
 		return err
@@ -267,7 +285,7 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 				receiveError <- err
 				return
 			}
-			if err := guest.Send(buildRequestToGuest(request, identity.NamespaceID)); err != nil {
+			if err := guest.Send(buildRequestToGuest(request, identity)); err != nil {
 				receiveError <- err
 				return
 			}
@@ -321,12 +339,12 @@ func (server *agentServer) guestBuild(ctx context.Context) (vmmdv1.VMMDService_B
 	return guest, connection, nil
 }
 
-func buildRequestToGuest(request *hostv1.BuildImageRequest, namespaceID string) *vmmdv1.BuildImageRequest {
+func buildRequestToGuest(request *hostv1.BuildImageRequest, identity auth.Identity) *vmmdv1.BuildImageRequest {
 	result := &vmmdv1.BuildImageRequest{}
 	switch event := request.GetEvent().(type) {
 	case *hostv1.BuildImageRequest_Header:
 		header := event.Header
-		converted := &vmmdv1.BuildImageHeader{RequestId: header.GetRequestId(), ActorNamespaceId: namespaceID, DockerfilePath: header.GetDockerfilePath(), Image: header.GetImage(), Target: header.Target, NetworkMode: vmmdv1.BuildNetworkMode(header.GetNetworkMode())}
+		converted := &vmmdv1.BuildImageHeader{RequestId: header.GetRequestId(), ActorNamespaceId: identity.NamespaceID, ControllerCacheScope: identity.RegistrationID, DockerfilePath: header.GetDockerfilePath(), Image: header.GetImage(), Target: header.Target, NetworkMode: vmmdv1.BuildNetworkMode(header.GetNetworkMode()), BaseImageReference: header.GetBaseImageReference(), BaseManifestDigest: header.GetBaseManifestDigest(), ContextSha256: header.GetContextSha256(), ExecutionId: header.GetExecutionId(), ContainerId: header.GetContainerId(), ExpectedInstanceId: header.GetExpectedInstanceId(), ExecutionDeadlineUnixNano: header.GetExecutionDeadlineUnixNano()}
 		for _, argument := range header.GetBuildArgs() {
 			converted.BuildArgs = append(converted.BuildArgs, &vmmdv1.BuildArgument{Name: argument.GetName(), Value: argument.GetValue()})
 		}

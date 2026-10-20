@@ -6,80 +6,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
+	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc/codes"
 )
-
-func (server *applianceAdminServer) PlanSealedRepair(ctx context.Context, request *appliancev1.PlanSealedRepairRequest) (*appliancev1.AppliancePlanResponse, error) {
-	mutation := applianceMutation{request.GetInstallationId(), request.GetRequestId(), request.GetExpectedRevision(), request.GetDeadlineUnixMillis()}
-	installation, _, err := server.exactInstallation(ctx, mutation)
-	if err != nil {
-		return nil, err
-	}
-	if installation.State != int32(appliancev1.ApplianceState_APPLIANCE_STATE_SEALED) {
-		return nil, resourceError(codes.FailedPrecondition, "INSTALLATION_NOT_SEALED", "appliance_installation", installation.ID, "repair requires a sealed installation")
-	}
-	return &appliancev1.AppliancePlanResponse{Plan: &appliancev1.AppliancePlan{InstallationId: installation.ID,
-		Kind: appliancev1.AppliancePlanKind_APPLIANCE_PLAN_KIND_SEALED_REPAIR, Revision: installation.Revision,
-		ArtifactId: installation.ArtifactID, Impacts: []*appliancev1.ApplianceImpact{{ResourceType: "platform_key",
-			ResourceId: installation.ID, Effect: "replace", Irreversible: true}}}}, nil
-}
-
-func (server *applianceAdminServer) ExecuteSealedRepair(ctx context.Context, request *appliancev1.ExecuteSealedRepairRequest) (*appliancev1.ApplianceOperationResponse, error) {
-	defer clearSecret(request.RecoveryMaterial)
-	mutation := applianceMutation{request.GetInstallationId(), request.GetRequestId(), request.GetExpectedRevision(), request.GetDeadlineUnixMillis()}
-	if server.controller.applianceSecrets == nil || len(request.GetRecoveryMaterial()) != 32 {
-		return nil, resourceError(codes.FailedPrecondition, "RECOVERY_MATERIAL_INVALID", "appliance_installation", request.GetInstallationId(), "recovery material is invalid")
-	}
-	server.controller.remoteAdmissionMu.Lock()
-	defer server.controller.remoteAdmissionMu.Unlock()
-	if existing, found, err := server.existingApplianceOperation(ctx, mutation, appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_SEALED_REPAIR); err != nil {
-		return nil, err
-	} else if found {
-		if existing.Kind == int32(appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_SEALED_REPAIR) &&
-			existing.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED) {
-			installation, _, err := server.exactInstallation(ctx, mutation)
-			if err != nil {
-				return nil, err
-			}
-			if installation.State != int32(appliancev1.ApplianceState_APPLIANCE_STATE_SEALED) {
-				return applianceOperationResponse(existing), nil
-			}
-			if err := server.controller.applianceSecrets.ReplaceVolumeKey(ctx, installation.ID, request.GetRecoveryMaterial()); err != nil {
-				return nil, err
-			}
-			committed, err := server.controller.store.CommitSealedRepair(ctx, installation.ID, installation.Revision, existing.ID, nil)
-			if err != nil {
-				return nil, err
-			}
-			return applianceOperationResponse(committed), nil
-		}
-		return applianceOperationResponse(existing), nil
-	}
-	installation, _, err := server.exactInstallation(ctx, mutation)
-	if err != nil {
-		return nil, err
-	}
-	if installation.State != int32(appliancev1.ApplianceState_APPLIANCE_STATE_SEALED) {
-		return nil, resourceError(codes.Aborted, "PLAN_REVISION_CONFLICT", "appliance_installation", installation.ID, "sealed repair plan is stale")
-	}
-	operation, err := server.newRunningApplianceOperation(ctx, mutation,
-		appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_SEALED_REPAIR, "repairing-sealed")
-	if err != nil {
-		return nil, err
-	}
-	if err := server.controller.applianceSecrets.ReplaceVolumeKey(ctx, installation.ID, request.GetRecoveryMaterial()); err != nil {
-		_, _ = server.failApplianceOperation(ctx, operation.ID,
-			appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED,
-			"sealed-repair-failed", "PLATFORM_KEY_REPAIR_FAILED", err)
-		return nil, err
-	}
-	operation, err = server.controller.store.CommitSealedRepair(ctx, installation.ID, installation.Revision, operation.ID, nil)
-	return applianceOperationResponse(operation), err
-}
 
 func (server *applianceAdminServer) PlanRemove(ctx context.Context, request *appliancev1.PlanRemoveRequest) (*appliancev1.AppliancePlanResponse, error) {
 	mutation := applianceMutation{request.GetInstallationId(), request.GetRequestId(), request.GetExpectedRevision(), request.GetDeadlineUnixMillis()}
@@ -89,52 +24,56 @@ func (server *applianceAdminServer) PlanRemove(ctx context.Context, request *app
 	}
 	plan := &appliancev1.AppliancePlan{InstallationId: installation.ID,
 		Kind: appliancev1.AppliancePlanKind_APPLIANCE_PLAN_KIND_REMOVE, Revision: installation.Revision,
-		ArtifactId: installation.ArtifactID, Impacts: []*appliancev1.ApplianceImpact{{ResourceType: "encrypted_volume",
-			ResourceId: installation.EncryptedVolumeID, Effect: "delete", Irreversible: true}}}
+		ArtifactId: installation.ArtifactID, Impacts: []*appliancev1.ApplianceImpact{
+			{ResourceType: "installation", ResourceId: installation.ID, Effect: "delete", Irreversible: true},
+			{ResourceType: "data_volume", ResourceId: installation.DataVolumeID, Effect: "delete", Irreversible: true}}}
 	if installation.RegistrationID != "" {
 		environments, err := server.controller.store.ListRemoteEnvironments(ctx, installation.RegistrationID)
 		if err != nil {
 			return nil, err
 		}
+		plan.Impacts = append(plan.Impacts, &appliancev1.ApplianceImpact{ResourceType: "private_domain", ResourceId: installation.RegistrationID, Effect: "delete all domain data at execution", Irreversible: true})
 		for _, environment := range environments {
 			plan.Impacts = append(plan.Impacts, &appliancev1.ApplianceImpact{ResourceType: "allocation",
-				ResourceId: environment.AllocationID, Effect: "must-discard", Blocker: true})
+				ResourceId: environment.AllocationID, Effect: "delete", Irreversible: true})
 		}
 	}
 	return &appliancev1.AppliancePlanResponse{Plan: plan}, nil
 }
 
 func (server *applianceAdminServer) ExecuteRemove(ctx context.Context, request *appliancev1.ExecuteRemoveRequest) (*appliancev1.ApplianceOperationResponse, error) {
+	operation, err := server.acceptApplianceRemove(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if operation.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY) {
+		return server.resumeApplianceRemove(ctx, operation, false)
+	}
+	return applianceOperationResponse(operation), nil
+}
+
+func (server *applianceAdminServer) acceptApplianceRemove(ctx context.Context, request *appliancev1.ExecuteRemoveRequest) (store.ApplianceOperation, error) {
+	lock := server.controller.integrationLock("appliance-lifecycle:" + request.GetInstallationId())
+	for !lock.TryLock() {
+		if err := waitForControllerLock(ctx); err != nil {
+			return store.ApplianceOperation{}, err
+		}
+	}
+	defer lock.Unlock()
 	mutation := applianceMutation{request.GetInstallationId(), request.GetRequestId(), request.GetExpectedRevision(), request.GetDeadlineUnixMillis()}
 	server.controller.remoteAdmissionMu.Lock()
+	defer server.controller.remoteAdmissionMu.Unlock()
 	if existing, found, err := server.existingApplianceOperation(ctx, mutation, appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_REMOVE); err != nil {
-		server.controller.remoteAdmissionMu.Unlock()
-		return nil, err
+		return store.ApplianceOperation{}, err
 	} else if found {
-		server.controller.remoteAdmissionMu.Unlock()
-		if existing.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY) {
-			return server.resumeApplianceRemove(ctx, existing)
-		}
-		return applianceOperationResponse(existing), nil
+		return existing, nil
 	}
 	installation, _, err := server.exactInstallation(ctx, mutation)
 	if err != nil {
-		server.controller.remoteAdmissionMu.Unlock()
-		return nil, err
+		return store.ApplianceOperation{}, err
 	}
-	if !containsApplianceResource(request.GetConfirmedResourceIds(), installation.EncryptedVolumeID) {
-		server.controller.remoteAdmissionMu.Unlock()
-		return nil, resourceError(codes.FailedPrecondition, "REMOVE_CONFIRMATION_REQUIRED", "encrypted_volume", installation.EncryptedVolumeID, "exact remove plan and encrypted volume confirmation are required")
-	}
-	if installation.RegistrationID != "" {
-		environments, listErr := server.controller.store.ListRemoteEnvironments(ctx, installation.RegistrationID)
-		if listErr != nil || len(environments) != 0 {
-			server.controller.remoteAdmissionMu.Unlock()
-			if listErr != nil {
-				return nil, listErr
-			}
-			return nil, resourceError(codes.FailedPrecondition, "APPLIANCE_DOMAIN_NOT_EMPTY", "appliance_installation", installation.ID, "discard every appliance allocation before removal")
-		}
+	if !containsApplianceResource(request.GetConfirmedResourceIds(), installation.DataVolumeID) {
+		return store.ApplianceOperation{}, resourceError(codes.FailedPrecondition, "REMOVE_CONFIRMATION_REQUIRED", "data_volume", installation.DataVolumeID, "exact remove plan and data volume confirmation are required")
 	}
 	operationID, err := randomID()
 	if err == nil {
@@ -149,16 +88,10 @@ func (server *applianceAdminServer) ExecuteRemove(ctx context.Context, request *
 			ExpectedPhase: int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED),
 			Receipt:       []byte("pending-destroy:" + operationID)})
 	}
-	server.controller.remoteAdmissionMu.Unlock()
 	if err != nil {
-		return nil, err
+		return store.ApplianceOperation{}, err
 	}
-	operation, err := server.controller.store.GetApplianceOperation(ctx, operationID)
-	if err != nil {
-		return nil, err
-	}
-	operation.Phase = int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY)
-	return server.resumeApplianceRemove(ctx, operation)
+	return server.controller.store.GetApplianceOperation(ctx, operationID)
 }
 
 func containsApplianceResource(values []string, expected string) bool {
@@ -178,7 +111,13 @@ func (controller *Controller) recoverPendingApplianceRemovals(ctx context.Contex
 	server := &applianceAdminServer{controller: controller}
 	var result error
 	for _, operation := range operations {
-		_, resumeErr := server.resumeApplianceRemove(ctx, operation)
+		if err := ctx.Err(); err != nil {
+			return errors.Join(result, err)
+		}
+		_, resumeErr := server.resumeApplianceRemove(ctx, operation, true)
+		if resumeErr != nil {
+			log.Printf("pending appliance removal: installation=%s operation=%s request=%s error=%v", operation.InstallationID, operation.ID, operation.RequestID, resumeErr)
+		}
 		result = errors.Join(result, resumeErr)
 	}
 	return result
@@ -192,6 +131,16 @@ func (controller *Controller) recoverInterruptedApplianceAdminOperations(ctx con
 	server := &applianceAdminServer{controller: controller}
 	var result error
 	for _, operation := range operations {
+		if operation.Kind == int32(appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_UPDATE) {
+			if operation.DeadlineUnixMillis > time.Now().UnixMilli() {
+				go server.runApplianceUpdate(operation.ID)
+				continue
+			}
+			_, recoverErr := controller.store.TransitionApplianceOperation(ctx, operation.ID, store.ApplianceOperationTransition{ExpectedState: operation.State, ExpectedPhase: operation.Phase, State: int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_FAILED), Phase: operation.Phase, Stage: operation.Stage, ErrorReason: "UPDATE_DEADLINE_EXPIRED", ErrorMessage: "recover the same update with an extended deadline", Receipt: operation.Receipt})
+			result = errors.Join(result, recoverErr)
+			continue
+		}
+
 		if operation.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY) {
 			continue
 		}
@@ -203,10 +152,71 @@ func (controller *Controller) recoverInterruptedApplianceAdminOperations(ctx con
 	return result
 }
 
-func (server *applianceAdminServer) resumeApplianceRemove(ctx context.Context, operation store.ApplianceOperation) (*appliancev1.ApplianceOperationResponse, error) {
+func (server *applianceAdminServer) resumeApplianceRemove(ctx context.Context, operation store.ApplianceOperation, background bool) (*appliancev1.ApplianceOperationResponse, error) {
+	deadline := time.Now().Add(vmOperatorExecutionTimeout)
+	if acceptedDeadline := time.UnixMilli(operation.DeadlineUnixMillis); acceptedDeadline.After(time.Now()) && acceptedDeadline.Before(deadline) {
+		deadline = acceptedDeadline
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	var response *appliancev1.ApplianceOperationResponse
+	result := server.controller.vmLifecycle.execute(ctx, vmLifecycleAppliance, func() vmLifecycleResult {
+		if background && server.controller.vmLifecycle.snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
+			current, err := server.controller.store.GetApplianceOperation(ctx, operation.ID)
+			response = applianceOperationResponse(current)
+			return vmLifecycleResult{err: err}
+		}
+		var err error
+		response, err = server.resumeApplianceRemoveOwned(ctx, operation, background)
+		return vmLifecycleResult{err: err}
+	})
+	if result.err != nil {
+		observation, cancel := context.WithTimeout(context.WithoutCancel(ctx), vmOperatorTerminalTimeout)
+		defer cancel()
+		pending, err := server.controller.store.TransitionApplianceOperation(observation, operation.ID, store.ApplianceOperationTransition{
+			ExpectedState: int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING),
+			ExpectedPhase: int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY),
+			State:         int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING),
+			Phase:         int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY), Stage: "pending-destroy",
+			ErrorReason: "APPLIANCE_REMOVE_PENDING", ErrorMessage: result.err.Error(), Receipt: operation.Receipt,
+		})
+		if errors.Is(err, store.ErrOperationReceiptConflict) {
+			pending, err = server.controller.store.GetApplianceOperation(observation, operation.ID)
+		}
+		if err != nil {
+			return nil, errors.Join(result.err, err)
+		}
+		response = applianceOperationResponse(pending)
+		if !background {
+			return response, nil
+		}
+	}
+	return response, result.err
+}
+
+func (server *applianceAdminServer) resumeApplianceRemoveOwned(ctx context.Context, operation store.ApplianceOperation, background bool) (*appliancev1.ApplianceOperationResponse, error) {
+	lock := server.controller.integrationLock("appliance-lifecycle:" + operation.InstallationID)
+	for !lock.TryLock() {
+		if err := waitForControllerLock(ctx); err != nil {
+			return nil, err
+		}
+	}
+	defer lock.Unlock()
+	operation, err := server.controller.store.GetApplianceOperation(ctx, operation.ID)
+	if err != nil {
+		return nil, err
+	}
+	if operation.State != int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING) || operation.Phase != int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY) {
+		return applianceOperationResponse(operation), nil
+	}
 	installation, err := server.controller.store.GetApplianceInstallation(ctx, operation.InstallationID)
 	if err != nil {
 		return nil, err
+	}
+	if !background {
+		if err := server.controller.vmLifecycle.startOwned(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if err := server.controller.revokeApplianceTrustAuthority(ctx, installation.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -222,10 +232,17 @@ func (server *applianceAdminServer) resumeApplianceRemove(ctx context.Context, o
 			}
 		}
 	}
+	if err := server.discardApplianceDomainOwned(ctx, operation, installation); err != nil {
+		return nil, err
+	}
 	if err := server.controller.stopAppliance(ctx, installation.ID); err != nil {
 		return nil, err
 	}
-	if err := server.controller.removeApplianceData(ctx, installation); err != nil {
+	_, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := server.controller.removeApplianceData(ctx, connection, installation); err != nil {
 		return nil, err
 	}
 	committed, err := server.controller.store.CommitApplianceRemove(ctx, store.ApplianceRemove{
@@ -233,4 +250,49 @@ func (server *applianceAdminServer) resumeApplianceRemove(ctx context.Context, o
 		OperationID:    operation.ID,
 		CommitRevision: installation.Revision, Receipt: []byte("removed:" + operation.ID)})
 	return applianceOperationResponse(committed), err
+}
+
+func (server *applianceAdminServer) discardApplianceDomainOwned(ctx context.Context, parent store.ApplianceOperation, installation store.ApplianceInstallation) error {
+	if installation.RegistrationID == "" {
+		return nil
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	return server.discardApplianceDomainWithClient(ctx, client, parent, installation)
+}
+
+func (server *applianceAdminServer) discardApplianceDomainWithClient(ctx context.Context, client vmmdv1.VMMDServiceClient, parent store.ApplianceOperation, installation store.ApplianceInstallation) error {
+	release, err := server.controller.lockRemoteAdmission(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	environments, err := server.controller.store.ListRemoteEnvironments(ctx, installation.RegistrationID)
+	if err != nil {
+		return err
+	}
+	operator := &operatorServer{controller: server.controller}
+	for _, environment := range environments {
+		plan, err := operator.planCleanupWithClient(ctx, client, environment.ID, hostv1.CleanupKind_CLEANUP_KIND_DISCARD, true)
+		if err != nil {
+			return err
+		}
+		suffix, err := randomID()
+		if err != nil {
+			return err
+		}
+		requestID := "remove-" + parent.ID + "-" + environment.ID + "-" + suffix
+		child, err := operator.executeCleanupAdmissionLockedWithClient(ctx, client, requestID, plan, nil, "", true, true, nil)
+		if err != nil {
+			return err
+		}
+		if child.State != int32(hostv1.OperationState_OPERATION_STATE_SUCCEEDED) {
+			return resourceErrorWithMetadata(codes.Unavailable, "APPLIANCE_DOMAIN_CLEANUP_PENDING", "environment", environment.ID,
+				child.ErrorMessage, map[string]string{"operation_id": child.ID, "request_id": child.RequestID})
+		}
+	}
+	return nil
 }

@@ -74,6 +74,19 @@ func TestHostLoopbackFrontendConsumesExactTokenBeforeQueueing(t *testing.T) {
 		t.Fatal("valid token did not open a frontend stream")
 	}
 	client.Close()
+	host, client = net.Pipe()
+	defer client.Close()
+	id, ok := manager.reserveConnection(lease, host)
+	if !ok {
+		t.Fatal("remaining lease use was rejected")
+	}
+	lease.drop(id)
+	host, client = net.Pipe()
+	defer host.Close()
+	defer client.Close()
+	if _, ok := manager.reserveConnection(lease, host); ok {
+		t.Fatal("dynamic lease use count was reset after release")
+	}
 }
 
 func TestHostLoopbackFrontendCloseIsSynchronousAndGenerationFenced(t *testing.T) {

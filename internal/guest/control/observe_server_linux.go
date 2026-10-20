@@ -108,7 +108,7 @@ func (s *Server) GetVolume(ctx context.Context, request *vmmdv1.GetVolumeRequest
 func (s *Server) ListVolumes(ctx context.Context, request *vmmdv1.ListVolumesRequest) (*vmmdv1.ListVolumesResponse, error) {
 	volumes, err := s.runtime.ListVolumesBounded(ctx, request.GetActorNamespaceId(), request.GetLimit(), request.GetRelatedContainerLimit())
 	if err != nil {
-		return nil, rpcError(err)
+		return nil, rpcError(atRuntimeStage("list_volumes", err))
 	}
 	return &vmmdv1.ListVolumesResponse{Volumes: volumes}, nil
 }
@@ -122,9 +122,15 @@ func (s *Server) GetImage(ctx context.Context, request *vmmdv1.GetImageRequest) 
 }
 
 func (s *Server) ListImages(ctx context.Context, request *vmmdv1.ListImagesRequest) (*vmmdv1.ListImagesResponse, error) {
-	images, err := s.runtime.ListImagesBounded(ctx, request.GetActorNamespaceId(), request.GetLimit())
+	var images []*vmmdv1.Image
+	var err error
+	if request.ControllerCacheScope != "" {
+		images, err = s.runtime.listRetainedImages(ctx, request.ControllerCacheScope, request.GetLimit())
+	} else {
+		images, err = s.runtime.ListImagesBounded(ctx, request.GetActorNamespaceId(), request.GetLimit())
+	}
 	if err != nil {
-		return nil, rpcError(err)
+		return nil, rpcError(atRuntimeStage("list_images", err))
 	}
 	return &vmmdv1.ListImagesResponse{Images: images}, nil
 }

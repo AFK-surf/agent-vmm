@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -59,7 +60,7 @@ func (s *Server) Exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv1
 	key := start.GetActorNamespaceId() + "/" + start.GetContainerId() + "/" + start.GetRequestId()
 	record, leader, err := s.beginExec(key, fingerprint)
 	if err != nil {
-		return invalid(err)
+		return err
 	}
 	if !leader {
 		select {
@@ -73,7 +74,7 @@ func (s *Server) Exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv1
 		}
 	}
 	exitCode, runErr := s.runtime.exec(stream, start)
-	s.finishExec(key, record, exitCode, runErr)
+	s.finishExec(record, exitCode, runErr)
 	return rpcError(runErr)
 }
 
@@ -85,28 +86,40 @@ func (s *Server) beginExec(key, fingerprint string) (*execRecord, bool, error) {
 	}
 	if record := s.executions[key]; record != nil {
 		if record.fingerprint != fingerprint {
-			return nil, false, errors.New("request_id was reused with different exec input")
+			return nil, false, status.Error(codes.InvalidArgument, "request_id was reused with different exec input")
 		}
 		if record.completed.IsZero() || time.Since(record.completed) < dedupeTTL {
 			return record, false, nil
 		}
 		delete(s.executions, key)
 	}
-	if len(s.executions) >= 64 {
-		return nil, false, errors.New("too many concurrent exec requests")
+	active := 0
+	oldestKey := ""
+	var oldest time.Time
+	for candidate, record := range s.executions {
+		if record.completed.IsZero() {
+			active++
+		} else if time.Since(record.completed) >= dedupeTTL {
+			delete(s.executions, candidate)
+		} else if oldest.IsZero() || record.completed.Before(oldest) {
+			oldestKey, oldest = candidate, record.completed
+		}
+	}
+	if active >= 64 {
+		return nil, false, status.Error(codes.ResourceExhausted, "too many concurrent exec requests")
+	}
+	if len(s.executions) >= dedupeLimit && oldestKey != "" {
+		delete(s.executions, oldestKey)
 	}
 	record := &execRecord{fingerprint: fingerprint, done: make(chan struct{})}
 	s.executions[key] = record
 	return record, true, nil
 }
 
-func (s *Server) finishExec(key string, record *execRecord, code uint32, err error) {
+func (s *Server) finishExec(record *execRecord, code uint32, err error) {
 	s.execMu.Lock()
 	record.exitCode, record.err, record.completed = code, err, time.Now()
 	close(record.done)
-	if len(s.executions) > dedupeLimit {
-		delete(s.executions, key)
-	}
 	s.execMu.Unlock()
 }
 
@@ -194,7 +207,7 @@ func (r *Runtime) exec(stream grpc.BidiStreamingServer[vmmdv1.ExecRequest, vmmdv
 	if start.GetTty() {
 		options = []cio.Opt{cio.WithStreams(stdinReader, stdout, nil), cio.WithTerminal}
 	}
-	processHandle, err := task.Exec(nsctx, "exec-"+start.GetRequestId(), &process, cio.NewCreator(options...))
+	processHandle, err := task.Exec(nsctx, "exec-"+rand.Text(), &process, cio.NewCreator(options...))
 	if err != nil {
 		log.Printf("container exec creation failed for %q/%q: %v", start.GetActorNamespaceId(), start.GetContainerId(), err)
 		return 0, detailedError(codes.FailedPrecondition, "EXEC_START_FAILED", "container process could not be started", "container", start.GetContainerId())

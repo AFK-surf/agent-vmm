@@ -11,7 +11,7 @@ import (
 
 func invalidField(field, description string) error {
 	value := status.New(codes.InvalidArgument, "request validation failed")
-	withDetails, err := value.WithDetails(&errdetails.BadRequest{FieldViolations: []*errdetails.BadRequest_FieldViolation{{Field: field, Description: description}}})
+	withDetails, err := value.WithDetails(&errdetails.ErrorInfo{Reason: "INVALID_ARGUMENT", Domain: "agentvmm.afk.surf"}, &errdetails.BadRequest{FieldViolations: []*errdetails.BadRequest_FieldViolation{{Field: field, Description: description}}})
 	if err != nil {
 		return value.Err()
 	}

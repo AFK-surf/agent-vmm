@@ -3,7 +3,9 @@
 package build
 
 import (
+	"encoding/hex"
 	"errors"
+	"github.com/opencontainers/go-digest"
 	"regexp"
 	"strings"
 
@@ -20,11 +22,25 @@ func validateHeader(header *vmmdv1.BuildImageHeader) error {
 	if _, err := archivePath(header.GetDockerfilePath()); err != nil {
 		return errors.New("invalid Dockerfile path")
 	}
+	if header.GetContextSha256() != "" {
+		value, err := hex.DecodeString(header.GetContextSha256())
+		if err != nil || len(value) != 32 || strings.ToLower(header.GetContextSha256()) != header.GetContextSha256() {
+			return errors.New("build context requires canonical sha256")
+		}
+	}
 	canonicalImage, err := guestimage.NormalizeReference(header.GetImage())
 	if err != nil {
 		return errors.New("invalid image name")
 	}
 	header.Image = canonicalImage
+	if header.GetBaseImageReference() != "" || header.GetBaseManifestDigest() != "" {
+		reference, err := guestimage.NormalizeReference(header.GetBaseImageReference())
+		expected := digest.Digest(header.GetBaseManifestDigest())
+		if err != nil || expected.Validate() != nil || expected.Algorithm() != digest.SHA256 {
+			return errors.New("build base requires image reference and sha256 digest")
+		}
+		header.BaseImageReference = reference
+	}
 	if header.GetNetworkMode() != vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE && header.GetNetworkMode() != vmmdv1.BuildNetworkMode_BUILD_NETWORK_MODE_NAMESPACE_EGRESS {
 		return errors.New("build network mode is required")
 	}

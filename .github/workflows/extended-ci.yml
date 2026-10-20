@@ -48,23 +48,20 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: Set up persistent Guest builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: build/guest/Dockerfile
+          platforms: linux/arm64
       - name: Build and verify the guest bundle
         run: |
-          mkdir -p "$RUNNER_TEMP/guest-bundle"
-          docker run --rm --platform linux/arm64 --privileged \
-            -e GOFLAGS=-buildvcs=false \
-            -v "$GITHUB_WORKSPACE:/src" \
-            -v "$RUNNER_TEMP/guest-bundle:/bundle" \
-            -w /src \
-            alpine:latest \
-            sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && build/guest/build.sh /bundle'
+          build/guest/build.sh "$RUNNER_TEMP/guest-bundle"
           cd "$RUNNER_TEMP/guest-bundle"
           jq -r '.artifacts | to_entries[] | "\(.value.sha256)  \(.value.path)"' manifest.json | sha256sum -c -
           test "$(jq -r .architecture manifest.json)" = arm64
       - name: Unpack the built Guest root filesystem
         run: |
-          sudo chown -R "$USER":"$(id -gn)" "$RUNNER_TEMP/guest-bundle"
           sudo apt-get update
           sudo apt-get install --yes squashfs-tools
           unsquashfs -d "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/guest-bundle/rootfs.squashfs"

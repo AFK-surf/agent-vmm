@@ -16,22 +16,6 @@ func TestFileApplianceSecretsPersistAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := store.EnsureVolumeKey(context.Background(), "installation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := store.EnsureVolumeKey(context.Background(), "installation-a")
-	if err != nil || !bytes.Equal(first, second) {
-		t.Fatalf("volume key did not persist: %v", err)
-	}
-	replacement := bytes.Repeat([]byte{0x5a}, 32)
-	if err := store.ReplaceVolumeKey(context.Background(), "installation-a", replacement); err != nil {
-		t.Fatal(err)
-	}
-	second, err = store.EnsureVolumeKey(context.Background(), "installation-a")
-	if err != nil || !bytes.Equal(second, replacement) {
-		t.Fatalf("replacement volume key did not persist: %v", err)
-	}
 	seed := []byte("bootstrap-seed")
 	if err := store.StoreBootstrap(context.Background(), "installation-a", "bootstrap-a", seed); err != nil {
 		t.Fatal(err)
@@ -45,56 +29,6 @@ func TestFileApplianceSecretsPersistAndDelete(t *testing.T) {
 	}
 	if _, err := store.LoadBootstrap(context.Background(), "installation-a", "bootstrap-a"); err == nil {
 		t.Fatal("deleted bootstrap seed remained available")
-	}
-	keyPath := filepath.Join(store.(*fileApplianceSecrets).directory, applianceSecretID("installation-a")+"-volume.key")
-	info, err := os.Stat(keyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("volume key mode = %v", info.Mode().Perm())
-	}
-}
-
-func TestFileApplianceSecretsDoNotReplaceUnreadableVolumeKey(t *testing.T) {
-	store, err := newApplianceSecretStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.EnsureVolumeKey(context.Background(), "installation-a"); err != nil {
-		t.Fatal(err)
-	}
-	keyPath := filepath.Join(store.(*fileApplianceSecrets).directory, applianceSecretID("installation-a")+"-volume.key")
-	if err := os.Chmod(keyPath, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.EnsureVolumeKey(context.Background(), "installation-a"); err == nil {
-		t.Fatal("insecure volume key mode was accepted")
-	}
-	info, err := os.Stat(keyPath)
-	if err != nil || info.Mode().Perm() != 0o644 {
-		t.Fatalf("invalid key was silently replaced: mode=%v err=%v", info.Mode().Perm(), err)
-	}
-}
-
-func TestFileApplianceSecretsDoNotReplaceTruncatedVolumeKey(t *testing.T) {
-	store, err := newApplianceSecretStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.EnsureVolumeKey(context.Background(), "installation-a"); err != nil {
-		t.Fatal(err)
-	}
-	keyPath := filepath.Join(store.(*fileApplianceSecrets).directory, applianceSecretID("installation-a")+"-volume.key")
-	if err := os.WriteFile(keyPath, []byte("truncated"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.EnsureVolumeKey(context.Background(), "installation-a"); err == nil {
-		t.Fatal("truncated volume key was accepted")
-	}
-	value, err := os.ReadFile(keyPath)
-	if err != nil || string(value) != "truncated" {
-		t.Fatalf("truncated key was silently replaced: value=%q err=%v", value, err)
 	}
 }
 

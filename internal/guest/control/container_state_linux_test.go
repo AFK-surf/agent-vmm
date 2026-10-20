@@ -9,9 +9,26 @@ import (
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/errdefs"
+	"github.com/containerd/typeurl/v2"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
+
+func TestContainerInspectionPreservesOptionalConfigurationObservation(t *testing.T) {
+	process, err := typeurl.MarshalAny(&specs.Process{Args: []string{"serve"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fingerprint := range []string{"", "host-configuration"} {
+		container := &stateContainer{err: errdefs.ErrNotFound, info: containers.Container{ID: "internal", Labels: map[string]string{runtimeOwnerLabel: "namespace", runtimeExternalIDLabel: "web", runtimeImageLabel: "image", containerStateLabel: "created", containerConfigurationLabel: fingerprint}}, extensions: map[string]typeurl.Any{containerProcess: process}}
+		observed, err := (&Runtime{}).inspectContainer(context.Background(), "namespace", container)
+		if err != nil || observed.GetConfigurationFingerprint() != fingerprint || (observed.ConfigurationFingerprint == nil) != (fingerprint == "") {
+			t.Fatalf("configuration observation=%v err=%v", observed, err)
+		}
+	}
+}
 
 func TestSandboxStopRequiresTaskRemovalAndEmptyCgroup(t *testing.T) {
 	for _, test := range []struct {
@@ -43,8 +60,17 @@ func TestSandboxStopRequiresTaskRemovalAndEmptyCgroup(t *testing.T) {
 
 type stateContainer struct {
 	containerd.Container
-	task containerd.Task
-	err  error
+	task       containerd.Task
+	err        error
+	info       containers.Container
+	extensions map[string]typeurl.Any
+}
+
+func (c *stateContainer) Info(context.Context, ...containerd.InfoOpts) (containers.Container, error) {
+	return c.info, nil
+}
+func (c *stateContainer) Extensions(context.Context) (map[string]typeurl.Any, error) {
+	return c.extensions, nil
 }
 
 func (c *stateContainer) Task(context.Context, cio.Attach) (containerd.Task, error) {

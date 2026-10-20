@@ -51,6 +51,12 @@ message ServiceExport {
   uint64 revision = 7;
   bool revoked = 8;
   google.protobuf.Timestamp created_at = 9;
+  string container_generation_id = 10;
+}
+
+message ApplianceFrontendDestination {
+  string installation_id = 1;
+  string name = 2;
 }
 
 message ServiceImport {
@@ -64,6 +70,9 @@ message ServiceImport {
   uint64 revision = 8;
   bool revoked = 9;
   uint32 destination_port = 10;
+  string source_installation_id = 11;
+  ApplianceFrontendDestination destination_frontend = 12;
+  string source_container_generation_id = 13;
 }
 
 message AccessRoute {
@@ -80,6 +89,12 @@ message AccessRoute {
   string source_environment_id = 11;
   string source_container_instance_id = 12;
   uint64 policy_revision = 13;
+  string source_installation_id = 14;
+  string source_boot_id = 15;
+  string destination_installation_id = 16;
+  string destination_boot_id = 17;
+  string destination_container_instance_id = 18;
+  uint64 destination_grant_revision = 19;
 }
 
 message RouteLease {

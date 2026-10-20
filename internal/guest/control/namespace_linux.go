@@ -38,7 +38,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	if identityErr != nil {
 		return nil, identityErr
 	}
-	if err := validateNamespaceLimits(request.GetLimits()); err != nil {
+	if err := validateNamespaceLimits(request.GetNamespaceId(), request.GetLimits()); err != nil {
 		return nil, err
 	}
 	if request.GetEgressMode() == vmmdv1.EgressMode_EGRESS_MODE_UNSPECIFIED {
@@ -77,6 +77,9 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 		}
 	}
 	commit := func(transaction *guestdisk.Transaction) error {
+		if err := r.admitNamespaceDiskGrowth(ctx, request.GetNamespaceId(), request.GetLimits().GetDiskBytes(), labels); err != nil {
+			return err
+		}
 		if exists {
 			projectID, current, err := namespaceFromLabels(request.GetNamespaceId(), labels)
 			if err != nil {
@@ -122,7 +125,7 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 			return err
 		}
 		for _, directory := range []string{volumePath(request.GetNamespaceId(), ""), volumeGenerationPath(request.GetNamespaceId(), ""), workspacePath(request.GetNamespaceId()),
-			namespaceStateRoot(request.GetNamespaceId()) + "/logs/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-cache/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-tmp/" + request.GetNamespaceId()} {
+			namespaceStateRoot(request.GetNamespaceId()) + "/logs/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-tmp/" + request.GetNamespaceId()} {
 			if err := ensureDirectory(directory, 0o700); err != nil {
 				return err
 			}
@@ -196,11 +199,15 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	if err := r.builder.CleanupNamespace(ctx, namespaceID); err != nil {
 		return err
 	}
-	containers, err := r.ListContainers(ctx, namespaceID)
+	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return err
 	}
-	inventory, err := r.requireRuntimeInventory()
+	containerIDs, err := inventory.containerIDs(namespaceID, 0)
+	if err != nil {
+		return err
+	}
+	containers, err := r.loadIndexedContainers(ctx, namespaceID, containerIDs)
 	if err != nil {
 		return err
 	}
@@ -260,8 +267,8 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	}
 	return inventory.removeNamespace(namespaceID)
 }
-func validateNamespaceLimits(limits *vmmdv1.NamespaceLimits) error {
-	if limits == nil || limits.GetPids() == 0 || limits.GetDiskBytes() == 0 {
+func validateNamespaceLimits(namespaceID string, limits *vmmdv1.NamespaceLimits) error {
+	if limits == nil || limits.GetPids() == 0 || (limits.GetDiskBytes() == 0 && namespaceID != applianceBuildNamespace) {
 		return errors.New("positive pids and disk limits are required")
 	}
 	return nil
@@ -285,9 +292,9 @@ func (r *Runtime) allocateNamespace(ctx context.Context, namespaceID string) (ui
 		usedSubnets[labels[labelPrefix+"subnet"]] = true
 	}
 	hash := sha256.Sum256([]byte(namespaceID))
-	for offset := uint32(0); offset < 16384; offset++ {
-		index := ((uint32(hash[0])<<8 | uint32(hash[1])) + offset) % 16384
-		projectID := uint32(10000) + index
+	for offset := uint32(0); offset < namespaceProjectCount; offset++ {
+		index := ((uint32(hash[0])<<8 | uint32(hash[1])) + offset) % namespaceProjectCount
+		projectID := namespaceProjectBase + index
 		subnet := fmt.Sprintf("10.%d.%d.0/24", 64+index/256, index%256)
 		if !usedProjects[projectID] && !usedSubnets[subnet] {
 			return projectID, subnet, nil

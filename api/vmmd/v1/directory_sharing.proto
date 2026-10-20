@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package agentvmm.vmmd.v1;
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/vmmd/v1;vmmdv1";
+
+message HostShareProjection {
+  string share_id = 1;
+  string actor_namespace_id = 2;
+  bool read_only = 3;
+  uint64 revision = 4;
+}
+
+message ApplyHostSharesRequest {
+  repeated HostShareProjection shares = 1;
+}
+message ApplyHostSharesResponse {
+  repeated string applied_share_ids = 1;
+}

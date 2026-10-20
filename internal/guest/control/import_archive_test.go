@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	"io"
 	"path/filepath"
 	"sync"
@@ -117,7 +118,7 @@ func TestValidateOCIArchiveUsesHeaderReferenceInsteadOfBuildxAnnotations(t *test
 		ocispec.AnnotationRefName:  incidentalReference,
 		"io.containerd.image.name": incidentalReference,
 	}, ocispec.Platform{OS: "linux", Architecture: "arm64"})
-	manifest, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest)
+	manifest, err := ociarchive.Validate(bytes.NewReader(archive), manifestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestValidateOCIArchiveRejectsPlatformAndUnsafeEntry(t *testing.T) {
 			if test.unsafe {
 				archive = appendTarEntry(t, archive, "../escape", []byte("bad"))
 			}
-			if _, err := validateOCIArchive(bytes.NewReader(archive), manifestDigest); err == nil {
+			if _, err := ociarchive.Validate(bytes.NewReader(archive), manifestDigest); err == nil {
 				t.Fatal("invalid OCI archive accepted")
 			}
 		})
@@ -176,7 +177,7 @@ func TestValidateOCIArchiveRejectsPlatformAndUnsafeEntry(t *testing.T) {
 
 func TestValidateOCIArchiveRejectsMissingCommittedManifest(t *testing.T) {
 	archive, _ := testOCIArchive(t, nil, ocispec.Platform{OS: "linux", Architecture: "arm64"})
-	if _, err := validateOCIArchive(bytes.NewReader(archive), digest.FromString("missing")); err == nil {
+	if _, err := ociarchive.Validate(bytes.NewReader(archive), digest.FromString("missing")); err == nil {
 		t.Fatal("missing committed manifest accepted")
 	}
 }
@@ -191,7 +192,7 @@ func testOCIArchive(t *testing.T, annotations map[string]string, platform ocispe
 	configDigest := digest.FromBytes(configBytes)
 	manifest := ocispec.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageManifest,
 		Config: ocispec.Descriptor{MediaType: ocispec.MediaTypeImageConfig, Digest: configDigest, Size: int64(len(configBytes))},
-		Layers: []ocispec.Descriptor{{MediaType: ocispec.MediaTypeImageLayerGzip, Digest: digest.FromString("layer"), Size: 1}}}
+		Layers: []ocispec.Descriptor{{MediaType: ocispec.MediaTypeImageLayerGzip, Digest: digest.FromString("layer"), Size: 5}}}
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -209,8 +210,9 @@ func testOCIArchive(t *testing.T, annotations map[string]string, platform ocispe
 	for name, content := range map[string][]byte{
 		"oci-layout": []byte(`{"imageLayoutVersion":"1.0.0"}`),
 		"index.json": indexBytes,
-		"blobs/sha256/" + manifestDigest.Encoded(): manifestBytes,
-		"blobs/sha256/" + configDigest.Encoded():   configBytes,
+		"blobs/sha256/" + digest.FromString("layer").Encoded(): []byte("layer"),
+		"blobs/sha256/" + manifestDigest.Encoded():             manifestBytes,
+		"blobs/sha256/" + configDigest.Encoded():               configBytes,
 	} {
 		if err := writer.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content))}); err != nil {
 			t.Fatal(err)

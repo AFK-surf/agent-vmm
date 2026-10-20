@@ -100,7 +100,7 @@ func observationTestEnvironment(id, registrationID string) store.Environment {
 }
 
 func TestWorkloadPressureRequiresSustainedWatermarksAndLocalOOM(t *testing.T) {
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	now := time.Now()
 	sample := func(memory uint64, psi float64, oom uint64) {
 		t.Helper()
@@ -155,7 +155,7 @@ func TestWorkloadPressureSelectsOneOldestIdleTenantAndExpiresWithoutReplacement(
 	}
 	defer database.Close()
 	ctx := context.Background()
-	controller := workloadTestController()
+	controller := workloadTestController(t)
 	controller.store = database
 	guest := &workloadGuest{states: make(map[string]*vmmdv1.Container), pool: &vmmdv1.GetUsageResponse{
 		WorkloadPool: &vmmdv1.Usage{MemoryBytes: 950}, WorkloadMemoryLimitBytes: 1000,

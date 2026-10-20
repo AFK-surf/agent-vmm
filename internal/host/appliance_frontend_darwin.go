@@ -4,14 +4,15 @@ package host
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,7 +43,6 @@ type applianceFrontendRuntime struct {
 
 	mu          sync.Mutex
 	connections map[net.Conn]struct{}
-	uses        uint32
 	available   bool
 	closeOnce   sync.Once
 }
@@ -81,7 +81,8 @@ func (controller *Controller) startApplianceFrontends(ctx context.Context, insta
 		if frontend.Exposure == int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_OUTBOUND_ONLY) {
 			continue
 		}
-		if frontend.Exposure != int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK) ||
+		if (frontend.Exposure != int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK) && frontend.Exposure != int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_LAN_HTTP)) ||
+			(frontend.Exposure == int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_LAN_HTTP) && frontend.Transport != int32(appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP)) ||
 			(frontend.Transport != int32(appliancev1.FrontendTransport_FRONTEND_TRANSPORT_BYTE_STREAM) && frontend.Transport != int32(appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP)) {
 			closeCreated()
 			return fmt.Errorf("frontend %q has an unsupported projection", frontend.Name)
@@ -128,7 +129,7 @@ func (controller *Controller) applianceFrontendsMatch(installationID string, ide
 		}
 		expected++
 		runtime := controller.applianceFrontends[frontendRuntimeKey(installationID, frontend.Name)]
-		if runtime == nil || runtime.containerInstance != identity.GetContainerInstanceId() || runtime.identity.GetBootId() != identity.GetBootId() {
+		if runtime == nil || runtime.frontend != frontend || runtime.containerInstance != identity.GetContainerInstanceId() || runtime.identity.GetBootId() != identity.GetBootId() {
 			return false
 		}
 	}
@@ -159,27 +160,39 @@ func (controller *Controller) newApplianceFrontendRuntime(frontend store.Applian
 	if !applianceFrontendID.MatchString(identity.GetInstallationId()) || !applianceFrontendID.MatchString(frontend.Name) {
 		return nil, errors.New("frontend projection identity is invalid")
 	}
-	if frontend.MaxFrameBytes == 0 || frontend.MaxFrameBytes > 1<<20 || frontend.MaxTotalBytes < uint64(frontend.MaxFrameBytes) || frontend.MaxTotalBytes > 1<<30 ||
+	if frontend.MaxFrameBytes == 0 || frontend.MaxFrameBytes > 1<<20 || (frontend.MaxTotalBytes != 0 && frontend.MaxTotalBytes < uint64(frontend.MaxFrameBytes)) ||
 		frontend.DeadlineSeconds == 0 || frontend.DeadlineSeconds > 24*60*60 || frontend.IdleSeconds == 0 || frontend.IdleSeconds > 300 ||
-		frontend.MaxConcurrentStreams == 0 || frontend.MaxConcurrentStreams > 16 || frontend.MaxUseCount == 0 || frontend.MaxUseCount > 1024 {
+		frontend.MaxConcurrentStreams == 0 || frontend.MaxConcurrentStreams > 16 {
 		return nil, fmt.Errorf("frontend %q has incomplete stream bounds", frontend.Name)
 	}
 	portPath := applianceFrontendPortPath(controller.supportDirectory, identity.GetInstallationId(), frontend.Name)
-	listenAddress := "127.0.0.1:0"
+	bindHost := "127.0.0.1"
+	if frontend.Exposure == int32(appliancev1.FrontendExposure_FRONTEND_EXPOSURE_LAN_HTTP) {
+		if frontend.Transport != int32(appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP) {
+			return nil, errors.New("LAN frontend requires HTTP transport")
+		}
+		var err error
+		bindHost, err = applianceLANBindHost()
+		if err != nil {
+			return nil, err
+		}
+	}
+	defaultAddress := net.JoinHostPort(bindHost, "0")
+	listenAddress := defaultAddress
 	if persisted, err := os.ReadFile(portPath); err == nil {
 		if value := strings.TrimSpace(string(persisted)); value != "" {
 			if host, _, splitErr := net.SplitHostPort(value); splitErr == nil {
-				if host == "127.0.0.1" {
+				if host == bindHost {
 					listenAddress = value
 				}
 			} else if port, parseErr := strconv.Atoi(value); parseErr == nil && port > 0 && port < 1<<16 {
-				listenAddress = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+				listenAddress = net.JoinHostPort(bindHost, strconv.Itoa(port))
 			}
 		}
 	}
 	listener, err := net.Listen("tcp4", listenAddress)
-	if err != nil && listenAddress != "127.0.0.1:0" {
-		listener, err = net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil && listenAddress != defaultAddress {
+		listener, err = net.Listen("tcp4", defaultAddress)
 	}
 	if err != nil {
 		return nil, err
@@ -263,24 +276,11 @@ func (runtime *applianceFrontendRuntime) serve() {
 			connection.Close()
 			continue
 		}
-		runtime.mu.Lock()
-		if !runtime.available || runtime.uses >= runtime.frontend.MaxUseCount || uint32(len(runtime.connections)) >= runtime.frontend.MaxConcurrentStreams {
-			runtime.mu.Unlock()
+		if !runtime.reserve(connection) {
 			connection.Close()
 			continue
 		}
-		runtime.uses++
-		runtime.connections[connection] = struct{}{}
-		exhausted := runtime.uses == runtime.frontend.MaxUseCount
-		if exhausted {
-			runtime.available = false
-		}
-		runtime.mu.Unlock()
-		if exhausted {
-			runtime.listener.Close()
-			_ = os.Remove(runtime.endpointFile)
-		}
-		go runtime.proxy(connection)
+		go runtime.proxy(runtime.ctx, connection)
 	}
 }
 
@@ -313,30 +313,6 @@ func (controller *Controller) applianceFrontendInstanceCurrent(ctx context.Conte
 		appliance.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING
 }
 
-func (runtime *applianceFrontendRuntime) proxy(local net.Conn) {
-	defer func() {
-		local.Close()
-		runtime.mu.Lock()
-		delete(runtime.connections, local)
-		runtime.mu.Unlock()
-	}()
-	nonce := make([]byte, 32)
-	if _, err := rand.Read(nonce); err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(runtime.ctx, time.Duration(runtime.frontend.DeadlineSeconds)*time.Second)
-	defer cancel()
-	remote, err := runtime.open(ctx, &vmmdv1.SystemStreamHeader{Identity: proto.Clone(runtime.identity).(*vmmdv1.SystemApplianceIdentity),
-		Kind: vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_FRONTEND, Name: runtime.name, Nonce: nonce,
-		MaxFrameBytes: runtime.frontend.MaxFrameBytes, MaxTotalBytes: runtime.frontend.MaxTotalBytes,
-		IdleSeconds: runtime.frontend.IdleSeconds, MaxConcurrentStreams: runtime.frontend.MaxConcurrentStreams, MaxUseCount: runtime.frontend.MaxUseCount})
-	if err != nil {
-		return
-	}
-	defer remote.Close()
-	proxyFrontendBytes(local, remote, runtime.frontend.MaxFrameBytes, runtime.frontend.MaxTotalBytes, time.Duration(runtime.frontend.IdleSeconds)*time.Second)
-}
-
 func (runtime *applianceFrontendRuntime) close() {
 	runtime.closeOnce.Do(func() {
 		runtime.cancel()
@@ -353,48 +329,6 @@ func (runtime *applianceFrontendRuntime) close() {
 		}
 		_ = os.Remove(runtime.endpointFile)
 	})
-}
-
-func proxyFrontendBytes(left, right net.Conn, maxFrame uint32, maxTotal uint64, idle time.Duration) {
-	touch := func() {
-		deadline := time.Now().Add(idle)
-		_ = left.SetDeadline(deadline)
-		_ = right.SetDeadline(deadline)
-	}
-	touch()
-	done := make(chan struct{}, 2)
-	copyDirection := func(destination, source net.Conn) {
-		defer func() { done <- struct{}{} }()
-		buffer := make([]byte, maxFrame)
-		var total uint64
-		for {
-			remaining := maxTotal - total
-			readBytes := min(uint64(len(buffer)), remaining)
-			if readBytes == 0 {
-				readBytes = 1
-			}
-			count, err := source.Read(buffer[:readBytes])
-			if count != 0 {
-				if uint64(count) > remaining {
-					return
-				}
-				touch()
-				if _, writeErr := destination.Write(buffer[:count]); writeErr != nil {
-					return
-				}
-				total += uint64(count)
-			}
-			if err != nil {
-				return
-			}
-		}
-	}
-	go copyDirection(right, left)
-	go copyDirection(left, right)
-	<-done
-	left.Close()
-	right.Close()
-	<-done
 }
 
 func writeApplianceFrontendEndpoint(path, endpoint string) error {
@@ -430,4 +364,32 @@ func writeApplianceFrontendPort(path, endpoint string) error {
 		return err
 	}
 	return writeApplianceFrontendEndpoint(path, endpoint)
+}
+
+func applianceLANBindHost() (string, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	var candidates []netip.Addr
+	for _, device := range interfaces {
+		if device.Flags&net.FlagUp == 0 || device.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addresses, err := device.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, value := range addresses {
+			prefix, err := netip.ParsePrefix(value.String())
+			if err == nil && prefix.Addr().Is4() && prefix.Addr().IsPrivate() {
+				candidates = append(candidates, prefix.Addr())
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return "", errors.New("host has no private IPv4 interface for LAN frontend")
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Less(candidates[j]) })
+	return candidates[0].String(), nil
 }

@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 25
+const schemaVersion = 35
 
 const (
 	auditRetention  = 30 * 24 * time.Hour
@@ -77,6 +77,8 @@ type Grant struct {
 }
 
 type Operation struct {
+	RequestSHA256 []byte
+	Receipt       []byte
 	ID            string
 	Kind          string
 	EnvironmentID string
@@ -115,7 +117,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(`UPDATE operations SET state=?, stage='interrupted', error_reason='SIDECAR_RESTARTED',
-		error_message='the sidecar restarted before the operation completed', updated_at=? WHERE state=? AND kind != 'local-disposal'`,
+		error_message='the sidecar restarted before the operation completed', updated_at=? WHERE state=? AND kind NOT IN ('local-disposal','host-share-create','host-share-rebind','host-share-revoke')`,
 		int32(hostv1.OperationState_OPERATION_STATE_INTERRUPTED), time.Now().UnixNano(), int32(hostv1.OperationState_OPERATION_STATE_RUNNING)); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("recover interrupted operations: %w", err)
@@ -126,14 +128,14 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("recover agent sessions: %w", err)
 	}
 	if _, err := db.Exec(`UPDATE remote_registrations SET connection_state=1, connection_instance='',
-		enrollment_state=CASE WHEN enrollment_state=1 THEN 3 ELSE enrollment_state END,
-		enrollment_error_code=CASE WHEN enrollment_state=1 THEN 'ENROLLMENT_INTERRUPTED' ELSE enrollment_error_code END,
-		enrollment_error_message=CASE WHEN enrollment_state=1 THEN 'Enrollment did not finish. Retry setup.' ELSE enrollment_error_message END,
+		enrollment_state=CASE WHEN enrollment_state=1 AND owner_kind=1 THEN 3 ELSE enrollment_state END,
+		enrollment_error_code=CASE WHEN enrollment_state=1 AND owner_kind=1 THEN 'ENROLLMENT_INTERRUPTED' ELSE enrollment_error_code END,
+		enrollment_error_message=CASE WHEN enrollment_state=1 AND owner_kind=1 THEN 'Enrollment did not finish. Retry setup.' ELSE enrollment_error_message END,
 		connector_phase=1, connector_observed_at=?, updated_at=?`, time.Now().UnixNano(), time.Now().UnixNano()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("recover remote connection state: %w", err)
 	}
-	if _, err := db.Exec(`UPDATE service_listeners SET revoked=1, revision=revision+1, updated_at=? WHERE revoked=0`, time.Now().UnixNano()); err != nil {
+	if _, err := db.Exec(`UPDATE service_listeners SET revoked=1, revision=revision+1, updated_at=? WHERE revoked=0 AND local=0`, time.Now().UnixNano()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("recover service listeners: %w", err)
 	}
@@ -352,12 +354,12 @@ func (store *Store) CreateSession(ctx context.Context, session Session) error {
 	return err
 }
 
-func (store *Store) CreateAuthorizedSession(ctx context.Context, session Session) error {
+func (store *Store) CreateAuthorizedSession(ctx context.Context, session Session, integrationRevision uint64) error {
 	result, err := store.db.ExecContext(ctx, `INSERT INTO sessions(id, integration_id, environment_id, socket_path, origin, created_at, expires_at)
 		SELECT ?, id, environment_id, ?, ?, ?, ? FROM agent_integrations
-		WHERE id=? AND environment_id=? AND desired_state=1 AND config_state IN (2,3)`,
+		WHERE id=? AND environment_id=? AND revision=? AND desired_state=1 AND config_state IN (2,3)`,
 		session.ID, session.SocketPath, session.Origin, session.CreatedAt.UnixNano(), session.ExpiresAt.UnixNano(),
-		session.IntegrationID, session.EnvironmentID)
+		session.IntegrationID, session.EnvironmentID, integrationRevision)
 	if err != nil {
 		return err
 	}
@@ -420,7 +422,14 @@ func (store *Store) EndSession(ctx context.Context, id, reason string, closed bo
 	}
 	changed, err := result.RowsAffected()
 	if err == nil && changed != 1 {
-		return sql.ErrNoRows
+		var terminal bool
+		err = store.db.QueryRowContext(ctx, "SELECT revoked_at IS NOT NULL OR closed_at IS NOT NULL FROM sessions WHERE id=?", id).Scan(&terminal)
+		if err != nil {
+			return err
+		}
+		if !terminal {
+			return sql.ErrNoRows
+		}
 	}
 	return err
 }
@@ -582,6 +591,10 @@ func (store *Store) HasVolumePolicy(ctx context.Context, volumeID, namespaceID s
 }
 
 func (store *Store) PutOperation(ctx context.Context, operation Operation) (Operation, bool, error) {
+	return store.putOperation(ctx, operation, nil)
+}
+
+func (store *Store) putOperation(ctx context.Context, operation Operation, start *ManagedContainer) (Operation, bool, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Operation{}, false, err
@@ -589,10 +602,10 @@ func (store *Store) PutOperation(ctx context.Context, operation Operation) (Oper
 	defer tx.Rollback()
 	now := time.Now()
 	result, err := tx.ExecContext(ctx, `INSERT INTO operations
-		(id, kind, environment_id, state, stage, request_id, error_reason, error_message, output_path, started_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, kind, environment_id, state, stage, request_id, error_reason, error_message, output_path, started_at, updated_at, request_sha256, receipt)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(request_id) DO NOTHING`, operation.ID, operation.Kind, operation.EnvironmentID, operation.State,
-		operation.Stage, operation.RequestID, operation.ErrorReason, operation.ErrorMessage, operation.OutputPath, now.UnixNano(), now.UnixNano())
+		operation.Stage, operation.RequestID, operation.ErrorReason, operation.ErrorMessage, operation.OutputPath, now.UnixNano(), now.UnixNano(), operation.RequestSHA256, operation.Receipt)
 	if err != nil {
 		return Operation{}, false, err
 	}
@@ -601,9 +614,14 @@ func (store *Store) PutOperation(ctx context.Context, operation Operation) (Oper
 		return Operation{}, false, err
 	}
 	stored, err := scanOperation(tx.QueryRowContext(ctx, `SELECT id, kind, environment_id, state, stage,
-		request_id, error_reason, error_message, output_path, started_at, updated_at FROM operations WHERE request_id=?`, operation.RequestID))
+		request_id, error_reason, error_message, output_path, started_at, updated_at, request_sha256, receipt FROM operations WHERE request_id=?`, operation.RequestID))
 	if err != nil {
 		return Operation{}, false, err
+	}
+	if inserted == 1 && start != nil {
+		if _, err := tx.ExecContext(ctx, managedContainerRunningQuery, start.ContainerID, start.ContainerGenerationID, true, start.EnvironmentID, true); err != nil {
+			return Operation{}, false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Operation{}, false, err
@@ -613,27 +631,27 @@ func (store *Store) PutOperation(ctx context.Context, operation Operation) (Oper
 
 func (store *Store) OperationByRequestID(ctx context.Context, requestID string) (Operation, error) {
 	return scanOperation(store.db.QueryRowContext(ctx, `SELECT id, kind, environment_id, state, stage,
-		request_id, error_reason, error_message, output_path, started_at, updated_at FROM operations WHERE request_id=?`, requestID))
+		request_id, error_reason, error_message, output_path, started_at, updated_at, request_sha256, receipt FROM operations WHERE request_id=?`, requestID))
 }
 
 func (store *Store) GetOperation(ctx context.Context, id string) (Operation, error) {
 	return scanOperation(store.db.QueryRowContext(ctx, `SELECT id, kind, environment_id, state, stage,
-		request_id, error_reason, error_message, output_path, started_at, updated_at FROM operations WHERE id=?`, id))
+		request_id, error_reason, error_message, output_path, started_at, updated_at, request_sha256, receipt FROM operations WHERE id=?`, id))
 }
 
 func scanOperation(row rowScanner) (Operation, error) {
 	var operation Operation
 	var started, updated int64
 	err := row.Scan(&operation.ID, &operation.Kind, &operation.EnvironmentID, &operation.State, &operation.Stage,
-		&operation.RequestID, &operation.ErrorReason, &operation.ErrorMessage, &operation.OutputPath, &started, &updated)
+		&operation.RequestID, &operation.ErrorReason, &operation.ErrorMessage, &operation.OutputPath, &started, &updated, &operation.RequestSHA256, &operation.Receipt)
 	operation.StartedAt = time.Unix(0, started)
 	operation.UpdatedAt = time.Unix(0, updated)
 	return operation, err
 }
 
 func (store *Store) UpdateOperation(ctx context.Context, operation Operation) error {
-	_, err := store.db.ExecContext(ctx, `UPDATE operations SET state=?, stage=?, error_reason=?, error_message=?, output_path=?, updated_at=? WHERE id=?`,
-		operation.State, operation.Stage, operation.ErrorReason, operation.ErrorMessage, operation.OutputPath, time.Now().UnixNano(), operation.ID)
+	_, err := store.db.ExecContext(ctx, `UPDATE operations SET state=?, stage=?, error_reason=?, error_message=?, output_path=?, updated_at=?,receipt=? WHERE id=?`,
+		operation.State, operation.Stage, operation.ErrorReason, operation.ErrorMessage, operation.OutputPath, time.Now().UnixNano(), operation.Receipt, operation.ID)
 	return err
 }
 

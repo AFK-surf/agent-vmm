@@ -4,10 +4,12 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/appliancecontent"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/protobuf/proto"
 )
@@ -34,6 +36,9 @@ func (applianceArtifactVerifier) verify(manifest *appliancev1.ControllerApplianc
 		manifest.GetHealthTimeoutSeconds() == 0 || manifest.GetHealthTimeoutSeconds() > 60 {
 		return nil, nil, errors.New("manifest lifecycle declaration is incomplete or outside host ceilings")
 	}
+	if err := appliancecontent.ValidateManifestReferences(manifest); err != nil {
+		return nil, nil, err
+	}
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
 	if err != nil {
 		return nil, nil, err
@@ -51,6 +56,24 @@ func (applianceArtifactVerifier) verify(manifest *appliancev1.ControllerApplianc
 }
 
 func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, grant *appliancev1.ApprovedGrant) error {
+	if grant.GetLanEgress() && !manifest.GetRequestedLanEgress() {
+		return errors.New("approved LAN egress expands manifest capabilities")
+	}
+	if len(grant.GetHostTcpEndpoints()) > 64 {
+		return errors.New("Host TCP endpoint grant exceeds host ceiling")
+	}
+	seen := make(map[netip.AddrPort]bool)
+	for _, endpoint := range grant.GetHostTcpEndpoints() {
+		ip, err := netip.ParseAddr(endpoint.GetIp())
+		if err != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || endpoint.GetPort() == 0 || endpoint.GetPort() > 65535 {
+			return errors.New("Host TCP endpoint requires a unicast IPv4 address and TCP port")
+		}
+		target := netip.AddrPortFrom(ip, uint16(endpoint.GetPort()))
+		if seen[target] {
+			return errors.New("duplicate Host TCP endpoint")
+		}
+		seen[target] = true
+	}
 	requested := manifest.GetRequestedCapacity()
 	approved := grant.GetCapacity()
 	if requested == nil || approved == nil || !isolationLimitsValid(grant.GetSystemLimits()) || !isolationLimitsValid(manifest.GetSystemLimits()) ||
@@ -69,6 +92,9 @@ func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, gr
 	}
 	requestedFrontends := make(map[string]*appliancev1.ControllerFrontend, len(manifest.GetRequestedFrontends()))
 	for _, frontend := range manifest.GetRequestedFrontends() {
+		if frontend.GetExposure() == appliancev1.FrontendExposure_FRONTEND_EXPOSURE_LAN_HTTP && frontend.GetTransport() != appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP {
+			return errors.New("LAN frontend requires HTTP transport")
+		}
 		if frontend.GetName() == "" || requestedFrontends[frontend.GetName()] != nil {
 			return errors.New("manifest frontend identity is invalid")
 		}
@@ -90,16 +116,16 @@ func validateApprovedGrant(manifest *appliancev1.ControllerApplianceManifest, gr
 	return nil
 }
 
-// validateApplianceIsolationLimits keeps PID and disk limits within this VM.
-func validateApplianceIsolationLimits(grant *appliancev1.ApprovedGrant, host store.ResourceAmount) error {
+// validateApplianceIsolationLimits checks each grant against its resource pool.
+func validateApplianceIsolationLimits(grant *appliancev1.ApprovedGrant, systemCapacity, workloadCapacity store.ResourceAmount) error {
 	if grant == nil || !isolationLimitsValid(grant.GetSystemLimits()) ||
 		grant.GetCapacity() == nil || !isolationLimitsValid(grant.GetCapacity().GetPerEnvironmentLimits()) {
 		return errors.New("resource grant is incomplete")
 	}
 	system := grant.GetSystemLimits()
 	perEnvironment := grant.GetCapacity().GetPerEnvironmentLimits()
-	if uint64(system.GetPids()) > host.PIDs || system.GetDiskBytes() > host.DiskBytes ||
-		uint64(perEnvironment.GetPids()) > host.PIDs || perEnvironment.GetDiskBytes() > host.DiskBytes {
+	if uint64(system.GetPids()) > systemCapacity.PIDs || system.GetDiskBytes() > systemCapacity.DiskBytes ||
+		uint64(perEnvironment.GetPids()) > workloadCapacity.PIDs || perEnvironment.GetDiskBytes() > workloadCapacity.DiskBytes {
 		return errors.New("approved resources exceed VM capacity")
 	}
 	return nil
@@ -128,7 +154,7 @@ func dynamicHostLoopbackWithin(approved, requested *appliancev1.DynamicHostLoopb
 		bounds.GetDeadlineSeconds() > 0 && bounds.GetDeadlineSeconds() <= r.GetConnectionBounds().GetDeadlineSeconds() && bounds.GetDeadlineSeconds() <= 86400 &&
 		bounds.GetIdleSeconds() > 0 && bounds.GetIdleSeconds() <= r.GetConnectionBounds().GetIdleSeconds() && bounds.GetIdleSeconds() <= 300 &&
 		bounds.GetMaxConcurrentStreams() == a.GetMaxConcurrentConnectionsPerLease() && r.GetConnectionBounds().GetMaxConcurrentStreams() == r.GetMaxConcurrentConnectionsPerLease() &&
-		bounds.GetMaxUseCount() > 0 && bounds.GetMaxUseCount() <= r.GetConnectionBounds().GetMaxUseCount() && bounds.GetMaxUseCount() <= 4096
+		a.GetMaxUseCount() > 0 && a.GetMaxUseCount() <= r.GetMaxUseCount() && a.GetMaxUseCount() <= 4096
 }
 
 func limitsLTE(left, right *hostv1.ResourceLimits) bool {
@@ -146,7 +172,7 @@ func frontendWithin(approved, requested *appliancev1.ControllerFrontend) bool {
 		return false
 	}
 	a, r := approved.GetBounds(), requested.GetBounds()
-	return a.GetMaxFrameBytes() <= r.GetMaxFrameBytes() && a.GetMaxTotalBytes() <= r.GetMaxTotalBytes() &&
+	return a.GetMaxFrameBytes() <= r.GetMaxFrameBytes() && (r.GetMaxTotalBytes() == 0 || (a.GetMaxTotalBytes() != 0 && a.GetMaxTotalBytes() <= r.GetMaxTotalBytes())) &&
 		a.GetDeadlineSeconds() <= r.GetDeadlineSeconds() && a.GetIdleSeconds() <= r.GetIdleSeconds() &&
-		a.GetMaxConcurrentStreams() <= r.GetMaxConcurrentStreams() && a.GetMaxUseCount() <= r.GetMaxUseCount()
+		a.GetMaxConcurrentStreams() <= r.GetMaxConcurrentStreams()
 }

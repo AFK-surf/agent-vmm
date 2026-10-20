@@ -89,7 +89,7 @@ func TestGatewaySecondDNSAndTruncatedResponse(t *testing.T) {
 					}()
 				}
 			}()
-			ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), gatewayLookupBudget)
 			defer cancel()
 			ips, err := lookupScopedGateway(ctx, "gateway.test", gatewayRoute{index: 9, servers: []string{"silent", "working"}}, func(ctx context.Context, network, server string) (net.Conn, error) {
 				endpoint := udp.LocalAddr().String()

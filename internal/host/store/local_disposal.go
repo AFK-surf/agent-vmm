@@ -156,7 +156,7 @@ func (store *Store) acceptDisposal(ctx context.Context, operation Operation, req
 		return Operation{}, err
 	}
 	defer tx.Rollback()
-	prior, err := scanOperation(tx.QueryRowContext(ctx, `SELECT id,kind,environment_id,state,stage,request_id,error_reason,error_message,output_path,started_at,updated_at FROM operations WHERE request_id=?`, operation.RequestID))
+	prior, err := scanOperation(tx.QueryRowContext(ctx, `SELECT id,kind,environment_id,state,stage,request_id,error_reason,error_message,output_path,started_at,updated_at,request_sha256,receipt FROM operations WHERE request_id=?`, operation.RequestID))
 	if err == nil {
 		target, loadErr := scanDisposal(tx.QueryRowContext(ctx, disposalSelect+` WHERE operation_id=? AND parent_id=''`, prior.ID))
 		if loadErr != nil {
@@ -223,6 +223,18 @@ func (store *Store) acceptDisposal(ctx context.Context, operation Operation, req
 	}
 	scope := `SELECT id FROM environments WHERE (?='environment' AND id=?) OR (?='registration' AND registration_id=?)`
 	args := []any{requested.Kind, requested.TargetID, requested.Kind, requested.TargetID}
+	if _, err := tx.ExecContext(ctx, `UPDATE operations SET state=4,stage='superseded',error_reason='HOST_SHARE_AUTHORITY_CHANGED',error_message='service environment was disposed',updated_at=? WHERE state=1 AND id IN(SELECT operation_id FROM host_shares WHERE state<>4 AND environment_id IN (`+scope+`))`, append([]any{now.UnixNano()}, args...)...); err != nil {
+		return Operation{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE host_shares SET state=3,revision=revision+1,operation_id='',unavailable_reason='service environment was disposed' WHERE state<>4 AND environment_id IN (`+scope+`)`, args...); err != nil {
+		return Operation{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE managed_containers SET desired_running=0,revision=revision+1 WHERE desired_running=1 AND environment_id IN (`+scope+`)`, args...); err != nil {
+		return Operation{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE service_listeners SET revoked=1,revision=revision+1,updated_at=? WHERE local=1 AND revoked=0 AND environment_id IN (`+scope+`)`, append([]any{now.UnixNano()}, args...)...); err != nil {
+		return Operation{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE grants SET revoked_at=? WHERE revoked_at IS NULL AND
  (source_namespace_id IN (SELECT namespace_id FROM environments WHERE id IN (`+scope+`)) OR target_namespace_id IN (SELECT namespace_id FROM environments WHERE id IN (`+scope+`)))`, append(append([]any{now.UnixNano()}, args...), args...)...); err != nil {
 		return Operation{}, err

@@ -57,7 +57,23 @@ func containerFromGuest(container *vmmdv1.Container) *hostv1.Container {
 		result.EnvironmentKeys = append(result.EnvironmentKeys, key)
 	}
 	for _, volume := range container.GetVolumes() {
-		result.Volumes = append(result.Volumes, &hostv1.VolumeMount{VolumeId: volume.GetVolumeId(), Destination: volume.GetDestination(), ReadOnly: volume.GetReadOnly()})
+		mount := &hostv1.VolumeMount{Destination: volume.GetDestination(), ReadOnly: volume.GetReadOnly()}
+		switch source := volume.Source.(type) {
+		case *vmmdv1.VolumeMount_OwnedVolume:
+			mount.Source = &hostv1.VolumeMount_OwnedVolume{OwnedVolume: source.OwnedVolume}
+		case *vmmdv1.VolumeMount_HostShare:
+			mount.Source = &hostv1.VolumeMount_HostShare{HostShare: source.HostShare}
+		}
+		result.Volumes = append(result.Volumes, mount)
+	}
+	return result
+}
+
+func containerConfigurationObservation(container *vmmdv1.Container, expected *hostv1.CreateContainerRequest) *hostv1.Container {
+	result := containerFromGuest(container)
+	if expected != nil && result != nil {
+		matches := container.GetConfigurationFingerprint() == containerConfigurationFingerprint(expected)
+		result.ConfigurationMatches = &matches
 	}
 	return result
 }
@@ -73,7 +89,7 @@ func imageFromGuest(image *vmmdv1.Image) *hostv1.Image {
 	if image == nil {
 		return nil
 	}
-	return &hostv1.Image{Reference: image.GetReference(), Digest: image.GetDigest(), LogicalBytes: image.GetLogicalBytes(), Platforms: append([]string(nil), image.GetPlatforms()...), GenerationId: image.GetGenerationId()}
+	return &hostv1.Image{Reference: image.GetReference(), Digest: image.GetDigest(), LogicalBytes: image.GetLogicalBytes(), Platforms: append([]string(nil), image.GetPlatforms()...), GenerationId: image.GetGenerationId(), BuildReceipt: imageReceiptFromGuest(image.GetBuildReceipt()), CopyReceipt: imageReceiptFromGuest(image.GetCopyReceipt())}
 }
 
 func volumeFromGuest(volume *vmmdv1.Volume) *hostv1.Volume {
@@ -118,3 +134,10 @@ func operationFromStore(operation store.Operation) *hostv1.Operation {
 }
 
 func optional[T any](value T) *T { return &value }
+
+func imageReceiptFromGuest(receipt *vmmdv1.ImageOperationReceipt) *hostv1.ImageOperationReceipt {
+	if receipt == nil {
+		return nil
+	}
+	return &hostv1.ImageOperationReceipt{RequestId: receipt.RequestId, InputSha256: receipt.InputSha256, Kind: hostv1.ImageOperationKind(receipt.Kind), State: hostv1.ImageOperationState(receipt.State), WriterSettled: receipt.WriterSettled, ExecutionId: receipt.ExecutionId, ContainerId: receipt.ContainerId, ExpectedInstanceId: receipt.ExpectedInstanceId, ImageReference: receipt.ImageReference, ManifestDigest: receipt.ManifestDigest, Status: receipt.Status, RuntimeInstanceId: receipt.RuntimeInstanceId}
+}

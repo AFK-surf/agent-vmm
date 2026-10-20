@@ -3,10 +3,16 @@
 package control
 
 import (
+	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 
@@ -23,7 +29,7 @@ func (s *Server) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageReq
 	return rpcError(s.runtime.BuildImage(stream))
 }
 
-func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRequest, vmmdv1.BuildImageResponse]) error {
+func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRequest, vmmdv1.BuildImageResponse]) (operationErr error) {
 	request, err := stream.Recv()
 	if err != nil {
 		return err
@@ -54,12 +60,76 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 	if err != nil {
 		return err
 	}
-	defer workspace.Close()
+	input := proto.Clone(header).(*vmmdv1.BuildImageHeader)
+	input.RequestId, input.ActorNamespaceId, input.ExecutionId, input.ContainerId, input.ExpectedInstanceId = "", "", "", "", ""
+	input.ExecutionDeadlineUnixNano = 0
+	input.ControllerCacheScope = ""
+	bytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(input)
+	if err != nil {
+		_ = workspace.Close()
+		return err
+	}
+	receipt := &vmmdv1.ImageOperationReceipt{RequestId: header.RequestId, InputSha256: fmt.Sprintf("%x", sha256.Sum256(bytes)), Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_BUILD, ExecutionId: header.ExecutionId, ContainerId: header.ContainerId, ExpectedInstanceId: header.ExpectedInstanceId, ImageReference: header.Image, RuntimeInstanceId: workspace.ID()}
+	operationContext, cancel := context.WithCancel(context.WithoutCancel(stream.Context()))
+	if header.ExecutionDeadlineUnixNano != 0 {
+		cancel()
+		operationContext, cancel = context.WithDeadline(context.WithoutCancel(stream.Context()), time.Unix(0, header.ExecutionDeadlineUnixNano))
+	}
+	defer cancel()
+	run, prior, err := r.acceptImageOperation(context.WithoutCancel(stream.Context()), header.ActorNamespaceId, receipt, "", cancel)
+	if err != nil {
+		_ = workspace.Close()
+		return err
+	}
+	if prior != nil {
+		_ = workspace.Close()
+		if prior.State == vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED && prior.WriterSettled {
+			return stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Result{Result: &vmmdv1.BuildImageResult{Image: prior.ImageReference, Digest: prior.ManifestDigest}}})
+		}
+		return status.Error(codes.Aborted, "build was already accepted; observe the original operation")
+	}
+	operationContext = context.WithValue(operationContext, imageOperationContextKey{}, vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_BUILD)
+	run.cleanup = func(ctx context.Context) error {
+		if err := workspace.RecoverClose(ctx); err != nil {
+			return err
+		}
+		return r.settleBuilderCacheReservation(ctx, "cache-write\x00"+workspace.ID())
+	}
+	defer func() {
+		cleanupErr := workspace.Close()
+		if cleanupErr == nil {
+			cleanupErr = r.settleBuilderCacheReservation(context.Background(), "cache-write\x00"+workspace.ID())
+		}
+		if err := r.finishImageOperation(header.ActorNamespaceId, receipt, run, operationErr, cleanupErr, operationContext.Err() != nil); err != nil {
+			operationErr = errors.Join(operationErr, err)
+			return
+		}
+		if operationErr == nil && cleanupErr == nil {
+			operationErr = stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Result{Result: &vmmdv1.BuildImageResult{Image: receipt.ImageReference, Digest: receipt.ManifestDigest}}})
+		}
+		operationErr = errors.Join(operationErr, cleanupErr)
+	}()
 	if err := stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "receiving context"}}); err != nil {
 		return err
 	}
 	for {
-		request, err = stream.Recv()
+		received := make(chan struct {
+			request *vmmdv1.BuildImageRequest
+			err     error
+		}, 1)
+		go func() {
+			value, err := stream.Recv()
+			received <- struct {
+				request *vmmdv1.BuildImageRequest
+				err     error
+			}{value, err}
+		}()
+		select {
+		case value := <-received:
+			request, err = value.request, value.err
+		case <-operationContext.Done():
+			return operationContext.Err()
+		}
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -79,17 +149,16 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 			return errors.New("build event is missing or out of order")
 		}
 	}
-	if err := stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "building in isolated sandbox"}}); err != nil {
-		return err
-	}
-	return workspace.RunArchive(stream.Context(), namespace.GetLimits(), func(progress string) error {
-		return stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: progress}})
+	_ = stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "building in isolated sandbox"}})
+	return workspace.RunArchive(operationContext, namespace.GetLimits(), func(progress string) error {
+		_ = stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: progress}})
+		return nil
 	}, func(archive *os.File, result guestbuild.ArchiveResult) error {
 		reference, err := normalizeImageReference(header.GetImage())
 		if err != nil {
 			return err
 		}
-		manifest, err := validateOCIArchive(archive, digest.Digest(result.ManifestDigest))
+		manifest, err := ociarchive.Validate(archive, digest.Digest(result.ManifestDigest))
 		if err != nil {
 			return err
 		}
@@ -97,18 +166,17 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 			ImageReference: reference, ManifestDigest: result.ManifestDigest, Platform: "linux/arm64",
 			ArchiveSize: result.Size, ArchiveSha256: result.ArchiveSHA256}
 		// OCIImageMaterialization.tla: runtime import precedes unpack and tag publication.
-		err = r.guardOCIPhysicalGrowth(stream.Context(), "build-output\x00"+header.GetActorNamespaceId()+"\x00"+header.GetRequestId(), true, func() error {
-			_, importErr := r.importImage(stream.Context(), archive, importHeader, reference, *manifest, false, true)
+		err = r.guardOCIPhysicalGrowth(operationContext, "build-output\x00"+header.GetActorNamespaceId()+"\x00"+header.GetRequestId(), true, func() error {
+			_, importErr := r.importImage(operationContext, archive, importHeader, reference, *manifest, false, true)
 			return importErr
 		})
 		if err != nil {
 			return err
 		}
-		if result.CacheHit {
-			if err := stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Progress{Progress: "namespace cache hit"}}); err != nil {
-				return err
-			}
+		if err := r.recordImageBuildReceipt(operationContext, header.GetActorNamespaceId(), reference, result.ManifestDigest, header.ControllerCacheScope, receipt); err != nil {
+			return err
 		}
-		return stream.Send(&vmmdv1.BuildImageResponse{Event: &vmmdv1.BuildImageResponse_Result{Result: &vmmdv1.BuildImageResult{Image: header.GetImage(), Digest: result.ManifestDigest}}})
+		receipt.ManifestDigest = result.ManifestDigest
+		return nil
 	})
 }

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 )
 
@@ -196,6 +195,16 @@ func (owner *VMLifecycleOwner) start(ctx context.Context, validate func() error)
 	return result.vm, result.err
 }
 
+func (owner *VMLifecycleOwner) startVM(ctx context.Context) (*hostv1.VM, error) {
+	state := owner.manager.Snapshot().GetState()
+	if (state == hostv1.VMState_VM_STATE_STOPPED || state == hostv1.VMState_VM_STATE_FAILED) && !owner.manager.HasMachineAttachment() {
+		if err := owner.controller.prepareHostShares(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return owner.manager.Start(ctx)
+}
+
 func (owner *VMLifecycleOwner) startOwned(ctx context.Context) error {
 	if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && owner.admitsRemoteWork() {
 		return nil
@@ -210,12 +219,8 @@ func (owner *VMLifecycleOwner) startOwned(ctx context.Context) error {
 		}
 		return err
 	}
-	log.Printf("vm lifecycle start stage: stage=configure_appliance_blocks")
-	if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
-		return err
-	}
 	log.Printf("vm lifecycle start stage: stage=vz_start")
-	_, err := owner.manager.Start(ctx)
+	_, err := owner.startVM(ctx)
 	if err == nil {
 		log.Printf("vm lifecycle start stage: stage=commit")
 		err = owner.commit(ctx, "")
@@ -291,12 +296,8 @@ func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID strin
 		log.Printf("vm lifecycle recover stage: stage=prepare_transition")
 		owner.controller.prepareVMTransition(ctx)
 		owner.controller.stopEgress()
-		log.Printf("vm lifecycle recover stage: stage=configure_appliance_blocks")
-		if err := owner.controller.configureApplianceBlocks(ctx); err != nil {
-			return vmLifecycleResult{err: err}
-		}
 		log.Printf("vm lifecycle recover stage: stage=vz_start")
-		vm, err := owner.manager.Start(ctx)
+		vm, err := owner.startVM(ctx)
 		if err == nil && (vm.GetBootId() == "" || vm.GetBootId() == previousBootID) {
 			err = errors.New("recovered VM did not publish a fresh boot ID")
 		}
@@ -322,22 +323,8 @@ func (owner *VMLifecycleOwner) ActivateAppliance(ctx context.Context, installati
 
 func (owner *VMLifecycleOwner) activateApplianceOwned(ctx context.Context, installationID string) error {
 	controller := owner.controller
-	volume, err := controller.store.GetApplianceVolume(ctx, installationID)
-	if err != nil {
-		return err
-	}
-	legacyConversion := volume.Layout == store.ApplianceVolumeLayoutHostBlock
-	if volume.Layout != store.ApplianceVolumeLayoutHostBlock && volume.Layout != store.ApplianceVolumeLayoutGuestImage {
-		return errors.New("appliance data volume layout is invalid")
-	}
-	if controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && legacyConversion && !controller.manager.HasApplianceBlock(installationID) {
-		return errors.New("legacy appliance data conversion requires the next shared VM restart")
-	}
 	if controller.manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_RUNNING {
-		if err := controller.configureApplianceBlocks(ctx); err != nil {
-			return err
-		}
-		if _, err := owner.manager.Start(ctx); err != nil {
+		if _, err := owner.startVM(ctx); err != nil {
 			return err
 		}
 		installation, err := controller.store.GetApplianceInstallation(ctx, installationID)

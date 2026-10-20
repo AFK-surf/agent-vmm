@@ -72,7 +72,7 @@ func (controller *Controller) retireRemoteRegistration(ctx context.Context, regi
 		}
 		for _, environment := range environments {
 			cursor = environment.AllocationID
-			if err := controller.retireRemoteEnvironment(ctx, registrationID, environment); err != nil {
+			if err := controller.retireRemoteEnvironment(ctx, environment); err != nil {
 				failures = append(failures, err)
 			}
 		}
@@ -81,7 +81,7 @@ func (controller *Controller) retireRemoteRegistration(ctx context.Context, regi
 	return errors.Join(failures...)
 }
 
-func (controller *Controller) retireRemoteEnvironment(ctx context.Context, registrationID string, environment store.Environment) error {
+func (controller *Controller) retireRemoteEnvironment(ctx context.Context, environment store.Environment) error {
 	unlockEnvironment := controller.lockEnvironment(environment.ID)
 	defer unlockEnvironment()
 	current, err := controller.store.GetEnvironment(ctx, environment.ID)
@@ -92,16 +92,23 @@ func (controller *Controller) retireRemoteEnvironment(ctx context.Context, regis
 	if err != nil {
 		return err
 	}
-	if err := controller.closeAllocationRuntime(ctx, registrationID, current.AllocationID, current.AllocationGeneration); err != nil {
-		return err
-	}
-	if err := controller.stopRemoteWorkload(ctx, current.ID); err != nil {
-		return err
-	}
-	if current.AllocationState != int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
-		_, err = controller.store.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
-	}
+	_, err = controller.retainRemoteEnvironmentLocked(ctx, current, false)
 	return err
+}
+
+func (controller *Controller) retainRemoteEnvironmentLocked(ctx context.Context, current store.Environment, namespaceMissing bool) (store.Environment, error) {
+	if err := controller.closeAllocationRuntime(ctx, current.RegistrationID, current.AllocationID, current.AllocationGeneration); err != nil {
+		return current, err
+	}
+	if !namespaceMissing {
+		if err := controller.stopRemoteWorkload(ctx, current.ID); err != nil {
+			return current, err
+		}
+	}
+	if current.AllocationState == int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED) {
+		return current, nil
+	}
+	return controller.store.SetAllocationState(ctx, current.ID, current.PolicyRevision, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED))
 }
 
 func (controller *Controller) disconnectRemoteRegistration(registrationID, instance string) {
@@ -129,11 +136,18 @@ func (controller *Controller) stopRemoteWorkload(ctx context.Context, environmen
 
 func (controller *Controller) stopRemoteNamespace(ctx context.Context, client vmmdv1.VMMDServiceClient, environment store.Environment, grace uint32) error {
 	for cursor := ""; ; {
-		page, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID, PageSize: 32, AfterContainerId: cursor})
+		page, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID, PageSize: vmmdv1.MaxContainerPageSize, AfterContainerId: cursor})
 		if err != nil {
+			missing, confirmErr := confirmMissingNamespaceDiscard(ctx, client, environment.NamespaceID, hostv1.CleanupKind_CLEANUP_KIND_DISCARD, err)
+			if confirmErr != nil {
+				return confirmErr
+			}
+			if missing {
+				return nil
+			}
 			return err
 		}
-		if len(page.GetContainers()) > 32 {
+		if len(page.GetContainers()) > vmmdv1.MaxContainerPageSize {
 			return errors.New("container retirement page exceeds its budget")
 		}
 		for _, container := range page.GetContainers() {

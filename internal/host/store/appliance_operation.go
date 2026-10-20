@@ -50,6 +50,10 @@ func (store *Store) BeginApplianceStateMutation(ctx context.Context, installatio
 	}
 	defer tx.Rollback()
 	now := time.Now().UnixNano()
+	if err := interruptApplianceUpdate(ctx, tx, installation.ID, operation.Kind, now); err != nil {
+		return ApplianceOperation{}, err
+	}
+
 	result, err := tx.ExecContext(ctx, `UPDATE appliance_installations SET desired_enabled=?, state=?,
 		registration_id=NULLIF(?, ''), bootstrap_id=?, current_boot_id=?, current_container_instance=?, revision=revision+1,
 		updated_at=? WHERE id=? AND revision=?`, installation.DesiredEnabled, installation.State, installation.RegistrationID,
@@ -62,6 +66,14 @@ func (store *Store) BeginApplianceStateMutation(ctx context.Context, installatio
 			return ApplianceOperation{}, err
 		}
 		return ApplianceOperation{}, ErrInstallationRevisionConflict
+	}
+	if operation.Kind == int32(appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_REVOKE) {
+		if _, err := tx.ExecContext(ctx, `UPDATE service_imports SET revoked=1,revision=revision+1,updated_at=? WHERE (source_installation_id=? OR destination_installation_id=?) AND revoked=0`, now, installation.ID, installation.ID); err != nil {
+			return ApplianceOperation{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE access_routes SET state=4,revision=revision+1,generation=generation+1,updated_at=? WHERE import_id IN(SELECT import_id FROM service_imports WHERE source_installation_id=? OR destination_installation_id=?) AND state NOT IN(4,5)`, now, installation.ID, installation.ID); err != nil {
+			return ApplianceOperation{}, err
+		}
 	}
 	if err := insertApplianceOperation(ctx, tx, operation, now); err != nil {
 		return ApplianceOperation{}, err
@@ -82,6 +94,13 @@ func (store *Store) GetApplianceOperation(ctx context.Context, id string) (Appli
 
 func (store *Store) ApplianceOperationByRequest(ctx context.Context, requestID string) (ApplianceOperation, error) {
 	return scanApplianceOperation(store.db.QueryRowContext(ctx, applianceOperationSelect+" WHERE request_id=?", requestID))
+}
+
+func (store *Store) HasApplianceRevocation(ctx context.Context, installationID string) (bool, error) {
+	var revoked bool
+	err := store.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM appliance_operations WHERE installation_id=? AND kind=?)`, installationID,
+		appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_REVOKE).Scan(&revoked)
+	return revoked, err
 }
 
 func (store *Store) ListRunningApplianceOperations(ctx context.Context) ([]ApplianceOperation, error) {
@@ -152,6 +171,16 @@ func (store *Store) BeginApplianceRemove(ctx context.Context, remove ApplianceRe
 	}
 	defer tx.Rollback()
 	now := time.Now().UnixNano()
+	if err := interruptApplianceUpdate(ctx, tx, remove.InstallationID, remove.Operation.Kind, now); err != nil {
+		return ApplianceInstallation{}, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `UPDATE service_imports SET revoked=1,revision=revision+1,updated_at=? WHERE (source_installation_id=? OR destination_installation_id=?) AND revoked=0`, now, remove.InstallationID, remove.InstallationID); err != nil {
+		return ApplianceInstallation{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE access_routes SET state=4,revision=revision+1,generation=generation+1,updated_at=? WHERE import_id IN(SELECT import_id FROM service_imports WHERE source_installation_id=? OR destination_installation_id=?) AND state NOT IN(4,5)`, now, remove.InstallationID, remove.InstallationID); err != nil {
+		return ApplianceInstallation{}, err
+	}
 	if err := insertApplianceOperation(ctx, tx, remove.Operation, now); err != nil {
 		return ApplianceInstallation{}, err
 	}
@@ -187,53 +216,6 @@ func (store *Store) BeginApplianceRemove(ctx context.Context, remove ApplianceRe
 	return store.GetApplianceInstallation(ctx, remove.InstallationID)
 }
 
-// CommitSealedRepair records the post-key-replacement installation fence and
-// terminal receipt together. If the process dies before this transaction, the
-// installation remains SEALED and the planned operation is safely retryable.
-func (store *Store) CommitSealedRepair(ctx context.Context, installationID string, expectedRevision uint64, operationID string, receipt []byte) (ApplianceOperation, error) {
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return ApplianceOperation{}, err
-	}
-	defer tx.Rollback()
-	now := time.Now().UnixNano()
-	result, err := tx.ExecContext(ctx, `UPDATE appliance_installations SET desired_enabled=0, state=?,
-		revision=revision+1, current_boot_id='', current_container_instance='', updated_at=?
-		WHERE id=? AND revision=? AND state=?`, appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED, now, installationID, expectedRevision,
-		appliancev1.ApplianceState_APPLIANCE_STATE_SEALED)
-	if err != nil {
-		return ApplianceOperation{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return ApplianceOperation{}, err
-		}
-		return ApplianceOperation{}, ErrInstallationRevisionConflict
-	}
-	result, err = tx.ExecContext(ctx, `UPDATE appliance_operations SET state=?, operation_phase=?,
-		terminal_reason=?, stage='sealed-repaired', receipt=?, updated_at=?
-		WHERE id=? AND installation_id=? AND expected_revision=? AND state=? AND operation_phase=?`,
-		appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED,
-		appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_TERMINAL,
-		appliancev1.ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_SUCCEEDED,
-		applianceBlob(receipt), now, operationID, installationID, expectedRevision,
-		appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING,
-		appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED)
-	if err != nil {
-		return ApplianceOperation{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return ApplianceOperation{}, err
-		}
-		return ApplianceOperation{}, ErrOperationReceiptConflict
-	}
-	if err := tx.Commit(); err != nil {
-		return ApplianceOperation{}, err
-	}
-	return store.GetApplianceOperation(ctx, operationID)
-}
-
 func (store *Store) CommitApplianceRemove(ctx context.Context, remove ApplianceRemove) (ApplianceOperation, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -265,6 +247,9 @@ func (store *Store) CommitApplianceRemove(ctx context.Context, remove ApplianceR
 			return ApplianceOperation{}, err
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM service_imports WHERE source_installation_id=? OR destination_installation_id=?`, remove.InstallationID, remove.InstallationID); err != nil {
+		return ApplianceOperation{}, err
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM appliance_installations WHERE id=? AND revision=?`, remove.InstallationID, remove.CommitRevision)
 	if err != nil {
 		return ApplianceOperation{}, err
@@ -281,7 +266,7 @@ func (store *Store) CommitApplianceRemove(ctx context.Context, remove ApplianceR
 		}
 	}
 	result, err = tx.ExecContext(ctx, `UPDATE appliance_operations SET state=2, operation_phase=5,
-		terminal_reason=7, stage='removed', receipt=?, updated_at=? WHERE id=? AND installation_id=?
+		terminal_reason=7, stage='removed', error_reason='', error_message='', receipt=?, updated_at=? WHERE id=? AND installation_id=?
 		AND state=1 AND operation_phase=4`, applianceBlob(remove.Receipt), time.Now().UnixNano(),
 		remove.OperationID, remove.InstallationID)
 	if err != nil {

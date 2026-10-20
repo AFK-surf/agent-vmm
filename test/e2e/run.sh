@@ -10,15 +10,7 @@ report=$repository/.build/test-results/e2e/report.md
 mkdir -p "$repository/.build/test-results/e2e"
 
 if [ -z "${AGENT_VMM_E2E_BUNDLE:-}" ]; then
-  mkdir -p "$bundle"
-  go_module_cache=${AGENT_VMM_GO_MODULE_CACHE:-/tmp/agent-vmm-go-module-cache}
-  go_build_cache=${AGENT_VMM_GO_BUILD_CACHE:-/tmp/agent-vmm-go-build-cache}
-  mkdir -p "$go_module_cache" "$go_build_cache"
-  docker run --rm --platform linux/arm64 --privileged \
-    -v "$repository:/src" -v "$bundle:/bundle" \
-    -v "$go_module_cache:/go/pkg/mod" -v "$go_build_cache:/root/.cache/go-build" \
-    -e GOPATH=/go -e GOCACHE=/root/.cache/go-build -w /src alpine:latest \
-    sh -lc 'apk add --no-cache bash bzip2 coreutils cpio curl file findutils git go grep jq squashfs-tools tar xz && build/guest/build.sh /bundle'
+  "$repository/build/guest/build.sh" "$bundle"
   prepare_status=$?
 else
   prepare_status=0

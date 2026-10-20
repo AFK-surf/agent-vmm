@@ -25,32 +25,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestWriteManifestProducesOnlyCanonicalArtifact(t *testing.T) {
-	directory := t.TempDir()
-	digest := "sha256:" + strings.Repeat("0", 64)
-	if hash := writeManifest(directory, "product", "release", digest); len(hash) != 32 {
-		t.Fatalf("canonical hash length = %d", len(hash))
-	}
-	data, err := os.ReadFile(filepath.Join(directory, "manifest.pb"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest appliancev1.ControllerApplianceManifest
-	if err := proto.Unmarshal(data, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.GetProductId() != "product" || manifest.GetImageManifestDigest() != digest {
-		t.Fatalf("manifest identity = product %q digest %q", manifest.GetProductId(), manifest.GetImageManifestDigest())
-	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name() != "manifest.pb" {
-		t.Fatalf("manifest output entries = %v", entries)
-	}
-}
-
 func TestManagedInspectEmitsVersionedOwnerFacts(t *testing.T) {
 	observed := time.Date(2026, 9, 14, 8, 0, 0, 0, time.UTC)
 	var arguments []string
@@ -285,18 +259,9 @@ func TestManagedBoundsAndRedaction(t *testing.T) {
 	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), managedLogBytes+128), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	data, _, err := readManagedLogTail(path, managedLogBytes)
-	if err != nil || len(data) != managedLogBytes {
-		t.Fatalf("bounded log bytes=%d err=%v", len(data), err)
-	}
-	records := []managedLogRecord{{Cursor: "cursor-1"}, {Cursor: "cursor-2"}}
-	resumed, gap := resumeManagedLogRecords(records, "cursor-1")
-	if gap || len(resumed) != 1 || resumed[0].Cursor != "cursor-2" {
-		t.Fatalf("resumed logs=%+v gap=%t", resumed, gap)
-	}
-	resumed, gap = resumeManagedLogRecords(records, "expired")
-	if !gap || len(resumed) != 2 {
-		t.Fatalf("expired cursor logs=%+v gap=%t", resumed, gap)
+	records, _, gap, err := readManagedLocalLogFiles([]string{path}, managedOptions{})
+	if err != nil || len(records) != 1 || len(records[0].Data) != managedLogBytes || !gap {
+		t.Fatalf("bounded logs=%d gap=%t err=%v", len(records), gap, err)
 	}
 }
 
@@ -1160,5 +1125,109 @@ func TestManagedUpdateClassifiesOnlyTransientDownloadFailuresForRetry(t *testing
 				t.Fatalf("failure=%+v err=%v", failure, err)
 			}
 		})
+	}
+}
+
+func TestLifecycleUpdatePreservesGrantAndSeparatesEndpointApproval(t *testing.T) {
+	replacement, clear, invalid := "192.168.1.20:4000", "", "localhost:3000"
+	manifest := &appliancev1.ControllerApplianceManifest{RequestedLanEgress: true}
+	previous := &appliancev1.ApprovedGrant{Revision: 7, HostTcpEndpoints: []*appliancev1.HostTcpEndpoint{{Ip: "192.168.1.10", Port: 3000}}}
+	for _, test := range []struct {
+		name      string
+		endpoints *string
+		approve   bool
+		lan       bool
+		ip        string
+		count     int
+	}{
+		{"content update", nil, false, false, "192.168.1.10", 1},
+		{"ordinary permission approval", nil, true, true, "192.168.1.10", 1},
+		{"endpoint replacement", &replacement, false, false, "192.168.1.20", 1},
+		{"endpoint clear", &clear, false, false, "", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			grant, err := lifecycleGrant(manifest, previous, test.endpoints, test.approve)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if grant.GetLanEgress() != test.lan || len(grant.GetHostTcpEndpoints()) != test.count {
+				t.Fatalf("grant=%+v", grant)
+			}
+			if test.count > 0 && grant.GetHostTcpEndpoints()[0].GetIp() != test.ip {
+				t.Fatalf("grant=%+v", grant)
+			}
+			if !test.approve && grant.GetRevision() != previous.GetRevision() {
+				t.Fatal("retained grant revision changed")
+			}
+			if test.endpoints == nil && !test.approve && !proto.Equal(grant, previous) {
+				t.Fatal("content update changed existing grant")
+			}
+			if previous.GetLanEgress() || previous.GetHostTcpEndpoints()[0].GetIp() != "192.168.1.10" {
+				t.Fatal("update mutated current authority")
+			}
+		})
+	}
+	if _, err := lifecycleGrant(manifest, previous, &invalid, false); err == nil {
+		t.Fatal("hostname endpoint accepted")
+	}
+}
+
+func TestManagedCleanupRejectionShowsOnlyKnownCodeAndReason(t *testing.T) {
+	for _, action := range []string{"preview", "execute"} {
+		for _, test := range []struct {
+			name           string
+			code           codes.Code
+			reason         string
+			untyped        bool
+			expectedReason string
+		}{
+			{"active_access", codes.FailedPrecondition, "AGENT_ACCESS_ACTIVE", false, "AGENT_ACCESS_ACTIVE"},
+			{"unknown_reason", codes.Unavailable, "SECRET_REASON", false, "UNKNOWN"},
+			{"untyped", codes.Unknown, "", true, "UNKNOWN"},
+			{"unknown_code", codes.Code(99), "ENVIRONMENT_NOT_FOUND", false, "ENVIRONMENT_NOT_FOUND"},
+		} {
+			t.Run(action+"/"+test.name, func(t *testing.T) {
+				ownerError := error(errors.New("SECRET_MESSAGE"))
+				if !test.untyped {
+					value, err := status.New(test.code, "SECRET_MESSAGE").WithDetails(&errdetails.ErrorInfo{Reason: test.reason, Domain: "SECRET_DOMAIN", Metadata: map[string]string{"resource": "SECRET_RESOURCE"}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					ownerError = value.Err()
+				}
+				runtime := managedRuntime{now: time.Now, planCleanup: func(context.Context, string, string, hostv1.CleanupKind) (*hostv1.CleanupPlan, error) {
+					return nil, ownerError
+				}, executeCleanup: func(context.Context, string, string, *hostv1.CleanupPlan, []string) (*hostv1.Operation, error) {
+					return nil, ownerError
+				}}
+				options := managedOptions{environmentID: "environment", cleanupKind: "discard", planRevision: 1, requestID: "request"}
+				envelope, err := runtime.cleanup(context.Background(), action, options)
+				// Untyped execute errors retain the existing unknown-outcome envelope.
+				if action == "execute" && test.untyped {
+					if err != nil {
+						t.Fatal(err)
+					}
+					body, encodeErr := json.Marshal(envelope)
+					if encodeErr != nil || strings.Contains(string(body), "SECRET_") || envelope.State != "unknown_outcome" {
+						t.Fatalf("unsafe unknown-outcome envelope=%s %v", body, encodeErr)
+					}
+					return
+				}
+				if err == nil {
+					t.Fatal("owner rejection disappeared")
+				}
+				text := err.Error()
+				expectedCode := test.code
+				if expectedCode > codes.Unauthenticated {
+					expectedCode = codes.Unknown
+				}
+				if !strings.Contains(text, "rpc_code="+expectedCode.String()) || !strings.Contains(text, "reason="+test.expectedReason) || strings.Contains(text, "SECRET_") {
+					t.Fatalf("unsafe/missing diagnostic=%q", text)
+				}
+				if test.reason == "AGENT_ACCESS_ACTIVE" && !strings.Contains(text, "exact agent integration") {
+					t.Fatalf("missing actionable ownership diagnostic=%q", text)
+				}
+			})
+		}
 	}
 }

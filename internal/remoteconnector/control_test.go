@@ -2,6 +2,8 @@ package remoteconnector
 
 import (
 	"context"
+	"google.golang.org/grpc"
+	"strconv"
 	"testing"
 	"time"
 
@@ -35,14 +37,75 @@ func TestCapacityDimensionIsForwardedFromHostAdmissionAuthority(t *testing.T) {
 	}
 }
 
-func TestEnvironmentCountLimitIsReportedAsTerminalPolicyConflict(t *testing.T) {
-	value := status.New(codes.FailedPrecondition, "pool environment limit reached")
-	value, err := value.WithDetails(&errdetails.ErrorInfo{Reason: "POOL_ENVIRONMENT_LIMIT"})
-	if err != nil {
-		t.Fatal(err)
+type ensureErrorClient struct {
+	hostv1.RemoteComputeServiceClient
+	err error
+}
+
+func (client ensureErrorClient) EnsureAllocation(context.Context, *hostv1.EnsureAllocationRequest, ...grpc.CallOption) (*hostv1.AllocationResponse, error) {
+	return nil, client.err
+}
+
+func TestHostAdmissionErrorsPreserveDispatchOutcome(t *testing.T) {
+	for _, test := range []struct {
+		reason string
+		remote remotev1.ErrorReason
+	}{
+		{"VM_ADMISSION_CLOSED", remotev1.ErrorReason_ERROR_REASON_ADMISSION_PAUSED},
+		{"REGISTRATION_DRAINING", remotev1.ErrorReason_ERROR_REASON_ADMISSION_PAUSED},
+		{"STALE_CONNECTION", remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
+		{"POLICY_REVISION_CONFLICT", remotev1.ErrorReason_ERROR_REASON_STALE_REVISION},
+		{"REGISTRATION_NOT_ENABLED", remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT},
+		{"ALLOCATION_CONFLICT", remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT},
+		{"POOL_EGRESS_LIMIT", remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT},
+		{"RESOURCE_LEDGER_EXHAUSTED", remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED},
+		{"POOL_PER_ENVIRONMENT_LIMIT", remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED},
+		{"INVALID_ARGUMENT", remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT},
+		{"REGISTRATION_MISMATCH", remotev1.ErrorReason_ERROR_REASON_UNAUTHENTICATED},
+		{"ALLOCATION_NOT_FOUND", remotev1.ErrorReason_ERROR_REASON_ALLOCATION_NOT_FOUND},
+		{"DISPOSAL_REVISION_NOT_ACCEPTED", remotev1.ErrorReason_ERROR_REASON_DISPOSAL_REVISION_NOT_ACCEPTED},
+	} {
+		t.Run(test.reason, func(t *testing.T) {
+			value, err := status.New(codes.Unavailable, "host rejection").WithDetails(&errdetails.ErrorInfo{Reason: test.reason})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := (commandHandler{client: ensureErrorClient{err: value.Err()}}).handle(context.Background(), &remotev1.ControllerCommand{CommandId: "ensure", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "a", Generation: 1}}})
+			if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED || result.GetReason() != test.remote {
+				t.Fatalf("result = %+v", result)
+			}
+		})
 	}
-	if got := reasonFor(value.Err()); got != remotev1.ErrorReason_ERROR_REASON_POLICY_CONFLICT {
-		t.Fatalf("environment count reason = %s, want policy conflict", got)
+	for _, failure := range []error{context.Canceled, context.DeadlineExceeded, status.Error(codes.DeadlineExceeded, "deadline"), status.Error(codes.ResourceExhausted, "no detail"), status.Error(codes.PermissionDenied, "no detail"), func() error {
+		value, _ := status.New(codes.Unavailable, "unrecognized").WithDetails(&errdetails.ErrorInfo{Reason: "UNRECOGNIZED_HOST_REASON"})
+		return value.Err()
+	}()} {
+		result := (commandHandler{client: ensureErrorClient{err: failure}}).handle(context.Background(), &remotev1.ControllerCommand{CommandId: "ensure", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "a", Generation: 1}}})
+		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_UNKNOWN || result.GetMessage() != failure.Error() {
+			t.Fatalf("failure %v result = %+v", failure, result)
+		}
+	}
+}
+
+func TestOpenSessionLocalRefusalsAreRejectedBeforeHostDispatch(t *testing.T) {
+	valid := &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 1, ExecutionOwnerId: "owner"}
+	atLimit := newTunnelManager(context.Background(), nil, nil, "registration", "connection", 1, nil)
+	for index := 0; index < MaxActiveTunnels; index++ {
+		atLimit.active[strconv.Itoa(index)] = &activeTunnel{}
+	}
+	for _, test := range []struct {
+		manager *tunnelManager
+		request *remotev1.OpenSession
+		reason  remotev1.ErrorReason
+	}{
+		{nil, valid, remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE},
+		{atLimit, &remotev1.OpenSession{}, remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT},
+		{atLimit, valid, remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED},
+	} {
+		result := (commandHandler{tunnels: test.manager}).handle(context.Background(), &remotev1.ControllerCommand{CommandId: "open", Command: &remotev1.ControllerCommand_OpenSession{OpenSession: test.request}})
+		if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED || result.GetReason() != test.reason {
+			t.Fatalf("result = %+v", result)
+		}
 	}
 }
 

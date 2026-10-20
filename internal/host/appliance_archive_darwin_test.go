@@ -4,13 +4,15 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	"github.com/AFK-surf/agent-vmm/internal/appliancecontent"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc"
 	"io"
 	"os"
-	"path/filepath"
 	"testing"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -60,17 +62,9 @@ func TestApplianceArchiveReceivesEarlyGuestResult(t *testing.T) {
 	for _, at := range []int{1, 2} {
 		for _, terminal := range []error{nil, errors.New("system namespace rejected")} {
 			t.Run(fmt.Sprintf("send-%d/error-%t", at, terminal != nil), func(t *testing.T) {
-				controller := &Controller{supportDirectory: t.TempDir()}
-				artifact := store.ApplianceArtifact{CanonicalHash: []byte("test"), Platform: "linux/arm64"}
-				path := controller.applianceArchivePath(artifact)
-				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(path, make([]byte, 2*applianceArchiveChunkBytes), 0o600); err != nil {
-					t.Fatal(err)
-				}
+				controller, installation, artifact := stagedUpdateArchiveFixture(t)
 				stream := &earlyApplianceResult{eofAt: at, terminal: terminal}
-				err := controller.importApplianceArchive(context.Background(), &earlyApplianceClient{stream: stream}, store.ApplianceInstallation{ID: "test"}, artifact, store.ApplianceGrant{})
+				err := controller.importApplianceArchive(context.Background(), &earlyApplianceClient{stream: stream}, installation, artifact, store.ApplianceGrant{})
 				if !errors.Is(err, terminal) || stream.sent != at || stream.received != 1 {
 					t.Fatalf("result=%v sends=%d receives=%d", err, stream.sent, stream.received)
 				}
@@ -104,4 +98,111 @@ func (stream *earlyApplianceResult) Send(*vmmdv1.ImportImageRequest) error {
 func (stream *earlyApplianceResult) CloseAndRecv() (*vmmdv1.Image, error) {
 	stream.received++
 	return &vmmdv1.Image{}, stream.terminal
+}
+
+type availableApplianceContent struct{ grpc.ClientStream }
+
+func (*availableApplianceContent) Send(*appliancev1.StageContentRequest) error { return io.EOF }
+func (*availableApplianceContent) CloseAndRecv() (*appliancev1.ApplianceContentStatus, error) {
+	return &appliancev1.ApplianceContentStatus{Available: true}, nil
+}
+func (*earlyApplianceClient) StageApplianceContent(context.Context, ...grpc.CallOption) (grpc.ClientStreamingClient[appliancev1.StageContentRequest, appliancev1.ApplianceContentStatus], error) {
+	return &availableApplianceContent{}, nil
+}
+
+func stagedUpdateArchiveFixture(t *testing.T) (*Controller, store.ApplianceInstallation, store.ApplianceArtifact) {
+	t.Helper()
+	controller, installation := updateDrainFixture(t)
+	controller.supportDirectory = t.TempDir()
+	data := make([]byte, 2*applianceArchiveChunkBytes)
+	hash := sha256.Sum256(data)
+	digest := "sha256:" + repeatedHex('a')
+	content := &appliancev1.ApplianceContentReference{Role: appliancev1.ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER, ArchiveSha256: hash[:], ArchiveSize: uint64(len(data)), Platform: "linux/arm64", ImageReference: "docker.io/library/test@" + digest, ImageManifestDigest: digest}
+	encoded, err := proto.Marshal(&appliancev1.ControllerApplianceManifest{ContentRefs: []*appliancev1.ApplianceContentReference{content}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact := store.ApplianceArtifact{ID: "target", ImageDigest: digest, ImageReference: content.GetImageReference(), Platform: "linux/arm64", Manifest: encoded}
+	root := controller.applianceContentRoot()
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.CreateTemp(root, "stage-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := appliancecontent.Publish(root, file, content); err != nil {
+		t.Fatal(err)
+	}
+	return controller, installation, artifact
+}
+
+func TestApplianceArchiveHopsUseBoundedGuestChunks(t *testing.T) {
+	controller, installation, artifact := stagedUpdateArchiveFixture(t)
+	client := &recordingApplianceArchiveClient{importStream: new(recordingApplianceImport), contentStream: new(recordingApplianceStage)}
+	if err := controller.importApplianceArchive(context.Background(), client, installation, artifact, store.ApplianceGrant{}); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := artifactContentReferences(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for hop, chunks := range map[string][]int{"content": client.contentStream.chunks, "import": client.importStream.chunks} {
+		var total int
+		for _, size := range chunks {
+			if size <= 0 || size > vmmdv1.MaxImportArchiveChunkBytes {
+				t.Fatalf("%s chunk exceeds Guest limit: %d", hop, size)
+			}
+			total += size
+		}
+		wantChunks := (int(refs[0].GetArchiveSize()) + vmmdv1.MaxImportArchiveChunkBytes - 1) / vmmdv1.MaxImportArchiveChunkBytes
+		if total != int(refs[0].GetArchiveSize()) || len(chunks) != wantChunks {
+			t.Fatalf("%s archive: bytes=%d chunks=%v", hop, total, chunks)
+		}
+		t.Logf("%s: cached archive bytes=%d chunks=%d prior_1MiB_chunks=%d", hop, total, len(chunks), (total+applianceArchiveChunkBytes-1)/applianceArchiveChunkBytes)
+	}
+}
+
+type recordingApplianceArchiveClient struct {
+	vmmdv1.VMMDServiceClient
+	importStream  *recordingApplianceImport
+	contentStream *recordingApplianceStage
+}
+
+func (c *recordingApplianceArchiveClient) ImportImage(context.Context, ...grpc.CallOption) (grpc.ClientStreamingClient[vmmdv1.ImportImageRequest, vmmdv1.Image], error) {
+	return c.importStream, nil
+}
+func (c *recordingApplianceArchiveClient) StageApplianceContent(context.Context, ...grpc.CallOption) (grpc.ClientStreamingClient[appliancev1.StageContentRequest, appliancev1.ApplianceContentStatus], error) {
+	return c.contentStream, nil
+}
+
+type recordingApplianceImport struct {
+	grpc.ClientStream
+	chunks []int
+}
+
+func (s *recordingApplianceImport) Send(frame *vmmdv1.ImportImageRequest) error {
+	if data := frame.GetArchiveChunk(); len(data) != 0 {
+		s.chunks = append(s.chunks, len(data))
+	}
+	return nil
+}
+func (*recordingApplianceImport) CloseAndRecv() (*vmmdv1.Image, error) { return new(vmmdv1.Image), nil }
+
+type recordingApplianceStage struct {
+	grpc.ClientStream
+	chunks []int
+}
+
+func (s *recordingApplianceStage) Send(frame *appliancev1.StageContentRequest) error {
+	if data := frame.GetArchiveChunk(); len(data) != 0 {
+		s.chunks = append(s.chunks, len(data))
+	}
+	return nil
+}
+func (*recordingApplianceStage) CloseAndRecv() (*appliancev1.ApplianceContentStatus, error) {
+	return &appliancev1.ApplianceContentStatus{Available: true}, nil
 }

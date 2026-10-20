@@ -9,6 +9,8 @@ import (
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -42,7 +44,22 @@ func (server *applianceAdminServer) GetStatus(ctx context.Context, request *appl
 	if err != nil {
 		return nil, err
 	}
-	return &appliancev1.ApplianceStatusResponse{Status: server.applianceStatus(ctx, installation, server.controller.systemAppliance(ctx, installation.ID))}, nil
+	var runtime *vmmdv1.SystemAppliance
+	var observedStopped *bool
+	if server.controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
+		client, connection, queryErr := server.controller.guestClient(ctx)
+		if queryErr == nil {
+			defer connection.Close()
+			runtime, queryErr = getSystemAppliance(ctx, client, installation.ID)
+			if queryErr == nil {
+				stopped := runtime == nil || runtime.GetState() == vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_STOPPED
+				observedStopped = &stopped
+			}
+		}
+	}
+	projection := server.applianceStatus(ctx, installation, runtime)
+	projection.RuntimeStopped = observedStopped
+	return &appliancev1.ApplianceStatusResponse{Status: projection}, nil
 }
 
 func (server *applianceAdminServer) WatchOperation(request *appliancev1.WatchApplianceOperationRequest, stream grpc.ServerStreamingServer[appliancev1.ApplianceOperationResponse]) error {

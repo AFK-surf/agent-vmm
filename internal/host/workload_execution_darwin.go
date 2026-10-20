@@ -385,6 +385,19 @@ func (server *agentServer) QuiesceContainer(ctx context.Context, request *hostv1
 	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: run.containerID, InstanceId: run.instanceID, State: hostv1.ContainerState_CONTAINER_STATE_RUNNING}}, nil
 }
 
+func (controller *Controller) validateExplicitStop(identity auth.Identity, request *hostv1.StopContainerRequest) error {
+	if request.GetQuiesceRequestId() != "" {
+		return controller.validateQuiescedStop(identity, request)
+	}
+	if request.GetExpectedInstanceId() == "" {
+		return nil
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	_, err := controller.currentWorkloadRunLocked(identity, request.GetContainerId(), request.GetExpectedInstanceId())
+	return err
+}
+
 func (controller *Controller) validateQuiescedStop(identity auth.Identity, request *hostv1.StopContainerRequest) error {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()

@@ -2,9 +2,11 @@ syntax = "proto3";
 
 package agentvmm.host.v1;
 
+import "google/rpc/status.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "host/v1/host_share.proto";
 import "service/v1/service.proto";
 import "trust/v1/trust.proto";
 
@@ -36,6 +38,9 @@ service AgentRuntimeService {
   rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
   rpc ForwardTCP(stream ForwardTCPRequest) returns (stream ForwardTCPResponse);
   rpc BuildImage(stream BuildImageRequest) returns (stream BuildImageResponse);
+  rpc CopyImage(CopyImageRequest) returns (Image);
+  rpc ObserveImageOperation(ImageOperationRequest) returns (ImageOperationReceipt);
+  rpc CancelImageOperation(ImageOperationRequest) returns (ImageOperationReceipt);
   rpc ReleaseSession(ReleaseSessionRequest) returns (google.protobuf.Empty);
   rpc PlanResetEnvironment(GetOwnEnvironmentRequest) returns (CleanupPlanResponse);
   rpc PlanDiscardEnvironment(GetOwnEnvironmentRequest) returns (CleanupPlanResponse);
@@ -127,9 +132,14 @@ service OperatorService {
   rpc ConfirmPersonalMeshPairing(ConfirmPersonalMeshPairingRequest) returns (PersonalMeshPairingResponse);
   rpc RejectPersonalMeshPairing(RejectPersonalMeshPairingRequest) returns (PersonalMeshPairingResponse);
   rpc RepairDeviceIdentity(RepairDeviceIdentityRequest) returns (DeviceIdentityResponse);
+  rpc CreateLocalServiceListener(CreateLocalServiceListenerRequest) returns (ServiceListenerResponse);
   rpc CreatePersonalServiceListener(CreatePersonalServiceListenerRequest) returns (ServiceListenerResponse);
   rpc ListServiceListeners(ListServiceListenersRequest) returns (ListServiceListenersResponse);
   rpc RevokeServiceListener(RevokeServiceListenerRequest) returns (google.protobuf.Empty);
+  rpc CreateHostShare(CreateHostShareRequest) returns (HostShareResponse);
+  rpc RebindHostShare(RebindHostShareRequest) returns (HostShareResponse);
+  rpc RevokeHostShare(RevokeHostShareRequest) returns (HostShareResponse);
+  rpc ListHostShares(ListHostSharesRequest) returns (ListHostSharesResponse);
 }
 
 message GetDeviceIdentityRequest {}
@@ -172,6 +182,16 @@ enum ServiceListenerExposure {
   SERVICE_LISTENER_EXPOSURE_LAN = 2;
 }
 
+message CreateLocalServiceListenerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  uint32 target_port = 4;
+  ServiceListenerExposure exposure = 5;
+  string bind_address = 6;
+  uint32 bind_port = 7;
+}
+
 message CreatePersonalServiceListenerRequest {
   string request_id = 1;
   string mesh_id = 2;
@@ -184,6 +204,13 @@ message CreatePersonalServiceListenerRequest {
 }
 
 message ServiceListener {
+  // Current socket observation. These fields are not persisted authorization.
+  optional bool available = 16;
+  string unavailable_reason = 17;
+  bool local = 12;
+  string environment_id = 13;
+  string container_id = 14;
+  uint32 target_port = 15;
   string id = 1;
   string mesh_id = 2;
   string destination_device_id = 3;
@@ -427,7 +454,7 @@ message WorkspaceEntry {
   int64 modified_unix_nanos = 5;
   bytes sha256 = 6;
 }
-message ListWorkspaceRequest { string path = 1; uint32 limit = 2; }
+message ListWorkspaceRequest { string path = 1; uint32 limit = 2; string volume_id = 3; }
 message ListWorkspaceResponse { repeated WorkspaceEntry entries = 1; }
 message ReadWorkspaceRequest { string path = 1; uint64 offset = 2; uint64 max_bytes = 3; string volume_id = 4; }
 message ReadWorkspaceResponse { bytes data = 1; uint64 offset = 2; bytes sha256 = 3; bool final = 4; }
@@ -598,6 +625,7 @@ enum InventoryState {
 message CreateAgentSessionRequest {
   string request_id = 1;
   string integration_id = 2;
+  optional uint64 expected_integration_revision = 3;
 }
 message CreateAgentSessionResponse {
   string session_id = 1;
@@ -666,6 +694,7 @@ message PrepareAgentIntegrationRequest {
   IntegrationScope scope = 4;
   string config_target = 5;
   optional string environment_id = 6;
+  ResourceLimits limits = 7;
 }
 message BeginAgentIntegrationConfigurationRequest {
   string request_id = 1;
@@ -763,7 +792,10 @@ enum ContainerState {
 }
 
 message VolumeMount {
-  string volume_id = 1;
+  oneof source {
+    string owned_volume = 1;
+    string host_share = 4;
+  }
   string destination = 2;
   bool read_only = 3;
 }
@@ -784,6 +816,8 @@ message Container {
   google.protobuf.Timestamp started_at = 13;
   google.protobuf.Timestamp finished_at = 14;
   string generation_id = 15;
+  optional bool desired_running = 16;
+  optional bool configuration_matches = 17;
 }
 
 message StringList {
@@ -808,6 +842,7 @@ message CreateContainerRequest {
 }
 message ContainerRequest {
   string container_id = 1;
+  optional CreateContainerRequest expected_configuration = 2;
 }
 message ContainerMutationRequest {
   string request_id = 1;
@@ -916,6 +951,9 @@ message ImportImageHeader {
   string manifest_digest = 4;
   string platform = 5;
   uint64 archive_size = 6;
+  // Non-empty: public HTTPS download, followed by EOF.
+  // Empty: archive_chunk messages followed by EOF, with exact size and SHA256.
+  // Chunks are non-empty and at most 3 MiB. Archives are at most 8 GiB.
   string archive_url = 7;
 }
 message ImportImageRequest {
@@ -924,6 +962,21 @@ message ImportImageRequest {
     bytes archive_chunk = 2;
   }
 }
+message ImageOperationReceipt {
+  string request_id = 1;
+  string input_sha256 = 2;
+  ImageOperationKind kind = 3;
+  ImageOperationState state = 4;
+  bool writer_settled = 5;
+  string execution_id = 6;
+  string container_id = 7;
+  string expected_instance_id = 8;
+  string image_reference = 9;
+  string manifest_digest = 10;
+  google.rpc.Status status = 11;
+  string runtime_instance_id = 13;
+}
+
 message Image {
   string reference = 1;
   string digest = 2;
@@ -931,8 +984,18 @@ message Image {
   repeated string platforms = 4;
   repeated string used_by_container_ids = 5;
   string generation_id = 6;
+  ImageOperationReceipt build_receipt = 7;
+  ImageOperationReceipt copy_receipt = 8;
 }
-message ListImagesRequest {}
+enum ImageOrigin {
+  // Zero selects the caller's current allocation.
+  // buf:lint:ignore ENUM_ZERO_VALUE_SUFFIX
+  IMAGE_ORIGIN_CURRENT_ALLOCATION = 0;
+  IMAGE_ORIGIN_CONTROLLER_RETAINED = 1;
+}
+message ListImagesRequest {
+  ImageOrigin origin = 1;
+}
 message ListEnvironmentImagesRequest {
   string environment_id = 1;
 }
@@ -944,6 +1007,7 @@ message DeleteImageRequest {
   string reference = 2;
   string expected_generation_id = 3;
   string expected_digest = 4;
+  ImageOrigin origin = 5;
 }
 message DeleteEnvironmentImageRequest {
   string request_id = 1;
@@ -1096,6 +1160,9 @@ message BuildImageHeader {
   string expected_instance_id = 9;
   string execution_id = 10;
   int64 execution_deadline_unix_nano = 11;
+  string base_image_reference = 12;
+  string base_manifest_digest = 13;
+  string context_sha256 = 14;
 }
 message BuildContextChunk {
   bytes data = 1;
@@ -1112,6 +1179,26 @@ message BuildImageRequest {
     BuildContextChunk context = 2;
     BuildSecretChunk secret = 3;
   }
+}
+
+message AllocationImageSource {
+  string allocation_id = 1;
+  uint64 allocation_generation = 2;
+}
+message RetainedImageSource { string build_request_id = 1; }
+message ImageSource {
+  oneof source {
+    AllocationImageSource allocation = 1;
+    RetainedImageSource retained = 2;
+  }
+}
+message CopyImageRequest {
+  string request_id = 1;
+  ImageSource source = 2;
+  string target_allocation_id = 4;
+  uint64 target_allocation_generation = 5;
+  string image_reference = 6;
+  string manifest_digest = 7;
 }
 message BuildImageResult {
   string image = 1;
@@ -1248,6 +1335,8 @@ message OperatorStopContainerRequest {
   string environment_id = 2;
   string container_id = 3;
   optional uint32 timeout_seconds = 4;
+  optional uint64 expected_integration_revision = 5;
+  optional string integration_id = 6;
 }
 message OperatorSignalContainerRequest {
   string request_id = 1;
@@ -1662,6 +1751,7 @@ message AllocationCleanupPlan {
   repeated string volume_ids = 3;
   repeated CleanupImpact impacts = 4;
   CleanupKind kind = 5;
+  uint64 allocation_generation = 6;
 }
 
 message AllocationCleanupPlanResponse {
@@ -1760,3 +1850,29 @@ message LocalEnvironmentPage {
 message ListLocalRegistrationPageRequest { string after_id = 1; }
 message LocalRegistrationMetadata { string id = 1; uint64 revision = 2; RemoteRegistrationState state = 3; }
 message LocalRegistrationPage { repeated LocalRegistrationMetadata registrations = 1; string next_cursor = 2; }
+
+
+enum ImageOperationKind {
+  IMAGE_OPERATION_KIND_UNSPECIFIED = 0;
+  IMAGE_OPERATION_KIND_BUILD = 1;
+  IMAGE_OPERATION_KIND_COPY = 2;
+}
+enum ImageOperationState {
+  IMAGE_OPERATION_STATE_UNSPECIFIED = 0;
+  IMAGE_OPERATION_STATE_RUNNING = 1;
+  IMAGE_OPERATION_STATE_SUCCEEDED = 2;
+  IMAGE_OPERATION_STATE_FAILED = 3;
+  IMAGE_OPERATION_STATE_STOPPED = 4;
+  IMAGE_OPERATION_STATE_UNKNOWN = 5;
+}
+message ImageOperationRequest {
+  string request_id = 1;
+  ImageOperationKind kind = 2;
+  string input_sha256 = 3;
+  string execution_id = 4;
+  string container_id = 5;
+  string expected_instance_id = 6;
+  ImageSource copy_source = 7;
+  string target_allocation_id = 9;
+  uint64 target_allocation_generation = 10;
+}

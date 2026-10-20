@@ -101,6 +101,7 @@ func (controller *Controller) clearApplianceHealth(installationID string) {
 	controller.stopApplianceFrontends(installationID)
 	controller.applianceHealthMu.Lock()
 	delete(controller.applianceHealth, installationID)
+	delete(controller.applianceTrustRetry, installationID)
 	controller.applianceHealthMu.Unlock()
 }
 
@@ -108,5 +109,6 @@ func (controller *Controller) clearAllApplianceHealth() {
 	controller.applianceHealthMu.Lock()
 	clear(controller.applianceHealth)
 	clear(controller.pendingApplianceHealth)
+	clear(controller.applianceTrustRetry)
 	controller.applianceHealthMu.Unlock()
 }

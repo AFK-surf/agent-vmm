@@ -26,8 +26,8 @@ func (r *Runtime) CreateVolume(ctx context.Context, namespaceID, volumeID string
 	if (ownerUID == nil) != (ownerGID == nil) {
 		return nil, fmt.Errorf("owner_uid and owner_gid must be provided together")
 	}
-	if requestedMode != nil && *requestedMode > 0o777 {
-		return nil, fmt.Errorf("mode must contain only user, group, and other permission bits")
+	if requestedMode != nil && *requestedMode & ^uint32(0o1777) != 0 {
+		return nil, fmt.Errorf("mode must contain only permission bits and the sticky bit")
 	}
 	unlock := r.lockNamespace(namespaceID)
 	defer unlock()
@@ -78,13 +78,17 @@ func initializeVolumeDirectory(path string, mode uint32, ownerUID, ownerGID *uin
 			_ = os.Remove(volumeGenerationMarkerPath(path))
 		}
 	}()
-	if err := os.Chmod(staging, os.FileMode(mode)); err != nil {
-		return err
-	}
 	if ownerUID != nil {
 		if err := os.Chown(staging, int(*ownerUID), int(*ownerGID)); err != nil {
 			return err
 		}
+	}
+	fileMode := os.FileMode(mode & 0o777)
+	if mode&0o1000 != 0 {
+		fileMode |= os.ModeSticky
+	}
+	if err := os.Chmod(staging, fileMode); err != nil {
+		return err
 	}
 	if err := assign(staging); err != nil {
 		return err
@@ -159,7 +163,7 @@ func (r *Runtime) DeleteVolume(ctx context.Context, namespaceID, volumeID, expec
 	}
 	for _, container := range containers {
 		for _, mount := range container.GetVolumes() {
-			if mount.GetVolumeId() == volumeID {
+			if mount.GetOwnedVolume() == volumeID {
 				return failedPrecondition("volume is referenced by a container")
 			}
 		}

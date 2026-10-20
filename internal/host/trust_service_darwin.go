@@ -279,6 +279,11 @@ func (server *trustServer) ListPersonalMeshes(ctx context.Context, _ *trustv1.Li
 
 func (server *trustServer) InstallManagedTrust(ctx context.Context, request *trustv1.InstallManagedTrustRequest) (*trustv1.InstallManagedTrustResponse, error) {
 	if err := server.controller.trust.InstallManagedTrust(ctx, request.GetTrustAnchor(), request.GetMembershipCredential()); err != nil {
+		// A validation failure names only its bounded stage and reason, such as a clock outside
+		// the anchor window; other failures keep the generic message.
+		if errors.Is(err, hosttrust.ErrRouteUnauthorized) {
+			return nil, status.Error(codes.PermissionDenied, "managed trust bundle is invalid: "+err.Error())
+		}
 		return nil, status.Error(codes.PermissionDenied, "managed trust bundle is invalid")
 	}
 	return &trustv1.InstallManagedTrustResponse{

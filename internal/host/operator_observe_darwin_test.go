@@ -90,14 +90,14 @@ func TestVMMutationFenceAllowsMembershipAddedAfterWholeVMAcknowledgement(t *test
 	}
 	fence := &hostv1.VMMutationFence{State: before.GetVm().GetState(), BootId: before.GetVm().GetBootId(), ObservedWorkloads: before.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
 	controller.inventoryTransition.Lock()
-	err = controller.validateVMMutationFenceLocked(context.Background(), fence)
+	err = controller.validateVMMutationFenceLocked(fence)
 	controller.inventoryTransition.Unlock()
 	if err != nil {
 		t.Fatalf("whole-VM acknowledgement rejected newly added membership: %v", err)
 	}
 }
 
-func TestInventoryTransitionWaitsForInFlightRevisionMutationThenRejectsStaleFence(t *testing.T) {
+func TestInventoryTransitionWaitsForMutationWithoutFencingWholeVMByWorkloadRevision(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestInventoryTransitionWaitsForInFlightRevisionMutationThenRejectsStaleFenc
 	go func() {
 		controller.inventoryTransition.Lock()
 		defer controller.inventoryTransition.Unlock()
-		result <- controller.validateVMMutationFenceLocked(context.Background(), fence)
+		result <- controller.validateVMMutationFenceLocked(fence)
 	}()
 	select {
 	case err := <-result:
@@ -130,8 +130,8 @@ func TestInventoryTransitionWaitsForInFlightRevisionMutationThenRejectsStaleFenc
 		t.Fatal(err)
 	}
 	controller.inventoryTransition.RUnlock()
-	if err := <-result; err == nil {
-		t.Fatal("transition accepted the fence after the in-flight membership mutation")
+	if err := <-result; err != nil {
+		t.Fatalf("whole-VM acknowledgement rejected a workload revision change: %v", err)
 	}
 }
 
@@ -195,10 +195,18 @@ func TestVMMutationFenceRequiresWholeVMImpactAcknowledgement(t *testing.T) {
 	defer database.Close()
 	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
 	controller.inventoryTransition.Lock()
-	err = controller.validateVMMutationFenceLocked(context.Background(), &hostv1.VMMutationFence{State: hostv1.VMState_VM_STATE_STOPPED})
+	err = controller.validateVMMutationFenceLocked(&hostv1.VMMutationFence{State: hostv1.VMState_VM_STATE_STOPPED})
 	controller.inventoryTransition.Unlock()
 	if err == nil {
 		t.Fatal("VM mutation accepted without whole-VM impact acknowledgement")
+	}
+	for _, fence := range []*hostv1.VMMutationFence{
+		{State: hostv1.VMState_VM_STATE_RUNNING, WholeVmImpactAcknowledged: true},
+		{State: hostv1.VMState_VM_STATE_STOPPED, BootId: "different-boot", WholeVmImpactAcknowledged: true},
+	} {
+		if err := controller.validateVMMutationFence(context.Background(), fence); err == nil {
+			t.Fatalf("VM mutation accepted stale state or boot: %v", fence)
+		}
 	}
 }
 

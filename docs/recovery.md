@@ -1,7 +1,7 @@
 # Appliance recovery
 
-An installation owns one canonical artifact manifest and one encrypted data
-volume. Host state records the selected image digest, current boot ID, container
+An installation owns one canonical artifact manifest and one persistent data
+directory. Host state records the selected image digest, current boot ID, container
 instance, bootstrap ID, connection epoch, and installation revision. A restart
 creates a fresh boot and container instance. It revokes the previous runtime
 capabilities before it publishes the replacement.
@@ -15,32 +15,142 @@ unexpectedly again, VM status remains `FAILED` with operator action required.
 Automatic recovery never formats or replaces the state disk, kills unrelated
 processes, restarts the Host, or reboots macOS.
 
+A Stop request settles a `FAILED` VM as `STOPPED` when the VZ manager has no
+machine attachment. The stopped status retains the failure message for
+diagnosis. A retained attachment must complete the existing forced-stop
+confirmation; a stop failure blocks release replacement.
+
 Bootstrap envelopes are opaque, stored in the service user's mode-`0600` state
 directory, bound to the installation and random single-use bootstrap ID, and
 deleted after consumption. A replay,
-stale instance, wrong artifact ID, lost key, or volume-integrity failure fails
-closed; secret-store and encrypted-volume trust failures enter `SEALED`.
+stale instance, or wrong artifact ID fails closed.
+`SEALED` records integrity failures, including an appliance image digest mismatch.
+Start and restart reject a sealed installation, including pending-request retries.
+Stop and revoke preserve the sealed state. Use a current removal plan to remove the installation.
+Preserve the exact installation and data directory before diagnosing an integrity failure.
 
-Sealed repair is an explicit plan/execute operation. It never formats an
-unknown volume and never restores a previous product state. Product updates
-that replace an installation use a new installation: install and verify the
-new artifact, migrate product data inside the appliance, switch the consumer,
-then revoke and remove the old installation.
+Appliance data lives at `/state/appliance-data/<installation>/<volume>` on the Guest pool filesystem.
+An independent project quota enforces `data_volume_bytes`.
+Stop and restart retain this directory and do not unmount its backing filesystem.
+Restart confirms the exact old writer stopped before launching a replacement.
+Typed deletion rejects active references and requires exact installation and volume identity.
 
-The first-party appliance bundled in a signed Host release is different. VM
-start verifies the full Guest bundle against the manifest digest embedded in
-the Host executable. Appliance reconciliation verifies and reads only
-`mcp-appliance/manifest.pb` and `mcp-appliance.digest` against that same
-manifest; the image digest and exact
-`agent-vmm.local/mcp@<digest>` reference must match the Guest manifest. At Host
-startup, one unique desired installation for that product may atomically move
-to the bundled artifact and a stopped revision. The installation ID,
-registration, approved grant, and encrypted volume do not change. Multiple
-matching installations fail closed, while sealed, disabled, and pending-stop
-installations remain unchanged. A desired missing or old-digest runtime is
-stopped and started once through the normal artifact, grant, bootstrap, and
-instance fences; a failed attempt enters `FAILED` instead of retrying without
-a bound.
+Use `agent-vmm appliance remove --installation ID` to view the removal plan.
+The output identifies the data to delete, allocation blockers, request ID, and revision.
+Preserve a usable backup before approving data deletion.
+Resolve the listed allocation blockers through their lifecycle operations.
+Execute with `--execute --request-id REQUEST --expected-revision REVISION --confirm-resource RESOURCE_ID`.
+Repeat `--confirm-resource` for each approved resource and retain the request ID for retries.
+
+The ordinary `state.raw` file and appliance directories do not encrypt themselves.
+Offline device confidentiality requires FileVault or equivalent full-disk encryption on the actual backing disk.
+A logical raw-file copy contains plaintext. Encrypt backups independently.
+Keep diagnostic disks, volumes, and keys until their owner approves exact deletion.
+Startup does not convert or delete appliance data.
+
+The first-party appliance bundled in a signed Host release is verified against
+the Guest manifest embedded in the Host executable. Reconciliation stages the
+verified artifact as an available update. A staging failure is logged and leaves the Host operator service available. Changing an installed artifact uses
+the explicit Update operation and its approved grant.
+
+An installed controller first uses its frozen image digest from the Guest cache.
+Cache reuse still creates the namespace image grant and records its logical usage.
+Only a cache miss opens the current bundled archive and validates its actual content.
+`APPLIANCE_IMAGE_SOURCE_UNAVAILABLE` means that neither source can supply that digest. Update the installation to a supported artifact.
+A bootstrap integrity failure stops the exact started instance before the Host seals its installation.
+
+Update persists preparation, draining, stopping, switching, and activation.
+Draining disables new registration admission, revokes existing runtime sessions,
+waits for their handlers, and then waits for the recovered Host execution ledger
+to confirm that every existing execution has settled. It does not stop workload
+containers. Unknown executions block the operation until its finite deadline.
+Only after draining does Update stop the exact controller and atomically switch
+the artifact and grant. Installation identity, registration, and data volume are
+preserved. Target bootstrap and health determine success.
+
+A client disconnect leaves Update running. A Host restart resumes the persisted phase while the original deadline remains
+valid. A deadline or health failure retains the phase and data. Recover resumes the same operation and original
+target and grant with an explicit extended deadline and an exact observation
+fence. The operation ID and observed update timestamp identify recovery;
+replaying its latest payload returns the receipt, while an older observation or
+a different deadline at the same observation is rejected. It does not claim rollback success or replace the original request.
+
+A failed Update continues to own its target until an explicit operator action.
+Stop, Revoke, or confirmed Remove atomically interrupts that failed operation and
+preserves its phase, receipt, and failure evidence. A running Update remains
+exclusive. A sealed or revoked installation cannot Recover into activation;
+use these explicit lifecycle actions to leave the failed update.
+
+The package contains `manifest.pb`, the controller archive `image.oci.tar`, and dependency archives under `content/<archive_sha256>.oci.tar`.
+The CLI queries content status and uploads missing archives before it submits the lifecycle operation.
+Each client stage has a finite deadline, a 30-second receive idle bound, and one-MiB frames.
+The two Host-to-Guest archive hops use bounded three-MiB chunks with stream backpressure.
+The Host admits one content upload at a time and preserves filesystem headroom.
+The Guest uses the existing OCI import slot, capacity reservation, and pool project quota.
+
+The artifact manifest authorizes exact role and digest pairs. One role can authorize several digests.
+The controller receives only those dependency archives through a read-only mount at `/opt/agent-vmm/content`.
+The signed bootstrap claim supplies each exact archive path and image identity.
+A workload cannot access this mount. Controller stop removes its content projection.
+Archive caches retain verified metadata. Under storage pressure, staging collects archives that no installation, active content stage, or update references.
+Frozen workflows do not create separate Host retention references. Keep their required digests authorized in an installed manifest.
+Capacity exhaustion after collection rejects the new stage. Removing a digest from the target manifest makes it unavailable to those workflows.
+
+The managed CLI accepts `appliance install --package DIR --bootstrap-stdin`,
+`appliance update --package DIR --product PRODUCT`, `appliance status`, and
+`appliance recover --operation ID --timeout DURATION`.
+Use `appliance stop --product PRODUCT` to stop a failed Update through the existing operator lifecycle.
+Use `appliance start` or `appliance activate` to plan and activate an installation.
+Use `appliance restart` to restart it with a current revision fence.
+Use `appliance revoke --installation ID` to revoke the controller domain and stop its workloads.
+Revoke retains installation data. Each lifecycle command reads the current revision and reports its operation receipt.
+The packaged CLI includes these commands. It reads installation
+revision, plans, submits the exact request, and watches the durable receipt.
+
+If Install succeeds but activation fails, use `appliance activate --installation ID` to continue.
+Do not repeat installation to repair that activation.
+An expired saved Remove command first submits its original identity for receipt observation.
+An accepted operation keeps its original receipt. A typed `admission=not_accepted` response requires a new plan and approval.
+Transport uncertainty does not prove non-admission. Retries never extend the saved payload deadline.
+Install and Update accept `--system-pids`, `--system-disk-gib`,
+`--environment-pids`, and `--environment-disk-gib`. Each value must be a positive
+integer within the manifest limit. Disk values use GiB. Install starts with the
+manifest grant; Update preserves the current grant unless ordinary grant changes
+are explicitly approved. Resource flags replace only the named fields. Host
+planning checks that the proposed grant fits VM capacity. A rejected plan exits
+with an error and guidance to adjust disk limits.
+Update accepts a target artifact from the installed product. The same artifact
+can be used to change its approved grant, including exact Host TCP endpoints.
+An unchanged artifact with an unchanged effective grant is rejected. Host-owned
+grant revision and list order do not create a change. Grant changes use the same
+durable preparation, session revocation, drain, stop, switch, and activation
+phases as an artifact update.
+The Host publishes controller egress after the exact boot and container instance
+are persisted and bootstrap succeeds, before it admits the private controller route.
+During activation, the Host holds the VM lifecycle inventory fence through content
+preparation, instance creation, and bootstrap. Inventory commands can reach their
+deadline while this operation is busy. Read `appliance status` and the lifecycle
+receipt to observe progress. The `diagnose` JSON includes `hostHealth`, with egress
+policy and dial counters from the existing health summary. The source count includes
+denied entries. Revocation denies that source and cancels its old flows in place;
+it does not require a new inventory publication or advance the inventory revision.
+Host staging logs distinguish transfer to the Guest
+from the Host cache; Guest logs identify cache reuse, completed staging, and the
+system image GC boundary.
+Content staging reports the role, digest, archive size, cache status, bytes sent
+at 256 MiB intervals, and the final receipt.
+Pass bootstrap seed and its management credentials through stdin or an anonymous
+pipe. They must not appear in arguments, environment variables, files, or logs.
+
+### Workspace read diagnostics
+
+Workspace read errors retain their RPC code. Existing owner details retain their original meaning.
+For Guest relay errors without details, the Host adds `WORKSPACE_GUEST_RELAY_FAILURE` in the `agentvmm.afk.surf` domain.
+Its fixed metadata identifies `hop=guest` and `phase=start` or `phase=receive`.
+`start` covers Guest client setup and errors before the first forwarded chunk.
+`receive` identifies errors after a forwarded chunk. Host-to-client send errors keep their original status.
+`LOCAL_TARGET_UNREADABLE` identifies a Host local-state observation failure. Code 14 alone does not identify a transport failure.
+These diagnostics contain no file path, payload, or original error message.
 
 ### Managed Gateway connection recovery
 
@@ -79,89 +189,40 @@ server, certificate bypass, or persistent route cache supplies a fallback.
 A connected TLS test does not prove successful enrollment. The opt-in
 `TestGatewayConfiguredEndpoint` checks DNS and TLS without sending credentials.
 
-### Egress-grant schema preflight
+### Host metadata startup
 
-An existing schema-17 Host database created before the independent
-`egress_mode` column requires one explicit operator update before installing a
-Host that reads the column. Stop the Host, take a restorable SQLite backup, and
-audit every `appliance_grants` row against the durable approved operation or
-grant record that authorized it. The
-actual egress mode must come from `ApprovedGrant.egress_mode`; never copy
-`max_egress_mode`, which is only the allocation ceiling. Abort if the row count,
-installation identity, authorized manifest, or actual mode is not known exactly.
+Startup upgrades supported Host stores to the current schema in one transaction.
+It preserves installations, grants, volumes, keys, and operation receipts.
+After conversion, the Host enables foreign keys and checks stored references.
+`egress_mode` records the approved actual mode. `max_egress_mode` records the allocation ceiling.
 
-For the bounded staging state where the audit proves every installed appliance
-has actual `DENY_ALL` (`1`), the operator may run:
+Startup rejects unsupported schema versions before conversion.
+It also rejects older encrypted appliance storage while installation or volume records remain.
+Preserve the database, disks, keys, and operation evidence.
+Restore a compatible Host and a verified
+backup to recover an unsupported installation. A fresh identity installation
+requires explicit operator approval and a separate state directory.
 
-```sql
-BEGIN IMMEDIATE;
-ALTER TABLE appliance_grants
-  ADD COLUMN egress_mode INTEGER NOT NULL DEFAULT 1
-  CHECK(egress_mode IN (1, 2));
-UPDATE appliance_grants SET egress_mode = 1;
-SELECT installation_id, egress_mode, max_egress_mode FROM appliance_grants;
-COMMIT;
-```
+### Service route recovery
 
-The final `SELECT` must match the audited row set before the new Host starts.
-New databases create the non-defaulted, non-null column directly. Agent VMM has
-no legacy schema reader, inferred value, or runtime backfill.
+VM restore observes ordinary source and destination containers before it restores service routes.
+Imports and exports retain the approved environment, container ID, and port.
+Generation or instance replacement closes old projections and publishes the current target.
+A missing container leaves the intent unavailable. Recovery does not create a replacement container.
+Transport observation failures remain errors.
 
-### Host schema 18 through 22 to 23 conversion
+The appliance lifecycle restores its service projections after it commits the
+current running boot and instance. Controller Stop and Activate preserve service import intent.
+Revoke and Remove terminate that intent.
+An unavailable LAN interface or occupied port affects only that local listener.
 
-Schema 19 moved the allocation generation from the workload reservation to each
-remote environment. Schema 20 removes the artifact trust projection. Schema 21
-removes the allocation lease projection. Schema 22 removes compute reservations
-and per-installation CPU and memory projections. Schema 23 records whether an
-appliance volume uses an old Host block or a Guest image. The
-conversion keeps registrations, environment and namespace identities, allocation
-identities, policies, credentials, artifact manifests, volumes, and Guest data.
-For schema 18, it copies each exact generation before it removes the obsolete
-reservation table. That table is a Host admission projection. It does not own
-workload data.
-
-Use this procedure for a schema-18 through schema-22 Host database:
-
-1. Stop the Host and connector launchd jobs. Confirm that no Host process has
-   the database open.
-2. Create a restorable SQLite backup, including any WAL content. Record its
-   digest and the source schema version.
-3. Start the current schema-23 Host once. The Host converts the database in one
-   transaction before it starts the VM or accepts controller work.
-4. Confirm that the Host starts and that every remote environment reports its
-   original allocation identity and a nonzero allocation generation.
-5. Keep the backup until the controller has reconciled the bounded environment
-   inventory.
-
-For schema 18, the conversion copies each exact allocation generation to its
-environment. It deletes obsolete allocation rows. It fails closed when a remote
-environment has no matching legacy reservation. Later steps remove the complete
-reservation table after the generation copy. The conversion preserves
-registrations, allocations, appliance installations, artifacts, volumes, PID
-limits, disk limits, egress rules, and frontend rules. It removes allocation
-leases and CPU or memory reservation fields. The transaction leaves the source
-schema unchanged if a step fails. Stop the rollout if this check fails. Restore
-the pre-cutover database only if the database becomes unreadable. After schema
-23 commits, repair forward. An older Host is not a rollback target.
-
-### Appliance data image conversion
-
-Schema 23 marks an existing appliance volume as a Host block. The next start
-attaches only that old image. The Guest stops the affected appliance writer,
-copies the exact image to the control filesystem, and opens the copy with the
-existing key. A matching LUKS identity and a successful mount verify the copy.
-
-The Host changes the volume location only after the Guest starts the exact
-appliance from the copied image. Before this commit, restart uses the old Host
-image. After this commit, restart uses the Guest image and repairs forward. The
-Host removes the old image after the location commit. A crash before cleanup
-can leave an unreferenced old image. The next stopped-VM configuration removes
-that image only when the durable location already names the Guest image.
-
-A new installation creates its image in the Guest. It does not attach a VZ
-block or restart the shared VM. Removal first stops the exact appliance. VMMD
-then deletes the exact Guest image through the appliance data RPC. The removal
-operation keeps its durable pending state until data and secrets are deleted.
+A failed appliance service import affects only that import. The Host logs the failure and leaves its route unavailable.
+Transport status codes from one import do not determine appliance health.
+Parent cancellation and failures to load the installation, grant, or import list still return to the caller.
+The next refresh retries it. Store failures, Guest transport failures, and parent cancellation remain lifecycle errors.
+Integrations can share one service environment. Removing one integration preserves the environment while another effective integration remains.
+The final integration removal revokes shared routes, listeners, shares, and running intent in the same Store transaction.
+Static share changes still require a stopped VM.
 
 ### Single-filesystem state-disk conversion
 
@@ -199,8 +260,8 @@ Use this procedure:
    discards `lost+found` and the temporary import, bootstrap-reservation, and
    `/tmp` paths that the old Guest already deletes during startup. It also
    discards migrated system image records and root filesystem snapshots.
-   The current Host rebuilds those disposable projections with the native
-   snapshotter under the control filesystem's fixed 2 GiB shared-image quota.
+   The current Host rebuilds those disposable projections with overlayfs in
+   the shared image pool.
    The conversion preserves system private volumes. System appliance writable
    quotas remain within the separate 4 GiB control-filesystem budget.
 6. Keep the old disk as the pre-cutover backup. Move the new `state.raw` into
@@ -218,33 +279,23 @@ Use this procedure:
 
 Removal is revision-fenced. A plan first creates a pending-destroy tombstone;
 execute checks the expected revision and domain emptiness, revokes trust and
-leases, deletes the encrypted volume only after explicit confirmation, and
+leases, deletes the exact data directory only after explicit confirmation, and
 commits the terminal removal operation atomically.
 
 ## Pre-release and build-identity cleanup
 
 Development and release installations do not share identity or state. A purge
 removes the current Agent VMM application-support directory, including
-appliance secrets, the device-root key, controller credentials, encrypted
-appliance volumes, and VM state. Use it only for an explicitly approved
+appliance secrets, the device-root key, controller credentials, appliance data directories, and VM state. Use it only for an explicitly approved
 fresh-identity installation. Use the state-disk conversion above when product
 data or identity must survive.
 
-Developer installations older than schema 18 are unsupported. Remove them once, manually,
-while Agent VMM is stopped:
-
-1. Boot out `com.afk-surf.agent-vmm` and
-   `com.afk-surf.agent-vmm-connect` from the current GUI launchd domain.
-2. Delete the old Agent VMM app and any separately copied `agent-vmm-mcp`,
-   `agent-vmm-connect`, or data-worker binaries.
-3. Delete obsolete Agent VMM launchd plists, connector configuration, MCP client
-   configuration, and the old application-support and log directories.
-4. Install the current bundle and recreate controller registrations, MCP client
-   bindings, and appliance installations from fresh identities.
-
-Do not copy unsupported SQLite databases, credentials, appliance secrets,
-device-root keys, or data volumes into the new installation. Production code
-converts only the documented schema 18 through 22 formats.
+For an explicitly approved fresh installation from unsupported developer
+state, stop Agent VMM and retain a restorable copy of its application-support
+directory before removing obsolete application and launchd files. Install the
+current bundle with a separate state directory and recreate registrations and
+appliances from new identities. Keep retained data and identity with their
+compatible Host until their recovery is complete.
 
 ## Host replacement and cleanup runbook
 
@@ -287,7 +338,12 @@ user.
    update is state preserving by default. Fewer than 20 obsolete records that
    do not block reconciliation are not a reason to purge or edit data.
 3. **Preview.** For reset or discard, run `agent-vmm cleanup preview` for one
-   environment. The Host owner reads for at most 30 seconds and admits at most
+   environment. Rejections show a fixed RPC code and recognized owner reason.
+   `AGENT_ACCESS_ACTIVE` requires completed removal of the exact agent
+   integration before environment discard. Removal revokes its sessions;
+   Guest namespace absence then uses the existing empty-resource discard plan.
+   Use `agentd service access list` and `agentd service access remove --integration-id ID --request-id KEY` with the operator socket to select and remove exact service access. Cleanup failures preserve the removing state for retry. Begin and complete requests retain durable, parameter-bound operation receipts.
+   The Host owner reads for at most 30 seconds and admits at most
    100 exact grants, containers, volumes, images, and environment records.
    VMMD uses its startup-rebuilt owner index for bounded container and image
    lookup, and it uses a bounded directory read for volumes. Record the plan
@@ -439,18 +495,25 @@ owner restores inheritance after startup removes incomplete import archives.
 Do not repair a startup failure by recursively assigning quota or raising the
 quota ceiling.
 
-New writable snapshots assign both overlay upper and work directories to the
-workload project. A work directory left in the OCI project causes copy-up to
-fail with `invalid cross-device link`. This creation fix does not rewrite old
-snapshots during startup. Preserve their workload data and identify the exact
-snapshot and both directory projects before planning a bounded repair; do not
-reassign lower layers or traverse all snapshots as a startup fallback.
+Writable snapshot creation assigns both overlay upper and work directories to
+the workload project. A work directory in the OCI project causes copy-up to
+fail with `invalid cross-device link`. Startup preserves existing snapshots.
+For this error, identify the affected snapshot and both directory projects.
+Preserve its workload data and limit repair to that snapshot.
+Keep lower-layer ownership unchanged.
 
 The Host serial file receives Guest output through VZ's output-only file
 attachment. VMMD logs the start and successful completion of bootstrap, OCI
 storage, containerd, recovery, and listener stages. A failed stage includes a
 bounded error and the existing Host operation ID. The lifecycle helper reads a
-bounded tail from the current serial log and one rotated segment. A listener
+bounded tail from the current serial log and one rotated segment.
+`agent-vmm logs --component guest --json` gives the current file priority within
+the byte limit, including JSON encoding, and keeps the newest bytes when
+output needs truncation. It returns an opaque file-identity and byte-offset
+cursor bound to the retained rotation.
+Repeat the read with `--after-cursor` to read appended bytes and continue
+through the retained rotation. `gap=true` identifies an expired cursor or
+bytes omitted by the bounded tail. A listener
 reset by itself does not identify filesystem damage or a provider-auth failure.
 Use only a confirmed Guest error to select a recovery operation. A last
 successful stage is progress evidence, not a root cause. If the Host log does
@@ -485,8 +548,13 @@ The two build slots remain held through output consumption. An admitted build
 waits for the single materialization slot within its request deadline and can
 cancel while waiting. Its local capacity audit, physical reservation, conversion,
 materialization and quota settlement share one disk-budget transaction; metadata
-cannot observe an intermediate hold that has consumed all free slack. Native
-BuildKit execution stays outside that transaction. A streamed import retains its
+cannot observe an intermediate hold that has consumed all free slack.
+BuildKit execution stays outside that transaction. Its project 9001 cache grant
+is recorded in the existing import reservation before quota opens and the physical
+hold is released. Other admission subtracts unused cache credit and unused
+ordinary namespace hard-quota commitments. Project 9000 retains the metadata
+allowance independently. Cancellation retains cache credit until the exact
+builder stops and cleanup completes. A streamed import retains its
 existing long-lived hold and admission refusal; this build path does not change
 streaming import policy. Real capacity exhaustion still fails closed.
 
@@ -509,9 +577,8 @@ exact path or PID before removing anything.
 - Keep only the current application and, until readiness is proven, one
   previous application. Delete the previous application immediately after the
   new bundle passes the readiness and runtime-session checks.
-- Keep one active `state.raw`. Delete a pre-recreate or failed-new disk as soon
-  as the selected disk boots and its workloads are verified. Never retain a
-  32-GiB disk merely as an application rollback artifact.
+- Keep the selected `state.raw` and retained diagnostic disks.
+  Delete a disk only after its owner approves the exact scope and required evidence is preserved.
 - Remove temporary credentials, debug programs, extracted bundles, and hot
   patch archives after validation. Credentials must not appear in commands,
   logs, or the runbook.
@@ -568,12 +635,11 @@ one-off shell history as an operational procedure.
 | Symptom | Confirmed cause | Bounded remedy |
 | --- | --- | --- |
 | A routine update leaves the VM recovering slowly or unable to resume | launchd terminated the Host before its bounded Guest shutdown completed, leaving the exact VZ process or disk dirty | Set `ExitTimeOut` to at least the Host shutdown bound, unload the job once, wait for the exact Host and state-disk-owning VZ process, and terminate only that survivor after the bound expires. Do not reboot. |
-| More than one Virtualization XPC process is visible | The main Guest and a system appliance can each own a legitimate VZ XPC process | Match processes by their open state files and Host inventory. Never kill by process name or require a single VZ process. |
+| More than one Virtualization XPC process is visible | Each process must match its owned state file and the current Host inventory. System appliances run as containers in the shared Guest | Match processes by their open state files and Host inventory. Never kill by process name or require a single VZ process. |
 | A newly formatted `state.raw` has fewer allocated blocks than its configured size | ext4 formatting issued discard against the sparse backing file | Current builds format with `nodiscard`; the startup fully-backed check restores allocation before boot. If restoration fails, stop before VM start and repair Host storage. |
 | The Host and VZ process start, but VMMD never publishes health | The failure occurred before a working VMMD listener; a fresh-disk comparison alone does not identify the cause | Preserve the exact disk and first Guest stage/error. Diagnose storage, containerd, and recovery separately. Do not format or replace the disk based only on a timeout. An explicitly approved reinstall must preserve required workload data and identity recovery material before isolating the old installation. |
 | Guest network health and allocation creation report `netlink receive: recvmsg: no buffer space available` | The nftables v0.3.0 client sends a complete batch before reading its ACK and rule-echo responses. The default receive buffer overflows. | Install the approved mainline Host bundle that contains the fixed Guest artifact. Preserve the disk, registration, and volumes. A Guest restart alone does not fix this failure. The kernel regression covers 16 public namespaces, not arbitrary capacity or packet isolation. |
-| Runtime image import returns a bare `Unknown desc = EOF` after the archive was sent | The Host treated stream EOF during the archive-chunk stage as a transport failure instead of receiving the Guest's final result | Install a Host containing the chunk-stage `CloseAndRecv` fix, then retry the same content-addressed import. Do not recreate the disk or registration for this error. |
-| An old appliance cannot complete its first schema-23 start | The Host image is missing, has the wrong size, or the Guest copy does not match the installation LUKS identity | Preserve both images and the operation state. Repair the exact source or key. Do not create an empty replacement image. |
+| Runtime image import returns a bare `Unknown desc = EOF` after the archive was sent | The stream ended without a confirmed final import receipt | Preserve the installation and inspect the Host and Guest import result. Retry the same content-addressed import within its operation bounds; archive transmission alone does not confirm success. |
 
 ### Keeping this runbook current
 
@@ -602,3 +668,126 @@ The operation is complete only when all applicable checks pass:
   workload identities; and
 - temporary credentials, debug binaries, extracted bundles, and local hot
   patches have been removed.
+
+## Runtime session replacement
+
+An OpenSession request for the current allocation generation replaces its runtime connection.
+The connector closes the old tunnel and confirms exact session revocation before it opens a replacement.
+If revocation fails, it retains that session record and rejects replacement.
+A later request retries exact revocation. Waiting and revocation obey the request deadline.
+Session replacement does not stop the workload or settle an unknown execution.
+
+## Image operation receipts
+
+`ObserveImageOperation` reads the original Build or Copy result.
+`CancelImageOperation` cancels that operation and waits for its execution and cleanup.
+Both calls require the original request ID and input SHA-256.
+Build also requires the original execution ID, container ID, and instance ID.
+Copy requires the source and target allocation IDs and generations.
+The Host checks the current caller namespace and Copy ownership before the relay.
+Observation accepts stopped allocations without relaxing ownership or generation checks.
+
+The Guest stores operation receipts in its existing internal containerd namespace metadata.
+The metadata key binds the original actor namespace, operation kind, and request ID.
+Deleting the actor namespace does not delete its receipt.
+The controller must preserve the receipt before it removes its own allocation records.
+A missing image does not establish that an operation failed.
+`NOT_FOUND` from operation observation means that no accepted operation record exists.
+
+A receipt reports `RUNNING`, `SUCCEEDED`, `FAILED`, `STOPPED`, or `UNKNOWN`.
+`writer_settled` separately confirms execution stop and temporary resource cleanup.
+A canceled RPC or an expired deadline does not establish that fact.
+Build holds its active owner until the internal task exits and cleanup succeeds.
+The Guest sends the Build result only after it saves that terminal receipt.
+Accepted execution continues after a client transport disconnect.
+Explicit operation cancellation and the accepted operation deadline still apply.
+
+Recovery first reads the original operation and its content-bound image receipt.
+A matching successful image receipt can restore a result lost before operation receipt publication.
+VMMD startup stops the previous socket-owned containerd process and waits for its pidfd to report exit.
+It signals only that daemon, so independent workload shims remain alive.
+It accepts the replacement only after the socket belongs to the new process.
+Each accepted operation records that daemon lifetime, including the kernel boot, PID, and process start time.
+A changed daemon lifetime proves that its old in-process unpack writer stopped.
+Startup task cleanup, exact builder cleanup, and synchronous import lease cleanup then settle the operation writer.
+Recovery preserves an unavailable business result as `UNKNOWN` with `writer_settled=true`.
+It does not convert a missing result into success or safe replay.
+
+Containerd uses the built-in walking diff and overlay snapshotter.
+Its archive Apply writes snapshot files inside the daemon.
+Decompressor helpers exchange archive bytes through pipes and do not own the unpack target.
+The daemon restart therefore settles a lost import handler within the same kernel boot.
+Startup preserves live ordinary tasks and FIFO paths, attaches their original main-process IO,
+and restores the exit monitor and retained network endpoint.
+An abandoned supervisor with no original main process is stopped and reaped by its exact task identity.
+If the same daemon still owns an operation without its handler or a successful image receipt,
+observation preserves `UNKNOWN` and `writer_settled=false` until VMMD recovery replaces that daemon.
+The controller must not delete the source or start a replacement writer from this observation.
+
+Cleanup plans include the current allocation generation.
+The Host reads it under the environment lock and preserves the current controller scope.
+The connector returns that generation with the plan revision.
+A controller can refresh a stale cleanup revision without guessing the allocation generation.
+It must reject a different generation before it sends the cleanup mutation.
+
+
+System image retention follows Host installation and unfinished-update receipts.
+The private `ReconcileSystemImages` RPC projects their digest set into existing
+Guest namespace labels. Import carries the same set before pruning. Older
+installation revisions cannot replace a newer set. Failed unfinished updates
+retain their target for recovery; explicit Stop, Revoke, or Remove settles that
+update through the existing lifecycle mutation. The normal Host reconcile loop
+then releases the obsolete target even if no Guest appliance record remains.
+A Guest task reaching RUNNING does not commit an installation update.
+
+Remove retains its pending-destroy operation until Guest data cleanup succeeds.
+Guest data cleanup returns `Unavailable` while another operation owns the materializer slot.
+Data deletion uses the installation cleanup owner without holding the supervisor registry lock during container or volume I/O.
+Other installations remain observable and can accept streams while deletion runs.
+It checks that slot before it locks the appliance supervisor.
+Other installations can still serve status and frontend connections.
+Ordinary container service listeners use a separate path.
+Background retries use the original deletion request. All Guest mutations retry failed calls with the same input fingerprint.
+The Guest replays successful results from its in-memory cache.
+The approved Remove scope includes every allocation and its current volumes in the installation private domain.
+Each cleanup attempt retains a child receipt with the parent operation and environment IDs.
+The final Store transaction requires an empty domain before it deletes the installation.
+Observe the original Remove operation to confirm completion.
+
+System namespace project quotas share the existing 4 GiB control-system budget,
+leaving the other half of the 8 GiB control filesystem for trusted containerd
+metadata, operation receipts, CNI records, and Guest-tool temporary data.
+Bootstrap removes `/control/tmp` before mounting it as Guest `/tmp`; namespace
+cleanup removes its CNI and resolver records. Build and repository temporary
+files belong to their private workload projects. System task `/tmp` is tmpfs.
+This reserve does not bound the lifetime total of trusted audit metadata;
+obsolete records and images still require normal lifecycle collection.
+
+System retention projection does not wait on a long materializer. A busy
+namespace defers the projection. After projection succeeds, busy or failed GC
+returns a typed applied/deferred detail; Host continues lifecycle recovery while
+the existing reconciliation retries collection. A stale installation revision
+still fails before projection and cannot authorize pruning.
+
+A same-namespace Import whose existing image grant and runtime snapshot are
+already materialized acknowledges before writer-slot admission. The namespace
+lock protects its complete request receipt and Host retention projection. This
+path defers optional collection to existing reconciliation. Missing snapshots
+and cross-namespace grants continue through the ordinary materializer and
+physical reservation admission.
+
+Host archive collection runs when StageContent needs space. The current
+installation and unfinished update manifests retain all approved archive roles.
+Stop retains current content. Remove releases those references. A new staged
+reference remains protected until its original request deadline. Collection
+uses existing stage and lifecycle admission locks; Install and Update check
+content availability under the same lifecycle lock before committing a claim.
+Collection removes only unreferenced archive and descriptor pairs in bounded
+batches, then StageContent checks free space again. A busy lifecycle admission
+defers collection. A missing archive can be staged again under the same digest.
+
+### Discard for an absent remote allocation
+
+For an authorized registration and its current connection, a Discard plan for an absent allocation returns an empty plan with generation and revision zero. It contains no volumes or impacts. Execute rechecks absence under the admission lock before it returns Discarded with generation zero. If an allocation now exists, Execute rejects revision zero as PLAN_STALE. Reset and a nonempty volume confirmation do not use this contract.
+
+The Host persists the allocation before it creates Guest resources. It removes the allocation only after Guest disposal is complete. A missing scoped row therefore represents an allocation that was never admitted or has already completed disposal. Consumers must use the successful Plan and Execute receipts; a transport error or an arbitrary NotFound response is not an absence receipt.

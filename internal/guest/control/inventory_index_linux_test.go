@@ -9,9 +9,15 @@ import (
 	"strings"
 	"testing"
 
+	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
+	containersapi "github.com/containerd/containerd/api/services/containers/v1"
+	imagesapi "github.com/containerd/containerd/api/services/images/v1"
+	"github.com/containerd/containerd/api/types"
+	containerd "github.com/containerd/containerd/v2/client"
 	corecontainers "github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/errdefs"
+	"github.com/opencontainers/go-digest"
 )
 
 func TestNamespaceExistenceRejectsAnUnindexedNamespace(t *testing.T) {
@@ -295,5 +301,66 @@ func TestContainerCursorPagesRetainAllObjectsWithoutFullLoadOrDeletion(t *testin
 	}
 	if objects, err := index.containerIDs("retained", 0); err != nil || len(objects) != 101 {
 		t.Fatalf("retirement deleted private container metadata: %d %v", len(objects), err)
+	}
+}
+
+func TestRuntimeInventoryReopenKeepsBuilderCleanupOutOfLogicalImages(t *testing.T) {
+	ctx := context.Background()
+	const namespace, reference = "interrupted-build", "registry.example/workload:latest"
+	target := types.Descriptor{Digest: digest.FromString("workload").String()}
+	fixture := &systemImageFixture{
+		images: map[string]map[string]*imagesapi.Image{namespace: {
+			guestbuild.InternalImageReference: {Name: guestbuild.InternalImageReference, Target: &types.Descriptor{Digest: digest.FromString("builder").String()}},
+			reference:                         {Name: reference, Target: &target},
+		}},
+		containers: map[string]*containersapi.Container{
+			"agent-vmm-build-interrupted": {ID: "agent-vmm-build-interrupted", Labels: map[string]string{guestbuild.InternalContainerLabel: "true"}},
+		},
+		tasksAbsent: true,
+	}
+	names := &operationNamespaces{labels: map[string]map[string]string{
+		namespace:                  namespaceLabels(&vmmdv1.NamespaceLimits{Pids: 64, DiskBytes: 1 << 30}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, namespaceProjectBase, "10.64.0.0/24"),
+		runtimeContainerdNamespace: {},
+	}}
+	client := systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(names)))
+	runtime := &Runtime{client: client}
+	if err := runtime.rebuildRuntimeInventory(ctx); err != nil {
+		t.Fatal(err)
+	}
+	builder := guestbuild.NewBuilder(client, nil, nil)
+	fixture.mu.Lock()
+	fixture.failDeleteNamespace = namespace
+	fixture.mu.Unlock()
+	if err := builder.CleanupNamespace(ctx, namespace); err == nil {
+		t.Fatal("builder image cleanup failure was lost")
+	}
+	fixture.mu.Lock()
+	fixture.failDeleteNamespace = ""
+	fixture.mu.Unlock()
+	if err := builder.CleanupNamespace(ctx, namespace); err != nil {
+		t.Fatal(err)
+	}
+	for _, reopen := range []bool{false, true} {
+		if reopen {
+			if err := runtime.rebuildRuntimeInventory(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		references, err := runtime.inventory.imageReferences(namespace, 0)
+		if err != nil || len(references) != 1 || references[0] != reference {
+			t.Fatalf("reopen=%t logical image references=%v error=%v", reopen, references, err)
+		}
+		if _, err := runtime.ListImages(ctx, namespace); err != nil {
+			t.Fatalf("reopen=%t builder cleanup blocked image observation: %v", reopen, err)
+		}
+	}
+	fixture.mu.Lock()
+	if fixture.images[namespace][guestbuild.InternalImageReference] != nil || len(fixture.containers) != 0 {
+		t.Error("builder cleanup left private runtime records")
+	}
+	delete(fixture.images[namespace], reference)
+	fixture.mu.Unlock()
+	if _, err := runtime.ListImages(ctx, namespace); !errdefs.IsNotFound(err) {
+		t.Fatalf("missing logical grant must remain an inventory error: %v", err)
 	}
 }

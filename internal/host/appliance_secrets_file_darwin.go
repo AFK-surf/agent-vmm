@@ -4,7 +4,6 @@ package host
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -29,35 +28,6 @@ func newApplianceSecretStore(directory string) (applianceSecretStore, error) {
 		return nil, err
 	}
 	return &fileApplianceSecrets{directory: directory}, nil
-}
-
-func (store *fileApplianceSecrets) EnsureVolumeKey(_ context.Context, installationID string) ([]byte, error) {
-	path := filepath.Join(store.directory, applianceSecretID(installationID)+"-volume.key")
-	if value, err := readSecret(path, 32, 32); err == nil {
-		return value, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	value := make([]byte, 32)
-	if _, err := rand.Read(value); err != nil {
-		return nil, err
-	}
-	if err := writeSecretOnce(path, value); err != nil {
-		clearSecret(value)
-		if errors.Is(err, os.ErrExist) {
-			return readSecret(path, 32, 32)
-		}
-		return nil, err
-	}
-	return value, nil
-}
-
-func (store *fileApplianceSecrets) ReplaceVolumeKey(_ context.Context, installationID string, value []byte) error {
-	if len(value) != 32 {
-		return errors.New("appliance recovery key has an invalid length")
-	}
-	path := filepath.Join(store.directory, applianceSecretID(installationID)+"-volume.key")
-	return replaceSecret(path, value)
 }
 
 func (store *fileApplianceSecrets) StoreBootstrap(_ context.Context, installationID, bootstrapID string, plaintext []byte) error {
@@ -88,7 +58,7 @@ func (store *fileApplianceSecrets) DeleteBootstrap(_ context.Context, installati
 }
 
 func (store *fileApplianceSecrets) DeleteInstallation(_ context.Context, installationID string) error {
-	paths, err := filepath.Glob(filepath.Join(store.directory, applianceSecretID(installationID)+"-*"))
+	paths, err := filepath.Glob(filepath.Join(store.directory, applianceSecretID(installationID)+"-*.bootstrap"))
 	if err != nil {
 		return err
 	}
@@ -151,18 +121,6 @@ func writeSecretOnce(path string, value []byte) error {
 	}
 	defer os.Remove(temporaryPath)
 	if err := unix.RenameatxNp(unix.AT_FDCWD, temporaryPath, unix.AT_FDCWD, path, unix.RENAME_EXCL); err != nil {
-		return err
-	}
-	return syncHostDirectory(filepath.Dir(path))
-}
-
-func replaceSecret(path string, value []byte) error {
-	temporaryPath, err := writeSecretTemporary(filepath.Dir(path), value)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temporaryPath)
-	if err := os.Rename(temporaryPath, path); err != nil {
 		return err
 	}
 	return syncHostDirectory(filepath.Dir(path))

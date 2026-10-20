@@ -14,6 +14,12 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 )
 
+const (
+	namespaceProjectBase  = uint32(10000)
+	namespaceProjectCount = uint32(16384)
+	applianceProjectBase  = namespaceProjectBase + namespaceProjectCount
+)
+
 func assignProject(path string, projectID uint32) error {
 	return guestquota.Assign(path, projectID)
 }

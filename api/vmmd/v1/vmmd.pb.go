@@ -7,6 +7,8 @@
 package vmmdv1
 
 import (
+	v1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	status "google.golang.org/genproto/googleapis/rpc/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -486,6 +488,113 @@ func (ComponentState) EnumDescriptor() ([]byte, []int) {
 	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{8}
 }
 
+type ImageOperationKind int32
+
+const (
+	ImageOperationKind_IMAGE_OPERATION_KIND_UNSPECIFIED ImageOperationKind = 0
+	ImageOperationKind_IMAGE_OPERATION_KIND_BUILD       ImageOperationKind = 1
+	ImageOperationKind_IMAGE_OPERATION_KIND_COPY        ImageOperationKind = 2
+)
+
+// Enum value maps for ImageOperationKind.
+var (
+	ImageOperationKind_name = map[int32]string{
+		0: "IMAGE_OPERATION_KIND_UNSPECIFIED",
+		1: "IMAGE_OPERATION_KIND_BUILD",
+		2: "IMAGE_OPERATION_KIND_COPY",
+	}
+	ImageOperationKind_value = map[string]int32{
+		"IMAGE_OPERATION_KIND_UNSPECIFIED": 0,
+		"IMAGE_OPERATION_KIND_BUILD":       1,
+		"IMAGE_OPERATION_KIND_COPY":        2,
+	}
+)
+
+func (x ImageOperationKind) Enum() *ImageOperationKind {
+	p := new(ImageOperationKind)
+	*p = x
+	return p
+}
+
+func (x ImageOperationKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ImageOperationKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_vmmd_v1_vmmd_proto_enumTypes[9].Descriptor()
+}
+
+func (ImageOperationKind) Type() protoreflect.EnumType {
+	return &file_vmmd_v1_vmmd_proto_enumTypes[9]
+}
+
+func (x ImageOperationKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ImageOperationKind.Descriptor instead.
+func (ImageOperationKind) EnumDescriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{9}
+}
+
+type ImageOperationState int32
+
+const (
+	ImageOperationState_IMAGE_OPERATION_STATE_UNSPECIFIED ImageOperationState = 0
+	ImageOperationState_IMAGE_OPERATION_STATE_RUNNING     ImageOperationState = 1
+	ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED   ImageOperationState = 2
+	ImageOperationState_IMAGE_OPERATION_STATE_FAILED      ImageOperationState = 3
+	ImageOperationState_IMAGE_OPERATION_STATE_STOPPED     ImageOperationState = 4
+	ImageOperationState_IMAGE_OPERATION_STATE_UNKNOWN     ImageOperationState = 5
+)
+
+// Enum value maps for ImageOperationState.
+var (
+	ImageOperationState_name = map[int32]string{
+		0: "IMAGE_OPERATION_STATE_UNSPECIFIED",
+		1: "IMAGE_OPERATION_STATE_RUNNING",
+		2: "IMAGE_OPERATION_STATE_SUCCEEDED",
+		3: "IMAGE_OPERATION_STATE_FAILED",
+		4: "IMAGE_OPERATION_STATE_STOPPED",
+		5: "IMAGE_OPERATION_STATE_UNKNOWN",
+	}
+	ImageOperationState_value = map[string]int32{
+		"IMAGE_OPERATION_STATE_UNSPECIFIED": 0,
+		"IMAGE_OPERATION_STATE_RUNNING":     1,
+		"IMAGE_OPERATION_STATE_SUCCEEDED":   2,
+		"IMAGE_OPERATION_STATE_FAILED":      3,
+		"IMAGE_OPERATION_STATE_STOPPED":     4,
+		"IMAGE_OPERATION_STATE_UNKNOWN":     5,
+	}
+)
+
+func (x ImageOperationState) Enum() *ImageOperationState {
+	p := new(ImageOperationState)
+	*p = x
+	return p
+}
+
+func (x ImageOperationState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ImageOperationState) Descriptor() protoreflect.EnumDescriptor {
+	return file_vmmd_v1_vmmd_proto_enumTypes[10].Descriptor()
+}
+
+func (ImageOperationState) Type() protoreflect.EnumType {
+	return &file_vmmd_v1_vmmd_proto_enumTypes[10]
+}
+
+func (x ImageOperationState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ImageOperationState.Descriptor instead.
+func (ImageOperationState) EnumDescriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{10}
+}
+
 type WorkspacePathRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ActorNamespaceId string                 `protobuf:"bytes,1,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
@@ -627,6 +736,7 @@ type ListWorkspaceRequest struct {
 	ActorNamespaceId string                 `protobuf:"bytes,1,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
 	Path             string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
 	Limit            uint32                 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	VolumeId         string                 `protobuf:"bytes,4,opt,name=volume_id,json=volumeId,proto3" json:"volume_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -680,6 +790,13 @@ func (x *ListWorkspaceRequest) GetLimit() uint32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *ListWorkspaceRequest) GetVolumeId() string {
+	if x != nil {
+		return x.VolumeId
+	}
+	return ""
 }
 
 type ListWorkspaceResponse struct {
@@ -1667,20 +1784,23 @@ func (x *SystemApplianceIdentity) GetBootNonce() []byte {
 }
 
 type EnsureSystemApplianceRequest struct {
-	state                      protoimpl.MessageState   `protogen:"open.v1"`
-	RequestId                  string                   `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Identity                   *SystemApplianceIdentity `protobuf:"bytes,2,opt,name=identity,proto3" json:"identity,omitempty"`
-	ImageReference             string                   `protobuf:"bytes,3,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
-	LegacyDataDeviceIdentifier string                   `protobuf:"bytes,4,opt,name=legacy_data_device_identifier,json=legacyDataDeviceIdentifier,proto3" json:"legacy_data_device_identifier,omitempty"`
-	DataVolumeId               string                   `protobuf:"bytes,5,opt,name=data_volume_id,json=dataVolumeId,proto3" json:"data_volume_id,omitempty"`
-	DataVolumeIdentity         string                   `protobuf:"bytes,6,opt,name=data_volume_identity,json=dataVolumeIdentity,proto3" json:"data_volume_identity,omitempty"`
-	DataVolumeKey              []byte                   `protobuf:"bytes,7,opt,name=data_volume_key,json=dataVolumeKey,proto3" json:"data_volume_key,omitempty"`
-	Limits                     *NamespaceLimits         `protobuf:"bytes,9,opt,name=limits,proto3" json:"limits,omitempty"`
-	EgressMode                 EgressMode               `protobuf:"varint,10,opt,name=egress_mode,json=egressMode,proto3,enum=agentvmm.vmmd.v1.EgressMode" json:"egress_mode,omitempty"`
-	ConfigRevision             uint64                   `protobuf:"varint,11,opt,name=config_revision,json=configRevision,proto3" json:"config_revision,omitempty"`
-	DataVolumeBytes            uint64                   `protobuf:"varint,12,opt,name=data_volume_bytes,json=dataVolumeBytes,proto3" json:"data_volume_bytes,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	state     protoimpl.MessageState   `protogen:"open.v1"`
+	RequestId string                   `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Identity  *SystemApplianceIdentity `protobuf:"bytes,2,opt,name=identity,proto3" json:"identity,omitempty"`
+	// Read-only system images must contain direct directories /run/agent-vmm
+	// and /var/lib/agent-vmm, and regular /etc/resolv.conf and /.agent-vmm-supervisor files. Their parent
+	// components must be directories, not symlinks. Missing or invalid targets
+	// fail before task start at stage system_mountpoints; image roots are never modified.
+	ImageReference  string                          `protobuf:"bytes,3,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
+	DataVolumeId    string                          `protobuf:"bytes,5,opt,name=data_volume_id,json=dataVolumeId,proto3" json:"data_volume_id,omitempty"`
+	Limits          *NamespaceLimits                `protobuf:"bytes,9,opt,name=limits,proto3" json:"limits,omitempty"`
+	EgressMode      EgressMode                      `protobuf:"varint,10,opt,name=egress_mode,json=egressMode,proto3,enum=agentvmm.vmmd.v1.EgressMode" json:"egress_mode,omitempty"`
+	ConfigRevision  uint64                          `protobuf:"varint,11,opt,name=config_revision,json=configRevision,proto3" json:"config_revision,omitempty"`
+	DataVolumeBytes uint64                          `protobuf:"varint,12,opt,name=data_volume_bytes,json=dataVolumeBytes,proto3" json:"data_volume_bytes,omitempty"`
+	LanEgress       bool                            `protobuf:"varint,13,opt,name=lan_egress,json=lanEgress,proto3" json:"lan_egress,omitempty"`
+	ContentRefs     []*v1.ApplianceContentReference `protobuf:"bytes,14,rep,name=content_refs,json=contentRefs,proto3" json:"content_refs,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *EnsureSystemApplianceRequest) Reset() {
@@ -1734,32 +1854,11 @@ func (x *EnsureSystemApplianceRequest) GetImageReference() string {
 	return ""
 }
 
-func (x *EnsureSystemApplianceRequest) GetLegacyDataDeviceIdentifier() string {
-	if x != nil {
-		return x.LegacyDataDeviceIdentifier
-	}
-	return ""
-}
-
 func (x *EnsureSystemApplianceRequest) GetDataVolumeId() string {
 	if x != nil {
 		return x.DataVolumeId
 	}
 	return ""
-}
-
-func (x *EnsureSystemApplianceRequest) GetDataVolumeIdentity() string {
-	if x != nil {
-		return x.DataVolumeIdentity
-	}
-	return ""
-}
-
-func (x *EnsureSystemApplianceRequest) GetDataVolumeKey() []byte {
-	if x != nil {
-		return x.DataVolumeKey
-	}
-	return nil
 }
 
 func (x *EnsureSystemApplianceRequest) GetLimits() *NamespaceLimits {
@@ -1788,6 +1887,20 @@ func (x *EnsureSystemApplianceRequest) GetDataVolumeBytes() uint64 {
 		return x.DataVolumeBytes
 	}
 	return 0
+}
+
+func (x *EnsureSystemApplianceRequest) GetLanEgress() bool {
+	if x != nil {
+		return x.LanEgress
+	}
+	return false
+}
+
+func (x *EnsureSystemApplianceRequest) GetContentRefs() []*v1.ApplianceContentReference {
+	if x != nil {
+		return x.ContentRefs
+	}
+	return nil
 }
 
 type StopSystemApplianceRequest struct {
@@ -2043,17 +2156,17 @@ func (x *ListSystemAppliancesRequest) GetLimit() uint32 {
 }
 
 type SystemAppliance struct {
-	state              protoimpl.MessageState   `protogen:"open.v1"`
-	Identity           *SystemApplianceIdentity `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
-	DataVolumeId       string                   `protobuf:"bytes,2,opt,name=data_volume_id,json=dataVolumeId,proto3" json:"data_volume_id,omitempty"`
-	DataVolumeIdentity string                   `protobuf:"bytes,3,opt,name=data_volume_identity,json=dataVolumeIdentity,proto3" json:"data_volume_identity,omitempty"`
-	State              SystemApplianceState     `protobuf:"varint,4,opt,name=state,proto3,enum=agentvmm.vmmd.v1.SystemApplianceState" json:"state,omitempty"`
-	ConfigRevision     uint64                   `protobuf:"varint,5,opt,name=config_revision,json=configRevision,proto3" json:"config_revision,omitempty"`
-	RestartCount       uint32                   `protobuf:"varint,6,opt,name=restart_count,json=restartCount,proto3" json:"restart_count,omitempty"`
-	Status             string                   `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
-	BoundedLog         []byte                   `protobuf:"bytes,8,opt,name=bounded_log,json=boundedLog,proto3" json:"bounded_log,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state          protoimpl.MessageState   `protogen:"open.v1"`
+	Identity       *SystemApplianceIdentity `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	DataVolumeId   string                   `protobuf:"bytes,2,opt,name=data_volume_id,json=dataVolumeId,proto3" json:"data_volume_id,omitempty"`
+	State          SystemApplianceState     `protobuf:"varint,4,opt,name=state,proto3,enum=agentvmm.vmmd.v1.SystemApplianceState" json:"state,omitempty"`
+	ConfigRevision uint64                   `protobuf:"varint,5,opt,name=config_revision,json=configRevision,proto3" json:"config_revision,omitempty"`
+	RestartCount   uint32                   `protobuf:"varint,6,opt,name=restart_count,json=restartCount,proto3" json:"restart_count,omitempty"`
+	Status         string                   `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	BoundedLog     []byte                   `protobuf:"bytes,8,opt,name=bounded_log,json=boundedLog,proto3" json:"bounded_log,omitempty"`
+	NetworkSubnet  string                   `protobuf:"bytes,9,opt,name=network_subnet,json=networkSubnet,proto3" json:"network_subnet,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SystemAppliance) Reset() {
@@ -2100,13 +2213,6 @@ func (x *SystemAppliance) GetDataVolumeId() string {
 	return ""
 }
 
-func (x *SystemAppliance) GetDataVolumeIdentity() string {
-	if x != nil {
-		return x.DataVolumeIdentity
-	}
-	return ""
-}
-
 func (x *SystemAppliance) GetState() SystemApplianceState {
 	if x != nil {
 		return x.State
@@ -2140,6 +2246,13 @@ func (x *SystemAppliance) GetBoundedLog() []byte {
 		return x.BoundedLog
 	}
 	return nil
+}
+
+func (x *SystemAppliance) GetNetworkSubnet() string {
+	if x != nil {
+		return x.NetworkSubnet
+	}
+	return ""
 }
 
 type SystemApplianceResponse struct {
@@ -2239,16 +2352,16 @@ func (x *ListSystemAppliancesResponse) GetNextCursor() string {
 }
 
 type SystemStreamHeader struct {
-	state                protoimpl.MessageState   `protogen:"open.v1"`
-	Identity             *SystemApplianceIdentity `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
-	Kind                 SystemStreamKind         `protobuf:"varint,2,opt,name=kind,proto3,enum=agentvmm.vmmd.v1.SystemStreamKind" json:"kind,omitempty"`
-	Name                 string                   `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Nonce                []byte                   `protobuf:"bytes,4,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	MaxFrameBytes        uint32                   `protobuf:"varint,5,opt,name=max_frame_bytes,json=maxFrameBytes,proto3" json:"max_frame_bytes,omitempty"`
-	MaxTotalBytes        uint64                   `protobuf:"varint,6,opt,name=max_total_bytes,json=maxTotalBytes,proto3" json:"max_total_bytes,omitempty"`
-	IdleSeconds          uint32                   `protobuf:"varint,7,opt,name=idle_seconds,json=idleSeconds,proto3" json:"idle_seconds,omitempty"`
-	MaxConcurrentStreams uint32                   `protobuf:"varint,8,opt,name=max_concurrent_streams,json=maxConcurrentStreams,proto3" json:"max_concurrent_streams,omitempty"`
-	MaxUseCount          uint32                   `protobuf:"varint,9,opt,name=max_use_count,json=maxUseCount,proto3" json:"max_use_count,omitempty"`
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Identity      *SystemApplianceIdentity `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Kind          SystemStreamKind         `protobuf:"varint,2,opt,name=kind,proto3,enum=agentvmm.vmmd.v1.SystemStreamKind" json:"kind,omitempty"`
+	Name          string                   `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Nonce         []byte                   `protobuf:"bytes,4,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	MaxFrameBytes uint32                   `protobuf:"varint,5,opt,name=max_frame_bytes,json=maxFrameBytes,proto3" json:"max_frame_bytes,omitempty"`
+	// Required for Bootstrap and Frontend. Controller forbids a lifetime byte limit.
+	MaxTotalBytes        uint64 `protobuf:"varint,6,opt,name=max_total_bytes,json=maxTotalBytes,proto3" json:"max_total_bytes,omitempty"`
+	IdleSeconds          uint32 `protobuf:"varint,7,opt,name=idle_seconds,json=idleSeconds,proto3" json:"idle_seconds,omitempty"`
+	MaxConcurrentStreams uint32 `protobuf:"varint,8,opt,name=max_concurrent_streams,json=maxConcurrentStreams,proto3" json:"max_concurrent_streams,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -2335,13 +2448,6 @@ func (x *SystemStreamHeader) GetIdleSeconds() uint32 {
 func (x *SystemStreamHeader) GetMaxConcurrentStreams() uint32 {
 	if x != nil {
 		return x.MaxConcurrentStreams
-	}
-	return 0
-}
-
-func (x *SystemStreamHeader) GetMaxUseCount() uint32 {
-	if x != nil {
-		return x.MaxUseCount
 	}
 	return 0
 }
@@ -3172,6 +3278,154 @@ func (x *PullImageResponse) GetCanonicalReference() string {
 	return ""
 }
 
+type SystemImageRetention struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	InstallationRevision uint64                 `protobuf:"varint,1,opt,name=installation_revision,json=installationRevision,proto3" json:"installation_revision,omitempty"`
+	ManifestDigests      []string               `protobuf:"bytes,2,rep,name=manifest_digests,json=manifestDigests,proto3" json:"manifest_digests,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *SystemImageRetention) Reset() {
+	*x = SystemImageRetention{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SystemImageRetention) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SystemImageRetention) ProtoMessage() {}
+
+func (x *SystemImageRetention) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SystemImageRetention.ProtoReflect.Descriptor instead.
+func (*SystemImageRetention) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *SystemImageRetention) GetInstallationRevision() uint64 {
+	if x != nil {
+		return x.InstallationRevision
+	}
+	return 0
+}
+
+func (x *SystemImageRetention) GetManifestDigests() []string {
+	if x != nil {
+		return x.ManifestDigests
+	}
+	return nil
+}
+
+type ReconcileSystemImagesRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	InstallationId string                 `protobuf:"bytes,1,opt,name=installation_id,json=installationId,proto3" json:"installation_id,omitempty"`
+	Retention      *SystemImageRetention  `protobuf:"bytes,2,opt,name=retention,proto3" json:"retention,omitempty"`
+	RequestId      string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ReconcileSystemImagesRequest) Reset() {
+	*x = ReconcileSystemImagesRequest{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconcileSystemImagesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconcileSystemImagesRequest) ProtoMessage() {}
+
+func (x *ReconcileSystemImagesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconcileSystemImagesRequest.ProtoReflect.Descriptor instead.
+func (*ReconcileSystemImagesRequest) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ReconcileSystemImagesRequest) GetInstallationId() string {
+	if x != nil {
+		return x.InstallationId
+	}
+	return ""
+}
+
+func (x *ReconcileSystemImagesRequest) GetRetention() *SystemImageRetention {
+	if x != nil {
+		return x.Retention
+	}
+	return nil
+}
+
+func (x *ReconcileSystemImagesRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+type ReconcileSystemImagesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReconcileSystemImagesResponse) Reset() {
+	*x = ReconcileSystemImagesResponse{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconcileSystemImagesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconcileSystemImagesResponse) ProtoMessage() {}
+
+func (x *ReconcileSystemImagesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconcileSystemImagesResponse.ProtoReflect.Descriptor instead.
+func (*ReconcileSystemImagesResponse) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{45}
+}
+
 type ImportImageHeader struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	RequestId        string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -3184,13 +3438,14 @@ type ImportImageHeader struct {
 	SystemImport     bool                   `protobuf:"varint,8,opt,name=system_import,json=systemImport,proto3" json:"system_import,omitempty"`
 	SystemLimits     *NamespaceLimits       `protobuf:"bytes,9,opt,name=system_limits,json=systemLimits,proto3" json:"system_limits,omitempty"`
 	SystemEgressMode EgressMode             `protobuf:"varint,10,opt,name=system_egress_mode,json=systemEgressMode,proto3,enum=agentvmm.vmmd.v1.EgressMode" json:"system_egress_mode,omitempty"`
+	SystemRetention  *SystemImageRetention  `protobuf:"bytes,11,opt,name=system_retention,json=systemRetention,proto3" json:"system_retention,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ImportImageHeader) Reset() {
 	*x = ImportImageHeader{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[43]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3202,7 +3457,7 @@ func (x *ImportImageHeader) String() string {
 func (*ImportImageHeader) ProtoMessage() {}
 
 func (x *ImportImageHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[43]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3215,7 +3470,7 @@ func (x *ImportImageHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportImageHeader.ProtoReflect.Descriptor instead.
 func (*ImportImageHeader) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{43}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ImportImageHeader) GetRequestId() string {
@@ -3288,6 +3543,13 @@ func (x *ImportImageHeader) GetSystemEgressMode() EgressMode {
 	return EgressMode_EGRESS_MODE_UNSPECIFIED
 }
 
+func (x *ImportImageHeader) GetSystemRetention() *SystemImageRetention {
+	if x != nil {
+		return x.SystemRetention
+	}
+	return nil
+}
+
 type ImportImageRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Payload:
@@ -3301,7 +3563,7 @@ type ImportImageRequest struct {
 
 func (x *ImportImageRequest) Reset() {
 	*x = ImportImageRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[44]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3313,7 +3575,7 @@ func (x *ImportImageRequest) String() string {
 func (*ImportImageRequest) ProtoMessage() {}
 
 func (x *ImportImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[44]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3326,7 +3588,7 @@ func (x *ImportImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportImageRequest.ProtoReflect.Descriptor instead.
 func (*ImportImageRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{44}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *ImportImageRequest) GetPayload() isImportImageRequest_Payload {
@@ -3387,7 +3649,7 @@ type Volume struct {
 
 func (x *Volume) Reset() {
 	*x = Volume{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[45]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3399,7 +3661,7 @@ func (x *Volume) String() string {
 func (*Volume) ProtoMessage() {}
 
 func (x *Volume) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[45]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3412,7 +3674,7 @@ func (x *Volume) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Volume.ProtoReflect.Descriptor instead.
 func (*Volume) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{45}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *Volume) GetId() string {
@@ -3492,7 +3754,7 @@ type CreateVolumeRequest struct {
 
 func (x *CreateVolumeRequest) Reset() {
 	*x = CreateVolumeRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[46]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3504,7 +3766,7 @@ func (x *CreateVolumeRequest) String() string {
 func (*CreateVolumeRequest) ProtoMessage() {}
 
 func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[46]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3517,7 +3779,7 @@ func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVolumeRequest.ProtoReflect.Descriptor instead.
 func (*CreateVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{46}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *CreateVolumeRequest) GetRequestId() string {
@@ -3571,7 +3833,7 @@ type CreateVolumeResponse struct {
 
 func (x *CreateVolumeResponse) Reset() {
 	*x = CreateVolumeResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[47]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3583,7 +3845,7 @@ func (x *CreateVolumeResponse) String() string {
 func (*CreateVolumeResponse) ProtoMessage() {}
 
 func (x *CreateVolumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[47]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3596,7 +3858,7 @@ func (x *CreateVolumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVolumeResponse.ProtoReflect.Descriptor instead.
 func (*CreateVolumeResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{47}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *CreateVolumeResponse) GetVolume() *Volume {
@@ -3618,7 +3880,7 @@ type DeleteVolumeRequest struct {
 
 func (x *DeleteVolumeRequest) Reset() {
 	*x = DeleteVolumeRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[48]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3630,7 +3892,7 @@ func (x *DeleteVolumeRequest) String() string {
 func (*DeleteVolumeRequest) ProtoMessage() {}
 
 func (x *DeleteVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[48]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3643,7 +3905,7 @@ func (x *DeleteVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteVolumeRequest.ProtoReflect.Descriptor instead.
 func (*DeleteVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{48}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *DeleteVolumeRequest) GetRequestId() string {
@@ -3682,7 +3944,7 @@ type DeleteVolumeResponse struct {
 
 func (x *DeleteVolumeResponse) Reset() {
 	*x = DeleteVolumeResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[49]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3694,7 +3956,7 @@ func (x *DeleteVolumeResponse) String() string {
 func (*DeleteVolumeResponse) ProtoMessage() {}
 
 func (x *DeleteVolumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[49]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3707,7 +3969,7 @@ func (x *DeleteVolumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteVolumeResponse.ProtoReflect.Descriptor instead.
 func (*DeleteVolumeResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{49}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{52}
 }
 
 type GetVolumeRequest struct {
@@ -3720,7 +3982,7 @@ type GetVolumeRequest struct {
 
 func (x *GetVolumeRequest) Reset() {
 	*x = GetVolumeRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[50]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3732,7 +3994,7 @@ func (x *GetVolumeRequest) String() string {
 func (*GetVolumeRequest) ProtoMessage() {}
 
 func (x *GetVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[50]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3745,7 +4007,7 @@ func (x *GetVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetVolumeRequest.ProtoReflect.Descriptor instead.
 func (*GetVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{50}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *GetVolumeRequest) GetActorNamespaceId() string {
@@ -3771,7 +4033,7 @@ type GetVolumeResponse struct {
 
 func (x *GetVolumeResponse) Reset() {
 	*x = GetVolumeResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[51]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3783,7 +4045,7 @@ func (x *GetVolumeResponse) String() string {
 func (*GetVolumeResponse) ProtoMessage() {}
 
 func (x *GetVolumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[51]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3796,7 +4058,7 @@ func (x *GetVolumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetVolumeResponse.ProtoReflect.Descriptor instead.
 func (*GetVolumeResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{51}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *GetVolumeResponse) GetVolume() *Volume {
@@ -3817,7 +4079,7 @@ type ListVolumesRequest struct {
 
 func (x *ListVolumesRequest) Reset() {
 	*x = ListVolumesRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[52]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3829,7 +4091,7 @@ func (x *ListVolumesRequest) String() string {
 func (*ListVolumesRequest) ProtoMessage() {}
 
 func (x *ListVolumesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[52]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3842,7 +4104,7 @@ func (x *ListVolumesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListVolumesRequest.ProtoReflect.Descriptor instead.
 func (*ListVolumesRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{52}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ListVolumesRequest) GetActorNamespaceId() string {
@@ -3875,7 +4137,7 @@ type ListVolumesResponse struct {
 
 func (x *ListVolumesResponse) Reset() {
 	*x = ListVolumesResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[53]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3887,7 +4149,7 @@ func (x *ListVolumesResponse) String() string {
 func (*ListVolumesResponse) ProtoMessage() {}
 
 func (x *ListVolumesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[53]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3900,7 +4162,7 @@ func (x *ListVolumesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListVolumesResponse.ProtoReflect.Descriptor instead.
 func (*ListVolumesResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{53}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ListVolumesResponse) GetVolumes() []*Volume {
@@ -3910,6 +4172,138 @@ func (x *ListVolumesResponse) GetVolumes() []*Volume {
 	return nil
 }
 
+type ImageOperationReceipt struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RequestId          string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	InputSha256        string                 `protobuf:"bytes,2,opt,name=input_sha256,json=inputSha256,proto3" json:"input_sha256,omitempty"`
+	Kind               ImageOperationKind     `protobuf:"varint,3,opt,name=kind,proto3,enum=agentvmm.vmmd.v1.ImageOperationKind" json:"kind,omitempty"`
+	State              ImageOperationState    `protobuf:"varint,4,opt,name=state,proto3,enum=agentvmm.vmmd.v1.ImageOperationState" json:"state,omitempty"`
+	WriterSettled      bool                   `protobuf:"varint,5,opt,name=writer_settled,json=writerSettled,proto3" json:"writer_settled,omitempty"`
+	ExecutionId        string                 `protobuf:"bytes,6,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	ContainerId        string                 `protobuf:"bytes,7,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	ExpectedInstanceId string                 `protobuf:"bytes,8,opt,name=expected_instance_id,json=expectedInstanceId,proto3" json:"expected_instance_id,omitempty"`
+	ImageReference     string                 `protobuf:"bytes,9,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
+	ManifestDigest     string                 `protobuf:"bytes,10,opt,name=manifest_digest,json=manifestDigest,proto3" json:"manifest_digest,omitempty"`
+	Status             *status.Status         `protobuf:"bytes,11,opt,name=status,proto3" json:"status,omitempty"`
+	RuntimeInstanceId  string                 `protobuf:"bytes,13,opt,name=runtime_instance_id,json=runtimeInstanceId,proto3" json:"runtime_instance_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ImageOperationReceipt) Reset() {
+	*x = ImageOperationReceipt{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImageOperationReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImageOperationReceipt) ProtoMessage() {}
+
+func (x *ImageOperationReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImageOperationReceipt.ProtoReflect.Descriptor instead.
+func (*ImageOperationReceipt) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *ImageOperationReceipt) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ImageOperationReceipt) GetInputSha256() string {
+	if x != nil {
+		return x.InputSha256
+	}
+	return ""
+}
+
+func (x *ImageOperationReceipt) GetKind() ImageOperationKind {
+	if x != nil {
+		return x.Kind
+	}
+	return ImageOperationKind_IMAGE_OPERATION_KIND_UNSPECIFIED
+}
+
+func (x *ImageOperationReceipt) GetState() ImageOperationState {
+	if x != nil {
+		return x.State
+	}
+	return ImageOperationState_IMAGE_OPERATION_STATE_UNSPECIFIED
+}
+
+func (x *ImageOperationReceipt) GetWriterSettled() bool {
+	if x != nil {
+		return x.WriterSettled
+	}
+	return false
+}
+
+func (x *ImageOperationReceipt) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ImageOperationReceipt) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+func (x *ImageOperationReceipt) GetExpectedInstanceId() string {
+	if x != nil {
+		return x.ExpectedInstanceId
+	}
+	return ""
+}
+
+func (x *ImageOperationReceipt) GetImageReference() string {
+	if x != nil {
+		return x.ImageReference
+	}
+	return ""
+}
+
+func (x *ImageOperationReceipt) GetManifestDigest() string {
+	if x != nil {
+		return x.ManifestDigest
+	}
+	return ""
+}
+
+func (x *ImageOperationReceipt) GetStatus() *status.Status {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+func (x *ImageOperationReceipt) GetRuntimeInstanceId() string {
+	if x != nil {
+		return x.RuntimeInstanceId
+	}
+	return ""
+}
+
 type Image struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Reference     string                 `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
@@ -3917,13 +4311,15 @@ type Image struct {
 	LogicalBytes  uint64                 `protobuf:"varint,3,opt,name=logical_bytes,json=logicalBytes,proto3" json:"logical_bytes,omitempty"`
 	Platforms     []string               `protobuf:"bytes,4,rep,name=platforms,proto3" json:"platforms,omitempty"`
 	GenerationId  string                 `protobuf:"bytes,5,opt,name=generation_id,json=generationId,proto3" json:"generation_id,omitempty"`
+	BuildReceipt  *ImageOperationReceipt `protobuf:"bytes,6,opt,name=build_receipt,json=buildReceipt,proto3" json:"build_receipt,omitempty"`
+	CopyReceipt   *ImageOperationReceipt `protobuf:"bytes,7,opt,name=copy_receipt,json=copyReceipt,proto3" json:"copy_receipt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Image) Reset() {
 	*x = Image{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[54]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3935,7 +4331,7 @@ func (x *Image) String() string {
 func (*Image) ProtoMessage() {}
 
 func (x *Image) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[54]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3948,7 +4344,7 @@ func (x *Image) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Image.ProtoReflect.Descriptor instead.
 func (*Image) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{54}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *Image) GetReference() string {
@@ -3986,6 +4382,20 @@ func (x *Image) GetGenerationId() string {
 	return ""
 }
 
+func (x *Image) GetBuildReceipt() *ImageOperationReceipt {
+	if x != nil {
+		return x.BuildReceipt
+	}
+	return nil
+}
+
+func (x *Image) GetCopyReceipt() *ImageOperationReceipt {
+	if x != nil {
+		return x.CopyReceipt
+	}
+	return nil
+}
+
 type GetImageRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ActorNamespaceId string                 `protobuf:"bytes,1,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
@@ -3996,7 +4406,7 @@ type GetImageRequest struct {
 
 func (x *GetImageRequest) Reset() {
 	*x = GetImageRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[55]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4008,7 +4418,7 @@ func (x *GetImageRequest) String() string {
 func (*GetImageRequest) ProtoMessage() {}
 
 func (x *GetImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[55]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4021,7 +4431,7 @@ func (x *GetImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetImageRequest.ProtoReflect.Descriptor instead.
 func (*GetImageRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{55}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *GetImageRequest) GetActorNamespaceId() string {
@@ -4047,7 +4457,7 @@ type GetImageResponse struct {
 
 func (x *GetImageResponse) Reset() {
 	*x = GetImageResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[56]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4059,7 +4469,7 @@ func (x *GetImageResponse) String() string {
 func (*GetImageResponse) ProtoMessage() {}
 
 func (x *GetImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[56]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4072,7 +4482,7 @@ func (x *GetImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetImageResponse.ProtoReflect.Descriptor instead.
 func (*GetImageResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{56}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GetImageResponse) GetImage() *Image {
@@ -4083,16 +4493,17 @@ func (x *GetImageResponse) GetImage() *Image {
 }
 
 type ListImagesRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	ActorNamespaceId string                 `protobuf:"bytes,1,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
-	Limit            uint32                 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	ActorNamespaceId     string                 `protobuf:"bytes,1,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
+	Limit                uint32                 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	ControllerCacheScope string                 `protobuf:"bytes,3,opt,name=controller_cache_scope,json=controllerCacheScope,proto3" json:"controller_cache_scope,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ListImagesRequest) Reset() {
 	*x = ListImagesRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[57]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4104,7 +4515,7 @@ func (x *ListImagesRequest) String() string {
 func (*ListImagesRequest) ProtoMessage() {}
 
 func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[57]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4117,7 +4528,7 @@ func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesRequest.ProtoReflect.Descriptor instead.
 func (*ListImagesRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{57}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *ListImagesRequest) GetActorNamespaceId() string {
@@ -4134,6 +4545,13 @@ func (x *ListImagesRequest) GetLimit() uint32 {
 	return 0
 }
 
+func (x *ListImagesRequest) GetControllerCacheScope() string {
+	if x != nil {
+		return x.ControllerCacheScope
+	}
+	return ""
+}
+
 type ListImagesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Images        []*Image               `protobuf:"bytes,1,rep,name=images,proto3" json:"images,omitempty"`
@@ -4143,7 +4561,7 @@ type ListImagesResponse struct {
 
 func (x *ListImagesResponse) Reset() {
 	*x = ListImagesResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[58]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4155,7 +4573,7 @@ func (x *ListImagesResponse) String() string {
 func (*ListImagesResponse) ProtoMessage() {}
 
 func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[58]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4168,7 +4586,7 @@ func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesResponse.ProtoReflect.Descriptor instead.
 func (*ListImagesResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{58}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *ListImagesResponse) GetImages() []*Image {
@@ -4185,13 +4603,14 @@ type DeleteImageRequest struct {
 	Reference            string                 `protobuf:"bytes,3,opt,name=reference,proto3" json:"reference,omitempty"`
 	ExpectedGenerationId string                 `protobuf:"bytes,4,opt,name=expected_generation_id,json=expectedGenerationId,proto3" json:"expected_generation_id,omitempty"`
 	ExpectedDigest       string                 `protobuf:"bytes,5,opt,name=expected_digest,json=expectedDigest,proto3" json:"expected_digest,omitempty"`
+	ControllerCacheScope string                 `protobuf:"bytes,6,opt,name=controller_cache_scope,json=controllerCacheScope,proto3" json:"controller_cache_scope,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *DeleteImageRequest) Reset() {
 	*x = DeleteImageRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[59]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4203,7 +4622,7 @@ func (x *DeleteImageRequest) String() string {
 func (*DeleteImageRequest) ProtoMessage() {}
 
 func (x *DeleteImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[59]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4216,7 +4635,7 @@ func (x *DeleteImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteImageRequest.ProtoReflect.Descriptor instead.
 func (*DeleteImageRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{59}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *DeleteImageRequest) GetRequestId() string {
@@ -4254,6 +4673,13 @@ func (x *DeleteImageRequest) GetExpectedDigest() string {
 	return ""
 }
 
+func (x *DeleteImageRequest) GetControllerCacheScope() string {
+	if x != nil {
+		return x.ControllerCacheScope
+	}
+	return ""
+}
+
 type DeleteImageResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -4262,7 +4688,7 @@ type DeleteImageResponse struct {
 
 func (x *DeleteImageResponse) Reset() {
 	*x = DeleteImageResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[60]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4274,7 +4700,7 @@ func (x *DeleteImageResponse) String() string {
 func (*DeleteImageResponse) ProtoMessage() {}
 
 func (x *DeleteImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[60]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4287,7 +4713,7 @@ func (x *DeleteImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteImageResponse.ProtoReflect.Descriptor instead.
 func (*DeleteImageResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{60}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{64}
 }
 
 type ResourceLimits struct {
@@ -4301,7 +4727,7 @@ type ResourceLimits struct {
 
 func (x *ResourceLimits) Reset() {
 	*x = ResourceLimits{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[61]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4313,7 +4739,7 @@ func (x *ResourceLimits) String() string {
 func (*ResourceLimits) ProtoMessage() {}
 
 func (x *ResourceLimits) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[61]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4326,7 +4752,7 @@ func (x *ResourceLimits) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceLimits.ProtoReflect.Descriptor instead.
 func (*ResourceLimits) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{61}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ResourceLimits) GetCpuMillis() uint32 {
@@ -4351,17 +4777,21 @@ func (x *ResourceLimits) GetPids() uint32 {
 }
 
 type VolumeMount struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	VolumeId      string                 `protobuf:"bytes,1,opt,name=volume_id,json=volumeId,proto3" json:"volume_id,omitempty"`
-	Destination   string                 `protobuf:"bytes,2,opt,name=destination,proto3" json:"destination,omitempty"`
-	ReadOnly      bool                   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Source:
+	//
+	//	*VolumeMount_OwnedVolume
+	//	*VolumeMount_HostShare
+	Source        isVolumeMount_Source `protobuf_oneof:"source"`
+	Destination   string               `protobuf:"bytes,2,opt,name=destination,proto3" json:"destination,omitempty"`
+	ReadOnly      bool                 `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *VolumeMount) Reset() {
 	*x = VolumeMount{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[62]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4373,7 +4803,7 @@ func (x *VolumeMount) String() string {
 func (*VolumeMount) ProtoMessage() {}
 
 func (x *VolumeMount) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[62]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4386,12 +4816,30 @@ func (x *VolumeMount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeMount.ProtoReflect.Descriptor instead.
 func (*VolumeMount) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{62}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{66}
 }
 
-func (x *VolumeMount) GetVolumeId() string {
+func (x *VolumeMount) GetSource() isVolumeMount_Source {
 	if x != nil {
-		return x.VolumeId
+		return x.Source
+	}
+	return nil
+}
+
+func (x *VolumeMount) GetOwnedVolume() string {
+	if x != nil {
+		if x, ok := x.Source.(*VolumeMount_OwnedVolume); ok {
+			return x.OwnedVolume
+		}
+	}
+	return ""
+}
+
+func (x *VolumeMount) GetHostShare() string {
+	if x != nil {
+		if x, ok := x.Source.(*VolumeMount_HostShare); ok {
+			return x.HostShare
+		}
 	}
 	return ""
 }
@@ -4410,30 +4858,50 @@ func (x *VolumeMount) GetReadOnly() bool {
 	return false
 }
 
+type isVolumeMount_Source interface {
+	isVolumeMount_Source()
+}
+
+type VolumeMount_OwnedVolume struct {
+	OwnedVolume string `protobuf:"bytes,1,opt,name=owned_volume,json=ownedVolume,proto3,oneof"`
+}
+
+type VolumeMount_HostShare struct {
+	HostShare string `protobuf:"bytes,4,opt,name=host_share,json=hostShare,proto3,oneof"`
+}
+
+func (*VolumeMount_OwnedVolume) isVolumeMount_Source() {}
+
+func (*VolumeMount_HostShare) isVolumeMount_Source() {}
+
 type Container struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	NamespaceId        string                 `protobuf:"bytes,2,opt,name=namespace_id,json=namespaceId,proto3" json:"namespace_id,omitempty"`
-	Image              string                 `protobuf:"bytes,3,opt,name=image,proto3" json:"image,omitempty"`
-	State              ContainerState         `protobuf:"varint,4,opt,name=state,proto3,enum=agentvmm.vmmd.v1.ContainerState" json:"state,omitempty"`
-	ExitCode           *uint32                `protobuf:"varint,5,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
-	Volumes            []*VolumeMount         `protobuf:"bytes,6,rep,name=volumes,proto3" json:"volumes,omitempty"`
-	Argv               []string               `protobuf:"bytes,7,rep,name=argv,proto3" json:"argv,omitempty"`
-	Env                []string               `protobuf:"bytes,8,rep,name=env,proto3" json:"env,omitempty"`
-	Workdir            *string                `protobuf:"bytes,9,opt,name=workdir,proto3,oneof" json:"workdir,omitempty"`
-	User               *string                `protobuf:"bytes,10,opt,name=user,proto3,oneof" json:"user,omitempty"`
-	InstanceId         string                 `protobuf:"bytes,11,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
-	CreatedAtUnixNano  int64                  `protobuf:"varint,12,opt,name=created_at_unix_nano,json=createdAtUnixNano,proto3" json:"created_at_unix_nano,omitempty"`
-	StartedAtUnixNano  int64                  `protobuf:"varint,13,opt,name=started_at_unix_nano,json=startedAtUnixNano,proto3" json:"started_at_unix_nano,omitempty"`
-	FinishedAtUnixNano int64                  `protobuf:"varint,14,opt,name=finished_at_unix_nano,json=finishedAtUnixNano,proto3" json:"finished_at_unix_nano,omitempty"`
-	GenerationId       string                 `protobuf:"bytes,15,opt,name=generation_id,json=generationId,proto3" json:"generation_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Id                       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	NamespaceId              string                 `protobuf:"bytes,2,opt,name=namespace_id,json=namespaceId,proto3" json:"namespace_id,omitempty"`
+	Image                    string                 `protobuf:"bytes,3,opt,name=image,proto3" json:"image,omitempty"`
+	State                    ContainerState         `protobuf:"varint,4,opt,name=state,proto3,enum=agentvmm.vmmd.v1.ContainerState" json:"state,omitempty"`
+	ExitCode                 *uint32                `protobuf:"varint,5,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	Volumes                  []*VolumeMount         `protobuf:"bytes,6,rep,name=volumes,proto3" json:"volumes,omitempty"`
+	Argv                     []string               `protobuf:"bytes,7,rep,name=argv,proto3" json:"argv,omitempty"`
+	Env                      []string               `protobuf:"bytes,8,rep,name=env,proto3" json:"env,omitempty"`
+	Workdir                  *string                `protobuf:"bytes,9,opt,name=workdir,proto3,oneof" json:"workdir,omitempty"`
+	User                     *string                `protobuf:"bytes,10,opt,name=user,proto3,oneof" json:"user,omitempty"`
+	InstanceId               string                 `protobuf:"bytes,11,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	CreatedAtUnixNano        int64                  `protobuf:"varint,12,opt,name=created_at_unix_nano,json=createdAtUnixNano,proto3" json:"created_at_unix_nano,omitempty"`
+	StartedAtUnixNano        int64                  `protobuf:"varint,13,opt,name=started_at_unix_nano,json=startedAtUnixNano,proto3" json:"started_at_unix_nano,omitempty"`
+	FinishedAtUnixNano       int64                  `protobuf:"varint,14,opt,name=finished_at_unix_nano,json=finishedAtUnixNano,proto3" json:"finished_at_unix_nano,omitempty"`
+	GenerationId             string                 `protobuf:"bytes,15,opt,name=generation_id,json=generationId,proto3" json:"generation_id,omitempty"`
+	CreateRequestSha256      string                 `protobuf:"bytes,16,opt,name=create_request_sha256,json=createRequestSha256,proto3" json:"create_request_sha256,omitempty"`
+	StartRequestSha256       string                 `protobuf:"bytes,17,opt,name=start_request_sha256,json=startRequestSha256,proto3" json:"start_request_sha256,omitempty"`
+	StartRequestInstanceId   string                 `protobuf:"bytes,18,opt,name=start_request_instance_id,json=startRequestInstanceId,proto3" json:"start_request_instance_id,omitempty"`
+	ConfigurationFingerprint *string                `protobuf:"bytes,19,opt,name=configuration_fingerprint,json=configurationFingerprint,proto3,oneof" json:"configuration_fingerprint,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *Container) Reset() {
 	*x = Container{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[63]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4445,7 +4913,7 @@ func (x *Container) String() string {
 func (*Container) ProtoMessage() {}
 
 func (x *Container) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[63]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4458,7 +4926,7 @@ func (x *Container) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Container.ProtoReflect.Descriptor instead.
 func (*Container) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{63}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *Container) GetId() string {
@@ -4566,6 +5034,34 @@ func (x *Container) GetGenerationId() string {
 	return ""
 }
 
+func (x *Container) GetCreateRequestSha256() string {
+	if x != nil {
+		return x.CreateRequestSha256
+	}
+	return ""
+}
+
+func (x *Container) GetStartRequestSha256() string {
+	if x != nil {
+		return x.StartRequestSha256
+	}
+	return ""
+}
+
+func (x *Container) GetStartRequestInstanceId() string {
+	if x != nil {
+		return x.StartRequestInstanceId
+	}
+	return ""
+}
+
+func (x *Container) GetConfigurationFingerprint() string {
+	if x != nil && x.ConfigurationFingerprint != nil {
+		return *x.ConfigurationFingerprint
+	}
+	return ""
+}
+
 type StringList struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
@@ -4575,7 +5071,7 @@ type StringList struct {
 
 func (x *StringList) Reset() {
 	*x = StringList{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[64]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4587,7 +5083,7 @@ func (x *StringList) String() string {
 func (*StringList) ProtoMessage() {}
 
 func (x *StringList) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[64]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4600,7 +5096,7 @@ func (x *StringList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StringList.ProtoReflect.Descriptor instead.
 func (*StringList) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{64}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *StringList) GetValues() []string {
@@ -4611,27 +5107,28 @@ func (x *StringList) GetValues() []string {
 }
 
 type CreateContainerRequest struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	RequestId          string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	ActorNamespaceId   string                 `protobuf:"bytes,2,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
-	ContainerId        string                 `protobuf:"bytes,3,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	Image              string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
-	Env                []string               `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty"`
-	Workdir            *string                `protobuf:"bytes,7,opt,name=workdir,proto3,oneof" json:"workdir,omitempty"`
-	User               *string                `protobuf:"bytes,8,opt,name=user,proto3,oneof" json:"user,omitempty"`
-	Limits             *ResourceLimits        `protobuf:"bytes,9,opt,name=limits,proto3" json:"limits,omitempty"`
-	Volumes            []*VolumeMount         `protobuf:"bytes,10,rep,name=volumes,proto3" json:"volumes,omitempty"`
-	ReadOnlyRoot       bool                   `protobuf:"varint,11,opt,name=read_only_root,json=readOnlyRoot,proto3" json:"read_only_root,omitempty"`
-	LogLimitBytes      uint64                 `protobuf:"varint,12,opt,name=log_limit_bytes,json=logLimitBytes,proto3" json:"log_limit_bytes,omitempty"`
-	EntrypointOverride *StringList            `protobuf:"bytes,13,opt,name=entrypoint_override,json=entrypointOverride,proto3" json:"entrypoint_override,omitempty"`
-	CommandOverride    *StringList            `protobuf:"bytes,14,opt,name=command_override,json=commandOverride,proto3" json:"command_override,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	RequestId                string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ActorNamespaceId         string                 `protobuf:"bytes,2,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
+	ContainerId              string                 `protobuf:"bytes,3,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	Image                    string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
+	Env                      []string               `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty"`
+	Workdir                  *string                `protobuf:"bytes,7,opt,name=workdir,proto3,oneof" json:"workdir,omitempty"`
+	User                     *string                `protobuf:"bytes,8,opt,name=user,proto3,oneof" json:"user,omitempty"`
+	Limits                   *ResourceLimits        `protobuf:"bytes,9,opt,name=limits,proto3" json:"limits,omitempty"`
+	Volumes                  []*VolumeMount         `protobuf:"bytes,10,rep,name=volumes,proto3" json:"volumes,omitempty"`
+	ReadOnlyRoot             bool                   `protobuf:"varint,11,opt,name=read_only_root,json=readOnlyRoot,proto3" json:"read_only_root,omitempty"`
+	LogLimitBytes            uint64                 `protobuf:"varint,12,opt,name=log_limit_bytes,json=logLimitBytes,proto3" json:"log_limit_bytes,omitempty"`
+	EntrypointOverride       *StringList            `protobuf:"bytes,13,opt,name=entrypoint_override,json=entrypointOverride,proto3" json:"entrypoint_override,omitempty"`
+	CommandOverride          *StringList            `protobuf:"bytes,14,opt,name=command_override,json=commandOverride,proto3" json:"command_override,omitempty"`
+	ConfigurationFingerprint *string                `protobuf:"bytes,15,opt,name=configuration_fingerprint,json=configurationFingerprint,proto3,oneof" json:"configuration_fingerprint,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *CreateContainerRequest) Reset() {
 	*x = CreateContainerRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[65]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4643,7 +5140,7 @@ func (x *CreateContainerRequest) String() string {
 func (*CreateContainerRequest) ProtoMessage() {}
 
 func (x *CreateContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[65]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4656,7 +5153,7 @@ func (x *CreateContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateContainerRequest.ProtoReflect.Descriptor instead.
 func (*CreateContainerRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{65}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *CreateContainerRequest) GetRequestId() string {
@@ -4750,6 +5247,13 @@ func (x *CreateContainerRequest) GetCommandOverride() *StringList {
 	return nil
 }
 
+func (x *CreateContainerRequest) GetConfigurationFingerprint() string {
+	if x != nil && x.ConfigurationFingerprint != nil {
+		return *x.ConfigurationFingerprint
+	}
+	return ""
+}
+
 type CreateContainerResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Container     *Container             `protobuf:"bytes,1,opt,name=container,proto3" json:"container,omitempty"`
@@ -4759,7 +5263,7 @@ type CreateContainerResponse struct {
 
 func (x *CreateContainerResponse) Reset() {
 	*x = CreateContainerResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[66]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4771,7 +5275,7 @@ func (x *CreateContainerResponse) String() string {
 func (*CreateContainerResponse) ProtoMessage() {}
 
 func (x *CreateContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[66]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4784,7 +5288,7 @@ func (x *CreateContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateContainerResponse.ProtoReflect.Descriptor instead.
 func (*CreateContainerResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{66}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *CreateContainerResponse) GetContainer() *Container {
@@ -4795,17 +5299,18 @@ func (x *CreateContainerResponse) GetContainer() *Container {
 }
 
 type StartContainerRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	RequestId        string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	ActorNamespaceId string                 `protobuf:"bytes,2,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
-	ContainerId      string                 `protobuf:"bytes,3,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	RequestId            string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ActorNamespaceId     string                 `protobuf:"bytes,2,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
+	ContainerId          string                 `protobuf:"bytes,3,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	ExpectedGenerationId string                 `protobuf:"bytes,4,opt,name=expected_generation_id,json=expectedGenerationId,proto3" json:"expected_generation_id,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *StartContainerRequest) Reset() {
 	*x = StartContainerRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[67]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4817,7 +5322,7 @@ func (x *StartContainerRequest) String() string {
 func (*StartContainerRequest) ProtoMessage() {}
 
 func (x *StartContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[67]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4830,7 +5335,7 @@ func (x *StartContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartContainerRequest.ProtoReflect.Descriptor instead.
 func (*StartContainerRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{67}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *StartContainerRequest) GetRequestId() string {
@@ -4854,6 +5359,13 @@ func (x *StartContainerRequest) GetContainerId() string {
 	return ""
 }
 
+func (x *StartContainerRequest) GetExpectedGenerationId() string {
+	if x != nil {
+		return x.ExpectedGenerationId
+	}
+	return ""
+}
+
 type StartContainerResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Container     *Container             `protobuf:"bytes,1,opt,name=container,proto3" json:"container,omitempty"`
@@ -4863,7 +5375,7 @@ type StartContainerResponse struct {
 
 func (x *StartContainerResponse) Reset() {
 	*x = StartContainerResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[68]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4875,7 +5387,7 @@ func (x *StartContainerResponse) String() string {
 func (*StartContainerResponse) ProtoMessage() {}
 
 func (x *StartContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[68]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4888,7 +5400,7 @@ func (x *StartContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartContainerResponse.ProtoReflect.Descriptor instead.
 func (*StartContainerResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{68}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *StartContainerResponse) GetContainer() *Container {
@@ -4910,7 +5422,7 @@ type StopContainerRequest struct {
 
 func (x *StopContainerRequest) Reset() {
 	*x = StopContainerRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[69]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4922,7 +5434,7 @@ func (x *StopContainerRequest) String() string {
 func (*StopContainerRequest) ProtoMessage() {}
 
 func (x *StopContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[69]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4935,7 +5447,7 @@ func (x *StopContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopContainerRequest.ProtoReflect.Descriptor instead.
 func (*StopContainerRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{69}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *StopContainerRequest) GetRequestId() string {
@@ -4975,7 +5487,7 @@ type StopContainerResponse struct {
 
 func (x *StopContainerResponse) Reset() {
 	*x = StopContainerResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[70]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4987,7 +5499,7 @@ func (x *StopContainerResponse) String() string {
 func (*StopContainerResponse) ProtoMessage() {}
 
 func (x *StopContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[70]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5000,7 +5512,7 @@ func (x *StopContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopContainerResponse.ProtoReflect.Descriptor instead.
 func (*StopContainerResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{70}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *StopContainerResponse) GetContainer() *Container {
@@ -5020,7 +5532,7 @@ type WaitContainerRequest struct {
 
 func (x *WaitContainerRequest) Reset() {
 	*x = WaitContainerRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[71]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5032,7 +5544,7 @@ func (x *WaitContainerRequest) String() string {
 func (*WaitContainerRequest) ProtoMessage() {}
 
 func (x *WaitContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[71]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5045,7 +5557,7 @@ func (x *WaitContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitContainerRequest.ProtoReflect.Descriptor instead.
 func (*WaitContainerRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{71}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *WaitContainerRequest) GetActorNamespaceId() string {
@@ -5071,7 +5583,7 @@ type WaitContainerResponse struct {
 
 func (x *WaitContainerResponse) Reset() {
 	*x = WaitContainerResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[72]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5083,7 +5595,7 @@ func (x *WaitContainerResponse) String() string {
 func (*WaitContainerResponse) ProtoMessage() {}
 
 func (x *WaitContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[72]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5096,7 +5608,7 @@ func (x *WaitContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitContainerResponse.ProtoReflect.Descriptor instead.
 func (*WaitContainerResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{72}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *WaitContainerResponse) GetExitCode() uint32 {
@@ -5118,7 +5630,7 @@ type DeleteContainerRequest struct {
 
 func (x *DeleteContainerRequest) Reset() {
 	*x = DeleteContainerRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[73]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5130,7 +5642,7 @@ func (x *DeleteContainerRequest) String() string {
 func (*DeleteContainerRequest) ProtoMessage() {}
 
 func (x *DeleteContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[73]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5143,7 +5655,7 @@ func (x *DeleteContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteContainerRequest.ProtoReflect.Descriptor instead.
 func (*DeleteContainerRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{73}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *DeleteContainerRequest) GetRequestId() string {
@@ -5182,7 +5694,7 @@ type DeleteContainerResponse struct {
 
 func (x *DeleteContainerResponse) Reset() {
 	*x = DeleteContainerResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[74]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5194,7 +5706,7 @@ func (x *DeleteContainerResponse) String() string {
 func (*DeleteContainerResponse) ProtoMessage() {}
 
 func (x *DeleteContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[74]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5207,7 +5719,7 @@ func (x *DeleteContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteContainerResponse.ProtoReflect.Descriptor instead.
 func (*DeleteContainerResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{74}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{78}
 }
 
 type InspectContainerRequest struct {
@@ -5220,7 +5732,7 @@ type InspectContainerRequest struct {
 
 func (x *InspectContainerRequest) Reset() {
 	*x = InspectContainerRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[75]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5232,7 +5744,7 @@ func (x *InspectContainerRequest) String() string {
 func (*InspectContainerRequest) ProtoMessage() {}
 
 func (x *InspectContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[75]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5245,7 +5757,7 @@ func (x *InspectContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectContainerRequest.ProtoReflect.Descriptor instead.
 func (*InspectContainerRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{75}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *InspectContainerRequest) GetActorNamespaceId() string {
@@ -5271,7 +5783,7 @@ type InspectContainerResponse struct {
 
 func (x *InspectContainerResponse) Reset() {
 	*x = InspectContainerResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[76]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5283,7 +5795,7 @@ func (x *InspectContainerResponse) String() string {
 func (*InspectContainerResponse) ProtoMessage() {}
 
 func (x *InspectContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[76]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5296,7 +5808,7 @@ func (x *InspectContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectContainerResponse.ProtoReflect.Descriptor instead.
 func (*InspectContainerResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{76}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *InspectContainerResponse) GetContainer() *Container {
@@ -5319,7 +5831,7 @@ type ListContainersRequest struct {
 
 func (x *ListContainersRequest) Reset() {
 	*x = ListContainersRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[77]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5331,7 +5843,7 @@ func (x *ListContainersRequest) String() string {
 func (*ListContainersRequest) ProtoMessage() {}
 
 func (x *ListContainersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[77]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5344,7 +5856,7 @@ func (x *ListContainersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContainersRequest.ProtoReflect.Descriptor instead.
 func (*ListContainersRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{77}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *ListContainersRequest) GetActorNamespaceId() string {
@@ -5385,7 +5897,7 @@ type ListContainersResponse struct {
 
 func (x *ListContainersResponse) Reset() {
 	*x = ListContainersResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[78]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5397,7 +5909,7 @@ func (x *ListContainersResponse) String() string {
 func (*ListContainersResponse) ProtoMessage() {}
 
 func (x *ListContainersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[78]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5410,7 +5922,7 @@ func (x *ListContainersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContainersResponse.ProtoReflect.Descriptor instead.
 func (*ListContainersResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{78}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ListContainersResponse) GetContainers() []*Container {
@@ -5437,7 +5949,7 @@ type GetContainerUsageRequest struct {
 
 func (x *GetContainerUsageRequest) Reset() {
 	*x = GetContainerUsageRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[79]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5449,7 +5961,7 @@ func (x *GetContainerUsageRequest) String() string {
 func (*GetContainerUsageRequest) ProtoMessage() {}
 
 func (x *GetContainerUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[79]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5462,7 +5974,7 @@ func (x *GetContainerUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContainerUsageRequest.ProtoReflect.Descriptor instead.
 func (*GetContainerUsageRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{79}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *GetContainerUsageRequest) GetActorNamespaceId() string {
@@ -5498,7 +6010,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[80]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5510,7 +6022,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[80]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5523,7 +6035,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{80}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *Usage) GetCpuNanos() uint64 {
@@ -5621,7 +6133,7 @@ type GetUsageResponse struct {
 
 func (x *GetUsageResponse) Reset() {
 	*x = GetUsageResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5633,7 +6145,7 @@ func (x *GetUsageResponse) String() string {
 func (*GetUsageResponse) ProtoMessage() {}
 
 func (x *GetUsageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[81]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5646,7 +6158,7 @@ func (x *GetUsageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUsageResponse.ProtoReflect.Descriptor instead.
 func (*GetUsageResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{81}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *GetUsageResponse) GetUsage() *Usage {
@@ -5734,7 +6246,7 @@ type DiskAccounting struct {
 
 func (x *DiskAccounting) Reset() {
 	*x = DiskAccounting{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5746,7 +6258,7 @@ func (x *DiskAccounting) String() string {
 func (*DiskAccounting) ProtoMessage() {}
 
 func (x *DiskAccounting) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[82]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5759,7 +6271,7 @@ func (x *DiskAccounting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiskAccounting.ProtoReflect.Descriptor instead.
 func (*DiskAccounting) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{82}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *DiskAccounting) GetUsedBytes() uint64 {
@@ -5811,7 +6323,7 @@ type LogsRequest struct {
 
 func (x *LogsRequest) Reset() {
 	*x = LogsRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5823,7 +6335,7 @@ func (x *LogsRequest) String() string {
 func (*LogsRequest) ProtoMessage() {}
 
 func (x *LogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[83]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5836,7 +6348,7 @@ func (x *LogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsRequest.ProtoReflect.Descriptor instead.
 func (*LogsRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{83}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *LogsRequest) GetActorNamespaceId() string {
@@ -5895,7 +6407,7 @@ type LogsResponse struct {
 
 func (x *LogsResponse) Reset() {
 	*x = LogsResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[84]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5907,7 +6419,7 @@ func (x *LogsResponse) String() string {
 func (*LogsResponse) ProtoMessage() {}
 
 func (x *LogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[84]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5920,7 +6432,7 @@ func (x *LogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsResponse.ProtoReflect.Descriptor instead.
 func (*LogsResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{84}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *LogsResponse) GetCursor() string {
@@ -5977,7 +6489,7 @@ type SignalContainerRequest struct {
 
 func (x *SignalContainerRequest) Reset() {
 	*x = SignalContainerRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[85]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5989,7 +6501,7 @@ func (x *SignalContainerRequest) String() string {
 func (*SignalContainerRequest) ProtoMessage() {}
 
 func (x *SignalContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[85]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6002,7 +6514,7 @@ func (x *SignalContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalContainerRequest.ProtoReflect.Descriptor instead.
 func (*SignalContainerRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{85}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *SignalContainerRequest) GetRequestId() string {
@@ -6041,7 +6553,7 @@ type SignalContainerResponse struct {
 
 func (x *SignalContainerResponse) Reset() {
 	*x = SignalContainerResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[86]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6053,7 +6565,7 @@ func (x *SignalContainerResponse) String() string {
 func (*SignalContainerResponse) ProtoMessage() {}
 
 func (x *SignalContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[86]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6066,7 +6578,7 @@ func (x *SignalContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalContainerResponse.ProtoReflect.Descriptor instead.
 func (*SignalContainerResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{86}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{90}
 }
 
 type ExecStart struct {
@@ -6087,7 +6599,7 @@ type ExecStart struct {
 
 func (x *ExecStart) Reset() {
 	*x = ExecStart{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[87]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6099,7 +6611,7 @@ func (x *ExecStart) String() string {
 func (*ExecStart) ProtoMessage() {}
 
 func (x *ExecStart) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[87]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6112,7 +6624,7 @@ func (x *ExecStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecStart.ProtoReflect.Descriptor instead.
 func (*ExecStart) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{87}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *ExecStart) GetRequestId() string {
@@ -6195,7 +6707,7 @@ type ExecResize struct {
 
 func (x *ExecResize) Reset() {
 	*x = ExecResize{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[88]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6207,7 +6719,7 @@ func (x *ExecResize) String() string {
 func (*ExecResize) ProtoMessage() {}
 
 func (x *ExecResize) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[88]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6220,7 +6732,7 @@ func (x *ExecResize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResize.ProtoReflect.Descriptor instead.
 func (*ExecResize) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{88}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *ExecResize) GetRows() uint32 {
@@ -6253,7 +6765,7 @@ type ExecRequest struct {
 
 func (x *ExecRequest) Reset() {
 	*x = ExecRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[89]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6265,7 +6777,7 @@ func (x *ExecRequest) String() string {
 func (*ExecRequest) ProtoMessage() {}
 
 func (x *ExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[89]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6278,7 +6790,7 @@ func (x *ExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecRequest.ProtoReflect.Descriptor instead.
 func (*ExecRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{89}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *ExecRequest) GetEvent() isExecRequest_Event {
@@ -6381,7 +6893,7 @@ type ExecResponse struct {
 
 func (x *ExecResponse) Reset() {
 	*x = ExecResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[90]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6393,7 +6905,7 @@ func (x *ExecResponse) String() string {
 func (*ExecResponse) ProtoMessage() {}
 
 func (x *ExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[90]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6406,7 +6918,7 @@ func (x *ExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResponse.ProtoReflect.Descriptor instead.
 func (*ExecResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{90}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *ExecResponse) GetEvent() isExecResponse_Event {
@@ -6474,7 +6986,7 @@ type ContainerIDList struct {
 
 func (x *ContainerIDList) Reset() {
 	*x = ContainerIDList{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[91]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6486,7 +6998,7 @@ func (x *ContainerIDList) String() string {
 func (*ContainerIDList) ProtoMessage() {}
 
 func (x *ContainerIDList) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[91]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6499,7 +7011,7 @@ func (x *ContainerIDList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerIDList.ProtoReflect.Descriptor instead.
 func (*ContainerIDList) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{91}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *ContainerIDList) GetIds() []string {
@@ -6522,7 +7034,7 @@ type ContainerSelector struct {
 
 func (x *ContainerSelector) Reset() {
 	*x = ContainerSelector{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[92]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6534,7 +7046,7 @@ func (x *ContainerSelector) String() string {
 func (*ContainerSelector) ProtoMessage() {}
 
 func (x *ContainerSelector) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[92]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6547,7 +7059,7 @@ func (x *ContainerSelector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerSelector.ProtoReflect.Descriptor instead.
 func (*ContainerSelector) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{92}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *ContainerSelector) GetSelection() isContainerSelector_Selection {
@@ -6606,7 +7118,7 @@ type NetworkLink struct {
 
 func (x *NetworkLink) Reset() {
 	*x = NetworkLink{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[93]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6618,7 +7130,7 @@ func (x *NetworkLink) String() string {
 func (*NetworkLink) ProtoMessage() {}
 
 func (x *NetworkLink) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[93]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6631,7 +7143,7 @@ func (x *NetworkLink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkLink.ProtoReflect.Descriptor instead.
 func (*NetworkLink) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{93}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *NetworkLink) GetId() string {
@@ -6693,7 +7205,7 @@ type ApplyNetworkLinkRequest struct {
 
 func (x *ApplyNetworkLinkRequest) Reset() {
 	*x = ApplyNetworkLinkRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[94]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6705,7 +7217,7 @@ func (x *ApplyNetworkLinkRequest) String() string {
 func (*ApplyNetworkLinkRequest) ProtoMessage() {}
 
 func (x *ApplyNetworkLinkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[94]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6718,7 +7230,7 @@ func (x *ApplyNetworkLinkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyNetworkLinkRequest.ProtoReflect.Descriptor instead.
 func (*ApplyNetworkLinkRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{94}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *ApplyNetworkLinkRequest) GetRequestId() string {
@@ -6743,7 +7255,7 @@ type ApplyNetworkLinkResponse struct {
 
 func (x *ApplyNetworkLinkResponse) Reset() {
 	*x = ApplyNetworkLinkResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[95]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6755,7 +7267,7 @@ func (x *ApplyNetworkLinkResponse) String() string {
 func (*ApplyNetworkLinkResponse) ProtoMessage() {}
 
 func (x *ApplyNetworkLinkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[95]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6768,7 +7280,7 @@ func (x *ApplyNetworkLinkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyNetworkLinkResponse.ProtoReflect.Descriptor instead.
 func (*ApplyNetworkLinkResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{95}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{99}
 }
 
 type DeleteNetworkLinkRequest struct {
@@ -6781,7 +7293,7 @@ type DeleteNetworkLinkRequest struct {
 
 func (x *DeleteNetworkLinkRequest) Reset() {
 	*x = DeleteNetworkLinkRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[96]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6793,7 +7305,7 @@ func (x *DeleteNetworkLinkRequest) String() string {
 func (*DeleteNetworkLinkRequest) ProtoMessage() {}
 
 func (x *DeleteNetworkLinkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[96]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6806,7 +7318,7 @@ func (x *DeleteNetworkLinkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNetworkLinkRequest.ProtoReflect.Descriptor instead.
 func (*DeleteNetworkLinkRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{96}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *DeleteNetworkLinkRequest) GetRequestId() string {
@@ -6831,7 +7343,7 @@ type DeleteNetworkLinkResponse struct {
 
 func (x *DeleteNetworkLinkResponse) Reset() {
 	*x = DeleteNetworkLinkResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[97]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6843,7 +7355,7 @@ func (x *DeleteNetworkLinkResponse) String() string {
 func (*DeleteNetworkLinkResponse) ProtoMessage() {}
 
 func (x *DeleteNetworkLinkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[97]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6856,7 +7368,7 @@ func (x *DeleteNetworkLinkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNetworkLinkResponse.ProtoReflect.Descriptor instead.
 func (*DeleteNetworkLinkResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{97}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{101}
 }
 
 type ServiceProjection struct {
@@ -6879,7 +7391,7 @@ type ServiceProjection struct {
 
 func (x *ServiceProjection) Reset() {
 	*x = ServiceProjection{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[98]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6891,7 +7403,7 @@ func (x *ServiceProjection) String() string {
 func (*ServiceProjection) ProtoMessage() {}
 
 func (x *ServiceProjection) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[98]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6904,7 +7416,7 @@ func (x *ServiceProjection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceProjection.ProtoReflect.Descriptor instead.
 func (*ServiceProjection) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{98}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *ServiceProjection) GetId() string {
@@ -7001,7 +7513,7 @@ type ApplyServiceProjectionRequest struct {
 
 func (x *ApplyServiceProjectionRequest) Reset() {
 	*x = ApplyServiceProjectionRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[99]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7013,7 +7525,7 @@ func (x *ApplyServiceProjectionRequest) String() string {
 func (*ApplyServiceProjectionRequest) ProtoMessage() {}
 
 func (x *ApplyServiceProjectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[99]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7026,7 +7538,7 @@ func (x *ApplyServiceProjectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyServiceProjectionRequest.ProtoReflect.Descriptor instead.
 func (*ApplyServiceProjectionRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{99}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *ApplyServiceProjectionRequest) GetRequestId() string {
@@ -7052,7 +7564,7 @@ type ApplyServiceProjectionResponse struct {
 
 func (x *ApplyServiceProjectionResponse) Reset() {
 	*x = ApplyServiceProjectionResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[100]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7064,7 +7576,7 @@ func (x *ApplyServiceProjectionResponse) String() string {
 func (*ApplyServiceProjectionResponse) ProtoMessage() {}
 
 func (x *ApplyServiceProjectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[100]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7077,7 +7589,7 @@ func (x *ApplyServiceProjectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyServiceProjectionResponse.ProtoReflect.Descriptor instead.
 func (*ApplyServiceProjectionResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{100}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *ApplyServiceProjectionResponse) GetSourceAddress() string {
@@ -7097,7 +7609,7 @@ type DeleteServiceProjectionRequest struct {
 
 func (x *DeleteServiceProjectionRequest) Reset() {
 	*x = DeleteServiceProjectionRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[101]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7109,7 +7621,7 @@ func (x *DeleteServiceProjectionRequest) String() string {
 func (*DeleteServiceProjectionRequest) ProtoMessage() {}
 
 func (x *DeleteServiceProjectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[101]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7122,7 +7634,7 @@ func (x *DeleteServiceProjectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteServiceProjectionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteServiceProjectionRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{101}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *DeleteServiceProjectionRequest) GetRequestId() string {
@@ -7147,7 +7659,7 @@ type DeleteServiceProjectionResponse struct {
 
 func (x *DeleteServiceProjectionResponse) Reset() {
 	*x = DeleteServiceProjectionResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[102]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7159,7 +7671,7 @@ func (x *DeleteServiceProjectionResponse) String() string {
 func (*DeleteServiceProjectionResponse) ProtoMessage() {}
 
 func (x *DeleteServiceProjectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[102]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7172,7 +7684,7 @@ func (x *DeleteServiceProjectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteServiceProjectionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteServiceProjectionResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{102}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{106}
 }
 
 type ForwardTCPHeader struct {
@@ -7187,7 +7699,7 @@ type ForwardTCPHeader struct {
 
 func (x *ForwardTCPHeader) Reset() {
 	*x = ForwardTCPHeader{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[103]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7199,7 +7711,7 @@ func (x *ForwardTCPHeader) String() string {
 func (*ForwardTCPHeader) ProtoMessage() {}
 
 func (x *ForwardTCPHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[103]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7212,7 +7724,7 @@ func (x *ForwardTCPHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardTCPHeader.ProtoReflect.Descriptor instead.
 func (*ForwardTCPHeader) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{103}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ForwardTCPHeader) GetActorNamespaceId() string {
@@ -7257,7 +7769,7 @@ type ForwardTCPRequest struct {
 
 func (x *ForwardTCPRequest) Reset() {
 	*x = ForwardTCPRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[104]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7269,7 +7781,7 @@ func (x *ForwardTCPRequest) String() string {
 func (*ForwardTCPRequest) ProtoMessage() {}
 
 func (x *ForwardTCPRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[104]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7282,7 +7794,7 @@ func (x *ForwardTCPRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardTCPRequest.ProtoReflect.Descriptor instead.
 func (*ForwardTCPRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{104}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *ForwardTCPRequest) GetEvent() isForwardTCPRequest_Event {
@@ -7354,7 +7866,7 @@ type ForwardTCPResponse struct {
 
 func (x *ForwardTCPResponse) Reset() {
 	*x = ForwardTCPResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[105]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7366,7 +7878,7 @@ func (x *ForwardTCPResponse) String() string {
 func (*ForwardTCPResponse) ProtoMessage() {}
 
 func (x *ForwardTCPResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[105]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7379,7 +7891,7 @@ func (x *ForwardTCPResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardTCPResponse.ProtoReflect.Descriptor instead.
 func (*ForwardTCPResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{105}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *ForwardTCPResponse) GetEvent() isForwardTCPResponse_Event {
@@ -7433,7 +7945,7 @@ type BuildArgument struct {
 
 func (x *BuildArgument) Reset() {
 	*x = BuildArgument{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[106]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7445,7 +7957,7 @@ func (x *BuildArgument) String() string {
 func (*BuildArgument) ProtoMessage() {}
 
 func (x *BuildArgument) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[106]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7458,7 +7970,7 @@ func (x *BuildArgument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildArgument.ProtoReflect.Descriptor instead.
 func (*BuildArgument) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{106}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *BuildArgument) GetName() string {
@@ -7484,7 +7996,7 @@ type BuildSecret struct {
 
 func (x *BuildSecret) Reset() {
 	*x = BuildSecret{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[107]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7496,7 +8008,7 @@ func (x *BuildSecret) String() string {
 func (*BuildSecret) ProtoMessage() {}
 
 func (x *BuildSecret) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[107]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7509,7 +8021,7 @@ func (x *BuildSecret) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildSecret.ProtoReflect.Descriptor instead.
 func (*BuildSecret) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{107}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *BuildSecret) GetId() string {
@@ -7520,22 +8032,30 @@ func (x *BuildSecret) GetId() string {
 }
 
 type BuildImageHeader struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	RequestId        string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	ActorNamespaceId string                 `protobuf:"bytes,2,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
-	DockerfilePath   string                 `protobuf:"bytes,3,opt,name=dockerfile_path,json=dockerfilePath,proto3" json:"dockerfile_path,omitempty"`
-	Image            string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
-	Target           *string                `protobuf:"bytes,5,opt,name=target,proto3,oneof" json:"target,omitempty"`
-	BuildArgs        []*BuildArgument       `protobuf:"bytes,6,rep,name=build_args,json=buildArgs,proto3" json:"build_args,omitempty"`
-	NetworkMode      BuildNetworkMode       `protobuf:"varint,7,opt,name=network_mode,json=networkMode,proto3,enum=agentvmm.vmmd.v1.BuildNetworkMode" json:"network_mode,omitempty"`
-	Secrets          []*BuildSecret         `protobuf:"bytes,8,rep,name=secrets,proto3" json:"secrets,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId                 string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ActorNamespaceId          string                 `protobuf:"bytes,2,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
+	DockerfilePath            string                 `protobuf:"bytes,3,opt,name=dockerfile_path,json=dockerfilePath,proto3" json:"dockerfile_path,omitempty"`
+	Image                     string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
+	Target                    *string                `protobuf:"bytes,5,opt,name=target,proto3,oneof" json:"target,omitempty"`
+	BuildArgs                 []*BuildArgument       `protobuf:"bytes,6,rep,name=build_args,json=buildArgs,proto3" json:"build_args,omitempty"`
+	NetworkMode               BuildNetworkMode       `protobuf:"varint,7,opt,name=network_mode,json=networkMode,proto3,enum=agentvmm.vmmd.v1.BuildNetworkMode" json:"network_mode,omitempty"`
+	Secrets                   []*BuildSecret         `protobuf:"bytes,8,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	BaseImageReference        string                 `protobuf:"bytes,9,opt,name=base_image_reference,json=baseImageReference,proto3" json:"base_image_reference,omitempty"`
+	BaseManifestDigest        string                 `protobuf:"bytes,10,opt,name=base_manifest_digest,json=baseManifestDigest,proto3" json:"base_manifest_digest,omitempty"`
+	ContextSha256             string                 `protobuf:"bytes,11,opt,name=context_sha256,json=contextSha256,proto3" json:"context_sha256,omitempty"`
+	ExecutionId               string                 `protobuf:"bytes,12,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	ContainerId               string                 `protobuf:"bytes,13,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	ExpectedInstanceId        string                 `protobuf:"bytes,14,opt,name=expected_instance_id,json=expectedInstanceId,proto3" json:"expected_instance_id,omitempty"`
+	ExecutionDeadlineUnixNano int64                  `protobuf:"varint,15,opt,name=execution_deadline_unix_nano,json=executionDeadlineUnixNano,proto3" json:"execution_deadline_unix_nano,omitempty"`
+	ControllerCacheScope      string                 `protobuf:"bytes,16,opt,name=controller_cache_scope,json=controllerCacheScope,proto3" json:"controller_cache_scope,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *BuildImageHeader) Reset() {
 	*x = BuildImageHeader{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[108]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7547,7 +8067,7 @@ func (x *BuildImageHeader) String() string {
 func (*BuildImageHeader) ProtoMessage() {}
 
 func (x *BuildImageHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[108]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7560,7 +8080,7 @@ func (x *BuildImageHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageHeader.ProtoReflect.Descriptor instead.
 func (*BuildImageHeader) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{108}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *BuildImageHeader) GetRequestId() string {
@@ -7619,6 +8139,62 @@ func (x *BuildImageHeader) GetSecrets() []*BuildSecret {
 	return nil
 }
 
+func (x *BuildImageHeader) GetBaseImageReference() string {
+	if x != nil {
+		return x.BaseImageReference
+	}
+	return ""
+}
+
+func (x *BuildImageHeader) GetBaseManifestDigest() string {
+	if x != nil {
+		return x.BaseManifestDigest
+	}
+	return ""
+}
+
+func (x *BuildImageHeader) GetContextSha256() string {
+	if x != nil {
+		return x.ContextSha256
+	}
+	return ""
+}
+
+func (x *BuildImageHeader) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *BuildImageHeader) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+func (x *BuildImageHeader) GetExpectedInstanceId() string {
+	if x != nil {
+		return x.ExpectedInstanceId
+	}
+	return ""
+}
+
+func (x *BuildImageHeader) GetExecutionDeadlineUnixNano() int64 {
+	if x != nil {
+		return x.ExecutionDeadlineUnixNano
+	}
+	return 0
+}
+
+func (x *BuildImageHeader) GetControllerCacheScope() string {
+	if x != nil {
+		return x.ControllerCacheScope
+	}
+	return ""
+}
+
 type BuildContextChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
@@ -7629,7 +8205,7 @@ type BuildContextChunk struct {
 
 func (x *BuildContextChunk) Reset() {
 	*x = BuildContextChunk{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[109]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7641,7 +8217,7 @@ func (x *BuildContextChunk) String() string {
 func (*BuildContextChunk) ProtoMessage() {}
 
 func (x *BuildContextChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[109]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7654,7 +8230,7 @@ func (x *BuildContextChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildContextChunk.ProtoReflect.Descriptor instead.
 func (*BuildContextChunk) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{109}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *BuildContextChunk) GetData() []byte {
@@ -7682,7 +8258,7 @@ type BuildSecretChunk struct {
 
 func (x *BuildSecretChunk) Reset() {
 	*x = BuildSecretChunk{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[110]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7694,7 +8270,7 @@ func (x *BuildSecretChunk) String() string {
 func (*BuildSecretChunk) ProtoMessage() {}
 
 func (x *BuildSecretChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[110]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7707,7 +8283,7 @@ func (x *BuildSecretChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildSecretChunk.ProtoReflect.Descriptor instead.
 func (*BuildSecretChunk) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{110}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *BuildSecretChunk) GetId() string {
@@ -7745,7 +8321,7 @@ type BuildImageRequest struct {
 
 func (x *BuildImageRequest) Reset() {
 	*x = BuildImageRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[111]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7757,7 +8333,7 @@ func (x *BuildImageRequest) String() string {
 func (*BuildImageRequest) ProtoMessage() {}
 
 func (x *BuildImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[111]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7770,7 +8346,7 @@ func (x *BuildImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageRequest.ProtoReflect.Descriptor instead.
 func (*BuildImageRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{111}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *BuildImageRequest) GetEvent() isBuildImageRequest_Event {
@@ -7829,6 +8405,106 @@ func (*BuildImageRequest_Context) isBuildImageRequest_Event() {}
 
 func (*BuildImageRequest_Secret) isBuildImageRequest_Event() {}
 
+type CopyImageRequest struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	RequestId               string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	SourceNamespaceId       string                 `protobuf:"bytes,2,opt,name=source_namespace_id,json=sourceNamespaceId,proto3" json:"source_namespace_id,omitempty"`
+	TargetNamespaceId       string                 `protobuf:"bytes,3,opt,name=target_namespace_id,json=targetNamespaceId,proto3" json:"target_namespace_id,omitempty"`
+	ImageReference          string                 `protobuf:"bytes,4,opt,name=image_reference,json=imageReference,proto3" json:"image_reference,omitempty"`
+	ManifestDigest          string                 `protobuf:"bytes,5,opt,name=manifest_digest,json=manifestDigest,proto3" json:"manifest_digest,omitempty"`
+	ControllerRequestSha256 string                 `protobuf:"bytes,6,opt,name=controller_request_sha256,json=controllerRequestSha256,proto3" json:"controller_request_sha256,omitempty"`
+	ControllerCacheScope    string                 `protobuf:"bytes,7,opt,name=controller_cache_scope,json=controllerCacheScope,proto3" json:"controller_cache_scope,omitempty"`
+	RetainedBuildRequestId  string                 `protobuf:"bytes,8,opt,name=retained_build_request_id,json=retainedBuildRequestId,proto3" json:"retained_build_request_id,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *CopyImageRequest) Reset() {
+	*x = CopyImageRequest{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[116]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CopyImageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CopyImageRequest) ProtoMessage() {}
+
+func (x *CopyImageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[116]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CopyImageRequest.ProtoReflect.Descriptor instead.
+func (*CopyImageRequest) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{116}
+}
+
+func (x *CopyImageRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CopyImageRequest) GetSourceNamespaceId() string {
+	if x != nil {
+		return x.SourceNamespaceId
+	}
+	return ""
+}
+
+func (x *CopyImageRequest) GetTargetNamespaceId() string {
+	if x != nil {
+		return x.TargetNamespaceId
+	}
+	return ""
+}
+
+func (x *CopyImageRequest) GetImageReference() string {
+	if x != nil {
+		return x.ImageReference
+	}
+	return ""
+}
+
+func (x *CopyImageRequest) GetManifestDigest() string {
+	if x != nil {
+		return x.ManifestDigest
+	}
+	return ""
+}
+
+func (x *CopyImageRequest) GetControllerRequestSha256() string {
+	if x != nil {
+		return x.ControllerRequestSha256
+	}
+	return ""
+}
+
+func (x *CopyImageRequest) GetControllerCacheScope() string {
+	if x != nil {
+		return x.ControllerCacheScope
+	}
+	return ""
+}
+
+func (x *CopyImageRequest) GetRetainedBuildRequestId() string {
+	if x != nil {
+		return x.RetainedBuildRequestId
+	}
+	return ""
+}
+
 type BuildImageResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Image         string                 `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
@@ -7839,7 +8515,7 @@ type BuildImageResult struct {
 
 func (x *BuildImageResult) Reset() {
 	*x = BuildImageResult{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[112]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7851,7 +8527,7 @@ func (x *BuildImageResult) String() string {
 func (*BuildImageResult) ProtoMessage() {}
 
 func (x *BuildImageResult) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[112]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7864,7 +8540,7 @@ func (x *BuildImageResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageResult.ProtoReflect.Descriptor instead.
 func (*BuildImageResult) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{112}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *BuildImageResult) GetImage() string {
@@ -7894,7 +8570,7 @@ type BuildImageResponse struct {
 
 func (x *BuildImageResponse) Reset() {
 	*x = BuildImageResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[113]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7906,7 +8582,7 @@ func (x *BuildImageResponse) String() string {
 func (*BuildImageResponse) ProtoMessage() {}
 
 func (x *BuildImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[113]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7919,7 +8595,7 @@ func (x *BuildImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageResponse.ProtoReflect.Descriptor instead.
 func (*BuildImageResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{113}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *BuildImageResponse) GetEvent() isBuildImageResponse_Event {
@@ -7977,7 +8653,7 @@ type BuildApplianceRequest struct {
 
 func (x *BuildApplianceRequest) Reset() {
 	*x = BuildApplianceRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[114]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7989,7 +8665,7 @@ func (x *BuildApplianceRequest) String() string {
 func (*BuildApplianceRequest) ProtoMessage() {}
 
 func (x *BuildApplianceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[114]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8002,7 +8678,7 @@ func (x *BuildApplianceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildApplianceRequest.ProtoReflect.Descriptor instead.
 func (*BuildApplianceRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{114}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *BuildApplianceRequest) GetEvent() isBuildApplianceRequest_Event {
@@ -8073,7 +8749,7 @@ type BuildApplianceResult struct {
 
 func (x *BuildApplianceResult) Reset() {
 	*x = BuildApplianceResult{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[115]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8085,7 +8761,7 @@ func (x *BuildApplianceResult) String() string {
 func (*BuildApplianceResult) ProtoMessage() {}
 
 func (x *BuildApplianceResult) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[115]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8098,7 +8774,7 @@ func (x *BuildApplianceResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildApplianceResult.ProtoReflect.Descriptor instead.
 func (*BuildApplianceResult) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{115}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *BuildApplianceResult) GetArchiveSha256() []byte {
@@ -8143,7 +8819,7 @@ type BuildApplianceResponse struct {
 
 func (x *BuildApplianceResponse) Reset() {
 	*x = BuildApplianceResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[116]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8155,7 +8831,7 @@ func (x *BuildApplianceResponse) String() string {
 func (*BuildApplianceResponse) ProtoMessage() {}
 
 func (x *BuildApplianceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[116]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8168,7 +8844,7 @@ func (x *BuildApplianceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildApplianceResponse.ProtoReflect.Descriptor instead.
 func (*BuildApplianceResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{116}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *BuildApplianceResponse) GetEvent() isBuildApplianceResponse_Event {
@@ -8239,7 +8915,7 @@ type ComponentStatus struct {
 
 func (x *ComponentStatus) Reset() {
 	*x = ComponentStatus{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[117]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8251,7 +8927,7 @@ func (x *ComponentStatus) String() string {
 func (*ComponentStatus) ProtoMessage() {}
 
 func (x *ComponentStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[117]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8264,7 +8940,7 @@ func (x *ComponentStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComponentStatus.ProtoReflect.Descriptor instead.
 func (*ComponentStatus) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{117}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *ComponentStatus) GetComponent() string {
@@ -8303,7 +8979,7 @@ type ComponentHealthRequest struct {
 
 func (x *ComponentHealthRequest) Reset() {
 	*x = ComponentHealthRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[118]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8315,7 +8991,7 @@ func (x *ComponentHealthRequest) String() string {
 func (*ComponentHealthRequest) ProtoMessage() {}
 
 func (x *ComponentHealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[118]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8328,7 +9004,7 @@ func (x *ComponentHealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComponentHealthRequest.ProtoReflect.Descriptor instead.
 func (*ComponentHealthRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{118}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{123}
 }
 
 type ComponentHealthResponse struct {
@@ -8340,7 +9016,7 @@ type ComponentHealthResponse struct {
 
 func (x *ComponentHealthResponse) Reset() {
 	*x = ComponentHealthResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[119]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8352,7 +9028,7 @@ func (x *ComponentHealthResponse) String() string {
 func (*ComponentHealthResponse) ProtoMessage() {}
 
 func (x *ComponentHealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[119]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8365,7 +9041,7 @@ func (x *ComponentHealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComponentHealthResponse.ProtoReflect.Descriptor instead.
 func (*ComponentHealthResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{119}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *ComponentHealthResponse) GetComponents() []*ComponentStatus {
@@ -8384,7 +9060,7 @@ type ProbeEgressRequest struct {
 
 func (x *ProbeEgressRequest) Reset() {
 	*x = ProbeEgressRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[120]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8396,7 +9072,7 @@ func (x *ProbeEgressRequest) String() string {
 func (*ProbeEgressRequest) ProtoMessage() {}
 
 func (x *ProbeEgressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[120]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8409,7 +9085,7 @@ func (x *ProbeEgressRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeEgressRequest.ProtoReflect.Descriptor instead.
 func (*ProbeEgressRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{120}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *ProbeEgressRequest) GetNamespaceId() string {
@@ -8433,7 +9109,7 @@ type ProbeEgressResponse struct {
 
 func (x *ProbeEgressResponse) Reset() {
 	*x = ProbeEgressResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[121]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8445,7 +9121,7 @@ func (x *ProbeEgressResponse) String() string {
 func (*ProbeEgressResponse) ProtoMessage() {}
 
 func (x *ProbeEgressResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[121]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8458,7 +9134,7 @@ func (x *ProbeEgressResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeEgressResponse.ProtoReflect.Descriptor instead.
 func (*ProbeEgressResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{121}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{126}
 }
 
 func (x *ProbeEgressResponse) GetPolicyEnforced() bool {
@@ -8514,7 +9190,7 @@ type ResourceReference struct {
 
 func (x *ResourceReference) Reset() {
 	*x = ResourceReference{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[122]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8526,7 +9202,7 @@ func (x *ResourceReference) String() string {
 func (*ResourceReference) ProtoMessage() {}
 
 func (x *ResourceReference) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[122]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8539,7 +9215,7 @@ func (x *ResourceReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceReference.ProtoReflect.Descriptor instead.
 func (*ResourceReference) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{122}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *ResourceReference) GetKind() string {
@@ -8572,7 +9248,7 @@ type WatchEventsRequest struct {
 
 func (x *WatchEventsRequest) Reset() {
 	*x = WatchEventsRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[123]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8584,7 +9260,7 @@ func (x *WatchEventsRequest) String() string {
 func (*WatchEventsRequest) ProtoMessage() {}
 
 func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[123]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8597,7 +9273,7 @@ func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{123}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *WatchEventsRequest) GetAfterSequence() uint64 {
@@ -8622,7 +9298,7 @@ type RuntimeEvent struct {
 
 func (x *RuntimeEvent) Reset() {
 	*x = RuntimeEvent{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[124]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8634,7 +9310,7 @@ func (x *RuntimeEvent) String() string {
 func (*RuntimeEvent) ProtoMessage() {}
 
 func (x *RuntimeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[124]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8647,7 +9323,7 @@ func (x *RuntimeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeEvent.ProtoReflect.Descriptor instead.
 func (*RuntimeEvent) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{124}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *RuntimeEvent) GetSequence() uint64 {
@@ -8710,7 +9386,7 @@ type DisposeNamespaceBatchRequest struct {
 
 func (x *DisposeNamespaceBatchRequest) Reset() {
 	*x = DisposeNamespaceBatchRequest{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[125]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8722,7 +9398,7 @@ func (x *DisposeNamespaceBatchRequest) String() string {
 func (*DisposeNamespaceBatchRequest) ProtoMessage() {}
 
 func (x *DisposeNamespaceBatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[125]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8735,7 +9411,7 @@ func (x *DisposeNamespaceBatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisposeNamespaceBatchRequest.ProtoReflect.Descriptor instead.
 func (*DisposeNamespaceBatchRequest) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{125}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *DisposeNamespaceBatchRequest) GetRequestId() string {
@@ -8762,7 +9438,7 @@ type DisposeNamespaceBatchResponse struct {
 
 func (x *DisposeNamespaceBatchResponse) Reset() {
 	*x = DisposeNamespaceBatchResponse{}
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[126]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8774,7 +9450,7 @@ func (x *DisposeNamespaceBatchResponse) String() string {
 func (*DisposeNamespaceBatchResponse) ProtoMessage() {}
 
 func (x *DisposeNamespaceBatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vmmd_v1_vmmd_proto_msgTypes[126]
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8787,7 +9463,7 @@ func (x *DisposeNamespaceBatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisposeNamespaceBatchResponse.ProtoReflect.Descriptor instead.
 func (*DisposeNamespaceBatchResponse) Descriptor() ([]byte, []int) {
-	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{126}
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *DisposeNamespaceBatchResponse) GetComplete() bool {
@@ -8804,11 +9480,103 @@ func (x *DisposeNamespaceBatchResponse) GetStage() string {
 	return ""
 }
 
+type ImageOperationRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RequestId          string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Kind               ImageOperationKind     `protobuf:"varint,2,opt,name=kind,proto3,enum=agentvmm.vmmd.v1.ImageOperationKind" json:"kind,omitempty"`
+	InputSha256        string                 `protobuf:"bytes,3,opt,name=input_sha256,json=inputSha256,proto3" json:"input_sha256,omitempty"`
+	ExecutionId        string                 `protobuf:"bytes,4,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	ContainerId        string                 `protobuf:"bytes,5,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	ExpectedInstanceId string                 `protobuf:"bytes,6,opt,name=expected_instance_id,json=expectedInstanceId,proto3" json:"expected_instance_id,omitempty"`
+	ActorNamespaceId   string                 `protobuf:"bytes,7,opt,name=actor_namespace_id,json=actorNamespaceId,proto3" json:"actor_namespace_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ImageOperationRequest) Reset() {
+	*x = ImageOperationRequest{}
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[132]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImageOperationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImageOperationRequest) ProtoMessage() {}
+
+func (x *ImageOperationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vmmd_v1_vmmd_proto_msgTypes[132]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImageOperationRequest.ProtoReflect.Descriptor instead.
+func (*ImageOperationRequest) Descriptor() ([]byte, []int) {
+	return file_vmmd_v1_vmmd_proto_rawDescGZIP(), []int{132}
+}
+
+func (x *ImageOperationRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ImageOperationRequest) GetKind() ImageOperationKind {
+	if x != nil {
+		return x.Kind
+	}
+	return ImageOperationKind_IMAGE_OPERATION_KIND_UNSPECIFIED
+}
+
+func (x *ImageOperationRequest) GetInputSha256() string {
+	if x != nil {
+		return x.InputSha256
+	}
+	return ""
+}
+
+func (x *ImageOperationRequest) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ImageOperationRequest) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+func (x *ImageOperationRequest) GetExpectedInstanceId() string {
+	if x != nil {
+		return x.ExpectedInstanceId
+	}
+	return ""
+}
+
+func (x *ImageOperationRequest) GetActorNamespaceId() string {
+	if x != nil {
+		return x.ActorNamespaceId
+	}
+	return ""
+}
+
 var File_vmmd_v1_vmmd_proto protoreflect.FileDescriptor
 
 const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\n" +
-	"\x12vmmd/v1/vmmd.proto\x12\x10agentvmm.vmmd.v1\"X\n" +
+	"\x12vmmd/v1/vmmd.proto\x12\x10agentvmm.vmmd.v1\x1a\x17google/rpc/status.proto\x1a\x1cappliance/v1/appliance.proto\x1a\x1fvmmd/v1/directory_sharing.proto\"X\n" +
 	"\x14WorkspacePathRequest\x12,\n" +
 	"\x12actor_namespace_id\x18\x01 \x01(\tR\x10actorNamespaceId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\"\xce\x01\n" +
@@ -8818,11 +9586,12 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x04size\x18\x03 \x01(\x04R\x04size\x12\x12\n" +
 	"\x04mode\x18\x04 \x01(\rR\x04mode\x12.\n" +
 	"\x13modified_unix_nanos\x18\x05 \x01(\x03R\x11modifiedUnixNanos\x12\x16\n" +
-	"\x06sha256\x18\x06 \x01(\fR\x06sha256\"n\n" +
+	"\x06sha256\x18\x06 \x01(\fR\x06sha256\"\x8b\x01\n" +
 	"\x14ListWorkspaceRequest\x12,\n" +
 	"\x12actor_namespace_id\x18\x01 \x01(\tR\x10actorNamespaceId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\rR\x05limit\"S\n" +
+	"\x05limit\x18\x03 \x01(\rR\x05limit\x12\x1b\n" +
+	"\tvolume_id\x18\x04 \x01(\tR\bvolumeId\"S\n" +
 	"\x15ListWorkspaceResponse\x12:\n" +
 	"\aentries\x18\x01 \x03(\v2 .agentvmm.vmmd.v1.WorkspaceEntryR\aentries\"\xaa\x01\n" +
 	"\x14ReadWorkspaceRequest\x12,\n" +
@@ -8892,22 +9661,22 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x15container_instance_id\x18\x05 \x01(\tR\x13containerInstanceId\x122\n" +
 	"\x15image_manifest_digest\x18\x06 \x01(\tR\x13imageManifestDigest\x12\x1d\n" +
 	"\n" +
-	"boot_nonce\x18\a \x01(\fR\tbootNonce\"\xdd\x04\n" +
+	"boot_nonce\x18\a \x01(\fR\tbootNonce\"\x8c\x05\n" +
 	"\x1cEnsureSystemApplianceRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12E\n" +
 	"\bidentity\x18\x02 \x01(\v2).agentvmm.vmmd.v1.SystemApplianceIdentityR\bidentity\x12'\n" +
-	"\x0fimage_reference\x18\x03 \x01(\tR\x0eimageReference\x12A\n" +
-	"\x1dlegacy_data_device_identifier\x18\x04 \x01(\tR\x1alegacyDataDeviceIdentifier\x12$\n" +
-	"\x0edata_volume_id\x18\x05 \x01(\tR\fdataVolumeId\x120\n" +
-	"\x14data_volume_identity\x18\x06 \x01(\tR\x12dataVolumeIdentity\x12&\n" +
-	"\x0fdata_volume_key\x18\a \x01(\fR\rdataVolumeKey\x129\n" +
+	"\x0fimage_reference\x18\x03 \x01(\tR\x0eimageReference\x12$\n" +
+	"\x0edata_volume_id\x18\x05 \x01(\tR\fdataVolumeId\x129\n" +
 	"\x06limits\x18\t \x01(\v2!.agentvmm.vmmd.v1.NamespaceLimitsR\x06limits\x12=\n" +
 	"\vegress_mode\x18\n" +
 	" \x01(\x0e2\x1c.agentvmm.vmmd.v1.EgressModeR\n" +
 	"egressMode\x12'\n" +
 	"\x0fconfig_revision\x18\v \x01(\x04R\x0econfigRevision\x12*\n" +
-	"\x11data_volume_bytes\x18\f \x01(\x04R\x0fdataVolumeBytesJ\x04\b\b\x10\tR\x16initialize_data_volume\"\xab\x01\n" +
+	"\x11data_volume_bytes\x18\f \x01(\x04R\x0fdataVolumeBytes\x12\x1d\n" +
+	"\n" +
+	"lan_egress\x18\r \x01(\bR\tlanEgress\x12S\n" +
+	"\fcontent_refs\x18\x0e \x03(\v20.agentvmm.appliance.v1.ApplianceContentReferenceR\vcontentRefsJ\x04\b\x04\x10\x05J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\x1dlegacy_data_device_identifierR\x14data_volume_identityR\x0fdata_volume_keyR\x16initialize_data_volume\"\xab\x01\n" +
 	"\x1aStopSystemApplianceRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12E\n" +
@@ -8923,17 +9692,17 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\"g\n" +
 	"\x1bListSystemAppliancesRequest\x122\n" +
 	"\x15after_installation_id\x18\x01 \x01(\tR\x13afterInstallationId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\rR\x05limit\"\xf5\x02\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\"\x86\x03\n" +
 	"\x0fSystemAppliance\x12E\n" +
 	"\bidentity\x18\x01 \x01(\v2).agentvmm.vmmd.v1.SystemApplianceIdentityR\bidentity\x12$\n" +
-	"\x0edata_volume_id\x18\x02 \x01(\tR\fdataVolumeId\x120\n" +
-	"\x14data_volume_identity\x18\x03 \x01(\tR\x12dataVolumeIdentity\x12<\n" +
+	"\x0edata_volume_id\x18\x02 \x01(\tR\fdataVolumeId\x12<\n" +
 	"\x05state\x18\x04 \x01(\x0e2&.agentvmm.vmmd.v1.SystemApplianceStateR\x05state\x12'\n" +
 	"\x0fconfig_revision\x18\x05 \x01(\x04R\x0econfigRevision\x12#\n" +
 	"\rrestart_count\x18\x06 \x01(\rR\frestartCount\x12\x16\n" +
 	"\x06status\x18\a \x01(\tR\x06status\x12\x1f\n" +
 	"\vbounded_log\x18\b \x01(\fR\n" +
-	"boundedLog\"Z\n" +
+	"boundedLog\x12%\n" +
+	"\x0enetwork_subnet\x18\t \x01(\tR\rnetworkSubnetJ\x04\b\x03\x10\x04R\x14data_volume_identity\"Z\n" +
 	"\x17SystemApplianceResponse\x12?\n" +
 	"\tappliance\x18\x01 \x01(\v2!.agentvmm.vmmd.v1.SystemApplianceR\tappliance\"\x82\x01\n" +
 	"\x1cListSystemAppliancesResponse\x12A\n" +
@@ -8941,7 +9710,7 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"appliances\x18\x01 \x03(\v2!.agentvmm.vmmd.v1.SystemApplianceR\n" +
 	"appliances\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"\x8a\x03\n" +
+	"nextCursor\"\xfb\x02\n" +
 	"\x12SystemStreamHeader\x12E\n" +
 	"\bidentity\x18\x01 \x01(\v2).agentvmm.vmmd.v1.SystemApplianceIdentityR\bidentity\x126\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\".agentvmm.vmmd.v1.SystemStreamKindR\x04kind\x12\x12\n" +
@@ -8950,8 +9719,8 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x0fmax_frame_bytes\x18\x05 \x01(\rR\rmaxFrameBytes\x12&\n" +
 	"\x0fmax_total_bytes\x18\x06 \x01(\x04R\rmaxTotalBytes\x12!\n" +
 	"\fidle_seconds\x18\a \x01(\rR\vidleSeconds\x124\n" +
-	"\x16max_concurrent_streams\x18\b \x01(\rR\x14maxConcurrentStreams\x12\"\n" +
-	"\rmax_use_count\x18\t \x01(\rR\vmaxUseCount\"\x97\x01\n" +
+	"\x16max_concurrent_streams\x18\b \x01(\rR\x14maxConcurrentStreamsJ\x04\b\t\x10\n" +
+	"R\rmax_use_count\"\x97\x01\n" +
 	"\x11SystemStreamFrame\x12>\n" +
 	"\x06header\x18\x01 \x01(\v2$.agentvmm.vmmd.v1.SystemStreamHeaderH\x00R\x06header\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x12!\n" +
@@ -9012,7 +9781,16 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x06digest\x18\x02 \x01(\tH\x00R\x06digest\x88\x01\x01\x12#\n" +
 	"\rlogical_bytes\x18\x03 \x01(\x04R\flogicalBytes\x12/\n" +
 	"\x13canonical_reference\x18\x04 \x01(\tR\x12canonicalReferenceB\t\n" +
-	"\a_digest\"\xd1\x03\n" +
+	"\a_digest\"v\n" +
+	"\x14SystemImageRetention\x123\n" +
+	"\x15installation_revision\x18\x01 \x01(\x04R\x14installationRevision\x12)\n" +
+	"\x10manifest_digests\x18\x02 \x03(\tR\x0fmanifestDigests\"\xac\x01\n" +
+	"\x1cReconcileSystemImagesRequest\x12'\n" +
+	"\x0finstallation_id\x18\x01 \x01(\tR\x0einstallationId\x12D\n" +
+	"\tretention\x18\x02 \x01(\v2&.agentvmm.vmmd.v1.SystemImageRetentionR\tretention\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\"\x1f\n" +
+	"\x1dReconcileSystemImagesResponse\"\xa4\x04\n" +
 	"\x11ImportImageHeader\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
@@ -9025,7 +9803,8 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\rsystem_import\x18\b \x01(\bR\fsystemImport\x12F\n" +
 	"\rsystem_limits\x18\t \x01(\v2!.agentvmm.vmmd.v1.NamespaceLimitsR\fsystemLimits\x12J\n" +
 	"\x12system_egress_mode\x18\n" +
-	" \x01(\x0e2\x1c.agentvmm.vmmd.v1.EgressModeR\x10systemEgressMode\"\x85\x01\n" +
+	" \x01(\x0e2\x1c.agentvmm.vmmd.v1.EgressModeR\x10systemEgressMode\x12Q\n" +
+	"\x10system_retention\x18\v \x01(\v2&.agentvmm.vmmd.v1.SystemImageRetentionR\x0fsystemRetention\"\x85\x01\n" +
 	"\x12ImportImageRequest\x12=\n" +
 	"\x06header\x18\x01 \x01(\v2#.agentvmm.vmmd.v1.ImportImageHeaderH\x00R\x06header\x12%\n" +
 	"\rarchive_chunk\x18\x02 \x01(\fH\x00R\farchiveChunkB\t\n" +
@@ -9075,30 +9854,49 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x126\n" +
 	"\x17related_container_limit\x18\x03 \x01(\rR\x15relatedContainerLimit\"I\n" +
 	"\x13ListVolumesResponse\x122\n" +
-	"\avolumes\x18\x01 \x03(\v2\x18.agentvmm.vmmd.v1.VolumeR\avolumes\"\xa5\x01\n" +
+	"\avolumes\x18\x01 \x03(\v2\x18.agentvmm.vmmd.v1.VolumeR\avolumes\"\x9d\x04\n" +
+	"\x15ImageOperationReceipt\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12!\n" +
+	"\finput_sha256\x18\x02 \x01(\tR\vinputSha256\x128\n" +
+	"\x04kind\x18\x03 \x01(\x0e2$.agentvmm.vmmd.v1.ImageOperationKindR\x04kind\x12;\n" +
+	"\x05state\x18\x04 \x01(\x0e2%.agentvmm.vmmd.v1.ImageOperationStateR\x05state\x12%\n" +
+	"\x0ewriter_settled\x18\x05 \x01(\bR\rwriterSettled\x12!\n" +
+	"\fexecution_id\x18\x06 \x01(\tR\vexecutionId\x12!\n" +
+	"\fcontainer_id\x18\a \x01(\tR\vcontainerId\x120\n" +
+	"\x14expected_instance_id\x18\b \x01(\tR\x12expectedInstanceId\x12'\n" +
+	"\x0fimage_reference\x18\t \x01(\tR\x0eimageReference\x12'\n" +
+	"\x0fmanifest_digest\x18\n" +
+	" \x01(\tR\x0emanifestDigest\x12*\n" +
+	"\x06status\x18\v \x01(\v2\x12.google.rpc.StatusR\x06status\x12.\n" +
+	"\x13runtime_instance_id\x18\r \x01(\tR\x11runtimeInstanceId\"\xbf\x02\n" +
 	"\x05Image\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12#\n" +
 	"\rlogical_bytes\x18\x03 \x01(\x04R\flogicalBytes\x12\x1c\n" +
 	"\tplatforms\x18\x04 \x03(\tR\tplatforms\x12#\n" +
-	"\rgeneration_id\x18\x05 \x01(\tR\fgenerationId\"]\n" +
+	"\rgeneration_id\x18\x05 \x01(\tR\fgenerationId\x12L\n" +
+	"\rbuild_receipt\x18\x06 \x01(\v2'.agentvmm.vmmd.v1.ImageOperationReceiptR\fbuildReceipt\x12J\n" +
+	"\fcopy_receipt\x18\a \x01(\v2'.agentvmm.vmmd.v1.ImageOperationReceiptR\vcopyReceipt\"]\n" +
 	"\x0fGetImageRequest\x12,\n" +
 	"\x12actor_namespace_id\x18\x01 \x01(\tR\x10actorNamespaceId\x12\x1c\n" +
 	"\treference\x18\x02 \x01(\tR\treference\"A\n" +
 	"\x10GetImageResponse\x12-\n" +
-	"\x05image\x18\x01 \x01(\v2\x17.agentvmm.vmmd.v1.ImageR\x05image\"W\n" +
+	"\x05image\x18\x01 \x01(\v2\x17.agentvmm.vmmd.v1.ImageR\x05image\"\x8d\x01\n" +
 	"\x11ListImagesRequest\x12,\n" +
 	"\x12actor_namespace_id\x18\x01 \x01(\tR\x10actorNamespaceId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\rR\x05limit\"E\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\x124\n" +
+	"\x16controller_cache_scope\x18\x03 \x01(\tR\x14controllerCacheScope\"E\n" +
 	"\x12ListImagesResponse\x12/\n" +
-	"\x06images\x18\x01 \x03(\v2\x17.agentvmm.vmmd.v1.ImageR\x06images\"\xde\x01\n" +
+	"\x06images\x18\x01 \x03(\v2\x17.agentvmm.vmmd.v1.ImageR\x06images\"\x94\x02\n" +
 	"\x12DeleteImageRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
 	"\x12actor_namespace_id\x18\x02 \x01(\tR\x10actorNamespaceId\x12\x1c\n" +
 	"\treference\x18\x03 \x01(\tR\treference\x124\n" +
 	"\x16expected_generation_id\x18\x04 \x01(\tR\x14expectedGenerationId\x12'\n" +
-	"\x0fexpected_digest\x18\x05 \x01(\tR\x0eexpectedDigest\"\x15\n" +
+	"\x0fexpected_digest\x18\x05 \x01(\tR\x0eexpectedDigest\x124\n" +
+	"\x16controller_cache_scope\x18\x06 \x01(\tR\x14controllerCacheScope\"\x15\n" +
 	"\x13DeleteImageResponse\"\x9e\x01\n" +
 	"\x0eResourceLimits\x12\"\n" +
 	"\n" +
@@ -9107,11 +9905,14 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x04pids\x18\x03 \x01(\rH\x02R\x04pids\x88\x01\x01B\r\n" +
 	"\v_cpu_millisB\x0f\n" +
 	"\r_memory_bytesB\a\n" +
-	"\x05_pids\"i\n" +
-	"\vVolumeMount\x12\x1b\n" +
-	"\tvolume_id\x18\x01 \x01(\tR\bvolumeId\x12 \n" +
+	"\x05_pids\"\x9c\x01\n" +
+	"\vVolumeMount\x12#\n" +
+	"\fowned_volume\x18\x01 \x01(\tH\x00R\vownedVolume\x12\x1f\n" +
+	"\n" +
+	"host_share\x18\x04 \x01(\tH\x00R\thostShare\x12 \n" +
 	"\vdestination\x18\x02 \x01(\tR\vdestination\x12\x1b\n" +
-	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xc3\x04\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnlyB\b\n" +
+	"\x06source\"\xc4\x06\n" +
 	"\tContainer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fnamespace_id\x18\x02 \x01(\tR\vnamespaceId\x12\x14\n" +
@@ -9129,15 +9930,20 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x14created_at_unix_nano\x18\f \x01(\x03R\x11createdAtUnixNano\x12/\n" +
 	"\x14started_at_unix_nano\x18\r \x01(\x03R\x11startedAtUnixNano\x121\n" +
 	"\x15finished_at_unix_nano\x18\x0e \x01(\x03R\x12finishedAtUnixNano\x12#\n" +
-	"\rgeneration_id\x18\x0f \x01(\tR\fgenerationIdB\f\n" +
+	"\rgeneration_id\x18\x0f \x01(\tR\fgenerationId\x122\n" +
+	"\x15create_request_sha256\x18\x10 \x01(\tR\x13createRequestSha256\x120\n" +
+	"\x14start_request_sha256\x18\x11 \x01(\tR\x12startRequestSha256\x129\n" +
+	"\x19start_request_instance_id\x18\x12 \x01(\tR\x16startRequestInstanceId\x12@\n" +
+	"\x19configuration_fingerprint\x18\x13 \x01(\tH\x03R\x18configurationFingerprint\x88\x01\x01B\f\n" +
 	"\n" +
 	"_exit_codeB\n" +
 	"\n" +
 	"\b_workdirB\a\n" +
-	"\x05_user\"$\n" +
+	"\x05_userB\x1c\n" +
+	"\x1a_configuration_fingerprint\"$\n" +
 	"\n" +
 	"StringList\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06values\"\xe2\x04\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"\xc2\x05\n" +
 	"\x16CreateContainerRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
@@ -9153,17 +9959,20 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x0eread_only_root\x18\v \x01(\bR\freadOnlyRoot\x12&\n" +
 	"\x0flog_limit_bytes\x18\f \x01(\x04R\rlogLimitBytes\x12M\n" +
 	"\x13entrypoint_override\x18\r \x01(\v2\x1c.agentvmm.vmmd.v1.StringListR\x12entrypointOverride\x12G\n" +
-	"\x10command_override\x18\x0e \x01(\v2\x1c.agentvmm.vmmd.v1.StringListR\x0fcommandOverrideB\n" +
+	"\x10command_override\x18\x0e \x01(\v2\x1c.agentvmm.vmmd.v1.StringListR\x0fcommandOverride\x12@\n" +
+	"\x19configuration_fingerprint\x18\x0f \x01(\tH\x02R\x18configurationFingerprint\x88\x01\x01B\n" +
 	"\n" +
 	"\b_workdirB\a\n" +
-	"\x05_userJ\x04\b\x05\x10\x06R\x04argv\"T\n" +
+	"\x05_userB\x1c\n" +
+	"\x1a_configuration_fingerprintJ\x04\b\x05\x10\x06R\x04argv\"T\n" +
 	"\x17CreateContainerResponse\x129\n" +
-	"\tcontainer\x18\x01 \x01(\v2\x1b.agentvmm.vmmd.v1.ContainerR\tcontainer\"\x87\x01\n" +
+	"\tcontainer\x18\x01 \x01(\v2\x1b.agentvmm.vmmd.v1.ContainerR\tcontainer\"\xbd\x01\n" +
 	"\x15StartContainerRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
 	"\x12actor_namespace_id\x18\x02 \x01(\tR\x10actorNamespaceId\x12!\n" +
-	"\fcontainer_id\x18\x03 \x01(\tR\vcontainerId\"S\n" +
+	"\fcontainer_id\x18\x03 \x01(\tR\vcontainerId\x124\n" +
+	"\x16expected_generation_id\x18\x04 \x01(\tR\x14expectedGenerationId\"S\n" +
 	"\x16StartContainerResponse\x129\n" +
 	"\tcontainer\x18\x01 \x01(\v2\x1b.agentvmm.vmmd.v1.ContainerR\tcontainer\"\xc8\x01\n" +
 	"\x14StopContainerRequest\x12\x1d\n" +
@@ -9367,7 +10176,7 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"\x1d\n" +
 	"\vBuildSecret\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x86\x03\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x80\x06\n" +
 	"\x10BuildImageHeader\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12,\n" +
@@ -9378,7 +10187,16 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\n" +
 	"build_args\x18\x06 \x03(\v2\x1f.agentvmm.vmmd.v1.BuildArgumentR\tbuildArgs\x12E\n" +
 	"\fnetwork_mode\x18\a \x01(\x0e2\".agentvmm.vmmd.v1.BuildNetworkModeR\vnetworkMode\x127\n" +
-	"\asecrets\x18\b \x03(\v2\x1d.agentvmm.vmmd.v1.BuildSecretR\asecretsB\t\n" +
+	"\asecrets\x18\b \x03(\v2\x1d.agentvmm.vmmd.v1.BuildSecretR\asecrets\x120\n" +
+	"\x14base_image_reference\x18\t \x01(\tR\x12baseImageReference\x120\n" +
+	"\x14base_manifest_digest\x18\n" +
+	" \x01(\tR\x12baseManifestDigest\x12%\n" +
+	"\x0econtext_sha256\x18\v \x01(\tR\rcontextSha256\x12!\n" +
+	"\fexecution_id\x18\f \x01(\tR\vexecutionId\x12!\n" +
+	"\fcontainer_id\x18\r \x01(\tR\vcontainerId\x120\n" +
+	"\x14expected_instance_id\x18\x0e \x01(\tR\x12expectedInstanceId\x12?\n" +
+	"\x1cexecution_deadline_unix_nano\x18\x0f \x01(\x03R\x19executionDeadlineUnixNano\x124\n" +
+	"\x16controller_cache_scope\x18\x10 \x01(\tR\x14controllerCacheScopeB\t\n" +
 	"\a_target\"=\n" +
 	"\x11BuildContextChunk\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x14\n" +
@@ -9391,7 +10209,17 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x06header\x18\x01 \x01(\v2\".agentvmm.vmmd.v1.BuildImageHeaderH\x00R\x06header\x12?\n" +
 	"\acontext\x18\x02 \x01(\v2#.agentvmm.vmmd.v1.BuildContextChunkH\x00R\acontext\x12<\n" +
 	"\x06secret\x18\x03 \x01(\v2\".agentvmm.vmmd.v1.BuildSecretChunkH\x00R\x06secretB\a\n" +
-	"\x05event\"@\n" +
+	"\x05event\"\x90\x03\n" +
+	"\x10CopyImageRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12.\n" +
+	"\x13source_namespace_id\x18\x02 \x01(\tR\x11sourceNamespaceId\x12.\n" +
+	"\x13target_namespace_id\x18\x03 \x01(\tR\x11targetNamespaceId\x12'\n" +
+	"\x0fimage_reference\x18\x04 \x01(\tR\x0eimageReference\x12'\n" +
+	"\x0fmanifest_digest\x18\x05 \x01(\tR\x0emanifestDigest\x12:\n" +
+	"\x19controller_request_sha256\x18\x06 \x01(\tR\x17controllerRequestSha256\x124\n" +
+	"\x16controller_cache_scope\x18\a \x01(\tR\x14controllerCacheScope\x129\n" +
+	"\x19retained_build_request_id\x18\b \x01(\tR\x16retainedBuildRequestId\"@\n" +
 	"\x10BuildImageResult\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\"y\n" +
@@ -9455,7 +10283,16 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\fnamespace_id\x18\x02 \x01(\tR\vnamespaceId\"Q\n" +
 	"\x1dDisposeNamespaceBatchResponse\x12\x1a\n" +
 	"\bcomplete\x18\x01 \x01(\bR\bcomplete\x12\x14\n" +
-	"\x05stage\x18\x02 \x01(\tR\x05stage*}\n" +
+	"\x05stage\x18\x02 \x01(\tR\x05stage\"\xb9\x02\n" +
+	"\x15ImageOperationRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x128\n" +
+	"\x04kind\x18\x02 \x01(\x0e2$.agentvmm.vmmd.v1.ImageOperationKindR\x04kind\x12!\n" +
+	"\finput_sha256\x18\x03 \x01(\tR\vinputSha256\x12!\n" +
+	"\fexecution_id\x18\x04 \x01(\tR\vexecutionId\x12!\n" +
+	"\fcontainer_id\x18\x05 \x01(\tR\vcontainerId\x120\n" +
+	"\x14expected_instance_id\x18\x06 \x01(\tR\x12expectedInstanceId\x12,\n" +
+	"\x12actor_namespace_id\x18\a \x01(\tR\x10actorNamespaceId*}\n" +
 	"\x12WorkspaceEntryKind\x12$\n" +
 	" WORKSPACE_ENTRY_KIND_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19WORKSPACE_ENTRY_KIND_FILE\x10\x01\x12\"\n" +
@@ -9500,10 +10337,23 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x1bCOMPONENT_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17COMPONENT_STATE_HEALTHY\x10\x01\x12\x1c\n" +
 	"\x18COMPONENT_STATE_DEGRADED\x10\x02\x12\x1f\n" +
-	"\x1bCOMPONENT_STATE_UNAVAILABLE\x10\x032\x84(\n" +
+	"\x1bCOMPONENT_STATE_UNAVAILABLE\x10\x03*y\n" +
+	"\x12ImageOperationKind\x12$\n" +
+	" IMAGE_OPERATION_KIND_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aIMAGE_OPERATION_KIND_BUILD\x10\x01\x12\x1d\n" +
+	"\x19IMAGE_OPERATION_KIND_COPY\x10\x02*\xec\x01\n" +
+	"\x13ImageOperationState\x12%\n" +
+	"!IMAGE_OPERATION_STATE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dIMAGE_OPERATION_STATE_RUNNING\x10\x01\x12#\n" +
+	"\x1fIMAGE_OPERATION_STATE_SUCCEEDED\x10\x02\x12 \n" +
+	"\x1cIMAGE_OPERATION_STATE_FAILED\x10\x03\x12!\n" +
+	"\x1dIMAGE_OPERATION_STATE_STOPPED\x10\x04\x12!\n" +
+	"\x1dIMAGE_OPERATION_STATE_UNKNOWN\x10\x052\xfb,\n" +
 	"\vVMMDService\x12K\n" +
 	"\x06Health\x12\x1f.agentvmm.vmmd.v1.HealthRequest\x1a .agentvmm.vmmd.v1.HealthResponse\x12f\n" +
-	"\x0fPrepareShutdown\x12(.agentvmm.vmmd.v1.PrepareShutdownRequest\x1a).agentvmm.vmmd.v1.PrepareShutdownResponse\x12r\n" +
+	"\x0fPrepareShutdown\x12(.agentvmm.vmmd.v1.PrepareShutdownRequest\x1a).agentvmm.vmmd.v1.PrepareShutdownResponse\x12t\n" +
+	"\x15StageApplianceContent\x12*.agentvmm.appliance.v1.StageContentRequest\x1a-.agentvmm.appliance.v1.ApplianceContentStatus(\x01\x12x\n" +
+	"\x15ReconcileSystemImages\x12..agentvmm.vmmd.v1.ReconcileSystemImagesRequest\x1a/.agentvmm.vmmd.v1.ReconcileSystemImagesResponse\x12r\n" +
 	"\x15EnsureSystemAppliance\x12..agentvmm.vmmd.v1.EnsureSystemApplianceRequest\x1a).agentvmm.vmmd.v1.SystemApplianceResponse\x12n\n" +
 	"\x13StopSystemAppliance\x12,.agentvmm.vmmd.v1.StopSystemApplianceRequest\x1a).agentvmm.vmmd.v1.SystemApplianceResponse\x12\x84\x01\n" +
 	"\x19DeleteSystemApplianceData\x122.agentvmm.vmmd.v1.DeleteSystemApplianceDataRequest\x1a3.agentvmm.vmmd.v1.DeleteSystemApplianceDataResponse\x12l\n" +
@@ -9514,7 +10364,8 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\x0fDeleteNamespace\x12(.agentvmm.vmmd.v1.DeleteNamespaceRequest\x1a).agentvmm.vmmd.v1.DeleteNamespaceResponse\x12x\n" +
 	"\x15DisposeNamespaceBatch\x12..agentvmm.vmmd.v1.DisposeNamespaceBatchRequest\x1a/.agentvmm.vmmd.v1.DisposeNamespaceBatchResponse\x12]\n" +
 	"\fGetNamespace\x12%.agentvmm.vmmd.v1.GetNamespaceRequest\x1a&.agentvmm.vmmd.v1.GetNamespaceResponse\x12c\n" +
-	"\x0eListNamespaces\x12'.agentvmm.vmmd.v1.ListNamespacesRequest\x1a(.agentvmm.vmmd.v1.ListNamespacesResponse\x12c\n" +
+	"\x0eListNamespaces\x12'.agentvmm.vmmd.v1.ListNamespacesRequest\x1a(.agentvmm.vmmd.v1.ListNamespacesResponse\x12f\n" +
+	"\x0fApplyHostShares\x12(.agentvmm.vmmd.v1.ApplyHostSharesRequest\x1a).agentvmm.vmmd.v1.ApplyHostSharesResponse\x12c\n" +
 	"\x11GetNamespaceUsage\x12*.agentvmm.vmmd.v1.GetNamespaceUsageRequest\x1a\".agentvmm.vmmd.v1.GetUsageResponse\x12]\n" +
 	"\x0eGetSystemUsage\x12'.agentvmm.vmmd.v1.GetSystemUsageRequest\x1a\".agentvmm.vmmd.v1.GetUsageResponse\x12V\n" +
 	"\tPullImage\x12\".agentvmm.vmmd.v1.PullImageRequest\x1a#.agentvmm.vmmd.v1.PullImageResponse0\x01\x12N\n" +
@@ -9545,7 +10396,10 @@ const file_vmmd_v1_vmmd_proto_rawDesc = "" +
 	"\n" +
 	"ForwardTCP\x12#.agentvmm.vmmd.v1.ForwardTCPRequest\x1a$.agentvmm.vmmd.v1.ForwardTCPResponse(\x010\x01\x12[\n" +
 	"\n" +
-	"BuildImage\x12#.agentvmm.vmmd.v1.BuildImageRequest\x1a$.agentvmm.vmmd.v1.BuildImageResponse(\x010\x01\x12g\n" +
+	"BuildImage\x12#.agentvmm.vmmd.v1.BuildImageRequest\x1a$.agentvmm.vmmd.v1.BuildImageResponse(\x010\x01\x12H\n" +
+	"\tCopyImage\x12\".agentvmm.vmmd.v1.CopyImageRequest\x1a\x17.agentvmm.vmmd.v1.Image\x12i\n" +
+	"\x15ObserveImageOperation\x12'.agentvmm.vmmd.v1.ImageOperationRequest\x1a'.agentvmm.vmmd.v1.ImageOperationReceipt\x12h\n" +
+	"\x14CancelImageOperation\x12'.agentvmm.vmmd.v1.ImageOperationRequest\x1a'.agentvmm.vmmd.v1.ImageOperationReceipt\x12g\n" +
 	"\x0eBuildAppliance\x12'.agentvmm.vmmd.v1.BuildApplianceRequest\x1a(.agentvmm.vmmd.v1.BuildApplianceResponse(\x010\x01\x12f\n" +
 	"\x0fComponentHealth\x12(.agentvmm.vmmd.v1.ComponentHealthRequest\x1a).agentvmm.vmmd.v1.ComponentHealthResponse\x12Z\n" +
 	"\vProbeEgress\x12$.agentvmm.vmmd.v1.ProbeEgressRequest\x1a%.agentvmm.vmmd.v1.ProbeEgressResponse\x12U\n" +
@@ -9569,8 +10423,8 @@ func file_vmmd_v1_vmmd_proto_rawDescGZIP() []byte {
 	return file_vmmd_v1_vmmd_proto_rawDescData
 }
 
-var file_vmmd_v1_vmmd_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_vmmd_v1_vmmd_proto_msgTypes = make([]protoimpl.MessageInfo, 128)
+var file_vmmd_v1_vmmd_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
+var file_vmmd_v1_vmmd_proto_msgTypes = make([]protoimpl.MessageInfo, 134)
 var file_vmmd_v1_vmmd_proto_goTypes = []any{
 	(WorkspaceEntryKind)(0),                   // 0: agentvmm.vmmd.v1.WorkspaceEntryKind
 	(SystemApplianceState)(0),                 // 1: agentvmm.vmmd.v1.SystemApplianceState
@@ -9581,314 +10435,349 @@ var file_vmmd_v1_vmmd_proto_goTypes = []any{
 	(ProcessSignal)(0),                        // 6: agentvmm.vmmd.v1.ProcessSignal
 	(BuildNetworkMode)(0),                     // 7: agentvmm.vmmd.v1.BuildNetworkMode
 	(ComponentState)(0),                       // 8: agentvmm.vmmd.v1.ComponentState
-	(*WorkspacePathRequest)(nil),              // 9: agentvmm.vmmd.v1.WorkspacePathRequest
-	(*WorkspaceEntry)(nil),                    // 10: agentvmm.vmmd.v1.WorkspaceEntry
-	(*ListWorkspaceRequest)(nil),              // 11: agentvmm.vmmd.v1.ListWorkspaceRequest
-	(*ListWorkspaceResponse)(nil),             // 12: agentvmm.vmmd.v1.ListWorkspaceResponse
-	(*ReadWorkspaceRequest)(nil),              // 13: agentvmm.vmmd.v1.ReadWorkspaceRequest
-	(*ReadWorkspaceResponse)(nil),             // 14: agentvmm.vmmd.v1.ReadWorkspaceResponse
-	(*WriteWorkspaceHeader)(nil),              // 15: agentvmm.vmmd.v1.WriteWorkspaceHeader
-	(*WriteWorkspaceRequest)(nil),             // 16: agentvmm.vmmd.v1.WriteWorkspaceRequest
-	(*WriteWorkspaceResponse)(nil),            // 17: agentvmm.vmmd.v1.WriteWorkspaceResponse
-	(*ArchiveWorkspaceRequest)(nil),           // 18: agentvmm.vmmd.v1.ArchiveWorkspaceRequest
-	(*ArchiveWorkspaceResponse)(nil),          // 19: agentvmm.vmmd.v1.ArchiveWorkspaceResponse
-	(*ExtractWorkspaceHeader)(nil),            // 20: agentvmm.vmmd.v1.ExtractWorkspaceHeader
-	(*ExtractWorkspaceRequest)(nil),           // 21: agentvmm.vmmd.v1.ExtractWorkspaceRequest
-	(*HealthRequest)(nil),                     // 22: agentvmm.vmmd.v1.HealthRequest
-	(*HealthResponse)(nil),                    // 23: agentvmm.vmmd.v1.HealthResponse
-	(*PrepareShutdownRequest)(nil),            // 24: agentvmm.vmmd.v1.PrepareShutdownRequest
-	(*PrepareShutdownResponse)(nil),           // 25: agentvmm.vmmd.v1.PrepareShutdownResponse
-	(*SystemApplianceIdentity)(nil),           // 26: agentvmm.vmmd.v1.SystemApplianceIdentity
-	(*EnsureSystemApplianceRequest)(nil),      // 27: agentvmm.vmmd.v1.EnsureSystemApplianceRequest
-	(*StopSystemApplianceRequest)(nil),        // 28: agentvmm.vmmd.v1.StopSystemApplianceRequest
-	(*DeleteSystemApplianceDataRequest)(nil),  // 29: agentvmm.vmmd.v1.DeleteSystemApplianceDataRequest
-	(*DeleteSystemApplianceDataResponse)(nil), // 30: agentvmm.vmmd.v1.DeleteSystemApplianceDataResponse
-	(*GetSystemApplianceRequest)(nil),         // 31: agentvmm.vmmd.v1.GetSystemApplianceRequest
-	(*ListSystemAppliancesRequest)(nil),       // 32: agentvmm.vmmd.v1.ListSystemAppliancesRequest
-	(*SystemAppliance)(nil),                   // 33: agentvmm.vmmd.v1.SystemAppliance
-	(*SystemApplianceResponse)(nil),           // 34: agentvmm.vmmd.v1.SystemApplianceResponse
-	(*ListSystemAppliancesResponse)(nil),      // 35: agentvmm.vmmd.v1.ListSystemAppliancesResponse
-	(*SystemStreamHeader)(nil),                // 36: agentvmm.vmmd.v1.SystemStreamHeader
-	(*SystemStreamFrame)(nil),                 // 37: agentvmm.vmmd.v1.SystemStreamFrame
-	(*NamespaceLimits)(nil),                   // 38: agentvmm.vmmd.v1.NamespaceLimits
-	(*Namespace)(nil),                         // 39: agentvmm.vmmd.v1.Namespace
-	(*EnsureNamespaceRequest)(nil),            // 40: agentvmm.vmmd.v1.EnsureNamespaceRequest
-	(*EnsureNamespaceResponse)(nil),           // 41: agentvmm.vmmd.v1.EnsureNamespaceResponse
-	(*DeleteNamespaceRequest)(nil),            // 42: agentvmm.vmmd.v1.DeleteNamespaceRequest
-	(*DeleteNamespaceResponse)(nil),           // 43: agentvmm.vmmd.v1.DeleteNamespaceResponse
-	(*GetNamespaceRequest)(nil),               // 44: agentvmm.vmmd.v1.GetNamespaceRequest
-	(*GetNamespaceResponse)(nil),              // 45: agentvmm.vmmd.v1.GetNamespaceResponse
-	(*ListNamespacesRequest)(nil),             // 46: agentvmm.vmmd.v1.ListNamespacesRequest
-	(*ListNamespacesResponse)(nil),            // 47: agentvmm.vmmd.v1.ListNamespacesResponse
-	(*GetNamespaceUsageRequest)(nil),          // 48: agentvmm.vmmd.v1.GetNamespaceUsageRequest
-	(*GetSystemUsageRequest)(nil),             // 49: agentvmm.vmmd.v1.GetSystemUsageRequest
-	(*PullImageRequest)(nil),                  // 50: agentvmm.vmmd.v1.PullImageRequest
-	(*PullImageResponse)(nil),                 // 51: agentvmm.vmmd.v1.PullImageResponse
-	(*ImportImageHeader)(nil),                 // 52: agentvmm.vmmd.v1.ImportImageHeader
-	(*ImportImageRequest)(nil),                // 53: agentvmm.vmmd.v1.ImportImageRequest
-	(*Volume)(nil),                            // 54: agentvmm.vmmd.v1.Volume
-	(*CreateVolumeRequest)(nil),               // 55: agentvmm.vmmd.v1.CreateVolumeRequest
-	(*CreateVolumeResponse)(nil),              // 56: agentvmm.vmmd.v1.CreateVolumeResponse
-	(*DeleteVolumeRequest)(nil),               // 57: agentvmm.vmmd.v1.DeleteVolumeRequest
-	(*DeleteVolumeResponse)(nil),              // 58: agentvmm.vmmd.v1.DeleteVolumeResponse
-	(*GetVolumeRequest)(nil),                  // 59: agentvmm.vmmd.v1.GetVolumeRequest
-	(*GetVolumeResponse)(nil),                 // 60: agentvmm.vmmd.v1.GetVolumeResponse
-	(*ListVolumesRequest)(nil),                // 61: agentvmm.vmmd.v1.ListVolumesRequest
-	(*ListVolumesResponse)(nil),               // 62: agentvmm.vmmd.v1.ListVolumesResponse
-	(*Image)(nil),                             // 63: agentvmm.vmmd.v1.Image
-	(*GetImageRequest)(nil),                   // 64: agentvmm.vmmd.v1.GetImageRequest
-	(*GetImageResponse)(nil),                  // 65: agentvmm.vmmd.v1.GetImageResponse
-	(*ListImagesRequest)(nil),                 // 66: agentvmm.vmmd.v1.ListImagesRequest
-	(*ListImagesResponse)(nil),                // 67: agentvmm.vmmd.v1.ListImagesResponse
-	(*DeleteImageRequest)(nil),                // 68: agentvmm.vmmd.v1.DeleteImageRequest
-	(*DeleteImageResponse)(nil),               // 69: agentvmm.vmmd.v1.DeleteImageResponse
-	(*ResourceLimits)(nil),                    // 70: agentvmm.vmmd.v1.ResourceLimits
-	(*VolumeMount)(nil),                       // 71: agentvmm.vmmd.v1.VolumeMount
-	(*Container)(nil),                         // 72: agentvmm.vmmd.v1.Container
-	(*StringList)(nil),                        // 73: agentvmm.vmmd.v1.StringList
-	(*CreateContainerRequest)(nil),            // 74: agentvmm.vmmd.v1.CreateContainerRequest
-	(*CreateContainerResponse)(nil),           // 75: agentvmm.vmmd.v1.CreateContainerResponse
-	(*StartContainerRequest)(nil),             // 76: agentvmm.vmmd.v1.StartContainerRequest
-	(*StartContainerResponse)(nil),            // 77: agentvmm.vmmd.v1.StartContainerResponse
-	(*StopContainerRequest)(nil),              // 78: agentvmm.vmmd.v1.StopContainerRequest
-	(*StopContainerResponse)(nil),             // 79: agentvmm.vmmd.v1.StopContainerResponse
-	(*WaitContainerRequest)(nil),              // 80: agentvmm.vmmd.v1.WaitContainerRequest
-	(*WaitContainerResponse)(nil),             // 81: agentvmm.vmmd.v1.WaitContainerResponse
-	(*DeleteContainerRequest)(nil),            // 82: agentvmm.vmmd.v1.DeleteContainerRequest
-	(*DeleteContainerResponse)(nil),           // 83: agentvmm.vmmd.v1.DeleteContainerResponse
-	(*InspectContainerRequest)(nil),           // 84: agentvmm.vmmd.v1.InspectContainerRequest
-	(*InspectContainerResponse)(nil),          // 85: agentvmm.vmmd.v1.InspectContainerResponse
-	(*ListContainersRequest)(nil),             // 86: agentvmm.vmmd.v1.ListContainersRequest
-	(*ListContainersResponse)(nil),            // 87: agentvmm.vmmd.v1.ListContainersResponse
-	(*GetContainerUsageRequest)(nil),          // 88: agentvmm.vmmd.v1.GetContainerUsageRequest
-	(*Usage)(nil),                             // 89: agentvmm.vmmd.v1.Usage
-	(*GetUsageResponse)(nil),                  // 90: agentvmm.vmmd.v1.GetUsageResponse
-	(*DiskAccounting)(nil),                    // 91: agentvmm.vmmd.v1.DiskAccounting
-	(*LogsRequest)(nil),                       // 92: agentvmm.vmmd.v1.LogsRequest
-	(*LogsResponse)(nil),                      // 93: agentvmm.vmmd.v1.LogsResponse
-	(*SignalContainerRequest)(nil),            // 94: agentvmm.vmmd.v1.SignalContainerRequest
-	(*SignalContainerResponse)(nil),           // 95: agentvmm.vmmd.v1.SignalContainerResponse
-	(*ExecStart)(nil),                         // 96: agentvmm.vmmd.v1.ExecStart
-	(*ExecResize)(nil),                        // 97: agentvmm.vmmd.v1.ExecResize
-	(*ExecRequest)(nil),                       // 98: agentvmm.vmmd.v1.ExecRequest
-	(*ExecResponse)(nil),                      // 99: agentvmm.vmmd.v1.ExecResponse
-	(*ContainerIDList)(nil),                   // 100: agentvmm.vmmd.v1.ContainerIDList
-	(*ContainerSelector)(nil),                 // 101: agentvmm.vmmd.v1.ContainerSelector
-	(*NetworkLink)(nil),                       // 102: agentvmm.vmmd.v1.NetworkLink
-	(*ApplyNetworkLinkRequest)(nil),           // 103: agentvmm.vmmd.v1.ApplyNetworkLinkRequest
-	(*ApplyNetworkLinkResponse)(nil),          // 104: agentvmm.vmmd.v1.ApplyNetworkLinkResponse
-	(*DeleteNetworkLinkRequest)(nil),          // 105: agentvmm.vmmd.v1.DeleteNetworkLinkRequest
-	(*DeleteNetworkLinkResponse)(nil),         // 106: agentvmm.vmmd.v1.DeleteNetworkLinkResponse
-	(*ServiceProjection)(nil),                 // 107: agentvmm.vmmd.v1.ServiceProjection
-	(*ApplyServiceProjectionRequest)(nil),     // 108: agentvmm.vmmd.v1.ApplyServiceProjectionRequest
-	(*ApplyServiceProjectionResponse)(nil),    // 109: agentvmm.vmmd.v1.ApplyServiceProjectionResponse
-	(*DeleteServiceProjectionRequest)(nil),    // 110: agentvmm.vmmd.v1.DeleteServiceProjectionRequest
-	(*DeleteServiceProjectionResponse)(nil),   // 111: agentvmm.vmmd.v1.DeleteServiceProjectionResponse
-	(*ForwardTCPHeader)(nil),                  // 112: agentvmm.vmmd.v1.ForwardTCPHeader
-	(*ForwardTCPRequest)(nil),                 // 113: agentvmm.vmmd.v1.ForwardTCPRequest
-	(*ForwardTCPResponse)(nil),                // 114: agentvmm.vmmd.v1.ForwardTCPResponse
-	(*BuildArgument)(nil),                     // 115: agentvmm.vmmd.v1.BuildArgument
-	(*BuildSecret)(nil),                       // 116: agentvmm.vmmd.v1.BuildSecret
-	(*BuildImageHeader)(nil),                  // 117: agentvmm.vmmd.v1.BuildImageHeader
-	(*BuildContextChunk)(nil),                 // 118: agentvmm.vmmd.v1.BuildContextChunk
-	(*BuildSecretChunk)(nil),                  // 119: agentvmm.vmmd.v1.BuildSecretChunk
-	(*BuildImageRequest)(nil),                 // 120: agentvmm.vmmd.v1.BuildImageRequest
-	(*BuildImageResult)(nil),                  // 121: agentvmm.vmmd.v1.BuildImageResult
-	(*BuildImageResponse)(nil),                // 122: agentvmm.vmmd.v1.BuildImageResponse
-	(*BuildApplianceRequest)(nil),             // 123: agentvmm.vmmd.v1.BuildApplianceRequest
-	(*BuildApplianceResult)(nil),              // 124: agentvmm.vmmd.v1.BuildApplianceResult
-	(*BuildApplianceResponse)(nil),            // 125: agentvmm.vmmd.v1.BuildApplianceResponse
-	(*ComponentStatus)(nil),                   // 126: agentvmm.vmmd.v1.ComponentStatus
-	(*ComponentHealthRequest)(nil),            // 127: agentvmm.vmmd.v1.ComponentHealthRequest
-	(*ComponentHealthResponse)(nil),           // 128: agentvmm.vmmd.v1.ComponentHealthResponse
-	(*ProbeEgressRequest)(nil),                // 129: agentvmm.vmmd.v1.ProbeEgressRequest
-	(*ProbeEgressResponse)(nil),               // 130: agentvmm.vmmd.v1.ProbeEgressResponse
-	(*ResourceReference)(nil),                 // 131: agentvmm.vmmd.v1.ResourceReference
-	(*WatchEventsRequest)(nil),                // 132: agentvmm.vmmd.v1.WatchEventsRequest
-	(*RuntimeEvent)(nil),                      // 133: agentvmm.vmmd.v1.RuntimeEvent
-	(*DisposeNamespaceBatchRequest)(nil),      // 134: agentvmm.vmmd.v1.DisposeNamespaceBatchRequest
-	(*DisposeNamespaceBatchResponse)(nil),     // 135: agentvmm.vmmd.v1.DisposeNamespaceBatchResponse
-	nil,                                       // 136: agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
+	(ImageOperationKind)(0),                   // 9: agentvmm.vmmd.v1.ImageOperationKind
+	(ImageOperationState)(0),                  // 10: agentvmm.vmmd.v1.ImageOperationState
+	(*WorkspacePathRequest)(nil),              // 11: agentvmm.vmmd.v1.WorkspacePathRequest
+	(*WorkspaceEntry)(nil),                    // 12: agentvmm.vmmd.v1.WorkspaceEntry
+	(*ListWorkspaceRequest)(nil),              // 13: agentvmm.vmmd.v1.ListWorkspaceRequest
+	(*ListWorkspaceResponse)(nil),             // 14: agentvmm.vmmd.v1.ListWorkspaceResponse
+	(*ReadWorkspaceRequest)(nil),              // 15: agentvmm.vmmd.v1.ReadWorkspaceRequest
+	(*ReadWorkspaceResponse)(nil),             // 16: agentvmm.vmmd.v1.ReadWorkspaceResponse
+	(*WriteWorkspaceHeader)(nil),              // 17: agentvmm.vmmd.v1.WriteWorkspaceHeader
+	(*WriteWorkspaceRequest)(nil),             // 18: agentvmm.vmmd.v1.WriteWorkspaceRequest
+	(*WriteWorkspaceResponse)(nil),            // 19: agentvmm.vmmd.v1.WriteWorkspaceResponse
+	(*ArchiveWorkspaceRequest)(nil),           // 20: agentvmm.vmmd.v1.ArchiveWorkspaceRequest
+	(*ArchiveWorkspaceResponse)(nil),          // 21: agentvmm.vmmd.v1.ArchiveWorkspaceResponse
+	(*ExtractWorkspaceHeader)(nil),            // 22: agentvmm.vmmd.v1.ExtractWorkspaceHeader
+	(*ExtractWorkspaceRequest)(nil),           // 23: agentvmm.vmmd.v1.ExtractWorkspaceRequest
+	(*HealthRequest)(nil),                     // 24: agentvmm.vmmd.v1.HealthRequest
+	(*HealthResponse)(nil),                    // 25: agentvmm.vmmd.v1.HealthResponse
+	(*PrepareShutdownRequest)(nil),            // 26: agentvmm.vmmd.v1.PrepareShutdownRequest
+	(*PrepareShutdownResponse)(nil),           // 27: agentvmm.vmmd.v1.PrepareShutdownResponse
+	(*SystemApplianceIdentity)(nil),           // 28: agentvmm.vmmd.v1.SystemApplianceIdentity
+	(*EnsureSystemApplianceRequest)(nil),      // 29: agentvmm.vmmd.v1.EnsureSystemApplianceRequest
+	(*StopSystemApplianceRequest)(nil),        // 30: agentvmm.vmmd.v1.StopSystemApplianceRequest
+	(*DeleteSystemApplianceDataRequest)(nil),  // 31: agentvmm.vmmd.v1.DeleteSystemApplianceDataRequest
+	(*DeleteSystemApplianceDataResponse)(nil), // 32: agentvmm.vmmd.v1.DeleteSystemApplianceDataResponse
+	(*GetSystemApplianceRequest)(nil),         // 33: agentvmm.vmmd.v1.GetSystemApplianceRequest
+	(*ListSystemAppliancesRequest)(nil),       // 34: agentvmm.vmmd.v1.ListSystemAppliancesRequest
+	(*SystemAppliance)(nil),                   // 35: agentvmm.vmmd.v1.SystemAppliance
+	(*SystemApplianceResponse)(nil),           // 36: agentvmm.vmmd.v1.SystemApplianceResponse
+	(*ListSystemAppliancesResponse)(nil),      // 37: agentvmm.vmmd.v1.ListSystemAppliancesResponse
+	(*SystemStreamHeader)(nil),                // 38: agentvmm.vmmd.v1.SystemStreamHeader
+	(*SystemStreamFrame)(nil),                 // 39: agentvmm.vmmd.v1.SystemStreamFrame
+	(*NamespaceLimits)(nil),                   // 40: agentvmm.vmmd.v1.NamespaceLimits
+	(*Namespace)(nil),                         // 41: agentvmm.vmmd.v1.Namespace
+	(*EnsureNamespaceRequest)(nil),            // 42: agentvmm.vmmd.v1.EnsureNamespaceRequest
+	(*EnsureNamespaceResponse)(nil),           // 43: agentvmm.vmmd.v1.EnsureNamespaceResponse
+	(*DeleteNamespaceRequest)(nil),            // 44: agentvmm.vmmd.v1.DeleteNamespaceRequest
+	(*DeleteNamespaceResponse)(nil),           // 45: agentvmm.vmmd.v1.DeleteNamespaceResponse
+	(*GetNamespaceRequest)(nil),               // 46: agentvmm.vmmd.v1.GetNamespaceRequest
+	(*GetNamespaceResponse)(nil),              // 47: agentvmm.vmmd.v1.GetNamespaceResponse
+	(*ListNamespacesRequest)(nil),             // 48: agentvmm.vmmd.v1.ListNamespacesRequest
+	(*ListNamespacesResponse)(nil),            // 49: agentvmm.vmmd.v1.ListNamespacesResponse
+	(*GetNamespaceUsageRequest)(nil),          // 50: agentvmm.vmmd.v1.GetNamespaceUsageRequest
+	(*GetSystemUsageRequest)(nil),             // 51: agentvmm.vmmd.v1.GetSystemUsageRequest
+	(*PullImageRequest)(nil),                  // 52: agentvmm.vmmd.v1.PullImageRequest
+	(*PullImageResponse)(nil),                 // 53: agentvmm.vmmd.v1.PullImageResponse
+	(*SystemImageRetention)(nil),              // 54: agentvmm.vmmd.v1.SystemImageRetention
+	(*ReconcileSystemImagesRequest)(nil),      // 55: agentvmm.vmmd.v1.ReconcileSystemImagesRequest
+	(*ReconcileSystemImagesResponse)(nil),     // 56: agentvmm.vmmd.v1.ReconcileSystemImagesResponse
+	(*ImportImageHeader)(nil),                 // 57: agentvmm.vmmd.v1.ImportImageHeader
+	(*ImportImageRequest)(nil),                // 58: agentvmm.vmmd.v1.ImportImageRequest
+	(*Volume)(nil),                            // 59: agentvmm.vmmd.v1.Volume
+	(*CreateVolumeRequest)(nil),               // 60: agentvmm.vmmd.v1.CreateVolumeRequest
+	(*CreateVolumeResponse)(nil),              // 61: agentvmm.vmmd.v1.CreateVolumeResponse
+	(*DeleteVolumeRequest)(nil),               // 62: agentvmm.vmmd.v1.DeleteVolumeRequest
+	(*DeleteVolumeResponse)(nil),              // 63: agentvmm.vmmd.v1.DeleteVolumeResponse
+	(*GetVolumeRequest)(nil),                  // 64: agentvmm.vmmd.v1.GetVolumeRequest
+	(*GetVolumeResponse)(nil),                 // 65: agentvmm.vmmd.v1.GetVolumeResponse
+	(*ListVolumesRequest)(nil),                // 66: agentvmm.vmmd.v1.ListVolumesRequest
+	(*ListVolumesResponse)(nil),               // 67: agentvmm.vmmd.v1.ListVolumesResponse
+	(*ImageOperationReceipt)(nil),             // 68: agentvmm.vmmd.v1.ImageOperationReceipt
+	(*Image)(nil),                             // 69: agentvmm.vmmd.v1.Image
+	(*GetImageRequest)(nil),                   // 70: agentvmm.vmmd.v1.GetImageRequest
+	(*GetImageResponse)(nil),                  // 71: agentvmm.vmmd.v1.GetImageResponse
+	(*ListImagesRequest)(nil),                 // 72: agentvmm.vmmd.v1.ListImagesRequest
+	(*ListImagesResponse)(nil),                // 73: agentvmm.vmmd.v1.ListImagesResponse
+	(*DeleteImageRequest)(nil),                // 74: agentvmm.vmmd.v1.DeleteImageRequest
+	(*DeleteImageResponse)(nil),               // 75: agentvmm.vmmd.v1.DeleteImageResponse
+	(*ResourceLimits)(nil),                    // 76: agentvmm.vmmd.v1.ResourceLimits
+	(*VolumeMount)(nil),                       // 77: agentvmm.vmmd.v1.VolumeMount
+	(*Container)(nil),                         // 78: agentvmm.vmmd.v1.Container
+	(*StringList)(nil),                        // 79: agentvmm.vmmd.v1.StringList
+	(*CreateContainerRequest)(nil),            // 80: agentvmm.vmmd.v1.CreateContainerRequest
+	(*CreateContainerResponse)(nil),           // 81: agentvmm.vmmd.v1.CreateContainerResponse
+	(*StartContainerRequest)(nil),             // 82: agentvmm.vmmd.v1.StartContainerRequest
+	(*StartContainerResponse)(nil),            // 83: agentvmm.vmmd.v1.StartContainerResponse
+	(*StopContainerRequest)(nil),              // 84: agentvmm.vmmd.v1.StopContainerRequest
+	(*StopContainerResponse)(nil),             // 85: agentvmm.vmmd.v1.StopContainerResponse
+	(*WaitContainerRequest)(nil),              // 86: agentvmm.vmmd.v1.WaitContainerRequest
+	(*WaitContainerResponse)(nil),             // 87: agentvmm.vmmd.v1.WaitContainerResponse
+	(*DeleteContainerRequest)(nil),            // 88: agentvmm.vmmd.v1.DeleteContainerRequest
+	(*DeleteContainerResponse)(nil),           // 89: agentvmm.vmmd.v1.DeleteContainerResponse
+	(*InspectContainerRequest)(nil),           // 90: agentvmm.vmmd.v1.InspectContainerRequest
+	(*InspectContainerResponse)(nil),          // 91: agentvmm.vmmd.v1.InspectContainerResponse
+	(*ListContainersRequest)(nil),             // 92: agentvmm.vmmd.v1.ListContainersRequest
+	(*ListContainersResponse)(nil),            // 93: agentvmm.vmmd.v1.ListContainersResponse
+	(*GetContainerUsageRequest)(nil),          // 94: agentvmm.vmmd.v1.GetContainerUsageRequest
+	(*Usage)(nil),                             // 95: agentvmm.vmmd.v1.Usage
+	(*GetUsageResponse)(nil),                  // 96: agentvmm.vmmd.v1.GetUsageResponse
+	(*DiskAccounting)(nil),                    // 97: agentvmm.vmmd.v1.DiskAccounting
+	(*LogsRequest)(nil),                       // 98: agentvmm.vmmd.v1.LogsRequest
+	(*LogsResponse)(nil),                      // 99: agentvmm.vmmd.v1.LogsResponse
+	(*SignalContainerRequest)(nil),            // 100: agentvmm.vmmd.v1.SignalContainerRequest
+	(*SignalContainerResponse)(nil),           // 101: agentvmm.vmmd.v1.SignalContainerResponse
+	(*ExecStart)(nil),                         // 102: agentvmm.vmmd.v1.ExecStart
+	(*ExecResize)(nil),                        // 103: agentvmm.vmmd.v1.ExecResize
+	(*ExecRequest)(nil),                       // 104: agentvmm.vmmd.v1.ExecRequest
+	(*ExecResponse)(nil),                      // 105: agentvmm.vmmd.v1.ExecResponse
+	(*ContainerIDList)(nil),                   // 106: agentvmm.vmmd.v1.ContainerIDList
+	(*ContainerSelector)(nil),                 // 107: agentvmm.vmmd.v1.ContainerSelector
+	(*NetworkLink)(nil),                       // 108: agentvmm.vmmd.v1.NetworkLink
+	(*ApplyNetworkLinkRequest)(nil),           // 109: agentvmm.vmmd.v1.ApplyNetworkLinkRequest
+	(*ApplyNetworkLinkResponse)(nil),          // 110: agentvmm.vmmd.v1.ApplyNetworkLinkResponse
+	(*DeleteNetworkLinkRequest)(nil),          // 111: agentvmm.vmmd.v1.DeleteNetworkLinkRequest
+	(*DeleteNetworkLinkResponse)(nil),         // 112: agentvmm.vmmd.v1.DeleteNetworkLinkResponse
+	(*ServiceProjection)(nil),                 // 113: agentvmm.vmmd.v1.ServiceProjection
+	(*ApplyServiceProjectionRequest)(nil),     // 114: agentvmm.vmmd.v1.ApplyServiceProjectionRequest
+	(*ApplyServiceProjectionResponse)(nil),    // 115: agentvmm.vmmd.v1.ApplyServiceProjectionResponse
+	(*DeleteServiceProjectionRequest)(nil),    // 116: agentvmm.vmmd.v1.DeleteServiceProjectionRequest
+	(*DeleteServiceProjectionResponse)(nil),   // 117: agentvmm.vmmd.v1.DeleteServiceProjectionResponse
+	(*ForwardTCPHeader)(nil),                  // 118: agentvmm.vmmd.v1.ForwardTCPHeader
+	(*ForwardTCPRequest)(nil),                 // 119: agentvmm.vmmd.v1.ForwardTCPRequest
+	(*ForwardTCPResponse)(nil),                // 120: agentvmm.vmmd.v1.ForwardTCPResponse
+	(*BuildArgument)(nil),                     // 121: agentvmm.vmmd.v1.BuildArgument
+	(*BuildSecret)(nil),                       // 122: agentvmm.vmmd.v1.BuildSecret
+	(*BuildImageHeader)(nil),                  // 123: agentvmm.vmmd.v1.BuildImageHeader
+	(*BuildContextChunk)(nil),                 // 124: agentvmm.vmmd.v1.BuildContextChunk
+	(*BuildSecretChunk)(nil),                  // 125: agentvmm.vmmd.v1.BuildSecretChunk
+	(*BuildImageRequest)(nil),                 // 126: agentvmm.vmmd.v1.BuildImageRequest
+	(*CopyImageRequest)(nil),                  // 127: agentvmm.vmmd.v1.CopyImageRequest
+	(*BuildImageResult)(nil),                  // 128: agentvmm.vmmd.v1.BuildImageResult
+	(*BuildImageResponse)(nil),                // 129: agentvmm.vmmd.v1.BuildImageResponse
+	(*BuildApplianceRequest)(nil),             // 130: agentvmm.vmmd.v1.BuildApplianceRequest
+	(*BuildApplianceResult)(nil),              // 131: agentvmm.vmmd.v1.BuildApplianceResult
+	(*BuildApplianceResponse)(nil),            // 132: agentvmm.vmmd.v1.BuildApplianceResponse
+	(*ComponentStatus)(nil),                   // 133: agentvmm.vmmd.v1.ComponentStatus
+	(*ComponentHealthRequest)(nil),            // 134: agentvmm.vmmd.v1.ComponentHealthRequest
+	(*ComponentHealthResponse)(nil),           // 135: agentvmm.vmmd.v1.ComponentHealthResponse
+	(*ProbeEgressRequest)(nil),                // 136: agentvmm.vmmd.v1.ProbeEgressRequest
+	(*ProbeEgressResponse)(nil),               // 137: agentvmm.vmmd.v1.ProbeEgressResponse
+	(*ResourceReference)(nil),                 // 138: agentvmm.vmmd.v1.ResourceReference
+	(*WatchEventsRequest)(nil),                // 139: agentvmm.vmmd.v1.WatchEventsRequest
+	(*RuntimeEvent)(nil),                      // 140: agentvmm.vmmd.v1.RuntimeEvent
+	(*DisposeNamespaceBatchRequest)(nil),      // 141: agentvmm.vmmd.v1.DisposeNamespaceBatchRequest
+	(*DisposeNamespaceBatchResponse)(nil),     // 142: agentvmm.vmmd.v1.DisposeNamespaceBatchResponse
+	(*ImageOperationRequest)(nil),             // 143: agentvmm.vmmd.v1.ImageOperationRequest
+	nil,                                       // 144: agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
+	(*v1.ApplianceContentReference)(nil),      // 145: agentvmm.appliance.v1.ApplianceContentReference
+	(*status.Status)(nil),                     // 146: google.rpc.Status
+	(*v1.StageContentRequest)(nil),            // 147: agentvmm.appliance.v1.StageContentRequest
+	(*ApplyHostSharesRequest)(nil),            // 148: agentvmm.vmmd.v1.ApplyHostSharesRequest
+	(*v1.ApplianceContentStatus)(nil),         // 149: agentvmm.appliance.v1.ApplianceContentStatus
+	(*ApplyHostSharesResponse)(nil),           // 150: agentvmm.vmmd.v1.ApplyHostSharesResponse
 }
 var file_vmmd_v1_vmmd_proto_depIdxs = []int32{
 	0,   // 0: agentvmm.vmmd.v1.WorkspaceEntry.kind:type_name -> agentvmm.vmmd.v1.WorkspaceEntryKind
-	10,  // 1: agentvmm.vmmd.v1.ListWorkspaceResponse.entries:type_name -> agentvmm.vmmd.v1.WorkspaceEntry
-	15,  // 2: agentvmm.vmmd.v1.WriteWorkspaceRequest.header:type_name -> agentvmm.vmmd.v1.WriteWorkspaceHeader
-	10,  // 3: agentvmm.vmmd.v1.WriteWorkspaceResponse.entry:type_name -> agentvmm.vmmd.v1.WorkspaceEntry
-	20,  // 4: agentvmm.vmmd.v1.ExtractWorkspaceRequest.header:type_name -> agentvmm.vmmd.v1.ExtractWorkspaceHeader
-	136, // 5: agentvmm.vmmd.v1.HealthResponse.runtime_versions:type_name -> agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
-	26,  // 6: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
-	38,  // 7: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
+	12,  // 1: agentvmm.vmmd.v1.ListWorkspaceResponse.entries:type_name -> agentvmm.vmmd.v1.WorkspaceEntry
+	17,  // 2: agentvmm.vmmd.v1.WriteWorkspaceRequest.header:type_name -> agentvmm.vmmd.v1.WriteWorkspaceHeader
+	12,  // 3: agentvmm.vmmd.v1.WriteWorkspaceResponse.entry:type_name -> agentvmm.vmmd.v1.WorkspaceEntry
+	22,  // 4: agentvmm.vmmd.v1.ExtractWorkspaceRequest.header:type_name -> agentvmm.vmmd.v1.ExtractWorkspaceHeader
+	144, // 5: agentvmm.vmmd.v1.HealthResponse.runtime_versions:type_name -> agentvmm.vmmd.v1.HealthResponse.RuntimeVersionsEntry
+	28,  // 6: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
+	40,  // 7: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
 	3,   // 8: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
-	26,  // 9: agentvmm.vmmd.v1.StopSystemApplianceRequest.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
-	26,  // 10: agentvmm.vmmd.v1.SystemAppliance.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
-	1,   // 11: agentvmm.vmmd.v1.SystemAppliance.state:type_name -> agentvmm.vmmd.v1.SystemApplianceState
-	33,  // 12: agentvmm.vmmd.v1.SystemApplianceResponse.appliance:type_name -> agentvmm.vmmd.v1.SystemAppliance
-	33,  // 13: agentvmm.vmmd.v1.ListSystemAppliancesResponse.appliances:type_name -> agentvmm.vmmd.v1.SystemAppliance
-	26,  // 14: agentvmm.vmmd.v1.SystemStreamHeader.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
-	2,   // 15: agentvmm.vmmd.v1.SystemStreamHeader.kind:type_name -> agentvmm.vmmd.v1.SystemStreamKind
-	36,  // 16: agentvmm.vmmd.v1.SystemStreamFrame.header:type_name -> agentvmm.vmmd.v1.SystemStreamHeader
-	38,  // 17: agentvmm.vmmd.v1.Namespace.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
-	3,   // 18: agentvmm.vmmd.v1.Namespace.egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
-	38,  // 19: agentvmm.vmmd.v1.EnsureNamespaceRequest.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
-	3,   // 20: agentvmm.vmmd.v1.EnsureNamespaceRequest.egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
-	39,  // 21: agentvmm.vmmd.v1.EnsureNamespaceResponse.namespace:type_name -> agentvmm.vmmd.v1.Namespace
-	39,  // 22: agentvmm.vmmd.v1.GetNamespaceResponse.namespace:type_name -> agentvmm.vmmd.v1.Namespace
-	39,  // 23: agentvmm.vmmd.v1.ListNamespacesResponse.namespaces:type_name -> agentvmm.vmmd.v1.Namespace
-	38,  // 24: agentvmm.vmmd.v1.ImportImageHeader.system_limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
-	3,   // 25: agentvmm.vmmd.v1.ImportImageHeader.system_egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
-	52,  // 26: agentvmm.vmmd.v1.ImportImageRequest.header:type_name -> agentvmm.vmmd.v1.ImportImageHeader
-	54,  // 27: agentvmm.vmmd.v1.CreateVolumeResponse.volume:type_name -> agentvmm.vmmd.v1.Volume
-	54,  // 28: agentvmm.vmmd.v1.GetVolumeResponse.volume:type_name -> agentvmm.vmmd.v1.Volume
-	54,  // 29: agentvmm.vmmd.v1.ListVolumesResponse.volumes:type_name -> agentvmm.vmmd.v1.Volume
-	63,  // 30: agentvmm.vmmd.v1.GetImageResponse.image:type_name -> agentvmm.vmmd.v1.Image
-	63,  // 31: agentvmm.vmmd.v1.ListImagesResponse.images:type_name -> agentvmm.vmmd.v1.Image
-	4,   // 32: agentvmm.vmmd.v1.Container.state:type_name -> agentvmm.vmmd.v1.ContainerState
-	71,  // 33: agentvmm.vmmd.v1.Container.volumes:type_name -> agentvmm.vmmd.v1.VolumeMount
-	70,  // 34: agentvmm.vmmd.v1.CreateContainerRequest.limits:type_name -> agentvmm.vmmd.v1.ResourceLimits
-	71,  // 35: agentvmm.vmmd.v1.CreateContainerRequest.volumes:type_name -> agentvmm.vmmd.v1.VolumeMount
-	73,  // 36: agentvmm.vmmd.v1.CreateContainerRequest.entrypoint_override:type_name -> agentvmm.vmmd.v1.StringList
-	73,  // 37: agentvmm.vmmd.v1.CreateContainerRequest.command_override:type_name -> agentvmm.vmmd.v1.StringList
-	72,  // 38: agentvmm.vmmd.v1.CreateContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
-	72,  // 39: agentvmm.vmmd.v1.StartContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
-	72,  // 40: agentvmm.vmmd.v1.StopContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
-	72,  // 41: agentvmm.vmmd.v1.InspectContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
-	72,  // 42: agentvmm.vmmd.v1.ListContainersResponse.containers:type_name -> agentvmm.vmmd.v1.Container
-	89,  // 43: agentvmm.vmmd.v1.GetUsageResponse.usage:type_name -> agentvmm.vmmd.v1.Usage
-	89,  // 44: agentvmm.vmmd.v1.GetUsageResponse.workload_pool:type_name -> agentvmm.vmmd.v1.Usage
-	91,  // 45: agentvmm.vmmd.v1.GetUsageResponse.disk:type_name -> agentvmm.vmmd.v1.DiskAccounting
-	5,   // 46: agentvmm.vmmd.v1.LogsResponse.stream:type_name -> agentvmm.vmmd.v1.LogStream
-	6,   // 47: agentvmm.vmmd.v1.SignalContainerRequest.signal:type_name -> agentvmm.vmmd.v1.ProcessSignal
-	96,  // 48: agentvmm.vmmd.v1.ExecRequest.start:type_name -> agentvmm.vmmd.v1.ExecStart
-	97,  // 49: agentvmm.vmmd.v1.ExecRequest.resize:type_name -> agentvmm.vmmd.v1.ExecResize
-	6,   // 50: agentvmm.vmmd.v1.ExecRequest.signal:type_name -> agentvmm.vmmd.v1.ProcessSignal
-	100, // 51: agentvmm.vmmd.v1.ContainerSelector.container_ids:type_name -> agentvmm.vmmd.v1.ContainerIDList
-	101, // 52: agentvmm.vmmd.v1.NetworkLink.source:type_name -> agentvmm.vmmd.v1.ContainerSelector
-	101, // 53: agentvmm.vmmd.v1.NetworkLink.destination:type_name -> agentvmm.vmmd.v1.ContainerSelector
-	102, // 54: agentvmm.vmmd.v1.ApplyNetworkLinkRequest.link:type_name -> agentvmm.vmmd.v1.NetworkLink
-	107, // 55: agentvmm.vmmd.v1.ApplyServiceProjectionRequest.projection:type_name -> agentvmm.vmmd.v1.ServiceProjection
-	112, // 56: agentvmm.vmmd.v1.ForwardTCPRequest.header:type_name -> agentvmm.vmmd.v1.ForwardTCPHeader
-	115, // 57: agentvmm.vmmd.v1.BuildImageHeader.build_args:type_name -> agentvmm.vmmd.v1.BuildArgument
-	7,   // 58: agentvmm.vmmd.v1.BuildImageHeader.network_mode:type_name -> agentvmm.vmmd.v1.BuildNetworkMode
-	116, // 59: agentvmm.vmmd.v1.BuildImageHeader.secrets:type_name -> agentvmm.vmmd.v1.BuildSecret
-	117, // 60: agentvmm.vmmd.v1.BuildImageRequest.header:type_name -> agentvmm.vmmd.v1.BuildImageHeader
-	118, // 61: agentvmm.vmmd.v1.BuildImageRequest.context:type_name -> agentvmm.vmmd.v1.BuildContextChunk
-	119, // 62: agentvmm.vmmd.v1.BuildImageRequest.secret:type_name -> agentvmm.vmmd.v1.BuildSecretChunk
-	121, // 63: agentvmm.vmmd.v1.BuildImageResponse.result:type_name -> agentvmm.vmmd.v1.BuildImageResult
-	117, // 64: agentvmm.vmmd.v1.BuildApplianceRequest.header:type_name -> agentvmm.vmmd.v1.BuildImageHeader
-	118, // 65: agentvmm.vmmd.v1.BuildApplianceRequest.context:type_name -> agentvmm.vmmd.v1.BuildContextChunk
-	119, // 66: agentvmm.vmmd.v1.BuildApplianceRequest.secret:type_name -> agentvmm.vmmd.v1.BuildSecretChunk
-	124, // 67: agentvmm.vmmd.v1.BuildApplianceResponse.result:type_name -> agentvmm.vmmd.v1.BuildApplianceResult
-	8,   // 68: agentvmm.vmmd.v1.ComponentStatus.state:type_name -> agentvmm.vmmd.v1.ComponentState
-	126, // 69: agentvmm.vmmd.v1.ComponentHealthResponse.components:type_name -> agentvmm.vmmd.v1.ComponentStatus
-	131, // 70: agentvmm.vmmd.v1.RuntimeEvent.resource:type_name -> agentvmm.vmmd.v1.ResourceReference
-	22,  // 71: agentvmm.vmmd.v1.VMMDService.Health:input_type -> agentvmm.vmmd.v1.HealthRequest
-	24,  // 72: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:input_type -> agentvmm.vmmd.v1.PrepareShutdownRequest
-	27,  // 73: agentvmm.vmmd.v1.VMMDService.EnsureSystemAppliance:input_type -> agentvmm.vmmd.v1.EnsureSystemApplianceRequest
-	28,  // 74: agentvmm.vmmd.v1.VMMDService.StopSystemAppliance:input_type -> agentvmm.vmmd.v1.StopSystemApplianceRequest
-	29,  // 75: agentvmm.vmmd.v1.VMMDService.DeleteSystemApplianceData:input_type -> agentvmm.vmmd.v1.DeleteSystemApplianceDataRequest
-	31,  // 76: agentvmm.vmmd.v1.VMMDService.GetSystemAppliance:input_type -> agentvmm.vmmd.v1.GetSystemApplianceRequest
-	32,  // 77: agentvmm.vmmd.v1.VMMDService.ListSystemAppliances:input_type -> agentvmm.vmmd.v1.ListSystemAppliancesRequest
-	37,  // 78: agentvmm.vmmd.v1.VMMDService.OpenSystemStream:input_type -> agentvmm.vmmd.v1.SystemStreamFrame
-	40,  // 79: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:input_type -> agentvmm.vmmd.v1.EnsureNamespaceRequest
-	42,  // 80: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:input_type -> agentvmm.vmmd.v1.DeleteNamespaceRequest
-	134, // 81: agentvmm.vmmd.v1.VMMDService.DisposeNamespaceBatch:input_type -> agentvmm.vmmd.v1.DisposeNamespaceBatchRequest
-	44,  // 82: agentvmm.vmmd.v1.VMMDService.GetNamespace:input_type -> agentvmm.vmmd.v1.GetNamespaceRequest
-	46,  // 83: agentvmm.vmmd.v1.VMMDService.ListNamespaces:input_type -> agentvmm.vmmd.v1.ListNamespacesRequest
-	48,  // 84: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:input_type -> agentvmm.vmmd.v1.GetNamespaceUsageRequest
-	49,  // 85: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:input_type -> agentvmm.vmmd.v1.GetSystemUsageRequest
-	50,  // 86: agentvmm.vmmd.v1.VMMDService.PullImage:input_type -> agentvmm.vmmd.v1.PullImageRequest
-	53,  // 87: agentvmm.vmmd.v1.VMMDService.ImportImage:input_type -> agentvmm.vmmd.v1.ImportImageRequest
-	55,  // 88: agentvmm.vmmd.v1.VMMDService.CreateVolume:input_type -> agentvmm.vmmd.v1.CreateVolumeRequest
-	57,  // 89: agentvmm.vmmd.v1.VMMDService.DeleteVolume:input_type -> agentvmm.vmmd.v1.DeleteVolumeRequest
-	59,  // 90: agentvmm.vmmd.v1.VMMDService.GetVolume:input_type -> agentvmm.vmmd.v1.GetVolumeRequest
-	61,  // 91: agentvmm.vmmd.v1.VMMDService.ListVolumes:input_type -> agentvmm.vmmd.v1.ListVolumesRequest
-	64,  // 92: agentvmm.vmmd.v1.VMMDService.GetImage:input_type -> agentvmm.vmmd.v1.GetImageRequest
-	66,  // 93: agentvmm.vmmd.v1.VMMDService.ListImages:input_type -> agentvmm.vmmd.v1.ListImagesRequest
-	68,  // 94: agentvmm.vmmd.v1.VMMDService.DeleteImage:input_type -> agentvmm.vmmd.v1.DeleteImageRequest
-	74,  // 95: agentvmm.vmmd.v1.VMMDService.CreateContainer:input_type -> agentvmm.vmmd.v1.CreateContainerRequest
-	76,  // 96: agentvmm.vmmd.v1.VMMDService.StartContainer:input_type -> agentvmm.vmmd.v1.StartContainerRequest
-	78,  // 97: agentvmm.vmmd.v1.VMMDService.StopContainer:input_type -> agentvmm.vmmd.v1.StopContainerRequest
-	80,  // 98: agentvmm.vmmd.v1.VMMDService.WaitContainer:input_type -> agentvmm.vmmd.v1.WaitContainerRequest
-	82,  // 99: agentvmm.vmmd.v1.VMMDService.DeleteContainer:input_type -> agentvmm.vmmd.v1.DeleteContainerRequest
-	84,  // 100: agentvmm.vmmd.v1.VMMDService.InspectContainer:input_type -> agentvmm.vmmd.v1.InspectContainerRequest
-	86,  // 101: agentvmm.vmmd.v1.VMMDService.ListContainers:input_type -> agentvmm.vmmd.v1.ListContainersRequest
-	88,  // 102: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:input_type -> agentvmm.vmmd.v1.GetContainerUsageRequest
-	92,  // 103: agentvmm.vmmd.v1.VMMDService.Logs:input_type -> agentvmm.vmmd.v1.LogsRequest
-	98,  // 104: agentvmm.vmmd.v1.VMMDService.Exec:input_type -> agentvmm.vmmd.v1.ExecRequest
-	94,  // 105: agentvmm.vmmd.v1.VMMDService.SignalContainer:input_type -> agentvmm.vmmd.v1.SignalContainerRequest
-	103, // 106: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:input_type -> agentvmm.vmmd.v1.ApplyNetworkLinkRequest
-	105, // 107: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:input_type -> agentvmm.vmmd.v1.DeleteNetworkLinkRequest
-	108, // 108: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:input_type -> agentvmm.vmmd.v1.ApplyServiceProjectionRequest
-	110, // 109: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:input_type -> agentvmm.vmmd.v1.DeleteServiceProjectionRequest
-	113, // 110: agentvmm.vmmd.v1.VMMDService.ForwardTCP:input_type -> agentvmm.vmmd.v1.ForwardTCPRequest
-	120, // 111: agentvmm.vmmd.v1.VMMDService.BuildImage:input_type -> agentvmm.vmmd.v1.BuildImageRequest
-	123, // 112: agentvmm.vmmd.v1.VMMDService.BuildAppliance:input_type -> agentvmm.vmmd.v1.BuildApplianceRequest
-	127, // 113: agentvmm.vmmd.v1.VMMDService.ComponentHealth:input_type -> agentvmm.vmmd.v1.ComponentHealthRequest
-	129, // 114: agentvmm.vmmd.v1.VMMDService.ProbeEgress:input_type -> agentvmm.vmmd.v1.ProbeEgressRequest
-	132, // 115: agentvmm.vmmd.v1.VMMDService.WatchEvents:input_type -> agentvmm.vmmd.v1.WatchEventsRequest
-	9,   // 116: agentvmm.vmmd.v1.VMMDService.StatWorkspace:input_type -> agentvmm.vmmd.v1.WorkspacePathRequest
-	11,  // 117: agentvmm.vmmd.v1.VMMDService.ListWorkspace:input_type -> agentvmm.vmmd.v1.ListWorkspaceRequest
-	13,  // 118: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:input_type -> agentvmm.vmmd.v1.ReadWorkspaceRequest
-	16,  // 119: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:input_type -> agentvmm.vmmd.v1.WriteWorkspaceRequest
-	18,  // 120: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:input_type -> agentvmm.vmmd.v1.ArchiveWorkspaceRequest
-	21,  // 121: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:input_type -> agentvmm.vmmd.v1.ExtractWorkspaceRequest
-	23,  // 122: agentvmm.vmmd.v1.VMMDService.Health:output_type -> agentvmm.vmmd.v1.HealthResponse
-	25,  // 123: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:output_type -> agentvmm.vmmd.v1.PrepareShutdownResponse
-	34,  // 124: agentvmm.vmmd.v1.VMMDService.EnsureSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
-	34,  // 125: agentvmm.vmmd.v1.VMMDService.StopSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
-	30,  // 126: agentvmm.vmmd.v1.VMMDService.DeleteSystemApplianceData:output_type -> agentvmm.vmmd.v1.DeleteSystemApplianceDataResponse
-	34,  // 127: agentvmm.vmmd.v1.VMMDService.GetSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
-	35,  // 128: agentvmm.vmmd.v1.VMMDService.ListSystemAppliances:output_type -> agentvmm.vmmd.v1.ListSystemAppliancesResponse
-	37,  // 129: agentvmm.vmmd.v1.VMMDService.OpenSystemStream:output_type -> agentvmm.vmmd.v1.SystemStreamFrame
-	41,  // 130: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:output_type -> agentvmm.vmmd.v1.EnsureNamespaceResponse
-	43,  // 131: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:output_type -> agentvmm.vmmd.v1.DeleteNamespaceResponse
-	135, // 132: agentvmm.vmmd.v1.VMMDService.DisposeNamespaceBatch:output_type -> agentvmm.vmmd.v1.DisposeNamespaceBatchResponse
-	45,  // 133: agentvmm.vmmd.v1.VMMDService.GetNamespace:output_type -> agentvmm.vmmd.v1.GetNamespaceResponse
-	47,  // 134: agentvmm.vmmd.v1.VMMDService.ListNamespaces:output_type -> agentvmm.vmmd.v1.ListNamespacesResponse
-	90,  // 135: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	90,  // 136: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	51,  // 137: agentvmm.vmmd.v1.VMMDService.PullImage:output_type -> agentvmm.vmmd.v1.PullImageResponse
-	63,  // 138: agentvmm.vmmd.v1.VMMDService.ImportImage:output_type -> agentvmm.vmmd.v1.Image
-	56,  // 139: agentvmm.vmmd.v1.VMMDService.CreateVolume:output_type -> agentvmm.vmmd.v1.CreateVolumeResponse
-	58,  // 140: agentvmm.vmmd.v1.VMMDService.DeleteVolume:output_type -> agentvmm.vmmd.v1.DeleteVolumeResponse
-	60,  // 141: agentvmm.vmmd.v1.VMMDService.GetVolume:output_type -> agentvmm.vmmd.v1.GetVolumeResponse
-	62,  // 142: agentvmm.vmmd.v1.VMMDService.ListVolumes:output_type -> agentvmm.vmmd.v1.ListVolumesResponse
-	65,  // 143: agentvmm.vmmd.v1.VMMDService.GetImage:output_type -> agentvmm.vmmd.v1.GetImageResponse
-	67,  // 144: agentvmm.vmmd.v1.VMMDService.ListImages:output_type -> agentvmm.vmmd.v1.ListImagesResponse
-	69,  // 145: agentvmm.vmmd.v1.VMMDService.DeleteImage:output_type -> agentvmm.vmmd.v1.DeleteImageResponse
-	75,  // 146: agentvmm.vmmd.v1.VMMDService.CreateContainer:output_type -> agentvmm.vmmd.v1.CreateContainerResponse
-	77,  // 147: agentvmm.vmmd.v1.VMMDService.StartContainer:output_type -> agentvmm.vmmd.v1.StartContainerResponse
-	79,  // 148: agentvmm.vmmd.v1.VMMDService.StopContainer:output_type -> agentvmm.vmmd.v1.StopContainerResponse
-	81,  // 149: agentvmm.vmmd.v1.VMMDService.WaitContainer:output_type -> agentvmm.vmmd.v1.WaitContainerResponse
-	83,  // 150: agentvmm.vmmd.v1.VMMDService.DeleteContainer:output_type -> agentvmm.vmmd.v1.DeleteContainerResponse
-	85,  // 151: agentvmm.vmmd.v1.VMMDService.InspectContainer:output_type -> agentvmm.vmmd.v1.InspectContainerResponse
-	87,  // 152: agentvmm.vmmd.v1.VMMDService.ListContainers:output_type -> agentvmm.vmmd.v1.ListContainersResponse
-	90,  // 153: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
-	93,  // 154: agentvmm.vmmd.v1.VMMDService.Logs:output_type -> agentvmm.vmmd.v1.LogsResponse
-	99,  // 155: agentvmm.vmmd.v1.VMMDService.Exec:output_type -> agentvmm.vmmd.v1.ExecResponse
-	95,  // 156: agentvmm.vmmd.v1.VMMDService.SignalContainer:output_type -> agentvmm.vmmd.v1.SignalContainerResponse
-	104, // 157: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:output_type -> agentvmm.vmmd.v1.ApplyNetworkLinkResponse
-	106, // 158: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:output_type -> agentvmm.vmmd.v1.DeleteNetworkLinkResponse
-	109, // 159: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:output_type -> agentvmm.vmmd.v1.ApplyServiceProjectionResponse
-	111, // 160: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:output_type -> agentvmm.vmmd.v1.DeleteServiceProjectionResponse
-	114, // 161: agentvmm.vmmd.v1.VMMDService.ForwardTCP:output_type -> agentvmm.vmmd.v1.ForwardTCPResponse
-	122, // 162: agentvmm.vmmd.v1.VMMDService.BuildImage:output_type -> agentvmm.vmmd.v1.BuildImageResponse
-	125, // 163: agentvmm.vmmd.v1.VMMDService.BuildAppliance:output_type -> agentvmm.vmmd.v1.BuildApplianceResponse
-	128, // 164: agentvmm.vmmd.v1.VMMDService.ComponentHealth:output_type -> agentvmm.vmmd.v1.ComponentHealthResponse
-	130, // 165: agentvmm.vmmd.v1.VMMDService.ProbeEgress:output_type -> agentvmm.vmmd.v1.ProbeEgressResponse
-	133, // 166: agentvmm.vmmd.v1.VMMDService.WatchEvents:output_type -> agentvmm.vmmd.v1.RuntimeEvent
-	10,  // 167: agentvmm.vmmd.v1.VMMDService.StatWorkspace:output_type -> agentvmm.vmmd.v1.WorkspaceEntry
-	12,  // 168: agentvmm.vmmd.v1.VMMDService.ListWorkspace:output_type -> agentvmm.vmmd.v1.ListWorkspaceResponse
-	14,  // 169: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:output_type -> agentvmm.vmmd.v1.ReadWorkspaceResponse
-	17,  // 170: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
-	19,  // 171: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:output_type -> agentvmm.vmmd.v1.ArchiveWorkspaceResponse
-	17,  // 172: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
-	122, // [122:173] is the sub-list for method output_type
-	71,  // [71:122] is the sub-list for method input_type
-	71,  // [71:71] is the sub-list for extension type_name
-	71,  // [71:71] is the sub-list for extension extendee
-	0,   // [0:71] is the sub-list for field type_name
+	145, // 9: agentvmm.vmmd.v1.EnsureSystemApplianceRequest.content_refs:type_name -> agentvmm.appliance.v1.ApplianceContentReference
+	28,  // 10: agentvmm.vmmd.v1.StopSystemApplianceRequest.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
+	28,  // 11: agentvmm.vmmd.v1.SystemAppliance.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
+	1,   // 12: agentvmm.vmmd.v1.SystemAppliance.state:type_name -> agentvmm.vmmd.v1.SystemApplianceState
+	35,  // 13: agentvmm.vmmd.v1.SystemApplianceResponse.appliance:type_name -> agentvmm.vmmd.v1.SystemAppliance
+	35,  // 14: agentvmm.vmmd.v1.ListSystemAppliancesResponse.appliances:type_name -> agentvmm.vmmd.v1.SystemAppliance
+	28,  // 15: agentvmm.vmmd.v1.SystemStreamHeader.identity:type_name -> agentvmm.vmmd.v1.SystemApplianceIdentity
+	2,   // 16: agentvmm.vmmd.v1.SystemStreamHeader.kind:type_name -> agentvmm.vmmd.v1.SystemStreamKind
+	38,  // 17: agentvmm.vmmd.v1.SystemStreamFrame.header:type_name -> agentvmm.vmmd.v1.SystemStreamHeader
+	40,  // 18: agentvmm.vmmd.v1.Namespace.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
+	3,   // 19: agentvmm.vmmd.v1.Namespace.egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
+	40,  // 20: agentvmm.vmmd.v1.EnsureNamespaceRequest.limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
+	3,   // 21: agentvmm.vmmd.v1.EnsureNamespaceRequest.egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
+	41,  // 22: agentvmm.vmmd.v1.EnsureNamespaceResponse.namespace:type_name -> agentvmm.vmmd.v1.Namespace
+	41,  // 23: agentvmm.vmmd.v1.GetNamespaceResponse.namespace:type_name -> agentvmm.vmmd.v1.Namespace
+	41,  // 24: agentvmm.vmmd.v1.ListNamespacesResponse.namespaces:type_name -> agentvmm.vmmd.v1.Namespace
+	54,  // 25: agentvmm.vmmd.v1.ReconcileSystemImagesRequest.retention:type_name -> agentvmm.vmmd.v1.SystemImageRetention
+	40,  // 26: agentvmm.vmmd.v1.ImportImageHeader.system_limits:type_name -> agentvmm.vmmd.v1.NamespaceLimits
+	3,   // 27: agentvmm.vmmd.v1.ImportImageHeader.system_egress_mode:type_name -> agentvmm.vmmd.v1.EgressMode
+	54,  // 28: agentvmm.vmmd.v1.ImportImageHeader.system_retention:type_name -> agentvmm.vmmd.v1.SystemImageRetention
+	57,  // 29: agentvmm.vmmd.v1.ImportImageRequest.header:type_name -> agentvmm.vmmd.v1.ImportImageHeader
+	59,  // 30: agentvmm.vmmd.v1.CreateVolumeResponse.volume:type_name -> agentvmm.vmmd.v1.Volume
+	59,  // 31: agentvmm.vmmd.v1.GetVolumeResponse.volume:type_name -> agentvmm.vmmd.v1.Volume
+	59,  // 32: agentvmm.vmmd.v1.ListVolumesResponse.volumes:type_name -> agentvmm.vmmd.v1.Volume
+	9,   // 33: agentvmm.vmmd.v1.ImageOperationReceipt.kind:type_name -> agentvmm.vmmd.v1.ImageOperationKind
+	10,  // 34: agentvmm.vmmd.v1.ImageOperationReceipt.state:type_name -> agentvmm.vmmd.v1.ImageOperationState
+	146, // 35: agentvmm.vmmd.v1.ImageOperationReceipt.status:type_name -> google.rpc.Status
+	68,  // 36: agentvmm.vmmd.v1.Image.build_receipt:type_name -> agentvmm.vmmd.v1.ImageOperationReceipt
+	68,  // 37: agentvmm.vmmd.v1.Image.copy_receipt:type_name -> agentvmm.vmmd.v1.ImageOperationReceipt
+	69,  // 38: agentvmm.vmmd.v1.GetImageResponse.image:type_name -> agentvmm.vmmd.v1.Image
+	69,  // 39: agentvmm.vmmd.v1.ListImagesResponse.images:type_name -> agentvmm.vmmd.v1.Image
+	4,   // 40: agentvmm.vmmd.v1.Container.state:type_name -> agentvmm.vmmd.v1.ContainerState
+	77,  // 41: agentvmm.vmmd.v1.Container.volumes:type_name -> agentvmm.vmmd.v1.VolumeMount
+	76,  // 42: agentvmm.vmmd.v1.CreateContainerRequest.limits:type_name -> agentvmm.vmmd.v1.ResourceLimits
+	77,  // 43: agentvmm.vmmd.v1.CreateContainerRequest.volumes:type_name -> agentvmm.vmmd.v1.VolumeMount
+	79,  // 44: agentvmm.vmmd.v1.CreateContainerRequest.entrypoint_override:type_name -> agentvmm.vmmd.v1.StringList
+	79,  // 45: agentvmm.vmmd.v1.CreateContainerRequest.command_override:type_name -> agentvmm.vmmd.v1.StringList
+	78,  // 46: agentvmm.vmmd.v1.CreateContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
+	78,  // 47: agentvmm.vmmd.v1.StartContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
+	78,  // 48: agentvmm.vmmd.v1.StopContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
+	78,  // 49: agentvmm.vmmd.v1.InspectContainerResponse.container:type_name -> agentvmm.vmmd.v1.Container
+	78,  // 50: agentvmm.vmmd.v1.ListContainersResponse.containers:type_name -> agentvmm.vmmd.v1.Container
+	95,  // 51: agentvmm.vmmd.v1.GetUsageResponse.usage:type_name -> agentvmm.vmmd.v1.Usage
+	95,  // 52: agentvmm.vmmd.v1.GetUsageResponse.workload_pool:type_name -> agentvmm.vmmd.v1.Usage
+	97,  // 53: agentvmm.vmmd.v1.GetUsageResponse.disk:type_name -> agentvmm.vmmd.v1.DiskAccounting
+	5,   // 54: agentvmm.vmmd.v1.LogsResponse.stream:type_name -> agentvmm.vmmd.v1.LogStream
+	6,   // 55: agentvmm.vmmd.v1.SignalContainerRequest.signal:type_name -> agentvmm.vmmd.v1.ProcessSignal
+	102, // 56: agentvmm.vmmd.v1.ExecRequest.start:type_name -> agentvmm.vmmd.v1.ExecStart
+	103, // 57: agentvmm.vmmd.v1.ExecRequest.resize:type_name -> agentvmm.vmmd.v1.ExecResize
+	6,   // 58: agentvmm.vmmd.v1.ExecRequest.signal:type_name -> agentvmm.vmmd.v1.ProcessSignal
+	106, // 59: agentvmm.vmmd.v1.ContainerSelector.container_ids:type_name -> agentvmm.vmmd.v1.ContainerIDList
+	107, // 60: agentvmm.vmmd.v1.NetworkLink.source:type_name -> agentvmm.vmmd.v1.ContainerSelector
+	107, // 61: agentvmm.vmmd.v1.NetworkLink.destination:type_name -> agentvmm.vmmd.v1.ContainerSelector
+	108, // 62: agentvmm.vmmd.v1.ApplyNetworkLinkRequest.link:type_name -> agentvmm.vmmd.v1.NetworkLink
+	113, // 63: agentvmm.vmmd.v1.ApplyServiceProjectionRequest.projection:type_name -> agentvmm.vmmd.v1.ServiceProjection
+	118, // 64: agentvmm.vmmd.v1.ForwardTCPRequest.header:type_name -> agentvmm.vmmd.v1.ForwardTCPHeader
+	121, // 65: agentvmm.vmmd.v1.BuildImageHeader.build_args:type_name -> agentvmm.vmmd.v1.BuildArgument
+	7,   // 66: agentvmm.vmmd.v1.BuildImageHeader.network_mode:type_name -> agentvmm.vmmd.v1.BuildNetworkMode
+	122, // 67: agentvmm.vmmd.v1.BuildImageHeader.secrets:type_name -> agentvmm.vmmd.v1.BuildSecret
+	123, // 68: agentvmm.vmmd.v1.BuildImageRequest.header:type_name -> agentvmm.vmmd.v1.BuildImageHeader
+	124, // 69: agentvmm.vmmd.v1.BuildImageRequest.context:type_name -> agentvmm.vmmd.v1.BuildContextChunk
+	125, // 70: agentvmm.vmmd.v1.BuildImageRequest.secret:type_name -> agentvmm.vmmd.v1.BuildSecretChunk
+	128, // 71: agentvmm.vmmd.v1.BuildImageResponse.result:type_name -> agentvmm.vmmd.v1.BuildImageResult
+	123, // 72: agentvmm.vmmd.v1.BuildApplianceRequest.header:type_name -> agentvmm.vmmd.v1.BuildImageHeader
+	124, // 73: agentvmm.vmmd.v1.BuildApplianceRequest.context:type_name -> agentvmm.vmmd.v1.BuildContextChunk
+	125, // 74: agentvmm.vmmd.v1.BuildApplianceRequest.secret:type_name -> agentvmm.vmmd.v1.BuildSecretChunk
+	131, // 75: agentvmm.vmmd.v1.BuildApplianceResponse.result:type_name -> agentvmm.vmmd.v1.BuildApplianceResult
+	8,   // 76: agentvmm.vmmd.v1.ComponentStatus.state:type_name -> agentvmm.vmmd.v1.ComponentState
+	133, // 77: agentvmm.vmmd.v1.ComponentHealthResponse.components:type_name -> agentvmm.vmmd.v1.ComponentStatus
+	138, // 78: agentvmm.vmmd.v1.RuntimeEvent.resource:type_name -> agentvmm.vmmd.v1.ResourceReference
+	9,   // 79: agentvmm.vmmd.v1.ImageOperationRequest.kind:type_name -> agentvmm.vmmd.v1.ImageOperationKind
+	24,  // 80: agentvmm.vmmd.v1.VMMDService.Health:input_type -> agentvmm.vmmd.v1.HealthRequest
+	26,  // 81: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:input_type -> agentvmm.vmmd.v1.PrepareShutdownRequest
+	147, // 82: agentvmm.vmmd.v1.VMMDService.StageApplianceContent:input_type -> agentvmm.appliance.v1.StageContentRequest
+	55,  // 83: agentvmm.vmmd.v1.VMMDService.ReconcileSystemImages:input_type -> agentvmm.vmmd.v1.ReconcileSystemImagesRequest
+	29,  // 84: agentvmm.vmmd.v1.VMMDService.EnsureSystemAppliance:input_type -> agentvmm.vmmd.v1.EnsureSystemApplianceRequest
+	30,  // 85: agentvmm.vmmd.v1.VMMDService.StopSystemAppliance:input_type -> agentvmm.vmmd.v1.StopSystemApplianceRequest
+	31,  // 86: agentvmm.vmmd.v1.VMMDService.DeleteSystemApplianceData:input_type -> agentvmm.vmmd.v1.DeleteSystemApplianceDataRequest
+	33,  // 87: agentvmm.vmmd.v1.VMMDService.GetSystemAppliance:input_type -> agentvmm.vmmd.v1.GetSystemApplianceRequest
+	34,  // 88: agentvmm.vmmd.v1.VMMDService.ListSystemAppliances:input_type -> agentvmm.vmmd.v1.ListSystemAppliancesRequest
+	39,  // 89: agentvmm.vmmd.v1.VMMDService.OpenSystemStream:input_type -> agentvmm.vmmd.v1.SystemStreamFrame
+	42,  // 90: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:input_type -> agentvmm.vmmd.v1.EnsureNamespaceRequest
+	44,  // 91: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:input_type -> agentvmm.vmmd.v1.DeleteNamespaceRequest
+	141, // 92: agentvmm.vmmd.v1.VMMDService.DisposeNamespaceBatch:input_type -> agentvmm.vmmd.v1.DisposeNamespaceBatchRequest
+	46,  // 93: agentvmm.vmmd.v1.VMMDService.GetNamespace:input_type -> agentvmm.vmmd.v1.GetNamespaceRequest
+	48,  // 94: agentvmm.vmmd.v1.VMMDService.ListNamespaces:input_type -> agentvmm.vmmd.v1.ListNamespacesRequest
+	148, // 95: agentvmm.vmmd.v1.VMMDService.ApplyHostShares:input_type -> agentvmm.vmmd.v1.ApplyHostSharesRequest
+	50,  // 96: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:input_type -> agentvmm.vmmd.v1.GetNamespaceUsageRequest
+	51,  // 97: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:input_type -> agentvmm.vmmd.v1.GetSystemUsageRequest
+	52,  // 98: agentvmm.vmmd.v1.VMMDService.PullImage:input_type -> agentvmm.vmmd.v1.PullImageRequest
+	58,  // 99: agentvmm.vmmd.v1.VMMDService.ImportImage:input_type -> agentvmm.vmmd.v1.ImportImageRequest
+	60,  // 100: agentvmm.vmmd.v1.VMMDService.CreateVolume:input_type -> agentvmm.vmmd.v1.CreateVolumeRequest
+	62,  // 101: agentvmm.vmmd.v1.VMMDService.DeleteVolume:input_type -> agentvmm.vmmd.v1.DeleteVolumeRequest
+	64,  // 102: agentvmm.vmmd.v1.VMMDService.GetVolume:input_type -> agentvmm.vmmd.v1.GetVolumeRequest
+	66,  // 103: agentvmm.vmmd.v1.VMMDService.ListVolumes:input_type -> agentvmm.vmmd.v1.ListVolumesRequest
+	70,  // 104: agentvmm.vmmd.v1.VMMDService.GetImage:input_type -> agentvmm.vmmd.v1.GetImageRequest
+	72,  // 105: agentvmm.vmmd.v1.VMMDService.ListImages:input_type -> agentvmm.vmmd.v1.ListImagesRequest
+	74,  // 106: agentvmm.vmmd.v1.VMMDService.DeleteImage:input_type -> agentvmm.vmmd.v1.DeleteImageRequest
+	80,  // 107: agentvmm.vmmd.v1.VMMDService.CreateContainer:input_type -> agentvmm.vmmd.v1.CreateContainerRequest
+	82,  // 108: agentvmm.vmmd.v1.VMMDService.StartContainer:input_type -> agentvmm.vmmd.v1.StartContainerRequest
+	84,  // 109: agentvmm.vmmd.v1.VMMDService.StopContainer:input_type -> agentvmm.vmmd.v1.StopContainerRequest
+	86,  // 110: agentvmm.vmmd.v1.VMMDService.WaitContainer:input_type -> agentvmm.vmmd.v1.WaitContainerRequest
+	88,  // 111: agentvmm.vmmd.v1.VMMDService.DeleteContainer:input_type -> agentvmm.vmmd.v1.DeleteContainerRequest
+	90,  // 112: agentvmm.vmmd.v1.VMMDService.InspectContainer:input_type -> agentvmm.vmmd.v1.InspectContainerRequest
+	92,  // 113: agentvmm.vmmd.v1.VMMDService.ListContainers:input_type -> agentvmm.vmmd.v1.ListContainersRequest
+	94,  // 114: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:input_type -> agentvmm.vmmd.v1.GetContainerUsageRequest
+	98,  // 115: agentvmm.vmmd.v1.VMMDService.Logs:input_type -> agentvmm.vmmd.v1.LogsRequest
+	104, // 116: agentvmm.vmmd.v1.VMMDService.Exec:input_type -> agentvmm.vmmd.v1.ExecRequest
+	100, // 117: agentvmm.vmmd.v1.VMMDService.SignalContainer:input_type -> agentvmm.vmmd.v1.SignalContainerRequest
+	109, // 118: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:input_type -> agentvmm.vmmd.v1.ApplyNetworkLinkRequest
+	111, // 119: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:input_type -> agentvmm.vmmd.v1.DeleteNetworkLinkRequest
+	114, // 120: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:input_type -> agentvmm.vmmd.v1.ApplyServiceProjectionRequest
+	116, // 121: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:input_type -> agentvmm.vmmd.v1.DeleteServiceProjectionRequest
+	119, // 122: agentvmm.vmmd.v1.VMMDService.ForwardTCP:input_type -> agentvmm.vmmd.v1.ForwardTCPRequest
+	126, // 123: agentvmm.vmmd.v1.VMMDService.BuildImage:input_type -> agentvmm.vmmd.v1.BuildImageRequest
+	127, // 124: agentvmm.vmmd.v1.VMMDService.CopyImage:input_type -> agentvmm.vmmd.v1.CopyImageRequest
+	143, // 125: agentvmm.vmmd.v1.VMMDService.ObserveImageOperation:input_type -> agentvmm.vmmd.v1.ImageOperationRequest
+	143, // 126: agentvmm.vmmd.v1.VMMDService.CancelImageOperation:input_type -> agentvmm.vmmd.v1.ImageOperationRequest
+	130, // 127: agentvmm.vmmd.v1.VMMDService.BuildAppliance:input_type -> agentvmm.vmmd.v1.BuildApplianceRequest
+	134, // 128: agentvmm.vmmd.v1.VMMDService.ComponentHealth:input_type -> agentvmm.vmmd.v1.ComponentHealthRequest
+	136, // 129: agentvmm.vmmd.v1.VMMDService.ProbeEgress:input_type -> agentvmm.vmmd.v1.ProbeEgressRequest
+	139, // 130: agentvmm.vmmd.v1.VMMDService.WatchEvents:input_type -> agentvmm.vmmd.v1.WatchEventsRequest
+	11,  // 131: agentvmm.vmmd.v1.VMMDService.StatWorkspace:input_type -> agentvmm.vmmd.v1.WorkspacePathRequest
+	13,  // 132: agentvmm.vmmd.v1.VMMDService.ListWorkspace:input_type -> agentvmm.vmmd.v1.ListWorkspaceRequest
+	15,  // 133: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:input_type -> agentvmm.vmmd.v1.ReadWorkspaceRequest
+	18,  // 134: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:input_type -> agentvmm.vmmd.v1.WriteWorkspaceRequest
+	20,  // 135: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:input_type -> agentvmm.vmmd.v1.ArchiveWorkspaceRequest
+	23,  // 136: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:input_type -> agentvmm.vmmd.v1.ExtractWorkspaceRequest
+	25,  // 137: agentvmm.vmmd.v1.VMMDService.Health:output_type -> agentvmm.vmmd.v1.HealthResponse
+	27,  // 138: agentvmm.vmmd.v1.VMMDService.PrepareShutdown:output_type -> agentvmm.vmmd.v1.PrepareShutdownResponse
+	149, // 139: agentvmm.vmmd.v1.VMMDService.StageApplianceContent:output_type -> agentvmm.appliance.v1.ApplianceContentStatus
+	56,  // 140: agentvmm.vmmd.v1.VMMDService.ReconcileSystemImages:output_type -> agentvmm.vmmd.v1.ReconcileSystemImagesResponse
+	36,  // 141: agentvmm.vmmd.v1.VMMDService.EnsureSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
+	36,  // 142: agentvmm.vmmd.v1.VMMDService.StopSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
+	32,  // 143: agentvmm.vmmd.v1.VMMDService.DeleteSystemApplianceData:output_type -> agentvmm.vmmd.v1.DeleteSystemApplianceDataResponse
+	36,  // 144: agentvmm.vmmd.v1.VMMDService.GetSystemAppliance:output_type -> agentvmm.vmmd.v1.SystemApplianceResponse
+	37,  // 145: agentvmm.vmmd.v1.VMMDService.ListSystemAppliances:output_type -> agentvmm.vmmd.v1.ListSystemAppliancesResponse
+	39,  // 146: agentvmm.vmmd.v1.VMMDService.OpenSystemStream:output_type -> agentvmm.vmmd.v1.SystemStreamFrame
+	43,  // 147: agentvmm.vmmd.v1.VMMDService.EnsureNamespace:output_type -> agentvmm.vmmd.v1.EnsureNamespaceResponse
+	45,  // 148: agentvmm.vmmd.v1.VMMDService.DeleteNamespace:output_type -> agentvmm.vmmd.v1.DeleteNamespaceResponse
+	142, // 149: agentvmm.vmmd.v1.VMMDService.DisposeNamespaceBatch:output_type -> agentvmm.vmmd.v1.DisposeNamespaceBatchResponse
+	47,  // 150: agentvmm.vmmd.v1.VMMDService.GetNamespace:output_type -> agentvmm.vmmd.v1.GetNamespaceResponse
+	49,  // 151: agentvmm.vmmd.v1.VMMDService.ListNamespaces:output_type -> agentvmm.vmmd.v1.ListNamespacesResponse
+	150, // 152: agentvmm.vmmd.v1.VMMDService.ApplyHostShares:output_type -> agentvmm.vmmd.v1.ApplyHostSharesResponse
+	96,  // 153: agentvmm.vmmd.v1.VMMDService.GetNamespaceUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	96,  // 154: agentvmm.vmmd.v1.VMMDService.GetSystemUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	53,  // 155: agentvmm.vmmd.v1.VMMDService.PullImage:output_type -> agentvmm.vmmd.v1.PullImageResponse
+	69,  // 156: agentvmm.vmmd.v1.VMMDService.ImportImage:output_type -> agentvmm.vmmd.v1.Image
+	61,  // 157: agentvmm.vmmd.v1.VMMDService.CreateVolume:output_type -> agentvmm.vmmd.v1.CreateVolumeResponse
+	63,  // 158: agentvmm.vmmd.v1.VMMDService.DeleteVolume:output_type -> agentvmm.vmmd.v1.DeleteVolumeResponse
+	65,  // 159: agentvmm.vmmd.v1.VMMDService.GetVolume:output_type -> agentvmm.vmmd.v1.GetVolumeResponse
+	67,  // 160: agentvmm.vmmd.v1.VMMDService.ListVolumes:output_type -> agentvmm.vmmd.v1.ListVolumesResponse
+	71,  // 161: agentvmm.vmmd.v1.VMMDService.GetImage:output_type -> agentvmm.vmmd.v1.GetImageResponse
+	73,  // 162: agentvmm.vmmd.v1.VMMDService.ListImages:output_type -> agentvmm.vmmd.v1.ListImagesResponse
+	75,  // 163: agentvmm.vmmd.v1.VMMDService.DeleteImage:output_type -> agentvmm.vmmd.v1.DeleteImageResponse
+	81,  // 164: agentvmm.vmmd.v1.VMMDService.CreateContainer:output_type -> agentvmm.vmmd.v1.CreateContainerResponse
+	83,  // 165: agentvmm.vmmd.v1.VMMDService.StartContainer:output_type -> agentvmm.vmmd.v1.StartContainerResponse
+	85,  // 166: agentvmm.vmmd.v1.VMMDService.StopContainer:output_type -> agentvmm.vmmd.v1.StopContainerResponse
+	87,  // 167: agentvmm.vmmd.v1.VMMDService.WaitContainer:output_type -> agentvmm.vmmd.v1.WaitContainerResponse
+	89,  // 168: agentvmm.vmmd.v1.VMMDService.DeleteContainer:output_type -> agentvmm.vmmd.v1.DeleteContainerResponse
+	91,  // 169: agentvmm.vmmd.v1.VMMDService.InspectContainer:output_type -> agentvmm.vmmd.v1.InspectContainerResponse
+	93,  // 170: agentvmm.vmmd.v1.VMMDService.ListContainers:output_type -> agentvmm.vmmd.v1.ListContainersResponse
+	96,  // 171: agentvmm.vmmd.v1.VMMDService.GetContainerUsage:output_type -> agentvmm.vmmd.v1.GetUsageResponse
+	99,  // 172: agentvmm.vmmd.v1.VMMDService.Logs:output_type -> agentvmm.vmmd.v1.LogsResponse
+	105, // 173: agentvmm.vmmd.v1.VMMDService.Exec:output_type -> agentvmm.vmmd.v1.ExecResponse
+	101, // 174: agentvmm.vmmd.v1.VMMDService.SignalContainer:output_type -> agentvmm.vmmd.v1.SignalContainerResponse
+	110, // 175: agentvmm.vmmd.v1.VMMDService.ApplyNetworkLink:output_type -> agentvmm.vmmd.v1.ApplyNetworkLinkResponse
+	112, // 176: agentvmm.vmmd.v1.VMMDService.DeleteNetworkLink:output_type -> agentvmm.vmmd.v1.DeleteNetworkLinkResponse
+	115, // 177: agentvmm.vmmd.v1.VMMDService.ApplyServiceProjection:output_type -> agentvmm.vmmd.v1.ApplyServiceProjectionResponse
+	117, // 178: agentvmm.vmmd.v1.VMMDService.DeleteServiceProjection:output_type -> agentvmm.vmmd.v1.DeleteServiceProjectionResponse
+	120, // 179: agentvmm.vmmd.v1.VMMDService.ForwardTCP:output_type -> agentvmm.vmmd.v1.ForwardTCPResponse
+	129, // 180: agentvmm.vmmd.v1.VMMDService.BuildImage:output_type -> agentvmm.vmmd.v1.BuildImageResponse
+	69,  // 181: agentvmm.vmmd.v1.VMMDService.CopyImage:output_type -> agentvmm.vmmd.v1.Image
+	68,  // 182: agentvmm.vmmd.v1.VMMDService.ObserveImageOperation:output_type -> agentvmm.vmmd.v1.ImageOperationReceipt
+	68,  // 183: agentvmm.vmmd.v1.VMMDService.CancelImageOperation:output_type -> agentvmm.vmmd.v1.ImageOperationReceipt
+	132, // 184: agentvmm.vmmd.v1.VMMDService.BuildAppliance:output_type -> agentvmm.vmmd.v1.BuildApplianceResponse
+	135, // 185: agentvmm.vmmd.v1.VMMDService.ComponentHealth:output_type -> agentvmm.vmmd.v1.ComponentHealthResponse
+	137, // 186: agentvmm.vmmd.v1.VMMDService.ProbeEgress:output_type -> agentvmm.vmmd.v1.ProbeEgressResponse
+	140, // 187: agentvmm.vmmd.v1.VMMDService.WatchEvents:output_type -> agentvmm.vmmd.v1.RuntimeEvent
+	12,  // 188: agentvmm.vmmd.v1.VMMDService.StatWorkspace:output_type -> agentvmm.vmmd.v1.WorkspaceEntry
+	14,  // 189: agentvmm.vmmd.v1.VMMDService.ListWorkspace:output_type -> agentvmm.vmmd.v1.ListWorkspaceResponse
+	16,  // 190: agentvmm.vmmd.v1.VMMDService.ReadWorkspace:output_type -> agentvmm.vmmd.v1.ReadWorkspaceResponse
+	19,  // 191: agentvmm.vmmd.v1.VMMDService.WriteWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
+	21,  // 192: agentvmm.vmmd.v1.VMMDService.ArchiveWorkspace:output_type -> agentvmm.vmmd.v1.ArchiveWorkspaceResponse
+	19,  // 193: agentvmm.vmmd.v1.VMMDService.ExtractWorkspace:output_type -> agentvmm.vmmd.v1.WriteWorkspaceResponse
+	137, // [137:194] is the sub-list for method output_type
+	80,  // [80:137] is the sub-list for method input_type
+	80,  // [80:80] is the sub-list for extension type_name
+	80,  // [80:80] is the sub-list for extension extendee
+	0,   // [0:80] is the sub-list for field type_name
 }
 
 func init() { file_vmmd_v1_vmmd_proto_init() }
@@ -9896,6 +10785,7 @@ func file_vmmd_v1_vmmd_proto_init() {
 	if File_vmmd_v1_vmmd_proto != nil {
 		return
 	}
+	file_vmmd_v1_directory_sharing_proto_init()
 	file_vmmd_v1_vmmd_proto_msgTypes[7].OneofWrappers = []any{
 		(*WriteWorkspaceRequest_Header)(nil),
 		(*WriteWorkspaceRequest_Data)(nil),
@@ -9912,58 +10802,62 @@ func file_vmmd_v1_vmmd_proto_init() {
 		(*SystemStreamFrame_CloseWrite)(nil),
 	}
 	file_vmmd_v1_vmmd_proto_msgTypes[42].OneofWrappers = []any{}
-	file_vmmd_v1_vmmd_proto_msgTypes[44].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[47].OneofWrappers = []any{
 		(*ImportImageRequest_Header)(nil),
 		(*ImportImageRequest_ArchiveChunk)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[46].OneofWrappers = []any{}
-	file_vmmd_v1_vmmd_proto_msgTypes[61].OneofWrappers = []any{}
-	file_vmmd_v1_vmmd_proto_msgTypes[63].OneofWrappers = []any{}
+	file_vmmd_v1_vmmd_proto_msgTypes[49].OneofWrappers = []any{}
 	file_vmmd_v1_vmmd_proto_msgTypes[65].OneofWrappers = []any{}
+	file_vmmd_v1_vmmd_proto_msgTypes[66].OneofWrappers = []any{
+		(*VolumeMount_OwnedVolume)(nil),
+		(*VolumeMount_HostShare)(nil),
+	}
+	file_vmmd_v1_vmmd_proto_msgTypes[67].OneofWrappers = []any{}
 	file_vmmd_v1_vmmd_proto_msgTypes[69].OneofWrappers = []any{}
-	file_vmmd_v1_vmmd_proto_msgTypes[81].OneofWrappers = []any{}
-	file_vmmd_v1_vmmd_proto_msgTypes[87].OneofWrappers = []any{}
-	file_vmmd_v1_vmmd_proto_msgTypes[89].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[73].OneofWrappers = []any{}
+	file_vmmd_v1_vmmd_proto_msgTypes[85].OneofWrappers = []any{}
+	file_vmmd_v1_vmmd_proto_msgTypes[91].OneofWrappers = []any{}
+	file_vmmd_v1_vmmd_proto_msgTypes[93].OneofWrappers = []any{
 		(*ExecRequest_Start)(nil),
 		(*ExecRequest_Stdin)(nil),
 		(*ExecRequest_CloseStdin)(nil),
 		(*ExecRequest_Resize)(nil),
 		(*ExecRequest_Signal)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[90].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[94].OneofWrappers = []any{
 		(*ExecResponse_Stdout)(nil),
 		(*ExecResponse_Stderr)(nil),
 		(*ExecResponse_ExitCode)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[92].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[96].OneofWrappers = []any{
 		(*ContainerSelector_AllContainers)(nil),
 		(*ContainerSelector_ContainerIds)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[104].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[108].OneofWrappers = []any{
 		(*ForwardTCPRequest_Header)(nil),
 		(*ForwardTCPRequest_Data)(nil),
 		(*ForwardTCPRequest_CloseWrite)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[105].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[109].OneofWrappers = []any{
 		(*ForwardTCPResponse_Data)(nil),
 		(*ForwardTCPResponse_CloseRead)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[108].OneofWrappers = []any{}
-	file_vmmd_v1_vmmd_proto_msgTypes[111].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[112].OneofWrappers = []any{}
+	file_vmmd_v1_vmmd_proto_msgTypes[115].OneofWrappers = []any{
 		(*BuildImageRequest_Header)(nil),
 		(*BuildImageRequest_Context)(nil),
 		(*BuildImageRequest_Secret)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[113].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[118].OneofWrappers = []any{
 		(*BuildImageResponse_Progress)(nil),
 		(*BuildImageResponse_Result)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[114].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[119].OneofWrappers = []any{
 		(*BuildApplianceRequest_Header)(nil),
 		(*BuildApplianceRequest_Context)(nil),
 		(*BuildApplianceRequest_Secret)(nil),
 	}
-	file_vmmd_v1_vmmd_proto_msgTypes[116].OneofWrappers = []any{
+	file_vmmd_v1_vmmd_proto_msgTypes[121].OneofWrappers = []any{
 		(*BuildApplianceResponse_Progress)(nil),
 		(*BuildApplianceResponse_ArchiveChunk)(nil),
 		(*BuildApplianceResponse_Result)(nil),
@@ -9973,8 +10867,8 @@ func file_vmmd_v1_vmmd_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vmmd_v1_vmmd_proto_rawDesc), len(file_vmmd_v1_vmmd_proto_rawDesc)),
-			NumEnums:      9,
-			NumMessages:   128,
+			NumEnums:      11,
+			NumMessages:   134,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

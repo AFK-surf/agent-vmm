@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
@@ -20,7 +21,6 @@ const (
 	bootstrapFrameLimit = 64 << 10
 	bootstrapTotalLimit = (1 << 20) + bootstrapFrameLimit
 	frontendFrameLimit  = 1 << 20
-	frontendTotalLimit  = 1 << 30
 )
 
 func (server *Server) OpenSystemStream(stream grpc.BidiStreamingServer[vmmdv1.SystemStreamFrame, vmmdv1.SystemStreamFrame]) error {
@@ -58,8 +58,14 @@ func (server *Server) OpenSystemStream(stream grpc.BidiStreamingServer[vmmdv1.Sy
 	}
 	setDeadline := func() { _ = connection.SetDeadline(time.Now().Add(idle)) }
 	setDeadline()
+	send, stopSender := newSystemStreamSender(stream, idle)
+	defer stopSender()
 
+	boundedTotal := header.GetMaxTotalBytes() != 0
 	inbound := make(chan error, 1)
+	inputProgress := make(chan struct{}, 1)
+	var lastInput atomic.Int64
+	lastInput.Store(time.Now().UnixNano())
 	go func() {
 		var total uint64
 		for {
@@ -87,7 +93,7 @@ func (server *Server) OpenSystemStream(stream grpc.BidiStreamingServer[vmmdv1.Sy
 				return
 			}
 			data := frame.GetData()
-			if len(data) == 0 || uint32(len(data)) > header.GetMaxFrameBytes() || uint64(len(data)) > header.GetMaxTotalBytes()-total {
+			if len(data) == 0 || uint32(len(data)) > header.GetMaxFrameBytes() || (boundedTotal && uint64(len(data)) > header.GetMaxTotalBytes()-total) {
 				inbound <- errors.New("system stream input exceeds its bound")
 				return
 			}
@@ -96,7 +102,14 @@ func (server *Server) OpenSystemStream(stream grpc.BidiStreamingServer[vmmdv1.Sy
 				inbound <- writeErr
 				return
 			}
-			total += uint64(len(data))
+			lastInput.Store(time.Now().UnixNano())
+			select {
+			case inputProgress <- struct{}{}:
+			default:
+			}
+			if boundedTotal {
+				total += uint64(len(data))
+			}
 		}
 	}()
 
@@ -106,29 +119,87 @@ func (server *Server) OpenSystemStream(stream grpc.BidiStreamingServer[vmmdv1.Sy
 		setDeadline()
 		count, readErr := connection.Read(buffer)
 		if count != 0 {
-			if uint64(count) > header.GetMaxTotalBytes()-outbound {
+			if boundedTotal && uint64(count) > header.GetMaxTotalBytes()-outbound {
 				return rpcError(errors.New("system stream output exceeds its bound"))
 			}
-			if err := stream.Send(&vmmdv1.SystemStreamFrame{Payload: &vmmdv1.SystemStreamFrame_Data{Data: append([]byte(nil), buffer[:count]...)}}); err != nil {
+			if err := send(&vmmdv1.SystemStreamFrame{Payload: &vmmdv1.SystemStreamFrame_Data{Data: append([]byte(nil), buffer[:count]...)}}); err != nil {
 				return err
 			}
-			outbound += uint64(count)
+			if boundedTotal {
+				outbound += uint64(count)
+			}
 		}
 		if errors.Is(readErr, io.EOF) {
-			if err := stream.Send(&vmmdv1.SystemStreamFrame{Payload: &vmmdv1.SystemStreamFrame_CloseWrite{CloseWrite: true}}); err != nil {
+			if err := send(&vmmdv1.SystemStreamFrame{Payload: &vmmdv1.SystemStreamFrame_CloseWrite{CloseWrite: true}}); err != nil {
 				return err
 			}
-			select {
-			case inboundErr := <-inbound:
-				return systemStreamProxyError(inboundErr)
-			case <-stream.Context().Done():
-				return stream.Context().Err()
+			wait := time.NewTimer(idle)
+			defer wait.Stop()
+			for {
+				select {
+				case inboundErr := <-inbound:
+					return systemStreamProxyError(inboundErr)
+				case <-stream.Context().Done():
+					return stream.Context().Err()
+				case <-inputProgress:
+					wait.Reset(time.Until(time.Unix(0, lastInput.Load()).Add(idle)))
+				case <-wait.C:
+					if remaining := time.Until(time.Unix(0, lastInput.Load()).Add(idle)); remaining > 0 {
+						wait.Reset(remaining)
+						continue
+					}
+					return status.Error(codes.DeadlineExceeded, "system stream input exceeded its idle bound after half-close")
+				}
 			}
 		}
 		if readErr != nil {
 			return systemStreamProxyError(readErr)
 		}
 	}
+}
+
+func newSystemStreamSender(stream grpc.BidiStreamingServer[vmmdv1.SystemStreamFrame, vmmdv1.SystemStreamFrame], idle time.Duration) (func(*vmmdv1.SystemStreamFrame) error, func()) {
+	frames := make(chan *vmmdv1.SystemStreamFrame)
+	result := make(chan error, 1)
+	stopped := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stopped:
+				return
+			case <-stream.Context().Done():
+				return
+			case frame := <-frames:
+				err := stream.Send(frame)
+				result <- err
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+	timer := time.NewTimer(idle)
+	timer.Stop()
+	send := func(frame *vmmdv1.SystemStreamFrame) error {
+		timer.Reset(idle)
+		defer timer.Stop()
+		select {
+		case frames <- frame:
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case <-timer.C:
+			return status.Error(codes.DeadlineExceeded, "system stream receiver exceeded its idle bound")
+		}
+		select {
+		case err := <-result:
+			return err
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case <-timer.C:
+			return status.Error(codes.DeadlineExceeded, "system stream receiver exceeded its idle bound")
+		}
+	}
+	return send, func() { timer.Stop(); close(stopped) }
 }
 
 func systemStreamProxyError(err error) error {
@@ -165,76 +236,42 @@ func (supervisor *applianceSupervisor) acquireStream(header *vmmdv1.SystemStream
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
 	record := supervisor.records[header.GetIdentity().GetInstallationId()]
-	if record == nil || record.status.GetState() != vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING || !sameSystemLaunch(record.status.GetIdentity(), header.GetIdentity(), true) {
+	if record == nil || record.stopping || record.status.GetState() != vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING || !sameSystemLaunch(record.status.GetIdentity(), header.GetIdentity()) {
 		return "", nil, nil, errors.New("system stream does not match the running appliance")
 	}
 	nonce := string(header.GetNonce())
-	if _, exists := record.usedNonces[nonce]; exists {
+	_, inFlight := record.inFlightNonces[nonce]
+	_, bootstrapped := record.bootstrapNonces[nonce]
+	if inFlight || bootstrapped {
 		return "", nil, nil, errors.New("system stream nonce was already consumed")
 	}
-	if len(record.usedNonces) >= systemNonceLimit {
-		return "", nil, nil, errors.New("system stream nonce bound reached")
-	}
 	key := header.GetKind().String() + "/" + header.GetName()
-	if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP {
-		if record.bootstrapUse != 0 {
-			return "", nil, nil, errors.New("bootstrap stream was already consumed")
-		}
-		record.bootstrapUse = 1
-	}
-	if record.streamUses == nil {
-		record.streamUses = make(map[string]uint32)
-	}
 	if record.streams[key] >= header.GetMaxConcurrentStreams() {
-		if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP {
-			record.bootstrapUse = 0
-		}
 		return "", nil, nil, errors.New("system stream concurrency bound reached")
 	}
-	if record.streamUses[key] >= header.GetMaxUseCount() {
-		if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP {
-			record.bootstrapUse = 0
-		}
-		return "", nil, nil, errors.New("system stream use count bound reached")
-	}
-	record.usedNonces[nonce] = struct{}{}
+	record.inFlightNonces[nonce] = struct{}{}
 	record.streams[key]++
-	record.streamUses[key]++
 	path := filepath.Join(record.runtimePath, systemSocketName(header))
-	committed := false
+	streams, inFlightNonces := record.streams, record.inFlightNonces
 	commit := func() error {
 		supervisor.mu.Lock()
 		defer supervisor.mu.Unlock()
-		if current := supervisor.records[header.GetIdentity().GetInstallationId()]; current != record || current.status.GetState() != vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING || !sameSystemLaunch(current.status.GetIdentity(), header.GetIdentity(), true) {
+		if current := supervisor.records[header.GetIdentity().GetInstallationId()]; current != record || current.stopping || current.status.GetState() != vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_RUNNING || !sameSystemLaunch(current.status.GetIdentity(), header.GetIdentity()) {
 			return errors.New("system appliance changed while the stream was connecting")
 		}
-		committed = true
 		if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP {
-			record.bootstrapUse = 2
+			if record.bootstrapNonces == nil {
+				record.bootstrapNonces = make(map[string]struct{})
+			}
+			record.bootstrapNonces[nonce] = struct{}{}
 		}
 		return nil
 	}
 	release := func() {
 		supervisor.mu.Lock()
-		if current := supervisor.records[header.GetIdentity().GetInstallationId()]; current == record && record.streams[key] != 0 {
-			record.streams[key]--
-			// The controller stream is a retained transport, not a consumable
-			// frontend request. A failed connection attempt must not permanently
-			// consume one of its bounded lifetime uses: gRPC may redial before the
-			// appliance accepts the control RPC.
-			if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_CONTROLLER {
-				delete(record.usedNonces, nonce)
-				if record.streamUses[key] != 0 {
-					record.streamUses[key]--
-				}
-			}
-			if header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP && !committed && record.bootstrapUse == 1 {
-				record.bootstrapUse = 0
-				delete(record.usedNonces, nonce)
-			}
-			if !committed && record.streamUses[key] != 0 {
-				record.streamUses[key]--
-			}
+		if current := supervisor.records[header.GetIdentity().GetInstallationId()]; current == record && streams[key] != 0 {
+			streams[key]--
+			delete(inFlightNonces, nonce)
 		}
 		supervisor.mu.Unlock()
 	}
@@ -242,17 +279,20 @@ func (supervisor *applianceSupervisor) acquireStream(header *vmmdv1.SystemStream
 }
 
 func validateSystemStreamBounds(header *vmmdv1.SystemStreamHeader) error {
-	frameLimit, totalLimit, idleLimit := uint32(frontendFrameLimit), uint64(frontendTotalLimit), uint32(300)
-	concurrentLimit, useLimit := uint32(16), uint32(1024)
+	frameLimit, totalLimit, idleLimit := uint32(frontendFrameLimit), uint64(0), uint32(300)
+	concurrentLimit := uint32(16)
 	switch header.GetKind() {
 	case vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP:
 		frameLimit, totalLimit, idleLimit = bootstrapFrameLimit, bootstrapTotalLimit, 15
-		concurrentLimit, useLimit = 1, 1
+		concurrentLimit = 1
 		if header.GetName() != "" {
 			return errors.New("bootstrap stream cannot have a name")
 		}
 	case vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_CONTROLLER:
 		concurrentLimit = 1
+		if header.GetMaxTotalBytes() != 0 {
+			return errors.New("controller stream cannot have a lifetime byte limit")
+		}
 		if header.GetName() != "" {
 			return errors.New("controller stream cannot have a name")
 		}
@@ -263,7 +303,10 @@ func validateSystemStreamBounds(header *vmmdv1.SystemStreamHeader) error {
 	default:
 		return errors.New("system stream kind is required")
 	}
-	if header.GetMaxFrameBytes() == 0 || header.GetMaxFrameBytes() > frameLimit || header.GetMaxTotalBytes() < uint64(header.GetMaxFrameBytes()) || header.GetMaxTotalBytes() > totalLimit || header.GetIdleSeconds() == 0 || header.GetIdleSeconds() > idleLimit || header.GetMaxConcurrentStreams() == 0 || header.GetMaxConcurrentStreams() > concurrentLimit || header.GetMaxUseCount() == 0 || header.GetMaxUseCount() > useLimit {
+	if (header.GetMaxTotalBytes() != 0 && header.GetMaxTotalBytes() < uint64(header.GetMaxFrameBytes())) || (header.GetKind() == vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_BOOTSTRAP && (header.GetMaxTotalBytes() == 0 || header.GetMaxTotalBytes() > totalLimit)) {
+		return errors.New("system stream total bytes exceed the fixed ceiling")
+	}
+	if header.GetMaxFrameBytes() == 0 || header.GetMaxFrameBytes() > frameLimit || header.GetIdleSeconds() == 0 || header.GetIdleSeconds() > idleLimit || header.GetMaxConcurrentStreams() == 0 || header.GetMaxConcurrentStreams() > concurrentLimit {
 		return errors.New("system stream bounds exceed the fixed ceiling")
 	}
 	return nil

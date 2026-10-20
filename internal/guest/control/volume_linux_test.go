@@ -3,28 +3,74 @@
 package control
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
 
 func TestInitializeVolumeDirectoryAppliesOwnerAndMode(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state", "volumes", "namespace-a", "volume")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
+	for _, mode := range []uint32{0o750, 0o1777} {
+		path := filepath.Join(t.TempDir(), "state", "volumes", "namespace-a", "volume")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
+		if err := initializeVolumeDirectory(path, mode, &uid, &gid, func(string) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != os.FileMode(mode&0o777) {
+			t.Fatalf("mode = %o", got)
+		}
+		if (info.Mode()&os.ModeSticky != 0) != (mode&0o1000 != 0) {
+			t.Fatalf("sticky bit was lost: %v", info.Mode())
+		}
+		stat := info.Sys().(*syscall.Stat_t)
+		if stat.Uid != uid || stat.Gid != gid {
+			t.Fatalf("owner = %d:%d", stat.Uid, stat.Gid)
+		}
 	}
-	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
-	if err := initializeVolumeDirectory(path, 0o750, &uid, &gid, func(string) error { return nil }); err != nil {
-		t.Fatal(err)
+	if os.Getuid() == 0 {
+		root := t.TempDir()
+		if err := os.Chmod(filepath.Dir(root), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(root, "job")
+		uid, gid := uint32(0), uint32(0)
+		if err := initializeVolumeDirectory(path, 0o1777, &uid, &gid, func(string) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(path, ".registration")
+		if err := os.WriteFile(marker, []byte("protected"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		command := exec.Command("/bin/sh", "-c", `set -e; printf job > "$1/job"; if rm "$1/.registration"; then exit 99; fi`, "sh", path)
+		command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: 1000, Gid: 1000}}
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("job ownership isolation: %v: %s", err, output)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("registration marker was deleted: %v", err)
+		}
+		if info, err := os.Stat(filepath.Join(path, "job")); err != nil || info.Sys().(*syscall.Stat_t).Uid != 1000 {
+			t.Fatalf("job user cannot create its own file: %v", err)
+		}
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o750 {
-		t.Fatalf("mode = %o", got)
+	for _, mode := range []uint32{0o2777, 0o4777, 0o7777, 0o10000} {
+		if _, err := (&Runtime{}).CreateVolume(context.Background(), "namespace-a", "volume", nil, nil, &mode); err == nil {
+			t.Fatalf("accepted privileged mode %o", mode)
+		}
 	}
 }
 

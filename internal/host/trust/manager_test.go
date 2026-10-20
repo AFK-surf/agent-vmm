@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -663,4 +664,144 @@ func containsBytes(value, search []byte) bool {
 		}
 	}
 	return false
+}
+
+func TestApplianceManagedTrustRenewalValidatesHostSignatureAndLifetime(t *testing.T) {
+	ctx := context.Background()
+	manager, database, _ := openManager(t, newMemoryKeys(t))
+	now := time.Unix(2_000_000_000, 0)
+	manager.now = func() time.Time { return now }
+	identity, err := manager.Identity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = database.StageApplianceArtifact(ctx, store.ApplianceArtifact{ID: "artifact", ProductID: "product", CanonicalHash: []byte("hash"), ImageDigest: "digest", ImageReference: "image", Platform: "linux/arm64", Release: "1", Manifest: []byte("manifest")}, store.ApplianceOperation{ID: "stage", RequestID: "stage", State: 2, Phase: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation, _, _, err := database.InstallApplianceDomain(ctx,
+		store.ApplianceInstallation{ID: "installation", ProductID: "product", ArtifactID: "artifact", State: 1, Revision: 1, DataVolumeID: "volume", DataVolumeBytes: 1 << 20},
+		store.ApplianceGrant{Revision: 1, System: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, PerEnvironment: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1},
+		store.RemoteRegistration{ID: "registration", InstallationID: "installation", OwnerKind: store.RemoteRegistrationPrivate, DisplayName: "private", ProtocolVersion: "1", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1}, nil,
+		store.ApplianceOperation{ID: "install", RequestID: "install", State: 1, Phase: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation.DesiredEnabled = true
+	installation.State = 3
+	installation.CurrentBootID = "boot"
+	installation.CurrentContainerInstance = "instance"
+	installation, err = database.UpdateApplianceInstallation(ctx, installation, installation.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := testKey(t)
+	makeBundle := func(revision uint64) (*trustv1.TrustAnchor, *trustv1.MembershipCredential) {
+		a := anchor("managed-appliance", trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER, "managed-key", key, now)
+		a.Revision = revision
+		a.Authority.Revision = revision
+		a.NotAfter = timestamppb.New(now.Add(365 * 24 * time.Hour))
+		claims := sha256.Sum256([]byte("registration"))
+		c := &trustv1.MembershipCredential{Authority: proto.Clone(a.Authority).(*trustv1.AuthorityDescriptor), SubjectDeviceId: identity.Identity.GetDeviceId(), SubjectRootKeyRevision: identity.Identity.GetRootKeyRevision(), SubjectRootPublicKey: identity.Identity.GetRootPublicKey(), OpaqueClaimsDigest: claims[:], PolicyRevision: revision, ExpiresAt: timestamppb.New(now.Add(30 * 24 * time.Hour))}
+		signMessage(t, key, c)
+		return a, c
+	}
+	binding := store.ApplianceTrustAuthority{AuthorityID: "managed-appliance", InstallationID: "installation", RegistrationID: "registration", BootID: "boot", ContainerInstance: "instance", ConfigRevision: installation.Revision}
+	for _, test := range []struct {
+		name   string
+		reason string
+		change func(*trustv1.TrustAnchor, *trustv1.MembershipCredential)
+	}{
+		{"subject", "stage=identity reason=subject_mismatch", func(_ *trustv1.TrustAnchor, c *trustv1.MembershipCredential) { c.SubjectDeviceId = "private-subject" }},
+		{"authority", "stage=scope reason=anchor_authority", func(a *trustv1.TrustAnchor, _ *trustv1.MembershipCredential) { a.Authority.AuthorityId = "" }},
+		{"anchor future", "stage=anchor_time reason=not_yet_valid excess_ms=1", func(a *trustv1.TrustAnchor, _ *trustv1.MembershipCredential) {
+			a.NotBefore = timestamppb.New(now.Add(time.Millisecond))
+		}},
+		{"anchor expired", "stage=anchor_time reason=expired excess_ms=0", func(a *trustv1.TrustAnchor, _ *trustv1.MembershipCredential) { a.NotAfter = timestamppb.New(now) }},
+		{"membership expired", "stage=membership_time reason=expired excess_ms=0", func(_ *trustv1.TrustAnchor, c *trustv1.MembershipCredential) { c.ExpiresAt = timestamppb.New(now) }},
+		{"membership beyond anchor", "stage=membership_time reason=beyond_anchor excess_ms=1", func(a *trustv1.TrustAnchor, c *trustv1.MembershipCredential) {
+			a.NotAfter = timestamppb.New(c.ExpiresAt.AsTime().Add(-time.Millisecond))
+		}},
+		{"capability scope", "stage=scope reason=capability_keys", func(a *trustv1.TrustAnchor, _ *trustv1.MembershipCredential) { a.AllowedCapabilityKinds = nil }},
+		{"signature", "stage=signature reason=verification", func(_ *trustv1.TrustAnchor, c *trustv1.MembershipCredential) { c.Signature[0] ^= 255 }},
+		{"anchor ceiling", "stage=appliance_ttl reason=anchor_remaining excess_ms=1", func(a *trustv1.TrustAnchor, _ *trustv1.MembershipCredential) {
+			a.NotAfter = timestamppb.New(now.Add(365*24*time.Hour + time.Millisecond))
+		}},
+		{"anchor span", "stage=appliance_ttl reason=anchor_span excess_ms=1", func(a *trustv1.TrustAnchor, _ *trustv1.MembershipCredential) {
+			a.NotBefore = timestamppb.New(now.Add(-time.Minute - time.Millisecond))
+		}},
+		{"membership ceiling", "stage=appliance_ttl reason=membership_remaining excess_ms=1", func(_ *trustv1.TrustAnchor, c *trustv1.MembershipCredential) {
+			c.ExpiresAt = timestamppb.New(now.Add(30*24*time.Hour + time.Millisecond))
+			signMessage(t, key, c)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			a, c := makeBundle(1)
+			test.change(a, c)
+			err := manager.InstallApplianceManagedTrust(ctx, binding, a, c)
+			if !errors.Is(err, ErrRouteUnauthorized) || !strings.Contains(err.Error(), test.reason) || strings.Contains(err.Error(), "private-subject") {
+				t.Fatalf("managed rejection reason: %v", err)
+			}
+		})
+	}
+	t.Run("unbackdated issuer lead", func(t *testing.T) {
+		a, c := makeBundle(1)
+		manager.now = func() time.Time { return now.Add(-time.Millisecond) }
+		defer func() { manager.now = func() time.Time { return now } }()
+		if err := manager.InstallApplianceManagedTrust(ctx, binding, a, c); !errors.Is(err, ErrRouteUnauthorized) || !strings.Contains(err.Error(), "stage=appliance_ttl reason=anchor_remaining excess_ms=1") {
+			t.Fatalf("one millisecond issuer clock lead: %v", err)
+		}
+	})
+	for index, lead := range []time.Duration{0, time.Millisecond, 234 * time.Millisecond, time.Minute, time.Minute + time.Millisecond} {
+		t.Run("backdated issuer lead "+lead.String(), func(t *testing.T) {
+			issued := now.Add(lead - time.Minute)
+			a, c := makeBundle(uint64(index + 1))
+			a.NotBefore = timestamppb.New(issued.Add(-time.Minute))
+			a.NotAfter = timestamppb.New(issued.Add(365 * 24 * time.Hour))
+			c.ExpiresAt = timestamppb.New(issued.Add(30 * 24 * time.Hour))
+			signMessage(t, key, c)
+			err := manager.InstallApplianceManagedTrust(ctx, binding, a, c)
+			if lead > time.Minute {
+				if !errors.Is(err, ErrRouteUnauthorized) || !strings.Contains(err.Error(), "stage=appliance_ttl reason=anchor_remaining excess_ms=1") {
+					t.Fatalf("issuer lead %s beyond backdating: %v", lead, err)
+				}
+			} else if err != nil {
+				t.Fatalf("issuer lead %s within backdating: %v", lead, err)
+			}
+		})
+	}
+	initial := now
+	for _, days := range []int{29, 30, 366} {
+		now = initial.Add(time.Duration(days) * 24 * time.Hour)
+		revision := uint64(days)
+		a, c := makeBundle(revision)
+		forged := proto.Clone(c).(*trustv1.MembershipCredential)
+		forged.Signature[0] ^= 255
+		if err := manager.InstallApplianceManagedTrust(ctx, binding, a, forged); err == nil {
+			t.Fatal("forged renewal accepted")
+		}
+		excessive := proto.Clone(c).(*trustv1.MembershipCredential)
+		excessive.ExpiresAt = timestamppb.New(now.Add(30*24*time.Hour + time.Second))
+		signMessage(t, key, excessive)
+		if err := manager.InstallApplianceManagedTrust(ctx, binding, a, excessive); err == nil {
+			t.Fatal("membership lifetime expanded")
+		}
+		overlongAnchor := proto.Clone(a).(*trustv1.TrustAnchor)
+		overlongAnchor.NotAfter = timestamppb.New(now.Add(365*24*time.Hour + time.Second))
+		if err := manager.InstallApplianceManagedTrust(ctx, binding, overlongAnchor, c); err == nil {
+			t.Fatal("anchor lifetime expanded")
+		}
+		foreign := proto.Clone(c).(*trustv1.MembershipCredential)
+		foreign.SubjectDeviceId = "foreign"
+		signMessage(t, key, foreign)
+		if err := manager.InstallApplianceManagedTrust(ctx, binding, a, foreign); err == nil {
+			t.Fatal("foreign host accepted")
+		}
+		if err := manager.InstallApplianceManagedTrust(ctx, binding, a, c); err != nil {
+			t.Fatalf("renewal day %d: %v", days, err)
+		}
+		if err := manager.InstallApplianceManagedTrust(ctx, binding, a, c); err != nil {
+			t.Fatalf("ACK retry day %d: %v", days, err)
+		}
+	}
 }

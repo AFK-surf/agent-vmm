@@ -330,37 +330,49 @@ func TestExistingSparseStateRestoresPhysicalBacking(t *testing.T) {
 	}
 }
 
-func TestConfigureApplianceBlocksRequiresStoppedVMAndExactImages(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "controller.luks")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+func TestHostDirectorySharesRequireDetachedTerminalVM(t *testing.T) {
+	directory, err := vz.NewSharedDirectory(t.TempDir(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(1 << 30); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPED}
-	block := ApplianceBlock{InstallationID: "controller", VolumeID: "volume", Identity: "identity", Path: path, DeviceIdentifier: "AVMM_DATA_A", Bytes: 1 << 30, Initializing: true}
-	if err := manager.ConfigureApplianceBlocks([]ApplianceBlock{block}); err != nil {
-		t.Fatal(err)
-	}
-	if len(manager.applianceBlocks) != 1 || manager.applianceBlocks[0] != block {
-		t.Fatalf("blocks = %+v", manager.applianceBlocks)
-	}
-	manager.state = hostv1.VMState_VM_STATE_STARTING
-	if err := manager.ConfigureApplianceBlocks([]ApplianceBlock{block}); err != nil {
-		t.Fatalf("identical attachment replay during VM start failed: %v", err)
-	}
-	manager.state = hostv1.VMState_VM_STATE_STOPPED
-	if err := manager.ConfigureApplianceBlocks([]ApplianceBlock{block, block}); err == nil {
-		t.Fatal("duplicate attachment accepted")
-	}
-	manager.state = hostv1.VMState_VM_STATE_RUNNING
-	if err := manager.ConfigureApplianceBlocks(nil); err == nil {
-		t.Fatal("running VM attachment mutation accepted")
+	for _, test := range []struct {
+		name     string
+		state    hostv1.VMState
+		attached bool
+		allowed  bool
+	}{
+		{"stopped", hostv1.VMState_VM_STATE_STOPPED, false, true},
+		{"failed", hostv1.VMState_VM_STATE_FAILED, false, true},
+		{"starting", hostv1.VMState_VM_STATE_STARTING, false, false},
+		{"running", hostv1.VMState_VM_STATE_RUNNING, true, false},
+		{"stopping", hostv1.VMState_VM_STATE_STOPPING, true, false},
+		{"retained failed machine", hostv1.VMState_VM_STATE_FAILED, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			existing := map[string]*vz.SharedDirectory{"existing": directory}
+			manager := &Manager{state: test.state, hostDirectoryShares: existing}
+			if test.attached {
+				manager.machine = new(vz.VirtualMachine)
+			}
+			supplied := map[string]*vz.SharedDirectory{"authorized": directory}
+			err := manager.SetHostDirectoryShares(supplied)
+			if !test.allowed {
+				if err == nil || manager.hostDirectoryShares["existing"] != directory {
+					t.Fatalf("live share changed: %v", err)
+				}
+				return
+			}
+			if err != nil || manager.hostDirectoryShares["authorized"] != directory {
+				t.Fatalf("boot share missing: %v", err)
+			}
+			delete(supplied, "authorized")
+			if manager.hostDirectoryShares["authorized"] != directory {
+				t.Fatal("caller map changed boot configuration")
+			}
+			if err := manager.SetHostDirectoryShares(nil); err != nil || len(manager.hostDirectoryShares) != 0 {
+				t.Fatalf("clear boot shares: %v", err)
+			}
+		})
 	}
 }
 
@@ -444,5 +456,20 @@ func TestBundleFailurePrecedesInstanceCreation(t *testing.T) {
 	}
 	if _, err := os.Stat(instance); !os.IsNotExist(err) {
 		t.Fatalf("instance created before verification: %v", err)
+	}
+}
+
+func TestStopFailedVMUsesExactMachineFact(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		manager := &Manager{state: hostv1.VMState_VM_STATE_FAILED, lastErr: "guest startup failed", bootID: "stale-boot"}
+		vm, err := manager.Stop(context.Background(), force)
+		if err != nil || vm.GetState() != hostv1.VMState_VM_STATE_STOPPED || vm.GetBootId() != "" || vm.GetError() != "guest startup failed" {
+			t.Fatalf("force=%t vm=%v err=%v", force, vm, err)
+		}
+	}
+	machine := &vz.VirtualMachine{}
+	manager := &Manager{state: hostv1.VMState_VM_STATE_FAILED, machine: machine, lastErr: "failed with retained instance"}
+	if _, err := manager.Stop(context.Background(), false); err == nil || manager.machine != machine || manager.state != hostv1.VMState_VM_STATE_FAILED || manager.lastErr != "failed with retained instance" {
+		t.Fatal("retained failed instance was treated as stopped")
 	}
 }

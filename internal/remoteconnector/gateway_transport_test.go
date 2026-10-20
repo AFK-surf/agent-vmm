@@ -43,13 +43,12 @@ func TestGatewayRouteHandshakeRecovery(t *testing.T) {
 	for _, first := range []string{"EOF", "stall", "wrong identity", "second address", "application unavailable"} {
 		t.Run(first, func(t *testing.T) {
 			server := &routeController{fail: first == "application unavailable"}
-			endpoint, roots := startTLSServer(t, "gateway.test", server)
+			endpoint, roots := startTLSSocketServer(t, "gateway.test", server)
 			transport := newGatewayTransport(credentials.NewTLS(&tls.Config{ServerName: "gateway.test", RootCAs: roots, MinVersion: tls.VersionTLS13}))
-			transport.attemptBudget = 150 * time.Millisecond
 			badClosed := make(chan struct{})
 			var badEndpoint string
 			if first == "wrong identity" {
-				badEndpoint, _ = startTLSServer(t, "impostor.test", &routeController{})
+				badEndpoint, _ = startTLSSocketServer(t, "impostor.test", &routeController{})
 				close(badClosed)
 			} else {
 				listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -104,7 +103,7 @@ func TestGatewayRouteHandshakeRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer conn.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), gatewayDialBudget)
 			defer cancel()
 			_, err = remotev1.NewRemoteControllerServiceClient(conn).Enroll(ctx, &remotev1.EnrollRequest{})
 			if first == "application unavailable" {
@@ -203,7 +202,7 @@ func TestGatewayCancellation(t *testing.T) {
 
 func TestGatewayRejectsUntrustedTransport(t *testing.T) {
 	service := &routeController{}
-	endpoint, _ := startTLSServer(t, "impostor.test", service)
+	endpoint, _ := startTLSSocketServer(t, "impostor.test", service)
 	_, roots := certificateFor(t, "gateway.test")
 	transport := newGatewayTransport(credentials.NewTLS(&tls.Config{ServerName: "gateway.test", RootCAs: roots}))
 	transport.lookup = func(context.Context, string, gatewayRoute) ([]netip.Addr, error) {
@@ -226,7 +225,7 @@ func TestGatewayRejectsUntrustedTransport(t *testing.T) {
 
 func TestGatewayDNSFailureFallsBack(t *testing.T) {
 	service := &routeController{}
-	endpoint, roots := startTLSServer(t, "gateway.test", service)
+	endpoint, roots := startTLSSocketServer(t, "gateway.test", service)
 	transport := newGatewayTransport(credentials.NewTLS(&tls.Config{ServerName: "gateway.test", RootCAs: roots}))
 	transport.lookup = func(_ context.Context, _ string, route gatewayRoute) ([]netip.Addr, error) {
 		if route.index == 0 {

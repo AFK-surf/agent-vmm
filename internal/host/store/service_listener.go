@@ -28,11 +28,11 @@ func (store *Store) CreateServiceListener(ctx context.Context, requestID string,
 	now := time.Now().UnixNano()
 	_, err = store.db.ExecContext(ctx, `INSERT INTO service_listeners(listener_id, request_id, mesh_id,
 		destination_device_id, destination_export_id, exposure, listen_address, route_id, capability_id,
-		capability, endpoint, expires_at, revision, revoked, created_at, updated_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`, listener.GetId(), requestID,
+		capability, endpoint, expires_at, revision, revoked, created_at, updated_at, local, environment_id,container_id,target_port)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?)`, listener.GetId(), requestID,
 		listener.GetMeshId(), listener.GetDestinationDeviceId(), listener.GetDestinationExportId(), listener.GetExposure(),
 		listener.GetListenAddress(), listener.GetRouteId(), listener.GetCapabilityId(), capabilityPayload, endpointPayload,
-		listener.GetExpiresAt().AsTime().UnixNano(), now, now)
+		listener.GetExpiresAt().AsTime().UnixNano(), now, now, listener.GetLocal(), listener.GetEnvironmentId(), listener.GetContainerId(), listener.GetTargetPort())
 	if err != nil {
 		existing, getErr := store.GetServiceListenerByRequest(ctx, requestID)
 		if getErr == nil {
@@ -47,20 +47,28 @@ func (store *Store) CreateServiceListener(ctx context.Context, requestID string,
 
 func (store *Store) GetServiceListenerByRequest(ctx context.Context, requestID string) (ServiceListenerRecord, error) {
 	return store.scanServiceListener(store.db.QueryRowContext(ctx, `SELECT listener_id, mesh_id, destination_device_id,
-		destination_export_id, exposure, listen_address, route_id, capability_id, capability, endpoint, expires_at, revision, revoked
+		destination_export_id, exposure, listen_address, route_id, capability_id, capability, endpoint, expires_at, revision, revoked, local,environment_id,container_id,target_port
 		FROM service_listeners WHERE request_id=?`, requestID))
 }
 
 func (store *Store) GetServiceListener(ctx context.Context, listenerID string) (ServiceListenerRecord, error) {
 	return store.scanServiceListener(store.db.QueryRowContext(ctx, `SELECT listener_id, mesh_id, destination_device_id,
-		destination_export_id, exposure, listen_address, route_id, capability_id, capability, endpoint, expires_at, revision, revoked
+		destination_export_id, exposure, listen_address, route_id, capability_id, capability, endpoint, expires_at, revision, revoked, local,environment_id,container_id,target_port
 		FROM service_listeners WHERE listener_id=?`, listenerID))
 }
 
 func (store *Store) ListServiceListeners(ctx context.Context) ([]*hostv1.ServiceListener, error) {
+	return store.listServiceListeners(ctx, "")
+}
+
+func (store *Store) ListActiveLocalServiceListeners(ctx context.Context) ([]*hostv1.ServiceListener, error) {
+	return store.listServiceListeners(ctx, " WHERE local=1 AND revoked=0")
+}
+
+func (store *Store) listServiceListeners(ctx context.Context, filter string) ([]*hostv1.ServiceListener, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT listener_id, mesh_id, destination_device_id, destination_export_id,
-		exposure, listen_address, route_id, capability_id, expires_at, revision, revoked
-		FROM service_listeners ORDER BY created_at DESC, listener_id LIMIT 64`)
+		exposure, listen_address, route_id, capability_id, expires_at, revision, revoked, local,environment_id,container_id,target_port
+		FROM service_listeners`+filter+` ORDER BY created_at DESC, listener_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -70,10 +78,12 @@ func (store *Store) ListServiceListeners(ctx context.Context) ([]*hostv1.Service
 		value := new(hostv1.ServiceListener)
 		var expiresAt int64
 		if err := rows.Scan(&value.Id, &value.MeshId, &value.DestinationDeviceId, &value.DestinationExportId,
-			&value.Exposure, &value.ListenAddress, &value.RouteId, &value.CapabilityId, &expiresAt, &value.Revision, &value.Revoked); err != nil {
+			&value.Exposure, &value.ListenAddress, &value.RouteId, &value.CapabilityId, &expiresAt, &value.Revision, &value.Revoked, &value.Local, &value.EnvironmentId, &value.ContainerId, &value.TargetPort); err != nil {
 			return nil, err
 		}
-		value.ExpiresAt = timestamppb.New(time.Unix(0, expiresAt))
+		if !value.Local {
+			value.ExpiresAt = timestamppb.New(time.Unix(0, expiresAt))
+		}
 		result = append(result, value)
 	}
 	return result, rows.Err()
@@ -101,10 +111,12 @@ func (store *Store) scanServiceListener(row rowScanner) (ServiceListenerRecord, 
 	var expiresAt int64
 	if err := row.Scan(&value.Id, &value.MeshId, &value.DestinationDeviceId, &value.DestinationExportId,
 		&value.Exposure, &value.ListenAddress, &value.RouteId, &value.CapabilityId, &capabilityPayload, &endpointPayload,
-		&expiresAt, &value.Revision, &value.Revoked); err != nil {
+		&expiresAt, &value.Revision, &value.Revoked, &value.Local, &value.EnvironmentId, &value.ContainerId, &value.TargetPort); err != nil {
 		return ServiceListenerRecord{}, err
 	}
-	value.ExpiresAt = timestamppb.New(time.Unix(0, expiresAt))
+	if !value.Local {
+		value.ExpiresAt = timestamppb.New(time.Unix(0, expiresAt))
+	}
 	record := ServiceListenerRecord{Listener: value, Capability: new(trustv1.RouteCapability), Endpoint: new(trustv1.EndpointObservation)}
 	if err := proto.Unmarshal(capabilityPayload, record.Capability); err != nil {
 		return ServiceListenerRecord{}, err

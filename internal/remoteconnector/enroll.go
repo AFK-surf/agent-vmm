@@ -55,7 +55,7 @@ func Enroll(ctx context.Context, config Config, token []byte) (string, error) {
 	if err := installManagedTrust(ctx, config.TrustSocket, config.TrustCapabilityFile, response.GetTrustAnchor(), response.GetMembershipCredential()); err != nil {
 		_ = config.CredentialStore.Delete(ctx, config.RegistrationID)
 		wipe(response.Credential)
-		return "", fmt.Errorf("controller managed trust installation failed")
+		return "", fmt.Errorf("controller managed trust installation failed: %w", err)
 	}
 	wipe(response.Credential)
 	return boundedLabel(response.GetControllerDisplayName()), nil

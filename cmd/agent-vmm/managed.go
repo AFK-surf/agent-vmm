@@ -10,18 +10,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	"golang.org/x/sys/unix"
 )
 
 const (
-	managedUsage            = "usage: agent-vmm inspect|diagnose|logs|operation|repair|update ... | agent-vmm vm start|status|stop ... | agent-vmm cleanup preview|execute ..."
+	managedUsage            = "usage: agent-vmm inspect|diagnose|logs|operation|repair|update ... | agent-vmm vm start|status|stop ... | agent-vmm cleanup preview|execute ... | agent-vmm appliance install|update|status|recover|stop|start|activate|restart|revoke|remove ..."
 	managedEnvelopeVersion  = 1
 	managedInspectBudget    = 5 * time.Second
 	managedDiagnoseBudget   = 30 * time.Second
@@ -634,95 +631,4 @@ func readManagedContainerLogs(ctx context.Context, socket, environmentID, contai
 		records = append(records, managedLogRecord{Cursor: cursor, Timestamp: record.GetTimestamp().AsTime().UTC().Format(time.RFC3339Nano), Stream: strings.ToLower(strings.TrimPrefix(record.GetStream().String(), "LOG_STREAM_")), Data: string(data), Truncated: truncated, Dropped: record.GetDroppedRecords()})
 	}
 	return records, cursor, gap, nil
-}
-
-func readManagedLocalLogs(status map[string]any, opts managedOptions, _ time.Time) ([]managedLogRecord, string, bool, error) {
-	serviceUser := stringFact(status, "serviceUser")
-	account, err := user.Lookup(serviceUser)
-	if err != nil {
-		return nil, "", false, errors.New("service user log directory is unavailable")
-	}
-	base := filepath.Join(account.HomeDir, "Library", "Logs", "AgentVMM")
-	paths := []string{filepath.Join(base, "host.stderr.log")}
-	if opts.component == "guest" {
-		paths = []string{filepath.Join(base, "serial.log.previous"), filepath.Join(base, "serial.log")}
-	}
-	remaining := managedLogBytes
-	records := make([]managedLogRecord, 0, len(paths))
-	for _, path := range paths {
-		if remaining == 0 {
-			break
-		}
-		data, modified, readErr := readManagedLogTail(path, int64(remaining))
-		if errors.Is(readErr, os.ErrNotExist) {
-			continue
-		}
-		if readErr != nil {
-			return nil, "", false, readErr
-		}
-		data = []byte(redactManagedText(string(data)))
-		if opts.operationID != "" {
-			data = filterManagedLogOperation(data, opts.operationID)
-		}
-		truncated := false
-		if len(data) > remaining {
-			data = data[:remaining]
-			truncated = true
-		}
-		remaining -= len(data)
-		cursor := strconv.FormatInt(modified.UnixNano(), 10)
-		records = append(records, managedLogRecord{Cursor: cursor, Timestamp: modified.UTC().Format(time.RFC3339Nano), Stream: "stderr", Data: string(data), Truncated: truncated})
-	}
-	latest := ""
-	if len(records) != 0 {
-		latest = records[len(records)-1].Cursor
-	}
-	if opts.afterCursor == "" {
-		return records, latest, false, nil
-	}
-	resumed, gap := resumeManagedLogRecords(records, opts.afterCursor)
-	return resumed, latest, gap, nil
-}
-
-func resumeManagedLogRecords(records []managedLogRecord, afterCursor string) ([]managedLogRecord, bool) {
-	for index, record := range records {
-		if record.Cursor == afterCursor {
-			return records[index+1:], false
-		}
-	}
-	return records, true
-}
-
-func filterManagedLogOperation(data []byte, operationID string) []byte {
-	lines := strings.Split(string(data), "\n")
-	filtered := lines[:0]
-	quoted := `"operation_id":"` + operationID + `"`
-	for _, line := range lines {
-		if strings.Contains(line, quoted) {
-			filtered = append(filtered, line)
-		}
-	}
-	return []byte(strings.Join(filtered, "\n"))
-}
-
-func readManagedLogTail(path string, limit int64) ([]byte, time.Time, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	file := os.NewFile(uintptr(fd), path)
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		return nil, time.Time{}, errors.New("log is not a regular file")
-	}
-	start := info.Size() - limit
-	if start < 0 {
-		start = 0
-	}
-	if _, err := file.Seek(start, io.SeekStart); err != nil {
-		return nil, time.Time{}, err
-	}
-	data, err := io.ReadAll(io.LimitReader(file, limit))
-	return data, info.ModTime(), err
 }

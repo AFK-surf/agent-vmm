@@ -216,7 +216,7 @@ func usageData(value *hostv1.Usage) UsageData {
 func containerData(value *hostv1.Container) ContainerData {
 	result := ContainerData{ID: value.GetId(), InstanceID: value.GetInstanceId(), Image: value.GetImage(), State: strings.ToLower(strings.TrimPrefix(value.GetState().String(), "CONTAINER_STATE_")), ExitCode: value.ExitCode, Argv: append([]string(nil), value.GetArgv()...), Workdir: value.GetWorkdir(), User: value.GetUser(), Usage: usageData(value.GetUsage())}
 	for _, mount := range value.GetVolumes() {
-		result.Volumes = append(result.Volumes, MountData{VolumeID: mount.GetVolumeId(), Destination: mount.GetDestination(), ReadOnly: mount.GetReadOnly()})
+		result.Volumes = append(result.Volumes, MountData{OwnedVolume: mount.GetOwnedVolume(), HostShare: mount.GetHostShare(), Destination: mount.GetDestination(), ReadOnly: mount.GetReadOnly()})
 	}
 	return result
 }

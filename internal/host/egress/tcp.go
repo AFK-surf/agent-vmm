@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -20,11 +22,12 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 	sourceAddress, _ := addressFromTCPIP(id.RemoteAddress)
 	destination, _ := addressFromTCPIP(id.LocalAddress)
 	virtualDNS := destination.String() == netprotocol.HostAddress && id.LocalPort == 53
-	environment, infrastructure, allowed := subsystem.authorize(bootID, id.RemoteAddress, id.LocalAddress, virtualDNS)
+	environment, infrastructure, allowed, authorizedSource := subsystem.authorizeEndpoint(bootID, id.RemoteAddress, id.LocalAddress, virtualDNS, id.LocalPort, true, false)
 	var service ServiceRoute
 	serviceRoute := false
 	if !virtualDNS && ServiceAddressPrefix.Contains(destination) {
 		if source, known := subsystem.Policies.Lookup(bootID, sourceAddress); known {
+			authorizedSource = source
 			environment = source.EnvironmentID
 			service, serviceRoute = subsystem.serviceRoute(environment, sourceAddress, destination, id.LocalPort, time.Now())
 			allowed = serviceRoute
@@ -49,6 +52,15 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 	flowCancel := func() {}
 	if infrastructure && kind != dnsResource {
 		flowCtx, flowCancel = subsystem.Leases.Context(ctx)
+	} else if !infrastructure {
+		source, _ := addressFromTCPIP(id.RemoteAddress)
+		flowCtx, flowCancel = subsystem.Policies.Context(ctx, bootID, source, authorizedSource)
+	}
+	if serviceRoute {
+		policyCancel := flowCancel
+		var routeCancel context.CancelFunc
+		flowCtx, routeCancel = subsystem.serviceRouteContext(flowCtx, service)
+		flowCancel = func() { routeCancel(); policyCancel() }
 	}
 	go func() {
 		defer flowCancel()
@@ -64,15 +76,24 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 			request.Complete(false)
 			connection := gonet.NewTCPConn(&queue, endpoint)
 			defer connection.Close()
-			subsystem.serveDNSTCP(flowCtx, connection, infrastructure)
+			subsystem.serveDNSTCP(flowCtx, connection, infrastructure, bootID, sourceAddress)
 			return
 		}
 		defer subsystem.metrics.activeTCP.Add(^uint64(0))
 		var host net.Conn
 		var err error
 		if serviceRoute {
+			if flowCtx.Err() != nil {
+				request.Complete(true)
+				return
+			}
 			host, err = service.Dial(flowCtx)
 		} else {
+			_, _, currentAllowed, currentSource := subsystem.authorizeEndpoint(bootID, id.RemoteAddress, id.LocalAddress, false, id.LocalPort, true, false)
+			if !currentAllowed || (!infrastructure && !currentSource.Equal(authorizedSource)) {
+				request.Complete(true)
+				return
+			}
 			host, err = subsystem.dialer.DialContext(flowCtx, "tcp4", net.JoinHostPort(destination.String(), fmt.Sprint(id.LocalPort)))
 		}
 		if err != nil {
@@ -97,7 +118,9 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 	}()
 }
 
-func (subsystem *Subsystem) serveDNSTCP(ctx context.Context, connection *gonet.TCPConn, infrastructure bool) {
+func (subsystem *Subsystem) serveDNSTCP(ctx context.Context, connection *gonet.TCPConn, infrastructure bool, bootID string, source netip.Addr) {
+	stopClose := context.AfterFunc(ctx, func() { _ = connection.Close() })
+	defer stopClose()
 	var size [2]byte
 	for {
 		_ = connection.SetReadDeadline(time.Now().Add(dnsIdleTimeout))
@@ -118,7 +141,7 @@ func (subsystem *Subsystem) serveDNSTCP(ctx context.Context, connection *gonet.T
 			response, err = dnsFailureResponse(query)
 		} else {
 			queryCtx, cancel := context.WithTimeout(ctx, dnsLookupTimeout)
-			response, err = subsystem.resolveDNS(queryCtx, query)
+			response, err = subsystem.resolveSourceDNS(queryCtx, query, bootID, source)
 			cancel()
 			if err != nil {
 				response, err = dnsFailureResponse(query)
@@ -142,6 +165,7 @@ func proxyTCP(ctx context.Context, guest *gonet.TCPConn, host net.Conn) {
 	go func() {
 		select {
 		case <-ctx.Done():
+			log.Printf("egress TCP flow canceled: guest=%s target=%s error=%v", guest.RemoteAddr(), host.RemoteAddr(), ctx.Err())
 			_ = guest.SetDeadline(time.Now())
 			_ = host.SetDeadline(time.Now())
 		case <-doneContext:
@@ -151,14 +175,16 @@ func proxyTCP(ctx context.Context, guest *gonet.TCPConn, host net.Conn) {
 	activity.touch()
 	done := make(chan struct{}, 2)
 	go func() {
-		copyWithActivity(host, guest, activity)
+		bytes, err := copyWithActivity(host, guest, activity)
+		log.Printf("egress TCP copy ended: direction=guest_to_host guest=%s target=%s bytes=%d error=%v", guest.RemoteAddr(), host.RemoteAddr(), bytes, err)
 		if connection, ok := host.(*net.TCPConn); ok {
 			_ = connection.CloseWrite()
 		}
 		done <- struct{}{}
 	}()
 	go func() {
-		copyWithActivity(guest, host, activity)
+		bytes, err := copyWithActivity(guest, host, activity)
+		log.Printf("egress TCP copy ended: direction=host_to_guest guest=%s target=%s bytes=%d error=%v", guest.RemoteAddr(), host.RemoteAddr(), bytes, err)
 		_ = guest.CloseWrite()
 		done <- struct{}{}
 	}()
@@ -181,19 +207,22 @@ func (pair *idlePair) touch() {
 	_ = pair.host.SetDeadline(deadline)
 }
 
-func copyWithActivity(destination, source net.Conn, activity *idlePair) {
+func copyWithActivity(destination, source net.Conn, activity *idlePair) (uint64, error) {
 	buffer := make([]byte, 32<<10)
+	var copied uint64
 	for {
 		count, err := source.Read(buffer)
 		if count > 0 {
 			activity.touch()
-			if _, writeErr := destination.Write(buffer[:count]); writeErr != nil {
-				return
+			written, writeErr := destination.Write(buffer[:count])
+			copied += uint64(written)
+			if writeErr != nil {
+				return copied, writeErr
 			}
 			activity.touch()
 		}
 		if err != nil {
-			return
+			return copied, err
 		}
 	}
 }
