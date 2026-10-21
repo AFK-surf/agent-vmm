@@ -99,6 +99,9 @@ func openMaintenanceDirectory(value paths, create bool) (*os.File, error) {
 	return current, nil
 }
 
+// errMaintenanceOwnerBusy means a live executor holds owner.lock.
+var errMaintenanceOwnerBusy = errors.New("owner_busy: another Host lifecycle or maintenance operation holds the owner lock")
+
 func lockMaintenance(value paths) (*os.File, func(), error) {
 	directory, err := openMaintenanceDirectory(value, true)
 	if err != nil {
@@ -118,7 +121,10 @@ func lockMaintenance(value paths) (*os.File, func(), error) {
 		if (!errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN)) || time.Now().After(deadline) {
 			file.Close()
 			directory.Close()
-			return nil, nil, errors.New("another Host lifecycle or maintenance operation is running")
+			if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+				return nil, nil, errMaintenanceOwnerBusy
+			}
+			return nil, nil, err
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -214,10 +220,8 @@ func validateMaintenanceRequest(value paths, request maintenanceRequest) error {
 	if request.DataPolicy == "preserve" && request.ConfirmDataDeletion {
 		return errors.New("data deletion confirmation conflicts with preserve")
 	}
-	if request.SupersedesRequestID != "" {
-		if !operationIDPattern.MatchString(request.SupersedesRequestID) || request.SupersedesRequestID == request.RequestID || !(request.Action == "uninstall" || (request.Action == "reinstall" && request.DataPolicy == "reset")) {
-			return errors.New("failed maintenance replacement requires an exact prior request and reset reinstall or uninstall")
-		}
+	if request.SupersedesRequestID != "" && (!operationIDPattern.MatchString(request.SupersedesRequestID) || request.SupersedesRequestID == request.RequestID) {
+		return errors.New("maintenance replacement requires an exact prior request")
 	}
 	standard := filepath.Join(value.home, "Library", "Application Support", "Agent VMM Host", "current", bundle.HostAppName)
 	if request.TargetApp != standard || value.app != standard {
@@ -484,6 +488,9 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 		if state.CompletedRequests[request.RequestID] {
 			return completedMaintenanceReceipt(receipt), nil
 		}
+		if receipt.FailureCode == maintenanceTargetOlderThanData {
+			return receipt, errors.New(receipt.FailureMessage)
+		}
 		if state.LatestRequest != request.RequestID && request.SupersedesRequestID == "" &&
 			(state.ActiveRequest != "" || receipt.Stage != "accepted" || receipt.Outcome != "pending" || receipt.AdmissionPreviousRequestID != state.LatestRequest) {
 			return receipt, errors.New("this unfinished request is no longer current; inspect the latest maintenance request")
@@ -499,7 +506,7 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 	}
 	superseding := request.SupersedesRequestID != "" && state.ActiveRequest != request.RequestID
 	if superseding {
-		if err = validateFailedMaintenanceSupersession(directory, value, request, state); err != nil {
+		if err = validateMaintenanceSupersession(directory, value, request, state); err != nil {
 			return receipt, err
 		}
 	} else if request.SupersedesRequestID != "" && state.SupersededRequests[request.SupersedesRequestID] != request.RequestID {
@@ -524,15 +531,15 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 			return receipt, err
 		}
 	}
-	// Check before any effect that the target opens the existing data. Only a
-	// request without effects can be refused here; reset discards the data.
-	if request.Action != "uninstall" && request.DataPolicy == "preserve" && (readErr != nil || receipt.FailureCode == maintenanceTargetOlderThanData) {
+	// Check before any effect, and before a supersession commit, that the
+	// target opens the existing data. Reset discards the data.
+	if request.Action != "uninstall" && request.DataPolicy == "preserve" && readErr != nil {
 		refusal, checkErr := maintenanceSchemaRefusal(value, request, actions)
 		if checkErr != nil {
 			return receipt, checkErr
 		}
 		if refusal != "" {
-			return refuseMaintenance(directory, name, state, value, request, refusal)
+			return refuseMaintenance(directory, name, value, request, refusal)
 		}
 	}
 	if readErr != nil {
@@ -674,24 +681,14 @@ func maintenanceSchemaRefusal(value paths, request maintenanceRequest, actions m
 	return fmt.Sprintf("The selected Host release opens database schemas %d-%d, but the local data uses schema %d. Keep the current Host or confirm a reset reinstall.", target.Min, target.Max, data), nil
 }
 
-// refuseMaintenance records a failed request that made no effects. It does not
-// keep the request active, so the current Host and a new request stay usable.
-func refuseMaintenance(directory *os.File, name string, state maintenanceState, value paths, request maintenanceRequest, message string) (maintenanceReceipt, error) {
+// refuseMaintenance records a terminal refusal that made no effects. It does
+// not change the owner state, so the current Host, an active request it named,
+// and a new request stay as they were.
+func refuseMaintenance(directory *os.File, name string, value paths, request maintenanceRequest, message string) (maintenanceReceipt, error) {
 	now := time.Now().UnixMilli()
-	previous := state.LatestRequest
-	if previous == request.RequestID {
-		var existing maintenanceReceipt
-		if err := readMaintenanceJSON(directory, name, &existing); err == nil {
-			previous = existing.AdmissionPreviousRequestID
-		}
-	}
-	receipt := maintenanceReceipt{maintenanceRequest: request, AdmissionPreviousRequestID: previous, ServiceMode: value.service.Mode, ServiceUser: value.service.User, DisablePairing: value.service.DisablePairing,
+	receipt := maintenanceReceipt{maintenanceRequest: request, ServiceMode: value.service.Mode, ServiceUser: value.service.User, DisablePairing: value.service.DisablePairing,
 		Stage: "accepted", Outcome: "failed", FailureCode: maintenanceTargetOlderThanData, FailureMessage: message, StartedAt: now, UpdatedAt: now}
 	if err := writeMaintenanceJSON(directory, name, receipt); err != nil {
-		return receipt, err
-	}
-	state.ActiveRequest, state.LatestRequest = "", request.RequestID
-	if err := writeMaintenanceJSON(directory, "state.json", state); err != nil {
 		return receipt, err
 	}
 	return receipt, errors.New(message)
@@ -702,20 +699,20 @@ func supersededMaintenanceReceipt(receipt maintenanceReceipt, next string) maint
 	return receipt
 }
 
-func validateFailedMaintenanceSupersession(directory *os.File, value paths, request maintenanceRequest, state maintenanceState) error {
+// The caller holds owner.lock, so the executor of a pending request is gone.
+// A replacement reads only the request identity, outcome, and service fields
+// that every version 1 receipt has.
+func validateMaintenanceSupersession(directory *os.File, value paths, request maintenanceRequest, state maintenanceState) error {
 	previousID := request.SupersedesRequestID
-	if state.LatestRequest != previousID || state.CompletedRequests[previousID] || state.SupersededRequests[previousID] != "" {
-		return errors.New("only the exact current failed maintenance request can be replaced")
+	if state.ActiveRequest != previousID || state.LatestRequest != previousID || state.CompletedRequests[previousID] || state.SupersededRequests[previousID] != "" {
+		return errors.New("only the exact active maintenance request can be replaced")
 	}
 	var previous maintenanceReceipt
 	if err := readMaintenanceJSON(directory, maintenanceReceiptName(previousID), &previous); err != nil {
 		return err
 	}
-	if state.ActiveRequest != previousID && (state.ActiveRequest != "" || previous.FailureCode != maintenanceTargetOlderThanData) {
-		return errors.New("only the exact current failed maintenance request can be replaced")
-	}
-	if previous.Version != 1 || previous.RequestID != previousID || previous.Outcome != "failed" || previous.TargetApp != request.TargetApp || previous.ServiceMode != value.service.Mode || previous.ServiceUser != value.service.User {
-		return errors.New("replacement requires a confirmed failed receipt for the same Host and service")
+	if previous.Version != 1 || previous.RequestID != previousID || (previous.Outcome != "failed" && previous.Outcome != "pending") || previous.TargetApp != request.TargetApp || previous.ServiceMode != value.service.Mode || previous.ServiceUser != value.service.User {
+		return errors.New("replacement requires a pending or failed receipt for the same Host and service")
 	}
 	return nil
 }
@@ -758,8 +755,8 @@ func maintenanceStatus(value paths, id string) (*maintenanceReceipt, error) {
 		receipt = completedMaintenanceReceipt(receipt)
 	} else if receipt.Outcome == "succeeded" {
 		return nil, errors.New("maintenance completion is not committed")
-	} else if state.LatestRequest != id || (state.ActiveRequest != id && receipt.FailureCode != maintenanceTargetOlderThanData) {
-		// A receipt written before a failed supersession commit is recovery
+	} else if receipt.FailureCode != maintenanceTargetOlderThanData && state.ActiveRequest != id {
+		// A receipt written before a failed admission commit is recovery
 		// material, not an accepted maintenance operation.
 		return nil, nil
 	}
@@ -844,6 +841,10 @@ func executeMaintenanceCommand(command string, service serviceRequest, args []st
 		fatal(err.Error())
 	}
 	result, err := runMaintenance(value, request, defaultMaintenanceActions())
+	if errors.Is(err, errMaintenanceOwnerBusy) {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"error": map[string]string{"code": "owner_busy", "message": err.Error()}})
+		fatal(fmt.Sprintf("Host maintenance: %v", err))
+	}
 	_ = json.NewEncoder(os.Stdout).Encode(result)
 	if err != nil {
 		fatal(fmt.Sprintf("Host maintenance: %v", err))

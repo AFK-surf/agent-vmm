@@ -41,11 +41,14 @@ func Attach(socket string) (*Supervisor, error) {
 	return &Supervisor{socket: socket}, nil
 }
 
+// Start bounds only readiness by ctx. Close owns the process lifetime: it
+// drains and interrupts the worker. A killed worker can take seconds to be
+// reaped, so cancellation of ctx must not kill a ready worker.
 func Start(ctx context.Context, binary, socket, serviceSocket, meshControlSocket, serviceCapabilityFile string) (*Supervisor, error) {
 	if !filepath.IsAbs(binary) || !filepath.IsAbs(socket) || !filepath.IsAbs(serviceSocket) || !filepath.IsAbs(meshControlSocket) || !filepath.IsAbs(serviceCapabilityFile) {
 		return nil, fmt.Errorf("data worker binary, control socket, service/mesh sockets, and capability file must be absolute")
 	}
-	command := exec.CommandContext(ctx, binary, "--socket", socket, "--service-socket", serviceSocket, "--mesh-control-socket", meshControlSocket, "--service-capability-file", serviceCapabilityFile)
+	command := exec.Command(binary, "--socket", socket, "--service-socket", serviceSocket, "--mesh-control-socket", meshControlSocket, "--service-capability-file", serviceCapabilityFile)
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("start data worker: %w", err)
@@ -62,6 +65,7 @@ func Start(ctx context.Context, binary, socket, serviceSocket, meshControlSocket
 		case err := <-supervisor.done:
 			return nil, fmt.Errorf("data worker exited before ready: %w", err)
 		case <-ctx.Done():
+			_ = command.Process.Kill()
 			return nil, ctx.Err()
 		case <-time.After(25 * time.Millisecond):
 		}

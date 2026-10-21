@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,8 +103,8 @@ func TestVersionAndStatusReportSchemaCompatibility(t *testing.T) {
 		return launchctlServiceFacts{Loaded: true}, nil
 	}
 	t.Cleanup(func() { launchctlServiceObserver = original })
-	if status := readStatusContext(context.Background(), value); status.HostStartFailure != nil {
-		t.Fatalf("status without a record = %+v", status.HostStartFailure)
+	if status := readStatusContext(context.Background(), value); status.HostStartFailure != nil || status.DataSchema != 0 || status.DataSchemaIssue != "" {
+		t.Fatalf("status without a record or database = %+v", status)
 	}
 	record := `{"code":"data_newer_than_host","dataSchema":36,"supportedSchema":{"min":18,"max":35}}`
 	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
@@ -112,8 +113,17 @@ func TestVersionAndStatusReportSchemaCompatibility(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(value.applicationData, store.StartFailureFile), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	database, err := sql.Open("sqlite", filepath.Join(value.applicationData, "host.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_migrations VALUES (35, 0)`)
+	database.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
 	encoded, err := json.Marshal(readStatusContext(context.Background(), value))
-	if err != nil || !strings.Contains(string(encoded), `"hostStartFailure":`+record) {
+	if err != nil || !strings.Contains(string(encoded), `"hostStartFailure":`+record) || !strings.Contains(string(encoded), `"dataSchema":35`) {
 		t.Fatalf("status = %s %v", encoded, err)
 	}
 }

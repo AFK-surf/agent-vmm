@@ -14,7 +14,7 @@ import (
 // can still terminate its exact supervised process. Deletion requires process
 // exit and release of the shared disk, regardless of RPC availability.
 func stopForMaintenance(value paths) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hostStopTimeout)
 	defer cancel()
 	return stopForMaintenanceWith(ctx, value, func(ctx context.Context, args ...string) error { return launchctlContext(ctx, args...) })
 }

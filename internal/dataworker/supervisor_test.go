@@ -41,6 +41,9 @@ func TestSupervisorStartsProbesDrainsAndStopsChild(t *testing.T) {
 exec python3 - "$2" <<'PY'
 import json, os, signal, socket, sys
 path=sys.argv[1]
+def interrupt(*_):
+ open(path+'.interrupted','w').close(); os._exit(0)
+signal.signal(signal.SIGINT, interrupt)
 try: os.unlink(path)
 except FileNotFoundError: pass
 s=socket.socket(socket.AF_UNIX); s.bind(path); s.listen()
@@ -64,10 +67,16 @@ PY
 	if err != nil || !status.Accepting {
 		t.Fatalf("status = %+v, %v", status, err)
 	}
+	// The Host cancels the start context on SIGTERM before it closes the
+	// worker. Close must still drain and interrupt it, not find it killed.
+	cancel()
 	closeCtx, closeCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer closeCancel()
 	if err := supervisor.Close(closeCtx); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(socket + ".interrupted"); err != nil {
+		t.Fatalf("worker was not interrupted: %v", err)
 	}
 }
 

@@ -34,7 +34,7 @@ The maintenance JSON request has these fields:
 | `targetReleaseId`, `artifactSha256`, `artifactSize` | Selected release, lowercase archive SHA-256 and bytes; omit for uninstall |
 | `confirmSharedHost` | `true` after a trusted local whole-Host confirmation |
 | `confirmDataDeletion` | `true` for reset only |
-| `supersedesRequestId` | Optional exact failed request to replace after a new trusted confirmation; only reset reinstall or uninstall |
+| `supersedesRequestId` | Optional exact active request, pending or failed, to replace after a new trusted confirmation; any action and data policy |
 
 The owner rejects reuse of a request ID with another action, data policy, target,
 source, artifact, or service identity. It does not switch targets from a developer
@@ -51,7 +51,7 @@ Stages are `accepted`, `stopping`, `resetting`, `removing`, `replacing`, `restor
 `verifying`, and `complete`. Outcome is `pending`, `failed`, `succeeded`, or `superseded`.
 `failureCode` and `failureMessage` explain the failed stage of an accepted
 operation. A process crash can leave `pending`. It does not prove that the
-effects failed or completed. Retry the same complete request.
+effects failed or completed. Retry the same complete request, or replace it.
 
 | `failureCode` | `retryable` | Meaning |
 | --- | --- | --- |
@@ -64,18 +64,19 @@ Before it stops the Host, a preserve update or reinstall reads the schema of
 owner runs `version --json` from the source helper. If `supportedSchema` does
 not include the local schema, or the helper does not report it, the owner
 writes a `target_older_than_data` receipt at stage `accepted`. It does not stop,
-remove, reset, or install anything. The receipt stays `latestRequest`, but it
-does not stay `activeRequest`. The current Host and normal lifecycle operations
-stay available. A new update, reset reinstall, or uninstall request can follow.
-A reset reinstall or uninstall can also name it in `supersedesRequestId`. Reset
-requests do not do this check.
+remove, reset, or install anything, and it does not change `state.json`. Status
+reports this receipt only for its exact `requestId`. A replay of the same request
+returns the same refusal. The current Host, normal lifecycle operations, and an
+active request stay as they were. A new request can follow without
+`supersedesRequestId`, unless it replaces an active request. Reset requests do
+not do this check.
 
 `restoreAttempts` counts restore attempts. Each attempt waits up to 10 minutes
 for a healthy VM. After 3 failed attempts, the receipt fails with
 `host_start_failed`, and a retry of the same request does not restore again.
 If the started Host writes `host-start-failure.json`, the attempt fails at once
-with `host_start_failed`. This failed request stays active. Supersede it with
-a confirmed reset reinstall or uninstall.
+with `host_start_failed`. This failed request stays active until a new request
+replaces it.
 
 The journal and flock live in `~/Library/Application Support/Agent VMM Maintenance`:
 `owner.lock`, `state.json`, and `request-<sha256(requestId)>.json`. They survive app
@@ -84,14 +85,28 @@ input for the latest receipt. It returns `null` when none exists. Status does no
 create directories, read Host data, start a service, or need an installed app.
 Other applications must use separate journal filenames or subdirectories.
 
-If a preserve operation cannot restore the existing data, the local operator can
-confirm reset reinstall or uninstall with a new request ID and the exact
-`supersedesRequestId`. Under the owner lock, the prior request must still be the
-active, latest, failed request for the same target and service. A
-`target_older_than_data` request must be the latest request with no other active
-request. Pending, completed, unreadable, and stale requests cannot be replaced. The new request retains its
-own action, data policy, artifact, and confirmation. It starts with a fresh stop;
-it does not inherit completed effect checkpoints from the prior request.
+A new request with a new request ID and the exact `supersedesRequestId` can
+replace a failed or stuck request. Any action and data policy can replace it.
+The prior request must be the active and latest request for the same target
+and service, with outcome `pending` or `failed`. Completed, superseded,
+unreadable, and stale requests cannot be replaced. A request does not need a
+confirmed failure: the replacement holds `owner.lock`, and this proves that
+the prior executor stopped. Thus two executors never run at the same time.
+
+If a live process holds `owner.lock` for 2 seconds, `maintenance` exits with
+status 1. It writes `{"error":{"code":"owner_busy","message":"..."}}` to stdout
+and a line that contains `owner_busy:` to stderr. It changes no journal file.
+Retry after the other operation ends.
+
+A preserve replacement runs the schema check before the supersession commit. If
+the check refuses the target, the new request fails with
+`target_older_than_data` and makes no effects. The prior request stays active
+and is not superseded. A reset reinstall can then replace the same prior request.
+The new request keeps its own action, data policy, artifact, and confirmation.
+It starts with a fresh stop. It does not inherit completed effect checkpoints
+from the prior request. A replacement reads only the identity, outcome, and
+service fields of the prior receipt, so it also accepts a version 1 receipt that
+an older helper wrote without newer fields such as `failureCode`.
 
 For every new request, the owner writes its receipt before it atomically switches
 active ownership. Replacements also record supersession in that state commit. If that state commit fails, status for the staged new
@@ -149,7 +164,9 @@ local reset; clearing those records still requires cloud authorization.
 It is a manual, report-only test and is not a required check. It packages two
 ad-hoc development bundles with `AGENT_VMM_PACKAGE_E2E=1`. It then runs
 `publish-host`, `install --shared-host`, `status`, a refused downgrade
-`maintenance` update, a preserve update, and a preserve uninstall.
+`maintenance` update, a preserve update, and a preserve uninstall. Before the
+update, the test writes a journal for an executor that stopped at `restoring`.
+The update replaces that pending request with `supersedesRequestId`.
 
 Only a helper built with the `e2e` tag reads these variables:
 
@@ -240,7 +257,9 @@ That command removes only the named operation plan.
 `status` reports the installed service user, UID, launchd job, load state,
 installed application, Operator socket, process state, PID, last exit status,
 and the current lifecycle operation. It also reports the optional
-`hostStartFailure` record, described below. `operation --operation-id <id>` reads only
+`hostStartFailure` record, described below. `dataSchema` is the schema of
+`AgentVMM/host.sqlite`, read-only, or `0` if the database does not exist. If
+the read fails, `dataSchema` is `0` and `dataSchemaIssue` gives the error. `operation --operation-id <id>` reads only
 that current operation record and rejects a different ID. The public CLI uses
 this narrow read when it follows a lifecycle operation. These commands read
 facts without taking the VM mutation lock. The load state does not

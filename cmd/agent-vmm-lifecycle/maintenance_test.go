@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -449,9 +450,12 @@ func TestMaintenancePreflightRefusesTargetOlderThanDataWithoutEffects(t *testing
 			t.Fatalf("%+v %v", got, err)
 		}
 	}
-	status, err := maintenanceStatus(p, "")
+	status, err := maintenanceStatus(p, r.RequestID)
 	if err != nil || status == nil || status.FailureCode != "target_older_than_data" {
 		t.Fatalf("status = %+v %v", status, err)
+	}
+	if latest, err := maintenanceStatus(p, ""); err != nil || latest != nil {
+		t.Fatalf("refusal changed the owner state: %+v %v", latest, err)
 	}
 	release, err := acquireMaintenanceMutation(p, "repair", "repair-current")
 	if err != nil {
@@ -460,7 +464,7 @@ func TestMaintenancePreflightRefusesTargetOlderThanDataWithoutEffects(t *testing
 	release()
 
 	reset := r
-	reset.RequestID, reset.SupersedesRequestID = "maint-reset", r.RequestID
+	reset.RequestID = "maint-reset"
 	reset.DataPolicy, reset.ConfirmDataDeletion = "reset", true
 	a.dataSchema = func(paths) (int, error) { t.Fatal("reset read the data schema"); return 0, nil }
 	a.stop, a.resetData, a.removeSoftware = func(paths) error { return nil }, func(paths) error { return nil }, func(paths) error { return nil }
@@ -578,14 +582,43 @@ func TestMaintenancePreserveUninstallAllowsRetainedBindingAfterExplicitReinstall
 	release()
 }
 
-func TestFailedPreserveMaintenanceCanBeReplacedWithoutReplayingOldWork(t *testing.T) {
-	for _, mode := range []struct{ action, policy string }{{"reinstall", "reset"}, {"uninstall", "preserve"}, {"uninstall", "reset"}} {
-		t.Run(mode.action+mode.policy, func(t *testing.T) {
+// stickMaintenance leaves old as the active request in the receipt format of
+// release c170350: pending at restoring, with no failure fields, and no
+// executor that holds owner.lock.
+func stickMaintenance(t *testing.T, p paths, old maintenanceRequest, a maintenanceActions) {
+	t.Helper()
+	a.restore = func(paths, string) error { return errors.New("existing data cannot start") }
+	if failed, err := runMaintenance(p, old, a); err == nil || !failed.SoftwareInstalled {
+		t.Fatalf("%+v %v", failed, err)
+	}
+	directory, unlock, err := lockMaintenance(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	receipt := map[string]any{"version": 1, "requestId": old.RequestID, "action": old.Action, "dataPolicy": old.DataPolicy, "targetApp": old.TargetApp,
+		"sourceApp": old.SourceApp, "targetReleaseId": old.TargetReleaseID, "artifactSha256": old.ArtifactSHA256, "artifactSize": old.ArtifactSize,
+		"confirmSharedHost": true, "serviceMode": p.service.Mode, "serviceUser": p.service.User, "disablePairing": false,
+		"stage": "restoring", "outcome": "pending", "retryable": true, "softwareInstalled": true, "restoreAttempts": 7, "startedAt": 1, "updatedAt": 2}
+	if err := writeMaintenanceJSON(directory, maintenanceReceiptName(old.RequestID), receipt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestActiveMaintenanceCanBeReplacedWithoutReplayingOldWork(t *testing.T) {
+	for _, mode := range []struct {
+		action, policy string
+		stuck          bool
+	}{{"update", "preserve", true}, {"reinstall", "preserve", false}, {"reinstall", "reset", false}, {"uninstall", "preserve", true}, {"uninstall", "reset", false}} {
+		t.Run(fmt.Sprintf("%s-%s-stuck=%t", mode.action, mode.policy, mode.stuck), func(t *testing.T) {
 			p, old, a := maintenanceFixture(t)
-			a.restore = func(paths, string) error { return errors.New("existing data cannot start") }
-			failed, err := runMaintenance(p, old, a)
-			if err == nil || !failed.SoftwareInstalled || failed.Outcome != "failed" {
-				t.Fatalf("%+v %v", failed, err)
+			if mode.stuck {
+				stickMaintenance(t, p, old, a)
+			} else {
+				a.restore = func(paths, string) error { return errors.New("existing data cannot start") }
+				if failed, err := runMaintenance(p, old, a); err == nil || !failed.SoftwareInstalled || failed.Outcome != "failed" {
+					t.Fatalf("%+v %v", failed, err)
+				}
 			}
 			next := old
 			next.RequestID = "maint-2"
@@ -688,7 +721,7 @@ func TestSupersedingStopFailureRetainsNewRequestAndNeverClearsData(t *testing.T)
 }
 
 func TestSupersessionRejectsUnconfirmedOrDifferentPredecessor(t *testing.T) {
-	for _, kind := range []string{"pending", "completed", "different-service", "different-target", "stale-id", "preserve-reinstall"} {
+	for _, kind := range []string{"completed", "different-service", "different-target", "stale-id"} {
 		t.Run(kind, func(t *testing.T) {
 			p, old, a := maintenanceFixture(t)
 			a.restore = func(paths, string) error { return errors.New("cannot restore") }
@@ -707,8 +740,6 @@ func TestSupersessionRejectsUnconfirmedOrDifferentPredecessor(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch kind {
-			case "pending":
-				prior.Outcome = "pending"
 			case "completed":
 				state, _ := loadMaintenanceState(directory)
 				state.CompletedRequests[old.RequestID] = true
@@ -719,9 +750,6 @@ func TestSupersessionRejectsUnconfirmedOrDifferentPredecessor(t *testing.T) {
 				prior.TargetApp = "/other/Agent VMM Host.app"
 			case "stale-id":
 				next.SupersedesRequestID = "another-request"
-			case "preserve-reinstall":
-				next.DataPolicy = "preserve"
-				next.ConfirmDataDeletion = false
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -847,5 +875,62 @@ func TestMissingAcceptedOrSupersededReceiptCannotBeRecreatedByReplay(t *testing.
 				t.Fatal("recreated missing accepted receipt")
 			}
 		})
+	}
+}
+
+func TestStuckMaintenanceWithLiveExecutorReportsOwnerBusy(t *testing.T) {
+	p, old, a := maintenanceFixture(t)
+	stickMaintenance(t, p, old, a)
+	directory, err := openMaintenanceDirectory(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	executor, err := openStateFileAt(directory, "owner.lock", unix.O_RDWR, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executor.Close()
+	if err := unix.Flock(int(executor.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	next := old
+	next.RequestID, next.SupersedesRequestID, next.Action = "next", old.RequestID, "update"
+	a.stop = func(paths) error { t.Fatal("replacement ran beside a live executor"); return nil }
+	if _, err := runMaintenance(p, next, a); !errors.Is(err, errMaintenanceOwnerBusy) || !strings.HasPrefix(err.Error(), "owner_busy:") {
+		t.Fatalf("err = %v", err)
+	}
+	unix.Flock(int(executor.Fd()), unix.LOCK_UN)
+	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.Outcome != "pending" || got.SupersededByRequestID != "" {
+		t.Fatalf("old = %+v %v", got, err)
+	}
+	if got, err := maintenanceStatus(p, next.RequestID); err != nil || got != nil {
+		t.Fatalf("next = %+v %v", got, err)
+	}
+}
+
+func TestRefusedPreserveReplacementKeepsStuckRequestForResetReplacement(t *testing.T) {
+	p, old, a := maintenanceFixture(t)
+	stickMaintenance(t, p, old, a)
+	next := old
+	next.RequestID, next.SupersedesRequestID, next.Action = "next", old.RequestID, "update"
+	a.dataSchema = func(paths) (int, error) { return 35, nil }
+	a.targetSchema = func(maintenanceRequest) (store.SchemaRange, error) { return store.SchemaRange{Min: 18, Max: 25}, nil }
+	a.stop = func(paths) error { t.Fatal("refused replacement made an effect"); return nil }
+	if got, err := runMaintenance(p, next, a); err == nil || got.FailureCode != "target_older_than_data" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.Outcome != "pending" {
+		t.Fatalf("refusal superseded the old request: %+v %v", got, err)
+	}
+	reset := old
+	reset.RequestID, reset.SupersedesRequestID = "reset", old.RequestID
+	reset.DataPolicy, reset.ConfirmDataDeletion = "reset", true
+	a.stop = func(paths) error { return nil }
+	if got, err := runMaintenance(p, reset, a); err != nil || got.Outcome != "succeeded" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.SupersededByRequestID != reset.RequestID {
+		t.Fatalf("old = %+v %v", got, err)
 	}
 }

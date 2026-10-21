@@ -31,14 +31,19 @@ func Run(ctx context.Context, config Config) error {
 		}
 	}
 	var worker *dataworker.Supervisor
-	ownedWorker := false
 	if config.DataWorkerPath != "" {
 		startedWorker, err := dataworker.Start(ctx, config.DataWorkerPath, config.DataWorkerSocket, config.ServiceTunnelSocket, config.MeshControlSocket, config.TrustCapabilityFile)
 		if err != nil {
 			return fmt.Errorf("data worker unavailable: %w", err)
 		}
 		worker = startedWorker
-		ownedWorker = true
+		defer func() {
+			drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := worker.Close(drainCtx); err != nil && config.Logger != nil {
+				config.Logger.Printf("data worker drain failed")
+			}
+		}()
 	} else if config.UseExistingDataWorker {
 		attachedWorker, err := dataworker.Attach(config.DataWorkerSocket)
 		if err != nil {
@@ -56,15 +61,6 @@ func Run(ctx context.Context, config Config) error {
 			return fmt.Errorf("data endpoint observation unavailable: %w", err)
 		}
 		config.endpointObservation = observation
-	}
-	if ownedWorker {
-		defer func() {
-			drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := worker.Close(drainCtx); err != nil && config.Logger != nil {
-				config.Logger.Printf("data worker drain failed")
-			}
-		}()
 	}
 	observations := newEndpointObservationState(config.endpointObservation)
 	backoff := reconnectBackoff{}

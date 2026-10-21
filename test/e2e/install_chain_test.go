@@ -38,14 +38,16 @@ type installChainStatus struct {
 	HostRunning bool   `json:"hostRunning"`
 	HostHealthy bool   `json:"hostHealthy"`
 	HostPID     int    `json:"hostPid"`
+	DataSchema  int    `json:"dataSchema"`
 }
 
 type installChainReceipt struct {
-	RequestID       string `json:"requestId"`
-	TargetReleaseID string `json:"targetReleaseId"`
-	Stage           string `json:"stage"`
-	Outcome         string `json:"outcome"`
-	FailureCode     string `json:"failureCode"`
+	RequestID             string `json:"requestId"`
+	TargetReleaseID       string `json:"targetReleaseId"`
+	SupersededByRequestID string `json:"supersededByRequestId"`
+	Stage                 string `json:"stage"`
+	Outcome               string `json:"outcome"`
+	FailureCode           string `json:"failureCode"`
 }
 
 // installChainData identifies the preserved Host data without opening it for
@@ -73,10 +75,14 @@ func TestInstallationChainE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	chain := &installChain{t: t, home: home, label: fmt.Sprintf("%s.e2e-%d", productionHostLabel, os.Getpid())}
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Cleanup(func() {
-		_ = exec.Command("/bin/launchctl", "bootout", chain.domain()+"/"+chain.label).Run()
+		if os.Getenv("AGENT_VMM_E2E_KEEP") == "1" {
+			t.Logf("kept service home %s", home)
+			return
+		}
+		_ = os.RemoveAll(home)
 	})
+	t.Cleanup(chain.bootout)
 
 	appA := installChainBundle(t, "AGENT_VMM_E2E_INSTALL_CHAIN_OUTPUT_A", guest, "e2e-install-chain-a")
 	appB := installChainBundle(t, "AGENT_VMM_E2E_INSTALL_CHAIN_OUTPUT_B", guest, "e2e-install-chain-b")
@@ -99,8 +105,8 @@ func TestInstallationChainE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := chain.data()
-	if data.schema == 0 {
-		t.Fatal("installed Host did not create its database")
+	if data.schema == 0 || initial.DataSchema != data.schema {
+		t.Fatalf("status dataSchema = %d, database schema = %d", initial.DataSchema, data.schema)
 	}
 
 	// §3.13: a target that cannot open the local schema is refused before any
@@ -115,9 +121,19 @@ func TestInstallationChainE2E(t *testing.T) {
 	}
 	chain.requireData(data)
 
-	updated, err := chain.maintenance(appB, nil, chain.updateRequest("e2e-install-chain-update", appB, "e2e-install-chain-b"))
+	// §3.15: an executor that exited at restoring leaves its request active and
+	// pending. A preserve update with the free owner lock replaces it.
+	chain.stickMaintenance("e2e-install-chain-refused", "e2e-install-chain-stuck")
+	update := chain.updateRequest("e2e-install-chain-update", appB, "e2e-install-chain-b")
+	update["supersedesRequestId"] = "e2e-install-chain-stuck"
+	updated, err := chain.maintenance(appB, nil, update)
 	if err != nil || updated.Outcome != "succeeded" || updated.Stage != "complete" {
 		t.Fatalf("update maintenance = %+v, %v", updated, err)
+	}
+	var stuck installChainReceipt
+	chain.decode(chain.lifecycle(appB, nil, []byte(`{"requestId":"e2e-install-chain-stuck"}`), time.Minute, "maintenance-status", "--service-type", "agent"), &stuck)
+	if stuck.Outcome != "superseded" || stuck.SupersededByRequestID != "e2e-install-chain-update" {
+		t.Fatalf("stuck request = %+v", stuck)
 	}
 	if after := chain.healthy(appB, "e2e-install-chain-b"); after.HostPID == initial.HostPID {
 		t.Fatalf("update kept the old Host process %d", initial.HostPID)
@@ -238,6 +254,44 @@ func (chain *installChain) maintenance(app string, env []string, request map[str
 	return receipt, runErr
 }
 
+// stickMaintenance writes the journal that an executor leaves when it exits at
+// restoring: the request is active and pending, and no process holds the lock.
+// It copies the identity fields of the refused receipt from.
+func (chain *installChain) stickMaintenance(from, id string) {
+	chain.t.Helper()
+	directory := filepath.Join(chain.home, "Library", "Application Support", "Agent VMM Maintenance")
+	name := func(id string) string {
+		hash := sha256.Sum256([]byte(id))
+		return filepath.Join(directory, "request-"+hex.EncodeToString(hash[:])+".json")
+	}
+	raw, err := os.ReadFile(name(from))
+	if err != nil {
+		chain.t.Fatal(err)
+	}
+	var receipt map[string]any
+	chain.decode(raw, &receipt)
+	delete(receipt, "failureCode")
+	delete(receipt, "failureMessage")
+	receipt["requestId"], receipt["stage"], receipt["outcome"], receipt["retryable"] = id, "restoring", "pending", true
+	receipt["softwareInstalled"], receipt["restoreAttempts"] = true, 7
+	state := map[string]any{"version": 1}
+	if raw, err := os.ReadFile(filepath.Join(directory, "state.json")); err == nil {
+		chain.decode(raw, &state)
+	} else if !os.IsNotExist(err) {
+		chain.t.Fatal(err)
+	}
+	state["activeRequest"], state["latestRequest"] = id, id
+	for path, value := range map[string]any{name(id): receipt, filepath.Join(directory, "state.json"): state} {
+		data, err := json.Marshal(value)
+		if err != nil {
+			chain.t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			chain.t.Fatal(err)
+		}
+	}
+}
+
 func (chain *installChain) updateRequest(id, app, releaseID string) map[string]any {
 	chain.t.Helper()
 	archive, err := os.ReadFile(filepath.Join(filepath.Dir(app), "Agent-VMM-Host.zip"))
@@ -303,6 +357,18 @@ func (chain *installChain) requireData(want installChainData) {
 
 func (chain *installChain) loaded() bool {
 	return exec.Command("/bin/launchctl", "print", chain.domain()+"/"+chain.label).Run() == nil
+}
+
+// bootout removes the isolated job and waits until launchd no longer lists it.
+// The Host can take its full shutdown budget after SIGTERM.
+func (chain *installChain) bootout() {
+	_ = exec.Command("/bin/launchctl", "bootout", chain.domain()+"/"+chain.label).Run()
+	for deadline := time.Now().Add(2 * time.Minute); chain.loaded(); time.Sleep(time.Second) {
+		if time.Now().After(deadline) {
+			chain.t.Errorf("isolated launchd job %s is still loaded after bootout", chain.label)
+			return
+		}
+	}
 }
 
 func (chain *installChain) domain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }

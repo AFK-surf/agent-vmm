@@ -126,6 +126,8 @@ type serviceStatus struct {
 	Operation            *lifecycleOperation               `json:"operation,omitempty"`
 	Startup              *startupEvidence                  `json:"startup,omitempty"`
 	HostStartFailure     *store.StartFailure               `json:"hostStartFailure,omitempty"`
+	DataSchema           int                               `json:"dataSchema"`
+	DataSchemaIssue      string                            `json:"dataSchemaIssue,omitempty"`
 	Snapshot             *hostv1.GetSystemSnapshotResponse `json:"-"`
 }
 
@@ -844,6 +846,11 @@ func readStatusContext(ctx context.Context, value paths, registrationIDs ...stri
 	if len(registrationIDs) != 0 && registrationIDs[0] != "" {
 		result.RegistrationRead = "unreadable"
 		result.RegistrationReason = "operator_unavailable"
+	}
+	if schema, err := store.ReadSchemaVersion(filepath.Join(value.applicationData, "host.sqlite")); err == nil {
+		result.DataSchema = schema
+	} else {
+		result.DataSchemaIssue = err.Error()
 	}
 	result.Startup = readStartupEvidence(value, result.Operation)
 	if service, err := launchctlServiceObserver(ctx, value.serviceDomain()+"/"+hostLabel); err == nil {
@@ -1712,7 +1719,9 @@ func repairWith(value paths, run func(...string) error) error {
 }
 
 func repairWithOptions(value paths, run func(...string) error, disablePairing bool) error {
-	return repairWithOptionsContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), hostStopTimeout)
+	defer cancel()
+	return repairWithOptionsContext(ctx, value, func(_ context.Context, arguments ...string) error {
 		return run(arguments...)
 	}, disablePairing)
 }
@@ -1832,7 +1841,9 @@ func drain(value paths) error { return drainWith(value, launchctl) }
 
 // launchctl bootout waits for the host and its supervised workers to terminate.
 func drainWith(value paths, run func(...string) error) error {
-	return drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), hostStopTimeout)
+	defer cancel()
+	return drainWithContext(ctx, value, func(_ context.Context, arguments ...string) error {
 		return run(arguments...)
 	})
 }
@@ -2056,12 +2067,10 @@ func parseLaunchctlServicePID(output []byte) (int, error) {
 }
 
 func waitForProcessExit(ctx context.Context, pid int) error {
-	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	for processRunning(pid) {
 		select {
-		case <-waitCtx.Done():
-			return waitCtx.Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
@@ -2069,7 +2078,9 @@ func waitForProcessExit(ctx context.Context, pid int) error {
 }
 
 func uninstallWith(value paths, purge bool, run func(...string) error) error {
-	return uninstallWithContext(context.Background(), value, purge, func(_ context.Context, arguments ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), hostStopTimeout)
+	defer cancel()
+	return uninstallWithContext(ctx, value, purge, func(_ context.Context, arguments ...string) error {
 		return run(arguments...)
 	})
 }
@@ -2187,20 +2198,20 @@ func stopHostServiceAt(ctx context.Context, run func(context.Context, ...string)
 	return waitForHostServiceRemovalAt(ctx, run, serviceDomain)
 }
 
-func waitForHostServiceRemoval(ctx context.Context, run func(context.Context, ...string) error) error {
-	return waitForHostServiceRemovalAt(ctx, run, fmt.Sprintf("gui/%d", os.Getuid()))
-}
+// hostStopTimeout bounds a Host stop. launchd kills the Host after the 90 s
+// ExitTimeOut of its service definition, so the stop completes within it.
+const hostStopTimeout = 90 * time.Second
 
+// waitForHostServiceRemovalAt waits within the caller deadline. The Host
+// shutdown after SIGTERM stops the VM and the data worker first.
 func waitForHostServiceRemovalAt(ctx context.Context, run func(context.Context, ...string) error, serviceDomain string) error {
-	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	for {
-		if err := waitCtx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("host service did not finish stopping: %w", err)
 		}
-		if err := run(waitCtx, "print", serviceDomain+"/"+hostLabel); err != nil {
-			if waitCtx.Err() != nil {
-				return fmt.Errorf("host service did not finish stopping: %w", waitCtx.Err())
+		if err := run(ctx, "print", serviceDomain+"/"+hostLabel); err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("host service did not finish stopping: %w", ctx.Err())
 			}
 			if errors.Is(err, errLaunchctlServiceNotFound) {
 				return nil
@@ -2208,8 +2219,8 @@ func waitForHostServiceRemovalAt(ctx context.Context, run func(context.Context, 
 			return fmt.Errorf("host service status could not be read: %w", err)
 		}
 		select {
-		case <-waitCtx.Done():
-			return fmt.Errorf("host service did not finish stopping: %w", waitCtx.Err())
+		case <-ctx.Done():
+			return fmt.Errorf("host service did not finish stopping: %w", ctx.Err())
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
