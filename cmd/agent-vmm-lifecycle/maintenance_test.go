@@ -239,6 +239,40 @@ func TestMaintenanceStopOldHostUsesLaunchdAndConfirmsExit(t *testing.T) {
 	}
 }
 
+func TestMaintenanceStopCrashLoopingHostBootsOutWithoutProcessWait(t *testing.T) {
+	p, _, _ := maintenanceFixture(t)
+	oldObserver, oldDisk, oldDrain := launchctlServiceObserver, stateDiskOpenOwners, drainVMForUpdate
+	defer func() {
+		launchctlServiceObserver, stateDiskOpenOwners, drainVMForUpdate = oldObserver, oldDisk, oldDrain
+	}()
+	launchctlServiceObserver = func(context.Context, string) (launchctlServiceFacts, error) {
+		return parseLaunchctlServiceObservation([]byte(crashLoopLaunchctlPrint))
+	}
+	diskChecked := false
+	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { diskChecked = true; return nil, nil }
+	drainVMForUpdate = func(context.Context, paths, string) error {
+		t.Fatal("drained the VM of a Host that has no process")
+		return nil
+	}
+	var bootouts []string
+	run := func(_ context.Context, args ...string) error {
+		booted := false
+		for _, target := range bootouts {
+			booted = booted || target == args[1]
+		}
+		switch {
+		case args[0] == "print" && (booted || strings.HasPrefix(args[1], "system/")):
+			return errLaunchctlServiceNotFound
+		case args[0] == "bootout":
+			bootouts = append(bootouts, args[1])
+		}
+		return nil
+	}
+	if err := stopForMaintenanceWith(context.Background(), p, run); err != nil || len(bootouts) == 0 || bootouts[0] != p.serviceDomain()+"/"+hostLabel || !diskChecked {
+		t.Fatalf("bootouts=%v diskChecked=%v err=%v", bootouts, diskChecked, err)
+	}
+}
+
 func TestMaintenancePreserveUninstallKeepsServicePolicy(t *testing.T) {
 	p, r, a := maintenanceFixture(t)
 	policy := []byte(`{"disable_pairing":true}`)

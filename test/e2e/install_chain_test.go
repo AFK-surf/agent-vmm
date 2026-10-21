@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
 
@@ -124,6 +125,7 @@ func TestInstallationChainE2E(t *testing.T) {
 	// §3.15: an executor that exited at restoring leaves its request active and
 	// pending. A preserve update with the free owner lock replaces it.
 	chain.stickMaintenance("e2e-install-chain-refused", "e2e-install-chain-stuck")
+	chain.crashLoop(appB)
 	update := chain.updateRequest("e2e-install-chain-update", appB, "e2e-install-chain-b")
 	update["supersedesRequestId"] = "e2e-install-chain-stuck"
 	updated, err := chain.maintenance(appB, nil, update)
@@ -140,6 +142,7 @@ func TestInstallationChainE2E(t *testing.T) {
 	}
 	chain.requireData(data)
 
+	chain.crashLoop(appB)
 	removed, err := chain.maintenance(appB, nil, map[string]any{"version": 1, "requestId": "e2e-install-chain-uninstall",
 		"action": "uninstall", "dataPolicy": "preserve", "targetApp": chain.sharedApp(), "confirmSharedHost": true})
 	if err != nil || removed.Outcome != "succeeded" {
@@ -352,6 +355,50 @@ func (chain *installChain) requireData(want installChainData) {
 	chain.t.Helper()
 	if got := chain.data(); got != want {
 		chain.t.Fatalf("Host data changed: got %+v, want %+v", got, want)
+	}
+}
+
+// crashLoop replaces the installed Host executable with one that exits 1 and
+// restarts the Host. launchd then reports "spawn scheduled" without a PID, as
+// for a Host that cannot open its data. Maintenance must still proceed. The
+// graceful exit is successful, so launchd starts the failing Host only after a
+// kickstart.
+func (chain *installChain) crashLoop(app string) {
+	chain.t.Helper()
+	host := filepath.Join(chain.sharedApp(), filepath.FromSlash(bundle.HostExecutableRelativePath))
+	failing := host + ".e2e-crash"
+	if err := os.WriteFile(failing, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		chain.t.Fatal(err)
+	}
+	if err := os.Rename(failing, host); err != nil {
+		chain.t.Fatal(err)
+	}
+	target := chain.domain() + "/" + chain.label
+	if output, err := exec.Command("/bin/launchctl", "kill", "SIGTERM", target).CombinedOutput(); err != nil {
+		chain.t.Fatalf("launchctl kill %s: %v %s", target, err, output)
+	}
+	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(time.Second) {
+		if time.Now().After(deadline) {
+			chain.t.Fatal("isolated Host did not enter a crash loop within three minutes")
+		}
+		printed, _ := exec.Command("/bin/launchctl", "print", target).Output()
+		if strings.Contains(string(printed), "state = not running") {
+			if output, err := exec.Command("/bin/launchctl", "kickstart", target).CombinedOutput(); err != nil {
+				chain.t.Fatalf("launchctl kickstart %s: %v %s", target, err, output)
+			}
+			continue
+		}
+		var status installChainStatus
+		output, err := chain.run(app, nil, nil, time.Minute, "status", "--shared-host", "--service-type", "agent")
+		if err == nil {
+			chain.decode(output, &status)
+		}
+		if strings.Contains(string(printed), "state = spawn scheduled") && err == nil && status.HostLoaded && !status.HostRunning && status.HostPID == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			chain.t.Fatalf("isolated Host did not enter a crash loop: status %+v, %v\n%s", status, err, readTail(printed))
+		}
 	}
 }
 

@@ -67,6 +67,48 @@ func TestObservationPathsDoNotRequireCompleteBundle(t *testing.T) {
 	}
 }
 
+// crashLoopLaunchctlPrint has the structure of a real launchctl print for a
+// Host that exits at start: launchd reports "spawn scheduled" without a PID.
+const crashLoopLaunchctlPrint = `gui/501/com.afk-surf.agent-vmm-host = {
+	active count = 0
+	path = /Users/test/Library/LaunchAgents/com.afk-surf.agent-vmm-host.plist
+	type = LaunchAgent
+	state = spawn scheduled
+
+	program = /Users/test/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app/Contents/MacOS/agent-vmm-host
+	arguments = {
+		/Users/test/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app/Contents/MacOS/agent-vmm-host
+		--database
+		/Users/test/Library/Application Support/AgentVMM/host.sqlite
+	}
+
+	stdout path = /Users/test/Library/Logs/AgentVMM/host.stdout.log
+	stderr path = /Users/test/Library/Logs/AgentVMM/host.stderr.log
+	domain = gui/501 [100020]
+	asid = 100020
+	minimum runtime = 10
+	exit timeout = 60
+	runs = 57
+	last exit code = 1
+
+	semaphores = {
+		successful exit => 0
+	}
+
+	resource coalition = {
+		ID = 165749
+		type = resource
+		state = active
+		active count = 1
+		name = com.afk-surf.agent-vmm-host
+	}
+
+	spawn type = interactive (4)
+	job state = exited
+	properties = runatload | inferred program
+}
+`
+
 func TestParseLaunchctlServiceObservationSeparatesLoadedFromRunning(t *testing.T) {
 	running, err := parseLaunchctlServiceObservation([]byte(fmt.Sprintf("state = running\npid = %d\nlast exit code = 0\nresource coalition = {\n\tstate = active\n}\n", os.Getpid())))
 	if err != nil || !running.Loaded || !running.Running || running.PID != os.Getpid() {
@@ -75,6 +117,27 @@ func TestParseLaunchctlServiceObservationSeparatesLoadedFromRunning(t *testing.T
 	exited, err := parseLaunchctlServiceObservation([]byte("state = exited\nlast exit status = 78\nresource coalition = {\n\tstate = active\n}\n"))
 	if err != nil || !exited.Loaded || exited.Running || exited.PID != 0 || exited.LastExitStatus == nil || *exited.LastExitStatus != 78 {
 		t.Fatalf("exited facts = %+v, err=%v", exited, err)
+	}
+	crashLoop, err := parseLaunchctlServiceObservation([]byte(crashLoopLaunchctlPrint))
+	if err != nil || !crashLoop.Loaded || crashLoop.Running || crashLoop.PID != 0 || crashLoop.LastExitStatus == nil || *crashLoop.LastExitStatus != 1 {
+		t.Fatalf("spawn scheduled facts = %+v, err=%v", crashLoop, err)
+	}
+	if _, err := parseLaunchctlServiceObservation([]byte("state = running\n\tpid = invalid\n")); err == nil {
+		t.Fatal("invalid Host PID was accepted")
+	}
+}
+
+func TestStatusReportsCrashLoopingHostLoadedButNotRunning(t *testing.T) {
+	value := testPaths(t.TempDir())
+	original := launchctlServiceObserver
+	launchctlServiceObserver = func(context.Context, string) (launchctlServiceFacts, error) {
+		return parseLaunchctlServiceObservation([]byte(crashLoopLaunchctlPrint))
+	}
+	t.Cleanup(func() { launchctlServiceObserver = original })
+	status := readStatusContext(context.Background(), value)
+	if !status.HostObserved || !status.HostLoaded || status.HostRunning || status.HostPID != 0 || status.HostObservationIssue != "" ||
+		status.HostLastExitStatus == nil || *status.HostLastExitStatus != 1 {
+		t.Fatalf("crash-looping Host status = %+v", status)
 	}
 }
 
@@ -678,23 +741,6 @@ func TestLaunchctlServiceAbsentClassifiesHeadlessGUIDomain(t *testing.T) {
 	}
 	if launchctlServiceAbsent("bootstrap", "Domain does not support specified action") {
 		t.Fatal("only print may prove that a service is absent")
-	}
-}
-
-func TestParseLaunchctlServicePIDRequiresAnExplicitState(t *testing.T) {
-	pid, err := parseLaunchctlServicePID([]byte("state = running\n\tpid = 42\n"))
-	if err != nil || pid != 42 {
-		t.Fatalf("running service pid=%d err=%v", pid, err)
-	}
-	pid, err = parseLaunchctlServicePID([]byte("state = not running\n"))
-	if err != nil || pid != 0 {
-		t.Fatalf("stopped service pid=%d err=%v", pid, err)
-	}
-	if _, err := parseLaunchctlServicePID([]byte("state = running\n")); err == nil {
-		t.Fatal("running service without a PID was accepted as stopped")
-	}
-	if _, err := parseLaunchctlServicePID([]byte("state = not running\n\tpid = invalid\n")); err == nil {
-		t.Fatal("stopped service with an invalid PID was accepted")
 	}
 }
 

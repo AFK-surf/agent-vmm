@@ -1980,7 +1980,12 @@ func vmMutationFence(vm *hostv1.VM) *hostv1.VMMutationFence {
 	return &hostv1.VMMutationFence{State: vm.GetState(), BootId: vm.GetBootId(), WholeVmImpactAcknowledged: true}
 }
 
-var launchctlPID = launchctlServicePID
+// A loaded job without a live PID has no Host process to wait for, whatever
+// launchd state it reports, for example "spawn scheduled" in a crash loop.
+var launchctlPID = func(ctx context.Context, target string) (int, error) {
+	service, err := launchctlServiceObserver(ctx, target)
+	return service.PID, err
+}
 var processRunning = func(pid int) bool {
 	err := unix.Kill(pid, 0)
 	return err == nil || errors.Is(err, unix.EPERM)
@@ -2030,40 +2035,6 @@ func waitForStateDiskRelease(ctx context.Context, path string) error {
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
-}
-
-func launchctlServicePID(ctx context.Context, target string) (int, error) {
-	command := exec.CommandContext(ctx, "/bin/launchctl", "print", target)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if launchctlServiceAbsent("print", message) {
-			return 0, fmt.Errorf("%w: %s", errLaunchctlServiceNotFound, message)
-		}
-		return 0, fmt.Errorf("launchctl print failed: %w", err)
-	}
-	return parseLaunchctlServicePID(output)
-}
-
-func parseLaunchctlServicePID(output []byte) (int, error) {
-	stopped := false
-	for _, line := range strings.Split(string(output), "\n") {
-		if strings.TrimSpace(line) == "state = not running" {
-			stopped = true
-		}
-		fields := strings.Fields(line)
-		if len(fields) == 3 && fields[0] == "pid" && fields[1] == "=" {
-			pid, parseErr := strconv.Atoi(fields[2])
-			if parseErr != nil || pid <= 0 {
-				return 0, errors.New("launchctl print reported an invalid Host PID")
-			}
-			return pid, nil
-		}
-	}
-	if stopped {
-		return 0, nil
-	}
-	return 0, errors.New("launchctl print did not report a Host PID or stopped state")
 }
 
 func waitForProcessExit(ctx context.Context, pid int) error {
