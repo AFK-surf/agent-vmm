@@ -262,6 +262,40 @@ func (store *Store) UpdateRemotePool(ctx context.Context, registration RemoteReg
 	return store.GetRemoteRegistration(ctx, registration.ID)
 }
 
+// UpdateManagedRemoteRegistration replaces the mutable fields of a managed
+// registration. The pool policy revision changes only with the pool values.
+func (store *Store) UpdateManagedRemoteRegistration(ctx context.Context, registration RemoteRegistration, expectedRevision uint64) (RemoteRegistration, error) {
+	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET
+		pool_policy_revision=pool_policy_revision+CASE WHEN per_env_pids=? AND per_env_disk_bytes=? AND max_egress_mode=? AND stop_grace_seconds=? THEN 0 ELSE 1 END,
+		display_name=?, source_policy_revision=?,
+		per_env_pids=?, per_env_disk_bytes=?, max_egress_mode=?, stop_grace_seconds=?, revision=revision+1, updated_at=?
+		WHERE id=? AND revision=? AND state != 3`,
+		registration.PerEnvPIDs, registration.PerEnvDiskBytes, registration.MaxEgressMode, registration.StopGraceSeconds,
+		registration.DisplayName, registration.SourcePolicyRevision,
+		registration.PerEnvPIDs, registration.PerEnvDiskBytes, registration.MaxEgressMode, registration.StopGraceSeconds, time.Now().UnixNano(),
+		registration.ID, expectedRevision)
+	if err != nil {
+		return RemoteRegistration{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return RemoteRegistration{}, err
+		}
+		return RemoteRegistration{}, ErrRemoteRegistrationRevisionConflict
+	}
+	return store.GetRemoteRegistration(ctx, registration.ID)
+}
+
+// ConvertRemoteProtocolVersion moves every live registration with an older
+// numeric protocol version to the running version. A newer or non-numeric
+// version stays unchanged and fails at connector start.
+func (store *Store) ConvertRemoteProtocolVersion(ctx context.Context, version string) error {
+	_, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET protocol_version=?, revision=revision+1, updated_at=?
+		WHERE state != 3 AND protocol_version GLOB '[1-9]*' AND protocol_version NOT GLOB '*[^0-9]*'
+		AND CAST(protocol_version AS INTEGER) < CAST(? AS INTEGER)`, version, time.Now().UnixNano(), version)
+	return err
+}
+
 func (store *Store) SetRemoteRegistrationState(ctx context.Context, id string, expectedRevision uint64, state int32) (RemoteRegistration, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET state=?, revision=revision+1,
 		connection_state=CASE WHEN ? = 3 THEN 1 ELSE connection_state END,

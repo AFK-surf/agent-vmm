@@ -6,14 +6,21 @@ instance, bootstrap ID, connection epoch, and installation revision. A restart
 creates a fresh boot and container instance. It revokes the previous runtime
 capabilities before it publishes the replacement.
 
-An unexpected Virtualization.framework stop is handled once by the running
-Host process. It revokes remote sessions, command capabilities, and
-connector admission before using the same `state.raw`, then restores
-appliances, policies, and connectors
-under a fresh Guest boot ID. If that attempt fails, or if the recovered VM stops
-unexpectedly again, VM status remains `FAILED` with operator action required.
-Automatic recovery never formats or replaces the state disk, kills unrelated
-processes, restarts the Host, or reboots macOS.
+The running Host process recovers an unexpected Virtualization.framework stop.
+It revokes remote sessions, command capabilities, and connector admission
+before it uses the same `state.raw`. Then it restores appliances, policies, and
+connectors under a fresh Guest boot ID. The Host retries a failed attempt after 5, 10,
+20, and 40 seconds, for at most five attempts in ten minutes. The attempts count
+across stops until a recovered VM runs for ten minutes. After the last failed
+attempt, VM status is `FAILED` with operator action required. Automatic recovery
+never formats or replaces the state disk, kills unrelated processes, restarts
+the Host, or reboots macOS.
+
+A Host restart during an admitted Activate or Restart continues that same
+operation and request after the Host starts. The Guest launch request and boot
+nonce come from the installation, its volume, and the new boot. The operation
+settles with the result of that activation. It does not fail only because the
+Host restarted.
 
 A Stop request settles a `FAILED` VM as `STOPPED` when the VZ manager has no
 machine attachment. The stopped status retains the failure message for
@@ -175,6 +182,13 @@ candidates increase from 100 to 200 to 400 milliseconds. The total budget takes
 priority, so a pass need not exhaust every candidate. Later gRPC connection
 passes retain the existing jittered backoff, capped at 30 seconds.
 
+Only explicit revocation stops the connector: a `RevokeCredential` message or a
+revoked local registration reports `CREDENTIAL_REVOKED` and ends the loop.
+Controller `Unauthenticated` and `PermissionDenied` responses report
+`AUTH_FAILED/CONTROLLER_AUTH_FAILED`. A missing credential or invalid local
+connector state reports `CONFIG_ERROR`. These failures use the same capped
+backoff. A rejected attempt gets no command authority.
+
 Every candidate uses the original Gateway hostname, configured CA roots, TLS 1.3,
 and HTTP/2. DNS and interface selection provide reachability, not authority.
 Only stock TLS verification can admit a connection. Bearer credentials and
@@ -198,6 +212,11 @@ After conversion, the Host enables foreign keys and checks stored references.
 
 Startup rejects unsupported schema versions before conversion.
 It also rejects older encrypted appliance storage while installation or volume records remain.
+After a rejection, the Host writes `AgentVMM/host-start-failure.json` and exits
+with status 0, so launchd does not restart it. The code is
+`data_newer_than_host` or `data_requires_conversion`. `agent-vmm-lifecycle
+status` reports the record as `hostStartFailure`. Maintenance does not install
+a release whose `supportedSchema` does not include the local schema.
 Preserve the database, disks, keys, and operation evidence.
 Restore a compatible Host and a verified
 backup to recover an unsupported installation. A fresh identity installation
@@ -305,6 +324,14 @@ update keeps the registration, Host database, appliance volumes, and
 application changed. Use `--purge` only for an explicitly approved fresh
 identity cutover, corrupt state that cannot be repaired, or obsolete state that
 blocks operation.
+
+Host start converts each live registration with an older numeric protocol
+version to the running version, once. A newer version is not changed.
+A repeated managed enrollment compares only the registration ID, endpoint,
+trust bundle, and scope digest. It updates the display name, source policy
+revision, and pool policy of the stored registration. An older source policy
+revision, or the same revision with a different pool, returns
+`POLICY_REVISION_CONFLICT`.
 
 Choose the path before making changes:
 
@@ -479,6 +506,14 @@ new disk; it never resizes or rejects an existing disk. Treat a failure of the
 backing check as a Host storage problem; do not start the VM on a partially
 allocated disk and do not recreate the disk while the existing filesystem still
 boots.
+
+The state disk stays fully preallocated. A sparse disk was tested on a full
+host volume: the Guest kernel reported lost writeback, but the workload write
+and `sync` returned success. Before an install, `agent-vmm-lifecycle preflight
+--json` reports `insufficient_disk` with `requiredBytes` (the new state disk
+size plus the 10 GiB host emergency space) and `availableBytes` of the volume
+that holds `~/Library/Application Support/AgentVMM`. A Mac with less free space
+is not supported; free space before the install.
 
 If VZ reaches `Running` but VMMD repeatedly resets vsock 4050 before publishing
 health, preserve the state disk and inspect Guest startup first. An existing

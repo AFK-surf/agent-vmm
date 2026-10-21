@@ -65,7 +65,7 @@ func (s *Server) ImportImage(stream grpc.ClientStreamingServer[vmmdv1.ImportImag
 	if hot {
 		return stream.SendAndClose(hotImage)
 	}
-	unlockMaterializer, err := s.runtime.lockImportSlot(manifestDigest.String())
+	unlockMaterializer, err := s.runtime.lockImportSlot(stream.Context(), manifestDigest.String())
 	if err != nil {
 		return rpcError(err)
 	}

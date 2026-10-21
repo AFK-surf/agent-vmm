@@ -46,6 +46,54 @@ func TestRestartAppliancePersistsLifecycleFailure(t *testing.T) {
 	}
 }
 
+func TestHostRestartResumesAdmittedActivationUnderOriginalOperation(t *testing.T) {
+	for _, test := range []struct {
+		kind   appliancev1.ApplianceOperationKind
+		reason string
+	}{
+		{appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_ACTIVATE, "APPLIANCE_START_FAILED"},
+		{appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_RESTART, "APPLIANCE_RESTART_FAILED"},
+	} {
+		t.Run(test.kind.String(), func(t *testing.T) {
+			controller, installation, _, _, _, _ := renewalHost(t, time.Now())
+			controller.egress = egress.New()
+			controller.manager = &vmm.Manager{}
+			server := &applianceAdminServer{controller: controller}
+			mutation := applianceMutation{installation.ID, "interrupted", installation.Revision, time.Now().Add(time.Minute).UnixMilli()}
+			admitted, err := callAsOperator(t, func(ctx context.Context) (*appliancev1.ApplianceOperationResponse, error) {
+				return server.setDesiredState(ctx, mutation, installation.Revision, true,
+					appliancev1.ApplianceState_APPLIANCE_STATE_STARTING, test.kind, "activation-pending")
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The resumed activation reaches the lifecycle owner, which rejects
+			// it here; the result settles the original operation.
+			controller.vmLifecycle = &VMLifecycleOwner{closing: true}
+			if err := controller.recoverInterruptedApplianceAdminOperations(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				operation, err := controller.store.ApplianceOperationByRequest(context.Background(), mutation.requestID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if operation.State != int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING) {
+					if operation.ID != admitted.GetOperation().GetOperationId() || operation.ErrorReason != test.reason {
+						t.Fatalf("resumed operation = %+v", operation)
+					}
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("interrupted activation was not resumed")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}
+
 func TestRevokeFailureRetainsOriginalReceiptWhileBackgroundCleanupSettles(t *testing.T) {
 	controller, installation, _, _, _, _ := renewalHost(t, time.Now())
 	registrationBefore, err := controller.store.GetRemoteRegistration(context.Background(), installation.RegistrationID)

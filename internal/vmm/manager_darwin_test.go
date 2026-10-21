@@ -63,7 +63,7 @@ func TestResourceSnapshotKeepsUnavailableCurrentMemoryAbsent(t *testing.T) {
 	}
 }
 
-func TestUnexpectedStopHasOneRecoveryOwnerAndFailsClosed(t *testing.T) {
+func TestUnexpectedStopFencesAdmissionAndHandsEveryStopToRecovery(t *testing.T) {
 	machine := new(vz.VirtualMachine)
 	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "boot-one", machine: machine}
 	fences := 0
@@ -73,48 +73,34 @@ func TestUnexpectedStopHasOneRecoveryOwnerAndFailsClosed(t *testing.T) {
 			t.Fatal("admission fence ran after terminal state was published")
 		}
 	}
-	invalidations := 0
-	manager.invalidate = func() { invalidations++ }
-	recoveries := 0
-	manager.recover = func(previousBootID string) {
-		recoveries++
-		if previousBootID != "boot-one" {
-			t.Fatalf("previous boot ID = %q", previousBootID)
-		}
+	manager.invalidate = func() {}
+	var recovered []string
+	manager.recover = func(previousBootID string) { recovered = append(recovered, previousBootID) }
+	_, recover, bootID := manager.terminalTransition(machine, vz.VirtualMachineStateStopped, true)
+	if manager.state != hostv1.VMState_VM_STATE_STOPPED || manager.bootID != "" || recover == nil || fences != 1 {
+		t.Fatalf("first transition = state %s boot %q fences %d", manager.state, manager.bootID, fences)
 	}
-	invalidate, recover, bootID := manager.terminalTransition(machine, vz.VirtualMachineStateStopped, true)
-	if manager.state != hostv1.VMState_VM_STATE_STOPPED || manager.bootID != "" || !manager.recoveryUsed {
-		t.Fatalf("first transition = state %s boot %q used %t", manager.state, manager.bootID, manager.recoveryUsed)
-	}
-	invalidate()
 	recover(bootID)
-	if invalidations != 1 || recoveries != 1 || fences != 1 {
-		t.Fatalf("first transition callbacks = invalidate %d recover %d", invalidations, recoveries)
-	}
-	manager.state = hostv1.VMState_VM_STATE_RUNNING
-	manager.bootID = "boot-two"
+	manager.state, manager.bootID = hostv1.VMState_VM_STATE_RUNNING, "boot-two"
 	machine = new(vz.VirtualMachine)
 	manager.machine = machine
-	manager.admissionFence = func() { fences++ }
-	invalidate, recover, _ = manager.terminalTransition(machine, vz.VirtualMachineStateError, true)
-	if recover != nil {
-		t.Fatal("second unexpected stop acquired another recovery owner")
-	}
-	invalidate()
-	if manager.state != hostv1.VMState_VM_STATE_FAILED || !strings.Contains(manager.lastErr, "operator action required") || manager.bootID != "" {
+	manager.admissionFence = nil
+	_, recover, bootID = manager.terminalTransition(machine, vz.VirtualMachineStateError, true)
+	if recover == nil || manager.state != hostv1.VMState_VM_STATE_FAILED || manager.bootID != "" {
 		t.Fatalf("second transition = %+v", manager.snapshotLocked())
 	}
-	if invalidations != 2 || recoveries != 1 || fences != 2 {
-		t.Fatalf("terminal callbacks = invalidate %d recover %d", invalidations, recoveries)
+	recover(bootID)
+	if len(recovered) != 2 || recovered[0] != "boot-one" || recovered[1] != "boot-two" {
+		t.Fatalf("recovered boots = %v", recovered)
 	}
 }
 
-func TestExpectedStopDoesNotConsumeRecovery(t *testing.T) {
+func TestExpectedStopDoesNotRecover(t *testing.T) {
 	machine := new(vz.VirtualMachine)
-	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPING, bootID: "boot", machine: machine}
+	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPING, bootID: "boot", machine: machine, recover: func(string) {}}
 	_, recover, _ := manager.terminalTransition(machine, vz.VirtualMachineStateStopped, true)
-	if recover != nil || manager.recoveryUsed || manager.state != hostv1.VMState_VM_STATE_STOPPED {
-		t.Fatalf("expected stop = state %s used %t", manager.state, manager.recoveryUsed)
+	if recover != nil || manager.state != hostv1.VMState_VM_STATE_STOPPED {
+		t.Fatalf("expected stop = state %s recover %t", manager.state, recover != nil)
 	}
 }
 
@@ -138,7 +124,7 @@ func TestStaleMachineNotificationCannotInvalidateCurrentRuntime(t *testing.T) {
 }
 
 func TestRecoveryFailureRequiresOperatorAction(t *testing.T) {
-	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPED, recoveryUsed: true}
+	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPED}
 	manager.FailRecovery(errors.New("policy replay failed"))
 	if manager.state != hostv1.VMState_VM_STATE_FAILED || !strings.Contains(manager.lastErr, "operator action required") || !strings.Contains(manager.lastErr, "policy replay failed") {
 		t.Fatalf("recovery failure = %+v", manager.snapshotLocked())

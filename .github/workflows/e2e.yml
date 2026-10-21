@@ -1,0 +1,86 @@
+name: Host E2E (report-only)
+
+# Report-only: no branch protection or release step depends on this workflow.
+# The agent-vmm owner reads its report before letting Comma build from main.
+# Enable a weekly schedule only after a dispatch run proves that the selected
+# runner can boot Virtualization.framework guests.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: JSON runs-on value of a macOS runner that can boot VZ guests
+        required: true
+        default: '"blacksmith-6vcpu-macos-26"'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-guest:
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up persistent Guest builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: build/guest/Dockerfile
+          platforms: linux/arm64
+      - name: Build development Guest bundle
+        run: build/guest/build.sh "$RUNNER_TEMP/guest-bundle" development standalone
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-guest-bundle
+          path: ${{ runner.temp }}/guest-bundle
+          retention-days: 3
+
+  e2e:
+    needs: build-guest
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 90
+    steps:
+      - name: Probe Virtualization.framework and launchd
+        id: probe
+        run: |
+          test "$(sysctl -n kern.hv_support)" = 1 || { echo "::error::runner has no hypervisor support"; exit 1; }
+          sw_vers
+          sysctl -n machdep.cpu.brand_string
+          if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+            echo "gui launchd domain: present"
+            echo "install_chain=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "gui launchd domain: absent; the installation chain test is skipped"
+          fi
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-guest-bundle
+          path: ${{ runner.temp }}/guest-bundle
+      - name: Run Host E2E
+        env:
+          AGENT_VMM_E2E_BUNDLE: ${{ runner.temp }}/guest-bundle
+          # The installation chain needs a gui launchd domain for agent mode.
+          AGENT_VMM_E2E_INSTALL_CHAIN: ${{ steps.probe.outputs.install_chain }}
+        run: make e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: .build/test-results/e2e
+          retention-days: 14

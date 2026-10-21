@@ -3,9 +3,76 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"time"
 )
+
+// minSupportedSchema is the oldest existing database that this build converts.
+// Schemas 26 through 34 inside the reported range were never released; Open
+// refuses them as requiring offline conversion.
+const minSupportedSchema = 18
+
+// Codes of a database that this build refuses to open.
+const (
+	SchemaDataNewer              = "data_newer_than_host"
+	SchemaDataRequiresConversion = "data_requires_conversion"
+)
+
+// SchemaError reports an existing database that this build does not open. Open
+// returns it before it changes the database.
+type SchemaError struct {
+	Code       string
+	DataSchema int
+	message    string
+}
+
+func (err *SchemaError) Error() string { return err.message }
+
+var errEncryptedApplianceStorage = errors.New("host database contains unsupported encrypted appliance storage; preserve the database, appliance secrets, and VM data")
+
+// SchemaRange is an inclusive range of database schemas.
+type SchemaRange struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
+}
+
+// SupportedSchema returns the existing database schemas that this build opens.
+func SupportedSchema() SchemaRange { return SchemaRange{Min: minSupportedSchema, Max: schemaVersion} }
+
+// StartFailureFile is the record that a Host writes next to its database when
+// it refuses the database and exits without a launchd restart.
+const StartFailureFile = "host-start-failure.json"
+
+type StartFailure struct {
+	Code            string      `json:"code"`
+	DataSchema      int         `json:"dataSchema"`
+	SupportedSchema SchemaRange `json:"supportedSchema"`
+}
+
+// ReadSchemaVersion reads the schema of an existing database without changing
+// it. A missing database or migration table is a fresh database, schema 0.
+func ReadSchemaVersion(path string) (int, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}).String())
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	var tables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'`).Scan(&tables); err != nil || tables == 0 {
+		return 0, err
+	}
+	var version int
+	err = db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&version)
+	return version, err
+}
 
 func (store *Store) migrate(ctx context.Context) error {
 	if _, err := store.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
@@ -33,8 +100,13 @@ func (store *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if version != 0 && version != 18 && version != 19 && version != 20 && version != 21 && version != 22 && version != 23 && version != 24 && version != 25 && version != schemaVersion {
-		return fmt.Errorf("host database schema %d requires offline conversion. Preserve the existing database", version)
+	if version > schemaVersion {
+		return &SchemaError{Code: SchemaDataNewer, DataSchema: version,
+			message: fmt.Sprintf("host database schema %d is newer than this Host supports (%d). Preserve the existing database", version, schemaVersion)}
+	}
+	if version != 0 && (version < minSupportedSchema || (version > 25 && version != schemaVersion)) {
+		return &SchemaError{Code: SchemaDataRequiresConversion, DataSchema: version,
+			message: fmt.Sprintf("host database schema %d requires offline conversion. Preserve the existing database", version)}
 	}
 	if version == 0 {
 		for _, migration := range []func(*sql.Tx) error{migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV9, migrateV10, migrateV16, migrateV19, migrateV20, migrateV21, migrateV22, migrateV23} {
@@ -129,6 +201,9 @@ func (store *Store) migrate(ctx context.Context) error {
 	}
 	if version < schemaVersion {
 		if err := migrateV35(tx); err != nil {
+			if errors.Is(err, errEncryptedApplianceStorage) {
+				return &SchemaError{Code: SchemaDataRequiresConversion, DataSchema: version, message: err.Error()}
+			}
 			return err
 		}
 		if _, err := tx.Exec("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)", schemaVersion, time.Now().UnixNano()); err != nil {
@@ -160,7 +235,7 @@ func migrateV35(tx *sql.Tx) error {
 			return err
 		}
 		if count != 0 {
-			return fmt.Errorf("host database contains unsupported encrypted appliance storage; preserve the database, appliance secrets, and VM data")
+			return errEncryptedApplianceStorage
 		}
 	}
 	for _, statement := range []string{

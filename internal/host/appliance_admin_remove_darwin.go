@@ -144,6 +144,26 @@ func (controller *Controller) recoverInterruptedApplianceAdminOperations(ctx con
 		if operation.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY) {
 			continue
 		}
+		// The restart stopped the old appliance instance. An admitted activation
+		// or restart continues under its original operation; the Guest launch
+		// identity is derived again from the installation and the new boot.
+		if (operation.Kind == int32(appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_ACTIVATE) ||
+			operation.Kind == int32(appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_RESTART)) &&
+			operation.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED) {
+			failedStage, reason := "activation-failed", "APPLIANCE_START_FAILED"
+			if operation.Kind == int32(appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_RESTART) {
+				failedStage, reason = "restart-failed", "APPLIANCE_RESTART_FAILED"
+			}
+			go func(operation store.ApplianceOperation) {
+				// The activation waits behind the Host's resume of the VM.
+				ctx, cancel := context.WithTimeout(context.Background(), unexpectedVMRecoveryTimeout)
+				defer cancel()
+				if _, err := server.finishActivation(ctx, operation.ID, operation.InstallationID, failedStage, reason); err != nil {
+					log.Printf("interrupted appliance activation: installation=%s operation=%s error=%v", operation.InstallationID, operation.ID, err)
+				}
+			}(operation)
+			continue
+		}
 		_, recoverErr := server.failApplianceOperation(ctx, operation.ID,
 			appliancev1.ApplianceOperationPhase(operation.Phase), "operation-interrupted",
 			"HOST_RESTART_DURING_OPERATION", errors.New("host restarted during appliance operation"))

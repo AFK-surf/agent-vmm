@@ -11,11 +11,12 @@ import (
 	"syscall"
 
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"github.com/AFK-surf/agent-vmm/internal/hostdisk"
 	"github.com/Code-Hex/vz/v3"
 	"golang.org/x/sys/unix"
 )
 
-const hostEmergencyBytes int64 = 10 << 30
+const hostEmergencyBytes = hostdisk.EmergencyBytes
 
 const hostDirectoryShareTag = "agent.hostshares"
 

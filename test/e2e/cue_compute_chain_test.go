@@ -39,7 +39,9 @@ func TestCueComputeSettingsBridgeE2E(t *testing.T) {
 	if err = json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	h := startHostWithState(t, 16<<30)
+	// Two 2 GiB Shells must fit after the 4 GiB emergency floor, metadata
+	// growth and each namespace's remaining quota commitment.
+	h := startHostWithState(t, 24<<30)
 	h.start(t)
 	t.Cleanup(func() { h.stop(t, true) })
 	archiveName := "import-cue-settings.tar"

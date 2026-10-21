@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
 
 func (server *applianceAdminServer) Activate(ctx context.Context, request *appliancev1.ActivateRequest) (*appliancev1.ApplianceOperationResponse, error) {
@@ -18,15 +19,23 @@ func (server *applianceAdminServer) Activate(ctx context.Context, request *appli
 	if err != nil || response.GetOperation().GetPhase() != appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED {
 		return response, err
 	}
-	if err := server.controller.activateAppliance(ctx, request.GetInstallationId()); err != nil {
-		_, _ = server.failApplianceOperation(ctx, response.GetOperation().GetOperationId(),
-			appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED,
-			"activation-failed", "APPLIANCE_START_FAILED", err)
+	operation, err := server.finishActivation(ctx, response.GetOperation().GetOperationId(), request.GetInstallationId(), "activation-failed", "APPLIANCE_START_FAILED")
+	if err != nil {
 		return nil, err
 	}
-	operation, err := server.completeApplianceOperation(ctx, response.GetOperation().GetOperationId(),
+	return applianceOperationResponse(operation), nil
+}
+
+// finishActivation starts the appliance for an admitted activation and settles
+// that operation. A Host restart resumes the same operation through it.
+func (server *applianceAdminServer) finishActivation(ctx context.Context, operationID, installationID, failedStage, reason string) (store.ApplianceOperation, error) {
+	if err := server.controller.activateAppliance(ctx, installationID); err != nil {
+		_, _ = server.failApplianceOperation(ctx, operationID,
+			appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED, failedStage, reason, err)
+		return store.ApplianceOperation{}, err
+	}
+	return server.completeApplianceOperation(ctx, operationID,
 		appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PLANNED, "running", nil)
-	return applianceOperationResponse(operation), err
 }
 
 func (server *applianceAdminServer) Stop(ctx context.Context, request *appliancev1.StopApplianceRequest) (*appliancev1.ApplianceOperationResponse, error) {

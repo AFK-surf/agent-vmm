@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,6 +18,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"golang.org/x/sys/unix"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -29,8 +29,8 @@ import (
 
 const (
 	version                     = "0.1.0"
-	hostLabel                   = "com.afk-surf.agent-vmm-host"
-	hostTemplateResource        = hostLabel + ".plist.template"
+	productionHostLabel         = "com.afk-surf.agent-vmm-host"
+	hostTemplateResource        = productionHostLabel + ".plist.template"
 	boundedOperationMaxAttempts = 3
 	statusObservationBudget     = 4 * time.Second
 )
@@ -125,6 +125,7 @@ type serviceStatus struct {
 	SnapshotObservedAt   string                            `json:"snapshotObservedAt,omitempty"`
 	Operation            *lifecycleOperation               `json:"operation,omitempty"`
 	Startup              *startupEvidence                  `json:"startup,omitempty"`
+	HostStartFailure     *store.StartFailure               `json:"hostStartFailure,omitempty"`
 	Snapshot             *hostv1.GetSystemSnapshotResponse `json:"-"`
 }
 
@@ -165,15 +166,19 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|status|operation|maintenance|maintenance-status|publish-host|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
+		fatal("usage: agent-vmm-lifecycle version --json|preflight --json|status|operation|maintenance|maintenance-status|publish-host|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
 			fatal("version requires --json")
 		}
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID}); err != nil {
+		if err := json.NewEncoder(os.Stdout).Encode(versionReport()); err != nil {
 			fatal("version encoding failed")
 		}
+		return
+	}
+	if os.Args[1] == "preflight" {
+		executePreflight(os.Args[2:])
 		return
 	}
 	if lifecycleMutationCommand(os.Args[1]) && os.Geteuid() == 0 {
@@ -692,7 +697,7 @@ func observationPathsForRequest(request serviceRequest) (paths, error) {
 	if err != nil {
 		return paths{}, err
 	}
-	account, err := user.Lookup(config.User)
+	account, err := lookupServiceAccount(config.User)
 	if err != nil {
 		return paths{}, errors.New("service user is unavailable")
 	}
@@ -751,7 +756,7 @@ func lifecyclePathsForRequest(request serviceRequest, executable string) (paths,
 	if err != nil {
 		return paths{}, err
 	}
-	account, err := user.Lookup(config.User)
+	account, err := lookupServiceAccount(config.User)
 	if err != nil {
 		return paths{}, errors.New("service user is unavailable")
 	}
@@ -826,14 +831,15 @@ func readStatus(value paths) serviceStatus {
 
 func readStatusContext(ctx context.Context, value paths, registrationIDs ...string) serviceStatus {
 	result := serviceStatus{
-		AppInstalled:   directory(value.app),
-		ServiceApp:     value.app,
-		ServiceUser:    value.service.User,
-		ServiceUID:     value.service.UID,
-		HostJob:        value.serviceDomain() + "/" + hostLabel,
-		OperatorSocket: filepath.Join(value.applicationData, "operator.sock"),
-		HostInstalled:  regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
-		Operation:      readLifecycleOperation(value),
+		AppInstalled:     directory(value.app),
+		ServiceApp:       value.app,
+		ServiceUser:      value.service.User,
+		ServiceUID:       value.service.UID,
+		HostJob:          value.serviceDomain() + "/" + hostLabel,
+		OperatorSocket:   filepath.Join(value.applicationData, "operator.sock"),
+		HostInstalled:    regular(filepath.Join(value.app, filepath.FromSlash(bundle.HostExecutableRelativePath))) && regular(value.hostPlist),
+		Operation:        readLifecycleOperation(value),
+		HostStartFailure: readHostStartFailure(value),
 	}
 	if len(registrationIDs) != 0 && registrationIDs[0] != "" {
 		result.RegistrationRead = "unreadable"
@@ -1502,6 +1508,24 @@ func readLifecycleOperation(value paths) *lifecycleOperation {
 		return nil
 	}
 	return &operation
+}
+
+// versionReport is the `version --json` output. supportedSchema lists the
+// existing Host database schemas that this build opens.
+func versionReport() map[string]any {
+	return map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID, "supportedSchema": supportedSchema()}
+}
+
+func readHostStartFailure(value paths) *store.StartFailure {
+	data, err := readApplicationDataState(value, store.StartFailureFile, 4<<10)
+	if err != nil {
+		return nil
+	}
+	var failure store.StartFailure
+	if json.Unmarshal(data, &failure) != nil || failure.Code == "" {
+		return nil
+	}
+	return &failure
 }
 
 func readLifecycleOperationByID(value paths, operationID string) (*lifecycleOperation, error) {

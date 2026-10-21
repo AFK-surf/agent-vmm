@@ -89,6 +89,9 @@ func Run(ctx context.Context, config Config) error {
 		if connected {
 			delay = time.Second
 		}
+		// Only explicit revocation is terminal. Authentication and
+		// configuration failures keep the reported phase and retry, because
+		// controller or local repair can clear them without a Host restart.
 		if errors.Is(err, ErrCredentialRevoked) {
 			reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, "", attempt, time.Time{}, "CREDENTIAL_REVOKED", "Controller access was revoked.")
 			return err
@@ -106,9 +109,6 @@ func Run(ctx context.Context, config Config) error {
 		nextRetry := time.Now().Add(wait)
 		phase, code, message := connectorFailure(err)
 		reportConnectorStatus(ctx, config, phase, "", attempt, nextRetry, code, message)
-		if phase == hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED || phase == hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR {
-			return err
-		}
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -162,7 +162,10 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 		return false, fmt.Errorf("remote compute state unavailable: %w", err)
 	}
 	registration := state.GetRegistration()
-	if registration.GetId() != config.RegistrationID || registration.GetProtocolVersion() != ProtocolVersion || registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
+	if registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
+		return false, ErrCredentialRevoked
+	}
+	if registration.GetId() != config.RegistrationID || registration.GetProtocolVersion() != ProtocolVersion {
 		return false, fmt.Errorf("%w: local registration identity or version", errConnectorConfiguration)
 	}
 	instance, err := randomInstance()

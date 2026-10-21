@@ -77,6 +77,23 @@ func namespaceRemainingCommitments(before, after map[uint32]namespaceDiskCommitm
 	return total, nil
 }
 
+// systemNamespaceCommitment counts the requested quota and the actual usage
+// of every other system namespace. Each quota still bounds its namespace; the
+// control reserve absorbs growth of other system namespaces after admission.
+func systemNamespaceCommitment(facts map[uint32]namespaceDiskCommitment, ownProject uint32, existing bool, requested uint64) (uint64, bool) {
+	committed := requested
+	overflow := false
+	for project, fact := range facts {
+		if existing && project == ownProject {
+			continue
+		}
+		var carry uint64
+		committed, carry = bits.Add64(committed, fact.usage, 0)
+		overflow = overflow || carry != 0
+	}
+	return committed, overflow
+}
+
 func (r *Runtime) admitNamespaceDiskGrowth(ctx context.Context, namespace string, requested uint64, labels map[string]string) error {
 	system := isSystemNamespace(namespace)
 	requested, err := namespaceQuotaBytes(requested)
@@ -101,19 +118,7 @@ func (r *Runtime) admitNamespaceDiskGrowth(ctx context.Context, namespace string
 		return nil
 	}
 	if system {
-		committed := requested
-		if labels != nil {
-			committed = 0
-		}
-		overflow := false
-		for project, fact := range facts {
-			if labels != nil && project == ownProject {
-				fact.limit = requested
-			}
-			var carry uint64
-			committed, carry = bits.Add64(committed, max(fact.limit, fact.usage), 0)
-			overflow = overflow || carry != 0
-		}
+		committed, overflow := systemNamespaceCommitment(facts, ownProject, labels != nil, requested)
 		if overflow || committed > guestdisk.ControlSystemBytes {
 			for project, fact := range facts {
 				log.Printf("system namespace disk commitment namespace=%s project=%d quota_bytes=%d usage_bytes=%d", fact.namespace, project, fact.limit, fact.usage)

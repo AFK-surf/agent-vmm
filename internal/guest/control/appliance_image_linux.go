@@ -61,7 +61,7 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	}
 	header := &vmmdv1.ImportImageHeader{RequestId: bundledImportRequestID(canonical), ActorNamespaceId: namespaceID,
 		ImageReference: canonical, ManifestDigest: manifestDigest.String(), Platform: "linux/arm64"}
-	unlockMaterializer, err := r.lockImportSlot(manifestDigest.String())
+	unlockMaterializer, err := r.lockImportSlot(ctx, manifestDigest.String())
 	if err != nil {
 		return "", "", 0, err
 	}

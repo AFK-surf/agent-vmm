@@ -63,7 +63,9 @@ physical disk arithmetic stay in their own narrow models.
   `HostVMRestartRecovery.tla` owns the one-shot post-install VM resume and the
   single-owner recovery after an unexpected VM stop. Recovery revokes admission
   and active sessions before restart, requires a fresh boot with policies and connectors restored, and
-  fails closed after its only attempt. Host shutdown is mutually exclusive with
+  fails closed after `MaxRecoveryAttempts` attempts across stops. `RecoveryRetry`
+  abstracts the Go backoff delay. The model does not reset the count after a
+  stable run, so it checks the stricter bound. Host shutdown is mutually exclusive with
   that owner. `RecoverySuccess` abstracts only the admission commit: the
   Go owner performs boot, policy replay, and connector restoration as ordered
   steps while admission remains revoked. Disk identity and filesystem contents
@@ -97,7 +99,7 @@ stores TLC state in a fresh scratch directory, and removes that scratch on exit.
 | `PlanRemove`, `ExecuteRemove`, `RemoveRevisionExact` | `internal/host/appliance_admin_remove_darwin.go`, `internal/host/store/appliance_operation.go` | pending-destroy tombstone and revision-fence tests |
 | `CrossDomainRemove`, `InstallationNonInterference` | appliance admin authorization | cross-domain remove tests |
 | `Seal`, `UnsafeReopenSealed`, `SealedRemainsClosed` | appliance supervisor and appliance admin operations | artifact/bootstrap integrity failure, sealed start rejection, and revision-fenced removal tests |
-| `HostVMRestartRecovery.ResumeSuccess`, `UnexpectedStop`, `RecoverySuccess`, `RecoveryCommit`, `RecoveryFailure`, `BeginShutdown`, `GuestQuiesceSuccess`, `VZTerminal`, `ReleaseDisk`, `ExitHost`, `NoFreshVMStart`, `RecoveryRevokesAdmission`, `RecoveryClearsSession`, `HostExitRequiresDiskRelease` | `cmd/agent-vmm-host.shutdown`, `internal/vmm.Manager.Stop`, `internal/vmm.Manager.observeStateChanges`, `internal/vmm.Manager.terminalTransition`, `internal/host.VMLifecycleOwner.Shutdown` | startup state-disk guard, session and admission revocation, one shutdown-exclusive lifecycle owner, guest quiesce before clean stop, VZ terminal completion before disk release and host exit, fresh boot, closed-notification fail-closed behavior, and terminal failure tests |
+| `HostVMRestartRecovery.ResumeSuccess`, `UnexpectedStop`, `RecoverySuccess`, `RecoveryCommit`, `RecoveryRetry`, `RecoveryFailure`, `BeginShutdown`, `GuestQuiesceSuccess`, `VZTerminal`, `ReleaseDisk`, `ExitHost`, `NoFreshVMStart`, `RecoveryRevokesAdmission`, `RecoveryClearsSession`, `HostExitRequiresDiskRelease` | `cmd/agent-vmm-host.shutdown`, `internal/vmm.Manager.Stop`, `internal/vmm.Manager.observeStateChanges`, `internal/vmm.Manager.terminalTransition`, `internal/host.VMLifecycleOwner.recover`, `internal/host.VMLifecycleOwner.Shutdown` | startup state-disk guard, session and admission revocation, one shutdown-exclusive lifecycle owner, guest quiesce before clean stop, VZ terminal completion before disk release and host exit, fresh boot, closed-notification fail-closed behavior, and terminal failure tests |
 
 Consumer repositories may refine these actions, but they must not redefine host inventory, epoch, or lifecycle ownership.
 

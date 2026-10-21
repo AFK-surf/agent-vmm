@@ -49,9 +49,33 @@ The JSON receipt includes the request fields, `serviceMode`, `serviceUser`,
 `stage`, `outcome`, `retryable`, timestamps, and completed effect checkpoints.
 Stages are `accepted`, `stopping`, `resetting`, `removing`, `replacing`, `restoring`,
 `verifying`, and `complete`. Outcome is `pending`, `failed`, `succeeded`, or `superseded`.
-`failureCode=maintenance_incomplete` and `failureMessage` explain an accepted
-operation's failed stage. A process crash can leave `pending`; it does not prove
-that the effects failed or completed. Retry the same complete request.
+`failureCode` and `failureMessage` explain the failed stage of an accepted
+operation. A process crash can leave `pending`. It does not prove that the
+effects failed or completed. Retry the same complete request.
+
+| `failureCode` | `retryable` | Meaning |
+| --- | --- | --- |
+| `maintenance_incomplete` | `true` | A stage failed. Retry the same request. |
+| `target_older_than_data` | `false` | The target release cannot open the local database. The request made no effects. |
+| `host_start_failed` | `false` | The installed Host did not start after the restore bound, or it refused its database. |
+
+Before it stops the Host, a preserve update or reinstall reads the schema of
+`AgentVMM/host.sqlite` read-only. A missing database is a fresh install. The
+owner runs `version --json` from the source helper. If `supportedSchema` does
+not include the local schema, or the helper does not report it, the owner
+writes a `target_older_than_data` receipt at stage `accepted`. It does not stop,
+remove, reset, or install anything. The receipt stays `latestRequest`, but it
+does not stay `activeRequest`. The current Host and normal lifecycle operations
+stay available. A new update, reset reinstall, or uninstall request can follow.
+A reset reinstall or uninstall can also name it in `supersedesRequestId`. Reset
+requests do not do this check.
+
+`restoreAttempts` counts restore attempts. Each attempt waits up to 10 minutes
+for a healthy VM. After 3 failed attempts, the receipt fails with
+`host_start_failed`, and a retry of the same request does not restore again.
+If the started Host writes `host-start-failure.json`, the attempt fails at once
+with `host_start_failed`. This failed request stays active. Supersede it with
+a confirmed reset reinstall or uninstall.
 
 The journal and flock live in `~/Library/Application Support/Agent VMM Maintenance`:
 `owner.lock`, `state.json`, and `request-<sha256(requestId)>.json`. They survive app
@@ -63,8 +87,9 @@ Other applications must use separate journal filenames or subdirectories.
 If a preserve operation cannot restore the existing data, the local operator can
 confirm reset reinstall or uninstall with a new request ID and the exact
 `supersedesRequestId`. Under the owner lock, the prior request must still be the
-active, latest, failed request for the same target and service. Pending, completed,
-unreadable, and stale requests cannot be replaced. The new request retains its
+active, latest, failed request for the same target and service. A
+`target_older_than_data` request must be the latest request with no other active
+request. Pending, completed, unreadable, and stale requests cannot be replaced. The new request retains its
 own action, data policy, artifact, and confirmation. It starts with a fresh stop;
 it does not inherit completed effect checkpoints from the prior request.
 
@@ -117,6 +142,42 @@ rewrites files directly. A descriptor that was never delivered locally has no
 issue timestamp, so this owner cannot infer that it predates maintenance. Product
 owners must retire their old pending intent. Cloud records can remain after a
 local reset; clearing those records still requires cloud authorization.
+
+## Installation chain E2E
+
+`TestInstallationChainE2E` in `test/e2e` runs the real helper and launchd.
+It is a manual, report-only test and is not a required check. It packages two
+ad-hoc development bundles with `AGENT_VMM_PACKAGE_E2E=1`. It then runs
+`publish-host`, `install --shared-host`, `status`, a refused downgrade
+`maintenance` update, a preserve update, and a preserve uninstall.
+
+Only a helper built with the `e2e` tag reads these variables:
+
+| Variable | Effect |
+| --- | --- |
+| `AGENT_VMM_E2E_HOST_LABEL` | Launchd label of the Host job and its plist. Required. The production label is refused. |
+| `AGENT_VMM_E2E_HOME` | Service home for all helper paths. Required. It must be canonical and not the user's home. |
+| `AGENT_VMM_E2E_SUPPORTED_SCHEMA_MAX` | Optional upper bound that `version --json` reports. |
+
+Without the first two variables, an e2e helper stops before it does work.
+`version` is the only exception. A build without the tag has none of these
+variables, and the Host label stays a constant.
+
+The test puts the label, the plist, the Host app, `AgentVMM`, the logs, and
+the maintenance journal under a temporary home in `/private/tmp`. It refuses a
+lifecycle helper that does not have the `e2e` tag. It does not read or write
+the production Host files or the production launchd job. The isolated Host still
+starts a real VM with a 64 GiB preallocated state disk. Cleanup removes the
+isolated job and home, also after a failure.
+
+```sh
+AGENT_VMM_E2E_INSTALL_CHAIN=1 AGENT_VMM_E2E_BUNDLE=/path/to/guest \
+  go test -tags=e2e ./test/e2e -run '^TestInstallationChainE2E$' -count=1 -v -timeout 90m
+```
+
+Set `AGENT_VMM_E2E_INSTALL_CHAIN_OUTPUT_A` and `_B` to reuse two package
+output directories. Their helpers must have the `e2e` tag and the release IDs
+`e2e-install-chain-a` and `e2e-install-chain-b`.
 
 ## Command availability
 
@@ -178,7 +239,8 @@ That command removes only the named operation plan.
 
 `status` reports the installed service user, UID, launchd job, load state,
 installed application, Operator socket, process state, PID, last exit status,
-and the current lifecycle operation. `operation --operation-id <id>` reads only
+and the current lifecycle operation. It also reports the optional
+`hostStartFailure` record, described below. `operation --operation-id <id>` reads only
 that current operation record and rejects a different ID. The public CLI uses
 this narrow read when it follows a lifecycle operation. These commands read
 facts without taking the VM mutation lock. The load state does not
@@ -203,8 +265,45 @@ reaches its five-second deadline.
 
 Status observation does not validate the complete application bundle. This
 allows status to report a stopped service or a damaged installation. Install,
-repair, and VM start still validate the executable Guest materials before they
-use them.
+repair, and VM start still check the Guest manifest digest and artifact paths
+and sizes. VM start does not hash the Guest artifacts again, because the bundle
+signature covers them.
+
+### Installation disk preflight
+
+`preflight --json` checks free disk space before a new installation. It needs
+no running Host and no service configuration. It prints:
+
+```json
+{"ok": false, "issues": [{"code": "insufficient_disk", "requiredBytes": 79456894976, "availableBytes": 21474836480}]}
+```
+
+`requiredBytes` is the preallocated state disk plus the 10 GiB host emergency
+space. `availableBytes` is the free space of the volume that holds the
+`AgentVMM` data directory, or of its nearest existing parent. `issues` is `[]`
+when `ok` is true. The command exits 0 in both cases. A nonzero exit means a bad
+argument or an unreadable volume.
+
+### Host database compatibility
+
+`version --json` returns `component`, `version`, `release_id`, and
+`supportedSchema: {"min": N, "max": N}`. The range comes from the Host store.
+It lists the existing database schemas that this build opens. Schemas 26 to 34
+are inside the current range but were never released. The Host refuses them.
+
+If the store refuses the database, the Host writes
+`AgentVMM/host-start-failure.json` and exits with status 0. The launchd
+definition uses `KeepAlive` with `SuccessfulExit` set to false, so launchd does
+not restart the Host. The record has this form:
+
+```json
+{"code": "data_newer_than_host", "dataSchema": 36, "supportedSchema": {"min": 18, "max": 35}}
+```
+
+The code is `data_newer_than_host` or `data_requires_conversion`. The Host
+removes the record after a later successful start. `status` reports the record
+as `hostStartFailure`. Maintenance restore removes an old record before it
+starts the Host.
 
 Host startup records use the existing Host error log. Guest bootstrap records
 use the existing serial log. Each record refers to the current lifecycle or

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
@@ -120,7 +119,7 @@ func executePublishHost(request serviceRequest, args []string) {
 	if config.UID != os.Geteuid() || config.UID == 0 {
 		fatal("publication must run as the configured non-root service user")
 	}
-	account, err := user.Lookup(config.User)
+	account, err := lookupServiceAccount(config.User)
 	if err != nil {
 		fatal("service user is unavailable")
 	}

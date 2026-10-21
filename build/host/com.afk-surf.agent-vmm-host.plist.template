@@ -7,10 +7,6 @@
   <key>ProgramArguments</key>
   <array>
     <string>__APP__/Contents/MacOS/agent-vmm-host</string>
-    <string>--cpus</string>
-    <string>8</string>
-    <string>--memory</string>
-    <string>12884901888</string>
     <string>--state-size</string>
     <string>68719476736</string>
     <string>--bundle</string>

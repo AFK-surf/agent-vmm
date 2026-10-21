@@ -147,27 +147,49 @@ func TestOpenConvertsV19ArtifactsWithoutTrustProjection(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsUnconvertiblePreviousSchema(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
+func TestOpenRejectsUnsupportedSchemaWithoutChangingIt(t *testing.T) {
+	if _, err := ReadSchemaVersion(filepath.Join(t.TempDir(), "missing.db")); err != nil {
+		t.Fatalf("missing database = %v", err)
 	}
-	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (16, 0)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-	opened, err := Open(path)
-	if opened != nil {
-		opened.Close()
-	}
-	if err == nil || !strings.Contains(err.Error(), "host database schema 16 requires offline conversion") {
-		t.Fatalf("previous schema was not rejected with preservation guidance: %v", err)
+	for _, test := range []struct {
+		version int
+		code    string
+		message string
+	}{
+		{16, SchemaDataRequiresConversion, "host database schema 16 requires offline conversion"},
+		{30, SchemaDataRequiresConversion, "host database schema 30 requires offline conversion"},
+		{schemaVersion + 1, SchemaDataNewer, fmt.Sprintf("host database schema %d is newer than this Host supports", schemaVersion+1)},
+	} {
+		t.Run(fmt.Sprint(test.version), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "Application Support", "host.db")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			database, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := database.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (?, 0)`, test.version); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.Close(); err != nil {
+				t.Fatal(err)
+			}
+			opened, err := Open(path)
+			if opened != nil {
+				opened.Close()
+			}
+			var schemaErr *SchemaError
+			if !errors.As(err, &schemaErr) || schemaErr.Code != test.code || schemaErr.DataSchema != test.version || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("open error = %v", err)
+			}
+			if version, err := ReadSchemaVersion(path); err != nil || version != test.version {
+				t.Fatalf("read schema = %d %v", version, err)
+			}
+		})
 	}
 }
 
@@ -384,7 +406,8 @@ func TestOpenRejectsEncryptedApplianceStorageWithoutChangingState(t *testing.T) 
 				if opened != nil {
 					opened.Close()
 				}
-				if err == nil || !strings.Contains(err.Error(), "unsupported encrypted appliance storage") {
+				var schemaErr *SchemaError
+				if !errors.As(err, &schemaErr) || schemaErr.Code != SchemaDataRequiresConversion || schemaErr.DataSchema != version || !strings.Contains(err.Error(), "unsupported encrypted appliance storage") {
 					t.Fatalf("open error=%v", err)
 				}
 				database, err := sql.Open("sqlite", path)

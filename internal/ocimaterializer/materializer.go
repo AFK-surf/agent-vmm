@@ -9,7 +9,7 @@ import (
 
 // Manager is the single Guest-global materialization owner. It serializes the
 // physical import/unpack path per immutable digest and admits exactly one
-// Guest-global import peak at a time.
+// Guest-global import peak at a time. Waiters are served in FIFO order.
 type Manager struct {
 	mu     sync.Mutex
 	keys   map[string]*keyLock
@@ -17,30 +17,30 @@ type Manager struct {
 }
 
 type keyLock struct {
-	mu   sync.Mutex
-	refs int
+	owner *semaphore.Weighted
+	refs  int
 }
 
 func (manager *Manager) Lock(digest string) func() {
-	item := manager.retain(digest)
-	item.mu.Lock()
-	_ = manager.slot().Acquire(context.Background(), 1)
-	return manager.unlock(digest, item)
+	unlock, _ := manager.LockImport(context.Background(), digest)
+	return unlock
 }
 
-// LockImport preserves digest singleflight by waiting for an existing owner of
-// the same immutable digest, but it does not wait behind unrelated physical
-// materialization. A false result is the unique global import-slot capacity
-// boundary and is surfaced to the controller as such.
-func (manager *Manager) LockImport(digest string) (func(), bool) {
+// LockImport waits behind an existing owner of the same immutable digest and
+// then behind unrelated physical materialization until ctx ends. The caller
+// maps an expired request deadline to the import-slot capacity boundary.
+func (manager *Manager) LockImport(ctx context.Context, digest string) (func(), error) {
 	item := manager.retain(digest)
-	item.mu.Lock()
-	if !manager.slot().TryAcquire(1) {
-		item.mu.Unlock()
+	if err := item.owner.Acquire(ctx, 1); err != nil {
 		manager.release(digest, item)
-		return nil, false
+		return nil, err
 	}
-	return manager.unlock(digest, item), true
+	if err := manager.slot().Acquire(ctx, 1); err != nil {
+		item.owner.Release(1)
+		manager.release(digest, item)
+		return nil, err
+	}
+	return manager.unlock(digest, item), nil
 }
 
 // Admitted build workers wait within their request deadline. Their existing
@@ -77,7 +77,7 @@ func (manager *Manager) retain(digest string) *keyLock {
 	}
 	item := manager.keys[digest]
 	if item == nil {
-		item = new(keyLock)
+		item = &keyLock{owner: semaphore.NewWeighted(1)}
 		manager.keys[digest] = item
 	}
 	item.refs++
@@ -88,7 +88,7 @@ func (manager *Manager) retain(digest string) *keyLock {
 func (manager *Manager) unlock(digest string, item *keyLock) func() {
 	return func() {
 		manager.slot().Release(1)
-		item.mu.Unlock()
+		item.owner.Release(1)
 		manager.release(digest, item)
 	}
 }

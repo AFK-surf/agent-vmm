@@ -3,8 +3,10 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -17,38 +19,106 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func TestManagedRegistrationMatchBindsIdentityTrustScopeAndPolicy(t *testing.T) {
-	cpu, memory, pids, disk := uint32(1000), uint64(1<<30), uint32(128), uint64(2<<30)
-	managed := &hostv1.BeginRemoteEnrollmentRequest{
-		RegistrationId: "registration-1", Endpoint: "gateway.example.test:7443", DisplayName: "Managed",
-		ProtocolVersion: "1", TrustBundle: []byte("trust"), ScopeDigest: "scope", SourcePolicyRevision: 7,
-		Pool: &hostv1.RemotePoolPolicy{
-			PerEnvironmentLimits: &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk},
-			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)},
+func TestRepeatedManagedEnrollmentUpdatesPolicyAndRejectsIdentityChange(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	stored := store.RemoteRegistration{ID: managed.RegistrationId, Endpoint: managed.Endpoint, DisplayName: managed.DisplayName,
-		ProtocolVersion: managed.ProtocolVersion, TrustBundle: append([]byte(nil), managed.TrustBundle...), ScopeDigest: managed.ScopeDigest,
-		SourcePolicyRevision: managed.SourcePolicyRevision, PerEnvPIDs: pids,
-		PerEnvDiskBytes: disk, MaxEgressMode: int32(hostv1.EgressMode_EGRESS_MODE_DENY_ALL), StopGraceSeconds: 1}
-	capacity := store.Environment{CPUMillis: cpu, MemoryBytes: memory, PIDs: pids, DiskBytes: disk}
+	defer database.Close()
+	ctx := context.Background()
+	scope := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	stored, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "managed", Endpoint: "gateway.example.test:7443", DisplayName: "Old name",
+		ProtocolVersion: "1", TrustBundle: []byte("trust"), ScopeDigest: scope, SourcePolicyRevision: 7, PerEnvPIDs: 128, PerEnvDiskBytes: 2 << 30,
+		MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, EnrollmentRequestID: "install-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &operatorServer{controller: &Controller{store: database, remoteCapacity: store.Environment{PIDs: 1024, DiskBytes: 8 << 30}}}
+	pids, disk := uint32(256), uint64(4<<30)
+	request := func(requestID string, revision uint64, mutate func(*hostv1.BeginRemoteEnrollmentRequest)) error {
+		managed := &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, RegistrationId: stored.ID, Endpoint: stored.Endpoint, DisplayName: "New name",
+			ProtocolVersion: remoteconnector.ProtocolVersion, TrustBundle: []byte("trust"), ScopeDigest: scope, SourcePolicyRevision: revision,
+			Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk},
+				MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(30 * time.Second)}}
+		if mutate != nil {
+			mutate(managed)
+		}
+		_, err := auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})(ctx, nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, _ any) (any, error) {
+			return server.ApplyManagedRemoteEnrollment(ctx, &hostv1.ApplyManagedRemoteEnrollmentRequest{Registration: managed, EnrollmentToken: []byte("token")})
+		})
+		return err
+	}
+	reason := func(err error) string {
+		for _, detail := range status.Convert(err).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok {
+				return info.Reason
+			}
+		}
+		return ""
+	}
 
-	if matches, err := managedRegistrationMatches(managed, stored, capacity); err != nil || !matches {
-		t.Fatalf("exact managed registration did not match: matches=%v err=%v", matches, err)
+	if err := request("install-2", 8, nil); err != nil {
+		t.Fatal(err)
 	}
-	stored.TrustBundle = []byte("other")
-	if matches, err := managedRegistrationMatches(managed, stored, capacity); err != nil || matches {
-		t.Fatalf("trust drift was accepted: matches=%v err=%v", matches, err)
+	updated, err := database.GetRemoteRegistration(ctx, stored.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	*managed.Pool.PerEnvironmentLimits.CpuMillis = cpu + 1
-	if _, err := registrationFromPool(managed.Pool, capacity); err != nil {
-		t.Fatalf("CPU template value constrained shared capacity: %v", err)
+	if updated.DisplayName != "New name" || updated.SourcePolicyRevision != 8 || updated.PerEnvPIDs != pids || updated.PerEnvDiskBytes != disk ||
+		updated.MaxEgressMode != int32(hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET) || updated.StopGraceSeconds != 30 ||
+		updated.PoolPolicyRevision != stored.PoolPolicyRevision+1 || updated.ProtocolVersion != remoteconnector.ProtocolVersion || updated.EnrollmentState != stored.EnrollmentState {
+		t.Fatalf("registration was not updated in place: %+v", updated)
 	}
-	*managed.Pool.PerEnvironmentLimits.Pids = pids + 1
-	if _, err := registrationFromPool(managed.Pool, capacity); err == nil {
-		t.Fatal("PID limit above host capacity was accepted")
+	if err := request("install-3", 7, nil); reason(err) != "POLICY_REVISION_CONFLICT" {
+		t.Fatalf("older policy revision = %v", err)
+	}
+	identity := map[string]func(*hostv1.BeginRemoteEnrollmentRequest){
+		"endpoint": func(managed *hostv1.BeginRemoteEnrollmentRequest) { managed.Endpoint = "other.example.test:7443" },
+		"trust":    func(managed *hostv1.BeginRemoteEnrollmentRequest) { managed.TrustBundle = []byte("other") },
+		"scope": func(managed *hostv1.BeginRemoteEnrollmentRequest) {
+			managed.ScopeDigest = base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+		},
+	}
+	for name, mutate := range identity {
+		if err := request("install-"+name, 9, mutate); reason(err) != "REGISTRATION_IDENTITY_MISMATCH" {
+			t.Fatalf("%s change = %v", name, err)
+		}
+	}
+	if current, err := database.GetRemoteRegistration(ctx, stored.ID); err != nil || current.Revision != updated.Revision {
+		t.Fatalf("rejected enrollment changed the registration: %+v %v", current, err)
+	}
+}
+
+func TestHostStartConvertsOlderRegistrationProtocolVersion(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	versions := map[string]string{"older": "1", "newer": "99"}
+	for id, version := range versions {
+		if _, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: id, Endpoint: "controller", ProtocolVersion: version, PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+			MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1, EnrollmentRequestID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	controller := &Controller{store: database, externalConnectors: map[string]*externalConnectorRoute{}}
+	for range 2 {
+		if err := controller.StartExternalConnectors(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	older, err := database.GetRemoteRegistration(ctx, "older")
+	if err != nil || older.ProtocolVersion != remoteconnector.ProtocolVersion || older.Revision != 2 {
+		t.Fatalf("older registration = %+v %v", older, err)
+	}
+	if newer, err := database.GetRemoteRegistration(ctx, "newer"); err != nil || newer.ProtocolVersion != "99" || newer.Revision != 1 {
+		t.Fatalf("newer registration = %+v %v", newer, err)
 	}
 }
 

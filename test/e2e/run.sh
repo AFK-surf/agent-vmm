@@ -1,6 +1,10 @@
 #!/bin/sh
 set -u
 
+# TestInstallationChainE2E is skipped here unless AGENT_VMM_E2E_INSTALL_CHAIN=1.
+# It runs the real lifecycle helper and launchd under an isolated label and
+# home. See cmd/agent-vmm-lifecycle/README.md#installation-chain-e2e.
+
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 bundle=${AGENT_VMM_E2E_BUNDLE:-/tmp/agent-vmm-e2e-bundle}
 host_binary=${AGENT_VMM_E2E_HOST_BINARY:-/tmp/agent-vmm-e2e-host}

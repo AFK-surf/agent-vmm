@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"errors"
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"golang.org/x/sys/unix"
 )
 
 func maintenanceFixture(t *testing.T) (paths, maintenanceRequest, maintenanceActions) {
@@ -22,6 +25,8 @@ func maintenanceFixture(t *testing.T) (paths, maintenanceRequest, maintenanceAct
 	request := maintenanceRequest{Version: 1, RequestID: "maint-1", Action: "reinstall", DataPolicy: "preserve", TargetApp: value.app, SourceApp: filepath.Join(t.TempDir(), "Agent VMM Host.app"), TargetReleaseID: "release-1", ArtifactSHA256: strings.Repeat("a", 64), ArtifactSize: 100, ConfirmSharedHost: true}
 	actions := maintenanceActions{
 		validateSource: func(maintenanceRequest) error { return nil }, stop: func(paths) error { return nil },
+		targetSchema:   func(maintenanceRequest) (store.SchemaRange, error) { return store.SupportedSchema(), nil },
+		dataSchema:     func(paths) (int, error) { return 0, nil },
 		removeSoftware: func(p paths) error { return os.RemoveAll(p.app) },
 		resetData: func(p paths) error {
 			if err := os.RemoveAll(p.applicationData); err != nil {
@@ -428,6 +433,89 @@ func TestMaintenanceRestoreRetryDoesNotStopOrReplaceInstalledSoftware(t *testing
 	}
 	if stops != 1 || replaces != 1 || len(starts) != 2 || starts[0] == starts[1] {
 		t.Fatalf("stops=%d replacements=%d starts=%v", stops, replaces, starts)
+	}
+}
+
+func TestMaintenancePreflightRefusesTargetOlderThanDataWithoutEffects(t *testing.T) {
+	p, r, a := maintenanceFixture(t)
+	a.dataSchema = func(paths) (int, error) { return 35, nil }
+	a.targetSchema = func(maintenanceRequest) (store.SchemaRange, error) { return store.SchemaRange{Min: 18, Max: 25}, nil }
+	noEffect := func(paths) error { t.Fatal("refused maintenance made an effect"); return nil }
+	a.stop, a.resetData, a.removeSoftware = noEffect, noEffect, noEffect
+	a.replace = func(paths, maintenanceRequest) error { return noEffect(p) }
+	for range 2 {
+		got, err := runMaintenance(p, r, a)
+		if err == nil || got.Outcome != "failed" || got.Retryable || got.FailureCode != "target_older_than_data" || got.Stage != "accepted" || got.SoftwareInstalled {
+			t.Fatalf("%+v %v", got, err)
+		}
+	}
+	status, err := maintenanceStatus(p, "")
+	if err != nil || status == nil || status.FailureCode != "target_older_than_data" {
+		t.Fatalf("status = %+v %v", status, err)
+	}
+	release, err := acquireMaintenanceMutation(p, "repair", "repair-current")
+	if err != nil {
+		t.Fatalf("refusal fenced the current Host: %v", err)
+	}
+	release()
+
+	reset := r
+	reset.RequestID, reset.SupersedesRequestID = "maint-reset", r.RequestID
+	reset.DataPolicy, reset.ConfirmDataDeletion = "reset", true
+	a.dataSchema = func(paths) (int, error) { t.Fatal("reset read the data schema"); return 0, nil }
+	a.stop, a.resetData, a.removeSoftware = func(paths) error { return nil }, func(paths) error { return nil }, func(paths) error { return nil }
+	a.replace = func(paths, maintenanceRequest) error { return nil }
+	if got, err := runMaintenance(p, reset, a); err != nil || got.Outcome != "succeeded" {
+		t.Fatalf("reset after refusal = %+v %v", got, err)
+	}
+}
+
+func TestMaintenanceRestoreIsBoundedAndThenReplaceable(t *testing.T) {
+	p, r, a := maintenanceFixture(t)
+	restores := 0
+	a.restore = func(paths, string) error { restores++; return errors.New("host exited") }
+	for attempt := 1; attempt <= maintenanceRestoreAttempts+1; attempt++ {
+		got, err := runMaintenance(p, r, a)
+		final := attempt >= maintenanceRestoreAttempts
+		if err == nil || got.Outcome != "failed" || got.Retryable == final || (got.FailureCode == "host_start_failed") != final || got.Stage != "restoring" {
+			t.Fatalf("attempt %d = %+v %v", attempt, got, err)
+		}
+	}
+	if restores != maintenanceRestoreAttempts {
+		t.Fatalf("restores = %d", restores)
+	}
+	reset := r
+	reset.RequestID, reset.SupersedesRequestID = "maint-reset", r.RequestID
+	reset.DataPolicy, reset.ConfirmDataDeletion = "reset", true
+	a.restore = func(paths, string) error { return nil }
+	if got, err := runMaintenance(p, reset, a); err != nil || got.Outcome != "succeeded" {
+		t.Fatalf("replacement after host_start_failed = %+v %v", got, err)
+	}
+}
+
+func TestRestoreHostEndsAtHostStartFailureRecord(t *testing.T) {
+	value := testPaths(t.TempDir())
+	record := filepath.Join(value.applicationData, store.StartFailureFile)
+	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, []byte(`{"code":"data_requires_conversion","dataSchema":16,"supportedSchema":{"min":18,"max":35}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repair := func(paths) error {
+		if _, err := os.Stat(record); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("stale start failure record survived the restart")
+		}
+		return os.WriteFile(record, []byte(`{"code":"data_newer_than_host","dataSchema":36,"supportedSchema":{"min":18,"max":35}}`), 0o600)
+	}
+	started := time.Now()
+	err := restoreHost(value, "restore", repair, func(ctx context.Context, _ paths, _ string) error {
+		<-ctx.Done()
+		return errors.New("Agent VMM operator is not readable")
+	})
+	var failure maintenanceFailure
+	if !errors.As(err, &failure) || failure.code != "host_start_failed" || !strings.Contains(err.Error(), "data_newer_than_host") || time.Since(started) > 5*time.Second {
+		t.Fatalf("restore = %v after %s", err, time.Since(started))
 	}
 }
 

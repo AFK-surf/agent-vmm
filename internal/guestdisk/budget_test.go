@@ -44,7 +44,7 @@ func TestOverflowFailsClosed(t *testing.T) {
 	}
 }
 
-func TestImportHasTwoGiBMinimumReservation(t *testing.T) {
+func TestUndeclaredMaterializationHasTwoGiBMinimumReservation(t *testing.T) {
 	for _, available := range []uint64{7 << 30, 2551894016, MinimumImportBytes, MinimumImportBytes - 4096} {
 		snapshot := Snapshot{CapacityBytes: 64 << 30, NamespaceCommitmentBytes: 8<<30 - 452395008, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30, AllocationUnitBytes: 4096}
 		snapshot.UsedBytes = snapshot.CapacityBytes - snapshot.NamespaceCommitmentBytes - snapshot.EmergencyBytes - snapshot.MetadataGrowthBytes - available
@@ -60,7 +60,7 @@ func TestImportHasTwoGiBMinimumReservation(t *testing.T) {
 	}
 }
 
-func TestColdImportReservesAllUncommittedHeadroomWithoutCompressionGuess(t *testing.T) {
+func TestUndeclaredMaterializationReservesAllUncommittedHeadroom(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		snapshot Snapshot
@@ -78,6 +78,26 @@ func TestColdImportReservesAllUncommittedHeadroomWithoutCompressionGuess(t *test
 				t.Fatalf("reserved=%d want=%d", reserved, test.reserved)
 			}
 		})
+	}
+}
+
+func TestDeclaredImportReservesBoundedArchiveExpansion(t *testing.T) {
+	snapshot := Snapshot{CapacityBytes: 64 << 30, UsedBytes: 13 << 30, EmergencyBytes: 4 << 30, MetadataGrowthBytes: 1 << 30, AllocationUnitBytes: 4096}
+	for _, test := range []struct {
+		archive  uint64
+		reserved uint64
+		err      error
+	}{
+		{archive: 300 << 20, reserved: 1500 << 20},
+		{archive: 10 << 30, err: ErrCapacityUnavailable},
+	} {
+		var reserved uint64
+		err := new(Budget).Mutate(func(transaction *Transaction) error {
+			return transaction.ReserveImport(func(*Transaction) (Snapshot, error) { return snapshot, nil }, ImportReservationBytes(test.archive), func(value uint64) error { reserved = value; return nil })
+		})
+		if !errors.Is(err, test.err) || reserved != test.reserved {
+			t.Fatalf("archive=%d reserved=%d err=%v; want reserved=%d err=%v", test.archive, reserved, err, test.reserved, test.err)
+		}
 	}
 }
 

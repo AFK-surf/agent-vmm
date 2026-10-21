@@ -68,6 +68,9 @@ run_lifecycle_with_managed_policy() {
 
 # Honor operator maintenance before copying or starting the shared software.
 # Use the verified payload helper even when the installed app was removed.
+# Verify each bundle once: the payload here, the root-owned copy, and a staged
+# copy left by an earlier run. Copies made from a verified bundle and the
+# byte-identical executor are not verified again.
 codesign --verify --deep --strict "$source_app"
 maintenance_receipt=$(printf '{}\n' | run_as_service_user "$source_app/Contents/Helpers/agent-vmm-lifecycle" maintenance-status --service-user "$service_user")
 printf '%s\n' "$maintenance_receipt" | python3 -c '
@@ -101,7 +104,6 @@ if [ "$installer_uid" -eq 0 ]; then
 	target_release_id=$("$trusted_app/Contents/Helpers/agent-vmm-lifecycle" version --json | \
 		python3 -c 'import json,sys; value=json.load(sys.stdin); release=value.get("release_id", ""); assert release; print(release)')
 else
-	codesign --verify --deep --strict "$trusted_app"
 	target_release_id=$("$trusted_app/Contents/Helpers/agent-vmm-lifecycle" version --json | \
 		python3 -c 'import json,sys; value=json.load(sys.stdin); release=value.get("release_id", ""); assert release; print(release)')
 fi
@@ -114,7 +116,6 @@ created_staged=0
 trap 'if [ "$created_staged" -eq 1 ]; then rm -rf "$staged_app"; fi; if [ -n "$trusted_stage" ]; then rm -rf "$trusted_stage"; fi' EXIT HUP INT TERM
 already_current=0
 if [ -d "$app" ] && [ ! -e "$staged_app" ]; then
-	codesign --verify --deep --strict "$app"
 	current_release_id=$(run_as_service_user "$app/Contents/Helpers/agent-vmm-lifecycle" version --json | \
 		python3 -c 'import json,sys; value=json.load(sys.stdin); release=value.get("release_id", ""); assert release; print(release)')
 	if [ "$current_release_id" = "$target_release_id" ]; then
@@ -134,14 +135,12 @@ else
 	if [ "$installer_uid" -eq 0 ]; then
 		chown -R "$service_uid:$service_gid" "$staged_app"
 	fi
-	codesign --verify --deep --strict "$staged_app"
 fi
 
 if [ "$effective_service_type" = daemon ]; then
 	install -d -o root -g wheel -m 0755 /Library/PrivilegedHelperTools
 	install -o root -g wheel -m 0755 "$trusted_app/Contents/Helpers/agent-vmm-service-executor" "$executor"
 	cmp -s "$trusted_app/Contents/Helpers/agent-vmm-service-executor" "$executor"
-	codesign --verify --strict "$executor"
 	"$executor" configure --service-user "$service_user"
 fi
 if [ -n "$trusted_stage" ]; then

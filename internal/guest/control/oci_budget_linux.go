@@ -38,12 +38,14 @@ func (r *Runtime) guardBuilderOCIGrowth(ctx context.Context, identity string, ru
 	return r.guardOCIPhysicalGrowth(ctx, "builder\x00"+identity, true, run)
 }
 
-func (r *Runtime) lockImportSlot(digest string) (func(), error) {
-	unlock, ok := r.materializer.LockImport(digest)
-	if !ok {
-		return nil, resourceCapacityExhausted(resourcev2.CapacityImportSlot, "import_slot", "Guest OCI import slot is occupied")
+// lockImportSlot waits in FIFO order for the Guest-global materialization
+// slot until the request deadline.
+func (r *Runtime) lockImportSlot(ctx context.Context, digest string) (func(), error) {
+	unlock, err := r.materializer.LockImport(ctx, digest)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, resourceCapacityExhausted(resourcev2.CapacityImportSlot, "import_slot", "Guest OCI import slot stayed occupied until the request deadline")
 	}
-	return unlock, nil
+	return unlock, err
 }
 
 // guardOCIPhysicalGrowth serializes any operation that can materialize bulk
@@ -58,7 +60,7 @@ func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, w
 	if waitForSlot {
 		unlock, err = r.materializer.LockBuild(ctx)
 	} else {
-		unlock, err = r.lockImportSlot(digestText)
+		unlock, err = r.lockImportSlot(ctx, digestText)
 	}
 	if err != nil {
 		return err
@@ -195,17 +197,24 @@ func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.Import
 		result.remaining = reserved
 		return writeImportReservation(path, result.holdPath, reserved)
 	}
-	err := transaction.ReserveImportHeadroom(loadSnapshot, commit)
+	required, reserve := guestdisk.MinimumImportBytes, transaction.ReserveImportHeadroom
+	if header.GetArchiveSize() > 0 {
+		required = guestdisk.ImportReservationBytes(header.GetArchiveSize())
+		reserve = func(load func(*guestdisk.Transaction) (guestdisk.Snapshot, error), commit func(uint64) error) error {
+			return transaction.ReserveImport(load, required, commit)
+		}
+	}
+	err := reserve(loadSnapshot, commit)
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		log.Printf("OCI import reservation unavailable: request_id=%q manifest_digest=%q capacity=%q", header.GetRequestId(), header.GetManifestDigest(), ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot))
+		log.Printf("OCI import reservation unavailable: request_id=%q manifest_digest=%q required_bytes=%d capacity=%q", header.GetRequestId(), header.GetManifestDigest(), required, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot))
 		if _, gcErr := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, true, transaction, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot)); gcErr != nil {
 			return nil, gcErr
 		}
-		err = transaction.ReserveImportHeadroom(loadSnapshot, commit)
+		err = reserve(loadSnapshot, commit)
 	}
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
 		available, _ := lastSnapshot.AvailableBytes()
-		return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "import_admission", "Guest storage headroom is unavailable", available, guestdisk.MinimumImportBytes)
+		return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "import_admission", "Guest storage headroom is unavailable", available, required)
 	}
 	if err != nil {
 		return nil, err

@@ -44,7 +44,24 @@ type VMLifecycleOwner struct {
 	snapshot            func() *hostv1.VM
 	beforeAdmissionOpen func()
 	shutdownCleanup     func(context.Context) error
+	// recoverAttempt, recoveryAttempts, and recoveredAt belong to the single
+	// recovery goroutine.
+	recoverAttempt   func(context.Context, string) error
+	recoveryAttempts int
+	recoveredAt      time.Time
 }
+
+// An unexpected stop gets up to five restart attempts, spaced 5, 10, 20, and
+// 40 seconds apart. The 75 seconds of backoff outlast a transient VZ or Host
+// resource failure inside the ten-minute recovery budget. Attempts count across
+// stops until a recovered VM runs for vmRecoveryStableAfter, so a Guest that
+// crashes after each boot reaches FAILED instead of restarting forever.
+const (
+	vmRecoveryAttempts    = 5
+	vmRecoveryStableAfter = 10 * time.Minute
+)
+
+var vmRecoveryInitialDelay = 5 * time.Second
 
 func newVMLifecycleOwner(controller *Controller, manager *vmm.Manager) *VMLifecycleOwner {
 	return &VMLifecycleOwner{controller: controller, manager: manager, shutdownDone: make(chan struct{}), snapshot: manager.Snapshot}
@@ -264,23 +281,16 @@ func (owner *VMLifecycleOwner) stopOwned(ctx context.Context, force bool) error 
 
 func (owner *VMLifecycleOwner) RecoverAsync(previousBootID string) {
 	owner.stateMu.Lock()
-	if owner.closing {
+	if owner.closing || owner.recovery != nil {
 		owner.stateMu.Unlock()
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), unexpectedVMRecoveryTimeout)
+	owner.recovery = cancel
 	owner.recoveryWG.Add(1)
 	owner.stateMu.Unlock()
 	go func() {
 		defer owner.recoveryWG.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), unexpectedVMRecoveryTimeout)
-		owner.stateMu.Lock()
-		if owner.closing {
-			owner.stateMu.Unlock()
-			cancel()
-			return
-		}
-		owner.recovery = cancel
-		owner.stateMu.Unlock()
 		defer func() {
 			owner.stateMu.Lock()
 			owner.recovery = nil
@@ -292,7 +302,39 @@ func (owner *VMLifecycleOwner) RecoverAsync(previousBootID string) {
 }
 
 func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID string) {
-	result := owner.execute(ctx, vmLifecycleRecover, func() vmLifecycleResult {
+	attempt := owner.recoverAttempt
+	if attempt == nil {
+		attempt = owner.recoverOnce
+	}
+	if time.Since(owner.recoveredAt) >= vmRecoveryStableAfter {
+		owner.recoveryAttempts = 0
+	}
+	err := errors.New("automatic VM recovery attempts are exhausted")
+	for owner.recoveryAttempts < vmRecoveryAttempts {
+		if owner.recoveryAttempts > 0 {
+			select {
+			case <-ctx.Done():
+				owner.manager.FailRecovery(ctx.Err())
+				return
+			case <-time.After(vmRecoveryInitialDelay << (owner.recoveryAttempts - 1)):
+			}
+		}
+		owner.recoveryAttempts++
+		if err = attempt(ctx, previousBootID); err == nil {
+			owner.recoveredAt = time.Now()
+			return
+		}
+		log.Printf("vm lifecycle recover attempt failed: attempt=%d error=%v", owner.recoveryAttempts, err)
+	}
+	owner.manager.FailRecovery(err)
+}
+
+func (owner *VMLifecycleOwner) recoverOnce(ctx context.Context, previousBootID string) error {
+	return owner.execute(ctx, vmLifecycleRecover, func() vmLifecycleResult {
+		// An operator start can recover the VM between attempts.
+		if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING && owner.admitsRemoteWork() {
+			return vmLifecycleResult{}
+		}
 		log.Printf("vm lifecycle recover stage: stage=prepare_transition")
 		owner.controller.prepareVMTransition(ctx)
 		owner.controller.stopEgress()
@@ -307,11 +349,9 @@ func (owner *VMLifecycleOwner) recover(ctx context.Context, previousBootID strin
 		}
 		if err != nil {
 			owner.rollbackRunningVM()
-			owner.manager.FailRecovery(err)
 		}
 		return vmLifecycleResult{vm: vm, err: err}
-	})
-	_ = result
+	}).err
 }
 
 func (owner *VMLifecycleOwner) ActivateAppliance(ctx context.Context, installationID string) error {

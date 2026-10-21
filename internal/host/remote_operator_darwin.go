@@ -87,21 +87,34 @@ func (server *operatorServer) ApplyManagedRemoteEnrollment(ctx context.Context, 
 	if len(request.GetEnrollmentToken()) == 0 || len(request.GetEnrollmentToken()) > remoteconnector.MaxCredentialBytes {
 		return nil, invalidField("enrollment_token", "a bounded enrollment token is required")
 	}
-	registered, err := server.BeginRemoteEnrollment(ctx, managed)
+	if err := server.controller.store.ConvertRemoteProtocolVersion(ctx, remoteconnector.ProtocolVersion); err != nil {
+		return nil, resourceError(codes.Unavailable, "REGISTRATION_UNREADABLE", "remote_registration", managed.GetRegistrationId(), "remote registration could not be converted")
+	}
+	stored, err := server.controller.store.GetRemoteRegistration(ctx, managed.GetRegistrationId())
+	if errors.Is(err, sql.ErrNoRows) {
+		registered, beginErr := server.BeginRemoteEnrollment(ctx, managed)
+		if beginErr != nil {
+			return nil, beginErr
+		}
+		if registered.GetRegistration().GetId() != managed.GetRegistrationId() {
+			return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_IDENTITY_MISMATCH", "remote_registration", managed.GetRegistrationId(), "enrollment request is already bound to another registration")
+		}
+		stored, err = server.controller.store.GetRemoteRegistration(ctx, managed.GetRegistrationId())
+	} else if err == nil {
+		err = server.controller.requireUndisposedRegistration(ctx, stored.ID, managed.GetRequestId())
+	}
 	if err != nil {
 		return nil, err
 	}
+	if !managedRegistrationIdentityMatches(managed, stored) {
+		return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_IDENTITY_MISMATCH", "remote_registration", managed.GetRegistrationId(), "managed registration identity does not match durable state")
+	}
+	stored, err = server.controller.applyManagedRegistrationPolicy(ctx, managed, stored)
+	if err != nil {
+		return nil, err
+	}
+	registered := server.controller.remoteRegistrationResponse(ctx, stored)
 	registration := registered.GetRegistration()
-	if registration.GetId() != managed.GetRegistrationId() {
-		return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_IDENTITY_MISMATCH", "remote_registration", managed.GetRegistrationId(), "enrollment request is already bound to another registration")
-	}
-	stored, err := server.controller.store.GetRemoteRegistration(ctx, registration.GetId())
-	if err != nil {
-		return nil, err
-	}
-	if matches, matchErr := managedRegistrationMatches(managed, stored, server.controller.remoteCapacity); matchErr != nil || !matches {
-		return nil, resourceError(codes.FailedPrecondition, "REGISTRATION_IDENTITY_MISMATCH", "remote_registration", managed.GetRegistrationId(), "managed registration identity or policy does not match durable state")
-	}
 	if registration.GetEnrollmentState() == hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY {
 		server.controller.ensureExternalConnector(registration.GetId())
 		return registered, nil
@@ -135,18 +148,49 @@ func (server *operatorServer) ApplyManagedRemoteEnrollment(ctx context.Context, 
 	return server.controller.remoteRegistrationResponse(ctx, completed), nil
 }
 
-func managedRegistrationMatches(managed *hostv1.BeginRemoteEnrollmentRequest, stored store.RemoteRegistration, capacity store.Environment) (bool, error) {
-	policy, err := registrationFromPool(managed.GetPool(), capacity)
-	if err != nil {
-		return false, err
-	}
+// managedRegistrationIdentityMatches compares the fields that name the
+// controller and its authority. Policy fields are updated in place.
+func managedRegistrationIdentityMatches(managed *hostv1.BeginRemoteEnrollmentRequest, stored store.RemoteRegistration) bool {
 	return stored.ID == managed.GetRegistrationId() && stored.Endpoint == managed.GetEndpoint() &&
-		stored.DisplayName == managed.GetDisplayName() && stored.ProtocolVersion == managed.GetProtocolVersion() &&
-		bytes.Equal(stored.TrustBundle, managed.GetTrustBundle()) && stored.ScopeDigest == managed.GetScopeDigest() &&
-		stored.SourcePolicyRevision == managed.GetSourcePolicyRevision() &&
-		stored.PerEnvPIDs == policy.PerEnvPIDs &&
-		stored.PerEnvDiskBytes == policy.PerEnvDiskBytes && stored.MaxEgressMode == policy.MaxEgressMode &&
-		stored.StopGraceSeconds == policy.StopGraceSeconds, nil
+		bytes.Equal(stored.TrustBundle, managed.GetTrustBundle()) && stored.ScopeDigest == managed.GetScopeDigest()
+}
+
+// applyManagedRegistrationPolicy stores the display name, source policy
+// revision, and pool policy of a repeated managed enrollment. An older source
+// policy revision, or the same revision with a different pool, is a conflict.
+func (controller *Controller) applyManagedRegistrationPolicy(ctx context.Context, managed *hostv1.BeginRemoteEnrollmentRequest, stored store.RemoteRegistration) (store.RemoteRegistration, error) {
+	update, err := registrationFromPool(managed.GetPool(), controller.remoteCapacity)
+	if err != nil {
+		return store.RemoteRegistration{}, err
+	}
+	poolChanged := stored.PerEnvPIDs != update.PerEnvPIDs || stored.PerEnvDiskBytes != update.PerEnvDiskBytes ||
+		stored.MaxEgressMode != update.MaxEgressMode || stored.StopGraceSeconds != update.StopGraceSeconds
+	if managed.GetSourcePolicyRevision() < stored.SourcePolicyRevision || (managed.GetSourcePolicyRevision() == stored.SourcePolicyRevision && poolChanged) {
+		return store.RemoteRegistration{}, resourceError(codes.Aborted, "POLICY_REVISION_CONFLICT", "remote_registration", stored.ID, "managed policy revision is older than durable state")
+	}
+	if !poolChanged && stored.DisplayName == managed.GetDisplayName() && stored.SourcePolicyRevision == managed.GetSourcePolicyRevision() {
+		return stored, nil
+	}
+	update.ID, update.DisplayName, update.SourcePolicyRevision = stored.ID, managed.GetDisplayName(), managed.GetSourcePolicyRevision()
+	updated, err := controller.store.UpdateManagedRemoteRegistration(ctx, update, stored.Revision)
+	if err != nil {
+		return store.RemoteRegistration{}, resourceError(codes.Aborted, "POLICY_REVISION_CONFLICT", "remote_registration", stored.ID, err.Error())
+	}
+	if poolChanged {
+		return controller.fencePoolPolicyChange(ctx, stored, updated)
+	}
+	return updated, nil
+}
+
+// fencePoolPolicyChange closes the current connection after a pool change so
+// the next connection reports the new pool policy revision.
+func (controller *Controller) fencePoolPolicyChange(ctx context.Context, previous, updated store.RemoteRegistration) (store.RemoteRegistration, error) {
+	if previous.ConnectionState != int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) || previous.ConnectionInstance == "" {
+		return updated, nil
+	}
+	controller.hostFrontends.closeRegistration(previous.ID, previous.ConnectionInstance, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
+	delete(controller.remoteConnectionEpochs, frontendConnectionKey(previous.ID, previous.ConnectionInstance))
+	return controller.store.SetRemoteConnection(ctx, previous.ID, previous.ConnectionInstance, int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
 }
 
 func validScopeDigest(value string) bool {
@@ -301,13 +345,9 @@ func (server *operatorServer) UpdateRemotePool(ctx context.Context, request *hos
 	if err != nil {
 		return nil, resourceError(codes.Aborted, "POLICY_REVISION_CONFLICT", "remote_registration", current.ID, err.Error())
 	}
-	if current.ConnectionState == int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED) && current.ConnectionInstance != "" {
-		server.controller.hostFrontends.closeRegistration(current.ID, current.ConnectionInstance, hostv1.HostLoopbackFrontendEvent_KIND_REVOKED)
-		delete(server.controller.remoteConnectionEpochs, frontendConnectionKey(current.ID, current.ConnectionInstance))
-		updated, err = server.controller.store.SetRemoteConnection(ctx, current.ID, current.ConnectionInstance, int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
-		if err != nil {
-			return nil, err
-		}
+	updated, err = server.controller.fencePoolPolicyChange(ctx, current, updated)
+	if err != nil {
+		return nil, err
 	}
 	return server.controller.remoteRegistrationResponse(ctx, updated), nil
 }

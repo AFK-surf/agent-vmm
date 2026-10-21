@@ -99,7 +99,14 @@ case "$build_profile" in
 		fi
 		;;
 esac
-GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-X main.releaseID=$release_id" -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
+# AGENT_VMM_PACKAGE_E2E=1 adds the installation-chain E2E isolation seam to
+# the lifecycle helper of an ad-hoc development bundle only.
+lifecycle_tags=
+if [ "${AGENT_VMM_PACKAGE_E2E:-}" = 1 ]; then
+	test "$build_profile" = test
+	lifecycle_tags=e2e
+fi
+GOOS=darwin GOARCH=arm64 go build -tags="$lifecycle_tags" -trimpath -ldflags "-X main.releaseID=$release_id" -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
 printf '%s\n' "$("$product/Contents/Helpers/agent-vmm-lifecycle" version --json)" |
 	jq -e --arg release_id "$release_id" '.version == $release_id and .release_id == $release_id' >/dev/null
 GOOS=darwin GOARCH=arm64 go build -tags=managedonly -trimpath -o "$product/Contents/Helpers/agent-vmm" "$repo/cmd/agent-vmm"

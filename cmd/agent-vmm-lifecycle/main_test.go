@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"golang.org/x/sys/unix"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -85,6 +87,34 @@ func TestStatusDoesNotTurnLaunchctlFailureIntoKnownStoppedState(t *testing.T) {
 	status := readStatusContext(context.Background(), value)
 	if status.HostObserved || status.HostLoaded || status.HostRunning || status.HostObservationIssue == "" {
 		t.Fatalf("status collapsed launchd query failure: %+v", status)
+	}
+}
+
+func TestVersionAndStatusReportSchemaCompatibility(t *testing.T) {
+	version, err := json.Marshal(versionReport())
+	supported := store.SupportedSchema()
+	if err != nil || !strings.Contains(string(version), fmt.Sprintf(`"supportedSchema":{"min":%d,"max":%d}`, supported.Min, supported.Max)) {
+		t.Fatalf("version = %s %v", version, err)
+	}
+	value := testPaths(t.TempDir())
+	original := launchctlServiceObserver
+	launchctlServiceObserver = func(context.Context, string) (launchctlServiceFacts, error) {
+		return launchctlServiceFacts{Loaded: true}, nil
+	}
+	t.Cleanup(func() { launchctlServiceObserver = original })
+	if status := readStatusContext(context.Background(), value); status.HostStartFailure != nil {
+		t.Fatalf("status without a record = %+v", status.HostStartFailure)
+	}
+	record := `{"code":"data_newer_than_host","dataSchema":36,"supportedSchema":{"min":18,"max":35}}`
+	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(value.applicationData, store.StartFailureFile), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(readStatusContext(context.Background(), value))
+	if err != nil || !strings.Contains(string(encoded), `"hostStartFailure":`+record) {
+		t.Fatalf("status = %s %v", encoded, err)
 	}
 }
 

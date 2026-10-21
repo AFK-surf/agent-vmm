@@ -16,7 +16,7 @@ func TestVerify(t *testing.T) {
 		ok     bool
 	}{
 		{name: "valid", ok: true},
-		{name: "artifact changed", mutate: func(directory string) { write(t, filepath.Join(directory, "Image"), "changed") }},
+		{name: "artifact missing", mutate: func(directory string) { os.Remove(filepath.Join(directory, "Image")) }},
 		{name: "manifest changed", mutate: func(directory string) { write(t, filepath.Join(directory, ManifestName), "invalid") }},
 	}
 	for _, test := range tests {

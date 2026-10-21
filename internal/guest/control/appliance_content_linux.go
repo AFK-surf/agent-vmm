@@ -65,7 +65,7 @@ func (s *Server) StageApplianceContent(stream grpc.ClientStreamingServer[applian
 		log.Printf("appliance content Guest cache ready: role=%s digest=%s archive_bytes=%d", content.GetRole(), content.GetImageManifestDigest(), content.GetArchiveSize())
 		return stream.SendAndClose(&appliancev1.ApplianceContentStatus{ContentRef: content, Available: true})
 	}
-	unlock, err := s.runtime.lockImportSlot(content.GetImageManifestDigest())
+	unlock, err := s.runtime.lockImportSlot(ctx, content.GetImageManifestDigest())
 	if err != nil {
 		return rpcError(err)
 	}

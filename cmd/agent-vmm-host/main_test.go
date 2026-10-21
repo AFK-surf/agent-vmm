@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,8 +15,47 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 )
+
+func TestStartFailureRecordFollowsDatabaseRefusal(t *testing.T) {
+	directory := t.TempDir()
+	databasePath := filepath.Join(directory, "host.sqlite")
+	database, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := store.SupportedSchema().Max + 1
+	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_migrations VALUES (?, 0)`, newer); err != nil {
+		t.Fatal(err)
+	}
+	database.Close()
+	_, openErr := store.Open(databasePath)
+	if refused, err := recordStartResult(directory, openErr); !refused || err != nil {
+		t.Fatalf("refusal = %t %v (%v)", refused, err, openErr)
+	}
+	data, err := os.ReadFile(filepath.Join(directory, store.StartFailureFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record store.StartFailure
+	if err := json.Unmarshal(data, &record); err != nil || record != (store.StartFailure{Code: store.SchemaDataNewer, DataSchema: newer, SupportedSchema: store.SupportedSchema()}) {
+		t.Fatalf("record = %s %v", data, err)
+	}
+	if refused, err := recordStartResult(directory, errors.New("socket unavailable")); refused || err != nil {
+		t.Fatalf("other failure = %t %v", refused, err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, store.StartFailureFile)); err != nil {
+		t.Fatalf("unrelated failure removed the record: %v", err)
+	}
+	if refused, err := recordStartResult(directory, nil); refused || err != nil {
+		t.Fatalf("success = %t %v", refused, err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, store.StartFailureFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("successful start kept the record: %v", err)
+	}
+}
 
 func TestHostOwnerLockFailsClosedForSecondProcessOwner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host-owner.lock")

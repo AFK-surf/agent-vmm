@@ -100,7 +100,6 @@ type Manager struct {
 	invalidate     func()
 	admissionFence func()
 	recover        func(string)
-	recoveryUsed   bool
 }
 
 func (manager *Manager) SetInvalidationHandler(handler func()) {
@@ -664,26 +663,20 @@ func (manager *Manager) terminalTransition(machine *vz.VirtualMachine, state vz.
 	manager.socket = nil
 	manager.bootID = ""
 	if unexpected && !recoverable {
-		manager.recoveryUsed = true
 		manager.state = hostv1.VMState_VM_STATE_FAILED
 		manager.lastErr = "VM state notification channel closed; operator action required"
-	} else if unexpected && manager.recoveryUsed {
-		manager.state = hostv1.VMState_VM_STATE_FAILED
-		manager.lastErr = "automatic VM recovery exhausted; operator action required"
 	} else if state == vz.VirtualMachineStateError {
 		manager.state = hostv1.VMState_VM_STATE_FAILED
 		manager.lastErr = "Virtualization.framework reported an error"
 	} else {
 		manager.state = hostv1.VMState_VM_STATE_STOPPED
 	}
-	invalidate := manager.invalidate
+	// The recovery owner bounds its restart attempts for each unexpected stop.
 	recover := manager.recover
-	if unexpected && !manager.recoveryUsed {
-		manager.recoveryUsed = true
-	} else {
+	if !unexpected || !recoverable {
 		recover = nil
 	}
-	return invalidate, recover, previousBootID
+	return manager.invalidate, recover, previousBootID
 }
 
 func (manager *Manager) FailRecovery(err error) {

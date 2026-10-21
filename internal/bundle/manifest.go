@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +41,9 @@ type Verified struct {
 	ManifestDigest string
 }
 
+// Verify checks the manifest against the digest linked into the Host and
+// resolves the named artifacts. The signed bundle covers artifact content, so
+// Verify does not hash the artifacts again.
 func Verify(directory, expectedManifestDigest string, artifacts ...string) (*Verified, error) {
 	if len(expectedManifestDigest) != sha256.Size*2 {
 		return nil, errors.New("invalid embedded manifest digest")
@@ -77,7 +79,7 @@ func Verify(directory, expectedManifestDigest string, artifacts ...string) (*Ver
 		if !ok {
 			return nil, fmt.Errorf("missing artifact %q", name)
 		}
-		if err := verifyArtifact(directory, artifact); err != nil {
+		if err := checkArtifact(directory, artifact); err != nil {
 			return nil, fmt.Errorf("verify %s: %w", name, err)
 		}
 	}
@@ -89,28 +91,16 @@ func supportedRootFS(root RootFS) bool {
 		root.Compressor == "zstd" && root.Dictionary == 0 && root.Filter == "none"
 }
 
-func verifyArtifact(directory string, artifact Artifact) error {
+func checkArtifact(directory string, artifact Artifact) error {
 	if artifact.Path == "" || !filepath.IsLocal(artifact.Path) || filepath.Clean(artifact.Path) != artifact.Path || artifact.Path == ManifestName {
 		return errors.New("invalid artifact path")
 	}
-	file, err := os.Open(filepath.Join(directory, artifact.Path))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	info, err := file.Stat()
+	info, err := os.Stat(filepath.Join(directory, artifact.Path))
 	if err != nil {
 		return err
 	}
 	if !info.Mode().IsRegular() || info.Size() != artifact.Size {
 		return errors.New("artifact size mismatch")
-	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return err
-	}
-	if hex.EncodeToString(hash.Sum(nil)) != artifact.SHA256 {
-		return errors.New("artifact digest mismatch")
 	}
 	return nil
 }

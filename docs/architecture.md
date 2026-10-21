@@ -91,7 +91,7 @@ host-owned registry operations, snapshots, and the bounded endpoint projection.
 
 ## Security Facts
 
-- The code-signed Host executable embeds the expected Guest manifest digest. VM start verifies that manifest and every boot artifact before Virtualization.framework receives their paths. Guest health reports runtime observations; it does not echo Host-provided artifact identity as evidence.
+- The code-signed Host executable embeds the expected Guest manifest digest. VM start verifies that manifest and the path and size of each boot artifact before Virtualization.framework receives their paths. The bundle signature covers artifact content, so VM start does not hash the artifacts again. Guest health reports runtime observations; it does not echo Host-provided artifact identity as evidence.
 - The Guest build resolves the current upstream dependencies. CI tests and scans
   that resolved set before publication. The generated SBOM records what entered
   the bundle; it is inventory for dependency and license consumers, not a
@@ -232,8 +232,12 @@ The host controller has these responsibilities:
 - provide local TTY, file transfer, and port forwarding
 - reconcile desired policy after a virtual machine restart
 
-The packaged Host defaults the VM to 12 GiB and refuses a configuration that
-leaves less than 4 GiB of physical memory to macOS. If Virtualization.framework
+Without `--cpus` or `--memory`, the Host derives the VM size from the Mac. The
+VM gets three quarters of the cores (at least 2) and half of the physical memory
+(2 GiB to 32 GiB). An explicit flag overrides each value. Remote capacity
+reports the resulting values. The Host refuses a configuration that leaves less
+than 4 GiB of physical memory to macOS. The VM has a memory balloon device, but
+the Host does not change its target. If Virtualization.framework
 unexpectedly stops a running VM, the Host first revokes sessions, capabilities,
 and remote connector admission while preserving the
 durable registration, allocation, and state-disk identity. The same Host
@@ -345,10 +349,10 @@ weight 100 and no CPU or memory quota. The Host does not reserve compute capacit
 for an installation. System appliance grants retain PID and disk limits.
 System appliance grants share one 4 GiB Guest control-system budget.
 The existing short disk-budget lock serializes every namespace grant.
-Admission sums each appliance project's hard or declared limit and any usage above that limit. Written bytes count once.
+Admission adds the requested quota to the actual usage of each other system namespace. It does not add their unused quota. Each quota still bounds its own namespace.
 A rejection reports the requested and previous quota, total commitment, budget, and each existing namespace's quota and usage.
 These commitments belong to the control filesystem, independently of workload-pool import headroom.
-The other 4 GiB remains available for trusted metadata and recovery work.
+The other 4 GiB remains available for trusted metadata and recovery work. It also absorbs growth of other system namespaces after an admission.
 The internal appliance-build namespace declares no writable control quota. Its control directories contain trusted namespace metadata and use that metadata reserve.
 Build context, output, and reusable cache use the existing workload-pool builder growth accounting.
 Successful appliance removal cleans up stopped payloads, image references, and private data before deleting its system namespace and clearing its quota.
@@ -358,8 +362,8 @@ grants use the workload pool ceiling: configured state disk bytes minus the
 8 GiB control partition and the existing 4 GiB emergency and 1 GiB metadata
 reserves. A 64 GiB state disk has a nominal 51 GiB workload quota ceiling.
 Quota grants do not preallocate files. Guest admission counts their unused hard-quota commitments as promised physical capacity, then checks filesystem usage, overhead, and import headroom before growth. Namespace growth rejection logs the requested delta, current quota, remaining commitments, available capacity, reserves, and combined import and builder credit from that admission snapshot. Guest RPC maps the storage owner's `ErrCapacityUnavailable` identity to `ResourceExhausted` with `storage_headroom` detail. It preserves the runtime stage and original cause. The same error text from another owner does not prove capacity exhaustion.
-Cold OCI import reserves the remaining uncommitted bytes after the emergency and metadata reserves. It requires at least 2 GiB.
-A cold import first reserves the available byte budget. It collects discardable caches only when the required reservation cannot fit.
+A cold OCI import with a declared archive size reserves five times that size: the staged archive, its content blobs, and up to three times the archive for unpacked layers. The remaining headroom stays available to namespaces. An import that writes more fails at the OCI project quota and uses the normal rollback and GC path. A materialization without a declared archive, such as a build output or an unpack of present content, reserves all remaining uncommitted bytes after the emergency and metadata reserves. It requires at least 2 GiB.
+A cold import first reserves its required bytes. It collects discardable caches only when the required reservation cannot fit.
 After collection it recalculates usage and commitments before admission. Percentage pressure is diagnostic and does not trigger cache deletion.
 Actual filesystem inode exhaustion still fails the write. No fixed percentage predicts the inode count an image requires.
 System, builder, and workload images use the shared overlayfs snapshotter.
@@ -907,6 +911,9 @@ Copy records its exact source digest before it releases the source namespace loc
 Unsettled copy receipts retain that shared image until the target grant exists or the writer settles.
 Retained-cache GC and shared-image GC use these existing receipt references.
 Cold materialization still uses the import slot and physical growth reservation.
+A request waits for the import slot in FIFO order until its deadline. Only an
+expired deadline returns `import_slot` capacity exhaustion. Background GC and
+retention work do not wait; they skip the round when the slot is busy.
 The writable-snapshot owner assigns the workload project to both overlay upper
 and work directories before mounting. Copy-up can then move temporary inodes
 into upper without crossing the project boundary. Startup never recursively

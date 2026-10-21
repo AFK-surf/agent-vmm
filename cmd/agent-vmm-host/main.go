@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +22,8 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 	"github.com/AFK-surf/agent-vmm/internal/host"
 	"github.com/AFK-surf/agent-vmm/internal/host/servicepreface"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/hostdisk"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
@@ -28,7 +31,7 @@ import (
 
 const (
 	installedVMResumeTimeout = 10 * time.Minute
-	defaultNewStateBytes     = int64(64 << 30)
+	defaultNewStateBytes     = hostdisk.DefaultStateBytes
 	minimumNewStateBytes     = int64(16 << 30)
 )
 
@@ -46,8 +49,8 @@ func main() {
 	var disablePersonalMeshPairing bool
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
 	flag.StringVar(&config.InstanceDirectory, "instance", "", "VM instance directory")
-	flag.UintVar(&config.CPUCount, "cpus", 8, "fixed VM CPU count")
-	flag.Uint64Var(&config.MemoryBytes, "memory", 12<<30, "fixed VM memory bytes")
+	flag.UintVar(&config.CPUCount, "cpus", 0, "VM CPU count; 0 derives it from the host")
+	flag.Uint64Var(&config.MemoryBytes, "memory", 0, "VM memory bytes; 0 derives it from the host")
 	flag.Int64Var(&newStateBytes, "state-size", defaultNewStateBytes, "fully physically backed state disk bytes for a new installation")
 	flag.StringVar(&migrateStateFrom, "migrate-state-from", "", "offline legacy state disk to copy into a new state.raw in --instance")
 	flag.StringVar(&config.SerialLog, "serial-log", "", "serial log path")
@@ -63,6 +66,11 @@ func main() {
 	flag.StringVar(&sessionDirectory, "session-directory", "", "agent session socket directory")
 	flag.BoolVar(&disablePersonalMeshPairing, "disable-personal-mesh-pairing", false, "deny personal mesh genesis and new member admission while preserving revoke/repair")
 	flag.Parse()
+	hostCPUs, hostMemoryBytes, err := hostResources()
+	if err != nil {
+		log.Fatal(err)
+	}
+	config.CPUCount, config.MemoryBytes = vmResources(config.CPUCount, config.MemoryBytes, hostCPUs, hostMemoryBytes)
 	config.GuestManifestDigest = guestManifestDigest
 	if migrateStateFrom != "" {
 		if err := runStateMigration(config, migrateStateFrom); err != nil {
@@ -124,6 +132,14 @@ func main() {
 		ServiceTunnelSocket:        serviceTunnelSocket,
 		MeshControlSocket:          meshControlSocket,
 	})
+	if refused, recordErr := recordStartResult(filepath.Dir(databasePath), err); refused {
+		// launchd KeepAlive restarts only an unsuccessful exit. A restart cannot
+		// open this database, so stop here and leave the record for lifecycle.
+		log.Print(errors.Join(err, recordErr))
+		os.Exit(0)
+	} else if recordErr != nil {
+		log.Fatal(recordErr)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -234,6 +250,29 @@ func main() {
 	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		log.Fatal(err)
 	}
+}
+
+// recordStartResult writes the start failure record when the store refuses the
+// database and removes it after a successful start. It reports a refusal.
+func recordStartResult(directory string, startErr error) (bool, error) {
+	path := filepath.Join(directory, store.StartFailureFile)
+	var schemaErr *store.SchemaError
+	if errors.As(startErr, &schemaErr) {
+		data, err := json.Marshal(store.StartFailure{Code: schemaErr.Code, DataSchema: schemaErr.DataSchema, SupportedSchema: store.SupportedSchema()})
+		if err != nil {
+			return true, err
+		}
+		if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
+			return true, err
+		}
+		return true, os.Rename(path+".tmp", path)
+	}
+	if startErr == nil {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func runStateMigration(config vmm.Config, source string) error {

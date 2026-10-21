@@ -97,11 +97,21 @@ func extractServiceRequest(arguments []string) (serviceRequest, []string, error)
 	return request, remaining, nil
 }
 
-func resolveServiceConfig(request serviceRequest) (serviceConfig, error) {
+// lookupServiceAccount returns the named user, or the current user for an
+// empty name.
+func lookupServiceAccount(name string) (*user.User, error) {
 	account, err := user.Current()
-	if request.user != "" {
-		account, err = user.Lookup(request.user)
+	if name != "" {
+		account, err = user.Lookup(name)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return serviceAccount(account), nil
+}
+
+func resolveServiceConfig(request serviceRequest) (serviceConfig, error) {
+	account, err := lookupServiceAccount(request.user)
 	if err != nil {
 		return serviceConfig{}, errors.New("service user is unavailable")
 	}
@@ -207,7 +217,8 @@ func renderServiceDefinition(value paths, disablePairing bool) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("bundled service definition is missing")
 	}
-	rendered := strings.ReplaceAll(string(template), "__HOME__", xmlEscape(value.home))
+	rendered := strings.Replace(string(template), "<string>"+productionHostLabel+"</string>", "<string>"+hostLabel+"</string>", 1)
+	rendered = strings.ReplaceAll(rendered, "__HOME__", xmlEscape(value.home))
 	rendered = strings.ReplaceAll(rendered, "__APP__", xmlEscape(value.app))
 	if disablePairing {
 		rendered = addProgramArgument(rendered, "--disable-personal-mesh-pairing")

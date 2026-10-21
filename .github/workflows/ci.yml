@@ -74,6 +74,10 @@ jobs:
         run: go test -race ./... -count=1
       - name: Vet
         run: go vet ./...
+      - name: Compile the Host E2E suite
+        # E2E needs a real Virtualization.framework host and runs only in the
+        # report-only E2E workflow; this catches code that no longer compiles.
+        run: go vet -tags=e2e ./test/e2e
       - name: Expose the selected Go toolchain to Xcode tests
         run: sudo ln -sf "$(command -v go)" /opt/homebrew/bin/go
       - uses: actions/cache@v5

@@ -22,8 +22,13 @@ type externalConnectorRoute struct {
 
 // StartExternalConnectors reconciles every durable external registration into
 // one independently supervised connector. The Host remains the composition
-// root; callers never need to launch one process per controller.
+// root; callers never need to launch one process per controller. It first
+// converts registrations stored by an older build to the running protocol
+// version, so a Host update keeps the enrollment.
 func (controller *Controller) StartExternalConnectors(ctx context.Context) error {
+	if err := controller.store.ConvertRemoteProtocolVersion(ctx, remoteconnector.ProtocolVersion); err != nil {
+		return err
+	}
 	controller.externalConnectorMu.Lock()
 	if controller.externalConnectorContext == nil || controller.externalConnectorContext.Err() != nil {
 		controller.externalConnectorContext = ctx
@@ -95,10 +100,9 @@ func (controller *Controller) runExternalConnector(ctx context.Context, registra
 	if runner == nil {
 		runner = remoteconnector.Run
 	}
-	// remoteconnector.Run owns ordinary network reconnect and stops on
-	// credential/configuration errors. Do not wrap it in a second retry loop:
-	// a permanent failure must remain visible until an operator fixes the
-	// registration or restarts the Host after repairing local state.
+	// remoteconnector.Run owns reconnect with capped backoff and reports each
+	// failure phase. It stops only on explicit credential revocation. Do not
+	// wrap it in a second retry loop.
 	_ = runner(ctx, config)
 }
 

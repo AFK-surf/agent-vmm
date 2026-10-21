@@ -516,7 +516,7 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 		t.Fatal(err)
 	}
 	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-created-image", first)), "IMAGE_IN_USE")
-	if _, err := client.StartContainer(ctx, firstEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-image-user", ContainerId: container.GetId()}); err != nil {
+	if _, err := client.StartContainer(ctx, firstEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-image-user", ContainerId: container.GetId(), ExpectedGenerationId: container.GetGenerationId()}); err != nil {
 		t.Fatal(err)
 	}
 	assertImageDeleteReason(t, client.DeleteImage(ctx, firstEnvironment, deleteImageRequest("delete-running-image", first)), "IMAGE_IN_USE")
@@ -544,7 +544,7 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 		t.Fatal("shared image record disappeared from the other namespace")
 	}
 	shared := createContainer(t, client, secondEnvironment, "shared-image-user", []string{"true"}, nil)
-	if _, err := client.StartContainer(ctx, secondEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-shared-image-user", ContainerId: shared.GetId()}); err != nil {
+	if _, err := client.StartContainer(ctx, secondEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-shared-image-user", ContainerId: shared.GetId(), ExpectedGenerationId: shared.GetGenerationId()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := importRegistryImageAttempt(ctx, client, firstEnvironment, "recreate-image-record-a"); err != nil {
@@ -578,7 +578,11 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 		}
 	} else if createErr == nil {
 		assertImageDeleteReason(t, deleteErr, "IMAGE_IN_USE")
-		if err := client.DeleteContainer(ctx, firstEnvironment, &hostv1.ContainerMutationRequest{RequestId: "delete-image-race-container", ContainerId: "image-race"}); err != nil {
+		request, err := currentContainerMutation(ctx, client, firstEnvironment, "image-race", "delete-image-race-container")
+		if err == nil {
+			err = client.DeleteContainer(ctx, firstEnvironment, request)
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 	} else {
@@ -663,7 +667,7 @@ func testPGVectorImageAndVolume(t *testing.T, client *productClient) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	started, err := client.StartContainer(ctx, environmentID, &hostv1.ContainerMutationRequest{RequestId: "start-pgvector", ContainerId: created.GetContainer().GetId()})
+	started, err := client.StartContainer(ctx, environmentID, &hostv1.ContainerMutationRequest{RequestId: "start-pgvector", ContainerId: created.GetContainer().GetId(), ExpectedGenerationId: created.GetContainer().GetGenerationId()})
 	if err != nil || started.GetContainer().GetInstanceId() == "" {
 		t.Fatalf("start pgvector = %+v, %v", started.GetContainer(), err)
 	}
@@ -2276,7 +2280,9 @@ func createContainerWithImageAndVolumes(t *testing.T, client *productClient, nam
 		defer cancel()
 		seconds := uint32(1)
 		_, _ = client.StopContainer(ctx, namespaceID, &hostv1.StopContainerRequest{RequestId: "cleanup-stop-" + namespaceID + "-" + containerID, ContainerId: containerID, TimeoutSeconds: &seconds})
-		_ = client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "cleanup-delete-" + namespaceID + "-" + containerID, ContainerId: containerID})
+		if request, err := currentContainerMutation(ctx, client, namespaceID, containerID, "cleanup-delete-"+namespaceID+"-"+containerID); err == nil {
+			_ = client.DeleteContainer(ctx, namespaceID, request)
+		}
 	})
 	return response.GetContainer()
 }
@@ -2298,7 +2304,9 @@ func createContainerAsUser(t *testing.T, client *productClient, namespaceID, con
 		defer cancel()
 		seconds := uint32(1)
 		_, _ = client.StopContainer(ctx, namespaceID, &hostv1.StopContainerRequest{RequestId: "cleanup-stop-" + namespaceID + "-" + containerID, ContainerId: containerID, TimeoutSeconds: &seconds})
-		_ = client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "cleanup-delete-" + namespaceID + "-" + containerID, ContainerId: containerID})
+		if request, err := currentContainerMutation(ctx, client, namespaceID, containerID, "cleanup-delete-"+namespaceID+"-"+containerID); err == nil {
+			_ = client.DeleteContainer(ctx, namespaceID, request)
+		}
 	})
 	return response.GetContainer()
 }
@@ -2416,7 +2424,7 @@ func startContainer(t *testing.T, client *productClient, namespaceID, containerI
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	response, err := client.StartContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "start-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000"), ContainerId: containerID})
+	response, err := client.StartContainer(ctx, namespaceID, startContainerRequest(t, ctx, client, namespaceID, containerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2425,11 +2433,31 @@ func startContainer(t *testing.T, client *productClient, namespaceID, containerI
 	}
 }
 
+// currentContainerMutation targets the container's current generation. The
+// Host requires the exact generation for start and delete, so a test that
+// means a stale generation builds its own request.
+func currentContainerMutation(ctx context.Context, client *productClient, namespaceID, containerID, requestID string) (*hostv1.ContainerMutationRequest, error) {
+	current, err := client.GetContainer(ctx, namespaceID, &hostv1.ContainerRequest{ContainerId: containerID})
+	if err != nil {
+		return nil, err
+	}
+	return &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: containerID, ExpectedGenerationId: current.GetContainer().GetGenerationId()}, nil
+}
+
+func startContainerRequest(t *testing.T, ctx context.Context, client *productClient, namespaceID, containerID string) *hostv1.ContainerMutationRequest {
+	t.Helper()
+	request, err := currentContainerMutation(ctx, client, namespaceID, containerID, "start-"+namespaceID+"-"+containerID+time.Now().Format("150405.000000000"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+
 func startAndWaitContainer(t *testing.T, client *productClient, namespaceID, containerID string, expected uint32) uint32 {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	response, err := client.StartContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "start-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000"), ContainerId: containerID})
+	response, err := client.StartContainer(ctx, namespaceID, startContainerRequest(t, ctx, client, namespaceID, containerID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2473,7 +2501,11 @@ func deleteContainer(t *testing.T, client *productClient, namespaceID, container
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: "delete-" + namespaceID + "-" + containerID, ContainerId: containerID}); err != nil {
+	request, err := currentContainerMutation(ctx, client, namespaceID, containerID, "delete-"+namespaceID+"-"+containerID)
+	if err == nil {
+		err = client.DeleteContainer(ctx, namespaceID, request)
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 }
@@ -2486,7 +2518,11 @@ func deleteContainerEventually(t *testing.T, client *productClient, namespaceID,
 	var lastErr error
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		lastErr = client.DeleteContainer(ctx, namespaceID, &hostv1.ContainerMutationRequest{RequestId: fmt.Sprintf("delete-%d", time.Now().UnixNano()), ContainerId: containerID})
+		var request *hostv1.ContainerMutationRequest
+		request, lastErr = currentContainerMutation(ctx, client, namespaceID, containerID, fmt.Sprintf("delete-%d", time.Now().UnixNano()))
+		if lastErr == nil {
+			lastErr = client.DeleteContainer(ctx, namespaceID, request)
+		}
 		cancel()
 		if lastErr == nil {
 			return

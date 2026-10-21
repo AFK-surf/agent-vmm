@@ -13,6 +13,12 @@ const (
 	ControlPartitionBytes = uint64(8 << 30)
 	ControlSystemBytes    = uint64(4 << 30)
 	ControlReserveBytes   = ControlPartitionBytes - ControlSystemBytes
+	// ImportExpansionFactor bounds the physical peak of one declared OCI
+	// archive: the staged archive (1x), its content-store blobs (1x), and the
+	// unpacked layer snapshots (up to 3x, above the usual 2-3x gzip or zstd
+	// ratio of container layers). An import that writes more fails at its
+	// project quota and takes the normal rollback and GC path.
+	ImportExpansionFactor = uint64(5)
 )
 
 var (
@@ -120,10 +126,11 @@ func (budget *Budget) GrowthError() error {
 	return nil
 }
 
-// ReserveImportHeadroom gives a cold import every byte not already committed
-// to physical usage, another import, or the fixed safety
+// ReserveImportHeadroom gives a materialization without a declared archive
+// size, such as a build output or an unpack of present content, every byte not
+// already committed to physical usage, another import, or the fixed safety
 // floors. The caller physically backs this reservation and converts it to U as
-// containerd writes, so no archive compression ratio is assumed.
+// containerd writes.
 func (budget *Budget) ReserveImportHeadroom(load func(*Transaction) (Snapshot, error), commit func(uint64) error) error {
 	return budget.Mutate(func(transaction *Transaction) error {
 		return transaction.ReserveImportHeadroom(load, commit)
@@ -148,6 +155,29 @@ func (transaction *Transaction) ReserveImportHeadroom(load func(*Transaction) (S
 		return ErrCapacityUnavailable
 	}
 	return commit(available)
+}
+
+// ImportReservationBytes is the physical reservation of a declared archive.
+// Import validation bounds archive sizes far below the overflow range.
+func ImportReservationBytes(archiveBytes uint64) uint64 {
+	return archiveBytes * ImportExpansionFactor
+}
+
+// ReserveImport reserves only the bounded peak of a declared archive, so the
+// rest of the headroom stays available to namespaces and other writers.
+func (transaction *Transaction) ReserveImport(load func(*Transaction) (Snapshot, error), required uint64, commit func(uint64) error) error {
+	if transaction.budget.sealed {
+		return ErrGrowthSealed
+	}
+	snapshot, err := load(transaction)
+	if err != nil {
+		return err
+	}
+	available, ok := snapshot.AvailableBytes()
+	if !ok || available < required {
+		return ErrCapacityUnavailable
+	}
+	return commit(required)
 }
 
 func (budget *Budget) Mutate(fn func(*Transaction) error) error {

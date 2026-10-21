@@ -151,7 +151,7 @@ func (s *Server) copyImage(ctx context.Context, request *vmmdv1.CopyImageRequest
 		return importErr
 	}
 	if physicalGrowth {
-		unlock, admissionErr := s.runtime.lockImportSlot(expected.String())
+		unlock, admissionErr := s.runtime.lockImportSlot(ctx, expected.String())
 		if admissionErr != nil {
 			return nil, admissionErr
 		}

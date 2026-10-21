@@ -621,14 +621,16 @@ func TestMaterializedImportAcknowledgesBeforeOccupiedWriterSlot(t *testing.T) {
 	}
 	coldCopy := proto.Clone(copyRequest).(*vmmdv1.CopyImageRequest)
 	coldCopy.RequestId = "cold-copy"
-	if _, err := server.CopyImage(timeout, coldCopy); status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("cold copy bypassed occupied slot: %v", err)
+	queued, cancelQueued := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancelQueued()
+	if _, err := server.CopyImage(queued, coldCopy); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("cold copy bypassed occupied slot until its deadline: %v", err)
 	}
-	failed, err := runtime.imageOperation(timeout, "target", coldCopy.RequestId, vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY)
-	if err != nil || failed.State != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_FAILED || !failed.WriterSettled {
-		t.Fatalf("cold admission did not settle copy pin: %v %v", failed, err)
+	stopped, err := runtime.imageOperation(timeout, "target", coldCopy.RequestId, vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY)
+	if err != nil || stopped.State != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_STOPPED || !stopped.WriterSettled || stopped.GetStatus().GetCode() != int32(codes.ResourceExhausted) {
+		t.Fatalf("cold admission did not settle copy pin at its deadline: %v %v", stopped, err)
 	}
-	if _, err := runtime.lockImportSlot(target.Digest.String()); status.Code(err) != codes.ResourceExhausted {
+	if _, err := runtime.lockImportSlot(queued, target.Digest.String()); status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("cold writer admission = %v", err)
 	}
 }

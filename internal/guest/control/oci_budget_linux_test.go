@@ -94,14 +94,16 @@ func TestPrepareOCIStorageKeepsImagesOnPoolDevice(t *testing.T) {
 	}
 }
 
-func TestRuntimeImportSlotOwnerReportsExactCapacityDimension(t *testing.T) {
+func TestRuntimeImportSlotDeadlineReportsExactCapacityDimension(t *testing.T) {
 	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
-	unlock, err := runtime.lockImportSlot("sha256:first")
+	unlock, err := runtime.lockImportSlot(context.Background(), "sha256:first")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if _, err = runtime.lockImportSlot("sha256:second"); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err = runtime.lockImportSlot(ctx, "sha256:second"); err == nil {
 		t.Fatal("unrelated import acquired an occupied global slot")
 	}
 	for _, detail := range status.Convert(err).Details() {
@@ -114,7 +116,7 @@ func TestRuntimeImportSlotOwnerReportsExactCapacityDimension(t *testing.T) {
 
 func TestBuildMaterializationWaitHonorsCancellation(t *testing.T) {
 	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
-	unlock, err := runtime.lockImportSlot("sha256:occupied")
+	unlock, err := runtime.lockImportSlot(context.Background(), "sha256:occupied")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +263,7 @@ func TestImageGrowthUsesAlreadyHeldMaterializerSlot(t *testing.T) {
 			if waiting {
 				unlock, err = runtime.materializer.LockBuild(ctx)
 			} else {
-				unlock, err = runtime.lockImportSlot("sha256:copy")
+				unlock, err = runtime.lockImportSlot(ctx, "sha256:copy")
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -274,7 +276,9 @@ func TestImageGrowthUsesAlreadyHeldMaterializerSlot(t *testing.T) {
 			if ctx.Err() != nil {
 				t.Fatal("held materializer waited on itself")
 			}
-			if _, err := runtime.lockImportSlot("sha256:other"); err == nil {
+			queued, cancelQueued := context.WithTimeout(ctx, 20*time.Millisecond)
+			defer cancelQueued()
+			if _, err := runtime.lockImportSlot(queued, "sha256:other"); err == nil {
 				t.Fatal("growth released another owner's slot")
 			}
 		})

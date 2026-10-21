@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -249,6 +251,8 @@ func validateMaintenanceRequest(value paths, request maintenanceRequest) error {
 
 type maintenanceActions struct {
 	validateSource    func(maintenanceRequest) error
+	targetSchema      func(maintenanceRequest) (store.SchemaRange, error)
+	dataSchema        func(paths) (int, error)
 	validateInstalled func(paths, maintenanceRequest) error
 	commitState       func(*os.File, maintenanceState) error
 	commitAdmission   func(*os.File, maintenanceState) error
@@ -258,6 +262,72 @@ type maintenanceActions struct {
 	replace           func(paths, maintenanceRequest) error
 	restore           func(paths, string) error
 	verify            func(paths, maintenanceRequest) error
+}
+
+const (
+	maintenanceTargetOlderThanData = "target_older_than_data"
+	maintenanceHostStartFailed     = "host_start_failed"
+	// Each restore attempt waits up to defaultCoordinatorInitTimeout (10 min)
+	// for a healthy VM, which already covers the Host's 10 min installed-VM
+	// resume. Three attempts allow two retries after a transient launchd or VM
+	// start failure; a Host that misses three full budgets needs an operator.
+	maintenanceRestoreAttempts = 3
+)
+
+// maintenanceFailure is a failure that a retry of the same request cannot fix.
+type maintenanceFailure struct {
+	code string
+	err  error
+}
+
+func (failure maintenanceFailure) Error() string { return failure.err.Error() }
+
+// targetSupportedSchema asks the verified source bundle's own helper, because
+// that bundle replaces the installed Host and must open the existing data.
+func targetSupportedSchema(request maintenanceRequest) (store.SchemaRange, error) {
+	output, err := exec.Command(filepath.Join(request.SourceApp, "Contents", "Helpers", "agent-vmm-lifecycle"), "version", "--json").Output()
+	if err != nil {
+		return store.SchemaRange{}, fmt.Errorf("target Host version is unreadable: %w", err)
+	}
+	var version struct {
+		SupportedSchema *store.SchemaRange `json:"supportedSchema"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(output)).Decode(&version); err != nil {
+		return store.SchemaRange{}, errors.New("target Host version is unreadable")
+	}
+	// A helper without the field predates this check and cannot prove that it
+	// opens the existing data.
+	if version.SupportedSchema == nil {
+		return store.SchemaRange{}, nil
+	}
+	return *version.SupportedSchema, nil
+}
+
+// restoreHost starts the replaced Host and its VM. A Host start failure record
+// ends the wait at once, because launchd does not restart that Host.
+func restoreHost(value paths, id string, repair func(paths) error, ensureVM func(context.Context, paths, string) error) error {
+	// The record belongs to an earlier Host start. Remove it before this start
+	// so that only the new Host can report a refusal.
+	if err := os.Remove(filepath.Join(value.applicationData, store.StartFailureFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := repair(value); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCoordinatorInitTimeout)
+	defer cancel()
+	go func() {
+		for ctx.Err() == nil && readHostStartFailure(value) == nil {
+			time.Sleep(250 * time.Millisecond)
+		}
+		cancel()
+	}()
+	err := ensureVM(ctx, value, id)
+	if failure := readHostStartFailure(value); failure != nil {
+		return maintenanceFailure{code: maintenanceHostStartFailed, err: fmt.Errorf("Host refused its database: %s (data schema %d, supported %d-%d)",
+			failure.Code, failure.DataSchema, failure.SupportedSchema.Min, failure.SupportedSchema.Max)}
+	}
+	return err
 }
 
 func defaultMaintenanceActions() maintenanceActions {
@@ -279,6 +349,10 @@ func defaultMaintenanceActions() maintenanceActions {
 				return errors.New("verified source bundle does not match the selected release")
 			}
 			return exec.Command("/usr/bin/codesign", "--verify", "--deep", "--strict", request.SourceApp).Run()
+		},
+		targetSchema: targetSupportedSchema,
+		dataSchema: func(value paths) (int, error) {
+			return store.ReadSchemaVersion(filepath.Join(value.applicationData, "host.sqlite"))
 		},
 		stop: stopForMaintenance,
 		removeSoftware: func(value paths) error {
@@ -306,12 +380,10 @@ func defaultMaintenanceActions() maintenanceActions {
 			if err := exec.Command("/usr/bin/ditto", request.SourceApp, stage).Run(); err != nil {
 				return err
 			}
+			// The stage is a copy of the verified source; check only its release.
 			id, err := hostBundleReleaseID(stage, true)
 			if err != nil || id != request.TargetReleaseID {
 				return errors.New("prepared replacement does not match selected release")
-			}
-			if err := exec.Command("/usr/bin/codesign", "--verify", "--deep", "--strict", stage).Run(); err != nil {
-				return err
 			}
 			if err := atomicReplaceApp(stage, value.app); err != nil {
 				return err
@@ -320,10 +392,7 @@ func defaultMaintenanceActions() maintenanceActions {
 		},
 		restore: func(value paths, id string) error {
 			value.resources = filepath.Join(value.app, "Contents", "Resources")
-			if err := repair(value); err != nil {
-				return err
-			}
-			return ensureVMStarted(value, id)
+			return restoreHost(value, id, repair, ensureVMStartedContext)
 		},
 		verify: func(value paths, request maintenanceRequest) error {
 			if request.Action == "uninstall" {
@@ -455,6 +524,17 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 			return receipt, err
 		}
 	}
+	// Check before any effect that the target opens the existing data. Only a
+	// request without effects can be refused here; reset discards the data.
+	if request.Action != "uninstall" && request.DataPolicy == "preserve" && (readErr != nil || receipt.FailureCode == maintenanceTargetOlderThanData) {
+		refusal, checkErr := maintenanceSchemaRefusal(value, request, actions)
+		if checkErr != nil {
+			return receipt, checkErr
+		}
+		if refusal != "" {
+			return refuseMaintenance(directory, name, state, value, request, refusal)
+		}
+	}
 	if readErr != nil {
 		now := time.Now().UnixMilli()
 		receipt = maintenanceReceipt{maintenanceRequest: request, AdmissionPreviousRequestID: state.LatestRequest, ServiceMode: value.service.Mode, ServiceUser: value.service.User, DisablePairing: value.service.DisablePairing, Stage: "accepted", Outcome: "pending", Retryable: true, StartedAt: now, UpdatedAt: now}
@@ -497,6 +577,10 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 		if err != nil && receipt.Outcome != "succeeded" {
 			receipt.Outcome, receipt.Retryable = "failed", true
 			receipt.FailureCode, receipt.FailureMessage = "maintenance_incomplete", err.Error()
+			var failure maintenanceFailure
+			if errors.As(err, &failure) {
+				receipt.Retryable, receipt.FailureCode = false, failure.code
+			}
 			receipt.UpdatedAt = time.Now().UnixMilli()
 			if saveErr := writeMaintenanceJSON(directory, name, receipt); saveErr != nil {
 				err = errors.Join(err, saveErr)
@@ -540,9 +624,19 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 				return receipt, err
 			}
 		}
-		receipt.RestoreAttempts++
+		exhausted := receipt.RestoreAttempts >= maintenanceRestoreAttempts
+		if !exhausted {
+			receipt.RestoreAttempts++
+		}
 		if err = step("restoring", func() error {
-			return actions.restore(value, maintenanceRestoreRequestID(request.RequestID, receipt.RestoreAttempts))
+			if exhausted {
+				return maintenanceFailure{code: maintenanceHostStartFailed, err: fmt.Errorf("Host did not start after %d restore attempts", maintenanceRestoreAttempts)}
+			}
+			err := actions.restore(value, maintenanceRestoreRequestID(request.RequestID, receipt.RestoreAttempts))
+			if err != nil && receipt.RestoreAttempts == maintenanceRestoreAttempts && !errors.As(err, new(maintenanceFailure)) {
+				err = maintenanceFailure{code: maintenanceHostStartFailed, err: fmt.Errorf("Host did not start after %d restore attempts: %w", maintenanceRestoreAttempts, err)}
+			}
+			return err
 		}); err != nil {
 			return receipt, err
 		}
@@ -557,6 +651,52 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 	return settleMaintenance(directory, name, state, receipt, actions.commitState)
 }
 
+// maintenanceSchemaRefusal returns a refusal message when the target does not
+// open the existing local database.
+func maintenanceSchemaRefusal(value paths, request maintenanceRequest, actions maintenanceActions) (string, error) {
+	data, err := actions.dataSchema(value)
+	if err != nil {
+		return "", fmt.Errorf("local Host database schema is unreadable: %w", err)
+	}
+	if data == 0 {
+		return "", nil
+	}
+	target, err := actions.targetSchema(request)
+	if err != nil {
+		return "", err
+	}
+	if data >= target.Min && data <= target.Max {
+		return "", nil
+	}
+	if target.Max == 0 {
+		return fmt.Sprintf("The selected Host release does not report the database schemas it opens, and the local data uses schema %d. Keep the current Host or confirm a reset reinstall.", data), nil
+	}
+	return fmt.Sprintf("The selected Host release opens database schemas %d-%d, but the local data uses schema %d. Keep the current Host or confirm a reset reinstall.", target.Min, target.Max, data), nil
+}
+
+// refuseMaintenance records a failed request that made no effects. It does not
+// keep the request active, so the current Host and a new request stay usable.
+func refuseMaintenance(directory *os.File, name string, state maintenanceState, value paths, request maintenanceRequest, message string) (maintenanceReceipt, error) {
+	now := time.Now().UnixMilli()
+	previous := state.LatestRequest
+	if previous == request.RequestID {
+		var existing maintenanceReceipt
+		if err := readMaintenanceJSON(directory, name, &existing); err == nil {
+			previous = existing.AdmissionPreviousRequestID
+		}
+	}
+	receipt := maintenanceReceipt{maintenanceRequest: request, AdmissionPreviousRequestID: previous, ServiceMode: value.service.Mode, ServiceUser: value.service.User, DisablePairing: value.service.DisablePairing,
+		Stage: "accepted", Outcome: "failed", FailureCode: maintenanceTargetOlderThanData, FailureMessage: message, StartedAt: now, UpdatedAt: now}
+	if err := writeMaintenanceJSON(directory, name, receipt); err != nil {
+		return receipt, err
+	}
+	state.ActiveRequest, state.LatestRequest = "", request.RequestID
+	if err := writeMaintenanceJSON(directory, "state.json", state); err != nil {
+		return receipt, err
+	}
+	return receipt, errors.New(message)
+}
+
 func supersededMaintenanceReceipt(receipt maintenanceReceipt, next string) maintenanceReceipt {
 	receipt.Outcome, receipt.Retryable, receipt.SupersededByRequestID = "superseded", false, next
 	return receipt
@@ -564,12 +704,15 @@ func supersededMaintenanceReceipt(receipt maintenanceReceipt, next string) maint
 
 func validateFailedMaintenanceSupersession(directory *os.File, value paths, request maintenanceRequest, state maintenanceState) error {
 	previousID := request.SupersedesRequestID
-	if state.ActiveRequest != previousID || state.LatestRequest != previousID || state.CompletedRequests[previousID] || state.SupersededRequests[previousID] != "" {
+	if state.LatestRequest != previousID || state.CompletedRequests[previousID] || state.SupersededRequests[previousID] != "" {
 		return errors.New("only the exact current failed maintenance request can be replaced")
 	}
 	var previous maintenanceReceipt
 	if err := readMaintenanceJSON(directory, maintenanceReceiptName(previousID), &previous); err != nil {
 		return err
+	}
+	if state.ActiveRequest != previousID && (state.ActiveRequest != "" || previous.FailureCode != maintenanceTargetOlderThanData) {
+		return errors.New("only the exact current failed maintenance request can be replaced")
 	}
 	if previous.Version != 1 || previous.RequestID != previousID || previous.Outcome != "failed" || previous.TargetApp != request.TargetApp || previous.ServiceMode != value.service.Mode || previous.ServiceUser != value.service.User {
 		return errors.New("replacement requires a confirmed failed receipt for the same Host and service")
@@ -615,7 +758,7 @@ func maintenanceStatus(value paths, id string) (*maintenanceReceipt, error) {
 		receipt = completedMaintenanceReceipt(receipt)
 	} else if receipt.Outcome == "succeeded" {
 		return nil, errors.New("maintenance completion is not committed")
-	} else if state.ActiveRequest != id || state.LatestRequest != id {
+	} else if state.LatestRequest != id || (state.ActiveRequest != id && receipt.FailureCode != maintenanceTargetOlderThanData) {
 		// A receipt written before a failed supersession commit is recovery
 		// material, not an accepted maintenance operation.
 		return nil, nil
@@ -637,10 +780,7 @@ func executeMaintenanceCommand(command string, service serviceRequest, args []st
 	if len(args) != 0 || service.app != "" {
 		fatal("maintenance commands accept a JSON request on stdin and service identity options only")
 	}
-	account, err := user.Current()
-	if service.user != "" {
-		account, err = user.Lookup(service.user)
-	}
+	account, err := lookupServiceAccount(service.user)
 	if err != nil {
 		fatal("service user is unavailable")
 	}

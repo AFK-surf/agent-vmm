@@ -58,6 +58,41 @@ func TestVMLifecycleOwnerSerializesOperations(t *testing.T) {
 	}
 }
 
+func TestVMRecoveryBacksOffAndBoundsAttemptsAcrossStops(t *testing.T) {
+	originalDelay := vmRecoveryInitialDelay
+	vmRecoveryInitialDelay = time.Millisecond
+	t.Cleanup(func() { vmRecoveryInitialDelay = originalDelay })
+	manager := &vmm.Manager{}
+	owner := &VMLifecycleOwner{manager: manager, shutdownDone: make(chan struct{})}
+	attempts := 0
+	succeedAt := 3
+	owner.recoverAttempt = func(_ context.Context, previousBootID string) error {
+		attempts++
+		if previousBootID != "boot" {
+			t.Fatalf("previous boot = %q", previousBootID)
+		}
+		if attempts == succeedAt {
+			return nil
+		}
+		return errors.New("start failed")
+	}
+	owner.recover(context.Background(), "boot")
+	if attempts != 3 || manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_FAILED {
+		t.Fatalf("first stop: attempts=%d vm=%+v", attempts, manager.Snapshot())
+	}
+	// The recovered VM stops again before it is stable; the attempts continue.
+	succeedAt = 0
+	owner.recover(context.Background(), "boot")
+	if attempts != vmRecoveryAttempts || manager.Snapshot().GetState() != hostv1.VMState_VM_STATE_FAILED || !strings.Contains(manager.Snapshot().GetError(), "operator action required") {
+		t.Fatalf("second stop: attempts=%d vm=%+v", attempts, manager.Snapshot())
+	}
+	owner.recoveredAt = time.Now().Add(-vmRecoveryStableAfter)
+	owner.recover(context.Background(), "boot")
+	if attempts != 2*vmRecoveryAttempts {
+		t.Fatalf("stable VM did not get a fresh recovery budget: attempts=%d", attempts)
+	}
+}
+
 func TestVMLifecycleOwnerRejectsOperationsAfterShutdownBegins(t *testing.T) {
 	owner := &VMLifecycleOwner{closing: true, shutdownDone: make(chan struct{})}
 	ran := false
