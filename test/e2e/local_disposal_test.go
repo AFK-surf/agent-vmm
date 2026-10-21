@@ -48,11 +48,11 @@ func TestLocalDisposalE2E(t *testing.T) {
 	}
 	domains := make([]domain, 0, 2)
 	for index := range 2 {
-		controller := &isolatedDomainController{session: make(chan net.Conn, 1), finish: make(chan struct{}), cleaned: make(chan struct{}), allowExistingInventory: true}
+		controller := &isolatedDomainController{session: make(chan net.Conn, 1), finish: make(chan struct{}), cleaned: make(chan struct{})}
 		endpoint, roots, stopServer := startRemoteController(t, controller)
 		defer stopServer()
 		id := fmt.Sprintf("disposal-domain-%d", index)
-		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: remoteLimits(100, 128<<20, 64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}
+		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}
 		registration, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: id, RegistrationId: id, Endpoint: endpoint, ProtocolVersion: remoteconnector.ProtocolVersion, DisplayName: id, Pool: pool})
 		if err != nil {
 			t.Fatal(err)
@@ -195,7 +195,7 @@ func TestLocalDisposalE2E(t *testing.T) {
 	if _, err := harness.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: domains[0].environment}); status.Code(err) != codes.NotFound {
 		t.Fatalf("deleted environment still readable: %v", err)
 	}
-	if _, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: domains[0].id, RegistrationId: domains[0].id, Endpoint: "https://localhost", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: remoteLimits(100, 128<<20, 64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}}); err == nil {
+	if _, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: domains[0].id, RegistrationId: domains[0].id, Endpoint: "https://localhost", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}}); err == nil {
 		t.Fatal("old enrollment replayed")
 	}
 	_, preservedRuntime := domains[1].connect()

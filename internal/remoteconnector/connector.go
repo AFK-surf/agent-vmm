@@ -67,7 +67,7 @@ func Run(ctx context.Context, config Config) error {
 		}()
 	}
 	observations := newEndpointObservationState(config.endpointObservation)
-	delay := time.Second
+	backoff := reconnectBackoff{}
 	var attempt uint32
 	for ctx.Err() == nil {
 		attempt++
@@ -85,10 +85,9 @@ func Run(ctx context.Context, config Config) error {
 			observations.Store(observation)
 		}
 		reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTING, "", attempt, time.Time{}, "", "")
+		started := time.Now()
 		connected, err := connectAttempt(ctx, config, worker, observations)
-		if connected {
-			delay = time.Second
-		}
+		delay := backoff.next(connected, time.Since(started))
 		// Only explicit revocation is terminal. Authentication and
 		// configuration failures keep the reported phase and retry, because
 		// controller or local repair can clear them without a Host restart.
@@ -116,14 +115,22 @@ func Run(ctx context.Context, config Config) error {
 			return nil
 		case <-timer.C:
 		}
-		if delay < MaxReconnectDelay {
-			delay *= 2
-			if delay > MaxReconnectDelay {
-				delay = MaxReconnectDelay
-			}
-		}
 	}
 	return nil
+}
+
+// reconnectBackoff doubles the retry delay up to MaxReconnectDelay. Only a
+// connection that stayed established for MaxReconnectDelay resets it, so a
+// controller that fails right after each connect cannot drive a reconnect storm.
+type reconnectBackoff struct{ delay time.Duration }
+
+func (backoff *reconnectBackoff) next(connected bool, established time.Duration) time.Duration {
+	if backoff.delay == 0 || connected && established >= MaxReconnectDelay {
+		backoff.delay = time.Second
+	}
+	current := backoff.delay
+	backoff.delay = min(2*backoff.delay, MaxReconnectDelay)
+	return current
 }
 
 func connectOnce(ctx context.Context, config Config) error {

@@ -157,27 +157,23 @@ func TestStateInitializationE2E(t *testing.T) {
 
 func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	archive, imageDigest := buildExecutableArchive(t, "./cmd/agent-vmm-reference-appliance", "bin/reference-appliance", true)
-	limits := func(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
-		return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
-	}
+	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
+	client := appliancev1.NewApplianceAdminServiceClient(harness.connection)
+	content := stageApplianceContent(t, client, archive, "agent-vmm.local/reference@"+imageDigest, imageDigest, deadline)
 	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: "reference",
-		Release: "e2e", ImageReference: "agent-vmm.local/reference@" + imageDigest,
+		Release: "e2e", ImageReference: content.GetImageReference(), ContentRefs: []*appliancev1.ApplianceContentReference{content},
 		ImageManifestDigest: imageDigest, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1",
-		ControllerProtocolVersion: "controller-ready-v1",
-		DataVolumeBytes:           1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{
-			PerEnvironmentLimits: limits(100, 128<<20, 64, 256<<20),
+		ControllerProtocolVersion: "controller-ready-v1", SystemLimits: isolationLimits(256, 256<<20),
+		DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{
+			PerEnvironmentLimits: isolationLimits(64, 256<<20),
 			MaxEgressMode:        hostv1.EgressMode_EGRESS_MODE_DENY_ALL},
 		RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StartupDeadlineSeconds: 60,
 		ProbationSeconds: 1, HealthTimeoutSeconds: 10}
-	deadline := time.Now().Add(5 * time.Minute).UnixMilli()
-	client := appliancev1.NewApplianceAdminServiceClient(harness.connection)
 	secretA := []byte("appliance-bootstrap-secret-a-4d57af9b")
 	secretB := []byte("appliance-bootstrap-secret-b-9c34b572")
-	storeApplianceArchive(t, harness, manifest, archive)
 	statusA := activateReferenceAppliance(t, client, "e2e-reference-a", manifest, deadline, secretA)
 	manifestB := proto.Clone(manifest).(*appliancev1.ControllerApplianceManifest)
 	manifestB.Release = "e2e-b"
-	storeApplianceArchive(t, harness, manifestB, archive)
 	statusB := activateReferenceAppliance(t, client, "e2e-reference-b", manifestB, deadline, secretB)
 	t.Run("workload_after_activation", func(t *testing.T) {
 		runtime := harness.runtime(t)
@@ -215,6 +211,8 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	if err != nil || len(bootstrapFiles) != 0 {
 		t.Fatalf("consumed bootstrap files remain: count=%d error=%v", len(bootstrapFiles), err)
 	}
+	// Reconciliation advances the revision after activation; restart the current one.
+	statusB = applianceStatus(t, client, "e2e-reference-b")
 	if _, err := client.Restart(context.Background(), &appliancev1.RestartApplianceRequest{InstallationId: "e2e-reference-b", RequestId: "reference-b-explicit-restart",
 		ExpectedRevision: statusB.GetRevision(), DeadlineUnixMillis: deadline}); err != nil {
 		t.Fatal(err)
@@ -250,20 +248,30 @@ func testSystemAppliance(t *testing.T, harness *hostHarness) {
 	}
 }
 
-func storeApplianceArchive(t *testing.T, harness *hostHarness, manifest *appliancev1.ControllerApplianceManifest, archive []byte) {
+// stageApplianceContent publishes a controller image archive through the
+// operator content stage that a manifest content reference names.
+func stageApplianceContent(t *testing.T, client appliancev1.ApplianceAdminServiceClient, archive []byte, reference, imageDigest string, deadline int64) *appliancev1.ApplianceContentReference {
 	t.Helper()
-	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(manifest)
+	sum := sha256.Sum256(archive)
+	content := &appliancev1.ApplianceContentReference{Role: appliancev1.ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER, ArchiveSha256: sum[:],
+		ArchiveSize: uint64(len(archive)), Platform: "linux/arm64", ImageReference: reference, ImageManifestDigest: imageDigest}
+	stream, err := client.StageContent(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256(encoded)
-	directory := filepath.Join(harness.instance, "support", "appliance-artifacts")
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	if err := stream.Send(&appliancev1.StageContentRequest{Payload: &appliancev1.StageContentRequest_Header{Header: &appliancev1.StageContentHeader{RequestId: fmt.Sprintf("stage-content-%x", sum[:8]), DeadlineUnixMillis: deadline, ContentRef: content}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, fmt.Sprintf("%x.oci.tar", digest)), archive, 0o600); err != nil {
-		t.Fatal(err)
+	for chunk := range slices.Chunk(archive, 1<<20) {
+		if err := stream.Send(&appliancev1.StageContentRequest{Payload: &appliancev1.StageContentRequest_ArchiveChunk{ArchiveChunk: chunk}}); err != nil {
+			break
+		}
 	}
+	receipt, err := stream.CloseAndRecv()
+	if err != nil || receipt.GetOperation().GetState() != appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED {
+		t.Fatalf("stage appliance content = %+v, %v", receipt.GetOperation(), err)
+	}
+	return content
 }
 
 func activateReferenceAppliance(t *testing.T, client appliancev1.ApplianceAdminServiceClient, installationID string, manifest *appliancev1.ControllerApplianceManifest, deadline int64, secret []byte) *appliancev1.ApplianceStatus {
@@ -276,7 +284,7 @@ func activateReferenceAppliance(t *testing.T, client appliancev1.ApplianceAdminS
 	}
 	artifactID := stage.GetArtifactId()
 	current := applianceStatus(t, client, installationID)
-	grant := &appliancev1.ApprovedGrant{Capacity: manifest.GetRequestedCapacity(), EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, Revision: current.GetRevision()}
+	grant := &appliancev1.ApprovedGrant{SystemLimits: manifest.GetSystemLimits(), Capacity: manifest.GetRequestedCapacity(), EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, Revision: current.GetRevision()}
 	_, err = client.PlanInstall(context.Background(), &appliancev1.PlanInstallRequest{InstallationId: installationID, RequestId: prefix + "-install-plan", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
 	if err != nil {
 		t.Fatal(err)
@@ -493,10 +501,10 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, secondEnvironment, 1<<30)
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	if _, err := importRegistryImageAttempt(ctx, client, firstEnvironment, "pull-image-record-a"); err != nil {
+	if _, err := importRegistryImageReference(ctx, client, firstEnvironment, "pull-image-record-a", workloadImage); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := importRegistryImageAttempt(ctx, client, secondEnvironment, "pull-image-record-b"); err != nil {
+	if _, err := importRegistryImageReference(ctx, client, secondEnvironment, "pull-image-record-b", workloadImage); err != nil {
 		t.Fatal(err)
 	}
 	first := imageByReference(t, client, firstEnvironment, workloadImage)
@@ -547,7 +555,7 @@ func testImageRecordLifecycle(t *testing.T, client *productClient) {
 	if _, err := client.StartContainer(ctx, secondEnvironment, &hostv1.ContainerMutationRequest{RequestId: "start-shared-image-user", ContainerId: shared.GetId(), ExpectedGenerationId: shared.GetGenerationId()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := importRegistryImageAttempt(ctx, client, firstEnvironment, "recreate-image-record-a"); err != nil {
+	if _, err := importRegistryImageReference(ctx, client, firstEnvironment, "recreate-image-record-a", workloadImage); err != nil {
 		t.Fatal(err)
 	}
 	recreated := imageByReference(t, client, firstEnvironment, workloadImage)
@@ -1091,10 +1099,20 @@ func testStateInitialization(t *testing.T) {
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	if _, err := harness.client.StartVM(ctx, &hostv1.StartVMRequest{}); err == nil {
+	summary, err := harness.client.GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
+	if err != nil || summary.GetVm() == nil {
+		t.Fatalf("VM start impact unavailable: summary=%+v err=%v", summary, err)
+	}
+	fence := &hostv1.VMMutationFence{State: summary.GetVm().GetState(), BootId: summary.GetVm().GetBootId(), ObservedWorkloads: summary.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
+	if _, err := harness.client.StartVM(ctx, &hostv1.StartVMRequest{RequestId: "start-corrupt-state", Fence: fence}); err == nil {
 		t.Fatal("corrupt initialized state disk was reformatted")
+	}
+	// The pre-listener Guest failure is visible only on the console.
+	console := readFileTail(harness.serial, 64<<10)
+	if last := bytes.LastIndex(console, []byte("guest_startup=")); last < 0 || !bytes.Contains(console[last:], []byte(`"stage":"bootstrap","state":"failed"`)) {
+		t.Fatalf("corrupt state disk failure did not reach the console: %s", console)
 	}
 	if _, err := os.Stat(filepath.Join(harness.instance, "state.initializing")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("corrupt disk recreated initialization marker: %v", err)
@@ -1177,19 +1195,23 @@ func testNamedVolume(t *testing.T, client *productClient) {
 	if logs := readLogs(t, client, "volume-owner", reader.GetId()); string(logs) != "authenticated\n" {
 		t.Fatalf("provider readiness = %q", logs)
 	}
-	if keys := reader.GetEnvironmentKeys(); len(keys) != 2 || !slices.Contains(keys, "HOME") || !slices.Contains(keys, "PATH") {
-		t.Fatalf("provider state container projected unexpected environment keys: %v", reader.GetEnvironmentKeys())
+	// Mutation receipts carry only identity and state; Get projects the launch.
+	projected, err := client.GetContainer(ctx, "volume-owner", &hostv1.ContainerRequest{ContainerId: reader.GetId()})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !slices.Equal(reader.GetArgv(), []string{"/bin/provider-state", "read-codex"}) {
-		t.Fatalf("provider state container projected unexpected argv: %v", reader.GetArgv())
+	if keys := projected.GetContainer().GetEnvironmentKeys(); len(keys) != 2 || !slices.Contains(keys, "HOME") || !slices.Contains(keys, "PATH") {
+		t.Fatalf("provider state container projected unexpected environment keys: %v", keys)
+	}
+	if argv := projected.GetContainer().GetArgv(); !slices.Equal(argv, []string{"/bin/provider-state", "read-codex"}) {
+		t.Fatalf("provider state container projected unexpected argv: %v", argv)
 	}
 	if err := client.DeleteVolume(ctx, "volume-owner", &hostv1.DeleteVolumeRequest{RequestId: "delete-mounted-provider-state", VolumeId: "salix-vol-provider-state"}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("mounted volume delete error = %v", err)
 	}
 	deleteContainer(t, client, "volume-owner", reader.GetId())
 	denied := createContainerAsUser(t, client, "volume-owner", "other-user", image, "1001:1001", []string{"/bin/provider-state", "read-codex"}, env, mount)
-	startContainer(t, client, "volume-owner", denied.GetId())
-	if code := waitContainer(t, client, "volume-owner", denied.GetId(), 1); code == 0 {
+	if code := startAndWaitContainer(t, client, "volume-owner", denied.GetId(), 1); code == 0 {
 		t.Fatal("another workload uid read the provider-owned 0700 volume")
 	}
 	deleteContainer(t, client, "volume-owner", denied.GetId())
@@ -1218,8 +1240,7 @@ func testDiskQuota(t *testing.T, client *productClient) {
 	}
 	createVolume(t, client, "quota", "data")
 	full := createContainer(t, client, "quota", "full", []string{"dd", "if=/dev/zero", "of=/data/blob", "bs=1048576", "count=64"}, []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}})
-	startContainer(t, client, "quota", full.GetId())
-	if code := waitContainer(t, client, "quota", full.GetId(), 1); code == 0 {
+	if code := startAndWaitContainer(t, client, "quota", full.GetId(), 1); code == 0 {
 		t.Fatal("write beyond project quota succeeded")
 	}
 	healthy := createContainer(t, client, "healthy", "healthy", []string{"/bin/sh", "-c", "echo unaffected"}, nil)
@@ -1316,7 +1337,7 @@ func testLinkRevoke(t *testing.T, client *productClient) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "revoke-exec", ContainerId: caller.GetId(), Argv: []string{"nc", "service", "8080"}}}}); err != nil {
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: execStart(t, ctx, client, "revoke-source", caller.GetId(), "revoke-exec", []string{"nc", "service", "8080"})}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: []byte("before")}}); err != nil {
@@ -1424,6 +1445,7 @@ func testPortForward(t *testing.T, client *productClient) {
 
 func testDockerfileBuild(t *testing.T, client *productClient) {
 	ensureNamespace(t, client, "dockerfile-build", 768<<20)
+	startBuildAnchor(t, client, "dockerfile-build")
 	tool := buildShell(t)
 	contextArchive := dockerfileContext(t, tool)
 	secret := []byte("build-secret-7a5f07acbcaf")
@@ -1433,8 +1455,8 @@ func testDockerfileBuild(t *testing.T, client *productClient) {
 	if first.digest != second.digest {
 		t.Fatalf("cached build digest changed: %s != %s", first.digest, second.digest)
 	}
-	if !slices.Contains(second.progress, "namespace cache hit") {
-		t.Fatalf("second build progress = %q", second.progress)
+	if !strings.Contains(strings.Join(second.progress, ""), "CACHED") {
+		t.Fatalf("second build did not reuse the namespace build cache: %q", second.progress)
 	}
 	container := createContainerWithImage(t, client, "dockerfile-build", "result", image, []string{"/bin/result", "--assert-absent", string(secret)})
 	startAndWaitContainer(t, client, "dockerfile-build", container.GetId(), 0)
@@ -1457,6 +1479,7 @@ func testDockerfileBuild(t *testing.T, client *productClient) {
 		t.Fatalf("rebuilt image output = %q", output)
 	}
 	deleteContainer(t, client, "dockerfile-build", container.GetId())
+	stopDeleteContainer(t, client, "dockerfile-build", buildAnchorID)
 	deleteNamespace(t, client, "dockerfile-build")
 }
 
@@ -1464,6 +1487,7 @@ func testParallelAgents(t *testing.T, client *productClient) {
 	namespaces := []string{"parallel-a", "parallel-b"}
 	for _, namespaceID := range namespaces {
 		ensureNamespace(t, client, namespaceID, 1<<30)
+		startBuildAnchor(t, client, namespaceID)
 	}
 	contextArchive := dockerfileContext(t, buildShell(t))
 	secret := []byte("parallel-build-secret-e291d1")
@@ -1487,7 +1511,7 @@ func testParallelAgents(t *testing.T, client *productClient) {
 			t.Errorf("build %s: %v", outcome.namespaceID, outcome.err)
 			continue
 		}
-		if slices.Contains(outcome.result.progress, "namespace cache hit") {
+		if strings.Contains(strings.Join(outcome.result.progress, ""), "CACHED") {
 			t.Fatalf("namespace %s reused another namespace's cache", outcome.namespaceID)
 		}
 	}
@@ -1496,7 +1520,7 @@ func testParallelAgents(t *testing.T, client *productClient) {
 	}
 	for _, namespaceID := range namespaces {
 		container := createContainerWithImage(t, client, namespaceID, "result", "agent.local/shared-name:latest", []string{"/bin/result"})
-		startContainer(t, client, namespaceID, container.GetId())
+		startExitingContainer(t, client, namespaceID, container.GetId())
 	}
 	for _, namespaceID := range namespaces {
 		waitContainer(t, client, namespaceID, "result", 0)
@@ -1509,6 +1533,7 @@ func testParallelAgents(t *testing.T, client *productClient) {
 	}
 	for index := len(namespaces) - 1; index >= 0; index-- {
 		stopDeleteContainer(t, client, namespaces[index], "worker")
+		stopDeleteContainer(t, client, namespaces[index], buildAnchorID)
 		deleteNamespace(t, client, namespaces[index])
 	}
 }
@@ -1516,16 +1541,21 @@ func testParallelAgents(t *testing.T, client *productClient) {
 func testCancellationCleanup(t *testing.T, client *productClient) {
 	namespaceID := "cancel-build"
 	ensureNamespace(t, client, namespaceID, 768<<20)
+	startBuildAnchor(t, client, namespaceID)
 	contextArchive := dockerfileContext(t, buildShell(t))
-	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := client.BuildImage(ctx, namespaceID)
+	// A disconnected caller does not cancel an accepted build; its execution
+	// deadline does. The fixture build sleeps far beyond this deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	header, err := buildHeader(ctx, client, namespaceID, "cancel-build", "agent.local/cancelled:latest", "build-cancel", hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NAMESPACE_EGRESS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	header := &hostv1.BuildImageHeader{
-		RequestId: "cancel-build", DockerfilePath: "Dockerfile",
-		Image: "agent.local/cancelled:latest", NetworkMode: hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NAMESPACE_EGRESS,
-		BuildArgs: []*hostv1.BuildArgument{{Name: "MESSAGE", Value: "build-cancel"}}, Secrets: []*hostv1.BuildSecret{{Id: "token"}},
+	cancelAt := time.Now().Add(30 * time.Second)
+	header.ExecutionDeadlineUnixNano = cancelAt.UnixNano()
+	stream, err := client.BuildImage(ctx, namespaceID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := sendBuildInput(stream, header, contextArchive, []byte("build-cancel-secret-053f")); err != nil {
 		t.Fatal(err)
@@ -1538,18 +1568,22 @@ func testCancellationCleanup(t *testing.T, client *productClient) {
 		}
 		started = response.GetProgress() == "builder task started"
 	}
-	cancelledAt := time.Now()
-	cancel()
-	if _, err := stream.Recv(); err == nil {
-		t.Fatal("cancelled build completed without an error")
+	for {
+		response, err := stream.Recv()
+		if err != nil {
+			break
+		}
+		if response.GetResult() != nil {
+			t.Fatal("cancelled build completed")
+		}
 	}
-	if elapsed := time.Since(cancelledAt); elapsed > 20*time.Second {
-		t.Fatalf("build cancellation took %s", elapsed)
+	if elapsed := time.Since(cancelAt); elapsed > 20*time.Second {
+		t.Fatalf("build cancellation took %s after its deadline", elapsed)
 	}
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer checkCancel()
 	listed, err := client.ListContainers(checkCtx, namespaceID)
-	if err != nil || len(listed.GetContainers()) != 0 {
+	if err != nil || len(listed.GetContainers()) != 1 || listed.GetContainers()[0].GetId() != buildAnchorID {
 		t.Fatalf("containers after cancellation = %+v, %v", listed.GetContainers(), err)
 	}
 	if _, err := client.CreateContainer(checkCtx, namespaceID, &hostv1.CreateContainerRequest{
@@ -1557,14 +1591,17 @@ func testCancellationCleanup(t *testing.T, client *productClient) {
 	}); err == nil {
 		t.Fatal("cancelled image was imported")
 	}
+	stopDeleteContainer(t, client, namespaceID, buildAnchorID)
 	deleteNamespaceEventually(t, client, namespaceID)
 	ensureNamespace(t, client, "quota-build", 4<<20)
+	startBuildAnchor(t, client, "quota-build")
 	quotaCtx, quotaCancel := context.WithTimeout(context.Background(), time.Minute)
 	_, err = buildImageRequest(quotaCtx, client, "quota-build", "agent.local/quota:latest", "build-ok", hostv1.BuildNetworkMode_BUILD_NETWORK_MODE_NONE, contextArchive, []byte("quota-secret"))
 	quotaCancel()
 	if err == nil {
 		t.Fatal("build exceeded its namespace disk quota")
 	}
+	stopDeleteContainer(t, client, "quota-build", buildAnchorID)
 	deleteNamespaceEventually(t, client, "quota-build")
 }
 
@@ -1605,7 +1642,7 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "restart-connection", ContainerId: caller.GetId(), Argv: []string{"nc", "service", "8080"}}}}); err != nil {
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: execStart(t, streamCtx, client, "restart-source", caller.GetId(), "restart-connection", []string{"nc", "service", "8080"})}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: []byte("open")}}); err != nil {
@@ -1618,7 +1655,9 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := tty.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "restart-tty", ContainerId: caller.GetId(), Argv: []string{"sh"}, Tty: true, Rows: 24, Columns: 80}}}); err != nil {
+	ttyStart := execStart(t, streamCtx, client, "restart-source", caller.GetId(), "restart-tty", []string{"sh"})
+	ttyStart.Tty, ttyStart.Rows, ttyStart.Columns = true, 24, 80
+	if err := tty.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: ttyStart}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tty.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Stdin{Stdin: []byte("echo tty-open\n")}}); err != nil {
@@ -1671,16 +1710,8 @@ func testVMRestart(t *testing.T, harness *hostHarness) {
 		}
 	}
 	client = harness.runtime(t)
-	for _, item := range []struct{ namespaceID, containerID string }{{"restart-source", caller.GetId()}, {"restart-destination", server.GetId()}} {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		response, err := client.GetContainer(ctx, item.namespaceID, &hostv1.ContainerRequest{ContainerId: item.containerID})
-		cancel()
-		if err != nil || response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_STOPPED {
-			t.Fatalf("process restored after restart: %+v, %v", response.GetContainer(), err)
-		}
-	}
-	startContainer(t, client, "restart-source", caller.GetId())
-	startContainer(t, client, "restart-destination", server.GetId())
+	waitRestoredContainer(t, client, "restart-source", caller.GetId())
+	waitRestoredContainer(t, client, "restart-destination", server.GetId())
 	startEchoServer(t, client, "restart-destination", server.GetId(), 8080)
 	if output, code := execContainer(t, client, "restart-source", caller.GetId(), []string{"sh", "-c", "cat /data/value /root/value"}); code != 0 || string(output) != "restart-durable\nroot-durable\n" {
 		t.Fatalf("filesystem and volume after restart = %q, exit %d", output, code)
@@ -1728,13 +1759,7 @@ func testProviderStateVMRestart(t *testing.T, harness *hostHarness) {
 	harness.stop(t, false)
 	harness.start(t)
 	client = harness.runtime(t)
-	currentCtx, currentCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	current, err := client.GetContainer(currentCtx, namespaceID, &hostv1.ContainerRequest{ContainerId: provider.GetId()})
-	currentCancel()
-	if err != nil || current.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_STOPPED {
-		t.Fatalf("provider container after VM restart = %+v, %v", current.GetContainer(), err)
-	}
-	startContainer(t, client, namespaceID, provider.GetId())
+	waitRestoredContainer(t, client, namespaceID, provider.GetId())
 	if output, code := execContainer(t, client, namespaceID, provider.GetId(), []string{"/bin/provider-state", "read-pi"}); code != 0 || string(output) != "authenticated\n" {
 		t.Fatalf("provider state after VM restart = %q, exit %d", output, code)
 	}
@@ -1783,14 +1808,8 @@ func testForcedVMStop(t *testing.T, harness *hostHarness) {
 	}
 	harness.start(t)
 	client = harness.runtime(t)
-	startContainer(t, client, "force-source", caller.GetId())
-	inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	response, err := client.GetContainer(inspectCtx, "force-destination", &hostv1.ContainerRequest{ContainerId: server.GetId()})
-	inspectCancel()
-	if err != nil || response.GetContainer().GetState() != hostv1.ContainerState_CONTAINER_STATE_STOPPED {
-		t.Fatalf("process restored after forced stop: %+v, %v", response.GetContainer(), err)
-	}
-	startContainer(t, client, "force-destination", server.GetId())
+	waitRestoredContainer(t, client, "force-source", caller.GetId())
+	waitRestoredContainer(t, client, "force-destination", server.GetId())
 	startEchoServer(t, client, "force-destination", server.GetId(), 8080)
 	if output, code := execContainer(t, client, "force-source", caller.GetId(), []string{"cat", "/data/value"}); code != 0 || string(output) != "force-durable\n" {
 		t.Fatalf("fsync data after forced stop = %q, exit %d", output, code)
@@ -1804,6 +1823,25 @@ func testForcedVMStop(t *testing.T, harness *hostHarness) {
 	deleteVolume(t, client, "force-source", "data")
 	deleteNamespace(t, client, "force-source")
 	deleteNamespace(t, client, "force-destination")
+}
+
+// waitRestoredContainer waits for VM start recovery to restart a container
+// whose Host running intent survived the VM restart.
+func waitRestoredContainer(t *testing.T, client *productClient, namespaceID, containerID string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		response, err := client.GetContainer(ctx, namespaceID, &hostv1.ContainerRequest{ContainerId: containerID})
+		cancel()
+		if err == nil && response.GetContainer().GetState() == hostv1.ContainerState_CONTAINER_STATE_RUNNING && response.GetContainer().GetDesiredRunning() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("container %s/%s was not restored after VM restart: %+v, %v", namespaceID, containerID, response.GetContainer(), err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func testResidualScan(t *testing.T, client *productClient) {
@@ -2216,27 +2254,15 @@ func stopDeleteContainer(t *testing.T, client *productClient, namespaceID, conta
 
 func importRegistryImage(t *testing.T, client *productClient, namespaceID string) {
 	t.Helper()
-	var digest string
-	var err error
-	for attempt := range 3 {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		digest, err = importRegistryImageAttempt(ctx, client, namespaceID, fmt.Sprintf("pull-%s-%d", namespaceID, attempt))
-		cancel()
-		if err == nil || strings.Contains(err.Error(), "429 Too Many Requests") {
-			break
-		}
-		time.Sleep(time.Duration(attempt+1) * time.Second)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	digest, err := importRegistryImageReference(ctx, client, namespaceID, "pull-"+namespaceID, workloadImage)
+	cancel()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(digest, "sha256:") {
 		t.Fatalf("pull digest = %q", digest)
 	}
-}
-
-func importRegistryImageAttempt(ctx context.Context, client *productClient, namespaceID, requestID string) (string, error) {
-	return importRegistryImageReference(ctx, client, namespaceID, requestID, workloadImage)
 }
 
 func importRegistryImageReference(ctx context.Context, client *productClient, namespaceID, requestID, reference string) (string, error) {
@@ -2370,15 +2396,42 @@ func buildImage(t *testing.T, client *productClient, namespaceID, image string, 
 	return result
 }
 
+// buildAnchorID names the running container that owns a namespace's build
+// activities; the Host admits a build only on a current container instance.
+const buildAnchorID = "build-anchor"
+
+func startBuildAnchor(t *testing.T, client *productClient, namespaceID string) {
+	t.Helper()
+	importRegistryImage(t, client, namespaceID)
+	createContainer(t, client, namespaceID, buildAnchorID, idleProcess(), nil)
+	startContainer(t, client, namespaceID, buildAnchorID)
+}
+
+func buildHeader(ctx context.Context, client *productClient, namespaceID, requestID, image, message string, networkMode hostv1.BuildNetworkMode) (*hostv1.BuildImageHeader, error) {
+	anchor, err := client.GetContainer(ctx, namespaceID, &hostv1.ContainerRequest{ContainerId: buildAnchorID})
+	if err != nil {
+		return nil, err
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return nil, errors.New("build context has no deadline")
+	}
+	return &hostv1.BuildImageHeader{
+		RequestId: requestID, DockerfilePath: "Dockerfile", Image: image, NetworkMode: networkMode,
+		BuildArgs: []*hostv1.BuildArgument{{Name: "MESSAGE", Value: message}}, Secrets: []*hostv1.BuildSecret{{Id: "token"}},
+		ContainerId: buildAnchorID, ExpectedInstanceId: anchor.GetContainer().GetInstanceId(), ExecutionId: requestID,
+		ExecutionDeadlineUnixNano: deadline.UnixNano(),
+	}, nil
+}
+
 func buildImageRequest(ctx context.Context, client *productClient, namespaceID, image, message string, networkMode hostv1.BuildNetworkMode, contextArchive, secret []byte) (imageBuildResult, error) {
-	stream, err := client.BuildImage(ctx, namespaceID)
+	header, err := buildHeader(ctx, client, namespaceID, "build-"+namespaceID+"-"+time.Now().Format("150405.000000000"), image, message, networkMode)
 	if err != nil {
 		return imageBuildResult{}, err
 	}
-	header := &hostv1.BuildImageHeader{
-		RequestId:      "build-" + namespaceID + "-" + time.Now().Format("150405.000000000"),
-		DockerfilePath: "Dockerfile", Image: image, NetworkMode: networkMode,
-		BuildArgs: []*hostv1.BuildArgument{{Name: "MESSAGE", Value: message}}, Secrets: []*hostv1.BuildSecret{{Id: "token"}},
+	stream, err := client.BuildImage(ctx, namespaceID)
+	if err != nil {
+		return imageBuildResult{}, err
 	}
 	if err := sendBuildInput(stream, header, contextArchive, secret); err != nil {
 		return imageBuildResult{}, err
@@ -2402,19 +2455,28 @@ func buildImageRequest(ctx context.Context, client *productClient, namespaceID, 
 	return result, nil
 }
 
+// sendBuildInput returns the Host's status when it ends the stream early; gRPC
+// reports such a rejection to Send only as io.EOF.
 func sendBuildInput(stream grpc.BidiStreamingClient[hostv1.BuildImageRequest, hostv1.BuildImageResponse], header *hostv1.BuildImageHeader, contextArchive, secret []byte) error {
-	if err := stream.Send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Header{Header: header}}); err != nil {
+	send := func(request *hostv1.BuildImageRequest) error {
+		err := stream.Send(request)
+		if errors.Is(err, io.EOF) {
+			_, err = stream.Recv()
+		}
+		return err
+	}
+	if err := send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Header{Header: header}}); err != nil {
 		return err
 	}
 	for len(contextArchive) > 0 {
 		count := min(len(contextArchive), 1<<20)
 		chunk := &hostv1.BuildContextChunk{Data: contextArchive[:count], Final: count == len(contextArchive)}
-		if err := stream.Send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Context{Context: chunk}}); err != nil {
+		if err := send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Context{Context: chunk}}); err != nil {
 			return err
 		}
 		contextArchive = contextArchive[count:]
 	}
-	if err := stream.Send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Secret{Secret: &hostv1.BuildSecretChunk{Id: "token", Data: secret, Final: true}}}); err != nil {
+	if err := send(&hostv1.BuildImageRequest{Event: &hostv1.BuildImageRequest_Secret{Secret: &hostv1.BuildSecretChunk{Id: "token", Data: secret, Final: true}}}); err != nil {
 		return err
 	}
 	return stream.CloseSend()
@@ -2453,7 +2515,9 @@ func startContainerRequest(t *testing.T, ctx context.Context, client *productCli
 	return request
 }
 
-func startAndWaitContainer(t *testing.T, client *productClient, namespaceID, containerID string, expected uint32) uint32 {
+// startExitingContainer starts a short-lived process, which can already have
+// exited (STOPPED) or be awaiting reaping (UNKNOWN) when Start returns.
+func startExitingContainer(t *testing.T, client *productClient, namespaceID, containerID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -2466,6 +2530,11 @@ func startAndWaitContainer(t *testing.T, client *productClient, namespaceID, con
 	default:
 		t.Fatalf("StartContainer() = %+v", response.GetContainer())
 	}
+}
+
+func startAndWaitContainer(t *testing.T, client *productClient, namespaceID, containerID string, expected uint32) uint32 {
+	t.Helper()
+	startExitingContainer(t, client, namespaceID, containerID)
 	return waitContainer(t, client, namespaceID, containerID, expected)
 }
 
@@ -2570,14 +2639,8 @@ func execContainer(t *testing.T, client *productClient, namespaceID, containerID
 	if err != nil {
 		t.Fatalf("exec %s: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 	}
-	requestID := "exec-" + namespaceID + "-" + containerID + time.Now().Format("150405.000000000")
-	current, err := client.GetContainer(ctx, namespaceID, &hostv1.ContainerRequest{ContainerId: containerID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: requestID, ContainerId: containerID, Argv: argv,
-		ExpectedInstanceId: current.GetContainer().GetInstanceId(), ExecutionId: requestID,
-		ExecutionKind: hostv1.ExecutionKind_EXECUTION_KIND_EXEC, ExecutionDeadlineUnixNano: time.Now().Add(30 * time.Second).UnixNano()}}}); err != nil {
+	start := execStart(t, ctx, client, namespaceID, containerID, "exec-"+namespaceID+"-"+containerID+time.Now().Format("150405.000000000"), argv)
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: start}}); err != nil {
 		t.Fatalf("exec %s send: %v; logs=%q", containerID, err, readLogs(t, client, namespaceID, containerID))
 	}
 	if err := stream.CloseSend(); err != nil {
@@ -2599,6 +2662,23 @@ func execContainer(t *testing.T, client *productClient, namespaceID, containerID
 			exitCode = response.GetExitCode()
 		}
 	}
+}
+
+// execStart binds an exec activity to the container's current instance and to
+// the caller's context deadline, as the Host requires for every stream activity.
+func execStart(t *testing.T, ctx context.Context, client *productClient, namespaceID, containerID, requestID string, argv []string) *hostv1.ExecStart {
+	t.Helper()
+	current, err := client.GetContainer(ctx, namespaceID, &hostv1.ContainerRequest{ContainerId: containerID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("exec context has no deadline")
+	}
+	return &hostv1.ExecStart{RequestId: requestID, ContainerId: containerID, Argv: argv,
+		ExpectedInstanceId: current.GetContainer().GetInstanceId(), ExecutionId: requestID,
+		ExecutionKind: hostv1.ExecutionKind_EXECUTION_KIND_EXEC, ExecutionDeadlineUnixNano: deadline.UnixNano()}
 }
 
 func readLogs(t *testing.T, client *productClient, namespaceID, containerID string) []byte {

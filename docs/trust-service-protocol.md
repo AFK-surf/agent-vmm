@@ -93,6 +93,8 @@ per-route control-plane lookup. Personal capabilities reject that embedded
 managed credential.
 
 Appliance managed trust uses the current installation's authenticated Bootstrap.
+Managed trust is optional. An appliance that issues managed route capabilities sends one bundle in Bootstrap.
+An appliance without a bundle has no managed anchor, so the Host does not refresh it and its managed route authority stays closed.
 The Host refreshes within 24 hours of membership expiry and retries failed or unchanged results after one hour.
 Each call uses a fresh nonce, an empty management seed and a one-minute deadline.
 Renewal requires a higher revision with the same issuer, key, subject and permission scope.

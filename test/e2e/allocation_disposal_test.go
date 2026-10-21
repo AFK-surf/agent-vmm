@@ -19,7 +19,9 @@ import (
 
 // Only this harness's temporary Host directory and newly allocated VM disk are targets.
 func TestAllocationDisposalE2E(t *testing.T) {
-	harness := startHostWithState(t, 16<<30)
+	// Four 2 GiB allocation quotas must fit after the 4 GiB emergency floor and
+	// metadata growth, because admission commits each namespace's whole quota.
+	harness := startHostWithState(t, 24<<30)
 	harness.start(t)
 	t.Cleanup(func() { harness.stop(t, true) })
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -37,7 +39,7 @@ func TestAllocationDisposalE2E(t *testing.T) {
 		controller := &remoteE2EController{registrationID: id, sessions: make(chan remoteE2ESession, 4), finish: make(chan struct{}), connections: make(chan int, 8), failures: make(chan string, 8), actions: make(chan remoteE2EAction)}
 		endpoint, roots, stopServer := startRemoteController(t, controller)
 		t.Cleanup(stopServer)
-		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: remoteLimits(500, 1<<30, 256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
+		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
 		registration, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: id, RegistrationId: id, Endpoint: endpoint, DisplayName: id, ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
 		if err != nil {
 			t.Fatal(err)

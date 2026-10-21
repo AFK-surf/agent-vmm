@@ -63,14 +63,32 @@ func (server *agentServer) PullImage(request *hostv1.PullImageRequest, stream ho
 		return err
 	}
 	defer connection.Close()
-	guest, err := client.PullImage(stream.Context(), &vmmdv1.PullImageRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, Reference: request.GetReference()})
+	pull := func() (vmmdv1.VMMDService_PullImageClient, error) {
+		return client.PullImage(stream.Context(), &vmmdv1.PullImageRequest{RequestId: request.GetRequestId(), ActorNamespaceId: identity.NamespaceID, Reference: request.GetReference()})
+	}
+	guest, err := pull()
 	if err != nil {
 		return err
 	}
+	imported := false
 	for {
 		response, err := guest.Recv()
 		if err == io.EOF {
 			return nil
+		}
+		// A cold image is fetched and imported once, then resolved again.
+		if !imported && importRequired(err) {
+			imported = true
+			if err := stream.Send(&hostv1.PullImageResponse{Status: "downloading from registry"}); err != nil {
+				return err
+			}
+			if err := server.importRegistryImage(stream.Context(), identity, request.GetRequestId(), request.GetReference()); err != nil {
+				return err
+			}
+			if guest, err = pull(); err != nil {
+				return err
+			}
+			continue
 		}
 		if err != nil {
 			return err

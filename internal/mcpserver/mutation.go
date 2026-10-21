@@ -14,7 +14,7 @@ import (
 )
 
 func (adapter *Adapter) registerMutationTools(server *mcp.Server) {
-	addTool(server, toolDefinition{name: "image_pull", description: "Pull one image explicitly and report bounded progress.", inputSchema: imagePullSchema, openWorld: true, timeout: 10 * time.Minute}, adapter.imagePull)
+	addTool(server, toolDefinition{name: "image_pull", description: "Pull one image from its registry, import it into this environment if it is not already present, and report bounded progress.", inputSchema: imagePullSchema, openWorld: true, timeout: 10 * time.Minute}, adapter.imagePull)
 	addTool(server, toolDefinition{name: "image_delete", description: "Remove one canonical image record from this environment. The image must not be referenced by a container; shared content may remain in the virtual machine.", inputSchema: imageDeleteSchema, destructive: true, timeout: 2 * time.Minute}, adapter.imageDelete)
 	addTool(server, toolDefinition{name: "container_run", description: "Create and launch one container, then report its observed state after a short bounded interval. launch_succeeded confirms process launch, not service readiness. Image ENTRYPOINT and CMD are preserved unless overridden. Containers run without Linux capabilities; images must not require chown, setuid, or privileged startup.", inputSchema: containerRunSchema, destructive: true, openWorld: true, timeout: 2 * time.Minute}, adapter.containerRun)
 	addTool(server, toolDefinition{name: "container_start", description: "Start one existing created or stopped container.", inputSchema: containerSchema, openWorld: true, timeout: 2 * time.Minute}, adapter.containerStart)
@@ -125,7 +125,7 @@ func (adapter *Adapter) containerRun(ctx context.Context, _ *mcp.CallToolRequest
 		if err != nil {
 			return nil, err
 		}
-		started, err := adapter.runtime.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID})
+		started, err := adapter.runtime.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: created.GetContainer().GetGenerationId()})
 		if err != nil {
 			return nil, &toolFailure{data: RunData{Container: containerData(created.GetContainer()), LaunchSucceeded: false}, err: err}
 		}
@@ -150,7 +150,12 @@ func (adapter *Adapter) containerRun(ctx context.Context, _ *mcp.CallToolRequest
 
 func (adapter *Adapter) containerStart(ctx context.Context, _ *mcp.CallToolRequest, input ContainerInput) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.containerMutation(ctx, input.ContainerID, 2*time.Minute, func(ctx context.Context, requestID string) (*hostv1.ContainerResponse, error) {
-		return adapter.runtime.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID})
+		// Start targets the exact generation the caller can observe now.
+		current, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		if err != nil {
+			return nil, err
+		}
+		return adapter.runtime.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: current.GetContainer().GetGenerationId()})
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"path/filepath"
 	"sync"
@@ -155,16 +156,17 @@ func importReferenceImage(ctx context.Context, client hostv1.AgentRuntimeService
 		return err
 	}
 	digest := sha256.Sum256(archive)
-	if err := stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_Header{Header: &hostv1.ImportImageHeader{RequestId: "reference-image", ImageReference: referenceImage,
-		ArchiveSha256: digest[:], ManifestDigest: manifestDigest, Platform: "linux/arm64", ArchiveSize: uint64(len(archive))}}}); err != nil {
-		return err
-	}
-	for len(archive) != 0 {
+	// A replayed import completes after its header; the Host then ends the
+	// stream and Send reports io.EOF. CloseAndRecv returns that result.
+	err = stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_Header{Header: &hostv1.ImportImageHeader{RequestId: "reference-image", ImageReference: referenceImage,
+		ArchiveSha256: digest[:], ManifestDigest: manifestDigest, Platform: "linux/arm64", ArchiveSize: uint64(len(archive))}}})
+	for err == nil && len(archive) != 0 {
 		count := min(len(archive), 32<<10)
-		if err := stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: append([]byte(nil), archive[:count]...)}}); err != nil {
-			return err
-		}
+		err = stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_ArchiveChunk{ArchiveChunk: append([]byte(nil), archive[:count]...)}})
 		archive = archive[count:]
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
 	}
 	_, err = stream.CloseAndRecv()
 	return err

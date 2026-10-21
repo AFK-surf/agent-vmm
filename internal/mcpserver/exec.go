@@ -29,6 +29,12 @@ func (adapter *Adapter) containerExec(ctx context.Context, _ *mcp.CallToolReques
 		if err != nil {
 			return nil, err
 		}
+		// An exec activity binds the container instance the caller observes now.
+		current, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		if err != nil {
+			return nil, err
+		}
+		deadline, _ := ctx.Deadline()
 		stream, err := adapter.runtime.Exec(ctx)
 		if err != nil {
 			return nil, err
@@ -42,6 +48,8 @@ func (adapter *Adapter) containerExec(ctx context.Context, _ *mcp.CallToolReques
 		if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{
 			RequestId: requestID, ContainerId: input.ContainerID, Argv: input.Argv,
 			Env: environmentList(input.Env), Workdir: optionalString(input.Workdir), User: optionalString(input.User), Tty: false,
+			ExpectedInstanceId: current.GetContainer().GetInstanceId(), ExecutionId: requestID,
+			ExecutionKind: hostv1.ExecutionKind_EXECUTION_KIND_EXEC, ExecutionDeadlineUnixNano: deadline.UnixNano(),
 		}}}); err != nil {
 			return nil, err
 		}

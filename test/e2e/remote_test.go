@@ -236,14 +236,13 @@ func dispatchRemoteCommand(cursor *remoteCommandCursor, command *remotev1.Contro
 
 type isolatedDomainController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
-	registrationID         string
-	session                chan net.Conn
-	finish                 chan struct{}
-	cleaned                chan struct{}
-	epoch                  atomic.Uint64
-	cleanedOnce            sync.Once
-	finished               atomic.Bool
-	allowExistingInventory bool
+	registrationID string
+	session        chan net.Conn
+	finish         chan struct{}
+	cleaned        chan struct{}
+	epoch          atomic.Uint64
+	cleanedOnce    sync.Once
+	finished       atomic.Bool
 }
 
 func (server *isolatedDomainController) Enroll(context.Context, *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
@@ -266,7 +265,8 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 	if err := session.Ready(); err != nil {
 		return err
 	}
-	if len(hello.GetInventory()) != 0 && (!server.allowExistingInventory || len(hello.GetInventory()) != 1 || hello.GetInventory()[0].GetAllocationId() != "shared" || hello.GetInventory()[0].GetGeneration() != 1) {
+	// A reconnect reports this domain's own allocation; anything else crossed domains.
+	if len(hello.GetInventory()) != 0 && (len(hello.GetInventory()) != 1 || hello.GetInventory()[0].GetAllocationId() != "shared" || hello.GetInventory()[0].GetGeneration() != 1) {
 		return status.Error(codes.FailedPrecondition, "isolated domain started with unexpected inventory")
 	}
 	cursor := &remoteCommandCursor{session: session}
@@ -306,6 +306,12 @@ func (server *isolatedDomainController) ServeSession(stream grpc.BidiStreamingSe
 	_, connection, err := controllerremote.AcceptSession(stream, server.registrationID, server.epoch.Load())
 	if err != nil {
 		return err
+	}
+	// A reconnect replaces the session; only the newest one is current.
+	select {
+	case stale := <-server.session:
+		stale.Close()
+	default:
 	}
 	select {
 	case server.session <- connection:
@@ -355,7 +361,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	defer stopController()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: remoteLimits(500, 1<<30, 256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(2 * time.Second)}
+	pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(2 * time.Second)}
 	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", RegistrationId: "registration-remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
 	if err != nil {
 		t.Fatal(err)
@@ -451,7 +457,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		}
 	}
 	remoteClient := &productClient{archiveDirectory: harness.runtimeClient.archiveDirectory, archiveURL: harness.runtimeClient.archiveURL, sessions: map[string]*productSession{"remote-a": {connection: clients["remote-a"], client: hostv1.NewAgentRuntimeServiceClient(clients["remote-a"])}}}
-	importRegistryImage(t, remoteClient, "remote-a")
+	startBuildAnchor(t, remoteClient, "remote-a")
 	contextArchive := dockerfileContext(t, buildShell(t))
 	result := buildImage(t, remoteClient, "remote-a", "agent.local/remote-e2e:latest", contextArchive, []byte("remote-secret"))
 	if result.digest == "" {
@@ -510,7 +516,7 @@ func testSixRemoteDomains(t *testing.T, harness *hostHarness) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: remoteLimits(100, 128<<20, 64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}
+	pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}
 	domains := make([]domain, 0, 6)
 	defer func() {
 		for _, current := range domains {
@@ -548,7 +554,13 @@ func testSixRemoteDomains(t *testing.T, harness *hostHarness) {
 		select {
 		case raw = <-domains[index].controller.session:
 		case <-ctx.Done():
-			t.Fatal("six-domain runtime session did not open")
+			select {
+			case err := <-domains[index].done:
+				t.Fatalf("six-domain %d runtime session did not open; connector ended: %v", index, err)
+			default:
+			}
+			registration, err := harness.client.GetRemoteRegistration(context.Background(), &hostv1.GetRemoteRegistrationRequest{RegistrationId: domains[index].registration})
+			t.Fatalf("six-domain %d runtime session did not open; registration=%+v err=%v", index, registration.GetRegistration(), err)
 		}
 		connection, err := grpc.NewClient("passthrough:///isolated-runtime", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return raw, nil }))
 		if err != nil {
@@ -683,8 +695,10 @@ func testRemoteForward(t *testing.T, client *productClient, containerID string) 
 	}
 }
 
-func remoteLimits(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
-	return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
+// isolationLimits is the remote pool and appliance limit contract. CPU and
+// memory are shared VM budgets; only PIDs and writable disk are per-environment.
+func isolationLimits(pids uint32, disk uint64) *hostv1.ResourceLimits {
+	return &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk}
 }
 
 func remoteResources(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.WorkloadResourcesV2 {
@@ -780,7 +794,7 @@ func TestCuePressureBridgeE2E(t *testing.T) {
 	defer cancel()
 	failures := make(chan error, 6)
 	for _, registration := range fixture.Registrations {
-		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: remoteLimits(100, 64<<20, 512, 3<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
+		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(512, 3<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
 		started, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: registration.ID + "-begin", RegistrationId: registration.ID, Endpoint: fixture.Endpoint, DisplayName: "Cue pressure fixture", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
 		if err != nil {
 			t.Fatal(err)

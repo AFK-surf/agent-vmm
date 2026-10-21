@@ -263,9 +263,8 @@ func (controller *Controller) revokeFailedAppliancePublication(ctx context.Conte
 			log.Printf("invalidate failed-publication controller %s: %v", installationID, err)
 		}
 	}
-	if err := controller.revokeApplianceTrustAuthority(ctx, installationID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("revoke failed-publication trust %s: %v", installationID, err)
-	}
+	// Managed trust is durable installation authority. A failed publication
+	// fences only this instance; explicit Revoke retires the authority.
 }
 
 func (controller *Controller) setObservedApplianceFailure(installation store.ApplianceInstallation, runtime *vmmdv1.SystemAppliance, reason string) {

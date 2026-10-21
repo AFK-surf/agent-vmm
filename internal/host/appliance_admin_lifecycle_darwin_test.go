@@ -215,6 +215,18 @@ func TestApplianceFailureHelpersRevokeSourceBeforeCleanup(t *testing.T) {
 	}
 }
 
+// A transient publication failure, such as a bootstrap EOF while an adopted
+// appliance starts, must not retire its managed authority: the appliance
+// presents the same bundle again and an active authority accepts it.
+func TestFailedPublicationKeepsManagedTrust(t *testing.T) {
+	controller, installation, _, _, _, _ := renewalHost(t, time.Now())
+	controller.egress = egress.New()
+	controller.revokeFailedAppliancePublication(context.Background(), installation.ID)
+	if _, err := controller.store.GetApplianceMembershipCredential(context.Background(), installation.ID); err != nil {
+		t.Fatalf("failed publication retired managed trust: %v", err)
+	}
+}
+
 func TestApplianceStatusDoesNotConfirmWriterStopWithoutGuestObservation(t *testing.T) {
 	controller, installation, _, _, _, _ := renewalHost(t, time.Now())
 	controller.manager = &vmm.Manager{}

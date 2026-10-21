@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -761,5 +762,21 @@ func TestRejectedAllocationRetainsPartialAdmissionAcrossLocalGRPC(t *testing.T) 
 				t.Fatalf("capacity dimension lost: %v", result)
 			}
 		})
+	}
+}
+
+func TestReconnectBackoffResetsOnlyAfterAStableConnection(t *testing.T) {
+	var backoff reconnectBackoff
+	var waits []time.Duration
+	for range 7 {
+		// Each attempt connects and then fails at once.
+		waits = append(waits, backoff.next(true, time.Second))
+	}
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, MaxReconnectDelay, MaxReconnectDelay}
+	if !slices.Equal(waits, want) {
+		t.Fatalf("connect-then-fail waits = %v, want %v", waits, want)
+	}
+	if wait := backoff.next(true, MaxReconnectDelay); wait != time.Second {
+		t.Fatalf("wait after a stable connection = %s, want 1s", wait)
 	}
 }

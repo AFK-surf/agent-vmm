@@ -157,8 +157,14 @@ func (controller *Controller) bootstrapAppliance(ctx context.Context, vmmd vmmdv
 			break
 		}
 	}
-	if !receiptValid || !healthValid || !trustSeen {
+	if !receiptValid || !healthValid {
 		return nil, errors.New("appliance bootstrap receipt or health fence did not match")
+	}
+	// Managed trust exists only for appliances that issue managed route
+	// capabilities. Without a bundle the installation has no anchor, so its
+	// managed route authority stays closed.
+	if !trustSeen {
+		return applianceHealth, nil
 	}
 	if err := controller.trust.InstallApplianceManagedTrust(ctx, store.ApplianceTrustAuthority{
 		AuthorityID: managedTrust.GetTrustAnchor().GetAuthority().GetAuthorityId(), InstallationID: installation.ID,

@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"io"
 	"math/big"
@@ -250,10 +251,13 @@ func renewalHost(t *testing.T, issued time.Time) (*Controller, store.ApplianceIn
 		s.FillBytes(c.Signature[32:])
 		return a, c
 	}
-	initialAnchor, initialCredential := bundle(issued, 1)
-	binding := store.ApplianceTrustAuthority{AuthorityID: "authority", InstallationID: installation.ID, RegistrationID: installation.RegistrationID, BootID: "boot", ContainerInstance: "instance", ConfigRevision: installation.Revision}
-	if err := database.InstallApplianceManagedTrust(ctx, binding, initialAnchor, initialCredential); err != nil {
-		t.Fatal(err)
+	// A zero issue time models an appliance that never issued managed trust.
+	if !issued.IsZero() {
+		initialAnchor, initialCredential := bundle(issued, 1)
+		binding := store.ApplianceTrustAuthority{AuthorityID: "authority", InstallationID: installation.ID, RegistrationID: installation.RegistrationID, BootID: "boot", ContainerInstance: "instance", ConfigRevision: installation.Revision}
+		if err := database.InstallApplianceManagedTrust(ctx, binding, initialAnchor, initialCredential); err != nil {
+			t.Fatal(err)
+		}
 	}
 	nextAnchor, nextCredential := bundle(time.Now(), 2)
 	appliance := &renewalAppliance{anchor: nextAnchor, credential: nextCredential, claimSeen: make(chan *appliancev1.ApplianceLaunchClaim, 20)}
@@ -318,8 +322,9 @@ func TestApplianceTrustRefreshBackoffAndMissingBundle(t *testing.T) {
 	now := time.Now()
 	controller, installation, identity, appliance, client, _ := renewalHost(t, now.Add(-31*24*time.Hour))
 	appliance.omitTrust.Store(true)
-	if status, err := controller.refreshApplianceTrust(context.Background(), client, installation, identity, now); err == nil || status != "MANAGED_TRUST_EXPIRED" {
-		t.Fatalf("missing trust accepted %s %v", status, err)
+	// A renewal without a bundle installs nothing, so the expired credential stays.
+	if status, err := controller.refreshApplianceTrust(context.Background(), client, installation, identity, now); err != nil || status != "MANAGED_TRUST_EXPIRED" {
+		t.Fatalf("missing renewal bundle: %s %v", status, err)
 	}
 	if status, err := controller.refreshApplianceTrust(context.Background(), client, installation, identity, now.Add(time.Minute)); err != nil || status != "MANAGED_TRUST_EXPIRED" {
 		t.Fatalf("backoff %s %v", status, err)
@@ -334,6 +339,27 @@ func TestApplianceTrustRefreshBackoffAndMissingBundle(t *testing.T) {
 	appliance.omitTrust.Store(false)
 	if _, err := controller.refreshApplianceTrust(context.Background(), client, installation, identity, now.Add(time.Hour)); err != nil {
 		t.Fatalf("retry failed %v", err)
+	}
+}
+
+// An appliance without managed route capabilities, such as the bundled MCP
+// appliance, bootstraps without a bundle and holds no managed authority.
+func TestApplianceWithoutManagedTrustBootstrapsWithoutAuthority(t *testing.T) {
+	controller, installation, identity, appliance, client, _ := renewalHost(t, time.Time{})
+	appliance.omitTrust.Store(true)
+	grant, err := controller.store.GetApplianceGrant(context.Background(), installation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation.BootstrapID = ""
+	if health, err := controller.bootstrapAppliance(context.Background(), client, installation, grant, identity, installation.Revision); err != nil || !health.GetHealthy() {
+		t.Fatalf("bootstrap without managed trust = %v, %v", health, err)
+	}
+	if _, err := controller.store.GetApplianceMembershipCredential(context.Background(), installation.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("appliance without a bundle holds managed authority: %v", err)
+	}
+	if status, err := controller.refreshApplianceTrust(context.Background(), client, installation, identity, time.Now()); err != nil || status != "" || appliance.calls.Load() != 1 {
+		t.Fatalf("refresh without managed trust = %q, %v, calls=%d", status, err, appliance.calls.Load())
 	}
 }
 

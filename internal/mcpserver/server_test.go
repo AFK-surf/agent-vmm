@@ -191,10 +191,14 @@ func (server *fakeRuntime) CreateContainer(_ context.Context, request *hostv1.Cr
 	server.mu.Lock()
 	server.createdContainers = append(server.createdContainers, proto.Clone(request).(*hostv1.CreateContainerRequest))
 	server.mu.Unlock()
-	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), Image: request.GetImage(), State: hostv1.ContainerState_CONTAINER_STATE_CREATED}}, nil
+	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), Image: request.GetImage(), State: hostv1.ContainerState_CONTAINER_STATE_CREATED, GenerationId: "generation-" + request.GetContainerId()}}, nil
 }
 func (server *fakeRuntime) StartContainer(_ context.Context, request *hostv1.ContainerMutationRequest) (*hostv1.ContainerResponse, error) {
 	server.record(request.GetRequestId())
+	// The Host starts only the exact generation that the caller observed.
+	if request.GetExpectedGenerationId() != "generation-"+request.GetContainerId() {
+		return nil, status.Error(codes.InvalidArgument, "request validation failed")
+	}
 	if request.GetContainerId() == "partial" {
 		return nil, status.Error(codes.FailedPrecondition, "cannot start")
 	}
@@ -229,6 +233,11 @@ func (server *fakeRuntime) Exec(stream grpc.BidiStreamingServer[hostv1.ExecReque
 		return err
 	}
 	server.record(first.GetStart().GetRequestId())
+	// The Host admits only an exec activity bound to the current instance.
+	if start := first.GetStart(); start.GetExecutionId() == "" || start.GetExpectedInstanceId() != "instance-"+start.GetContainerId() ||
+		start.GetExecutionKind() != hostv1.ExecutionKind_EXECUTION_KIND_EXEC || start.GetExecutionDeadlineUnixNano() <= time.Now().UnixNano() {
+		return status.Error(codes.InvalidArgument, "request validation failed")
+	}
 	for {
 		_, err := stream.Recv()
 		if err == io.EOF {

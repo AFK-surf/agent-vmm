@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,6 +111,8 @@ type Controller struct {
 	projectionMu             sync.Mutex
 	inventoryTransition      sync.RWMutex
 	egress                   *egress.Subsystem
+	// registryRoundTripper replaces the public registry transport in tests.
+	registryRoundTripper     http.RoundTripper
 	sourcePolicyPublisher    func(context.Context, string) error
 	egressCancel             context.CancelFunc
 	egressAcceptWG           sync.WaitGroup

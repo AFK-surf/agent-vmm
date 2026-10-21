@@ -7,26 +7,20 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/empty"
-	"github.com/google/go-containerregistry/pkg/v1/layout"
-	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
-
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/registryarchive"
 )
 
 func testImportedImageForcedRestart(t *testing.T, harness *hostHarness) {
@@ -81,7 +75,9 @@ func buildImportArchive(t *testing.T) ([]byte, string) {
 	return buildExecutableArchive(t, "./test/e2e/testdata/providerstate", "bin/provider-state", false)
 }
 
-func buildExecutableArchive(t *testing.T, sourcePackage, executablePath string, entrypoint bool) ([]byte, string) {
+// buildExecutableArchive packages one static helper. A system appliance image
+// also uses it as the entrypoint and carries the Guest's fixed mountpoints.
+func buildExecutableArchive(t *testing.T, sourcePackage, executablePath string, appliance bool) ([]byte, string) {
 	t.Helper()
 	directory := t.TempDir()
 	providerState := filepath.Join(directory, "provider-state")
@@ -116,6 +112,18 @@ func buildExecutableArchive(t *testing.T, sourcePackage, executablePath string, 
 	if _, err := writer.Write(helper); err != nil {
 		t.Fatal(err)
 	}
+	if appliance {
+		for _, directory := range []string{"opt/", "opt/agent-vmm/", "opt/agent-vmm/content/", "run/", "run/agent-vmm/", "var/", "var/lib/", "var/lib/agent-vmm/", "etc/"} {
+			if err := writer.WriteHeader(&tar.Header{Name: directory, Typeflag: tar.TypeDir, Mode: 0o755}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, file := range []string{"etc/resolv.conf", ".agent-vmm-supervisor"} {
+			if err := writer.WriteHeader(&tar.Header{Name: file, Mode: 0o755}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +132,7 @@ func buildExecutableArchive(t *testing.T, sourcePackage, executablePath string, 
 	}
 	archivePath := filepath.Join(directory, "image.oci.tar")
 	arguments := []string{"run", "./build/guest/oci", layerPath, archivePath}
-	if entrypoint {
+	if appliance {
 		arguments = append(arguments, "/"+executablePath)
 	}
 	command := exec.Command("go", arguments...)
@@ -179,87 +187,112 @@ func (client *productClient) registryArchive(ctx context.Context, reference stri
 	if cached, ok := client.registryArchives[reference]; ok {
 		return cached, nil
 	}
-	ref, err := name.ParseReference(reference)
+	// This Mac reaches public registries through a transparent proxy that can
+	// reset long layer downloads. Retry only this harness-side fetch, a bounded
+	// number of times; the product import below it is never retried.
+	result, err := cachedRegistryArchive(reference)
 	if err != nil {
-		return registryArchive{}, err
-	}
-	image, err := remote.Image(ref, remote.WithContext(ctx), remote.WithPlatform(v1.Platform{OS: "linux", Architecture: "arm64"}), remote.WithAuth(authn.Anonymous))
-	if err != nil {
-		return registryArchive{}, err
-	}
-	config, err := image.ConfigFile()
-	if err != nil {
-		return registryArchive{}, err
-	}
-	// ARM64 v8 is the baseline platform. Build the fixture commitment from
-	// the normalized image, while retaining its layers and runtime config.
-	if config.OS == "linux" && config.Architecture == "arm64" && config.Variant == "v8" {
-		config = config.DeepCopy()
-		config.Variant = ""
-		image, err = mutate.ConfigFile(image, config)
-		if err != nil {
-			return registryArchive{}, err
+		for attempt := range 3 {
+			if result, err = exportRegistryArchive(ctx, client.archiveDirectory, reference); err == nil || ctx.Err() != nil {
+				break
+			}
+			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
 		}
 	}
-	digest, err := image.Digest()
 	if err != nil {
 		return registryArchive{}, err
 	}
-	directory, err := os.MkdirTemp(client.archiveDirectory, "oci-layout-")
-	if err != nil {
-		return registryArchive{}, err
-	}
-	defer os.RemoveAll(directory)
-	index, err := layout.Write(directory, empty.Index)
-	if err != nil {
-		return registryArchive{}, err
-	}
-	if err := index.AppendImage(image, layout.WithPlatform(v1.Platform{OS: "linux", Architecture: "arm64"})); err != nil {
-		return registryArchive{}, err
-	}
-	file, err := os.CreateTemp(client.archiveDirectory, "registry-*.tar")
-	if err != nil {
-		return registryArchive{}, err
-	}
-	hash := sha256.New()
-	writer := tar.NewWriter(io.MultiWriter(file, hash))
-	writeErr := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		relative, err := filepath.Rel(directory, path)
-		if err != nil {
-			return err
-		}
-		if err := writer.WriteHeader(&tar.Header{Name: filepath.ToSlash(relative), Mode: 0o600, Size: info.Size()}); err != nil {
-			return err
-		}
-		source, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(writer, source)
-		return errors.Join(copyErr, source.Close())
-	})
-	if err := errors.Join(writeErr, writer.Close(), file.Close()); err != nil {
-		os.Remove(file.Name())
-		return registryArchive{}, err
-	}
-	info, err := os.Stat(file.Name())
-	if err != nil {
-		return registryArchive{}, err
-	}
-	result := registryArchive{path: file.Name(), digest: digest.String(), hash: hash.Sum(nil), size: uint64(info.Size())}
 	if client.registryArchives == nil {
 		client.registryArchives = make(map[string]registryArchive)
 	}
 	client.registryArchives[reference] = result
 	return result, nil
+}
+
+// Digest-pinned registry fixtures are immutable, so their exported archives
+// persist across runs. Only the harness download is cached; every run still
+// imports through the product path, which checks the committed sha256 and size.
+type archiveRecord struct {
+	ManifestDigest string `json:"manifest_digest"`
+	SHA256         string `json:"sha256"`
+	Size           uint64 `json:"size"`
+}
+
+func archiveCacheDirectory() string {
+	if directory := os.Getenv("AGENT_VMM_E2E_ARCHIVE_CACHE"); directory != "" {
+		return directory
+	}
+	return "/tmp/agent-vmm-e2e-archives"
+}
+
+// archiveCacheKey returns the pinned digest of an immutable reference, or "".
+func archiveCacheKey(reference string) string {
+	_, pinned, found := strings.Cut(reference, "@sha256:")
+	if !found || len(pinned) != 64 {
+		return ""
+	}
+	return pinned
+}
+
+func cachedRegistryArchive(reference string) (registryArchive, error) {
+	key := archiveCacheKey(reference)
+	if key == "" {
+		return registryArchive{}, os.ErrNotExist
+	}
+	path := filepath.Join(archiveCacheDirectory(), key)
+	raw, err := os.ReadFile(path + ".json")
+	if err != nil {
+		return registryArchive{}, err
+	}
+	var record archiveRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return registryArchive{}, err
+	}
+	hash, err := hex.DecodeString(record.SHA256)
+	info, statErr := os.Stat(path + ".tar")
+	if err != nil || statErr != nil || len(hash) != sha256.Size || !strings.HasPrefix(record.ManifestDigest, "sha256:") || uint64(info.Size()) != record.Size {
+		return registryArchive{}, errors.Join(errors.New("cached registry archive record is invalid"), err, statErr)
+	}
+	return registryArchive{path: path + ".tar", digest: record.ManifestDigest, hash: hash, size: record.Size}, nil
+}
+
+// exportRegistryArchive writes a tag reference into the harness directory and a
+// digest-pinned one into the persistent cache.
+func exportRegistryArchive(ctx context.Context, harnessDirectory, reference string) (registryArchive, error) {
+	key := archiveCacheKey(reference)
+	directory := harnessDirectory
+	if key != "" {
+		directory = archiveCacheDirectory()
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return registryArchive{}, err
+	}
+	archive, err := registryarchive.Export(ctx, reference, directory, 8<<30, nil)
+	if err != nil {
+		return registryArchive{}, err
+	}
+	result := registryArchive{path: archive.Path, digest: archive.ManifestDigest, hash: archive.SHA256, size: archive.Size}
+	if key == "" {
+		return result, nil
+	}
+	// The record is written last, so a reader sees either a complete archive or no entry.
+	path := filepath.Join(directory, key)
+	if err := os.Rename(archive.Path, path+".tar"); err != nil {
+		return registryArchive{}, err
+	}
+	result.path = path + ".tar"
+	encoded, err := json.Marshal(archiveRecord{ManifestDigest: archive.ManifestDigest, SHA256: hex.EncodeToString(archive.SHA256), Size: archive.Size})
+	if err != nil {
+		return registryArchive{}, err
+	}
+	temporary, err := os.CreateTemp(directory, key+".json-*")
+	if err != nil {
+		return registryArchive{}, err
+	}
+	defer os.Remove(temporary.Name())
+	_, writeErr := temporary.Write(encoded)
+	if err := errors.Join(writeErr, temporary.Sync(), temporary.Close()); err != nil {
+		return registryArchive{}, err
+	}
+	return result, os.Rename(temporary.Name(), path+".json")
 }

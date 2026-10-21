@@ -53,51 +53,56 @@ func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportI
 			return invalidField("archive", "runtime OCI bytes must be fetched from archive_url")
 		}
 	}
-	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
-	if err != nil {
-		return err
-	}
-	defer releaseInventory()
-	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
-		return err
-	}
-	unlock, err := server.controller.lockEnvironmentContext(ctx, identity.EnvironmentID)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	if err := server.validateAgentInventoryTarget(ctx, identity.EnvironmentID, identity.NamespaceID); err != nil {
-		return err
-	}
-	client, connection, err := server.controller.guestClient(ctx)
-	if err != nil {
-		return err
-	}
-	defer connection.Close()
-	guest, err := client.ImportImage(ctx)
-	if err != nil {
-		return err
-	}
-	guestHeader := importHeaderToGuest(header, identity.NamespaceID)
-	image, completed, err := sendImportHeader(guest.Send, guest.CloseAndRecv, guestHeader)
-	if err != nil {
-		return err
-	}
-	if header.GetArchiveUrl() == "" {
-		image, err = forwardLocalImportArchive(ctx, header, stream.Recv, guest.Send, guest.CloseAndRecv, image, completed)
-		if err != nil {
-			return err
+	image, err := server.importToGuest(ctx, identity, header, func(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), image *vmmdv1.Image, completed bool) (*vmmdv1.Image, error) {
+		if header.GetArchiveUrl() == "" {
+			return forwardLocalImportArchive(ctx, header, stream.Recv, send, closeAndRecv, image, completed)
 		}
-		return stream.SendAndClose(imageFromGuest(image))
-	}
-	if completed {
-		return stream.SendAndClose(imageFromGuest(image))
-	}
-	image, err = forwardImportArchive(ctx, header.GetArchiveUrl(), header.GetArchiveSize(), guest.Send, guest.CloseAndRecv)
+		if completed {
+			return image, nil
+		}
+		return forwardImportArchive(ctx, header.GetArchiveUrl(), header.GetArchiveSize(), send, closeAndRecv)
+	})
 	if err != nil {
 		return err
 	}
 	return stream.SendAndClose(imageFromGuest(image))
+}
+
+type importForward func(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), image *vmmdv1.Image, completed bool) (*vmmdv1.Image, error)
+
+// importToGuest is the one immutable import path: it fences the environment,
+// sends the committed header, and lets forward supply the archive bytes.
+func (server *agentServer) importToGuest(ctx context.Context, identity auth.Identity, header *hostv1.ImportImageHeader, forward importForward) (*vmmdv1.Image, error) {
+	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseInventory()
+	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+		return nil, err
+	}
+	unlock, err := server.controller.lockEnvironmentContext(ctx, identity.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if err := server.validateAgentInventoryTarget(ctx, identity.EnvironmentID, identity.NamespaceID); err != nil {
+		return nil, err
+	}
+	client, connection, err := server.controller.guestClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Close()
+	guest, err := client.ImportImage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	image, completed, err := sendImportHeader(guest.Send, guest.CloseAndRecv, importHeaderToGuest(header, identity.NamespaceID))
+	if err != nil {
+		return nil, err
+	}
+	return forward(guest.Send, guest.CloseAndRecv, image, completed)
 }
 
 // Each receive starts only after the previous chunk reaches the Guest.

@@ -49,6 +49,13 @@ func loadOrCreateManagedTrust(claim *appliancev1.ApplianceLaunchClaim) (*applian
 		TrustAnchor: proto.Clone(state.anchor).(*trustv1.TrustAnchor), MembershipCredential: proto.Clone(state.credential).(*trustv1.MembershipCredential)}, nil
 }
 
+// The Host accepts at most 365 days of anchor and 30 days of membership
+// lifetime on its own clock. One hour below each bound absorbs Guest clock lead.
+const (
+	referenceAnchorLifetime     = 365*24*time.Hour - time.Hour
+	referenceMembershipLifetime = 30*24*time.Hour - time.Hour
+)
+
 func newReferenceAuthority(claim *appliancev1.ApplianceLaunchClaim) (referenceAuthority, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -58,13 +65,13 @@ func newReferenceAuthority(claim *appliancev1.ApplianceLaunchClaim) (referenceAu
 	authority := &trustv1.AuthorityDescriptor{AuthorityId: "reference:" + claim.GetInstallationId(),
 		AuthorityClass: trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER, KeyId: "route-v1",
 		TrustDomainRef: []byte(claim.GetInstallationId()), Revision: 1}
-	anchor := &trustv1.TrustAnchor{Authority: authority, Revision: 1, NotBefore: timestamppb.New(now.Add(-time.Minute)), NotAfter: timestamppb.New(now.Add(365 * 24 * time.Hour)),
+	anchor := &trustv1.TrustAnchor{Authority: authority, Revision: 1, NotBefore: timestamppb.New(now.Add(-time.Minute)), NotAfter: timestamppb.New(now.Add(referenceAnchorLifetime)),
 		AllowedCapabilityKinds: []trustv1.CapabilityKind{trustv1.CapabilityKind_CAPABILITY_KIND_SERVICE_ROUTE},
 		VerificationKeys:       []*trustv1.VerificationKey{{KeyId: authority.GetKeyId(), PublicKey: elliptic.MarshalCompressed(elliptic.P256(), key.X, key.Y), SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256}}}
 	claims := sha256.Sum256([]byte(claim.GetInstallationId() + "\x00" + claim.GetRegistrationId()))
 	credential := &trustv1.MembershipCredential{Authority: proto.Clone(authority).(*trustv1.AuthorityDescriptor), SubjectDeviceId: claim.GetDeviceIdentity().GetDeviceId(),
 		SubjectRootKeyRevision: claim.GetDeviceIdentity().GetRootKeyRevision(), SubjectRootPublicKey: append([]byte(nil), claim.GetDeviceIdentity().GetRootPublicKey()...),
-		OpaqueClaimsDigest: claims[:], PolicyRevision: 1, ExpiresAt: timestamppb.New(now.Add(365 * 24 * time.Hour))}
+		OpaqueClaimsDigest: claims[:], PolicyRevision: 1, ExpiresAt: timestamppb.New(now.Add(referenceMembershipLifetime))}
 	credential.Signature, err = signReferenceMessage(key, credential)
 	return referenceAuthority{key: key, anchor: anchor, credential: credential}, err
 }

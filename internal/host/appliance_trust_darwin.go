@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -25,6 +26,9 @@ func (controller *Controller) refreshApplianceTrust(ctx context.Context, client 
 		return "", nil
 	}
 	credential, err := controller.store.GetApplianceMembershipCredential(ctx, installation.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
 	if err != nil {
 		return "MANAGED_TRUST_UNAVAILABLE", err
 	}

@@ -197,24 +197,17 @@ func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.Import
 		result.remaining = reserved
 		return writeImportReservation(path, result.holdPath, reserved)
 	}
-	required, reserve := guestdisk.MinimumImportBytes, transaction.ReserveImportHeadroom
-	if header.GetArchiveSize() > 0 {
-		required = guestdisk.ImportReservationBytes(header.GetArchiveSize())
-		reserve = func(load func(*guestdisk.Transaction) (guestdisk.Snapshot, error), commit func(uint64) error) error {
-			return transaction.ReserveImport(load, required, commit)
-		}
-	}
-	err := reserve(loadSnapshot, commit)
+	err := transaction.ReserveImportHeadroom(loadSnapshot, commit)
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		log.Printf("OCI import reservation unavailable: request_id=%q manifest_digest=%q required_bytes=%d capacity=%q", header.GetRequestId(), header.GetManifestDigest(), required, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot))
+		log.Printf("OCI import reservation unavailable: request_id=%q manifest_digest=%q required_bytes=%d capacity=%q", header.GetRequestId(), header.GetManifestDigest(), guestdisk.MinimumImportBytes, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot))
 		if _, gcErr := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, true, transaction, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot)); gcErr != nil {
 			return nil, gcErr
 		}
-		err = reserve(loadSnapshot, commit)
+		err = transaction.ReserveImportHeadroom(loadSnapshot, commit)
 	}
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
 		available, _ := lastSnapshot.AvailableBytes()
-		return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "import_admission", "Guest storage headroom is unavailable", available, required)
+		return nil, resourceCapacityExhaustedWithBytes(resourcev2.CapacityStorageHeadroom, "import_admission", "Guest storage headroom is unavailable", available, guestdisk.MinimumImportBytes)
 	}
 	if err != nil {
 		return nil, err

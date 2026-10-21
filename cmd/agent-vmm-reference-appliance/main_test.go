@@ -2,13 +2,21 @@ package main
 
 import (
 	"context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 )
 
@@ -177,5 +185,53 @@ func TestRequireCoreDumpsDisabled(t *testing.T) {
 	}
 	if err := requireCoreDumpsDisabled([]string{path}); err == nil {
 		t.Fatal("enabled core dumps were accepted")
+	}
+}
+
+// The Host bounds appliance trust on its own clock (docs/trust-service-protocol.md):
+// anchor remaining and span at most 365 days (+1 minute span), membership at
+// most 30 days. A Guest clock that leads the Host must not exceed them.
+func TestReferenceAuthorityFitsHostTrustBoundsUnderGuestClockLead(t *testing.T) {
+	authority, err := newReferenceAuthority(&appliancev1.ApplianceLaunchClaim{InstallationId: "installation", RegistrationId: "registration", DeviceIdentity: &trustv1.DeviceIdentity{DeviceId: "device", RootKeyRevision: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostNow := time.Now().Add(-time.Minute)
+	anchor, credential := authority.anchor, authority.credential
+	if anchor.GetNotAfter().AsTime().Sub(hostNow) > 365*24*time.Hour ||
+		anchor.GetNotAfter().AsTime().Sub(anchor.GetNotBefore().AsTime()) > 365*24*time.Hour+time.Minute ||
+		credential.GetExpiresAt().AsTime().Sub(hostNow) > 30*24*time.Hour {
+		t.Fatalf("reference trust exceeds Host bounds: anchor=%v..%v membership=%v host_now=%v", anchor.GetNotBefore().AsTime(), anchor.GetNotAfter().AsTime(), credential.GetExpiresAt().AsTime(), hostNow)
+	}
+}
+
+type replayedImportServer struct {
+	hostv1.UnimplementedAgentRuntimeServiceServer
+}
+
+// ImportImage answers a replayed request from its receipt right after the header.
+func (replayedImportServer) ImportImage(stream grpc.ClientStreamingServer[hostv1.ImportImageRequest, hostv1.Image]) error {
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	return stream.SendAndClose(&hostv1.Image{Reference: referenceImage})
+}
+
+func TestReferenceImportAcceptsAReplayedImportResult(t *testing.T) {
+	listener := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	hostv1.RegisterAgentRuntimeServiceServer(server, replayedImportServer{})
+	go server.Serve(listener)
+	defer server.Stop()
+	connection, err := grpc.NewClient("passthrough:///runtime", grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	// Many chunks guarantee a Send after the Host has closed the stream.
+	archive := make([]byte, 8<<20)
+	if err := importReferenceImage(context.Background(), hostv1.NewAgentRuntimeServiceClient(connection), archive, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		t.Fatalf("replayed import = %v", err)
 	}
 }

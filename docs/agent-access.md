@@ -12,7 +12,7 @@ codex mcp add agent-vmm --url http://127.0.0.1:<port>/mcp?access_token=<binding>
 
 The MCP appliance owns its tools, allocations, leases, runtime sessions, cleanup policy, and HTTP authentication. It does not expose stdio MCP, raw TCP forwarding, or an external controller connector. Containers run without Linux capabilities; use images and volumes prepared for their fixed non-root UID/GID.
 
-Image references use the canonical OCI name returned by `image_pull`; short Docker Hub names normalize to `docker.io/library/...`. `container_run` preserves the image ENTRYPOINT and CMD unless explicitly overridden.
+`image_pull` resolves an image that is already in the environment. Otherwise it pulls the linux/arm64 image anonymously from its registry and imports it through the immutable import path. Image references use the canonical OCI name returned by `image_pull`; short Docker Hub names normalize to `docker.io/library/...`. `container_run` preserves the image ENTRYPOINT and CMD unless explicitly overridden.
 
 ## Cross-device services
 

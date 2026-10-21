@@ -362,8 +362,8 @@ grants use the workload pool ceiling: configured state disk bytes minus the
 8 GiB control partition and the existing 4 GiB emergency and 1 GiB metadata
 reserves. A 64 GiB state disk has a nominal 51 GiB workload quota ceiling.
 Quota grants do not preallocate files. Guest admission counts their unused hard-quota commitments as promised physical capacity, then checks filesystem usage, overhead, and import headroom before growth. Namespace growth rejection logs the requested delta, current quota, remaining commitments, available capacity, reserves, and combined import and builder credit from that admission snapshot. Guest RPC maps the storage owner's `ErrCapacityUnavailable` identity to `ResourceExhausted` with `storage_headroom` detail. It preserves the runtime stage and original cause. The same error text from another owner does not prove capacity exhaustion.
-A cold OCI import with a declared archive size reserves five times that size: the staged archive, its content blobs, and up to three times the archive for unpacked layers. The remaining headroom stays available to namespaces. An import that writes more fails at the OCI project quota and uses the normal rollback and GC path. A materialization without a declared archive, such as a build output or an unpack of present content, reserves all remaining uncommitted bytes after the emergency and metadata reserves. It requires at least 2 GiB.
-A cold import first reserves its required bytes. It collects discardable caches only when the required reservation cannot fit.
+Cold OCI import and other materializations reserve all remaining uncommitted bytes after the emergency and metadata reserves. They require at least 2 GiB. OCI manifests declare only compressed sizes, so the reservation does not assume a compression ratio.
+A cold import first reserves the available byte budget. It collects discardable caches only when the required reservation cannot fit.
 After collection it recalculates usage and commitments before admission. Percentage pressure is diagnostic and does not trigger cache deletion.
 Actual filesystem inode exhaustion still fails the write. No fixed percentage predicts the inode count an image requires.
 System, builder, and workload images use the shared overlayfs snapshotter.
@@ -451,6 +451,7 @@ Stop and restart remove runtime projections and preserve persistent data and its
 They do not unmount the backing filesystem.
 
 Normal appliance Stop keeps the installation's managed trust and private registration.
+A failed publication, such as a bootstrap that fails while an adopted instance starts, fences only that instance. It stops the instance's frontends, private controller route, and egress, and keeps managed trust and its service imports and routes. Those routes stay bound to the boot, container instance, and configuration revision fences. Only explicit Revoke, removal, or disabled reconciliation retires the authority.
 A Host restart preserves pending private registration preparation.
 Private activation can resume pending or incomplete preparation under the same installation, registration, and revision fences.
 External enrollment interrupted before credential completion still requires its operator retry.
@@ -826,6 +827,7 @@ remain separate operator mutations; the connector and local MCP cannot call them
 ## Public Egress Boundary
 
 `PullImage`, runtime OCI archive downloads, and `PUBLIC_INTERNET` permit only public destinations.
+For an image absent from the namespace, Host `PullImage` downloads the linux/arm64 image anonymously and commits it through the same immutable `ImportImage` path, with a request ID derived from the pull request. The download uses Host infrastructure egress, not the allocation egress mode, and ignores proxy settings. It is bounded by the 8 GiB import limit, a 30-second read idle timeout, and the 10-minute import budget. Its temporary archive is removed after the import.
 Each DNS result and HTTP redirect requires a new address check.
 
 The check rejects private, shared, documentation, loopback, link-local, metadata, guest-host, and agent-namespace addresses.
