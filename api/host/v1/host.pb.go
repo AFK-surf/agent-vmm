@@ -8130,8 +8130,11 @@ type Container struct {
 	GenerationId         string                 `protobuf:"bytes,15,opt,name=generation_id,json=generationId,proto3" json:"generation_id,omitempty"`
 	DesiredRunning       *bool                  `protobuf:"varint,16,opt,name=desired_running,json=desiredRunning,proto3,oneof" json:"desired_running,omitempty"`
 	ConfigurationMatches *bool                  `protobuf:"varint,17,opt,name=configuration_matches,json=configurationMatches,proto3,oneof" json:"configuration_matches,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Guest instance recorded by the most recent successful Start request.
+	// Retained after stop; this does not prove that the instance is running.
+	StartRequestInstanceId string `protobuf:"bytes,18,opt,name=start_request_instance_id,json=startRequestInstanceId,proto3" json:"start_request_instance_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *Container) Reset() {
@@ -8281,6 +8284,13 @@ func (x *Container) GetConfigurationMatches() bool {
 		return *x.ConfigurationMatches
 	}
 	return false
+}
+
+func (x *Container) GetStartRequestInstanceId() string {
+	if x != nil {
+		return x.StartRequestInstanceId
+	}
+	return ""
 }
 
 type StringList struct {
@@ -18949,7 +18959,7 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"host_share\x18\x04 \x01(\tH\x00R\thostShare\x12 \n" +
 	"\vdestination\x18\x02 \x01(\tR\vdestination\x12\x1b\n" +
 	"\tread_only\x18\x03 \x01(\bR\breadOnlyB\b\n" +
-	"\x06source\"\x9c\x06\n" +
+	"\x06source\"\xd7\x06\n" +
 	"\tContainer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x126\n" +
@@ -18972,7 +18982,8 @@ const file_host_v1_host_proto_rawDesc = "" +
 	"finishedAt\x12#\n" +
 	"\rgeneration_id\x18\x0f \x01(\tR\fgenerationId\x12,\n" +
 	"\x0fdesired_running\x18\x10 \x01(\bH\x03R\x0edesiredRunning\x88\x01\x01\x128\n" +
-	"\x15configuration_matches\x18\x11 \x01(\bH\x04R\x14configurationMatches\x88\x01\x01B\f\n" +
+	"\x15configuration_matches\x18\x11 \x01(\bH\x04R\x14configurationMatches\x88\x01\x01\x129\n" +
+	"\x19start_request_instance_id\x18\x12 \x01(\tR\x16startRequestInstanceIdB\f\n" +
 	"\n" +
 	"_exit_codeB\n" +
 	"\n" +

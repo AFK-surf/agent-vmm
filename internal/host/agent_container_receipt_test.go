@@ -149,7 +149,7 @@ func TestContainerMutationReceiptSurvivesDeletionAndHostRestart(t *testing.T) {
 						return nil, err
 					}
 				}
-				return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: "runner", GenerationId: "generation-1", InstanceId: "instance-1", State: hostv1.ContainerState_CONTAINER_STATE_RUNNING, Argv: []string{"sensitive-input"}, ConfigurationMatches: optional(true)}}, nil
+				return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: "runner", GenerationId: "generation-1", InstanceId: "instance-1", StartRequestInstanceId: "instance-1", State: hostv1.ContainerState_CONTAINER_STATE_RUNNING, Argv: []string{"sensitive-input"}, ConfigurationMatches: optional(true)}}, nil
 			}
 			first, err := server.containerMutationReceipt(context.Background(), identity, kind, request.RequestId, request, guestRequest, "runner", execute, admitOperation(server))
 			if err != nil {
@@ -160,6 +160,9 @@ func TestContainerMutationReceiptSurvivesDeletionAndHostRestart(t *testing.T) {
 			}
 			if first.GetContainer().ConfigurationMatches != nil {
 				t.Fatal("receipt retained a per-query configuration comparison")
+			}
+			if first.GetContainer().GetStartRequestInstanceId() != "instance-1" {
+				t.Fatal("receipt lost the successful Start instance")
 			}
 			if kind == "runtime-start-container" {
 				if err := database.SetManagedContainerRunning(t.Context(), identity.EnvironmentID, "runner", "generation-1", false); err != nil {
@@ -253,7 +256,7 @@ func TestContainerMutationUnknownOnlyObservesMatchingGuestReceipt(t *testing.T) 
 			if observed.GetContainer().ConfigurationMatches != nil {
 				t.Fatal("lost ACK receipt invented a configuration comparison")
 			}
-			if kind == "runtime-start-container" && observed.GetContainer().GetInstanceId() != "original-instance" {
+			if kind == "runtime-start-container" && (observed.GetContainer().GetInstanceId() != "original-instance" || observed.GetContainer().GetStartRequestInstanceId() != "original-instance") {
 				t.Fatal("lost original start instance")
 			}
 		})
@@ -379,5 +382,76 @@ func TestContainerStartPreflightCanRetrySameIdentityWithoutManagedIntent(t *test
 func admitOperation(server *agentServer) func(store.Operation) (store.Operation, bool, error) {
 	return func(operation store.Operation) (store.Operation, bool, error) {
 		return server.controller.store.PutOperation(context.Background(), operation)
+	}
+}
+
+func TestNewContainerStartIntentSurvivesLostReplyAndHostRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.db")
+	database, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	server := &agentServer{controller: &Controller{store: database}}
+	identity := auth.Identity{EnvironmentID: "environment", NamespaceID: "namespace", SessionID: "first-host"}
+	request := &hostv1.ContainerMutationRequest{RequestId: "initial", ContainerId: "runner", ExpectedGenerationId: "generation"}
+	guestRequest := &vmmdv1.StartContainerRequest{RequestId: request.RequestId, ActorNamespaceId: identity.NamespaceID, ContainerId: request.ContainerId, ExpectedGenerationId: request.ExpectedGenerationId}
+	current := &vmmdv1.Container{Id: "runner", GenerationId: "generation", InstanceId: "instance-1", StartRequestInstanceId: "instance-1", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING, StartedAtUnixNano: 1}
+	starts := 0
+	execute := func() (*hostv1.ContainerResponse, error) {
+		starts++
+		return &hostv1.ContainerResponse{Container: containerFromGuest(current)}, nil
+	}
+	first, err := server.containerMutationReceipt(t.Context(), identity, "runtime-start-container", request.RequestId, request, guestRequest, request.ContainerId, execute, admitOperation(server))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.State, current.InstanceId = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED, ""
+	stopped := containerFromGuest(current)
+	if stopped.GetInstanceId() != "" || stopped.GetStartRequestInstanceId() != "instance-1" {
+		t.Fatalf("fresh stopped observation lost the previous Start: %v", stopped)
+	}
+	old, err := server.containerMutationReceipt(t.Context(), identity, "runtime-start-container", request.RequestId, request, guestRequest, request.ContainerId, execute, admitOperation(server))
+	if err != nil || !proto.Equal(old, first) || starts != 1 {
+		t.Fatalf("stopped container changed the old receipt: %v, starts=%d, %v", old, starts, err)
+	}
+
+	request = proto.Clone(request).(*hostv1.ContainerMutationRequest)
+	request.RequestId = "restart-after-" + stopped.GetStartRequestInstanceId()
+	guestRequest = proto.Clone(guestRequest).(*vmmdv1.StartContainerRequest)
+	guestRequest.RequestId = request.RequestId
+	guest := &workloadGuest{states: map[string]*vmmdv1.Container{identity.NamespaceID: current}}
+	client := workloadGuestClient(t, guest)
+	lostReply := func() (*hostv1.ContainerResponse, error) {
+		starts++
+		current.InstanceId, current.StartRequestInstanceId = "instance-2", "instance-2"
+		current.State, current.StartedAtUnixNano = vmmdv1.ContainerState_CONTAINER_STATE_RUNNING, 2
+		current.StartRequestSha256 = hex.EncodeToString(runtimeRequestHash(guestRequest))
+		return nil, status.Error(codes.Unavailable, "Guest reply lost after successful Start")
+	}
+	if _, err := server.containerMutationReceipt(t.Context(), identity, "runtime-start-container", request.RequestId, request, guestRequest, request.ContainerId, lostReply, admitOperation(server)); status.Code(err) != codes.Unavailable {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.controller.store = database
+	identity.SessionID = "replacement-host"
+	key := sha256.Sum256([]byte("runtime-start-container\x00" + request.RequestId))
+	accepted, err := database.GetOperation(t.Context(), "runtime-"+hex.EncodeToString(key[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled, err := server.resolveContainerMutation(t.Context(), client, identity, "runtime-start-container", guestRequest, request.ContainerId, accepted)
+	if err != nil || settled.GetContainer().GetStartRequestInstanceId() != "instance-2" {
+		t.Fatalf("new intent lost its successful Guest instance: %v, %v", settled, err)
+	}
+	replay, err := server.containerMutationReceipt(t.Context(), identity, "runtime-start-container", request.RequestId, request, guestRequest, request.ContainerId, lostReply, admitOperation(server))
+	if err != nil || !proto.Equal(settled, replay) || starts != 2 {
+		t.Fatalf("new intent executed twice: %v, starts=%d, %v", replay, starts, err)
 	}
 }

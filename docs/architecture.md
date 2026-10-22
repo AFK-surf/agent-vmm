@@ -557,15 +557,28 @@ authority, and exact container instance. Main execution activities have no
 deadline. Short operations keep the owner deadline. An expired short operation
 becomes unknown and continues to block quiesce until its owner settles it.
 
-An acquire of the same activity is idempotent. A release settles only the exact
-activity on the exact target. It cannot change another activity or a replacement
-instance. `ListExecutions` returns one atomic view with explicit recovering,
-stale, stopped, empty, and present states. Host restart recovery stops running
-instances before clearing their activities. For a stopped container, Guest retains
-its successful Start fingerprint, exact instance, and start time in container metadata.
-Host rebuilds bounded stopped-instance evidence from these fields when current instance
-is empty. Created containers and missing Start evidence do not prove an instance stopped.
-A replacement never supplies evidence for the old instance. Transport reconnect preserves activities.
+Acquiring the same activity is idempotent. A release settles only that activity
+on its exact target. It cannot change another activity or a replacement instance.
+`ListExecutions` returns one atomic view with recovering, stale, stopped, empty,
+and present states. Transport reconnect preserves activities.
+
+Host recovery retains running containers in active Environments and rebuilds
+their observations. Registration or Allocation revocation and Environment
+disposal keep their existing stop authority. A Host restart or controller replacement does not
+authorize stopping an independent workload.
+
+For a stopped container, the Guest retains its successful Start fingerprint,
+instance, and start time. Host container queries expose that instance as
+`start_request_instance_id`, even when `instance_id` is empty. The Host rebuilds
+bounded stopped-instance evidence from these facts. Created containers and
+missing Start evidence do not prove that an instance stopped. A replacement
+cannot supply evidence for the old instance.
+
+The Host replays the original durable receipt when a caller retries a Start
+request. A caller can use a new stable Start intent after it confirms a stop.
+The retained Start instance distinguishes that intent from a retry. It does not
+grant authority or prove that a process runs.
+
 Safe sleep first closes new execution admission with a quiesce command. The
 matching instance and command
 must then be present on the stop request. Cancellation can reopen admission only

@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package host
 
@@ -8,6 +8,20 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 )
+
+func TestContainerObservationRetainsSuccessfulStartInstanceAfterStop(t *testing.T) {
+	guest := &vmmdv1.Container{Id: "worker", GenerationId: "generation", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING, InstanceId: "current-instance", StartRequestInstanceId: "current-instance"}
+	for _, state := range []vmmdv1.ContainerState{vmmdv1.ContainerState_CONTAINER_STATE_RUNNING, vmmdv1.ContainerState_CONTAINER_STATE_STOPPED} {
+		guest.State = state
+		if state == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED {
+			guest.InstanceId = ""
+		}
+		observed := containerFromGuest(guest)
+		if observed.GetInstanceId() != guest.GetInstanceId() || observed.GetStartRequestInstanceId() != "current-instance" {
+			t.Fatalf("current and successful Start instances diverged: %v", observed)
+		}
+	}
+}
 
 func TestUsageFromGuestPreservesUnavailableAsStale(t *testing.T) {
 	usage := usageFromGuest(&vmmdv1.Usage{CpuNanos: 7, NetworkRxBytes: 13, NetworkTxBytes: 17, SampledAtUnixNano: 11, Unavailable: true})

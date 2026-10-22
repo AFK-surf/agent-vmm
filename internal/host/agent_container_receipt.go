@@ -135,6 +135,7 @@ func (server *agentServer) completeContainerMutation(operation store.Operation, 
 	response = &hostv1.ContainerResponse{Container: &hostv1.Container{
 		Id: current.GetId(), Image: current.GetImage(), State: current.GetState(), ExitCode: current.ExitCode,
 		InstanceId: current.GetInstanceId(), GenerationId: current.GetGenerationId(), CreatedAt: current.CreatedAt, StartedAt: current.StartedAt, FinishedAt: current.FinishedAt,
+		StartRequestInstanceId: current.GetStartRequestInstanceId(),
 	}}
 	receipt, err := proto.MarshalOptions{Deterministic: true}.Marshal(response)
 	if err != nil {

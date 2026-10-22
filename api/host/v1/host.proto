@@ -818,6 +818,9 @@ message Container {
   string generation_id = 15;
   optional bool desired_running = 16;
   optional bool configuration_matches = 17;
+  // Guest instance recorded by the most recent successful Start request.
+  // Retained after stop; this does not prove that the instance is running.
+  string start_request_instance_id = 18;
 }
 
 message StringList {

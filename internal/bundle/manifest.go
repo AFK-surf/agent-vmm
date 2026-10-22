@@ -16,7 +16,6 @@ const ManifestName = "manifest.json"
 type Manifest struct {
 	SchemaVersion int                 `json:"schema_version"`
 	Architecture  string              `json:"architecture"`
-	MinimumMacOS  string              `json:"minimum_macos"`
 	Artifacts     map[string]Artifact `json:"artifacts"`
 	RootFS        RootFS              `json:"rootfs"`
 }
@@ -68,7 +67,7 @@ func Verify(directory, expectedManifestDigest string, artifacts ...string) (*Ver
 	if err := decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("decode manifest: %w", err)
 	}
-	if manifest.SchemaVersion != 1 || manifest.Architecture != "arm64" || manifest.MinimumMacOS != "14.0" {
+	if manifest.SchemaVersion != 1 || manifest.Architecture != "arm64" {
 		return nil, errors.New("unsupported bundle manifest")
 	}
 	if manifest.RootFS.Filesystem != "squashfs" || manifest.RootFS.BlockSize != 1<<20 || !supportedRootFS(manifest.RootFS) {

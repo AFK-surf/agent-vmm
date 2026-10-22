@@ -45,7 +45,7 @@ func fixture(t *testing.T) (string, string) {
 		write(t, filepath.Join(directory, path), string(data))
 		artifacts[name] = Artifact{Path: path, Size: int64(len(data)), SHA256: digest(data)}
 	}
-	manifest := Manifest{SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Artifacts: artifacts, RootFS: RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}}
+	manifest := Manifest{SchemaVersion: 1, Architecture: "arm64", Artifacts: artifacts, RootFS: RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}}
 	data, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)

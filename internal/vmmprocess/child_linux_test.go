@@ -37,6 +37,12 @@ func serveChild(t *testing.T) *childHarness {
 		_ = listener.Close()
 		<-acceptDone
 		h.child.mu.Lock()
+		h.child.state = hostv1.VMState_VM_STATE_STOPPED
+		select {
+		case <-h.child.done:
+		default:
+			close(h.child.done)
+		}
 		for conn := range h.child.streams {
 			_ = conn.Close()
 		}

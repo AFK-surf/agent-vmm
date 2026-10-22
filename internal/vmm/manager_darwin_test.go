@@ -89,7 +89,7 @@ func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T
 		hash := sha256.Sum256(data)
 		artifacts[name] = bundle.Artifact{Path: path, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
 	}
-	outer, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Artifacts: artifacts,
+	outer, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", Artifacts: artifacts,
 		RootFS: bundle.RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}})
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestReadVerifiedBundledApplianceMaterialAllowsRuntimeBundle(t *testing.T) {
 		hash := sha256.Sum256(data)
 		artifacts[name] = bundle.Artifact{Path: path, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
 	}
-	outer, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Artifacts: artifacts,
+	outer, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", Artifacts: artifacts,
 		RootFS: bundle.RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}})
 	if err != nil {
 		t.Fatal(err)

@@ -3982,6 +3982,13 @@ public nonisolated struct Agentvmm_Host_V1_Container: @unchecked Sendable {
   /// Clears the value of `configurationMatches`. Subsequent reads from it will return its default value.
   public mutating func clearConfigurationMatches() {_uniqueStorage()._configurationMatches = nil}
 
+  /// Guest instance recorded by the most recent successful Start request.
+  /// Retained after stop; this does not prove that the instance is running.
+  public var startRequestInstanceID: String {
+    get {_storage._startRequestInstanceID}
+    set {_uniqueStorage()._startRequestInstanceID = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -12579,7 +12586,7 @@ nonisolated extension Agentvmm_Host_V1_VolumeMount: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Container"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}image\0\u{1}state\0\u{3}exit_code\0\u{1}volumes\0\u{1}usage\0\u{1}argv\0\u{3}environment_keys\0\u{1}workdir\0\u{1}user\0\u{3}instance_id\0\u{3}created_at\0\u{3}started_at\0\u{3}finished_at\0\u{3}generation_id\0\u{3}desired_running\0\u{3}configuration_matches\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}image\0\u{1}state\0\u{3}exit_code\0\u{1}volumes\0\u{1}usage\0\u{1}argv\0\u{3}environment_keys\0\u{1}workdir\0\u{1}user\0\u{3}instance_id\0\u{3}created_at\0\u{3}started_at\0\u{3}finished_at\0\u{3}generation_id\0\u{3}desired_running\0\u{3}configuration_matches\0\u{3}start_request_instance_id\0")
 
   fileprivate class _StorageClass {
     var _id: String = String()
@@ -12599,6 +12606,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
     var _generationID: String = String()
     var _desiredRunning: Bool? = nil
     var _configurationMatches: Bool? = nil
+    var _startRequestInstanceID: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -12626,6 +12634,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
       _generationID = source._generationID
       _desiredRunning = source._desiredRunning
       _configurationMatches = source._configurationMatches
+      _startRequestInstanceID = source._startRequestInstanceID
     }
   }
 
@@ -12661,6 +12670,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
         case 15: try { try decoder.decodeSingularStringField(value: &_storage._generationID) }()
         case 16: try { try decoder.decodeSingularBoolField(value: &_storage._desiredRunning) }()
         case 17: try { try decoder.decodeSingularBoolField(value: &_storage._configurationMatches) }()
+        case 18: try { try decoder.decodeSingularStringField(value: &_storage._startRequestInstanceID) }()
         default: break
         }
       }
@@ -12724,6 +12734,9 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
       try { if let v = _storage._configurationMatches {
         try visitor.visitSingularBoolField(value: v, fieldNumber: 17)
       } }()
+      if !_storage._startRequestInstanceID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._startRequestInstanceID, fieldNumber: 18)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -12750,6 +12763,7 @@ nonisolated extension Agentvmm_Host_V1_Container: SwiftProtobuf.Message, SwiftPr
         if _storage._generationID != rhs_storage._generationID {return false}
         if _storage._desiredRunning != rhs_storage._desiredRunning {return false}
         if _storage._configurationMatches != rhs_storage._configurationMatches {return false}
+        if _storage._startRequestInstanceID != rhs_storage._startRequestInstanceID {return false}
         return true
       }
       if !storagesAreEqual {return false}

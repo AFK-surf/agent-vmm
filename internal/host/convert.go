@@ -49,6 +49,7 @@ func containerFromGuest(container *vmmdv1.Container) *hostv1.Container {
 		return nil
 	}
 	result := &hostv1.Container{Id: container.GetId(), InstanceId: container.GetInstanceId(), GenerationId: container.GetGenerationId(), Image: container.GetImage(), State: hostv1.ContainerState(container.GetState()), ExitCode: container.ExitCode, Argv: container.GetArgv(), Workdir: container.Workdir, User: container.User}
+	result.StartRequestInstanceId = container.GetStartRequestInstanceId()
 	result.CreatedAt = timestampFromUnixNano(container.GetCreatedAtUnixNano())
 	result.StartedAt = timestampFromUnixNano(container.GetStartedAtUnixNano())
 	result.FinishedAt = timestampFromUnixNano(container.GetFinishedAtUnixNano())

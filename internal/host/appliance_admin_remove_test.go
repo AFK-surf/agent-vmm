@@ -258,7 +258,7 @@ func removalRuntimeBundleManager(t *testing.T, root string) *vmm.Manager {
 		}
 		artifacts[name] = bundle.Artifact{Path: name, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
 	}
-	manifest, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0", Artifacts: artifacts,
+	manifest, err := json.Marshal(bundle.Manifest{SchemaVersion: 1, Architecture: "arm64", Artifacts: artifacts,
 		RootFS: bundle.RootFS{Filesystem: "squashfs", Compressor: "zstd", BlockSize: 1 << 20, Filter: "none"}})
 	if err != nil {
 		t.Fatal(err)

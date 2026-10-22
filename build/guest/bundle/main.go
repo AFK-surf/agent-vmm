@@ -34,7 +34,7 @@ func main() {
 		artifacts[name] = bundle.Artifact{Path: path, Size: info.Size(), SHA256: fileDigest(filepath.Join(*directory, path))}
 	}
 	manifest := bundle.Manifest{
-		SchemaVersion: 1, Architecture: "arm64", MinimumMacOS: "14.0",
+		SchemaVersion: 1, Architecture: "arm64",
 		Artifacts: artifacts,
 		RootFS:    bundle.RootFS{Filesystem: "squashfs", Compressor: *rootFSCompressor, BlockSize: 1 << 20, Dictionary: *rootFSDictionary, Filter: *rootFSFilter},
 	}
