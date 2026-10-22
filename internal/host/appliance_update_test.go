@@ -91,7 +91,7 @@ func updateDrainFixture(t *testing.T, frontends ...store.ApplianceFrontend) (*Co
 
 func updateDrainFixtureAt(t *testing.T, path string, frontends ...store.ApplianceFrontend) (*Controller, store.ApplianceInstallation) {
 	t.Helper()
-	database, err := store.Open(path)
+	database, err := openTestStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,93 +116,153 @@ func updateDrainFixtureAt(t *testing.T, path string, frontends ...store.Applianc
 }
 
 func TestApplianceUpdateDrainFreezesAdmissionAndWaitsForExecutionEvidence(t *testing.T) {
-	controller, installation := updateDrainFixture(t)
-	database := controller.store
-	ctx := context.Background()
-	server := &applianceAdminServer{controller: controller}
 	for _, recovered := range []bool{false, true} {
+		controller, installation := updateDrainFixture(t)
+		database := controller.store
+		server := &applianceAdminServer{controller: controller}
 		controller.workloadRunsRecovered = recovered
-		deadline, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
-		err := server.drainApplianceUpdate(deadline, installation)
+		if !recovered {
+			delete(controller.workloadRuns["workload"].executions, "unknown")
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- server.drainApplianceUpdate(ctx, installation) }()
+		for {
+			registration, err := database.GetRemoteRegistration(t.Context(), installation.RegistrationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING) {
+				break
+			}
+			select {
+			case err := <-done:
+				t.Fatalf("recovered=%t drain returned before freezing admission: %v", recovered, err)
+			case <-t.Context().Done():
+				t.Fatal("drain did not freeze admission")
+			case <-time.After(time.Millisecond):
+			}
+		}
 		cancel()
-		if !errors.Is(err, context.DeadlineExceeded) {
+		if err := <-done; !errors.Is(err, context.Canceled) {
 			t.Fatalf("recovered=%t drain=%v", recovered, err)
 		}
-		registration, err := database.GetRemoteRegistration(ctx, installation.RegistrationID)
+		registration, err := database.GetRemoteRegistration(t.Context(), installation.RegistrationID)
 		if err != nil || registration.State != 2 {
 			t.Fatalf("admission not frozen: %+v %v", registration, err)
 		}
-	}
-	delete(controller.workloadRuns["workload"].executions, "unknown")
-	deadline, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	if err := server.drainApplianceUpdate(deadline, installation); err != nil {
-		t.Fatal(err)
-	}
-	if controller.workloadRuns["workload"].instanceID != "workload-instance" {
-		t.Fatal("drain altered the workload")
+		controller.workloadRunsRecovered = true
+		delete(controller.workloadRuns["workload"].executions, "unknown")
+		if err := server.drainApplianceUpdate(t.Context(), installation); err != nil {
+			t.Fatal(err)
+		}
+		if controller.workloadRuns["workload"].instanceID != "workload-instance" {
+			t.Fatal("drain altered the workload")
+		}
 	}
 }
 
 func TestApplianceUpdateHostRestartResumesOriginalPhaseAndDeadline(t *testing.T) {
-	controller, installation := updateDrainFixture(t)
-	deadline := time.Now().Add(300 * time.Millisecond).UnixMilli()
-	request := &appliancev1.UpdateApplianceRequest{InstallationId: installation.ID, RequestId: "update", ExpectedRevision: installation.Revision, ArtifactId: "target", DeadlineUnixMillis: deadline}
-	receipt, err := proto.Marshal(&appliancev1.ApplianceUpdateProgress{Request: request, SourceArtifactId: installation.ArtifactID, InstallationRevision: installation.Revision})
-	if err != nil {
-		t.Fatal(err)
-	}
-	operation, err := controller.store.CreateApplianceOperation(context.Background(), store.ApplianceOperation{ID: "update", InstallationID: installation.ID, RequestID: "update", Kind: 9, State: 1, Phase: 7, ExpectedRevision: installation.Revision, DeadlineUnixMillis: deadline, Receipt: receipt})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := controller.recoverInterruptedApplianceAdminOperations(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	grpcServer := grpc.NewServer(grpc.StreamInterceptor(auth.StreamInterceptor(auth.Identity{Role: auth.Operator})))
-	appliancev1.RegisterApplianceAdminServiceServer(grpcServer, &applianceAdminServer{controller: controller})
-	go grpcServer.Serve(listener)
-	defer grpcServer.Stop()
-	connection, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close()
-	observer, cancel := context.WithCancel(context.Background())
-	watch, err := appliancev1.NewApplianceAdminServiceClient(connection).WatchOperation(observer, &appliancev1.WatchApplianceOperationRequest{InstallationId: installation.ID, OperationId: operation.ID})
-	if err != nil {
-		cancel()
-		t.Fatal(err)
-	}
-	if _, err = watch.Recv(); err != nil {
-		cancel()
-		t.Fatal(err)
-	}
-	cancel()
-
-	time.Sleep(25 * time.Millisecond)
-	running, err := controller.store.GetApplianceOperation(context.Background(), operation.ID)
-	if err != nil || running.State != 1 || running.Phase != 7 || running.DeadlineUnixMillis != deadline {
-		t.Fatalf("restart lost phase/deadline: %+v err=%v", running, err)
-	}
-	for time.Now().UnixMilli() < deadline+1000 {
-		current, err := controller.store.GetApplianceOperation(context.Background(), operation.ID)
-		if err != nil {
-			t.Fatal(err)
+	for _, expired := range []bool{false, true} {
+		name := "running"
+		if expired {
+			name = "expired"
 		}
-		if current.State == 3 {
-			if current.Phase != 7 || current.DeadlineUnixMillis != deadline || string(current.Receipt) != string(receipt) {
-				t.Fatalf("deadline lost original receipt: %+v", current)
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "host.db")
+			controller, installation := updateDrainFixtureAt(t, path)
+			deadline := time.Now().Add(time.Minute).UnixMilli()
+			if expired {
+				deadline = time.Now().Add(-time.Minute).UnixMilli()
 			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+			request := &appliancev1.UpdateApplianceRequest{InstallationId: installation.ID, RequestId: "update", ExpectedRevision: installation.Revision, ArtifactId: "target", DeadlineUnixMillis: deadline}
+			receipt, err := proto.Marshal(&appliancev1.ApplianceUpdateProgress{Request: request, SourceArtifactId: installation.ArtifactID, InstallationRevision: installation.Revision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation, err := controller.store.CreateApplianceOperation(context.Background(), store.ApplianceOperation{ID: "update", InstallationID: installation.ID, RequestID: "update", Kind: 9, State: 1, Phase: 7, ExpectedRevision: installation.Revision, DeadlineUnixMillis: deadline, Receipt: receipt})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := controller.store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			controller.store, err = openTestStore(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { controller.store.Close() })
+			if !expired {
+				t.Cleanup(func() {
+					_, err := controller.store.TransitionApplianceOperation(context.Background(), operation.ID, store.ApplianceOperationTransition{ExpectedState: 1, ExpectedPhase: 7, State: 4, Phase: 7, Receipt: receipt})
+					if err != nil {
+						t.Error(err)
+					}
+					controller.mu.Lock()
+					controller.workloadRunsRecovered = true
+					delete(controller.workloadRuns, "workload")
+					controller.mu.Unlock()
+					unlock := controller.lockIntegration("appliance-update:" + operation.ID)
+					unlock()
+				})
+			}
+			if err := controller.recoverInterruptedApplianceAdminOperations(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if expired {
+				failed, err := controller.store.GetApplianceOperation(context.Background(), operation.ID)
+				if err != nil || failed.State != 3 || failed.Phase != 7 || failed.DeadlineUnixMillis != deadline || string(failed.Receipt) != string(receipt) || failed.ErrorReason != "UPDATE_DEADLINE_EXPIRED" {
+					t.Fatalf("expired restart changed phase/deadline/receipt: %+v err=%v", failed, err)
+				}
+				return
+			}
+
+			ctx, stop := context.WithTimeout(t.Context(), 5*time.Second)
+			defer stop()
+			for {
+				registration, err := controller.store.GetRemoteRegistration(ctx, installation.RegistrationID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING) {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("recovered update did not resume draining")
+				case <-time.After(time.Millisecond):
+				}
+			}
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			grpcServer := grpc.NewServer(grpc.StreamInterceptor(auth.StreamInterceptor(auth.Identity{Role: auth.Operator})))
+			appliancev1.RegisterApplianceAdminServiceServer(grpcServer, &applianceAdminServer{controller: controller})
+			go grpcServer.Serve(listener)
+			defer grpcServer.Stop()
+			connection, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			observer, cancel := context.WithCancel(ctx)
+			defer cancel()
+			watch, err := appliancev1.NewApplianceAdminServiceClient(connection).WatchOperation(observer, &appliancev1.WatchApplianceOperationRequest{InstallationId: installation.ID, OperationId: operation.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = watch.Recv(); err != nil {
+				t.Fatal(err)
+			}
+			cancel()
+			running, err := controller.store.GetApplianceOperation(context.Background(), operation.ID)
+			if err != nil || running.State != 1 || running.Phase != 7 || running.DeadlineUnixMillis != deadline || string(running.Receipt) != string(receipt) {
+				t.Fatalf("restart or observer cancellation lost phase/deadline/receipt: %+v err=%v", running, err)
+			}
+		})
 	}
-	t.Fatal("durable phase did not settle at its deadline")
 }
 
 func TestSealedApplianceUpdateRecoverRejectsReactivation(t *testing.T) {
@@ -298,7 +358,7 @@ func TestGrantOnlyApplianceUpdatePlanAndIdempotency(t *testing.T) {
 	operator := func(run func(context.Context) (any, error)) (any, error) {
 		return auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})(ctx, nil, &grpc.UnaryServerInfo{}, func(c context.Context, _ any) (any, error) { return run(c) })
 	}
-	request := &appliancev1.UpdateApplianceRequest{InstallationId: installation.ID, RequestId: "grant-only", ExpectedRevision: installation.Revision, ArtifactId: installation.ArtifactID, DeadlineUnixMillis: time.Now().Add(time.Second).UnixMilli(), ApprovedGrant: grant}
+	request := &appliancev1.UpdateApplianceRequest{InstallationId: installation.ID, RequestId: "grant-only", ExpectedRevision: installation.Revision, ArtifactId: installation.ArtifactID, DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli(), ApprovedGrant: grant}
 	plan := func(c context.Context) (any, error) {
 		return server.PlanUpdate(c, &appliancev1.PlanUpdateRequest{InstallationId: request.InstallationId, RequestId: request.RequestId, ExpectedRevision: request.ExpectedRevision, ArtifactId: request.ArtifactId, DeadlineUnixMillis: request.DeadlineUnixMillis, ApprovedGrant: request.ApprovedGrant})
 	}
@@ -333,15 +393,20 @@ func TestGrantOnlyApplianceUpdatePlanAndIdempotency(t *testing.T) {
 		t.Fatalf("conflicting replay=%v", err)
 	}
 	// This fixture has no Guest; wait for the durable preparation failure before closing its store.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		op, _ := controller.store.GetApplianceOperation(ctx, submitted.(*appliancev1.ApplianceOperationResponse).GetOperation().GetOperationId())
+	for {
+		op, err := controller.store.GetApplianceOperation(t.Context(), submitted.(*appliancev1.ApplianceOperationResponse).GetOperation().GetOperationId())
+		if err != nil {
+			t.Fatal(err)
+		}
 		if op.State != 1 {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		select {
+		case <-t.Context().Done():
+			t.Fatal("update did not record preparation failure")
+		case <-time.After(time.Millisecond):
+		}
 	}
-	t.Fatal("update did not record preparation failure")
 }
 
 func TestEffectiveApplianceGrantIgnoresHostRevisionAndListOrder(t *testing.T) {
@@ -419,7 +484,7 @@ func (guest *heldUpdateImportGuest) ImportImage(stream grpc.ClientStreamingServe
 }
 
 func TestAppliancePreparationWaitResumesOriginalOperation(t *testing.T) {
-	for _, outcome := range []string{"release", "headroom", "deadline", "stop"} {
+	for _, outcome := range []string{"release", "headroom", "cancel", "stop"} {
 		t.Run(outcome, func(t *testing.T) {
 			controller, installation, artifact := stagedUpdateArchiveFixture(t)
 			ctx := context.Background()
@@ -437,10 +502,7 @@ func TestAppliancePreparationWaitResumesOriginalOperation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			deadline := time.Now().Add(3 * time.Second)
-			if outcome == "deadline" {
-				deadline = time.Now().Add(100 * time.Millisecond)
-			}
+			deadline := time.Now().Add(time.Minute)
 			progress := &appliancev1.ApplianceUpdateProgress{Request: &appliancev1.UpdateApplianceRequest{InstallationId: installation.ID, ArtifactId: artifact.ID, DeadlineUnixMillis: deadline.UnixMilli()}, SourceArtifactId: installation.ArtifactID, InstallationRevision: installation.Revision + 1}
 			receipt, err := proto.Marshal(progress)
 			if err != nil {
@@ -456,7 +518,7 @@ func TestAppliancePreparationWaitResumesOriginalOperation(t *testing.T) {
 			}
 			guest.held.Store(true)
 			client := workloadGuestClient(t, guest)
-			runCtx, cancel := context.WithDeadline(ctx, deadline)
+			runCtx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			done := make(chan error, 1)
 			go func() {
@@ -491,6 +553,9 @@ func TestAppliancePreparationWaitResumesOriginalOperation(t *testing.T) {
 			if outcome == "release" || outcome == "headroom" {
 				guest.held.Store(false)
 			}
+			if outcome == "cancel" {
+				cancel()
+			}
 			if outcome == "stop" {
 				_, err := auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})(ctx, nil, &grpc.UnaryServerInfo{}, func(operatorCtx context.Context, _ any) (any, error) {
 					return (&applianceAdminServer{controller: controller}).setDesiredState(operatorCtx, applianceMutation{installation.ID, "stop", old.Revision, deadline.UnixMilli()}, old.Revision, false, appliancev1.ApplianceState_APPLIANCE_STATE_STOPPED, appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_STOP, "stop-pending")
@@ -515,13 +580,13 @@ func TestAppliancePreparationWaitResumesOriginalOperation(t *testing.T) {
 				if next := <-guest.entered; next != firstID {
 					t.Fatalf("import identity changed: %s %s", firstID, next)
 				}
-			case "deadline":
-				if !errors.Is(resultErr, context.DeadlineExceeded) || current.Phase != 6 {
-					t.Fatalf("deadline: %+v %v", current, resultErr)
+			case "cancel":
+				if !errors.Is(resultErr, context.Canceled) || current.Phase != 6 {
+					t.Fatalf("cancellation: %+v %v", current, resultErr)
 				}
 				old, _ := controller.store.GetApplianceInstallation(ctx, installation.ID)
 				if !old.DesiredEnabled || old.State != 3 {
-					t.Fatal("deadline withdrew source")
+					t.Fatal("cancellation withdrew source")
 				}
 			case "stop":
 				if !errors.Is(resultErr, store.ErrOperationReceiptConflict) || current.State != 4 || current.Phase != 6 {

@@ -271,7 +271,7 @@ func TestExecDisconnectReleasesSessionAndRetainsTerminalObservation(t *testing.T
 	for _, mode := range []string{"terminal", "unknown", "exact-stop", "cancel-race"} {
 		t.Run(mode, func(t *testing.T) {
 			controller, run, _ := executionTestFixture(t)
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -552,7 +552,7 @@ func TestStoppedEvidenceIsBoundedFencedAndClearedWithEnvironment(t *testing.T) {
 func TestHostRestartRetainsRunningInstanceOfOwningAllocation(t *testing.T) {
 	for _, owner := range []string{"ready", "draining", "retained", "revoking", "disposing"} {
 		t.Run(owner, func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -801,7 +801,7 @@ func (s *closedInputExecGuest) Recv() (*vmmdv1.ExecResponse, error) {
 func TestHostRestartRestoresOnlyProvenStoppedStartIdentity(t *testing.T) {
 	for _, evidence := range []string{"proven", "created", "missing-start", "replacement", "nonempty-instance"} {
 		t.Run(evidence, func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -866,7 +866,7 @@ func (stream *revocationBuildGuestStream) Recv() (*vmmdv1.BuildImageResponse, er
 
 func TestBuildDisconnectPreservesWorkAndSessionRevokeBoundsStop(t *testing.T) {
 	controller, run, _ := executionTestFixture(t)
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

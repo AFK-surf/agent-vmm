@@ -91,7 +91,7 @@ func TestLocalServiceListenerSurvivesCallerAndRestoresExactAddress(t *testing.T)
 
 func testLocalServiceListener(t *testing.T, exposure hostv1.ServiceListenerExposure, bindAddress string) {
 	databasePath := filepath.Join(t.TempDir(), "host.db")
-	database, err := store.Open(databasePath)
+	database, err := openTestStore(databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func testLocalServiceListener(t *testing.T, exposure hostv1.ServiceListenerExpos
 
 func TestPersistedLANListenerReportsMissingLocalAddress(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -44,7 +44,7 @@ func TestLocalServiceRouteCapabilityIsBounded(t *testing.T) {
 func TestHighBitLocalServiceGenerationPersistsExactRouteAndLease(t *testing.T) {
 	for _, sameEnvironment := range []bool{true, false} {
 		t.Run(map[bool]string{true: "same-environment", false: "allocation-route"}[sameEnvironment], func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -109,7 +109,7 @@ func TestHighBitLocalServiceGenerationPersistsExactRouteAndLease(t *testing.T) {
 
 func TestServiceIdentitySurvivesStoreAndAgentWire(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

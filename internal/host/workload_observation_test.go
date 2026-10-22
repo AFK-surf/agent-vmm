@@ -15,7 +15,7 @@ import (
 )
 
 func TestRemoteWorkloadUsageScopesActiveCachedSamples(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestRemoteWorkloadUsageScopesActiveCachedSamples(t *testing.T) {
 }
 
 func TestRemoteWorkloadUsageFailsClosedForIncompleteCache(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestWorkloadPressureRequiresSustainedWatermarksAndLocalOOM(t *testing.T) {
 }
 
 func TestWorkloadPressureSelectsOneOldestIdleTenantAndExpiresWithoutReplacement(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

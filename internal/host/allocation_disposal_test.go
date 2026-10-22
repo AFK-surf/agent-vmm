@@ -20,7 +20,7 @@ import (
 
 func TestAllocationDeletionRequiresExactConnectionAndKeepsPendingReceipt(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestAllocationDeletionRequiresExactConnectionAndKeepsPendingReceipt(t *test
 
 func TestAbsentAllocationDiscardRechecksCurrentOwnerAndCannotDeleteReplacement(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestEnsureDrainingRegistrationIsUnavailableWithoutAdmission(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 			if err != nil {
 				t.Fatal(err)
 			}

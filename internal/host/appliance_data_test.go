@@ -19,15 +19,26 @@ import (
 
 type applianceDataRemovalGuest struct {
 	vmmdv1.UnimplementedVMMDServiceServer
-	requests chan *vmmdv1.DeleteSystemApplianceDataRequest
-	failures chan bool
+	requests chan applianceDataRemovalCall
 	shutdown chan struct{}
 }
 
+type applianceDataRemovalCall struct {
+	request  *vmmdv1.DeleteSystemApplianceDataRequest
+	reply    chan bool
+	finished chan struct{}
+}
+
 func (guest *applianceDataRemovalGuest) DeleteSystemApplianceData(ctx context.Context, request *vmmdv1.DeleteSystemApplianceDataRequest) (*vmmdv1.DeleteSystemApplianceDataResponse, error) {
-	guest.requests <- proto.Clone(request).(*vmmdv1.DeleteSystemApplianceDataRequest)
+	call := applianceDataRemovalCall{request: proto.Clone(request).(*vmmdv1.DeleteSystemApplianceDataRequest), reply: make(chan bool, 1), finished: make(chan struct{})}
+	defer close(call.finished)
 	select {
-	case fail := <-guest.failures:
+	case guest.requests <- call:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case fail := <-call.reply:
 		if fail {
 			return nil, status.Error(codes.Unavailable, "target data cleanup is not confirmed")
 		}
@@ -58,7 +69,7 @@ func TestApplianceDataRemovalOwnsOnlyTargetAndRetainsSecretsUntilGuestConfirmati
 		t.Fatal(err)
 	}
 	server := grpc.NewServer()
-	guest := &applianceDataRemovalGuest{requests: make(chan *vmmdv1.DeleteSystemApplianceDataRequest, 3), failures: make(chan bool, 3), shutdown: make(chan struct{}, 1)}
+	guest := &applianceDataRemovalGuest{requests: make(chan applianceDataRemovalCall), shutdown: make(chan struct{}, 1)}
 	vmmdv1.RegisterVMMDServiceServer(server, guest)
 	go server.Serve(listener)
 	t.Cleanup(server.Stop)
@@ -66,16 +77,19 @@ func TestApplianceDataRemovalOwnsOnlyTargetAndRetainsSecretsUntilGuestConfirmati
 	installation := store.ApplianceInstallation{ID: "target", DataVolumeID: "target-volume"}
 	var original *vmmdv1.DeleteSystemApplianceDataRequest
 	for index, fail := range []bool{true, false, false} {
-		guest.failures <- fail
 		connection, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = controller.removeApplianceData(ctx, connection, installation)
+		done := make(chan error, 1)
+		go func() { done <- controller.removeApplianceData(ctx, connection, installation) }()
+		call := <-guest.requests
+		call.reply <- fail
+		err = <-done
 		if (err != nil) != fail {
 			t.Fatalf("target cleanup attempt %d: %v", index, err)
 		}
-		request := <-guest.requests
+		request := call.request
 		if request.InstallationId != installation.ID || request.DataVolumeId != installation.DataVolumeID || request.RequestId == "" {
 			t.Fatalf("cleanup escaped target: %v", request)
 		}

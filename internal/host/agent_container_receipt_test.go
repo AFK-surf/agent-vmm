@@ -69,7 +69,7 @@ func TestContainerCreateAdmissionFailureReceiptSurvivesRestart(t *testing.T) {
 	for _, stage := range []string{"import_slot", "import_admission", "rootfs_snapshot"} {
 		t.Run(stage, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "host.db")
-			database, err := store.Open(path)
+			database, err := openTestStore(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -125,7 +125,7 @@ func TestContainerMutationReceiptSurvivesDeletionAndHostRestart(t *testing.T) {
 	for _, kind := range []string{"runtime-create-container", "runtime-start-container"} {
 		t.Run(kind, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "host.db")
-			database, err := store.Open(path)
+			database, err := openTestStore(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -207,7 +207,7 @@ func TestContainerMutationReceiptSurvivesDeletionAndHostRestart(t *testing.T) {
 func TestContainerMutationUnknownOnlyObservesMatchingGuestReceipt(t *testing.T) {
 	for _, kind := range []string{"runtime-create-container", "runtime-start-container"} {
 		t.Run(kind, func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -268,7 +268,7 @@ func TestContainerStartPreflightCanRetrySameIdentityWithoutManagedIntent(t *test
 		t.Run(failure, func(t *testing.T) {
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "host.db")
-			database, err := store.Open(path)
+			database, err := openTestStore(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -387,7 +387,7 @@ func admitOperation(server *agentServer) func(store.Operation) (store.Operation,
 
 func TestNewContainerStartIntentSurvivesLostReplyAndHostRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := store.Open(path)
+	database, err := openTestStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,7 +36,7 @@ func TestGuestLayerResourcesKeepsPhysicalDiskCategoriesSeparate(t *testing.T) {
 }
 
 func TestSystemHealthSummaryDoesNotReadInventory(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestSystemHealthSummaryDoesNotReadInventory(t *testing.T) {
 }
 
 func TestVMImpactSummaryBoundsKnownHostWorkloadsAndMarksOverflow(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestVMImpactSummaryBoundsKnownHostWorkloadsAndMarksOverflow(t *testing.T) {
 }
 
 func TestVMMutationFenceAllowsMembershipAddedAfterWholeVMAcknowledgement(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestVMMutationFenceAllowsMembershipAddedAfterWholeVMAcknowledgement(t *test
 }
 
 func TestInventoryTransitionWaitsForMutationWithoutFencingWholeVMByWorkloadRevision(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestInventoryTransitionWaitsForMutationWithoutFencingWholeVMByWorkloadRevis
 }
 
 func TestInventoryTransitionBlocksNewMembershipMutationAfterValidationBegins(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestInventoryTransitionBlocksNewMembershipMutationAfterValidationBegins(t *
 }
 
 func TestVMImpactSummaryReportsStoreReadFailure(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestVMImpactSummaryReportsStoreReadFailure(t *testing.T) {
 }
 
 func TestVMMutationFenceRequiresWholeVMImpactAcknowledgement(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

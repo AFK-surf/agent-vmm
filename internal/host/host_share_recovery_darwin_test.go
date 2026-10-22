@@ -95,7 +95,7 @@ func (guest *hostShareConsumersGuest) StopContainer(_ context.Context, request *
 
 func TestHostShareSourceLossWaitsForEveryConsumerAndRequiresNextBoot(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestHostShareRebindRecoveryUsesFrozenCandidateAfterReopen(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "host.db")
-			database, err := store.Open(path)
+			database, err := openTestStore(path)
 			if err != nil {
 				t.Fatal(err)
 			}

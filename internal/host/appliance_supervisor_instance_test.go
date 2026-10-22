@@ -39,7 +39,7 @@ func (client *failingApplianceImportClient) ImportImage(context.Context, ...grpc
 }
 
 func TestBundledApplianceArtifactStagesWithoutChangingInstallations(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestApplianceReconcileRejectsStaleObservedInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestPrepareMissingApplianceRecoveryAdvancesFenceOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

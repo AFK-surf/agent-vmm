@@ -8,14 +8,13 @@ import (
 	"testing"
 
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
-	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 func TestWorkspaceVolumeRequiresCurrentNamespaceOwner(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

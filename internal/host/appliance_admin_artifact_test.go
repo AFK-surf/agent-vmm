@@ -19,7 +19,7 @@ import (
 )
 
 func TestStageArtifactReplaysExactSucceededRequestAfterDeadline(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestStageArtifactReplaysExactSucceededRequestAfterDeadline(t *testing.T) {
 }
 
 func TestStageArtifactRequiresContentOrVerifiedBundledArtifact(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestStageArtifactRequiresContentOrVerifiedBundledArtifact(t *testing.T) {
 }
 
 func TestInstallReplaysExactSucceededRequestAfterDeadline(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func callAsOperator[T any](t *testing.T, call func(context.Context) (T, error)) 
 }
 
 func TestExpiredApplianceMutationProvesNonAdmissionAfterReceiptLookup(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

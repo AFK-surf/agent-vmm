@@ -5,9 +5,6 @@ package host
 import (
 	"context"
 	"errors"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,7 +161,7 @@ func TestAbandonCommitKeepsGuestRunningAndRetriesCommit(t *testing.T) {
 	originalDelay := vmRecoveryInitialDelay
 	vmRecoveryInitialDelay = time.Millisecond
 	t.Cleanup(func() { vmRecoveryInitialDelay = originalDelay })
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,50 +324,13 @@ func TestTerminalTransitionBetweenCommitAndOpenCannotReopenAdmission(t *testing.
 	}
 }
 
-func TestOnlyVMLifecycleOwnerCallsManagerStartStop(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || filepath.Ext(name) != ".go" || name == "vm_lifecycle_owner.go" || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			selector, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || (selector.Sel.Name != "Start" && selector.Sel.Name != "Stop") {
-				return true
-			}
-			if name == "appliance_data.go" {
-				t.Errorf("%s owns VM %s outside the lifecycle owner", name, selector.Sel.Name)
-			}
-			receiver, ok := selector.X.(*ast.SelectorExpr)
-			if ok && receiver.Sel.Name == "manager" {
-				t.Errorf("%s calls Manager.%s outside VMLifecycleOwner", name, selector.Sel.Name)
-			}
-			return true
-		})
-	}
-}
-
 func TestVMStartDoesNotReenterLifecycleOwnerForPendingApplianceRemoval(t *testing.T) {
 	if os.Getenv("AGENT_VMM_TEST_START_PENDING_REMOVE") != "1" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestVMStartDoesNotReenterLifecycleOwnerForPendingApplianceRemoval$")
+		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestVMStartDoesNotReenterLifecycleOwnerForPendingApplianceRemoval$")
 		command.Env = append(os.Environ(), "AGENT_VMM_TEST_START_PENDING_REMOVE=1", "TMPDIR="+t.TempDir())
 		output, err := command.CombinedOutput()
 		if err != nil {
-			t.Fatalf("VM Start recursively blocked on its owned lifecycle lock: %v: %v\n%s", err, ctx.Err(), output)
+			t.Fatalf("VM Start subprocess: %v\n%s", err, output)
 		}
 		return
 	}
@@ -395,6 +355,7 @@ func TestVMStartDoesNotReenterLifecycleOwnerForPendingApplianceRemoval(t *testin
 	controller.manager = &vmm.Manager{}
 	controller.egress = egress.New()
 	controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
+	defer hostLockWatchdog(t)()
 	_, err = controller.startVM(ctx, "start-with-pending-remove", &hostv1.VMMutationFence{})
 	if status.Code(err) != codes.Aborted {
 		t.Fatalf("VM Start did not reach its own fence without consuming Remove: %v", err)

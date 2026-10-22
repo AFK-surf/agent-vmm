@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -31,38 +32,66 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestApplianceRemoveBusyRPCPreservesAcceptedOperation(t *testing.T) {
+func TestApplianceRemoveCanceledRPCPreservesAcceptedOperation(t *testing.T) {
 	controller, installation := updateDrainFixture(t)
 	controller.manager = &vmm.Manager{}
 	controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
 	client := removalOperatorClient(t, controller)
 	request := &appliancev1.ExecuteRemoveRequest{
 		InstallationId: installation.ID, RequestId: "remove-busy", ExpectedRevision: installation.Revision,
-		DeadlineUnixMillis: time.Now().Add(100 * time.Millisecond).UnixMilli(), ConfirmedResourceIds: []string{installation.DataVolumeID},
+		DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli(), ConfirmedResourceIds: []string{installation.DataVolumeID},
 	}
 	controller.vmLifecycle.operationMu.Lock()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer controller.vmLifecycle.operationMu.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	response, err := client.ExecuteRemove(ctx, request)
-	controller.vmLifecycle.operationMu.Unlock()
-	if err != nil {
-		t.Fatalf("accepted busy Remove returned an RPC error: %v", err)
+	done := make(chan struct{})
+	var callErr error
+	go func() {
+		_, callErr = client.ExecuteRemove(ctx, request)
+		close(done)
+	}()
+	defer func() { cancel(); <-done }()
+	var accepted store.ApplianceOperation
+	for {
+		operation, err := controller.store.ApplianceOperationByRequest(t.Context(), request.RequestId)
+		if err == nil && operation.State == int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING) &&
+			operation.Phase == int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY) {
+			accepted = operation
+			break
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			t.Fatal(err)
+		}
+		select {
+		case <-done:
+			t.Fatalf("Remove returned before durable acceptance: %v", callErr)
+		default:
+		}
+		select {
+		case <-t.Context().Done():
+			t.Fatal("Remove did not preserve its pending operation")
+		case <-time.After(time.Millisecond):
+		}
 	}
-	pending := response.GetOperation()
-	if pending.GetState() != appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING ||
-		pending.GetPhase() != appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY ||
-		pending.GetRequestId() != request.RequestId || pending.GetError().GetReason() != "APPLIANCE_REMOVE_PENDING" {
-		t.Fatalf("busy Remove lost pending operation: %v", pending)
+	cancel()
+	<-done
+	if status.Code(callErr) != codes.Canceled {
+		t.Fatalf("canceled Remove RPC: %v", callErr)
 	}
-	committed, err := controller.store.TransitionApplianceOperation(context.Background(), pending.GetOperationId(), store.ApplianceOperationTransition{
-		ExpectedState: int32(pending.GetState()), ExpectedPhase: int32(pending.GetPhase()),
+	waiting, err := controller.store.ApplianceOperationByRequest(t.Context(), request.RequestId)
+	if err != nil || waiting.ID != accepted.ID || waiting.State != accepted.State || waiting.Phase != accepted.Phase || waiting.DeadlineUnixMillis != request.DeadlineUnixMillis || string(waiting.Receipt) != string(accepted.Receipt) {
+		t.Fatalf("canceled Remove changed its accepted operation: before=%+v after=%+v err=%v", accepted, waiting, err)
+	}
+	committed, err := controller.store.TransitionApplianceOperation(t.Context(), waiting.ID, store.ApplianceOperationTransition{
+		ExpectedState: waiting.State, ExpectedPhase: waiting.Phase,
 		State: int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED),
-		Phase: int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_TERMINAL), Receipt: []byte("removed:" + pending.GetOperationId()),
+		Phase: int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_TERMINAL), Receipt: []byte("removed:" + waiting.ID),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := client.ExecuteRemove(ctx, request)
+	replayed, err := client.ExecuteRemove(t.Context(), request)
 	if err != nil || replayed.GetOperation().GetOperationId() != committed.ID || replayed.GetOperation().GetState() != appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED {
 		t.Fatalf("original Remove did not return committed receipt: %v %v", replayed, err)
 	}
@@ -70,12 +99,10 @@ func TestApplianceRemoveBusyRPCPreservesAcceptedOperation(t *testing.T) {
 
 func TestApplianceRemoveDoesNotInvertAdmittedActivationLocks(t *testing.T) {
 	if os.Getenv("AGENT_VMM_TEST_REMOVE_ACTIVATION") != "1" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestApplianceRemoveDoesNotInvertAdmittedActivationLocks$")
+		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestApplianceRemoveDoesNotInvertAdmittedActivationLocks$")
 		command.Env = append(os.Environ(), "AGENT_VMM_TEST_REMOVE_ACTIVATION=1", "TMPDIR="+t.TempDir())
 		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("activation and Remove blocked each other: %v: %v\n%s", err, ctx.Err(), output)
+			t.Fatalf("activation and Remove subprocess: %v\n%s", err, output)
 		}
 		return
 	}
@@ -84,6 +111,7 @@ func TestApplianceRemoveDoesNotInvertAdmittedActivationLocks(t *testing.T) {
 	controller.egress = egress.New()
 	controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
 	server := &applianceAdminServer{controller: controller}
+	defer hostLockWatchdog(t)()
 	entered, release := make(chan struct{}), make(chan struct{})
 	activationDone := make(chan error, 1)
 	removeContext, cancelRemove := context.WithCancel(context.Background())
@@ -314,7 +342,7 @@ func TestHangingApplianceDataCleanupLeavesOperatorAndOriginalRetryAvailable(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	guest := &applianceDataRemovalGuest{requests: make(chan *vmmdv1.DeleteSystemApplianceDataRequest, 2), failures: make(chan bool, 1)}
+	guest := &applianceDataRemovalGuest{requests: make(chan applianceDataRemovalCall)}
 	guestServer := grpc.NewServer()
 	vmmdv1.RegisterVMMDServiceServer(guestServer, guest)
 	go guestServer.Serve(listener)
@@ -327,7 +355,7 @@ func TestHangingApplianceDataCleanupLeavesOperatorAndOriginalRetryAvailable(t *t
 		return connection
 	}
 	client := removalOperatorClient(t, controller)
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
 	connection := connect()
@@ -337,15 +365,15 @@ func TestHangingApplianceDataCleanupLeavesOperatorAndOriginalRetryAvailable(t *t
 		})
 		done <- result.err
 	}()
-	var original *vmmdv1.DeleteSystemApplianceDataRequest
+	var original applianceDataRemovalCall
 	select {
 	case original = <-guest.requests:
 	case err := <-done:
 		t.Fatalf("cleanup returned before the Guest received its request: %v", err)
-	case <-time.After(time.Second):
+	case <-t.Context().Done():
 		t.Fatal("Guest did not receive cleanup and the lifecycle owner did not return")
 	}
-	readContext, readCancel := context.WithTimeout(context.Background(), time.Second)
+	readContext, readCancel := context.WithCancel(t.Context())
 	defer readCancel()
 	if _, err := client.List(readContext, &appliancev1.ListAppliancesRequest{}); err != nil {
 		t.Fatalf("hanging Guest cleanup blocked Operator: %v", err)
@@ -357,36 +385,50 @@ func TestHangingApplianceDataCleanupLeavesOperatorAndOriginalRetryAvailable(t *t
 	if err != nil {
 		t.Fatalf("hanging Guest cleanup blocked receipt observation: %v", err)
 	}
+	readCancel()
+	cancel()
 	select {
 	case err := <-done:
-		if status.Code(err) != codes.DeadlineExceeded {
+		if status.Code(err) != codes.Canceled {
 			t.Fatalf("Guest cleanup did not honor its context: %v", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Guest cleanup did not release the lifecycle owner")
 	}
+	<-original.finished
+	pending, err := controller.store.GetApplianceOperation(t.Context(), operation.ID)
+	if err != nil || pending.State != operation.State || pending.Phase != operation.Phase || pending.RequestID != operation.RequestID || string(pending.Receipt) != string(operation.Receipt) {
+		t.Fatalf("unconfirmed cleanup changed its pending receipt: %+v %v", pending, err)
+	}
 	if _, err := secrets.LoadBootstrap(context.Background(), installation.ID, "bootstrap"); err != nil {
 		t.Fatalf("unconfirmed cleanup removed its secret: %v", err)
 	}
-	guest.failures <- false
-	result := controller.vmLifecycle.execute(readContext, vmLifecycleAppliance, func() vmLifecycleResult {
-		return vmLifecycleResult{err: controller.removeApplianceData(readContext, connect(), installation)}
-	})
-	if result.err != nil {
-		t.Fatalf("cleanup did not retry its original target command: %v", result.err)
-	}
+	retryDone := make(chan error, 1)
+	connection = connect()
+	go func() {
+		result := controller.vmLifecycle.execute(t.Context(), vmLifecycleAppliance, func() vmLifecycleResult {
+			return vmLifecycleResult{err: controller.removeApplianceData(t.Context(), connection, installation)}
+		})
+		retryDone <- result.err
+	}()
 	select {
 	case retry := <-guest.requests:
-		if !proto.Equal(original, retry) {
-			t.Fatalf("cleanup retried a different target command: %v", retry)
+		if !proto.Equal(original.request, retry.request) {
+			t.Fatalf("cleanup retried a different target command: %v", retry.request)
 		}
-	case <-readContext.Done():
-		t.Fatalf("Guest did not receive cleanup retry: %v", readContext.Err())
+		retry.reply <- false
+	case err := <-retryDone:
+		t.Fatalf("cleanup retry did not reach its original target: %v", err)
+	case <-t.Context().Done():
+		t.Fatal("Guest did not receive cleanup retry")
+	}
+	if err := <-retryDone; err != nil {
+		t.Fatalf("cleanup did not retry its original target command: %v", err)
 	}
 	if _, err := secrets.LoadBootstrap(context.Background(), installation.ID, "bootstrap"); !errors.Is(err, errBootstrapNotFound) {
 		t.Fatalf("confirmed retry retained target secret: %v", err)
 	}
-	pending, err := controller.store.GetApplianceOperation(context.Background(), operation.ID)
+	pending, err = controller.store.GetApplianceOperation(context.Background(), operation.ID)
 	if err != nil || pending.RequestID != operation.RequestID || pending.State != 1 || pending.Phase != 4 {
 		t.Fatalf("Guest cleanup changed the durable Remove receipt: %+v %v", pending, err)
 	}

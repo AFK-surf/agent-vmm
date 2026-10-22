@@ -50,7 +50,7 @@ func (s *blockedContentStream) Recv() (*appliancev1.StageContentRequest, error) 
 func TestContentStageDeadlineBoundsBlockedBodyAndAdmission(t *testing.T) {
 	for _, locked := range []bool{false, true} {
 		t.Run(map[bool]string{false: "body", true: "admission"}[locked], func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,7 +92,7 @@ func TestContentStatusBoundsReferenceFrame(t *testing.T) {
 }
 
 func TestContentStageReusesVerifiedArchiveWithoutBody(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestContentStageReusesVerifiedArchiveWithoutBody(t *testing.T) {
 }
 
 func TestContentStageExpiredOriginalReceiptPrecedesAdmission(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestContentStageReopenSettlesPublishedOrInterruptedWriter(t *testing.T) {
 	for _, published := range []bool{false, true} {
 		t.Run(fmt.Sprint(published), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "host.db")
-			database, err := store.Open(path)
+			database, err := openTestStore(path)
 			if err != nil {
 				t.Fatal(err)
 			}

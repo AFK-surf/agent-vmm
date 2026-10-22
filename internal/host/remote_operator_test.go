@@ -24,7 +24,7 @@ import (
 )
 
 func TestRepeatedManagedEnrollmentUpdatesPolicyAndRejectsIdentityChange(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestRepeatedManagedEnrollmentUpdatesPolicyAndRejectsIdentityChange(t *testi
 }
 
 func TestHostStartConvertsOlderRegistrationProtocolVersion(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestHostStartConvertsOlderRegistrationProtocolVersion(t *testing.T) {
 }
 
 func TestExactRegistrationReadSeparatesAbsentFromUnreadable(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestExactRegistrationReadSeparatesAbsentFromUnreadable(t *testing.T) {
 
 func TestDisposedRegistrationControlReleasesAdmissionAndKeepsTypedAbsence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := store.Open(path)
+	database, err := openTestStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestDisposedRegistrationControlReleasesAdmissionAndKeepsTypedAbsence(t *tes
 func TestRevokeIncompleteRegistrationKeepsOtherRegistration(t *testing.T) {
 	for _, enrollment := range []int32{1, 3} {
 		t.Run(fmt.Sprint(enrollment), func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 			if err != nil {
 				t.Fatal(err)
 			}

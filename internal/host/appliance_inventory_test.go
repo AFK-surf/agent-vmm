@@ -85,7 +85,7 @@ func TestGetSystemApplianceDoesNotScanInventory(t *testing.T) {
 
 func TestApplianceSourcePolicyFollowsPersistedInstanceAndRecovery(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

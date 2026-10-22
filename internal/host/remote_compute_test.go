@@ -98,7 +98,7 @@ func TestPrivateControllerMayConnectWhileWorkloadAdmissionIsClosed(t *testing.T)
 }
 
 func TestRetireRemoteRegistrationFailsClosedWhenWorkloadStopIsUnavailable(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestRetireRemoteRegistrationFailsClosedWhenWorkloadStopIsUnavailable(t *tes
 }
 
 func TestPrivateControllerConnectionPersistsWhileWorkloadAdmissionIsClosed(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestSessionProjectionHidesHostIdentity(t *testing.T) {
 }
 
 func TestRemoteAllocationInventoryAndConnectionFences(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestRemoteAllocationInventoryAndConnectionFences(t *testing.T) {
 }
 
 func TestControllerDisconnectPreservesAcceptedAllocation(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func TestControllerDisconnectPreservesAcceptedAllocation(t *testing.T) {
 }
 
 func TestConnectionReplacementFencesOldTransportWithoutRevokingAcceptedAllocation(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestConnectionReplacementFencesOldTransportWithoutRevokingAcceptedAllocatio
 
 func testOptional[T any](value T) *T { return &value }
 func TestNormalRetirementPagesEveryContainerAndRequiresObservedStop(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +645,7 @@ func TestAcceptedRemoteCleanupRetirementAndMissingNamespaceRecovery(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 			if err != nil {
 				t.Fatal(err)
 			}

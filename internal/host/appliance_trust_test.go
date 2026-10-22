@@ -194,7 +194,7 @@ func renewalHost(t *testing.T, issued time.Time) (*Controller, store.ApplianceIn
 	}
 	t.Helper()
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

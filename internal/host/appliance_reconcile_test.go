@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
 
 func TestNextApplianceReconcileDelayIsBounded(t *testing.T) {
@@ -24,7 +22,7 @@ func TestNextApplianceReconcileDelayIsBounded(t *testing.T) {
 }
 
 func TestReconcileObservedAppliancesSkipsApplianceDependenciesWhenEmpty(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

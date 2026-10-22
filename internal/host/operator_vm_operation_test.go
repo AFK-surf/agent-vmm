@@ -16,7 +16,7 @@ import (
 
 func newOperatorVMTestController(t *testing.T) *Controller {
 	t.Helper()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

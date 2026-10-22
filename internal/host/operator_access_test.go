@@ -18,7 +18,7 @@ import (
 )
 
 func TestPrepareAgentIntegrationAppliesDeclaredLimitsOnlyOnCreate(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestPrepareAgentIntegrationAppliesDeclaredLimitsOnlyOnCreate(t *testing.T) 
 }
 
 func TestAgentSessionProjectionTracksConnectionsAndTerminalState(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestRemoteRegistrationProjectionExpiresStaleHeartbeat(t *testing.T) {
 }
 
 func TestIntegrationBulkRevocationPropagatesFailure(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

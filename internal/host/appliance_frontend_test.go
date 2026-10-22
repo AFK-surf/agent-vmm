@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -75,28 +76,6 @@ func TestApplianceFrontendProjectsExactLoopbackRoute(t *testing.T) {
 			if _, err := io.ReadFull(connection, response); err != nil || string(response) != "ping" {
 				t.Fatalf("response = %q, %v", response, err)
 			}
-			if maxTotal == 0 {
-				const size = (1 << 30) + (64 << 10)
-				_ = connection.SetDeadline(time.Now().Add(10 * time.Second))
-				written := make(chan error, 1)
-				go func() {
-					buffer := make([]byte, 64<<10)
-					for n := 0; n < size; n += len(buffer) {
-						if _, err := connection.Write(buffer); err != nil {
-							written <- err
-							return
-						}
-					}
-					written <- nil
-				}()
-				count, err := io.CopyN(io.Discard, connection, size)
-				if err != nil || count != size {
-					t.Fatalf("unlimited frontend echoed %d bytes: %v", count, err)
-				}
-				if err := <-written; err != nil {
-					t.Fatal(err)
-				}
-			}
 			header := <-headerSeen
 			if header.GetIdentity().GetInstallationId() != identity.GetInstallationId() || header.GetIdentity().GetContainerInstanceId() != identity.GetContainerInstanceId() ||
 				header.GetName() != frontend.Name || header.GetKind() != vmmdv1.SystemStreamKind_SYSTEM_STREAM_KIND_FRONTEND ||
@@ -109,6 +88,77 @@ func TestApplianceFrontendProjectsExactLoopbackRoute(t *testing.T) {
 			}
 			if _, err := os.Stat(applianceFrontendEndpointPath(support, identity.GetInstallationId(), frontend.Name)); err != nil {
 				t.Fatalf("available endpoint file missing: %v", err)
+			}
+		})
+	}
+}
+
+type frontendCountingConn struct {
+	source    bool
+	remaining uint64
+	written   uint64
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (connection *frontendCountingConn) Read(buffer []byte) (int, error) {
+	if !connection.source {
+		<-connection.closed
+		return 0, net.ErrClosed
+	}
+	if connection.remaining == 0 {
+		return 0, io.EOF
+	}
+	count := min(uint64(len(buffer)), connection.remaining)
+	connection.remaining -= count
+	return int(count), nil
+}
+
+func (connection *frontendCountingConn) Write(buffer []byte) (int, error) {
+	select {
+	case <-connection.closed:
+		return 0, net.ErrClosed
+	default:
+		connection.written += uint64(len(buffer))
+		return len(buffer), nil
+	}
+}
+
+func (connection *frontendCountingConn) Close() error {
+	connection.closeOnce.Do(func() { close(connection.closed) })
+	return nil
+}
+
+func (*frontendCountingConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
+func (*frontendCountingConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
+func (*frontendCountingConn) SetDeadline(time.Time) error      { return nil }
+func (*frontendCountingConn) SetReadDeadline(time.Time) error  { return nil }
+func (*frontendCountingConn) SetWriteDeadline(time.Time) error { return nil }
+
+func TestApplianceFrontendProxyPreservesFiniteAndUnlimitedByteBudgets(t *testing.T) {
+	const size = (1 << 30) + (64 << 10)
+	for _, maxTotal := range []uint64{64, 0} {
+		t.Run(fmt.Sprint(maxTotal), func(t *testing.T) {
+			local := &frontendCountingConn{source: true, remaining: size, closed: make(chan struct{})}
+			remote := &frontendCountingConn{closed: make(chan struct{})}
+			defer local.Close()
+			defer remote.Close()
+			frame := uint32(64 << 10)
+			if maxTotal != 0 {
+				frame = 8
+			}
+			runtime := &applianceFrontendRuntime{
+				frontend: store.ApplianceFrontend{MaxFrameBytes: frame, MaxTotalBytes: maxTotal, DeadlineSeconds: 10, IdleSeconds: 2},
+				identity: &vmmdv1.SystemApplianceIdentity{InstallationId: "installation", ContainerInstanceId: "instance"},
+				open:     func(context.Context, *vmmdv1.SystemStreamHeader) (net.Conn, error) { return remote, nil },
+			}
+			runtime.proxy(t.Context(), local)
+			want := maxTotal
+			if maxTotal == 0 {
+				want = size
+			}
+			if remote.written != want {
+				t.Fatalf("frontend forwarded %d bytes, want %d", remote.written, want)
 			}
 		})
 	}

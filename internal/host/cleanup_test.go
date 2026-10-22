@@ -170,7 +170,7 @@ func TestCleanupInventoryLimitIsActionable(t *testing.T) {
 }
 
 func TestFailedCleanupRequestReplaysPriorResultWithoutReplanningOrDeletingNewData(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestFailedCleanupRequestReplaysPriorResultWithoutReplanningOrDeletingNewDat
 }
 
 func TestRunningCleanupReplayBecomesDurableInterrupted(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestRunningCleanupReplayBecomesDurableInterrupted(t *testing.T) {
 }
 
 func TestExpiredInitialRequestLookupReconcilesPriorRunningReceipt(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestAgentCleanupRetryReplaysReceiptBeforePlanRead(t *testing.T) {
 		{name: "discard", kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, call: (*agentServer).RequestDiscard},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -293,7 +293,7 @@ func TestAgentCleanupRetryReplaysReceiptBeforePlanRead(t *testing.T) {
 }
 
 func TestAcceptedCleanupPersistsFailureWithOwnerContext(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestAcceptedCleanupPersistsFailureWithOwnerContext(t *testing.T) {
 }
 
 func TestAcceptedCleanupReturnsTerminalPersistenceFailure(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func TestCleanupAdmissionDeadlineBoundsInventoryAndRemoteWaits(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+			database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -488,7 +488,7 @@ func TestCleanupAdmissionDeadlineBoundsInventoryAndRemoteWaits(t *testing.T) {
 }
 
 func TestCleanupAdmissionTimeoutReplaysRunningRequestWithoutOrphanRepair(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

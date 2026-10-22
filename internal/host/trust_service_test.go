@@ -18,7 +18,6 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	hosttrust "github.com/AFK-surf/agent-vmm/internal/host/trust"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -59,7 +58,7 @@ func (provider *trustTestKeys) Sign(_ context.Context, _ uint64, digest []byte) 
 func (*trustTestKeys) Delete(context.Context, uint64) error { return nil }
 
 func TestTrustServiceRejectsSameProcessWithoutConnectorCapability(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

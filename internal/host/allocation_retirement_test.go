@@ -74,7 +74,7 @@ func startRetirementGuest(t *testing.T, server *retirementGuest) (vmmdv1.VMMDSer
 func TestNamespaceRetirementResponseLossAndRestartPreserveIdentity(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "host.db")
-	database, err := store.Open(path)
+	database, err := openTestStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func (g *retirementGuest) StopContainer(_ context.Context, r *vmmdv1.StopContain
 }
 
 func TestResumeRemoteRevocationsRetiresOnlyInterruptedRevocations(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

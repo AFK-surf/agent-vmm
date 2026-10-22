@@ -13,7 +13,6 @@ import (
 	"time"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -148,7 +147,7 @@ func TestSixIdleWorkloadsRemainRunnable(t *testing.T) {
 
 func workloadTestController(t *testing.T) *Controller {
 	t.Helper()
-	database, err := store.Open(filepath.Join(t.TempDir(), "workload.sqlite"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "workload.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

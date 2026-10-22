@@ -30,7 +30,7 @@ import (
 func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := store.Open(path)
+	database, err := openTestStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 
 func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 	ctx := context.Background()
-	database, err := store.Open(filepath.Join(t.TempDir(), "host.db"))
+	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +421,7 @@ func TestRemovingSharedEnvironmentIntegrationKeepsOnlineHostShare(t *testing.T) 
 func TestLocalDisposalRevokesStaticSharesBeforeGuestAvailability(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "host.db")
-	database, err := store.Open(path)
+	database, err := openTestStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
