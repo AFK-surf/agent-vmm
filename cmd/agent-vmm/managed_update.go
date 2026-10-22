@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -13,12 +13,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
 
 const managedMaxHostArtifactBytes = uint64(4 << 30)
@@ -232,6 +229,13 @@ func (runtime managedRuntime) update(ctx context.Context, opts managedOptions) (
 		envelope.NextAction = []managedNextAction{{Action: "administrator_update", Permission: "administrator"}}
 		return envelope, nil
 	}
+	if issue, permission, refused := managedPrivilegeIssue("update", os.Geteuid()); refused {
+		envelope.State = issue.Code
+		envelope.Disposition = managedDispositionAdministratorAction
+		envelope.Issue = issue
+		envelope.NextAction = []managedNextAction{{Action: "update", Permission: permission}}
+		return envelope, nil
+	}
 	if handled, done := applyUpdateRetryDisposition(envelope, updateOperationFromStatus(status), opts, runtime.now().UTC()); done {
 		return handled, nil
 	}
@@ -308,10 +312,10 @@ func prepareManagedUpdate(ctx context.Context, opts managedOptions, status map[s
 		return "", managedUpdateFailure("target_selection", errors.New("Host artifact URL must be exact HTTPS without credentials, query, or fragment"))
 	}
 	targetApp := filepath.Clean(stringFact(status, "serviceApp"))
-	if !filepath.IsAbs(targetApp) || filepath.Base(targetApp) != bundle.HostAppName {
-		return "", managedUpdateFailure("target_selection", errors.New("installed Host app target is invalid"))
+	if !filepath.IsAbs(targetApp) || filepath.Base(targetApp) != managedServiceAppName {
+		return "", managedUpdateFailure("target_selection", errors.New("installed Host target is invalid"))
 	}
-	stagedApp := filepath.Join(filepath.Dir(targetApp), ".Agent VMM Host."+opts.requestID+".app")
+	stagedApp := managedPreparedUpdatePath(targetApp, opts.requestID)
 	if current, currentErr := managedHostReleaseID(targetApp, false); currentErr == nil && current == opts.targetRelease {
 		if _, statErr := os.Lstat(stagedApp); statErr == nil {
 			return stagedApp, nil
@@ -326,7 +330,7 @@ func prepareManagedUpdate(ctx context.Context, opts managedOptions, status map[s
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return "", managedUpdateFailure("preparation", errors.New("prepared update path is not readable"))
 	}
-	archive, err := os.CreateTemp(filepath.Dir(targetApp), ".agent-vmm-update-*.zip")
+	archive, err := os.CreateTemp(filepath.Dir(targetApp), ".agent-vmm-update-*.archive")
 	if err != nil {
 		return "", managedUpdateFailure("download", err)
 	}
@@ -366,35 +370,8 @@ func prepareManagedUpdate(ctx context.Context, opts managedOptions, status map[s
 	if uint64(written) != opts.artifactSize || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), opts.artifactSHA256) {
 		return "", managedUpdateFailure("download", errors.New("Host artifact bytes do not match the selected size and SHA-256"))
 	}
-	extracted, err := os.MkdirTemp(filepath.Dir(targetApp), ".agent-vmm-update-extract-")
-	if err != nil {
-		return "", managedUpdateFailure("preparation", err)
-	}
-	defer os.RemoveAll(extracted)
-	command := exec.CommandContext(ctx, "/usr/bin/ditto", "-x", "-k", archivePath, extracted)
-	if output, extractErr := command.CombinedOutput(); extractErr != nil {
-		return "", managedUpdateFailure("preparation", fmt.Errorf("Host artifact extraction failed: %s", boundedManagedText(string(output), 256)))
-	}
-	extractedApp := filepath.Join(extracted, bundle.HostAppName)
-	if release, releaseErr := managedHostReleaseID(extractedApp, false); releaseErr != nil || release != opts.targetRelease {
-		return "", managedUpdateFailure("preparation", errors.New("Host artifact release inventory does not match the selected target"))
-	}
-	verify := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", extractedApp)
-	if output, verifyErr := verify.CombinedOutput(); verifyErr != nil {
-		return "", managedUpdateFailure("preparation", fmt.Errorf("Host artifact signature verification failed: %s", boundedManagedText(string(output), 256)))
-	}
-	copyCommand := exec.CommandContext(ctx, "/usr/bin/ditto", extractedApp, stagedApp)
-	if output, copyErr := copyCommand.CombinedOutput(); copyErr != nil {
-		_ = os.RemoveAll(stagedApp)
-		return "", managedUpdateFailure("preparation", fmt.Errorf("Host artifact preparation failed: %s", boundedManagedText(string(output), 256)))
-	}
-	if release, releaseErr := managedHostReleaseID(stagedApp, true); releaseErr != nil || release != opts.targetRelease {
-		_ = os.RemoveAll(stagedApp)
-		return "", managedUpdateFailure("preparation", errors.New("prepared Host app does not match the selected target"))
+	if err := extractManagedUpdate(ctx, archivePath, stagedApp, opts.targetRelease); err != nil {
+		return "", err
 	}
 	return stagedApp, nil
-}
-
-func managedHostReleaseID(app string, staged bool) (string, error) {
-	return bundle.HostReleaseID(app, staged)
 }

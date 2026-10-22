@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -21,7 +21,7 @@ func readManagedLocalLogs(status map[string]any, opts managedOptions, _ time.Tim
 	if err != nil {
 		return nil, "", false, errors.New("service user log directory is unavailable")
 	}
-	base := filepath.Join(account.HomeDir, "Library", "Logs", "AgentVMM")
+	base := serviceLogDirectory(account.HomeDir)
 	paths := []string{filepath.Join(base, "host.stderr.log")}
 	if opts.component == "guest" {
 		paths = []string{filepath.Join(base, "serial.log.previous"), filepath.Join(base, "serial.log")}

@@ -1,4 +1,4 @@
-//go:build darwin && !managedonly
+//go:build (darwin || linux) && !managedonly
 
 package main
 
@@ -29,6 +29,9 @@ import (
 const maxContextBytes = 256 << 20
 
 func main() {
+	if runPlatformMode() {
+		return
+	}
 	if len(os.Args) >= 2 && isManagedCommand(os.Args[1]) {
 		os.Exit(runManagedCLI(os.Args[1:], os.Stdout, os.Stderr, managedRuntime{}))
 	}
@@ -50,7 +53,7 @@ func build(arguments []string) {
 	output := flags.String("output", "", "artifact directory")
 	product := flags.String("product", "", "appliance product id")
 	release := flags.String("release", "", "appliance release")
-	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
+	socket := flags.String("operator-socket", filepath.Join(platformDataDirectory(os.Getenv("HOME")), "operator.sock"), "Agent VMM operator socket")
 	flags.Parse(arguments)
 	if *contextDirectory == "" || *output == "" || *product == "" || *release == "" {
 		flags.Usage()

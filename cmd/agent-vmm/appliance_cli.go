@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -44,7 +44,7 @@ func check(err error) {
 
 func applianceStatus(arguments []string) {
 	flags := flag.NewFlagSet("appliance status", flag.ExitOnError)
-	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
+	socket := flags.String("operator-socket", filepath.Join(platformDataDirectory(os.Getenv("HOME")), "operator.sock"), "Agent VMM operator socket")
 	flags.Parse(arguments)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

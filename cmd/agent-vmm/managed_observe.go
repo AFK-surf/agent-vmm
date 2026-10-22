@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -38,7 +38,7 @@ func (runtime managedRuntime) inspect(ctx context.Context, command string, opts 
 	}
 	now := runtime.now().UTC()
 	envelope := baseManagedEnvelope(command, now, targetFromStatus(status, opts))
-	envelope.Source = []string{"lifecycle", "launchd"}
+	envelope.Source = []string{"lifecycle", managedServiceSource}
 	envelope.Facts = status
 	envelope.State = managedState(status)
 	envelope.Stage, envelope.Issue = managedStageAndIssue(status)
@@ -338,10 +338,10 @@ func managedOperatorSocket(status map[string]any) string {
 	}
 	serviceUser := stringFact(status, "serviceUser")
 	if account, err := user.Lookup(serviceUser); err == nil {
-		return filepath.Join(account.HomeDir, "Library", "Application Support", "AgentVMM", "operator.sock")
+		return filepath.Join(serviceDataDirectory(account.HomeDir), "operator.sock")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "Application Support", "AgentVMM", "operator.sock")
+	return filepath.Join(serviceDataDirectory(home), "operator.sock")
 }
 
 func appendServiceArguments(args []string, opts managedOptions) []string {
@@ -362,7 +362,7 @@ func runManagedHelper(ctx context.Context, path string, arguments []string) ([]b
 }
 
 func runManagedHelperInput(ctx context.Context, path string, arguments []string, input []byte) ([]byte, []byte, error) {
-	command := exec.CommandContext(ctx, path, arguments...)
+	command := exec.CommandContext(ctx, path, lifecycleHelperArguments(arguments)...)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	if input != nil {

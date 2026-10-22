@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -577,14 +577,14 @@ func parseManagedOptions(command, subcommand string, arguments []string) (manage
 	}
 	if opts.lifecycle == "" && command != "vm" && command != "cleanup" {
 		executable, _ := os.Executable()
-		opts.lifecycle = filepath.Join(filepath.Dir(executable), "agent-vmm-lifecycle")
+		opts.lifecycle = defaultLifecycleHelper(executable)
 	}
 	if (command == "vm" || command == "cleanup") && opts.operatorSocket == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return managedOptions{}, errors.New("service user home is unavailable")
 		}
-		opts.operatorSocket = filepath.Join(home, "Library", "Application Support", "AgentVMM", "operator.sock")
+		opts.operatorSocket = filepath.Join(serviceDataDirectory(home), "operator.sock")
 	}
 	return opts, nil
 }

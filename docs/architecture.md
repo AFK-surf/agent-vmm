@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Scope: Apple Silicon with macOS 15 or later
+- Scope: Apple Silicon with macOS 15 or later, and Linux arm64 with KVM as an experimental Host
 
 ## Decision
 
@@ -1136,6 +1136,31 @@ material is staged; the explicit durable Update operation freezes new writers,
 settles existing executions, stops the exact controller, switches artifact and
 grant, and validates target bootstrap and health. A runtime bundle omits bundled upgrade material,
 so it does not install or upgrade the standalone MCP appliance.
+
+### Linux Host release
+
+The Linux Host has no app bundle. One `agent-vmm` executable contains the Host,
+the managed CLI, the VMM child, and the lifecycle (`agent-vmm lifecycle`).
+`build/host-linux/package.sh` makes a tar with `agent-vmm`, `agent-vmm-data`,
+the Guest payload, and `release.json`. `release.json` lists the size and SHA-256
+of each file. Its SHA-256 is the content ID.
+
+The lifecycle uses the same operation journal, managed enrollment handoff, and
+coordinator as macOS. Only a small service adapter is different:
+
+| Concern | macOS | Linux |
+| --- | --- | --- |
+| Release layout | `Agent VMM Host.app` | `/opt/agent-vmm/<content-id>` and the `current` link |
+| State | `~/Library/Application Support/AgentVMM` | `/var/lib/agent-vmm` |
+| Service | launchd job | `agent-vmm-host.service`, user `agent-vmm` in group `kvm` |
+| Version replacement | atomic exchange of the app | atomic rename of the `current` link |
+| Mutation user | non-root service user | root |
+
+The unit uses `KillMode=process`, so a Host restart does not stop the VMM child.
+`Restart=on-failure` restarts a failed Host. A stop sends `SIGTERM` to the Host,
+and the Host stops the VM first. An update stops the VM and the unit. It copies
+the release with hash checks, switches `current`, and starts the unit and the
+VM. It never changes `/var/lib/agent-vmm`.
 
 ## Local MCP and remote compute boundaries
 

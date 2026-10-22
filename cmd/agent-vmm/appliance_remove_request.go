@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -38,7 +38,7 @@ func freezeApplianceRemove(socket string, request *appliancev1.ExecuteRemoveRequ
 	if err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(home, "Library", "Application Support", "AgentVMM", "appliance-requests")
+	directory := filepath.Join(platformDataDirectory(home), "appliance-requests")
 	key := sha256.Sum256([]byte(canonicalSocket + "\x00" + request.GetRequestId()))
 	path := filepath.Join(directory, "remove-"+hex.EncodeToString(key[:])+".json")
 	encoded, err := os.ReadFile(path)

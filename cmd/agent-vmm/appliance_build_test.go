@@ -1,4 +1,4 @@
-//go:build darwin && !managedonly
+//go:build (darwin || linux) && !managedonly
 
 package main
 

@@ -4,6 +4,11 @@ RUN timeout 600 apk add --no-cache bzip2 coreutils cpio curl file findutils git 
 FROM moby/buildkit:rootless AS buildkit
 
 FROM tools AS dependencies
+WORKDIR /kernel-extract
+COPY go.mod go.sum ./
+COPY build/guest/kernel/ build/guest/kernel/
+RUN --mount=type=cache,id=agent-vmm-guest-go-build,target=/root/.cache/go-build,sharing=locked \
+    go build -o /usr/local/bin/guest-kernel ./build/guest/kernel
 COPY build/guest/dependencies.sh /usr/local/bin/guest-dependencies
 RUN --mount=type=cache,id=agent-vmm-guest-downloads,target=/var/cache/agent-vmm-downloads,sharing=locked \
     sh /usr/local/bin/guest-dependencies

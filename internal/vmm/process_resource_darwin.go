@@ -31,3 +31,6 @@ func currentProcessMemoryBytes() (uint64, error) {
 	}
 	return uint64(resident), nil
 }
+
+// The VZ machine runs inside the Host process.
+func (manager *Manager) childProcessResources() (uint64, uint32, error) { return 0, 0, nil }

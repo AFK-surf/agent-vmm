@@ -89,14 +89,20 @@ func (store *Store) RequeueAllocationRetirement(ctx context.Context, id string, 
 	return store.GetEnvironment(ctx, id)
 }
 
+// ListWorkloadEnvironmentPage lists environments that still own their running
+// workloads. Retired allocations, revoking registrations, and local disposals
+// are excluded because their own retirement or disposal stops the workload.
 func (store *Store) ListWorkloadEnvironmentPage(ctx context.Context, after string, limit int) ([]Environment, error) {
 	if limit <= 0 || limit > 32 {
 		limit = 32
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
- memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
- COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at
- FROM environments WHERE id>? AND namespace_id NOT LIKE 'system.%' ORDER BY id LIMIT ?`, after, limit)
+	rows, err := store.db.QueryContext(ctx, environmentSelect+` e WHERE id>? AND namespace_id NOT LIKE 'system.%'
+ AND COALESCE(allocation_state, 0) NOT IN (?, ?)
+ AND NOT EXISTS(SELECT 1 FROM remote_registrations r WHERE r.id=e.registration_id AND r.enrollment_state=?)
+ AND NOT EXISTS(SELECT 1 FROM local_disposals d WHERE (d.target_kind='environment' AND (d.target_id=e.id OR d.namespace_id=e.namespace_id))
+  OR (d.target_kind='registration' AND d.target_id=e.registration_id))
+ ORDER BY id LIMIT ?`, after, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), int32(hostv1.AllocationState_ALLOCATION_STATE_DISCARDED),
+		int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_REVOKING), limit)
 	if err != nil {
 		return nil, err
 	}

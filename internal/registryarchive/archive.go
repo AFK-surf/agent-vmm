@@ -57,6 +57,13 @@ func Export(ctx context.Context, reference, directory string, maxBytes uint64, t
 	if err != nil {
 		return Archive{}, err
 	}
+	config, err := image.ConfigFile()
+	if err != nil {
+		return Archive{}, err
+	}
+	if !matchesARM64(config.Platform()) {
+		return Archive{}, ErrPlatformUnavailable
+	}
 	manifest, err := image.Manifest()
 	if err != nil {
 		return Archive{}, err
@@ -69,10 +76,6 @@ func Export(ctx context.Context, reference, directory string, maxBytes uint64, t
 	if total > maxBytes {
 		return Archive{}, ErrTooLarge
 	}
-	config, err := image.ConfigFile()
-	if err != nil {
-		return Archive{}, err
-	}
 	// ARM64 v8 is the baseline platform. Commit to the normalized image while
 	// retaining its layers and runtime config.
 	if config.Variant == "v8" {
@@ -81,6 +84,10 @@ func Export(ctx context.Context, reference, directory string, maxBytes uint64, t
 		if image, err = mutate.ConfigFile(image, config); err != nil {
 			return Archive{}, err
 		}
+	}
+	image, err = normalizeOCI(image)
+	if err != nil {
+		return Archive{}, err
 	}
 	digest, err := image.Digest()
 	if err != nil {
@@ -140,18 +147,7 @@ func arm64Image(ref name.Reference, options []remote.Option) (v1.Image, error) {
 		return nil, err
 	}
 	if !descriptor.MediaType.IsIndex() {
-		image, err := descriptor.Image()
-		if err != nil {
-			return nil, err
-		}
-		config, err := image.ConfigFile()
-		if err != nil {
-			return nil, err
-		}
-		if config.OS != arm64.OS || config.Architecture != arm64.Architecture {
-			return nil, ErrPlatformUnavailable
-		}
-		return image, nil
+		return descriptor.Image()
 	}
 	index, err := descriptor.ImageIndex()
 	if err != nil {
@@ -162,11 +158,15 @@ func arm64Image(ref name.Reference, options []remote.Option) (v1.Image, error) {
 		return nil, err
 	}
 	for _, child := range manifest.Manifests {
-		if child.Platform != nil && child.Platform.OS == arm64.OS && child.Platform.Architecture == arm64.Architecture && (child.Platform.Variant == "" || child.Platform.Variant == "v8") {
+		if matchesARM64(child.Platform) {
 			return index.Image(child.Digest)
 		}
 	}
 	return nil, ErrPlatformUnavailable
+}
+
+func matchesARM64(platform *v1.Platform) bool {
+	return platform != nil && platform.OS == arm64.OS && platform.Architecture == arm64.Architecture && (platform.Variant == "" || platform.Variant == "v8")
 }
 
 type limitWriter struct {

@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -26,7 +26,7 @@ import (
 
 func applianceLifecycle(command string, arguments []string) {
 	flags := flag.NewFlagSet("appliance "+command, flag.ExitOnError)
-	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
+	socket := flags.String("operator-socket", filepath.Join(platformDataDirectory(os.Getenv("HOME")), "operator.sock"), "Agent VMM operator socket")
 	product := flags.String("product", "", "installed appliance product")
 	installation := flags.String("installation", "", "installation ID; otherwise select the unique product")
 	packagePath := flags.String("package", "", "appliance package directory containing manifest.pb")

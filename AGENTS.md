@@ -68,6 +68,14 @@ Do not record temporary failures or narrow implementation mistakes.
 
 - nftables v0.3.0 sends a whole atomic batch before reading ACKs and rule echoes. The default netlink receive buffer can overflow with seven public namespaces. Keep the explicit per-reconcile receive buffer and five-second deadline. Run the kernel regression in its private network namespace. Its fixture size is not a product capacity limit.
 
+- Linux `fallocate` reserves physical backing for unwritten extents that `SEEK_HOLE` can report as holes. Preserve Linux `fallocate` restoration without zero writes. The Darwin hole repair loop would otherwise rewrite the complete Linux state disk. Skip disk restoration and serial log rotation when the VMM instance lock shows that the VM still runs.
+
+- On Linux the VMM process outlives a Host restart and the new Host adopts the running Guest. Host startup recovery must not assume a freshly booted Guest. Recovery keeps the running containers of every environment that is not retired, revoking, or disposing; the owners of those states stop their workloads. A failed startup commit closes admission and stops egress, but never stops the Guest.
+
+- `http.DefaultTransport.Clone()` or any use of the default transport adds `h2` to its shared `TLSClientConfig.NextProtos`. A custom `http.Transport` that copies that TLS configuration must set `ForceAttemptHTTP2`; otherwise it offers h2, the server selects it, and the HTTP/1 client fails with `malformed HTTP response`. The single `agent-vmm` Linux executable links code that clones the default transport.
+
+- `go-containerregistry` writes Docker schema 2 media types unchanged into an OCI layout. Normalize registry exports before computing the committed manifest digest. Preserve compressed blobs and config/layer digest checks. Test the exported archive through the shared OCI validator, not only by checking that tar entries exist.
+
 ### General Project Assumptions
 
 - This project is new and has no production release. Report code that does not follow current best practices.

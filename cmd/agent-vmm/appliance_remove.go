@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -25,7 +25,7 @@ import (
 
 func applianceRemove(arguments []string) {
 	flags := flag.NewFlagSet("appliance remove", flag.ExitOnError)
-	socket := flags.String("operator-socket", filepath.Join(os.Getenv("HOME"), "Library/Application Support/AgentVMM/operator.sock"), "Agent VMM operator socket")
+	socket := flags.String("operator-socket", filepath.Join(platformDataDirectory(os.Getenv("HOME")), "operator.sock"), "Agent VMM operator socket")
 	installation := flags.String("installation", "", "exact installation ID")
 	requestID := flags.String("request-id", "", "removal plan request ID; retain for retries")
 	revision := flags.Uint64("expected-revision", 0, "revision from the reviewed removal plan")

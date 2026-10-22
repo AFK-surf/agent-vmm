@@ -1,23 +1,26 @@
 package registryarchive
 
 import (
-	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
-	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	digest "github.com/opencontainers/go-digest"
 )
 
 func pushImage(t *testing.T, host, repository string, platform v1.Platform) (string, v1.Image) {
@@ -66,25 +69,14 @@ func TestExportWritesCommittedArchive(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if _, err := ociarchive.Validate(bytes.NewReader(raw), digest.Digest(archive.ManifestDigest)); err != nil {
+				t.Fatalf("exported archive rejected by importer: %v", err)
+			}
 			sum := sha256.Sum256(raw)
 			if uint64(len(raw)) != archive.Size || string(sum[:]) != string(archive.SHA256) || !strings.HasPrefix(archive.ManifestDigest, "sha256:") {
 				t.Fatalf("archive identity = %+v, file bytes=%d", archive, len(raw))
 			}
-			found := false
-			reader := tar.NewReader(strings.NewReader(string(raw)))
-			for {
-				header, err := reader.Next()
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				found = found || header.Name == "blobs/sha256/"+strings.TrimPrefix(archive.ManifestDigest, "sha256:")
-			}
-			if !found {
-				t.Fatal("archive does not contain the committed manifest")
-			}
+
 		})
 	}
 	entries, err := os.ReadDir(directory)
@@ -99,17 +91,92 @@ func TestExportFailuresLeaveNoFiles(t *testing.T) {
 	host := strings.TrimPrefix(server.URL, "http://")
 	amd64, _ := pushImage(t, host, "amd64", v1.Platform{OS: "linux", Architecture: "amd64"})
 	arm64, _ := pushImage(t, host, "large", v1.Platform{OS: "linux", Architecture: "arm64"})
+	arm64v9, _ := pushImage(t, host, "arm64-v9", v1.Platform{OS: "linux", Architecture: "arm64", Variant: "v9"})
 	directory := t.TempDir()
 	for _, test := range []struct {
 		reference string
 		limit     uint64
 		want      error
-	}{{amd64, 8 << 30, ErrPlatformUnavailable}, {arm64, 1024, ErrTooLarge}} {
+	}{{amd64, 8 << 30, ErrPlatformUnavailable}, {arm64v9, 8 << 30, ErrPlatformUnavailable}, {arm64, 1024, ErrTooLarge}} {
 		if _, err := Export(context.Background(), test.reference, directory, test.limit, nil); !errors.Is(err, test.want) {
 			t.Fatalf("Export(%s) error = %v, want %v", test.reference, err, test.want)
 		}
 	}
 	if entries, err := filepath.Glob(filepath.Join(directory, "*")); err != nil || len(entries) != 0 {
 		t.Fatalf("failed export left files: %v %v", entries, err)
+	}
+}
+
+func TestExportDockerIndexBindsSelectedConfig(t *testing.T) {
+	// Captured from https://quay.io/v2/curl/curl/manifests/latest on 2026-10-22.
+	// Replace only the selected descriptor identity with the local image fixture.
+	fixture, err := os.ReadFile("testdata/curl-index.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, platform := range []v1.Platform{
+		{OS: "linux", Architecture: "arm64", Variant: "v8"},
+		{OS: "linux", Architecture: "amd64"},
+		{OS: "linux", Architecture: "arm64", Variant: "v9"},
+	} {
+		t.Run(platform.String(), func(t *testing.T) {
+			var index v1.IndexManifest
+			if err := json.Unmarshal(fixture, &index); err != nil {
+				t.Fatal(err)
+			}
+			var rawIndex []byte
+			backend := registry.New()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v2/curl/manifests/index" {
+					w.Header().Set("Content-Type", string(index.MediaType))
+					_, _ = w.Write(rawIndex)
+					return
+				}
+				backend.ServeHTTP(w, r)
+			}))
+			defer server.Close()
+			host := strings.TrimPrefix(server.URL, "http://")
+			_, image := pushImage(t, host, "curl", platform)
+			hash, err := image.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			size, err := image.Size()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range index.Manifests {
+				if matchesARM64(index.Manifests[i].Platform) {
+					index.Manifests[i].Digest = hash
+					index.Manifests[i].Size = size
+				}
+			}
+			rawIndex, err = json.Marshal(index)
+			if err != nil {
+				t.Fatal(err)
+			}
+			directory := t.TempDir()
+			archive, err := Export(context.Background(), host+"/curl:index", directory, 1<<20, nil)
+			if platform.Architecture != "arm64" || platform.Variant == "v9" {
+				if !errors.Is(err, ErrPlatformUnavailable) {
+					t.Fatalf("mismatched index/config error=%v", err)
+				}
+				entries, readErr := os.ReadDir(directory)
+				if readErr != nil || len(entries) != 0 {
+					t.Fatalf("rejected image left files: %v, %v", entries, readErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(archive.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ociarchive.Validate(bytes.NewReader(data), digest.Digest(archive.ManifestDigest)); err != nil {
+				t.Fatalf("Docker arm64/v8 export rejected: %v", err)
+			}
+		})
 	}
 }

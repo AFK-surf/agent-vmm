@@ -223,7 +223,7 @@ func TestDirectoryShareBootPlatform(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := waitState(ctx, machine, vz.VirtualMachineStateStopped); err != nil {
+	if err := waitState(ctx, &darwinMachine{VirtualMachine: machine}, hostv1.VMState_VM_STATE_STOPPED); err != nil {
 		t.Fatal(err)
 	}
 	if err := listener.Close(); err != nil {

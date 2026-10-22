@@ -208,6 +208,12 @@ This table is the authoritative availability source for managed local tools.
 
 Operational documents must use the formal-bundle column.
 
+The code is in `internal/lifecycle`. This command is the macOS helper only.
+On Linux, `agent-vmm lifecycle` runs the same commands, except `maintenance`,
+`maintenance-status`, and `publish-host`. Linux mutations run as root and
+manage the fixed `agent-vmm-host.service` unit. See
+[the Linux Host service](../../test/kvmdev/README.md#linux-host-service).
+
 The helper owns Cue/BFT Host service operations and managed remote enrollment.
 It does not install the standalone MCP appliance. Standalone appliance operations
 use `ApplianceAdminService` directly.

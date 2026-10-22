@@ -1,0 +1,22 @@
+[Unit]
+Description=Agent VMM Host
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{.User}}
+Group={{.Group}}
+WorkingDirectory={{.State}}
+ExecStart={{.Current}}/agent-vmm host --bundle {{.Current}}/guest --instance {{.State}}/instance --serial-log {{.State}}/logs/serial.log --operator-socket {{.State}}/operator.sock --remote-compute-socket {{.State}}/remote-compute.sock --database {{.State}}/host.sqlite --session-directory {{.State}}/sessions --data-worker {{.Current}}/agent-vmm-data --disable-personal-mesh-pairing
+# The VMM child has its own session and must outlive a Host restart. An
+# explicit stop sends SIGTERM to the Host, which stops the VM first.
+KillMode=process
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+StandardOutput=append:{{.State}}/logs/host.stdout.log
+StandardError=append:{{.State}}/logs/host.stderr.log
+
+[Install]
+WantedBy=multi-user.target

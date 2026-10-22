@@ -39,6 +39,7 @@ fn start_worker(root: &Path, name: &str) -> Worker {
             "--service-capability-file",
             capability.to_str().unwrap(),
         ])
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -79,6 +80,22 @@ fn context(joiner_bound: bool) -> Value {
         "joiner_root_key": bytes(if joiner_bound { &[3; 33] } else { &[] }),
         "roles_and_features": bytes(if joiner_bound { b"use-services" } else { b"" })
     })
+}
+
+#[test]
+fn worker_exits_when_host_lifeline_closes() {
+    let root = tempfile::tempdir().unwrap();
+    let mut worker = start_worker(root.path(), "lifeline");
+    drop(worker.child.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while worker.child.try_wait().unwrap().is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "worker outlived its Host lifeline"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!worker.socket.exists(), "worker left its control socket");
 }
 
 #[test]

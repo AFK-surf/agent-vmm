@@ -157,6 +157,8 @@ This project is new and has no production release.
 
 The current implementation targets Apple Silicon and macOS 15 or later. Guest artifacts target Linux arm64.
 
+Linux arm64 with KVM is a supported experimental Host. It runs as the `agent-vmm-host.service` systemd unit. Linux amd64 and Windows builds only compile. They do not have a Guest or runtime tests. Read [the Linux Host section](test/kvmdev/README.md#linux-host-service) for install and update.
+
 ## Interfaces
 
 `agent-vmm-host` exposes one `0600` operator Unix socket and creates a separate `0600` Unix socket for each agent session. An agent cannot choose or replace its guest namespace in a request. The private guest protocol is reachable only by the host controller; no raw runtime relay is installed.

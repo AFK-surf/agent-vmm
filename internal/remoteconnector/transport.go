@@ -7,8 +7,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"runtime"
-	"syscall"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -129,13 +127,7 @@ func validateSocket(path string) error {
 	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600 {
 		return fmt.Errorf("remote compute socket has unsafe permissions")
 	}
-	if runtime.GOOS != "windows" {
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || int(stat.Uid) != os.Getuid() {
-			return fmt.Errorf("remote compute socket has unsafe owner")
-		}
-	}
-	return nil
+	return checkSocketOwner(info, "remote compute socket")
 }
 
 type controllerClient struct {

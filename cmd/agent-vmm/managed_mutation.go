@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -133,13 +133,13 @@ func (runtime managedRuntime) repair(ctx context.Context, opts managedOptions) (
 		return managedEnvelope{}, err
 	}
 	envelope := baseManagedEnvelope("repair", runtime.now().UTC(), targetFromStatus(status, opts))
-	envelope.Source = []string{"lifecycle", "launchd"}
+	envelope.Source = []string{"lifecycle", managedServiceSource}
 	envelope.Freshness = "current"
 	envelope.State = managedState(status)
-	if os.Geteuid() == 0 {
-		envelope.State = "needs_service_user"
-		envelope.Issue = managedIssue{Code: "needs_service_user", Message: "repair must run as the configured non-root service user", Layer: "lifecycle", Retryable: managedBool(true)}
-		envelope.NextAction = []managedNextAction{{Action: "repair", Permission: "service_user"}}
+	if issue, permission, refused := managedPrivilegeIssue("repair", os.Geteuid()); refused {
+		envelope.State = issue.Code
+		envelope.Issue = issue
+		envelope.NextAction = []managedNextAction{{Action: "repair", Permission: permission}}
 		return envelope, nil
 	}
 	if boolFact(status, "hostLoaded") && !boolFact(status, "hostRunning") && os.Geteuid() != 0 && strings.HasPrefix(stringFact(status, "hostJob"), "system/") {

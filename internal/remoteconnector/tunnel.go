@@ -9,10 +9,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -388,11 +386,5 @@ func validateRuntimeSocket(path string) error {
 	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600 {
 		return fmt.Errorf("runtime session socket has unsafe permissions")
 	}
-	if runtime.GOOS != "windows" {
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || int(stat.Uid) != os.Getuid() {
-			return fmt.Errorf("runtime session socket has unsafe owner")
-		}
-	}
-	return nil
+	return checkSocketOwner(info, "runtime session socket")
 }

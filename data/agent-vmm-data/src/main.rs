@@ -14,7 +14,9 @@ use anyhow::{Context, Result};
 use iroh::{Endpoint, endpoint::presets};
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    io::Read,
+    os::unix::fs::MetadataExt,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -52,6 +54,7 @@ struct PairingStatusResponse<'a> {
 async fn main() -> Result<()> {
     let (socket, service_socket, mesh_control_socket, service_capability_file) =
         socket_arguments()?;
+    let host_exited = watch_lifeline();
     let service_capability = tokio::fs::read(service_capability_file).await?;
     anyhow::ensure!(
         service_capability.len() >= 32 && service_capability.len() <= MAX_LOCAL_CAPABILITY_BYTES,
@@ -74,6 +77,7 @@ async fn main() -> Result<()> {
     let pairing_sessions: PairingSessions = Arc::new(Mutex::new(HashMap::new()));
     let semaphore = Arc::new(Semaphore::new(MAX_STREAMS));
     let listener = UnixListener::bind(&socket).context("bind local control socket")?;
+    let socket_identity = file_identity(&socket).context("read local control socket identity")?;
 
     let ipc = tokio::spawn(serve_ipc(
         listener,
@@ -91,13 +95,48 @@ async fn main() -> Result<()> {
         Arc::new(service_capability),
         pairing_sessions,
     ));
-    tokio::signal::ctrl_c().await?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => result?,
+        _ = host_exited => {}
+    }
     accounting.drain();
     endpoint.close().await;
     ipc.abort();
     incoming.abort();
-    let _ = tokio::fs::remove_file(&socket).await;
+    remove_owned_socket(&socket, socket_identity);
     Ok(())
+}
+
+fn file_identity(path: &Path) -> std::io::Result<(u64, u64)> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    Ok((metadata.dev(), metadata.ino()))
+}
+
+/// A replacement worker may already have bound the same path; remove only the
+/// socket that this worker bound.
+fn remove_owned_socket(path: &Path, identity: (u64, u64)) {
+    if file_identity(path).is_ok_and(|current| current == identity) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The Host holds the write end of stdin. EOF means that the Host exited, so
+/// the worker must not outlive it.
+fn watch_lifeline() -> tokio::sync::oneshot::Receiver<()> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin().lock();
+        let mut byte = [0u8; 1];
+        loop {
+            match stdin.read(&mut byte) {
+                Ok(0) => break,
+                Err(error) if error.kind() != std::io::ErrorKind::Interrupted => break,
+                _ => {}
+            }
+        }
+        let _ = sender.send(());
+    });
+    receiver
 }
 
 fn socket_arguments() -> Result<(PathBuf, PathBuf, PathBuf, PathBuf)> {
@@ -646,4 +685,24 @@ async fn bridge(
     accounting.add_out(outbound);
     accounting.add_in(inbound);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{file_identity, remove_owned_socket};
+
+    #[test]
+    fn socket_removal_spares_a_replacement_socket() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("data.sock");
+        let previous = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let previous_identity = file_identity(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let replacement = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        remove_owned_socket(&path, previous_identity);
+        assert!(path.exists());
+        remove_owned_socket(&path, file_identity(&path).unwrap());
+        assert!(!path.exists());
+        drop((previous, replacement));
+    }
 }

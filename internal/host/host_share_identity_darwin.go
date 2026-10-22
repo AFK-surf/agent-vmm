@@ -81,3 +81,5 @@ func identifyHostShareSource(source *os.File) (store.HostShareSource, error) {
 func hostShareVolumeSupported(internal, local, removable, ejectable bool) bool {
 	return internal && local && !removable && !ejectable
 }
+
+func hostSharesSupported() error { return nil }

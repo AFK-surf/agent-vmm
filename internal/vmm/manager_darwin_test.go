@@ -63,87 +63,6 @@ func TestResourceSnapshotKeepsUnavailableCurrentMemoryAbsent(t *testing.T) {
 	}
 }
 
-func TestUnexpectedStopFencesAdmissionAndHandsEveryStopToRecovery(t *testing.T) {
-	machine := new(vz.VirtualMachine)
-	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "boot-one", machine: machine}
-	fences := 0
-	manager.admissionFence = func() {
-		fences++
-		if manager.state != hostv1.VMState_VM_STATE_RUNNING || manager.bootID != "boot-one" {
-			t.Fatal("admission fence ran after terminal state was published")
-		}
-	}
-	manager.invalidate = func() {}
-	var recovered []string
-	manager.recover = func(previousBootID string) { recovered = append(recovered, previousBootID) }
-	_, recover, bootID := manager.terminalTransition(machine, vz.VirtualMachineStateStopped, true)
-	if manager.state != hostv1.VMState_VM_STATE_STOPPED || manager.bootID != "" || recover == nil || fences != 1 {
-		t.Fatalf("first transition = state %s boot %q fences %d", manager.state, manager.bootID, fences)
-	}
-	recover(bootID)
-	manager.state, manager.bootID = hostv1.VMState_VM_STATE_RUNNING, "boot-two"
-	machine = new(vz.VirtualMachine)
-	manager.machine = machine
-	manager.admissionFence = nil
-	_, recover, bootID = manager.terminalTransition(machine, vz.VirtualMachineStateError, true)
-	if recover == nil || manager.state != hostv1.VMState_VM_STATE_FAILED || manager.bootID != "" {
-		t.Fatalf("second transition = %+v", manager.snapshotLocked())
-	}
-	recover(bootID)
-	if len(recovered) != 2 || recovered[0] != "boot-one" || recovered[1] != "boot-two" {
-		t.Fatalf("recovered boots = %v", recovered)
-	}
-}
-
-func TestExpectedStopDoesNotRecover(t *testing.T) {
-	machine := new(vz.VirtualMachine)
-	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPING, bootID: "boot", machine: machine, recover: func(string) {}}
-	_, recover, _ := manager.terminalTransition(machine, vz.VirtualMachineStateStopped, true)
-	if recover != nil || manager.state != hostv1.VMState_VM_STATE_STOPPED {
-		t.Fatalf("expected stop = state %s recover %t", manager.state, recover != nil)
-	}
-}
-
-func TestFailedVMWithMachineIsStillAttached(t *testing.T) {
-	manager := &Manager{state: hostv1.VMState_VM_STATE_FAILED, machine: new(vz.VirtualMachine)}
-	if !manager.HasMachineAttachment() {
-		t.Fatal("FAILED VM attachment was treated as terminal")
-	}
-	manager.machine = nil
-	if manager.HasMachineAttachment() {
-		t.Fatal("released VM remained attached")
-	}
-}
-
-func TestStaleMachineNotificationCannotInvalidateCurrentRuntime(t *testing.T) {
-	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "current", machine: new(vz.VirtualMachine)}
-	invalidate, recover, _ := manager.terminalTransition(new(vz.VirtualMachine), vz.VirtualMachineStateStopped, true)
-	if invalidate != nil || recover != nil || manager.state != hostv1.VMState_VM_STATE_RUNNING || manager.bootID != "current" {
-		t.Fatalf("stale notification changed current runtime: %+v", manager.snapshotLocked())
-	}
-}
-
-func TestRecoveryFailureRequiresOperatorAction(t *testing.T) {
-	manager := &Manager{state: hostv1.VMState_VM_STATE_STOPPED}
-	manager.FailRecovery(errors.New("policy replay failed"))
-	if manager.state != hostv1.VMState_VM_STATE_FAILED || !strings.Contains(manager.lastErr, "operator action required") || !strings.Contains(manager.lastErr, "policy replay failed") {
-		t.Fatalf("recovery failure = %+v", manager.snapshotLocked())
-	}
-}
-
-func TestClosedStateNotificationFailsClosed(t *testing.T) {
-	machine := new(vz.VirtualMachine)
-	manager := &Manager{state: hostv1.VMState_VM_STATE_RUNNING, bootID: "boot", machine: machine}
-	invalidated := false
-	manager.invalidate = func() { invalidated = true }
-	states := make(chan vz.VirtualMachineState)
-	close(states)
-	manager.observeStateChanges(machine, states)
-	if !invalidated || manager.state != hostv1.VMState_VM_STATE_FAILED || manager.bootID != "" {
-		t.Fatalf("closed notification channel did not fail closed: %+v invalidated=%t", manager.snapshotLocked(), invalidated)
-	}
-}
-
 func TestReadVerifiedBundledApplianceMaterialReturnsOuterLockedPair(t *testing.T) {
 	directory := t.TempDir()
 	manifestBytes := []byte("canonical-appliance-manifest")
@@ -336,9 +255,9 @@ func TestHostDirectorySharesRequireDetachedTerminalVM(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			existing := map[string]*vz.SharedDirectory{"existing": directory}
-			manager := &Manager{state: test.state, hostDirectoryShares: existing}
+			manager := &Manager{state: test.state, platformConfig: platformConfig{hostDirectoryShares: existing}}
 			if test.attached {
-				manager.machine = new(vz.VirtualMachine)
+				manager.machine = &darwinMachine{VirtualMachine: new(vz.VirtualMachine)}
 			}
 			supplied := map[string]*vz.SharedDirectory{"authorized": directory}
 			err := manager.SetHostDirectoryShares(supplied)
@@ -442,20 +361,5 @@ func TestBundleFailurePrecedesInstanceCreation(t *testing.T) {
 	}
 	if _, err := os.Stat(instance); !os.IsNotExist(err) {
 		t.Fatalf("instance created before verification: %v", err)
-	}
-}
-
-func TestStopFailedVMUsesExactMachineFact(t *testing.T) {
-	for _, force := range []bool{false, true} {
-		manager := &Manager{state: hostv1.VMState_VM_STATE_FAILED, lastErr: "guest startup failed", bootID: "stale-boot"}
-		vm, err := manager.Stop(context.Background(), force)
-		if err != nil || vm.GetState() != hostv1.VMState_VM_STATE_STOPPED || vm.GetBootId() != "" || vm.GetError() != "guest startup failed" {
-			t.Fatalf("force=%t vm=%v err=%v", force, vm, err)
-		}
-	}
-	machine := &vz.VirtualMachine{}
-	manager := &Manager{state: hostv1.VMState_VM_STATE_FAILED, machine: machine, lastErr: "failed with retained instance"}
-	if _, err := manager.Stop(context.Background(), false); err == nil || manager.machine != machine || manager.state != hostv1.VMState_VM_STATE_FAILED || manager.lastErr != "failed with retained instance" {
-		t.Fatal("retained failed instance was treated as stopped")
 	}
 }

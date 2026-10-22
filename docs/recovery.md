@@ -601,6 +601,36 @@ revision checks, stopping an old exact instance, preparation, and start.
 Synchronous VM recovery requires the current installation and published health
 to agree on the current boot and container instance before reporting completion.
 
+### Linux Host update and recovery
+
+The Linux Host has one fixed system service. Run each lifecycle change as root.
+The Host itself runs as the `agent-vmm` user.
+
+| Item | Path |
+| --- | --- |
+| Releases | `/opt/agent-vmm/<content-id>`, with the `current` link |
+| State | `/var/lib/agent-vmm` |
+| Logs | `/var/lib/agent-vmm/logs` |
+| Unit | `/etc/systemd/system/agent-vmm-host.service` |
+
+For a state-preserving update:
+
+1. Select the release tar by release ID, exact HTTPS URL, SHA-256, and size.
+2. Run `sudo /opt/agent-vmm/current/agent-vmm update` with these values and a stable request ID.
+3. If the update fails, read the failed stage in the output.
+4. Retry the same request ID. Do not use a new request ID for the same release.
+5. Make sure that the VM is healthy and that the registration is connected.
+
+The updater writes the tar contents to `/opt/agent-vmm/.<request-id>`. The
+lifecycle stops the VM and the unit. It copies the files to the content-ID
+directory and checks each file against `release.json`. It switches `current`
+in one rename. Then it starts the unit and the VM, and it removes the other
+releases. It does not change `/var/lib/agent-vmm`.
+
+If the VMM process holds `instance/vmm.lock` after the unit stops, the update
+fails before the switch. Stop that exact process, then retry the same request.
+Do not delete `/var/lib/agent-vmm` to recover a failed update.
+
 ### Targeted cleanup
 
 Targeted cleanup is the default response to an interrupted update. Resolve an

@@ -43,18 +43,27 @@ func Attach(socket string) (*Supervisor, error) {
 
 // Start bounds only readiness by ctx. Close owns the process lifetime: it
 // drains and interrupts the worker. A killed worker can take seconds to be
-// reaped, so cancellation of ctx must not kill a ready worker.
+// reaped, so cancellation of ctx must not kill a ready worker. The worker
+// reads its stdin as a lifeline and exits at EOF, which also happens when
+// this process dies without calling Close.
 func Start(ctx context.Context, binary, socket, serviceSocket, meshControlSocket, serviceCapabilityFile string) (*Supervisor, error) {
 	if !filepath.IsAbs(binary) || !filepath.IsAbs(socket) || !filepath.IsAbs(serviceSocket) || !filepath.IsAbs(meshControlSocket) || !filepath.IsAbs(serviceCapabilityFile) {
 		return nil, fmt.Errorf("data worker binary, control socket, service/mesh sockets, and capability file must be absolute")
 	}
+	lifeline, held, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	defer lifeline.Close()
 	command := exec.Command(binary, "--socket", socket, "--service-socket", serviceSocket, "--mesh-control-socket", meshControlSocket, "--service-capability-file", serviceCapabilityFile)
+	command.Stdin = lifeline
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
+		held.Close()
 		return nil, fmt.Errorf("start data worker: %w", err)
 	}
 	supervisor := &Supervisor{command: command, socket: socket, done: make(chan error, 1)}
-	go func() { supervisor.done <- command.Wait() }()
+	go func() { supervisor.done <- command.Wait(); held.Close() }()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		probe, err := supervisor.Status(ctx)

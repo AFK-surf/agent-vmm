@@ -141,10 +141,10 @@ kernel_config=$(find "$root/boot" -name 'config-*' -type f)
 for symbol in ARM64 BRIDGE CGROUPS CGROUP_BPF EXT4_FS INET NETFILTER NF_TABLES OVERLAY_FS RD_XZ SECCOMP SECCOMP_FILTER SQUASHFS SQUASHFS_XZ SQUASHFS_ZSTD TUN VETH VIRTIO VIRTIO_BALLOON VIRTIO_BLK VIRTIO_CONSOLE VIRTIO_NET VIRTIO_VSOCKETS VSOCKETS XZ_DEC XZ_DEC_ARM64; do
   grep -Eq "^CONFIG_${symbol}=[ym]$" "$kernel_config"
 done
-extract_vmlinux=$work/downloads/extract-vmlinux
-fetch_current "https://raw.githubusercontent.com/torvalds/linux/master/scripts/extract-vmlinux" "$extract_vmlinux"
-chmod 0755 "$extract_vmlinux"
-"$extract_vmlinux" "$root/boot/vmlinuz-"* >"$bundle/Image"
+for symbol in RTC_DRV_PL031 RTC_HCTOSYS; do
+  grep -Eq "^CONFIG_${symbol}=y$" "$kernel_config"
+done
+guest-kernel "$root/boot/vmlinuz-"* >"$bundle/Image"
 test -s "$bundle/Image"
 
 runsc_archive=$work/downloads/gvisor.tar.bz2
