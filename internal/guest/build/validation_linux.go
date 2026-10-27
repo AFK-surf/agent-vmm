@@ -5,12 +5,12 @@ package build
 import (
 	"encoding/hex"
 	"errors"
-	"github.com/opencontainers/go-digest"
 	"regexp"
 	"strings"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/imageref"
+	"github.com/opencontainers/go-digest"
 )
 
 var buildName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,127}$`)
@@ -28,13 +28,13 @@ func validateHeader(header *vmmdv1.BuildImageHeader) error {
 			return errors.New("build context requires canonical sha256")
 		}
 	}
-	canonicalImage, err := guestimage.NormalizeReference(header.GetImage())
+	canonicalImage, err := imageref.NormalizeReference(header.GetImage())
 	if err != nil {
 		return errors.New("invalid image name")
 	}
 	header.Image = canonicalImage
 	if header.GetBaseImageReference() != "" || header.GetBaseManifestDigest() != "" {
-		reference, err := guestimage.NormalizeReference(header.GetBaseImageReference())
+		reference, err := imageref.NormalizeReference(header.GetBaseImageReference())
 		expected := digest.Digest(header.GetBaseManifestDigest())
 		if err != nil || expected.Validate() != nil || expected.Algorithm() != digest.SHA256 {
 			return errors.New("build base requires image reference and sha256 digest")

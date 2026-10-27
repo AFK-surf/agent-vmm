@@ -69,6 +69,9 @@ EOF results do not replace the full Guest integration tests.
 This test uses the complete Guest and current VMMD API.
 The KVM Guest has one vCPU, 2 GiB of RAM, and a disposable 32 GiB sparse state disk.
 The sparse disk belongs to the test fixture. It does not validate Host physical backing.
+The namespace and container each allow 512 PIDs, as in the Host E2E fixtures.
+These cgroups also count runsc threads and systrap stub processes.
+This test covers runtime startup, not PID exhaustion.
 
 1. Select a Guest bundle built from the current source.
 
@@ -109,7 +112,6 @@ It does not change the source bundle.
 Its result applies to the cached kernel and dependencies. It does not validate the current dependency set.
 Both modes use the existing Docker tools image without downloads.
 
-The current-bundle test passed on 2026-10-22 with kernel 6.18.58, containerd 2.3.7, and runsc release-20261012.0.
 These versions record the tested artifacts. They are not dependency pins.
 The test runs VMMD through the VMM process API, without the complete Host and Rust data worker.
 It does not test public registry traffic, Host deployment, filesystem conversion, amd64 runtime, or Windows runtime.
@@ -188,7 +190,7 @@ OUTPUT_DIRECTORY="$(pwd)/dist/linux-arm64" \
 The script writes `agent-vmm-linux-dev-1-linux-arm64.tar.gz` and a JSON record.
 The record gives the release ID, the content ID, and the tar SHA-256 and size.
 
-To install the release with a Salix install descriptor:
+To install the release with a controller install descriptor:
 
 1. Copy the tar and the descriptor JSON to the Linux machine.
 2. Extract the tar.
@@ -322,39 +324,4 @@ Stop the foreground Host with `Ctrl-C` after the VM stops.
 Keep the experiment state and result logs for inspection.
 Do not delete shared image content or an existing installation to prepare another probe.
 
-### Native validation evidence
-
-On 2026-10-22, the complete probe passed on Ubuntu 24.04 arm64 with kernel `7.0.0-1019-nvidia`.
-The Host ran through `sudo -n -u darksky -g kvm` for that process.
-The test did not change permanent account group membership.
-Its 16 GiB state disk had full physical backing and preserved the 10 GiB Host emergency space.
-The test did not register services, change system configuration, or install global dependencies.
-
-The real Rust QUIC path carried 297 input bytes and 136 output bytes through the Host MeshControl service.
-All 23 Linux Rust worker tests also passed, without Rust source or crate changes.
-The public Quay pull reported `downloading from registry`, then committed image digest `sha256:65643c519ca49a564f069edf05dc9b0dc6f0a9d4ef62556d015b82a3c7e45d08`.
-It reported 11,115,324 image bytes.
-The gVisor workload passed trusted HTTPS, rejected the self-signed certificate with curl code `60`, and exited with code zero.
-
-The Host restarted on the existing state disk and retained the earlier test environment.
-The Host booted a new Guest from that retained disk, with boot ID `30e90a3d-5dc3-4ff2-b8d9-835de6e4fc43`.
-This tested a disk restart, not a memory resume.
-Normal Operator VM stop succeeded without force.
-Host `SIGTERM` completed Guest poweroff and removed the Host, VMM, and worker processes.
-The final `/proc` check found no executable under the experiment `bin/` directory.
-
-| Artifact | SHA-256 |
-| --- | --- |
-| Native Host executable | `551041f7b0e9218d69df45a7ac108f7f39acc2726241e690d7f0c2b31286d7f3` |
-| Linux Rust data worker | `13a006d3b670b2e9f103cf06af63bedf0afd209e3710bd30529bc6047d85403d` |
-| Native probe executable | `6088a8389953c6b7245302a0e2fad8102ff9a40b6bcf84922307eedd06cf9cab` |
-| Canonical Guest manifest | `0f6e15682691e560a2adfb56483f3c346cf9c9ad7c20acab5244da26a0954ec8` |
-
-Result files reside in `.build/linux-kvm/native-results` after collection from the experiment machine.
-They include `host-smoke.log`, `stop.json`, `host.log`, `serial.log`, and `native-summary.json`.
-The summary records artifact hashes, physical state allocation, and an empty list of remaining test processes.
-The first cold pull exposed Docker Schema 2 media types in the exported archive.
-The fix normalizes the image to OCI before it computes the committed manifest digest.
-The complete native probe passed after that fix.
-Docker Hub remained unreachable during its baseline check. The successful registry test used the official Quay image.
-Legacy disk conversion, service installation, amd64 runtime, and Windows runtime remain outside this native probe.
+#

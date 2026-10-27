@@ -14,6 +14,8 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"google.golang.org/grpc"
@@ -246,7 +248,7 @@ func (runtime managedRuntime) operation(ctx context.Context, subcommand string, 
 		if err := runtime.sleep(ctx, managedPollInterval); err != nil {
 			last := result[len(result)-1]
 			last.Partial = true
-			last.Issue = managedIssue{Code: "follow_timeout", Message: "follow reached its 60 second observation budget", Layer: opts.owner, Retryable: managedBool(true)}
+			last.Issue = managedIssue{Code: "follow_timeout", Message: "follow reached its observation budget", Layer: opts.owner, Retryable: managedBool(true)}
 			last.NextAction = []managedNextAction{{Action: "operation_follow", Permission: "service_user"}}
 			result = append(result, last)
 			if emit != nil {
@@ -361,18 +363,60 @@ func runManagedHelper(ctx context.Context, path string, arguments []string) ([]b
 	return runManagedHelperInput(ctx, path, arguments, nil)
 }
 
-func runManagedHelperInput(ctx context.Context, path string, arguments []string, input []byte) ([]byte, []byte, error) {
-	command := exec.CommandContext(ctx, path, lifecycleHelperArguments(arguments)...)
-	var stdout, stderr bytes.Buffer
-	command.Stdout, command.Stderr = &stdout, &stderr
-	if input != nil {
-		command.Stdin = bytes.NewReader(input)
-	}
-	err := command.Run()
-	return stdout.Bytes(), stderr.Bytes(), err
+type managedOutputBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
 }
 
-func managedOperatorConnection(ctx context.Context, socket string) (*grpc.ClientConn, error) {
+func (buffer *managedOutputBuffer) Write(data []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.Write(data)
+}
+func (buffer *managedOutputBuffer) snapshot() []byte {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return append([]byte(nil), buffer.buffer.Bytes()...)
+}
+
+func runManagedHelperInput(ctx context.Context, path string, arguments []string, input []byte) ([]byte, []byte, error) {
+	detached := len(arguments) > 0 && (arguments[0] == "repair" || arguments[0] == "update" || arguments[0] == "install" || arguments[0] == "install-managed" || arguments[0] == "maintenance")
+	var command *exec.Cmd
+	if detached {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		command = exec.Command(path, lifecycleHelperArguments(arguments)...)
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	} else {
+		command = exec.CommandContext(ctx, path, lifecycleHelperArguments(arguments)...)
+	}
+	var stdout, stderr managedOutputBuffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	retained := append([]byte(nil), input...)
+	if retained != nil {
+		command.Stdin = bytes.NewReader(retained)
+	}
+	if err := command.Start(); err != nil {
+		return nil, nil, err
+	}
+	done := make(chan error, 1)
+	go func() {
+		err := command.Wait()
+		for index := range retained {
+			retained[index] = 0
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return stdout.snapshot(), stderr.snapshot(), err
+	case <-ctx.Done():
+		return stdout.snapshot(), stderr.snapshot(), ctx.Err()
+	}
+}
+
+func managedOperatorConnection(socket string) (*grpc.ClientConn, error) {
 	if socket == "" || !filepath.IsAbs(socket) {
 		return nil, errors.New("operator socket is unavailable")
 	}
@@ -382,7 +426,7 @@ func managedOperatorConnection(ctx context.Context, socket string) (*grpc.Client
 }
 
 func getManagedOperation(ctx context.Context, socket, operationID string) (*hostv1.Operation, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}
@@ -395,12 +439,12 @@ func getManagedOperation(ctx context.Context, socket, operationID string) (*host
 }
 
 func getManagedEnvironment(ctx context.Context, socket, environmentID string) (*hostv1.AgentEnvironment, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}
 	defer connection.Close()
-	response, err := hostv1.NewOperatorServiceClient(connection).GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: environmentID})
+	response, err := hostv1.NewOperatorServiceClient(connection).GetEnvironment(ctx, &hostv1.OperatorServiceGetEnvironmentRequest{EnvironmentId: environmentID})
 	if err != nil || response == nil {
 		return nil, err
 	}
@@ -408,7 +452,7 @@ func getManagedEnvironment(ctx context.Context, socket, environmentID string) (*
 }
 
 func getManagedRegistration(ctx context.Context, socket, registrationID string) (*hostv1.RemoteRegistration, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}

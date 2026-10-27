@@ -9,11 +9,11 @@ import (
 )
 
 type hostControlStream interface {
-	Send(*remotev1.HostControlMessage) error
+	Send(*remotev1.ConnectRequest) error
 }
 
 type controlWrite struct {
-	message *remotev1.HostControlMessage
+	message *remotev1.ConnectRequest
 	result  chan error
 }
 
@@ -50,7 +50,7 @@ func (writer *controlWriter) run(ctx context.Context, stream hostControlStream, 
 	}
 }
 
-func (writer *controlWriter) Send(ctx context.Context, message *remotev1.HostControlMessage) error {
+func (writer *controlWriter) Send(ctx context.Context, message *remotev1.ConnectRequest) error {
 	request := controlWrite{message: message, result: make(chan error, 1)}
 	select {
 	case writer.queue <- request:

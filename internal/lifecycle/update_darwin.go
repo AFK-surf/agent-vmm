@@ -14,10 +14,12 @@ func updateApplication(value paths, sourceApp, targetReleaseID, requestID string
 	return updateApplicationWith(value, sourceApp, targetReleaseID, requestID, updateApplicationActions{
 		releaseID: bundle.HostReleaseID,
 		drain:     drain,
-		replace:   atomicReplaceApp,
-		repair:    repair,
-		startVM:   ensureVMStarted,
-		remove:    os.RemoveAll,
+		replace: func(source, target string) error {
+			return defaultMaintenanceActions().replace(value, maintenanceRequest{RequestID: requestID, SourceApp: source, TargetApp: target, TargetReleaseID: targetReleaseID})
+		},
+		repair:  repair,
+		startVM: ensureVMStartedContext,
+		remove:  os.RemoveAll,
 	})
 }
 

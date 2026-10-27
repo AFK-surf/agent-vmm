@@ -14,7 +14,7 @@ mkdir -p "$output"
 output=$(CDPATH= cd -- "$output" && pwd)
 set -- docker buildx build --platform linux/arm64 \
   --file "$repository/build/guest/Dockerfile" --build-arg "BUILD_PROFILE=$profile" \
-  --build-arg "BUNDLE_FLAVOR=$flavor" --output "type=local,dest=$output"
+  --build-arg "BUNDLE_FLAVOR=$flavor" --build-arg "GOTOOLCHAIN=$(awk '$1 == "toolchain" {print $2}' "$repository/go.mod")" --output "type=local,dest=$output"
 if [ "${AGENT_VMM_REFRESH_DEPENDENCIES:-0}" = 1 ]; then
   set -- "$@" --pull --no-cache-filter tools,dependencies
 fi

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 )
 
@@ -94,42 +93,6 @@ func scanAgentIntegration(row rowScanner) (AgentIntegration, error) {
 	return integration, nil
 }
 
-func (store *Store) BeginAgentIntegrationConfiguration(ctx context.Context, id string, expectedRevision uint64) (AgentIntegration, error) {
-	result, err := store.db.ExecContext(ctx, `UPDATE agent_integrations SET config_state=8,
-		last_error_code='CONFIGURATION_STARTED', last_error_message='', updated_at=?, revision=revision+1
-		WHERE id=? AND revision=? AND desired_state=1 AND config_state IN (1,5,8)`, time.Now().UnixNano(), id, expectedRevision)
-	if err != nil {
-		return AgentIntegration{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return AgentIntegration{}, err
-		}
-		return AgentIntegration{}, errors.New("integration revision conflict")
-	}
-	return store.GetAgentIntegration(ctx, id)
-}
-
-func (store *Store) FailAgentIntegration(ctx context.Context, id string, expectedRevision uint64, code, message string) (AgentIntegration, error) {
-	state := 5
-	if code == "CONFIG_CONFLICT" {
-		state = 4
-	}
-	result, err := store.db.ExecContext(ctx, `UPDATE agent_integrations SET config_state=CASE WHEN config_state=6 THEN 6 ELSE ? END, last_error_code=?,
-		last_error_message=?, updated_at=?, revision=revision+1 WHERE id=? AND revision=? AND desired_state=1`,
-		state, code, message, time.Now().UnixNano(), id, expectedRevision)
-	if err != nil {
-		return AgentIntegration{}, err
-	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return AgentIntegration{}, err
-		}
-		return AgentIntegration{}, errors.New("integration revision conflict")
-	}
-	return store.GetAgentIntegration(ctx, id)
-}
-
 func (store *Store) VerifyAgentIntegration(ctx context.Context, id string, expectedRevision uint64) error {
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `UPDATE agent_integrations SET config_state=2,
@@ -198,11 +161,22 @@ func scanSession(row rowScanner) (Session, error) {
 	return session, nil
 }
 
-func (store *Store) MarkSessionConnected(ctx context.Context, id string) error {
+func (store *Store) MarkSessionConnected(ctx context.Context, id, integrationID string, revision uint64) error {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	now := time.Now().UnixNano()
-	_, err := store.db.ExecContext(ctx, `UPDATE sessions SET connected_at=COALESCE(connected_at, ?), last_activity_at=?
-		WHERE id=? AND revoked_at IS NULL AND closed_at IS NULL`, now, now, id)
-	return err
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET connected_at=COALESCE(connected_at,?),last_activity_at=? WHERE id=? AND revoked_at IS NULL AND closed_at IS NULL`, now, now, id); err != nil {
+		return err
+	}
+	if integrationID != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_integrations SET config_state=2,last_verified_at=?,updated_at=? WHERE id=? AND revision=? AND desired_state=1 AND config_state=3`, now, now, integrationID, revision); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (store *Store) MarkSessionActivity(ctx context.Context, id string) error {

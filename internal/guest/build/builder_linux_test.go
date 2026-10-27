@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"testing"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/containerd/containerd/v2/pkg/oci"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )

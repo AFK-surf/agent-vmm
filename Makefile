@@ -1,12 +1,46 @@
-.PHONY: e2e proto proto-check tla swift-project release-bundle headless-release test-data-worker lint-data-worker audit-data-worker
+PROTO_BASE_REF ?= origin/master
+GOTESTPACKAGES ?= ./...
+
+.PHONY: check fmt-check vet test tidy-check check-generated check-swift-generated e2e proto proto-docs cli-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-data-worker lint-data-worker audit-data-worker
+
+check: fmt-check vet test tidy-check proto-check check-generated
+
+fmt-check:
+	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
+
+vet:
+	go vet ./...
+
+test:
+	go test $(GOTESTFLAGS) $(GOTESTPACKAGES) -count=1
+
+tidy-check:
+	go mod tidy -diff
+
+check-generated:
+	sh build/check-generated.sh go
+
+check-swift-generated:
+	sh build/check-generated.sh swift
 
 proto:
-	PATH="$$(go env GOPATH)/bin:$$PATH" buf generate --exclude-path api/google
-	buf generate --template buf.gen.swift.yaml --path api/appliance/v1 --path api/host/v1 --path api/trust/v1 --path api/service/v1 --path api/vmmd/v1 --path api/google/rpc
+	buf generate --exclude-path api/google
+	sh build/generate-swift.sh
+	$(MAKE) proto-docs
+
+proto-docs:
+	mkdir -p .build
+	buf build --as-file-descriptor-set -o .build/api-descriptors.binpb
+	go run ./internal/cmd/protodoc .build/api-descriptors.binpb docs/reference/api
+
+cli-docs:
+	go run ./internal/cmd/clidoc
 
 proto-check:
 	buf lint
-	buf breaking --against api/proto-baseline.binpb
+
+proto-breaking:
+	buf breaking --against '.git#ref=$(PROTO_BASE_REF)'
 
 tla:
 	sh tools/tla/run.sh
@@ -33,4 +67,3 @@ lint-data-worker:
 
 audit-data-worker:
 	cargo audit --file data/agent-vmm-data/Cargo.lock
-	cargo metadata --manifest-path data/agent-vmm-data/Cargo.toml --format-version 1 --locked | jq -e '[.packages[] | select(.name == "pakery-core" or .name == "pakery-crypto" or .name == "pakery-spake2") | select(.version == "0.2.1" and .license == "MIT OR Apache-2.0" and .repository == "https://github.com/djx-y-z/pakery")] | length == 3' >/dev/null

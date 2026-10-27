@@ -8,11 +8,9 @@ package appliancev1
 
 import (
 	context "context"
-	v1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -21,58 +19,97 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ApplianceAdminService_CreateServiceImport_FullMethodName         = "/agentvmm.appliance.v1.ApplianceAdminService/CreateServiceImport"
-	ApplianceAdminService_CreateFrontendServiceImport_FullMethodName = "/agentvmm.appliance.v1.ApplianceAdminService/CreateFrontendServiceImport"
-	ApplianceAdminService_ListServiceImports_FullMethodName          = "/agentvmm.appliance.v1.ApplianceAdminService/ListServiceImports"
-	ApplianceAdminService_RevokeServiceImport_FullMethodName         = "/agentvmm.appliance.v1.ApplianceAdminService/RevokeServiceImport"
-	ApplianceAdminService_BuildArtifact_FullMethodName               = "/agentvmm.appliance.v1.ApplianceAdminService/BuildArtifact"
-	ApplianceAdminService_StageContent_FullMethodName                = "/agentvmm.appliance.v1.ApplianceAdminService/StageContent"
-	ApplianceAdminService_GetContentStatus_FullMethodName            = "/agentvmm.appliance.v1.ApplianceAdminService/GetContentStatus"
-	ApplianceAdminService_StageArtifact_FullMethodName               = "/agentvmm.appliance.v1.ApplianceAdminService/StageArtifact"
-	ApplianceAdminService_PlanInstall_FullMethodName                 = "/agentvmm.appliance.v1.ApplianceAdminService/PlanInstall"
-	ApplianceAdminService_Install_FullMethodName                     = "/agentvmm.appliance.v1.ApplianceAdminService/Install"
-	ApplianceAdminService_PlanUpdate_FullMethodName                  = "/agentvmm.appliance.v1.ApplianceAdminService/PlanUpdate"
-	ApplianceAdminService_Update_FullMethodName                      = "/agentvmm.appliance.v1.ApplianceAdminService/Update"
-	ApplianceAdminService_RecoverUpdate_FullMethodName               = "/agentvmm.appliance.v1.ApplianceAdminService/RecoverUpdate"
-	ApplianceAdminService_PlanActivation_FullMethodName              = "/agentvmm.appliance.v1.ApplianceAdminService/PlanActivation"
-	ApplianceAdminService_Activate_FullMethodName                    = "/agentvmm.appliance.v1.ApplianceAdminService/Activate"
-	ApplianceAdminService_List_FullMethodName                        = "/agentvmm.appliance.v1.ApplianceAdminService/List"
-	ApplianceAdminService_GetStatus_FullMethodName                   = "/agentvmm.appliance.v1.ApplianceAdminService/GetStatus"
-	ApplianceAdminService_WatchOperation_FullMethodName              = "/agentvmm.appliance.v1.ApplianceAdminService/WatchOperation"
-	ApplianceAdminService_Stop_FullMethodName                        = "/agentvmm.appliance.v1.ApplianceAdminService/Stop"
-	ApplianceAdminService_Restart_FullMethodName                     = "/agentvmm.appliance.v1.ApplianceAdminService/Restart"
-	ApplianceAdminService_Revoke_FullMethodName                      = "/agentvmm.appliance.v1.ApplianceAdminService/Revoke"
-	ApplianceAdminService_PlanRemove_FullMethodName                  = "/agentvmm.appliance.v1.ApplianceAdminService/PlanRemove"
-	ApplianceAdminService_ExecuteRemove_FullMethodName               = "/agentvmm.appliance.v1.ApplianceAdminService/ExecuteRemove"
+	ApplianceAdminService_CreateApplianceServiceImport_FullMethodName         = "/agentvmm.appliance.v1.ApplianceAdminService/CreateApplianceServiceImport"
+	ApplianceAdminService_CreateApplianceFrontendServiceImport_FullMethodName = "/agentvmm.appliance.v1.ApplianceAdminService/CreateApplianceFrontendServiceImport"
+	ApplianceAdminService_ListApplianceServiceImports_FullMethodName          = "/agentvmm.appliance.v1.ApplianceAdminService/ListApplianceServiceImports"
+	ApplianceAdminService_RevokeApplianceServiceImport_FullMethodName         = "/agentvmm.appliance.v1.ApplianceAdminService/RevokeApplianceServiceImport"
+	ApplianceAdminService_BuildArtifact_FullMethodName                        = "/agentvmm.appliance.v1.ApplianceAdminService/BuildArtifact"
+	ApplianceAdminService_StageContent_FullMethodName                         = "/agentvmm.appliance.v1.ApplianceAdminService/StageContent"
+	ApplianceAdminService_GetContentStatus_FullMethodName                     = "/agentvmm.appliance.v1.ApplianceAdminService/GetContentStatus"
+	ApplianceAdminService_StageArtifact_FullMethodName                        = "/agentvmm.appliance.v1.ApplianceAdminService/StageArtifact"
+	ApplianceAdminService_PlanInstall_FullMethodName                          = "/agentvmm.appliance.v1.ApplianceAdminService/PlanInstall"
+	ApplianceAdminService_Install_FullMethodName                              = "/agentvmm.appliance.v1.ApplianceAdminService/Install"
+	ApplianceAdminService_PlanUpdate_FullMethodName                           = "/agentvmm.appliance.v1.ApplianceAdminService/PlanUpdate"
+	ApplianceAdminService_UpdateAppliance_FullMethodName                      = "/agentvmm.appliance.v1.ApplianceAdminService/UpdateAppliance"
+	ApplianceAdminService_RecoverApplianceUpdate_FullMethodName               = "/agentvmm.appliance.v1.ApplianceAdminService/RecoverApplianceUpdate"
+	ApplianceAdminService_PlanActivation_FullMethodName                       = "/agentvmm.appliance.v1.ApplianceAdminService/PlanActivation"
+	ApplianceAdminService_Activate_FullMethodName                             = "/agentvmm.appliance.v1.ApplianceAdminService/Activate"
+	ApplianceAdminService_ListAppliances_FullMethodName                       = "/agentvmm.appliance.v1.ApplianceAdminService/ListAppliances"
+	ApplianceAdminService_GetApplianceStatus_FullMethodName                   = "/agentvmm.appliance.v1.ApplianceAdminService/GetApplianceStatus"
+	ApplianceAdminService_WatchApplianceOperation_FullMethodName              = "/agentvmm.appliance.v1.ApplianceAdminService/WatchApplianceOperation"
+	ApplianceAdminService_StopAppliance_FullMethodName                        = "/agentvmm.appliance.v1.ApplianceAdminService/StopAppliance"
+	ApplianceAdminService_RestartAppliance_FullMethodName                     = "/agentvmm.appliance.v1.ApplianceAdminService/RestartAppliance"
+	ApplianceAdminService_RevokeAppliance_FullMethodName                      = "/agentvmm.appliance.v1.ApplianceAdminService/RevokeAppliance"
+	ApplianceAdminService_PlanRemove_FullMethodName                           = "/agentvmm.appliance.v1.ApplianceAdminService/PlanRemove"
+	ApplianceAdminService_ExecuteRemove_FullMethodName                        = "/agentvmm.appliance.v1.ApplianceAdminService/ExecuteRemove"
 )
 
 // ApplianceAdminServiceClient is the client API for ApplianceAdminService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// ApplianceAdminService is the operator surface for staged artifacts, approved grants, and durable
+// installation lifecycle.
 type ApplianceAdminServiceClient interface {
-	CreateServiceImport(ctx context.Context, in *CreateApplianceServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error)
-	CreateFrontendServiceImport(ctx context.Context, in *CreateApplianceFrontendServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error)
-	ListServiceImports(ctx context.Context, in *ListApplianceServiceImportsRequest, opts ...grpc.CallOption) (*ListApplianceServiceImportsResponse, error)
-	RevokeServiceImport(ctx context.Context, in *RevokeApplianceServiceImportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// CreateApplianceServiceImport approves service access from the current installation's private
+	// controller domain.
+	CreateApplianceServiceImport(ctx context.Context, in *CreateApplianceServiceImportRequest, opts ...grpc.CallOption) (*CreateApplianceServiceImportResponse, error)
+	// CreateApplianceFrontendServiceImport approves a workload service as the selected static
+	// appliance frontend target.
+	CreateApplianceFrontendServiceImport(ctx context.Context, in *CreateApplianceFrontendServiceImportRequest, opts ...grpc.CallOption) (*CreateApplianceFrontendServiceImportResponse, error)
+	// ListApplianceServiceImports reads only imports owned by the selected installation.
+	ListApplianceServiceImports(ctx context.Context, in *ListApplianceServiceImportsRequest, opts ...grpc.CallOption) (*ListApplianceServiceImportsResponse, error)
+	// RevokeApplianceServiceImport revokes the exact installation-owned service import revision.
+	RevokeApplianceServiceImport(ctx context.Context, in *RevokeApplianceServiceImportRequest, opts ...grpc.CallOption) (*RevokeApplianceServiceImportResponse, error)
+	// BuildArtifact builds an appliance archive and streams its bytes with a final size and digest
+	// commitment.
 	BuildArtifact(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BuildArtifactRequest, BuildArtifactResponse], error)
-	StageContent(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StageContentRequest, ApplianceOperationResponse], error)
+	// StageContent stages one content-addressed archive after checking its header, size, and hash.
+	StageContent(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StageContentRequest, StageContentResponse], error)
+	// GetContentStatus reads whether the exact approved content archive is staged and available.
 	GetContentStatus(ctx context.Context, in *GetContentStatusRequest, opts ...grpc.CallOption) (*GetContentStatusResponse, error)
-	StageArtifact(ctx context.Context, in *StageArtifactRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	PlanInstall(ctx context.Context, in *PlanInstallRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error)
-	Install(ctx context.Context, in *InstallRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	PlanUpdate(ctx context.Context, in *PlanUpdateRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error)
-	Update(ctx context.Context, in *UpdateApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	RecoverUpdate(ctx context.Context, in *RecoverApplianceUpdateRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	PlanActivation(ctx context.Context, in *PlanActivationRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error)
-	Activate(ctx context.Context, in *ActivateRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	List(ctx context.Context, in *ListAppliancesRequest, opts ...grpc.CallOption) (*ListAppliancesResponse, error)
-	GetStatus(ctx context.Context, in *GetApplianceStatusRequest, opts ...grpc.CallOption) (*ApplianceStatusResponse, error)
-	WatchOperation(ctx context.Context, in *WatchApplianceOperationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ApplianceOperationResponse], error)
-	Stop(ctx context.Context, in *StopApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	Restart(ctx context.Context, in *RestartApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	Revoke(ctx context.Context, in *RevokeApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
-	PlanRemove(ctx context.Context, in *PlanRemoveRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error)
-	ExecuteRemove(ctx context.Context, in *ExecuteRemoveRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error)
+	// StageArtifact validates and records a canonical appliance manifest without installing or
+	// activating it.
+	StageArtifact(ctx context.Context, in *StageArtifactRequest, opts ...grpc.CallOption) (*StageArtifactResponse, error)
+	// PlanInstall reads installation impacts and checks the proposed grant before installation.
+	PlanInstall(ctx context.Context, in *PlanInstallRequest, opts ...grpc.CallOption) (*PlanInstallResponse, error)
+	// Install creates one installation, private registration, and data-volume identity under the
+	// approved grant.
+	Install(ctx context.Context, in *InstallRequest, opts ...grpc.CallOption) (*InstallResponse, error)
+	// PlanUpdate reads impacts for the selected artifact and grant at the current installation
+	// revision.
+	PlanUpdate(ctx context.Context, in *PlanUpdateRequest, opts ...grpc.CallOption) (*PlanUpdateResponse, error)
+	// UpdateAppliance persists drain, stop, switch, and activation while preserving installation
+	// identity and private data.
+	UpdateAppliance(ctx context.Context, in *UpdateApplianceRequest, opts ...grpc.CallOption) (*UpdateApplianceResponse, error)
+	// RecoverApplianceUpdate resumes the original failed update with a current observation fence and
+	// explicit extended deadline.
+	RecoverApplianceUpdate(ctx context.Context, in *RecoverApplianceUpdateRequest, opts ...grpc.CallOption) (*RecoverApplianceUpdateResponse, error)
+	// PlanActivation reads the current installation's activation impacts without starting it.
+	PlanActivation(ctx context.Context, in *PlanActivationRequest, opts ...grpc.CallOption) (*PlanActivationResponse, error)
+	// Activate activates the exact installation revision and publishes only its current boot and
+	// instance.
+	Activate(ctx context.Context, in *ActivateRequest, opts ...grpc.CallOption) (*ActivateResponse, error)
+	// ListAppliances reads installation status and current frontend availability for the operator.
+	ListAppliances(ctx context.Context, in *ListAppliancesRequest, opts ...grpc.CallOption) (*ListAppliancesResponse, error)
+	// GetApplianceStatus reads one installation and preserves unknown runtime-stop observations.
+	GetApplianceStatus(ctx context.Context, in *GetApplianceStatusRequest, opts ...grpc.CallOption) (*GetApplianceStatusResponse, error)
+	// WatchApplianceOperation streams the original installation operation receipt through terminal
+	// state.
+	WatchApplianceOperation(ctx context.Context, in *WatchApplianceOperationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchApplianceOperationResponse], error)
+	// StopAppliance stops one installation's runtime publication while retaining its private data
+	// and trust.
+	StopAppliance(ctx context.Context, in *StopApplianceRequest, opts ...grpc.CallOption) (*StopApplianceResponse, error)
+	// RestartAppliance confirms the exact old writer stopped before launching another instance.
+	RestartAppliance(ctx context.Context, in *RestartApplianceRequest, opts ...grpc.CallOption) (*RestartApplianceResponse, error)
+	// RevokeAppliance retires the installation's private controller authority and its owned
+	// workloads.
+	RevokeAppliance(ctx context.Context, in *RevokeApplianceRequest, opts ...grpc.CallOption) (*RevokeApplianceResponse, error)
+	// PlanRemove reads the exact installation domain and data impacts before irreversible removal.
+	PlanRemove(ctx context.Context, in *PlanRemoveRequest, opts ...grpc.CallOption) (*PlanRemoveResponse, error)
+	// ExecuteRemove accepts the reviewed revision and exact confirmed resources, retaining its
+	// receipt until cleanup completes.
+	ExecuteRemove(ctx context.Context, in *ExecuteRemoveRequest, opts ...grpc.CallOption) (*ExecuteRemoveResponse, error)
 }
 
 type applianceAdminServiceClient struct {
@@ -83,40 +120,40 @@ func NewApplianceAdminServiceClient(cc grpc.ClientConnInterface) ApplianceAdminS
 	return &applianceAdminServiceClient{cc}
 }
 
-func (c *applianceAdminServiceClient) CreateServiceImport(ctx context.Context, in *CreateApplianceServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error) {
+func (c *applianceAdminServiceClient) CreateApplianceServiceImport(ctx context.Context, in *CreateApplianceServiceImportRequest, opts ...grpc.CallOption) (*CreateApplianceServiceImportResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(v1.ServiceImport)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_CreateServiceImport_FullMethodName, in, out, cOpts...)
+	out := new(CreateApplianceServiceImportResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_CreateApplianceServiceImport_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) CreateFrontendServiceImport(ctx context.Context, in *CreateApplianceFrontendServiceImportRequest, opts ...grpc.CallOption) (*v1.ServiceImport, error) {
+func (c *applianceAdminServiceClient) CreateApplianceFrontendServiceImport(ctx context.Context, in *CreateApplianceFrontendServiceImportRequest, opts ...grpc.CallOption) (*CreateApplianceFrontendServiceImportResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(v1.ServiceImport)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_CreateFrontendServiceImport_FullMethodName, in, out, cOpts...)
+	out := new(CreateApplianceFrontendServiceImportResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_CreateApplianceFrontendServiceImport_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) ListServiceImports(ctx context.Context, in *ListApplianceServiceImportsRequest, opts ...grpc.CallOption) (*ListApplianceServiceImportsResponse, error) {
+func (c *applianceAdminServiceClient) ListApplianceServiceImports(ctx context.Context, in *ListApplianceServiceImportsRequest, opts ...grpc.CallOption) (*ListApplianceServiceImportsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListApplianceServiceImportsResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_ListServiceImports_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_ListApplianceServiceImports_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) RevokeServiceImport(ctx context.Context, in *RevokeApplianceServiceImportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *applianceAdminServiceClient) RevokeApplianceServiceImport(ctx context.Context, in *RevokeApplianceServiceImportRequest, opts ...grpc.CallOption) (*RevokeApplianceServiceImportResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_RevokeServiceImport_FullMethodName, in, out, cOpts...)
+	out := new(RevokeApplianceServiceImportResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_RevokeApplianceServiceImport_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -136,18 +173,18 @@ func (c *applianceAdminServiceClient) BuildArtifact(ctx context.Context, opts ..
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ApplianceAdminService_BuildArtifactClient = grpc.BidiStreamingClient[BuildArtifactRequest, BuildArtifactResponse]
 
-func (c *applianceAdminServiceClient) StageContent(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StageContentRequest, ApplianceOperationResponse], error) {
+func (c *applianceAdminServiceClient) StageContent(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StageContentRequest, StageContentResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ApplianceAdminService_ServiceDesc.Streams[1], ApplianceAdminService_StageContent_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[StageContentRequest, ApplianceOperationResponse]{ClientStream: stream}
+	x := &grpc.GenericClientStream[StageContentRequest, StageContentResponse]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ApplianceAdminService_StageContentClient = grpc.ClientStreamingClient[StageContentRequest, ApplianceOperationResponse]
+type ApplianceAdminService_StageContentClient = grpc.ClientStreamingClient[StageContentRequest, StageContentResponse]
 
 func (c *applianceAdminServiceClient) GetContentStatus(ctx context.Context, in *GetContentStatusRequest, opts ...grpc.CallOption) (*GetContentStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -159,9 +196,9 @@ func (c *applianceAdminServiceClient) GetContentStatus(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) StageArtifact(ctx context.Context, in *StageArtifactRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) StageArtifact(ctx context.Context, in *StageArtifactRequest, opts ...grpc.CallOption) (*StageArtifactResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
+	out := new(StageArtifactResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_StageArtifact_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -169,9 +206,9 @@ func (c *applianceAdminServiceClient) StageArtifact(ctx context.Context, in *Sta
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) PlanInstall(ctx context.Context, in *PlanInstallRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error) {
+func (c *applianceAdminServiceClient) PlanInstall(ctx context.Context, in *PlanInstallRequest, opts ...grpc.CallOption) (*PlanInstallResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AppliancePlanResponse)
+	out := new(PlanInstallResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_PlanInstall_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -179,9 +216,9 @@ func (c *applianceAdminServiceClient) PlanInstall(ctx context.Context, in *PlanI
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) Install(ctx context.Context, in *InstallRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) Install(ctx context.Context, in *InstallRequest, opts ...grpc.CallOption) (*InstallResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
+	out := new(InstallResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_Install_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -189,9 +226,9 @@ func (c *applianceAdminServiceClient) Install(ctx context.Context, in *InstallRe
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) PlanUpdate(ctx context.Context, in *PlanUpdateRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error) {
+func (c *applianceAdminServiceClient) PlanUpdate(ctx context.Context, in *PlanUpdateRequest, opts ...grpc.CallOption) (*PlanUpdateResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AppliancePlanResponse)
+	out := new(PlanUpdateResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_PlanUpdate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -199,29 +236,29 @@ func (c *applianceAdminServiceClient) PlanUpdate(ctx context.Context, in *PlanUp
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) Update(ctx context.Context, in *UpdateApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) UpdateAppliance(ctx context.Context, in *UpdateApplianceRequest, opts ...grpc.CallOption) (*UpdateApplianceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_Update_FullMethodName, in, out, cOpts...)
+	out := new(UpdateApplianceResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_UpdateAppliance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) RecoverUpdate(ctx context.Context, in *RecoverApplianceUpdateRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) RecoverApplianceUpdate(ctx context.Context, in *RecoverApplianceUpdateRequest, opts ...grpc.CallOption) (*RecoverApplianceUpdateResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_RecoverUpdate_FullMethodName, in, out, cOpts...)
+	out := new(RecoverApplianceUpdateResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_RecoverApplianceUpdate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) PlanActivation(ctx context.Context, in *PlanActivationRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error) {
+func (c *applianceAdminServiceClient) PlanActivation(ctx context.Context, in *PlanActivationRequest, opts ...grpc.CallOption) (*PlanActivationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AppliancePlanResponse)
+	out := new(PlanActivationResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_PlanActivation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -229,9 +266,9 @@ func (c *applianceAdminServiceClient) PlanActivation(ctx context.Context, in *Pl
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) Activate(ctx context.Context, in *ActivateRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) Activate(ctx context.Context, in *ActivateRequest, opts ...grpc.CallOption) (*ActivateResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
+	out := new(ActivateResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_Activate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -239,33 +276,33 @@ func (c *applianceAdminServiceClient) Activate(ctx context.Context, in *Activate
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) List(ctx context.Context, in *ListAppliancesRequest, opts ...grpc.CallOption) (*ListAppliancesResponse, error) {
+func (c *applianceAdminServiceClient) ListAppliances(ctx context.Context, in *ListAppliancesRequest, opts ...grpc.CallOption) (*ListAppliancesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListAppliancesResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_List_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_ListAppliances_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) GetStatus(ctx context.Context, in *GetApplianceStatusRequest, opts ...grpc.CallOption) (*ApplianceStatusResponse, error) {
+func (c *applianceAdminServiceClient) GetApplianceStatus(ctx context.Context, in *GetApplianceStatusRequest, opts ...grpc.CallOption) (*GetApplianceStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceStatusResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_GetStatus_FullMethodName, in, out, cOpts...)
+	out := new(GetApplianceStatusResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_GetApplianceStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) WatchOperation(ctx context.Context, in *WatchApplianceOperationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ApplianceOperationResponse], error) {
+func (c *applianceAdminServiceClient) WatchApplianceOperation(ctx context.Context, in *WatchApplianceOperationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchApplianceOperationResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &ApplianceAdminService_ServiceDesc.Streams[2], ApplianceAdminService_WatchOperation_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ApplianceAdminService_ServiceDesc.Streams[2], ApplianceAdminService_WatchApplianceOperation_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchApplianceOperationRequest, ApplianceOperationResponse]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WatchApplianceOperationRequest, WatchApplianceOperationResponse]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -276,41 +313,41 @@ func (c *applianceAdminServiceClient) WatchOperation(ctx context.Context, in *Wa
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ApplianceAdminService_WatchOperationClient = grpc.ServerStreamingClient[ApplianceOperationResponse]
+type ApplianceAdminService_WatchApplianceOperationClient = grpc.ServerStreamingClient[WatchApplianceOperationResponse]
 
-func (c *applianceAdminServiceClient) Stop(ctx context.Context, in *StopApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) StopAppliance(ctx context.Context, in *StopApplianceRequest, opts ...grpc.CallOption) (*StopApplianceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_Stop_FullMethodName, in, out, cOpts...)
+	out := new(StopApplianceResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_StopAppliance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) Restart(ctx context.Context, in *RestartApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) RestartAppliance(ctx context.Context, in *RestartApplianceRequest, opts ...grpc.CallOption) (*RestartApplianceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_Restart_FullMethodName, in, out, cOpts...)
+	out := new(RestartApplianceResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_RestartAppliance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) Revoke(ctx context.Context, in *RevokeApplianceRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) RevokeAppliance(ctx context.Context, in *RevokeApplianceRequest, opts ...grpc.CallOption) (*RevokeApplianceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
-	err := c.cc.Invoke(ctx, ApplianceAdminService_Revoke_FullMethodName, in, out, cOpts...)
+	out := new(RevokeApplianceResponse)
+	err := c.cc.Invoke(ctx, ApplianceAdminService_RevokeAppliance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) PlanRemove(ctx context.Context, in *PlanRemoveRequest, opts ...grpc.CallOption) (*AppliancePlanResponse, error) {
+func (c *applianceAdminServiceClient) PlanRemove(ctx context.Context, in *PlanRemoveRequest, opts ...grpc.CallOption) (*PlanRemoveResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AppliancePlanResponse)
+	out := new(PlanRemoveResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_PlanRemove_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -318,9 +355,9 @@ func (c *applianceAdminServiceClient) PlanRemove(ctx context.Context, in *PlanRe
 	return out, nil
 }
 
-func (c *applianceAdminServiceClient) ExecuteRemove(ctx context.Context, in *ExecuteRemoveRequest, opts ...grpc.CallOption) (*ApplianceOperationResponse, error) {
+func (c *applianceAdminServiceClient) ExecuteRemove(ctx context.Context, in *ExecuteRemoveRequest, opts ...grpc.CallOption) (*ExecuteRemoveResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplianceOperationResponse)
+	out := new(ExecuteRemoveResponse)
 	err := c.cc.Invoke(ctx, ApplianceAdminService_ExecuteRemove_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -331,30 +368,69 @@ func (c *applianceAdminServiceClient) ExecuteRemove(ctx context.Context, in *Exe
 // ApplianceAdminServiceServer is the server API for ApplianceAdminService service.
 // All implementations must embed UnimplementedApplianceAdminServiceServer
 // for forward compatibility.
+//
+// ApplianceAdminService is the operator surface for staged artifacts, approved grants, and durable
+// installation lifecycle.
 type ApplianceAdminServiceServer interface {
-	CreateServiceImport(context.Context, *CreateApplianceServiceImportRequest) (*v1.ServiceImport, error)
-	CreateFrontendServiceImport(context.Context, *CreateApplianceFrontendServiceImportRequest) (*v1.ServiceImport, error)
-	ListServiceImports(context.Context, *ListApplianceServiceImportsRequest) (*ListApplianceServiceImportsResponse, error)
-	RevokeServiceImport(context.Context, *RevokeApplianceServiceImportRequest) (*emptypb.Empty, error)
+	// CreateApplianceServiceImport approves service access from the current installation's private
+	// controller domain.
+	CreateApplianceServiceImport(context.Context, *CreateApplianceServiceImportRequest) (*CreateApplianceServiceImportResponse, error)
+	// CreateApplianceFrontendServiceImport approves a workload service as the selected static
+	// appliance frontend target.
+	CreateApplianceFrontendServiceImport(context.Context, *CreateApplianceFrontendServiceImportRequest) (*CreateApplianceFrontendServiceImportResponse, error)
+	// ListApplianceServiceImports reads only imports owned by the selected installation.
+	ListApplianceServiceImports(context.Context, *ListApplianceServiceImportsRequest) (*ListApplianceServiceImportsResponse, error)
+	// RevokeApplianceServiceImport revokes the exact installation-owned service import revision.
+	RevokeApplianceServiceImport(context.Context, *RevokeApplianceServiceImportRequest) (*RevokeApplianceServiceImportResponse, error)
+	// BuildArtifact builds an appliance archive and streams its bytes with a final size and digest
+	// commitment.
 	BuildArtifact(grpc.BidiStreamingServer[BuildArtifactRequest, BuildArtifactResponse]) error
-	StageContent(grpc.ClientStreamingServer[StageContentRequest, ApplianceOperationResponse]) error
+	// StageContent stages one content-addressed archive after checking its header, size, and hash.
+	StageContent(grpc.ClientStreamingServer[StageContentRequest, StageContentResponse]) error
+	// GetContentStatus reads whether the exact approved content archive is staged and available.
 	GetContentStatus(context.Context, *GetContentStatusRequest) (*GetContentStatusResponse, error)
-	StageArtifact(context.Context, *StageArtifactRequest) (*ApplianceOperationResponse, error)
-	PlanInstall(context.Context, *PlanInstallRequest) (*AppliancePlanResponse, error)
-	Install(context.Context, *InstallRequest) (*ApplianceOperationResponse, error)
-	PlanUpdate(context.Context, *PlanUpdateRequest) (*AppliancePlanResponse, error)
-	Update(context.Context, *UpdateApplianceRequest) (*ApplianceOperationResponse, error)
-	RecoverUpdate(context.Context, *RecoverApplianceUpdateRequest) (*ApplianceOperationResponse, error)
-	PlanActivation(context.Context, *PlanActivationRequest) (*AppliancePlanResponse, error)
-	Activate(context.Context, *ActivateRequest) (*ApplianceOperationResponse, error)
-	List(context.Context, *ListAppliancesRequest) (*ListAppliancesResponse, error)
-	GetStatus(context.Context, *GetApplianceStatusRequest) (*ApplianceStatusResponse, error)
-	WatchOperation(*WatchApplianceOperationRequest, grpc.ServerStreamingServer[ApplianceOperationResponse]) error
-	Stop(context.Context, *StopApplianceRequest) (*ApplianceOperationResponse, error)
-	Restart(context.Context, *RestartApplianceRequest) (*ApplianceOperationResponse, error)
-	Revoke(context.Context, *RevokeApplianceRequest) (*ApplianceOperationResponse, error)
-	PlanRemove(context.Context, *PlanRemoveRequest) (*AppliancePlanResponse, error)
-	ExecuteRemove(context.Context, *ExecuteRemoveRequest) (*ApplianceOperationResponse, error)
+	// StageArtifact validates and records a canonical appliance manifest without installing or
+	// activating it.
+	StageArtifact(context.Context, *StageArtifactRequest) (*StageArtifactResponse, error)
+	// PlanInstall reads installation impacts and checks the proposed grant before installation.
+	PlanInstall(context.Context, *PlanInstallRequest) (*PlanInstallResponse, error)
+	// Install creates one installation, private registration, and data-volume identity under the
+	// approved grant.
+	Install(context.Context, *InstallRequest) (*InstallResponse, error)
+	// PlanUpdate reads impacts for the selected artifact and grant at the current installation
+	// revision.
+	PlanUpdate(context.Context, *PlanUpdateRequest) (*PlanUpdateResponse, error)
+	// UpdateAppliance persists drain, stop, switch, and activation while preserving installation
+	// identity and private data.
+	UpdateAppliance(context.Context, *UpdateApplianceRequest) (*UpdateApplianceResponse, error)
+	// RecoverApplianceUpdate resumes the original failed update with a current observation fence and
+	// explicit extended deadline.
+	RecoverApplianceUpdate(context.Context, *RecoverApplianceUpdateRequest) (*RecoverApplianceUpdateResponse, error)
+	// PlanActivation reads the current installation's activation impacts without starting it.
+	PlanActivation(context.Context, *PlanActivationRequest) (*PlanActivationResponse, error)
+	// Activate activates the exact installation revision and publishes only its current boot and
+	// instance.
+	Activate(context.Context, *ActivateRequest) (*ActivateResponse, error)
+	// ListAppliances reads installation status and current frontend availability for the operator.
+	ListAppliances(context.Context, *ListAppliancesRequest) (*ListAppliancesResponse, error)
+	// GetApplianceStatus reads one installation and preserves unknown runtime-stop observations.
+	GetApplianceStatus(context.Context, *GetApplianceStatusRequest) (*GetApplianceStatusResponse, error)
+	// WatchApplianceOperation streams the original installation operation receipt through terminal
+	// state.
+	WatchApplianceOperation(*WatchApplianceOperationRequest, grpc.ServerStreamingServer[WatchApplianceOperationResponse]) error
+	// StopAppliance stops one installation's runtime publication while retaining its private data
+	// and trust.
+	StopAppliance(context.Context, *StopApplianceRequest) (*StopApplianceResponse, error)
+	// RestartAppliance confirms the exact old writer stopped before launching another instance.
+	RestartAppliance(context.Context, *RestartApplianceRequest) (*RestartApplianceResponse, error)
+	// RevokeAppliance retires the installation's private controller authority and its owned
+	// workloads.
+	RevokeAppliance(context.Context, *RevokeApplianceRequest) (*RevokeApplianceResponse, error)
+	// PlanRemove reads the exact installation domain and data impacts before irreversible removal.
+	PlanRemove(context.Context, *PlanRemoveRequest) (*PlanRemoveResponse, error)
+	// ExecuteRemove accepts the reviewed revision and exact confirmed resources, retaining its
+	// receipt until cleanup completes.
+	ExecuteRemove(context.Context, *ExecuteRemoveRequest) (*ExecuteRemoveResponse, error)
 	mustEmbedUnimplementedApplianceAdminServiceServer()
 }
 
@@ -365,73 +441,73 @@ type ApplianceAdminServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedApplianceAdminServiceServer struct{}
 
-func (UnimplementedApplianceAdminServiceServer) CreateServiceImport(context.Context, *CreateApplianceServiceImportRequest) (*v1.ServiceImport, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateServiceImport not implemented")
+func (UnimplementedApplianceAdminServiceServer) CreateApplianceServiceImport(context.Context, *CreateApplianceServiceImportRequest) (*CreateApplianceServiceImportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateApplianceServiceImport not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) CreateFrontendServiceImport(context.Context, *CreateApplianceFrontendServiceImportRequest) (*v1.ServiceImport, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateFrontendServiceImport not implemented")
+func (UnimplementedApplianceAdminServiceServer) CreateApplianceFrontendServiceImport(context.Context, *CreateApplianceFrontendServiceImportRequest) (*CreateApplianceFrontendServiceImportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateApplianceFrontendServiceImport not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) ListServiceImports(context.Context, *ListApplianceServiceImportsRequest) (*ListApplianceServiceImportsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListServiceImports not implemented")
+func (UnimplementedApplianceAdminServiceServer) ListApplianceServiceImports(context.Context, *ListApplianceServiceImportsRequest) (*ListApplianceServiceImportsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListApplianceServiceImports not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) RevokeServiceImport(context.Context, *RevokeApplianceServiceImportRequest) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "method RevokeServiceImport not implemented")
+func (UnimplementedApplianceAdminServiceServer) RevokeApplianceServiceImport(context.Context, *RevokeApplianceServiceImportRequest) (*RevokeApplianceServiceImportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeApplianceServiceImport not implemented")
 }
 func (UnimplementedApplianceAdminServiceServer) BuildArtifact(grpc.BidiStreamingServer[BuildArtifactRequest, BuildArtifactResponse]) error {
 	return status.Error(codes.Unimplemented, "method BuildArtifact not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) StageContent(grpc.ClientStreamingServer[StageContentRequest, ApplianceOperationResponse]) error {
+func (UnimplementedApplianceAdminServiceServer) StageContent(grpc.ClientStreamingServer[StageContentRequest, StageContentResponse]) error {
 	return status.Error(codes.Unimplemented, "method StageContent not implemented")
 }
 func (UnimplementedApplianceAdminServiceServer) GetContentStatus(context.Context, *GetContentStatusRequest) (*GetContentStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetContentStatus not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) StageArtifact(context.Context, *StageArtifactRequest) (*ApplianceOperationResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) StageArtifact(context.Context, *StageArtifactRequest) (*StageArtifactResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StageArtifact not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) PlanInstall(context.Context, *PlanInstallRequest) (*AppliancePlanResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) PlanInstall(context.Context, *PlanInstallRequest) (*PlanInstallResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlanInstall not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) Install(context.Context, *InstallRequest) (*ApplianceOperationResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) Install(context.Context, *InstallRequest) (*InstallResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Install not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) PlanUpdate(context.Context, *PlanUpdateRequest) (*AppliancePlanResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) PlanUpdate(context.Context, *PlanUpdateRequest) (*PlanUpdateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlanUpdate not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) Update(context.Context, *UpdateApplianceRequest) (*ApplianceOperationResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Update not implemented")
+func (UnimplementedApplianceAdminServiceServer) UpdateAppliance(context.Context, *UpdateApplianceRequest) (*UpdateApplianceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAppliance not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) RecoverUpdate(context.Context, *RecoverApplianceUpdateRequest) (*ApplianceOperationResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method RecoverUpdate not implemented")
+func (UnimplementedApplianceAdminServiceServer) RecoverApplianceUpdate(context.Context, *RecoverApplianceUpdateRequest) (*RecoverApplianceUpdateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecoverApplianceUpdate not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) PlanActivation(context.Context, *PlanActivationRequest) (*AppliancePlanResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) PlanActivation(context.Context, *PlanActivationRequest) (*PlanActivationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlanActivation not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) Activate(context.Context, *ActivateRequest) (*ApplianceOperationResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) Activate(context.Context, *ActivateRequest) (*ActivateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Activate not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) List(context.Context, *ListAppliancesRequest) (*ListAppliancesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method List not implemented")
+func (UnimplementedApplianceAdminServiceServer) ListAppliances(context.Context, *ListAppliancesRequest) (*ListAppliancesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAppliances not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) GetStatus(context.Context, *GetApplianceStatusRequest) (*ApplianceStatusResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetStatus not implemented")
+func (UnimplementedApplianceAdminServiceServer) GetApplianceStatus(context.Context, *GetApplianceStatusRequest) (*GetApplianceStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetApplianceStatus not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) WatchOperation(*WatchApplianceOperationRequest, grpc.ServerStreamingServer[ApplianceOperationResponse]) error {
-	return status.Error(codes.Unimplemented, "method WatchOperation not implemented")
+func (UnimplementedApplianceAdminServiceServer) WatchApplianceOperation(*WatchApplianceOperationRequest, grpc.ServerStreamingServer[WatchApplianceOperationResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchApplianceOperation not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) Stop(context.Context, *StopApplianceRequest) (*ApplianceOperationResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Stop not implemented")
+func (UnimplementedApplianceAdminServiceServer) StopAppliance(context.Context, *StopApplianceRequest) (*StopApplianceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StopAppliance not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) Restart(context.Context, *RestartApplianceRequest) (*ApplianceOperationResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Restart not implemented")
+func (UnimplementedApplianceAdminServiceServer) RestartAppliance(context.Context, *RestartApplianceRequest) (*RestartApplianceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestartAppliance not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) Revoke(context.Context, *RevokeApplianceRequest) (*ApplianceOperationResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Revoke not implemented")
+func (UnimplementedApplianceAdminServiceServer) RevokeAppliance(context.Context, *RevokeApplianceRequest) (*RevokeApplianceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeAppliance not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) PlanRemove(context.Context, *PlanRemoveRequest) (*AppliancePlanResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) PlanRemove(context.Context, *PlanRemoveRequest) (*PlanRemoveResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlanRemove not implemented")
 }
-func (UnimplementedApplianceAdminServiceServer) ExecuteRemove(context.Context, *ExecuteRemoveRequest) (*ApplianceOperationResponse, error) {
+func (UnimplementedApplianceAdminServiceServer) ExecuteRemove(context.Context, *ExecuteRemoveRequest) (*ExecuteRemoveResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExecuteRemove not implemented")
 }
 func (UnimplementedApplianceAdminServiceServer) mustEmbedUnimplementedApplianceAdminServiceServer() {}
@@ -455,74 +531,74 @@ func RegisterApplianceAdminServiceServer(s grpc.ServiceRegistrar, srv ApplianceA
 	s.RegisterService(&ApplianceAdminService_ServiceDesc, srv)
 }
 
-func _ApplianceAdminService_CreateServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_CreateApplianceServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateApplianceServiceImportRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).CreateServiceImport(ctx, in)
+		return srv.(ApplianceAdminServiceServer).CreateApplianceServiceImport(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_CreateServiceImport_FullMethodName,
+		FullMethod: ApplianceAdminService_CreateApplianceServiceImport_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).CreateServiceImport(ctx, req.(*CreateApplianceServiceImportRequest))
+		return srv.(ApplianceAdminServiceServer).CreateApplianceServiceImport(ctx, req.(*CreateApplianceServiceImportRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_CreateFrontendServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_CreateApplianceFrontendServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateApplianceFrontendServiceImportRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).CreateFrontendServiceImport(ctx, in)
+		return srv.(ApplianceAdminServiceServer).CreateApplianceFrontendServiceImport(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_CreateFrontendServiceImport_FullMethodName,
+		FullMethod: ApplianceAdminService_CreateApplianceFrontendServiceImport_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).CreateFrontendServiceImport(ctx, req.(*CreateApplianceFrontendServiceImportRequest))
+		return srv.(ApplianceAdminServiceServer).CreateApplianceFrontendServiceImport(ctx, req.(*CreateApplianceFrontendServiceImportRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_ListServiceImports_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_ListApplianceServiceImports_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListApplianceServiceImportsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).ListServiceImports(ctx, in)
+		return srv.(ApplianceAdminServiceServer).ListApplianceServiceImports(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_ListServiceImports_FullMethodName,
+		FullMethod: ApplianceAdminService_ListApplianceServiceImports_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).ListServiceImports(ctx, req.(*ListApplianceServiceImportsRequest))
+		return srv.(ApplianceAdminServiceServer).ListApplianceServiceImports(ctx, req.(*ListApplianceServiceImportsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_RevokeServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_RevokeApplianceServiceImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RevokeApplianceServiceImportRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).RevokeServiceImport(ctx, in)
+		return srv.(ApplianceAdminServiceServer).RevokeApplianceServiceImport(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_RevokeServiceImport_FullMethodName,
+		FullMethod: ApplianceAdminService_RevokeApplianceServiceImport_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).RevokeServiceImport(ctx, req.(*RevokeApplianceServiceImportRequest))
+		return srv.(ApplianceAdminServiceServer).RevokeApplianceServiceImport(ctx, req.(*RevokeApplianceServiceImportRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -535,11 +611,11 @@ func _ApplianceAdminService_BuildArtifact_Handler(srv interface{}, stream grpc.S
 type ApplianceAdminService_BuildArtifactServer = grpc.BidiStreamingServer[BuildArtifactRequest, BuildArtifactResponse]
 
 func _ApplianceAdminService_StageContent_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ApplianceAdminServiceServer).StageContent(&grpc.GenericServerStream[StageContentRequest, ApplianceOperationResponse]{ServerStream: stream})
+	return srv.(ApplianceAdminServiceServer).StageContent(&grpc.GenericServerStream[StageContentRequest, StageContentResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ApplianceAdminService_StageContentServer = grpc.ClientStreamingServer[StageContentRequest, ApplianceOperationResponse]
+type ApplianceAdminService_StageContentServer = grpc.ClientStreamingServer[StageContentRequest, StageContentResponse]
 
 func _ApplianceAdminService_GetContentStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetContentStatusRequest)
@@ -631,38 +707,38 @@ func _ApplianceAdminService_PlanUpdate_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_Update_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_UpdateAppliance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateApplianceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).Update(ctx, in)
+		return srv.(ApplianceAdminServiceServer).UpdateAppliance(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_Update_FullMethodName,
+		FullMethod: ApplianceAdminService_UpdateAppliance_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).Update(ctx, req.(*UpdateApplianceRequest))
+		return srv.(ApplianceAdminServiceServer).UpdateAppliance(ctx, req.(*UpdateApplianceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_RecoverUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_RecoverApplianceUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RecoverApplianceUpdateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).RecoverUpdate(ctx, in)
+		return srv.(ApplianceAdminServiceServer).RecoverApplianceUpdate(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_RecoverUpdate_FullMethodName,
+		FullMethod: ApplianceAdminService_RecoverApplianceUpdate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).RecoverUpdate(ctx, req.(*RecoverApplianceUpdateRequest))
+		return srv.(ApplianceAdminServiceServer).RecoverApplianceUpdate(ctx, req.(*RecoverApplianceUpdateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -703,103 +779,103 @@ func _ApplianceAdminService_Activate_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_List_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_ListAppliances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListAppliancesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).List(ctx, in)
+		return srv.(ApplianceAdminServiceServer).ListAppliances(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_List_FullMethodName,
+		FullMethod: ApplianceAdminService_ListAppliances_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).List(ctx, req.(*ListAppliancesRequest))
+		return srv.(ApplianceAdminServiceServer).ListAppliances(ctx, req.(*ListAppliancesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_GetStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_GetApplianceStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetApplianceStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).GetStatus(ctx, in)
+		return srv.(ApplianceAdminServiceServer).GetApplianceStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_GetStatus_FullMethodName,
+		FullMethod: ApplianceAdminService_GetApplianceStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).GetStatus(ctx, req.(*GetApplianceStatusRequest))
+		return srv.(ApplianceAdminServiceServer).GetApplianceStatus(ctx, req.(*GetApplianceStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_WatchOperation_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _ApplianceAdminService_WatchApplianceOperation_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(WatchApplianceOperationRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(ApplianceAdminServiceServer).WatchOperation(m, &grpc.GenericServerStream[WatchApplianceOperationRequest, ApplianceOperationResponse]{ServerStream: stream})
+	return srv.(ApplianceAdminServiceServer).WatchApplianceOperation(m, &grpc.GenericServerStream[WatchApplianceOperationRequest, WatchApplianceOperationResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ApplianceAdminService_WatchOperationServer = grpc.ServerStreamingServer[ApplianceOperationResponse]
+type ApplianceAdminService_WatchApplianceOperationServer = grpc.ServerStreamingServer[WatchApplianceOperationResponse]
 
-func _ApplianceAdminService_Stop_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_StopAppliance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StopApplianceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).Stop(ctx, in)
+		return srv.(ApplianceAdminServiceServer).StopAppliance(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_Stop_FullMethodName,
+		FullMethod: ApplianceAdminService_StopAppliance_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).Stop(ctx, req.(*StopApplianceRequest))
+		return srv.(ApplianceAdminServiceServer).StopAppliance(ctx, req.(*StopApplianceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_Restart_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_RestartAppliance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RestartApplianceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).Restart(ctx, in)
+		return srv.(ApplianceAdminServiceServer).RestartAppliance(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_Restart_FullMethodName,
+		FullMethod: ApplianceAdminService_RestartAppliance_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).Restart(ctx, req.(*RestartApplianceRequest))
+		return srv.(ApplianceAdminServiceServer).RestartAppliance(ctx, req.(*RestartApplianceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ApplianceAdminService_Revoke_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ApplianceAdminService_RevokeAppliance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RevokeApplianceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ApplianceAdminServiceServer).Revoke(ctx, in)
+		return srv.(ApplianceAdminServiceServer).RevokeAppliance(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ApplianceAdminService_Revoke_FullMethodName,
+		FullMethod: ApplianceAdminService_RevokeAppliance_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ApplianceAdminServiceServer).Revoke(ctx, req.(*RevokeApplianceRequest))
+		return srv.(ApplianceAdminServiceServer).RevokeAppliance(ctx, req.(*RevokeApplianceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -848,20 +924,20 @@ var ApplianceAdminService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*ApplianceAdminServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "CreateServiceImport",
-			Handler:    _ApplianceAdminService_CreateServiceImport_Handler,
+			MethodName: "CreateApplianceServiceImport",
+			Handler:    _ApplianceAdminService_CreateApplianceServiceImport_Handler,
 		},
 		{
-			MethodName: "CreateFrontendServiceImport",
-			Handler:    _ApplianceAdminService_CreateFrontendServiceImport_Handler,
+			MethodName: "CreateApplianceFrontendServiceImport",
+			Handler:    _ApplianceAdminService_CreateApplianceFrontendServiceImport_Handler,
 		},
 		{
-			MethodName: "ListServiceImports",
-			Handler:    _ApplianceAdminService_ListServiceImports_Handler,
+			MethodName: "ListApplianceServiceImports",
+			Handler:    _ApplianceAdminService_ListApplianceServiceImports_Handler,
 		},
 		{
-			MethodName: "RevokeServiceImport",
-			Handler:    _ApplianceAdminService_RevokeServiceImport_Handler,
+			MethodName: "RevokeApplianceServiceImport",
+			Handler:    _ApplianceAdminService_RevokeApplianceServiceImport_Handler,
 		},
 		{
 			MethodName: "GetContentStatus",
@@ -884,12 +960,12 @@ var ApplianceAdminService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ApplianceAdminService_PlanUpdate_Handler,
 		},
 		{
-			MethodName: "Update",
-			Handler:    _ApplianceAdminService_Update_Handler,
+			MethodName: "UpdateAppliance",
+			Handler:    _ApplianceAdminService_UpdateAppliance_Handler,
 		},
 		{
-			MethodName: "RecoverUpdate",
-			Handler:    _ApplianceAdminService_RecoverUpdate_Handler,
+			MethodName: "RecoverApplianceUpdate",
+			Handler:    _ApplianceAdminService_RecoverApplianceUpdate_Handler,
 		},
 		{
 			MethodName: "PlanActivation",
@@ -900,24 +976,24 @@ var ApplianceAdminService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ApplianceAdminService_Activate_Handler,
 		},
 		{
-			MethodName: "List",
-			Handler:    _ApplianceAdminService_List_Handler,
+			MethodName: "ListAppliances",
+			Handler:    _ApplianceAdminService_ListAppliances_Handler,
 		},
 		{
-			MethodName: "GetStatus",
-			Handler:    _ApplianceAdminService_GetStatus_Handler,
+			MethodName: "GetApplianceStatus",
+			Handler:    _ApplianceAdminService_GetApplianceStatus_Handler,
 		},
 		{
-			MethodName: "Stop",
-			Handler:    _ApplianceAdminService_Stop_Handler,
+			MethodName: "StopAppliance",
+			Handler:    _ApplianceAdminService_StopAppliance_Handler,
 		},
 		{
-			MethodName: "Restart",
-			Handler:    _ApplianceAdminService_Restart_Handler,
+			MethodName: "RestartAppliance",
+			Handler:    _ApplianceAdminService_RestartAppliance_Handler,
 		},
 		{
-			MethodName: "Revoke",
-			Handler:    _ApplianceAdminService_Revoke_Handler,
+			MethodName: "RevokeAppliance",
+			Handler:    _ApplianceAdminService_RevokeAppliance_Handler,
 		},
 		{
 			MethodName: "PlanRemove",
@@ -941,8 +1017,8 @@ var ApplianceAdminService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 		{
-			StreamName:    "WatchOperation",
-			Handler:       _ApplianceAdminService_WatchOperation_Handler,
+			StreamName:    "WatchApplianceOperation",
+			Handler:       _ApplianceAdminService_WatchApplianceOperation_Handler,
 			ServerStreams: true,
 		},
 	},
@@ -956,8 +1032,13 @@ const (
 // ApplianceBootstrapServiceClient is the client API for ApplianceBootstrapService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// ApplianceBootstrapService is the private launch-authentication surface exposed by a system
+// appliance.
 type ApplianceBootstrapServiceClient interface {
-	Bootstrap(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HostBootstrapFrame, ApplianceBootstrapFrame], error)
+	// Bootstrap authenticates one launch, consumes an optional opaque envelope, and returns receipt
+	// and health frames in order.
+	Bootstrap(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BootstrapRequest, BootstrapResponse], error)
 }
 
 type applianceBootstrapServiceClient struct {
@@ -968,24 +1049,29 @@ func NewApplianceBootstrapServiceClient(cc grpc.ClientConnInterface) ApplianceBo
 	return &applianceBootstrapServiceClient{cc}
 }
 
-func (c *applianceBootstrapServiceClient) Bootstrap(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HostBootstrapFrame, ApplianceBootstrapFrame], error) {
+func (c *applianceBootstrapServiceClient) Bootstrap(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BootstrapRequest, BootstrapResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ApplianceBootstrapService_ServiceDesc.Streams[0], ApplianceBootstrapService_Bootstrap_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[HostBootstrapFrame, ApplianceBootstrapFrame]{ClientStream: stream}
+	x := &grpc.GenericClientStream[BootstrapRequest, BootstrapResponse]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ApplianceBootstrapService_BootstrapClient = grpc.BidiStreamingClient[HostBootstrapFrame, ApplianceBootstrapFrame]
+type ApplianceBootstrapService_BootstrapClient = grpc.BidiStreamingClient[BootstrapRequest, BootstrapResponse]
 
 // ApplianceBootstrapServiceServer is the server API for ApplianceBootstrapService service.
 // All implementations must embed UnimplementedApplianceBootstrapServiceServer
 // for forward compatibility.
+//
+// ApplianceBootstrapService is the private launch-authentication surface exposed by a system
+// appliance.
 type ApplianceBootstrapServiceServer interface {
-	Bootstrap(grpc.BidiStreamingServer[HostBootstrapFrame, ApplianceBootstrapFrame]) error
+	// Bootstrap authenticates one launch, consumes an optional opaque envelope, and returns receipt
+	// and health frames in order.
+	Bootstrap(grpc.BidiStreamingServer[BootstrapRequest, BootstrapResponse]) error
 	mustEmbedUnimplementedApplianceBootstrapServiceServer()
 }
 
@@ -996,7 +1082,7 @@ type ApplianceBootstrapServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedApplianceBootstrapServiceServer struct{}
 
-func (UnimplementedApplianceBootstrapServiceServer) Bootstrap(grpc.BidiStreamingServer[HostBootstrapFrame, ApplianceBootstrapFrame]) error {
+func (UnimplementedApplianceBootstrapServiceServer) Bootstrap(grpc.BidiStreamingServer[BootstrapRequest, BootstrapResponse]) error {
 	return status.Error(codes.Unimplemented, "method Bootstrap not implemented")
 }
 func (UnimplementedApplianceBootstrapServiceServer) mustEmbedUnimplementedApplianceBootstrapServiceServer() {
@@ -1022,11 +1108,11 @@ func RegisterApplianceBootstrapServiceServer(s grpc.ServiceRegistrar, srv Applia
 }
 
 func _ApplianceBootstrapService_Bootstrap_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ApplianceBootstrapServiceServer).Bootstrap(&grpc.GenericServerStream[HostBootstrapFrame, ApplianceBootstrapFrame]{ServerStream: stream})
+	return srv.(ApplianceBootstrapServiceServer).Bootstrap(&grpc.GenericServerStream[BootstrapRequest, BootstrapResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ApplianceBootstrapService_BootstrapServer = grpc.BidiStreamingServer[HostBootstrapFrame, ApplianceBootstrapFrame]
+type ApplianceBootstrapService_BootstrapServer = grpc.BidiStreamingServer[BootstrapRequest, BootstrapResponse]
 
 // ApplianceBootstrapService_ServiceDesc is the grpc.ServiceDesc for ApplianceBootstrapService service.
 // It's only intended for direct use with grpc.RegisterService,

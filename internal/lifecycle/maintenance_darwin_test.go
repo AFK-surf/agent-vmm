@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/launchdservice"
 	"golang.org/x/sys/unix"
 )
 
@@ -23,14 +24,15 @@ func maintenanceFixture(t *testing.T) (paths, maintenanceRequest, maintenanceAct
 			t.Fatal(err)
 		}
 	}
-	request := maintenanceRequest{Version: 1, RequestID: "maint-1", Action: "reinstall", DataPolicy: "preserve", TargetApp: value.app, SourceApp: filepath.Join(t.TempDir(), "Agent VMM Host.app"), TargetReleaseID: "release-1", ArtifactSHA256: strings.Repeat("a", 64), ArtifactSize: 100, ConfirmSharedHost: true}
+	request := maintenanceRequest{Version: 1, RequestID: "maint-1", Action: "reinstall", DataPolicy: "preserve", TargetApp: value.app, SourceApp: filepath.Join(t.TempDir(), "Agent VMM Host.app"), TargetReleaseID: "release-1", ConfirmSharedHost: true}
 	actions := maintenanceActions{
+		commitState: writeOwnerState, commitAdmission: writeOwnerState,
 		validateSource: func(maintenanceRequest) error { return nil }, stop: func(paths) error { return nil },
-		targetSchema:   func(maintenanceRequest) (store.SchemaRange, error) { return store.SupportedSchema(), nil },
+		targetSchema:   func(maintenanceRequest) (int, error) { return store.CurrentSchema(), nil },
 		dataSchema:     func(paths) (int, error) { return 0, nil },
 		removeSoftware: func(p paths) error { return os.RemoveAll(p.app) },
 		resetData: func(p paths) error {
-			if err := os.RemoveAll(p.applicationData); err != nil {
+			if err := removeHostData(p); err != nil {
 				return err
 			}
 			return os.RemoveAll(p.logs)
@@ -42,6 +44,7 @@ func maintenanceFixture(t *testing.T) (paths, maintenanceRequest, maintenanceAct
 }
 
 func TestMaintenanceSameVersionReinstallPreservesIdentityAndReallyReplaces(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	key := filepath.Join(p.applicationData, "device-root.key")
 	if err := os.WriteFile(key, []byte("private identity"), 0600); err != nil {
@@ -63,9 +66,10 @@ func TestMaintenanceSameVersionReinstallPreservesIdentityAndReallyReplaces(t *te
 }
 
 func TestMaintenanceResetUninstallSurvivesFailedRemovalAndNeverRestores(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	r.Action, r.DataPolicy = "uninstall", "reset"
-	r.SourceApp, r.TargetReleaseID, r.ArtifactSHA256, r.ArtifactSize = "", "", "", 0
+	r.SourceApp, r.TargetReleaseID = "", ""
 	r.ConfirmDataDeletion = true
 	resets, removes := 0, 0
 	reset := a.resetData
@@ -79,7 +83,7 @@ func TestMaintenanceResetUninstallSurvivesFailedRemovalAndNeverRestores(t *testi
 	}
 	a.restore = func(paths, string) error { t.Fatal("uninstall restored VM"); return nil }
 	a.verify = func(p paths, _ maintenanceRequest) error {
-		for _, path := range []string{p.app, p.applicationData, p.logs} {
+		for _, path := range []string{p.app, p.logs} {
 			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 				return errors.New("removed path recreated")
 			}
@@ -101,18 +105,19 @@ func TestMaintenanceResetUninstallSurvivesFailedRemovalAndNeverRestores(t *testi
 	if _, err := maintenanceStatus(p, r.RequestID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(p.applicationData); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("status recreated data: %v", err)
+	if _, err := os.Stat(filepath.Join(p.applicationData, "state.json")); err != nil {
+		t.Fatalf("owner journal missing: %v", err)
 	}
 }
 
 func TestMaintenanceStopFailureDoesNotDeleteAndBlocksOtherMutations(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	r.DataPolicy, r.ConfirmDataDeletion = "reset", true
 	a.stop = func(paths) error { return errors.New("process exit unknown") }
 	a.resetData = func(paths) error { t.Fatal("deleted before stop confirmation"); return nil }
 	got, err := runMaintenance(p, r, a)
-	if err == nil || got.Stage != "stopping" || got.DataCleared {
+	if err == nil || got.Stage != "stop" || got.DataCleared {
 		t.Fatalf("%+v %v", got, err)
 	}
 	called := false
@@ -127,6 +132,7 @@ func TestMaintenanceStopFailureDoesNotDeleteAndBlocksOtherMutations(t *testing.T
 }
 
 func TestMaintenanceRequestCannotChangeItsDestructiveScopeOrArtifact(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	a.stop = func(paths) error { return errors.New("stop unavailable") }
 	if _, err := runMaintenance(p, r, a); err == nil {
@@ -135,7 +141,6 @@ func TestMaintenanceRequestCannotChangeItsDestructiveScopeOrArtifact(t *testing.
 	for _, change := range []func(*maintenanceRequest){
 		func(x *maintenanceRequest) { x.DataPolicy = "reset"; x.ConfirmDataDeletion = true },
 		func(x *maintenanceRequest) { x.Action = "update" },
-		func(x *maintenanceRequest) { x.ArtifactSHA256 = strings.Repeat("b", 64) },
 		func(x *maintenanceRequest) { x.TargetReleaseID = "different" },
 	} {
 		x := r
@@ -147,6 +152,7 @@ func TestMaintenanceRequestCannotChangeItsDestructiveScopeOrArtifact(t *testing.
 }
 
 func TestMaintenanceUninstallSuppressesOldIntentAndExplicitReinstallAllowsNewSetup(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	oldDir := filepath.Join(p.applicationData, "install-completions")
 	if err := os.MkdirAll(oldDir, 0700); err != nil {
@@ -160,8 +166,6 @@ func TestMaintenanceUninstallSuppressesOldIntentAndExplicitReinstallAllowsNewSet
 	uninstall.DataPolicy, uninstall.ConfirmDataDeletion = "reset", true
 	uninstall.SourceApp = ""
 	uninstall.TargetReleaseID = ""
-	uninstall.ArtifactSHA256 = ""
-	uninstall.ArtifactSize = 0
 	if _, err := runMaintenance(p, uninstall, a); err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +189,7 @@ func TestMaintenanceUninstallSuppressesOldIntentAndExplicitReinstallAllowsNewSet
 }
 
 func TestMaintenanceStatusDoesNotCreateItsDirectory(t *testing.T) {
+	t.Parallel()
 	p := testPaths(t.TempDir())
 	got, err := maintenanceStatus(p, "")
 	if err != nil || got != nil {
@@ -196,6 +201,7 @@ func TestMaintenanceStatusDoesNotCreateItsDirectory(t *testing.T) {
 }
 
 func TestMaintenanceRefusesTargetAndResetAncestorSymlinks(t *testing.T) {
+	t.Parallel()
 	p, r, _ := maintenanceFixture(t)
 	r.TargetApp = filepath.Join(t.TempDir(), "Agent VMM Host.app")
 	if err := validateMaintenanceRequest(p, r); err == nil {
@@ -214,15 +220,14 @@ func TestMaintenanceRefusesTargetAndResetAncestorSymlinks(t *testing.T) {
 }
 
 func TestMaintenanceStopOldHostUsesLaunchdAndConfirmsExit(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	p, _, _ := maintenanceFixture(t)
-	oldPID, oldRunning, oldDisk, oldDrain := launchctlPID, processRunning, stateDiskOpenOwners, drainVMForUpdate
-	defer func() {
-		launchctlPID, processRunning, stateDiskOpenOwners, drainVMForUpdate = oldPID, oldRunning, oldDisk, oldDrain
-	}()
-	launchctlPID = func(context.Context, string) (int, error) { return 42, nil }
-	processRunning = func(int) bool { return false }
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
-	drainVMForUpdate = func(context.Context, paths, string) error { return errors.New("old Host does not implement RPC") }
+	p.owner = &owner
+	owner.system.ServicePID = func(context.Context, string) (int, error) { return 42, nil }
+	owner.system.ProcessRunning = func(int) bool { return false }
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	owner.drainVM = func(context.Context, paths, string) error { return errors.New("old Host does not implement RPC") }
 	stopped := false
 	run := func(_ context.Context, args ...string) error {
 		if args[0] == "print" && (stopped || strings.HasPrefix(args[1], "system/")) {
@@ -240,17 +245,14 @@ func TestMaintenanceStopOldHostUsesLaunchdAndConfirmsExit(t *testing.T) {
 }
 
 func TestMaintenanceStopCrashLoopingHostBootsOutWithoutProcessWait(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	p, _, _ := maintenanceFixture(t)
-	oldObserver, oldDisk, oldDrain := launchctlServiceObserver, stateDiskOpenOwners, drainVMForUpdate
-	defer func() {
-		launchctlServiceObserver, stateDiskOpenOwners, drainVMForUpdate = oldObserver, oldDisk, oldDrain
-	}()
-	launchctlServiceObserver = func(context.Context, string) (hostServiceFacts, error) {
-		return parseLaunchctlServiceObservation([]byte(crashLoopLaunchctlPrint))
-	}
+	p.owner = &owner
+	owner.system.ServicePID = func(context.Context, string) (int, error) { return 0, nil }
 	diskChecked := false
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { diskChecked = true; return nil, nil }
-	drainVMForUpdate = func(context.Context, paths, string) error {
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) { diskChecked = true; return nil, nil }
+	owner.drainVM = func(context.Context, paths, string) error {
 		t.Fatal("drained the VM of a Host that has no process")
 		return nil
 	}
@@ -274,6 +276,7 @@ func TestMaintenanceStopCrashLoopingHostBootsOutWithoutProcessWait(t *testing.T)
 }
 
 func TestMaintenancePreserveUninstallKeepsServicePolicy(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	policy := []byte(`{"disable_pairing":true}`)
 	if err := os.WriteFile(p.serviceConfigFile, policy, 0600); err != nil {
@@ -282,8 +285,6 @@ func TestMaintenancePreserveUninstallKeepsServicePolicy(t *testing.T) {
 	r.Action = "uninstall"
 	r.SourceApp = ""
 	r.TargetReleaseID = ""
-	r.ArtifactSHA256 = ""
-	r.ArtifactSize = 0
 	a.removeSoftware = defaultMaintenanceActions().removeSoftware
 	if _, err := runMaintenance(p, r, a); err != nil {
 		t.Fatal(err)
@@ -295,6 +296,7 @@ func TestMaintenancePreserveUninstallKeepsServicePolicy(t *testing.T) {
 }
 
 func TestMaintenanceExternalLockAndReceiptSurviveReset(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	r.DataPolicy = "reset"
 	r.ConfirmDataDeletion = true
@@ -318,7 +320,7 @@ func TestMaintenanceExternalLockAndReceiptSurviveReset(t *testing.T) {
 			t.Fatal("reset lost the operation lock")
 		}
 		got, err := maintenanceStatus(p, r.RequestID)
-		if err != nil || got == nil || got.Stage != "resetting" {
+		if err != nil || got == nil || got.Stage != "reset" {
 			t.Fatalf("external receipt missing %+v %v", got, err)
 		}
 		return nil
@@ -329,23 +331,25 @@ func TestMaintenanceExternalLockAndReceiptSurviveReset(t *testing.T) {
 }
 
 func TestMaintenanceStoppedDiskStillOwnedRemainsIncomplete(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	p, r, a := maintenanceFixture(t)
+	p.owner = &owner
 	r.DataPolicy = "reset"
 	r.ConfirmDataDeletion = true
-	oldDisk := stateDiskOpenOwners
-	defer func() { stateDiskOpenOwners = oldDisk }()
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, errors.New("disk owner unreadable") }
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, errors.New("disk owner unreadable") }
 	a.stop = func(p paths) error {
 		return stopForMaintenanceWith(context.Background(), p, func(context.Context, ...string) error { return errHostServiceNotFound })
 	}
 	a.resetData = func(paths) error { t.Fatal("deleted without disk release proof"); return nil }
 	got, err := runMaintenance(p, r, a)
-	if err == nil || got.Stage != "stopping" || got.DataCleared {
+	if err == nil || got.Stage != "stop" || got.DataCleared {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
 
 func TestMaintenanceCompletionCommitFailureCannotReportSuccess(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	a.commitState = func(*os.File, maintenanceState) error { return errors.New("injected state write failure") }
 	got, err := runMaintenance(p, r, a)
@@ -359,7 +363,7 @@ func TestMaintenanceCompletionCommitFailureCannotReportSuccess(t *testing.T) {
 	a.stop = func(paths) error { t.Fatal("settlement repeated stop"); return nil }
 	a.restore = func(paths, string) error { t.Fatal("settlement repeated restore"); return nil }
 	a.verify = func(paths, maintenanceRequest) error { t.Fatal("settlement repeated effects"); return nil }
-	a.commitState = nil
+	a.commitState = writeOwnerState
 	if got, err = runMaintenance(p, r, a); err != nil || got.Outcome != "succeeded" {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -371,6 +375,7 @@ func TestMaintenanceCompletionCommitFailureCannotReportSuccess(t *testing.T) {
 }
 
 func TestMaintenanceStatusProjectsCommittedCompletionWithoutWriting(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	got, err := runMaintenance(p, r, a)
 	if err != nil {
@@ -381,7 +386,7 @@ func TestMaintenanceStatusProjectsCommittedCompletionWithoutWriting(t *testing.T
 		t.Fatal(err)
 	}
 	// Crash after the atomic owner settlement, before its receipt projection.
-	got.Outcome, got.Stage = "pending", "verifying"
+	got.Outcome, got.Stage = "pending", "settled"
 	if err := writeMaintenanceJSON(dir, maintenanceReceiptName(r.RequestID), got); err != nil {
 		t.Fatal(err)
 	}
@@ -408,8 +413,6 @@ func TestMaintenanceStatusProjectsCommittedCompletionWithoutWriting(t *testing.T
 	next.Action = "uninstall"
 	next.SourceApp = ""
 	next.TargetReleaseID = ""
-	next.ArtifactSHA256 = ""
-	next.ArtifactSize = 0
 	if _, err := runMaintenance(p, next, a); err != nil {
 		t.Fatal(err)
 	}
@@ -425,6 +428,7 @@ func TestMaintenanceStatusProjectsCommittedCompletionWithoutWriting(t *testing.T
 }
 
 func TestMaintenanceOldUnfinishedReceiptCannotReplaceNewIntent(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	if _, err := runMaintenance(p, r, a); err != nil {
 		t.Fatal(err)
@@ -447,6 +451,7 @@ func TestMaintenanceOldUnfinishedReceiptCannotReplaceNewIntent(t *testing.T) {
 }
 
 func TestMaintenanceRestoreRetryDoesNotStopOrReplaceInstalledSoftware(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	stops, replaces := 0, 0
 	var starts []string
@@ -460,7 +465,7 @@ func TestMaintenanceRestoreRetryDoesNotStopOrReplaceInstalledSoftware(t *testing
 		return nil
 	}
 	got, err := runMaintenance(p, r, a)
-	if err == nil || !got.SoftwareInstalled || got.Stage != "restoring" {
+	if err == nil || !got.SoftwareInstalled || got.Stage != "restore" {
 		t.Fatalf("%+v %v", got, err)
 	}
 	if _, err := runMaintenance(p, r, a); err != nil {
@@ -472,9 +477,10 @@ func TestMaintenanceRestoreRetryDoesNotStopOrReplaceInstalledSoftware(t *testing
 }
 
 func TestMaintenancePreflightRefusesTargetOlderThanDataWithoutEffects(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	a.dataSchema = func(paths) (int, error) { return 35, nil }
-	a.targetSchema = func(maintenanceRequest) (store.SchemaRange, error) { return store.SchemaRange{Min: 18, Max: 25}, nil }
+	a.targetSchema = func(maintenanceRequest) (int, error) { return 25, nil }
 	noEffect := func(paths) error { t.Fatal("refused maintenance made an effect"); return nil }
 	a.stop, a.resetData, a.removeSoftware = noEffect, noEffect, noEffect
 	a.replace = func(paths, maintenanceRequest) error { return noEffect(p) }
@@ -509,21 +515,22 @@ func TestMaintenancePreflightRefusesTargetOlderThanDataWithoutEffects(t *testing
 }
 
 func TestMaintenanceRestoreIsBoundedAndThenReplaceable(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	restores := 0
 	a.restore = func(paths, string) error { restores++; return errors.New("host exited") }
-	for attempt := 1; attempt <= maintenanceRestoreAttempts+1; attempt++ {
+	for attempt := 1; attempt <= boundedOperationMaxAttempts+1; attempt++ {
 		got, err := runMaintenance(p, r, a)
-		final := attempt >= maintenanceRestoreAttempts
-		if err == nil || got.Outcome != "failed" || got.Retryable == final || (got.FailureCode == "host_start_failed") != final || got.Stage != "restoring" {
+		final := attempt >= boundedOperationMaxAttempts
+		if err == nil || got.Outcome != "failed" || got.Retryable == final || (got.FailureCode == "host_start_failed") != final || got.Stage != "restore" {
 			t.Fatalf("attempt %d = %+v %v", attempt, got, err)
 		}
 	}
-	if restores != maintenanceRestoreAttempts {
+	if restores != boundedOperationMaxAttempts {
 		t.Fatalf("restores = %d", restores)
 	}
 	reset := r
-	reset.RequestID, reset.SupersedesRequestID = "maint-reset", r.RequestID
+	reset.RequestID, reset.SupersedesRequestID = "maint-reset", ""
 	reset.DataPolicy, reset.ConfirmDataDeletion = "reset", true
 	a.restore = func(paths, string) error { return nil }
 	if got, err := runMaintenance(p, reset, a); err != nil || got.Outcome != "succeeded" {
@@ -532,19 +539,20 @@ func TestMaintenanceRestoreIsBoundedAndThenReplaceable(t *testing.T) {
 }
 
 func TestRestoreHostEndsAtHostStartFailureRecord(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	record := filepath.Join(value.applicationData, store.StartFailureFile)
 	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(record, []byte(`{"code":"data_requires_conversion","dataSchema":16,"supportedSchema":{"min":18,"max":35}}`), 0o600); err != nil {
+	if err := os.WriteFile(record, []byte(`{"code":"STATE_SCHEMA_INCOMPATIBLE","dataSchema":16,"currentSchema":35}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	repair := func(paths) error {
 		if _, err := os.Stat(record); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("stale start failure record survived the restart")
 		}
-		return os.WriteFile(record, []byte(`{"code":"data_newer_than_host","dataSchema":36,"supportedSchema":{"min":18,"max":35}}`), 0o600)
+		return os.WriteFile(record, []byte(`{"code":"STATE_SCHEMA_INCOMPATIBLE","dataSchema":36,"currentSchema":35}`), 0o600)
 	}
 	started := time.Now()
 	err := restoreHost(value, "restore", repair, func(ctx context.Context, _ paths, _ string) error {
@@ -552,12 +560,13 @@ func TestRestoreHostEndsAtHostStartFailureRecord(t *testing.T) {
 		return errors.New("Agent VMM operator is not readable")
 	})
 	var failure maintenanceFailure
-	if !errors.As(err, &failure) || failure.code != "host_start_failed" || !strings.Contains(err.Error(), "data_newer_than_host") || time.Since(started) > 5*time.Second {
+	if !errors.As(err, &failure) || failure.code != "host_start_failed" || !strings.Contains(err.Error(), "STATE_SCHEMA_INCOMPATIBLE") || time.Since(started) > 5*time.Second {
 		t.Fatalf("restore = %v after %s", err, time.Since(started))
 	}
 }
 
-func TestMaintenanceRecoversDamagedReplacementWithoutResettingDataAgain(t *testing.T) {
+func TestMaintenanceRestoreRetryKeepsVerifiedReplacementAndData(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	r.DataPolicy, r.ConfirmDataDeletion = "reset", true
 	resets, replaces, stops, restores := 0, 0, 0, 0
@@ -574,16 +583,16 @@ func TestMaintenanceRecoversDamagedReplacementWithoutResettingDataAgain(t *testi
 	if _, err := runMaintenance(p, r, a); err == nil {
 		t.Fatal("expected interrupted restore")
 	}
-	a.validateInstalled = func(paths, maintenanceRequest) error { return errors.New("installed app damaged") }
 	if _, err := runMaintenance(p, r, a); err != nil {
 		t.Fatal(err)
 	}
-	if resets != 1 || replaces != 2 || stops != 2 {
+	if resets != 1 || replaces != 1 || stops != 1 {
 		t.Fatalf("reset=%d replacement=%d stops=%d", resets, replaces, stops)
 	}
 }
 
 func TestMaintenancePreserveUninstallAllowsRetainedBindingAfterExplicitReinstall(t *testing.T) {
+	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	path := filepath.Join(p.applicationData, "install-completions")
 	if err := os.MkdirAll(path, 0700); err != nil {
@@ -596,8 +605,6 @@ func TestMaintenancePreserveUninstallAllowsRetainedBindingAfterExplicitReinstall
 	uninstall.Action = "uninstall"
 	uninstall.SourceApp = ""
 	uninstall.TargetReleaseID = ""
-	uninstall.ArtifactSHA256 = ""
-	uninstall.ArtifactSize = 0
 	if _, err := runMaintenance(p, uninstall, a); err != nil {
 		t.Fatal(err)
 	}
@@ -631,15 +638,16 @@ func stickMaintenance(t *testing.T, p paths, old maintenanceRequest, a maintenan
 	}
 	defer unlock()
 	receipt := map[string]any{"version": 1, "requestId": old.RequestID, "action": old.Action, "dataPolicy": old.DataPolicy, "targetApp": old.TargetApp,
-		"sourceApp": old.SourceApp, "targetReleaseId": old.TargetReleaseID, "artifactSha256": old.ArtifactSHA256, "artifactSize": old.ArtifactSize,
+		"sourceApp": old.SourceApp, "targetReleaseId": old.TargetReleaseID,
 		"confirmSharedHost": true, "serviceMode": p.service.Mode, "serviceUser": p.service.User, "disablePairing": false,
-		"stage": "restoring", "outcome": "pending", "retryable": true, "softwareInstalled": true, "restoreAttempts": 7, "startedAt": 1, "updatedAt": 2}
+		"stage": "restore", "outcome": "failed", "retryable": true, "softwareInstalled": true, "restoreAttempts": 7, "startedAt": 1, "updatedAt": 2}
 	if err := writeMaintenanceJSON(directory, maintenanceReceiptName(old.RequestID), receipt); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestActiveMaintenanceCanBeReplacedWithoutReplayingOldWork(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []struct {
 		action, policy string
 		stuck          bool
@@ -663,8 +671,6 @@ func TestActiveMaintenanceCanBeReplacedWithoutReplayingOldWork(t *testing.T) {
 			if next.Action == "uninstall" {
 				next.SourceApp = ""
 				next.TargetReleaseID = ""
-				next.ArtifactSHA256 = ""
-				next.ArtifactSize = 0
 			}
 			stops, resets := 0, 0
 			a.stop = func(paths) error { stops++; return nil }
@@ -697,6 +703,7 @@ func TestActiveMaintenanceCanBeReplacedWithoutReplayingOldWork(t *testing.T) {
 }
 
 func TestSupersessionAdmissionWriteFailureDoesNotAcceptOrLoseEitherScope(t *testing.T) {
+	t.Parallel()
 	p, old, a := maintenanceFixture(t)
 	a.restore = func(paths, string) error { return errors.New("cannot restore data") }
 	if _, err := runMaintenance(p, old, a); err == nil {
@@ -722,7 +729,7 @@ func TestSupersessionAdmissionWriteFailureDoesNotAcceptOrLoseEitherScope(t *test
 		t.Fatalf("prior receipt lost: %+v %v", previous, err)
 	}
 	// The exact same request recovers the staged receipt, then stops afresh.
-	a.commitAdmission = nil
+	a.commitAdmission = writeOwnerState
 	stops := 0
 	a.stop = func(paths) error { stops++; return nil }
 	a.restore = func(paths, string) error { return nil }
@@ -733,6 +740,7 @@ func TestSupersessionAdmissionWriteFailureDoesNotAcceptOrLoseEitherScope(t *test
 }
 
 func TestSupersedingStopFailureRetainsNewRequestAndNeverClearsData(t *testing.T) {
+	t.Parallel()
 	p, old, a := maintenanceFixture(t)
 	a.restore = func(paths, string) error { return errors.New("cannot restore") }
 	_, _ = runMaintenance(p, old, a)
@@ -755,6 +763,7 @@ func TestSupersedingStopFailureRetainsNewRequestAndNeverClearsData(t *testing.T)
 }
 
 func TestSupersessionRejectsUnconfirmedOrDifferentPredecessor(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"completed", "different-service", "different-target", "stale-id"} {
 		t.Run(kind, func(t *testing.T) {
 			p, old, a := maintenanceFixture(t)
@@ -801,6 +810,7 @@ func TestSupersessionRejectsUnconfirmedOrDifferentPredecessor(t *testing.T) {
 }
 
 func TestStatusDoesNotReportAnAcceptedMissingReceiptAsUnaccepted(t *testing.T) {
+	t.Parallel()
 	p, _, _ := maintenanceFixture(t)
 	directory, unlock, err := lockMaintenance(p)
 	if err != nil {
@@ -820,6 +830,7 @@ func TestStatusDoesNotReportAnAcceptedMissingReceiptAsUnaccepted(t *testing.T) {
 }
 
 func TestReplacementKeepsDaemonIdentityAfterFailedResetRemovedServiceData(t *testing.T) {
+	t.Parallel()
 	p, old, a := maintenanceFixture(t)
 	p.service.Mode = serviceModeDaemon
 	p.service.User = "original-service"
@@ -840,6 +851,7 @@ func TestReplacementKeepsDaemonIdentityAfterFailedResetRemovedServiceData(t *tes
 }
 
 func TestOrdinaryAdmissionWriteFailureRemainsUnacceptedAndRetriesExactScope(t *testing.T) {
+	t.Parallel()
 	p, prior, a := maintenanceFixture(t)
 	if _, err := runMaintenance(p, prior, a); err != nil {
 		t.Fatal(err)
@@ -854,7 +866,7 @@ func TestOrdinaryAdmissionWriteFailureRemainsUnacceptedAndRetriesExactScope(t *t
 	if got, err := maintenanceStatus(p, next.RequestID); got != nil || err != nil {
 		t.Fatalf("unaccepted ordinary receipt: %+v %v", got, err)
 	}
-	a.commitAdmission = nil
+	a.commitAdmission = writeOwnerState
 	stops := 0
 	a.stop = func(paths) error { stops++; return nil }
 	got, err := runMaintenance(p, next, a)
@@ -864,6 +876,7 @@ func TestOrdinaryAdmissionWriteFailureRemainsUnacceptedAndRetriesExactScope(t *t
 }
 
 func TestStagedOrdinaryReinstallCannotReviveAfterLaterUninstall(t *testing.T) {
+	t.Parallel()
 	p, staged, a := maintenanceFixture(t)
 	a.commitAdmission = func(*os.File, maintenanceState) error { return errors.New("admission commit failed") }
 	if _, err := runMaintenance(p, staged, a); err == nil {
@@ -874,9 +887,7 @@ func TestStagedOrdinaryReinstallCannotReviveAfterLaterUninstall(t *testing.T) {
 	uninstall.Action = "uninstall"
 	uninstall.SourceApp = ""
 	uninstall.TargetReleaseID = ""
-	uninstall.ArtifactSHA256 = ""
-	uninstall.ArtifactSize = 0
-	a.commitAdmission = nil
+	a.commitAdmission = writeOwnerState
 	if got, err := runMaintenance(p, uninstall, a); err != nil || got.Outcome != "succeeded" {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -887,6 +898,7 @@ func TestStagedOrdinaryReinstallCannotReviveAfterLaterUninstall(t *testing.T) {
 }
 
 func TestMissingAcceptedOrSupersededReceiptCannotBeRecreatedByReplay(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"active", "superseded"} {
 		t.Run(kind, func(t *testing.T) {
 			p, r, a := maintenanceFixture(t)
@@ -913,6 +925,7 @@ func TestMissingAcceptedOrSupersededReceiptCannotBeRecreatedByReplay(t *testing.
 }
 
 func TestStuckMaintenanceWithLiveExecutorReportsOwnerBusy(t *testing.T) {
+	t.Parallel()
 	p, old, a := maintenanceFixture(t)
 	stickMaintenance(t, p, old, a)
 	directory, err := openMaintenanceDirectory(p, false)
@@ -935,7 +948,7 @@ func TestStuckMaintenanceWithLiveExecutorReportsOwnerBusy(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	unix.Flock(int(executor.Fd()), unix.LOCK_UN)
-	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.Outcome != "pending" || got.SupersededByRequestID != "" {
+	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.Outcome != "failed" || got.SupersededByRequestID != "" {
 		t.Fatalf("old = %+v %v", got, err)
 	}
 	if got, err := maintenanceStatus(p, next.RequestID); err != nil || got != nil {
@@ -944,17 +957,18 @@ func TestStuckMaintenanceWithLiveExecutorReportsOwnerBusy(t *testing.T) {
 }
 
 func TestRefusedPreserveReplacementKeepsStuckRequestForResetReplacement(t *testing.T) {
+	t.Parallel()
 	p, old, a := maintenanceFixture(t)
 	stickMaintenance(t, p, old, a)
 	next := old
 	next.RequestID, next.SupersedesRequestID, next.Action = "next", old.RequestID, "update"
 	a.dataSchema = func(paths) (int, error) { return 35, nil }
-	a.targetSchema = func(maintenanceRequest) (store.SchemaRange, error) { return store.SchemaRange{Min: 18, Max: 25}, nil }
+	a.targetSchema = func(maintenanceRequest) (int, error) { return 25, nil }
 	a.stop = func(paths) error { t.Fatal("refused replacement made an effect"); return nil }
 	if got, err := runMaintenance(p, next, a); err == nil || got.FailureCode != "target_older_than_data" {
 		t.Fatalf("%+v %v", got, err)
 	}
-	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.Outcome != "pending" {
+	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.Outcome != "failed" {
 		t.Fatalf("refusal superseded the old request: %+v %v", got, err)
 	}
 	reset := old

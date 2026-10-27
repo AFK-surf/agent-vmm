@@ -39,13 +39,13 @@ func (p *testVSockPeer) send(h vsockHeader, data []byte) {
 	raw := append(encodeVsockHeader(h), data...)
 	_ = p.mem.WriteIPA(0x20000, raw)
 	p.tx.descriptor(0, 0x20000, uint32(len(raw)), 0, 0)
-	p.tx.submit(0)
+	p.tx.submit()
 	p.tx.wait()
 }
 func (p *testVSockPeer) receive(capacity int) (vsockHeader, []byte) {
 	p.t.Helper()
 	p.rx.descriptor(0, 0x30000, uint32(capacity), descFWrite, 0)
-	p.rx.submit(0)
+	p.rx.submit()
 	p.rx.wait()
 	elem, _ := p.mem.ReadIPA(p.rx.used+4+uint64((p.rx.completed-1)%8)*8, 8)
 	size := binary.LittleEndian.Uint32(elem[4:])

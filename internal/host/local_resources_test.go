@@ -5,48 +5,15 @@ package host
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"testing"
+
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"path/filepath"
-	"testing"
 )
-
-func TestLocalOperatorCapabilitiesRejectEveryNonOperatorRole(t *testing.T) {
-	server := &operatorServer{}
-	handlers := []grpc.UnaryHandler{
-		func(ctx context.Context, _ any) (any, error) {
-			return server.PlanLocalDisposal(ctx, &hostv1.PlanLocalDisposalRequest{})
-		},
-		func(ctx context.Context, _ any) (any, error) {
-			return server.ExecuteLocalDisposal(ctx, &hostv1.ExecuteLocalDisposalRequest{})
-		},
-		func(ctx context.Context, _ any) (any, error) {
-			return server.SignCommaRecovery(ctx, &hostv1.SignCommaRecoveryRequest{})
-		},
-		func(ctx context.Context, _ any) (any, error) {
-			return server.GetLocalDiskSummary(ctx, &hostv1.GetLocalDiskSummaryRequest{})
-		},
-		func(ctx context.Context, _ any) (any, error) {
-			return server.ListLocalEnvironmentPage(ctx, &hostv1.ListLocalEnvironmentPageRequest{})
-		},
-		func(ctx context.Context, _ any) (any, error) {
-			return server.ListLocalRegistrationPage(ctx, &hostv1.ListLocalRegistrationPageRequest{})
-		},
-	}
-	for _, role := range []auth.Role{auth.Agent, auth.RemoteConnector} {
-		for _, handler := range handlers {
-			_, err := auth.UnaryInterceptor(auth.Identity{Role: role})(context.Background(), nil, &grpc.UnaryServerInfo{}, handler)
-			if status.Code(err) != codes.PermissionDenied {
-				t.Fatalf("non-operator role %v: %v", role, err)
-			}
-		}
-	}
-}
 
 func TestLocalResourcePagesKeepMoreThanPreviewLimitAndUnknownMetrics(t *testing.T) {
 	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
@@ -61,7 +28,7 @@ func TestLocalResourcePagesKeepMoreThanPreviewLimitAndUnknownMetrics(t *testing.
 			t.Fatal(err)
 		}
 	}
-	controller := &Controller{store: database, manager: &vmm.Manager{}}
+	controller := newTestController(&Controller{store: database, manager: &vmm.Manager{}})
 	server := &operatorServer{controller: controller}
 	cursor := ""
 	seen := map[string]bool{}
@@ -72,7 +39,7 @@ func TestLocalResourcePagesKeepMoreThanPreviewLimitAndUnknownMetrics(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		page := result.(*hostv1.LocalEnvironmentPage)
+		page := result.(*hostv1.ListLocalEnvironmentPageResponse)
 		if len(page.GetEnvironments()) > 32 {
 			t.Fatal("environment page exceeds request budget")
 		}
@@ -94,7 +61,7 @@ func TestLocalResourcePagesKeepMoreThanPreviewLimitAndUnknownMetrics(t *testing.
 	result, err := auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})(context.Background(), nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, _ any) (any, error) {
 		return server.GetLocalDiskSummary(ctx, &hostv1.GetLocalDiskSummaryRequest{})
 	})
-	if err != nil || result.(*hostv1.LocalDiskSummary).GetGuestStateFs() != nil {
+	if err != nil || result.(*hostv1.GetLocalDiskSummaryResponse).GetGuestStateFs() != nil {
 		t.Fatalf("disk summary depended on database or filled missing metric: %v,%v", result, err)
 	}
 }

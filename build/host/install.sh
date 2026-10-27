@@ -150,10 +150,10 @@ fi
 
 if [ "$already_current" -eq 1 ]; then
 	if [ "$effective_service_type" = daemon ]; then
-		if "$executor" status --job host >/dev/null 2>&1; then
-			"$executor" start --job host
+		if "$executor" status >/dev/null 2>&1; then
+			"$executor" start
 		else
-			"$executor" install --job host
+			"$executor" install
 		fi
 	fi
 	run_lifecycle_with_managed_policy "$source_app/Contents/Helpers/agent-vmm-lifecycle" repair --shared-host \
@@ -181,7 +181,7 @@ if [ ! -d "$app" ]; then
 	created_staged=0
 	trap - EXIT HUP INT TERM
 	if [ "$effective_service_type" = daemon ]; then
-		"$executor" install --job host
+		"$executor" install
 	fi
 	run_lifecycle_with_managed_policy "$source_app/Contents/Helpers/agent-vmm-lifecycle" install --shared-host \
 		--service-type "$effective_service_type" --service-user "$service_user" \
@@ -229,8 +229,8 @@ with open(sys.argv[1], "r", encoding="utf-8") as handle:
 PY
 	)
 	case "$stage" in
-	stop) "$executor" stop --job host ;;
-	recovery) "$executor" install --job host ;;
+	stop) "$executor" stop ;;
+	recovery) "$executor" install ;;
 	*) sed -n '1,20p' "$attempt_log" >&2; exit 1 ;;
 	esac
 	administrator_actions=$((administrator_actions + 1))

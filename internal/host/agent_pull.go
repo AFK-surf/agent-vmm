@@ -14,47 +14,43 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
+	opreceipt "github.com/AFK-surf/agent-vmm/internal/host/operation"
+	"github.com/AFK-surf/agent-vmm/internal/imageref"
 	"github.com/AFK-surf/agent-vmm/internal/registryarchive"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 var errRegistryDestination = errors.New("image registry resolved to a non-public address")
 
 func importRequired(err error) bool {
-	for _, detail := range status.Convert(err).Details() {
-		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.GetReason() == "IMAGE_IMPORT_REQUIRED" {
-			return true
-		}
-	}
-	return false
+	reason, ok := hostv1.ErrorReasonOf(err)
+	return ok && reason == hostv1.ErrorReason_ERROR_REASON_IMAGE_IMPORT_REQUIRED
 }
 
 // importRegistryImage materializes a cold image: it fetches the linux/arm64
 // image from its registry and commits the archive through the immutable
 // ImportImage path. The derived request ID keeps a retried pull idempotent.
 func (server *agentServer) importRegistryImage(ctx context.Context, identity auth.Identity, requestID, reference string) error {
-	canonical, err := guestimage.NormalizeReference(reference)
+	canonical, err := imageref.NormalizeReference(reference)
 	if err != nil {
-		return resourceError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image", reference, "image reference is invalid")
+		return hostv1.NewError(codes.InvalidArgument, hostv1.ErrorReason_ERROR_REASON_IMAGE_REFERENCE_INVALID, "image reference is invalid", hostv1.WithResource("image", reference))
 	}
-	ctx, cancel := context.WithTimeout(ctx, importDownloadTimeout)
+	ctx, cancel := context.WithTimeout(ctx, guestconn.ImportDownloadTimeout)
 	defer cancel()
 	directory := filepath.Join(server.controller.instanceDirectory, "image-pulls")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return err
 	}
-	archive, err := registryarchive.Export(ctx, canonical, directory, maxImportArchiveBytes, server.controller.registryTransport())
+	archive, err := registryarchive.Export(ctx, canonical, directory, guestconn.MaxImportArchiveBytes, registryTransport(server.controller.registryRoundTripper))
 	if err != nil {
 		return registryPullError(ctx, err, canonical)
 	}
 	defer os.Remove(archive.Path)
-	header := &hostv1.ImportImageHeader{RequestId: derivedRequestID(fmt.Sprintf("image-pull/%s/%s", identity.NamespaceID, requestID)), ImageReference: canonical,
+	header := &hostv1.ImportImageHeader{RequestId: opreceipt.DerivedRequestID(fmt.Sprintf("image-pull/%s/%s", identity.NamespaceID, requestID)), ImageReference: canonical,
 		ArchiveSha256: archive.SHA256, ManifestDigest: archive.ManifestDigest, Platform: "linux/arm64", ArchiveSize: archive.Size}
 	_, err = server.importToGuest(ctx, identity, header, func(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), image *vmmdv1.Image, completed bool) (*vmmdv1.Image, error) {
 		if completed {
@@ -89,40 +85,40 @@ func sendArchiveFile(_ context.Context, path string, _ uint64, send func([]byte)
 }
 
 func registryPullError(ctx context.Context, err error, reference string) error {
-	image := func(code codes.Code, reason, message string) error {
-		return resourceError(code, reason, "image", reference, message)
+	image := func(code codes.Code, reason hostv1.ErrorReason, message string) error {
+		return hostv1.NewError(code, reason, message, hostv1.WithResource("image", reference))
 	}
 	var registry *transport.Error
 	var network net.Error
 	switch {
 	case errors.Is(err, registryarchive.ErrTooLarge):
-		return invalidField("reference", "image exceeds the 8 GiB import limit")
+		return hostv1.InvalidField("reference", "image exceeds the 8 GiB import limit")
 	case errors.Is(err, registryarchive.ErrPlatformUnavailable):
-		return image(codes.FailedPrecondition, "IMAGE_PLATFORM_UNAVAILABLE", "image has no linux/arm64 variant")
+		return image(codes.FailedPrecondition, hostv1.ErrorReason_ERROR_REASON_IMAGE_PLATFORM_UNAVAILABLE, "image has no linux/arm64 variant")
 	case errors.Is(err, errRegistryDestination):
-		return image(codes.Unavailable, "IMAGE_REGISTRY_UNAVAILABLE", errRegistryDestination.Error())
+		return image(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_IMAGE_REGISTRY_UNAVAILABLE, errRegistryDestination.Error())
 	case errors.As(err, &registry) && registry.StatusCode == http.StatusTooManyRequests:
-		return image(codes.Unavailable, "IMAGE_REGISTRY_RATE_LIMITED", "image registry rate limit reached")
+		return image(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_IMAGE_REGISTRY_RATE_LIMITED, "image registry rate limit reached")
 	case errors.As(err, &registry) && (registry.StatusCode == http.StatusUnauthorized || registry.StatusCode == http.StatusForbidden):
-		return image(codes.Unavailable, "IMAGE_AUTH_UNAVAILABLE", "image registry requires credentials that are unavailable")
+		return image(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_IMAGE_AUTH_UNAVAILABLE, "image registry requires credentials that are unavailable")
 	case errors.As(err, &registry) && registry.StatusCode == http.StatusNotFound && !errors.Is(err, registryarchive.ErrDownload):
-		return image(codes.NotFound, "IMAGE_NOT_FOUND", "image reference does not exist")
+		return image(codes.NotFound, hostv1.ErrorReason_ERROR_REASON_IMAGE_NOT_FOUND, "image reference does not exist")
 	case ctx.Err() != nil || errors.As(err, &network) && network.Timeout():
-		return image(codes.Unavailable, "IMAGE_DOWNLOAD_TIMEOUT", "image download exceeded its time limit")
+		return image(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_IMAGE_DOWNLOAD_TIMEOUT, "image download exceeded its time limit")
 	case errors.Is(err, registryarchive.ErrDownload):
-		return image(codes.Unavailable, "IMAGE_DOWNLOAD_INTERRUPTED", "image download was interrupted")
+		return image(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_IMAGE_DOWNLOAD_INTERRUPTED, "image download was interrupted")
 	case errors.As(err, &registry):
-		return image(codes.Unavailable, "IMAGE_MANIFEST_FETCH_FAILED", "image manifest could not be downloaded")
+		return image(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_IMAGE_MANIFEST_FETCH_FAILED, "image manifest could not be downloaded")
 	default:
-		return image(codes.Unavailable, "IMAGE_REGISTRY_UNAVAILABLE", "image registry could not be reached")
+		return image(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_IMAGE_REGISTRY_UNAVAILABLE, "image registry could not be reached")
 	}
 }
 
-func (controller *Controller) registryTransport() http.RoundTripper {
-	if controller.registryRoundTripper != nil {
-		return controller.registryRoundTripper
+func registryTransport(transport http.RoundTripper) http.RoundTripper {
+	if transport != nil {
+		return transport
 	}
-	return publicRegistryTransport(importReceiveIdleTimeout)
+	return publicRegistryTransport(guestconn.ImportReceiveIdleTimeout)
 }
 
 // publicRegistryTransport dials only public registry addresses, checking every

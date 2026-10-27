@@ -12,12 +12,13 @@ import (
 	"strings"
 	"sync"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/containerd/errdefs"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type imageOperationRun struct {
@@ -25,10 +26,6 @@ type imageOperationRun struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	cleanup func(context.Context) error
-}
-
-func imageOperationKey(request string, kind vmmdv1.ImageOperationKind) string {
-	return fmt.Sprintf("%simage-operation.%d.%x", labelPrefix, kind, sha256.Sum256([]byte(request)))
 }
 
 func imageOperationRecordKey(namespace, request string, kind vmmdv1.ImageOperationKind) string {
@@ -97,7 +94,7 @@ func (s *Server) ObserveImageOperation(ctx context.Context, request *vmmdv1.Imag
 	if err := validateID("namespace_id", request.GetActorNamespaceId()); err != nil {
 		return nil, rpcError(err)
 	}
-	key := request.ActorNamespaceId + "\x00" + imageOperationKey(request.RequestId, request.Kind)
+	key := imageOperationRecordKey(request.ActorNamespaceId, request.RequestId, request.Kind)
 	value, _ := s.runtime.resourceLocks.LoadOrStore(key, new(sync.Mutex))
 	lock := value.(*sync.Mutex)
 	lock.Lock()
@@ -181,7 +178,7 @@ func (s *Server) CancelImageOperation(ctx context.Context, request *vmmdv1.Image
 	if err != nil || receipt.WriterSettled {
 		return receipt, err
 	}
-	key := request.ActorNamespaceId + "\x00" + imageOperationKey(request.RequestId, request.Kind)
+	key := imageOperationRecordKey(request.ActorNamespaceId, request.RequestId, request.Kind)
 	if value, found := s.runtime.imageOperations.Load(key); found {
 		run := value.(*imageOperationRun)
 		run.cancel()
@@ -195,7 +192,7 @@ func (s *Server) CancelImageOperation(ctx context.Context, request *vmmdv1.Image
 }
 
 func (r *Runtime) acceptImageOperation(ctx context.Context, namespace string, receipt *vmmdv1.ImageOperationReceipt, sourceImage string, cancel context.CancelFunc) (*imageOperationRun, *vmmdv1.ImageOperationReceipt, error) {
-	key := namespace + "\x00" + imageOperationKey(receipt.RequestId, receipt.Kind)
+	key := imageOperationRecordKey(namespace, receipt.RequestId, receipt.Kind)
 	value, _ := r.resourceLocks.LoadOrStore(key, new(sync.Mutex))
 	lock := value.(*sync.Mutex)
 	lock.Lock()
@@ -260,7 +257,7 @@ func (r *Runtime) finishImageOperation(namespace string, receipt *vmmdv1.ImageOp
 	}
 	err := r.saveImageOperation(context.Background(), namespace, receipt, "")
 	if receipt.WriterSettled && err == nil {
-		r.imageOperations.Delete(namespace + "\x00" + imageOperationKey(receipt.RequestId, receipt.Kind))
+		r.imageOperations.Delete(imageOperationRecordKey(namespace, receipt.RequestId, receipt.Kind))
 	}
 	close(run.done)
 	return err
@@ -311,4 +308,32 @@ func (r *Runtime) unsettledImageReferences(ctx context.Context) ([]imageReceiptL
 		}
 	}
 	return references, nil
+}
+
+func (s *Server) ForgetImageOperation(ctx context.Context, request *vmmdv1.ImageOperationRequest) (*emptypb.Empty, error) {
+	if err := validateRequestID(request.GetRequestId()); err != nil {
+		return nil, invalid(err)
+	}
+	if err := validateID("namespace_id", request.GetActorNamespaceId()); err != nil {
+		return nil, invalid(err)
+	}
+	key := imageOperationRecordKey(request.ActorNamespaceId, request.RequestId, request.Kind)
+	value, _ := s.runtime.resourceLocks.LoadOrStore(key, new(sync.Mutex))
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+	receipt, err := s.runtime.imageOperation(ctx, request.ActorNamespaceId, request.RequestId, request.Kind)
+	if status.Code(err) == codes.NotFound {
+		return &emptypb.Empty{}, nil
+	}
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	if !receipt.WriterSettled || !operationIdentityMatches(receipt, request) {
+		return nil, status.Error(codes.FailedPrecondition, "image operation is unsettled or its identity differs")
+	}
+	if err := s.runtime.client.NamespaceService().SetLabel(ctx, runtimeContainerdNamespace, key, ""); err != nil {
+		return nil, rpcError(err)
+	}
+	return &emptypb.Empty{}, nil
 }

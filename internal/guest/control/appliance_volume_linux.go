@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	guestquota "github.com/AFK-surf/agent-vmm/internal/guest/quota"
 )
 
 const applianceMountRoot = "/run/agent-vmm/appliances"
@@ -203,4 +205,40 @@ func clearBytes(value []byte) {
 	for index := range value {
 		value[index] = 0
 	}
+}
+
+func (manager applianceVolumeManager) commitments() (map[uint32]namespaceDiskCommitment, error) {
+	facts := make(map[uint32]namespaceDiskCommitment)
+	installations, err := os.ReadDir(manager.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return facts, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, installation := range installations {
+		if !installation.IsDir() {
+			return nil, errors.New("appliance data owner is not a directory")
+		}
+		directory := filepath.Join(manager.root, installation.Name())
+		volumes, err := os.ReadDir(directory)
+		if err != nil {
+			return nil, err
+		}
+		for _, volume := range volumes {
+			if !volume.IsDir() {
+				return nil, errors.New("appliance data volume is not a directory")
+			}
+			project, err := manager.project(filepath.Join(directory, volume.Name()))
+			if err != nil {
+				return nil, err
+			}
+			state, err := guestquota.Read(manager.device, project)
+			if err != nil {
+				return nil, err
+			}
+			facts[project] = namespaceDiskCommitment{namespace: installation.Name() + "/" + volume.Name(), limit: state.HardLimitBytes, usage: state.UsageBytes}
+		}
+	}
+	return facts, nil
 }

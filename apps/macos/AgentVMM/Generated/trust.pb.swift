@@ -295,6 +295,8 @@ public nonisolated enum Agentvmm_Trust_V1_PairingRole: SwiftProtobuf.Enum, Swift
 
 }
 
+/// DeviceIdentity publishes the stable device identity and current root public key without private
+/// key material.
 public nonisolated struct Agentvmm_Trust_V1_DeviceIdentity: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -313,41 +315,8 @@ public nonisolated struct Agentvmm_Trust_V1_DeviceIdentity: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Trust_V1_DeviceRootRotation: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var deviceID: String = String()
-
-  public var oldRootKeyRevision: UInt64 = 0
-
-  public var oldRootPublicKey: Data = Data()
-
-  public var newRootKeyRevision: UInt64 = 0
-
-  public var newRootPublicKey: Data = Data()
-
-  public var oldSignsNew: Data = Data()
-
-  public var newSignsOld: Data = Data()
-
-  public var rotatedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {_rotatedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
-    set {_rotatedAt = newValue}
-  }
-  /// Returns true if `rotatedAt` has been explicitly set.
-  public var hasRotatedAt: Bool {self._rotatedAt != nil}
-  /// Clears the value of `rotatedAt`. Subsequent reads from it will return its default value.
-  public mutating func clearRotatedAt() {self._rotatedAt = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _rotatedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
-}
-
+/// AuthorityDescriptor names the authority class and revision used to interpret a signed trust
+/// object.
 public nonisolated struct Agentvmm_Trust_V1_AuthorityDescriptor: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -368,6 +337,7 @@ public nonisolated struct Agentvmm_Trust_V1_AuthorityDescriptor: Sendable {
   public init() {}
 }
 
+/// VerificationKey publishes a verification key with its algorithm and key identity.
 public nonisolated struct Agentvmm_Trust_V1_VerificationKey: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -384,6 +354,7 @@ public nonisolated struct Agentvmm_Trust_V1_VerificationKey: Sendable {
   public init() {}
 }
 
+/// TrustAnchor contains the authority key set authenticated by the enrollment bootstrap.
 public nonisolated struct Agentvmm_Trust_V1_TrustAnchor: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -431,6 +402,7 @@ public nonisolated struct Agentvmm_Trust_V1_TrustAnchor: Sendable {
   fileprivate var _notAfter: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
+/// MembershipCredential signs one device's managed membership scope and expiry under its authority.
 public nonisolated struct Agentvmm_Trust_V1_MembershipCredential: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -474,6 +446,7 @@ public nonisolated struct Agentvmm_Trust_V1_MembershipCredential: Sendable {
   fileprivate var _expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
+/// PersonalMeshDescriptor signs the personal mesh identity and its authorized membership policy.
 public nonisolated struct Agentvmm_Trust_V1_PersonalMeshDescriptor: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -507,6 +480,7 @@ public nonisolated struct Agentvmm_Trust_V1_PersonalMeshDescriptor: Sendable {
   fileprivate var _createdAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
+/// MeshMembership records an active member's public identity and membership generation.
 public nonisolated struct Agentvmm_Trust_V1_MeshMembership: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -546,6 +520,8 @@ public nonisolated struct Agentvmm_Trust_V1_MeshMembership: Sendable {
   fileprivate var _revokedAtRevision: UInt64? = nil
 }
 
+/// MeshTombstone retains a revoked member generation so an old membership cannot return through
+/// stale state.
 public nonisolated struct Agentvmm_Trust_V1_MeshTombstone: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -566,6 +542,8 @@ public nonisolated struct Agentvmm_Trust_V1_MeshTombstone: Sendable {
   public init() {}
 }
 
+/// RegistryReceipt signs the committed operation result and registry revision for idempotent
+/// reconciliation.
 public nonisolated struct Agentvmm_Trust_V1_RegistryReceipt: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -611,6 +589,8 @@ public nonisolated struct Agentvmm_Trust_V1_RegistryReceipt: Sendable {
   fileprivate var _expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
+/// MeshSnapshot carries bounded current membership and retained revocation facts at one registry
+/// revision.
 public nonisolated struct Agentvmm_Trust_V1_MeshSnapshot: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -685,6 +665,8 @@ public nonisolated struct Agentvmm_Trust_V1_MeshSnapshot: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// EndpointObservation signs bounded device reachability. It does not grant service route
+/// authority.
 public nonisolated struct Agentvmm_Trust_V1_EndpointObservation: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -766,6 +748,7 @@ public nonisolated struct Agentvmm_Trust_V1_PairingProof: Sendable {
   fileprivate var _expiresAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
+/// RouteBudget bounds cumulative connections, bytes, and concurrent service streams.
 public nonisolated struct Agentvmm_Trust_V1_RouteBudget: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -782,6 +765,8 @@ public nonisolated struct Agentvmm_Trust_V1_RouteBudget: Sendable {
   public init() {}
 }
 
+/// RouteCapability signs exact source, destination, export, audience, generations, expiry, and
+/// transport budgets.
 public nonisolated struct Agentvmm_Trust_V1_RouteCapability: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -918,6 +903,8 @@ public nonisolated struct Agentvmm_Trust_V1_RouteCapability: @unchecked Sendable
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// RegistryOperation signs durable desired membership intent under one operation ID and expected
+/// revision.
 public nonisolated struct Agentvmm_Trust_V1_RegistryOperation: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1003,6 +990,8 @@ public nonisolated struct Agentvmm_Trust_V1_RegistryOperation: @unchecked Sendab
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// GetDeviceIdentityRequest carries inputs for an operation that reads public device identity and
+/// custody state without exposing private key bytes.
 public nonisolated struct Agentvmm_Trust_V1_GetDeviceIdentityRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1013,6 +1002,8 @@ public nonisolated struct Agentvmm_Trust_V1_GetDeviceIdentityRequest: Sendable {
   public init() {}
 }
 
+/// SignEndpointObservationRequest asks the device root to sign bounded data-worker reachability
+/// without granting route authority.
 public nonisolated struct Agentvmm_Trust_V1_SignEndpointObservationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1034,6 +1025,8 @@ public nonisolated struct Agentvmm_Trust_V1_SignEndpointObservationRequest: Send
   fileprivate var _unsignedObservation: Agentvmm_Trust_V1_EndpointObservation? = nil
 }
 
+/// ApplyMeshEndpointObservationRequest supplies a peer endpoint observation for current
+/// membership and signature verification.
 public nonisolated struct Agentvmm_Trust_V1_ApplyMeshEndpointObservationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1057,6 +1050,8 @@ public nonisolated struct Agentvmm_Trust_V1_ApplyMeshEndpointObservationRequest:
   fileprivate var _observation: Agentvmm_Trust_V1_EndpointObservation? = nil
 }
 
+/// GetEndpointObservationRequest selects a verified member endpoint projection for the requested
+/// mesh and device.
 public nonisolated struct Agentvmm_Trust_V1_GetEndpointObservationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1069,6 +1064,8 @@ public nonisolated struct Agentvmm_Trust_V1_GetEndpointObservationRequest: Senda
   public init() {}
 }
 
+/// ListPersonalMeshesRequest carries inputs for an operation that reads the local projection of
+/// verified personal mesh state.
 public nonisolated struct Agentvmm_Trust_V1_ListPersonalMeshesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1079,6 +1076,7 @@ public nonisolated struct Agentvmm_Trust_V1_ListPersonalMeshesRequest: Sendable 
   public init() {}
 }
 
+/// PersonalMeshState reports local verified mesh state and its registry freshness.
 public nonisolated struct Agentvmm_Trust_V1_PersonalMeshState: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1110,6 +1108,8 @@ public nonisolated struct Agentvmm_Trust_V1_PersonalMeshState: Sendable {
   fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
 }
 
+/// ListPersonalMeshesResponse carries results from an operation that reads the local projection
+/// of verified personal mesh state.
 public nonisolated struct Agentvmm_Trust_V1_ListPersonalMeshesResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1122,6 +1122,8 @@ public nonisolated struct Agentvmm_Trust_V1_ListPersonalMeshesResponse: Sendable
   public init() {}
 }
 
+/// InstallManagedTrustRequest supplies the enrollment-authenticated anchor and device membership
+/// credential for atomic verification and storage.
 public nonisolated struct Agentvmm_Trust_V1_InstallManagedTrustRequest: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1152,6 +1154,8 @@ public nonisolated struct Agentvmm_Trust_V1_InstallManagedTrustRequest: @uncheck
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// InstallManagedTrustResponse reports the committed authority and policy revisions after managed
+/// trust installation.
 public nonisolated struct Agentvmm_Trust_V1_InstallManagedTrustResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1168,6 +1172,8 @@ public nonisolated struct Agentvmm_Trust_V1_InstallManagedTrustResponse: Sendabl
   public init() {}
 }
 
+/// ApplyMeshSnapshotRequest supplies signed registry state with the expected current revision for
+/// local verification.
 public nonisolated struct Agentvmm_Trust_V1_ApplyMeshSnapshotRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1191,6 +1197,7 @@ public nonisolated struct Agentvmm_Trust_V1_ApplyMeshSnapshotRequest: Sendable {
   fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
 }
 
+/// ApplyMeshSnapshotResponse reports the verified mesh revision committed by the Host.
 public nonisolated struct Agentvmm_Trust_V1_ApplyMeshSnapshotResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1203,86 +1210,8 @@ public nonisolated struct Agentvmm_Trust_V1_ApplyMeshSnapshotResponse: Sendable 
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Trust_V1_AuthorizeRouteRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var capability: Agentvmm_Trust_V1_RouteCapability {
-    get {_capability ?? Agentvmm_Trust_V1_RouteCapability()}
-    set {_capability = newValue}
-  }
-  /// Returns true if `capability` has been explicitly set.
-  public var hasCapability: Bool {self._capability != nil}
-  /// Clears the value of `capability`. Subsequent reads from it will return its default value.
-  public mutating func clearCapability() {self._capability = nil}
-
-  public var expectedAudience: String = String()
-
-  public var observedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {_observedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
-    set {_observedAt = newValue}
-  }
-  /// Returns true if `observedAt` has been explicitly set.
-  public var hasObservedAt: Bool {self._observedAt != nil}
-  /// Clears the value of `observedAt`. Subsequent reads from it will return its default value.
-  public mutating func clearObservedAt() {self._observedAt = nil}
-
-  public var expectedSourceDeviceID: String = String()
-
-  public var expectedSourceAllocationID: String {
-    get {_expectedSourceAllocationID ?? String()}
-    set {_expectedSourceAllocationID = newValue}
-  }
-  /// Returns true if `expectedSourceAllocationID` has been explicitly set.
-  public var hasExpectedSourceAllocationID: Bool {self._expectedSourceAllocationID != nil}
-  /// Clears the value of `expectedSourceAllocationID`. Subsequent reads from it will return its default value.
-  public mutating func clearExpectedSourceAllocationID() {self._expectedSourceAllocationID = nil}
-
-  public var expectedDestinationDeviceID: String = String()
-
-  public var expectedDestinationExportID: String = String()
-
-  public var expectedRouteGeneration: UInt64 = 0
-
-  public var expectedPolicyRevision: UInt64 = 0
-
-  public var expectedRouteClass: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _capability: Agentvmm_Trust_V1_RouteCapability? = nil
-  fileprivate var _observedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
-  fileprivate var _expectedSourceAllocationID: String? = nil
-}
-
-public nonisolated struct Agentvmm_Trust_V1_AuthorizeRouteResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var authorized: Bool = false
-
-  public var denialCode: String = String()
-
-  public var remainingBudget: Agentvmm_Trust_V1_RouteBudget {
-    get {_remainingBudget ?? Agentvmm_Trust_V1_RouteBudget()}
-    set {_remainingBudget = newValue}
-  }
-  /// Returns true if `remainingBudget` has been explicitly set.
-  public var hasRemainingBudget: Bool {self._remainingBudget != nil}
-  /// Clears the value of `remainingBudget`. Subsequent reads from it will return its default value.
-  public mutating func clearRemainingBudget() {self._remainingBudget = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _remainingBudget: Agentvmm_Trust_V1_RouteBudget? = nil
-}
-
+/// PendingRegistryOperation retains signed desired intent until the Host verifies and persists its
+/// registry receipt.
 public nonisolated struct Agentvmm_Trust_V1_PendingRegistryOperation: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1316,6 +1245,8 @@ public nonisolated struct Agentvmm_Trust_V1_PendingRegistryOperation: Sendable {
   fileprivate var _meshDescriptor: Agentvmm_Trust_V1_PersonalMeshDescriptor? = nil
 }
 
+/// PullRegistryOperationsRequest selects a bounded page after the Host-owned durable queue
+/// sequence.
 public nonisolated struct Agentvmm_Trust_V1_PullRegistryOperationsRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1330,6 +1261,8 @@ public nonisolated struct Agentvmm_Trust_V1_PullRegistryOperationsRequest: Senda
   public init() {}
 }
 
+/// PullRegistryOperationsResponse returns signed desired intent that remains pending until its
+/// verified registry receipt is committed.
 public nonisolated struct Agentvmm_Trust_V1_PullRegistryOperationsResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1342,6 +1275,8 @@ public nonisolated struct Agentvmm_Trust_V1_PullRegistryOperationsResponse: Send
   public init() {}
 }
 
+/// CommitRegistryOperationRequest supplies the original operation identity and signed snapshot
+/// required to advance its queue receipt.
 public nonisolated struct Agentvmm_Trust_V1_CommitRegistryOperationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1365,6 +1300,8 @@ public nonisolated struct Agentvmm_Trust_V1_CommitRegistryOperationRequest: Send
   fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
 }
 
+/// CreateMeshRequest carries inputs for an operation that commits the initial signed personal
+/// mesh operation and returns its signed registry receipt.
 public nonisolated struct Agentvmm_Trust_V1_CreateMeshRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1396,6 +1333,8 @@ public nonisolated struct Agentvmm_Trust_V1_CreateMeshRequest: Sendable {
   fileprivate var _genesis: Agentvmm_Trust_V1_RegistryOperation? = nil
 }
 
+/// CommitJoinRequest carries inputs for an operation that applies one signed membership join
+/// under the expected registry revision.
 public nonisolated struct Agentvmm_Trust_V1_CommitJoinRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1417,6 +1356,8 @@ public nonisolated struct Agentvmm_Trust_V1_CommitJoinRequest: Sendable {
   fileprivate var _operation: Agentvmm_Trust_V1_RegistryOperation? = nil
 }
 
+/// CommitRevokeRequest carries inputs for an operation that applies one signed membership
+/// revocation and retains its durable tombstone.
 public nonisolated struct Agentvmm_Trust_V1_CommitRevokeRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1438,27 +1379,8 @@ public nonisolated struct Agentvmm_Trust_V1_CommitRevokeRequest: Sendable {
   fileprivate var _operation: Agentvmm_Trust_V1_RegistryOperation? = nil
 }
 
-public nonisolated struct Agentvmm_Trust_V1_MeshCommitResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var snapshot: Agentvmm_Trust_V1_MeshSnapshot {
-    get {_snapshot ?? Agentvmm_Trust_V1_MeshSnapshot()}
-    set {_snapshot = newValue}
-  }
-  /// Returns true if `snapshot` has been explicitly set.
-  public var hasSnapshot: Bool {self._snapshot != nil}
-  /// Clears the value of `snapshot`. Subsequent reads from it will return its default value.
-  public mutating func clearSnapshot() {self._snapshot = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
-}
-
+/// GetSnapshotRequest carries inputs for an operation that reads the signed mesh snapshot
+/// required for current membership verification.
 public nonisolated struct Agentvmm_Trust_V1_GetSnapshotRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1473,6 +1395,8 @@ public nonisolated struct Agentvmm_Trust_V1_GetSnapshotRequest: Sendable {
   public init() {}
 }
 
+/// PublishEndpointRequest carries inputs for an operation that publishes a member-signed bounded
+/// endpoint observation without granting route authority.
 public nonisolated struct Agentvmm_Trust_V1_PublishEndpointRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1498,6 +1422,8 @@ public nonisolated struct Agentvmm_Trust_V1_PublishEndpointRequest: Sendable {
   fileprivate var _observation: Agentvmm_Trust_V1_EndpointObservation? = nil
 }
 
+/// PublishEndpointResponse carries results from an operation that publishes a member-signed
+/// bounded endpoint observation without granting route authority.
 public nonisolated struct Agentvmm_Trust_V1_PublishEndpointResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1519,7 +1445,101 @@ public nonisolated struct Agentvmm_Trust_V1_PublishEndpointResponse: Sendable {
   fileprivate var _receipt: Agentvmm_Trust_V1_RegistryReceipt? = nil
 }
 
-public nonisolated struct Agentvmm_Trust_V1_ListMeshEndpointsRequest: Sendable {
+/// CreateMeshResponse carries results from an operation that commits the initial signed personal
+/// mesh operation and returns its signed registry receipt.
+public nonisolated struct Agentvmm_Trust_V1_CreateMeshResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var snapshot: Agentvmm_Trust_V1_MeshSnapshot {
+    get {_snapshot ?? Agentvmm_Trust_V1_MeshSnapshot()}
+    set {_snapshot = newValue}
+  }
+  /// Returns true if `snapshot` has been explicitly set.
+  public var hasSnapshot: Bool {self._snapshot != nil}
+  /// Clears the value of `snapshot`. Subsequent reads from it will return its default value.
+  public mutating func clearSnapshot() {self._snapshot = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
+}
+
+/// CommitJoinResponse carries results from an operation that applies one signed membership join
+/// under the expected registry revision.
+public nonisolated struct Agentvmm_Trust_V1_CommitJoinResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var snapshot: Agentvmm_Trust_V1_MeshSnapshot {
+    get {_snapshot ?? Agentvmm_Trust_V1_MeshSnapshot()}
+    set {_snapshot = newValue}
+  }
+  /// Returns true if `snapshot` has been explicitly set.
+  public var hasSnapshot: Bool {self._snapshot != nil}
+  /// Clears the value of `snapshot`. Subsequent reads from it will return its default value.
+  public mutating func clearSnapshot() {self._snapshot = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
+}
+
+/// CommitRevokeResponse carries results from an operation that applies one signed membership
+/// revocation and retains its durable tombstone.
+public nonisolated struct Agentvmm_Trust_V1_CommitRevokeResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var snapshot: Agentvmm_Trust_V1_MeshSnapshot {
+    get {_snapshot ?? Agentvmm_Trust_V1_MeshSnapshot()}
+    set {_snapshot = newValue}
+  }
+  /// Returns true if `snapshot` has been explicitly set.
+  public var hasSnapshot: Bool {self._snapshot != nil}
+  /// Clears the value of `snapshot`. Subsequent reads from it will return its default value.
+  public mutating func clearSnapshot() {self._snapshot = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
+}
+
+/// GetSnapshotResponse carries results from an operation that reads the signed mesh snapshot
+/// required for current membership verification.
+public nonisolated struct Agentvmm_Trust_V1_GetSnapshotResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var snapshot: Agentvmm_Trust_V1_MeshSnapshot {
+    get {_snapshot ?? Agentvmm_Trust_V1_MeshSnapshot()}
+    set {_snapshot = newValue}
+  }
+  /// Returns true if `snapshot` has been explicitly set.
+  public var hasSnapshot: Bool {self._snapshot != nil}
+  /// Clears the value of `snapshot`. Subsequent reads from it will return its default value.
+  public mutating func clearSnapshot() {self._snapshot = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _snapshot: Agentvmm_Trust_V1_MeshSnapshot? = nil
+}
+
+/// ListEndpointsRequest carries inputs for an operation that reads bounded endpoint observations
+/// for current mesh reachability checks.
+public nonisolated struct Agentvmm_Trust_V1_ListEndpointsRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1533,7 +1553,9 @@ public nonisolated struct Agentvmm_Trust_V1_ListMeshEndpointsRequest: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Trust_V1_ListMeshEndpointsResponse: Sendable {
+/// ListEndpointsResponse carries results from an operation that reads bounded endpoint
+/// observations for current mesh reachability checks.
+public nonisolated struct Agentvmm_Trust_V1_ListEndpointsResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1541,34 +1563,6 @@ public nonisolated struct Agentvmm_Trust_V1_ListMeshEndpointsResponse: Sendable 
   public var observations: [Agentvmm_Trust_V1_EndpointObservation] = []
 
   public var meshRevision: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentvmm_Trust_V1_WatchRevisionRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var meshID: String = String()
-
-  public var afterRevision: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentvmm_Trust_V1_RevisionNotice: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var meshID: String = String()
-
-  public var revision: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1647,75 +1641,6 @@ nonisolated extension Agentvmm_Trust_V1_DeviceIdentity: SwiftProtobuf.Message, S
     if lhs.rootPublicKey != rhs.rootPublicKey {return false}
     if lhs.rootKeyRevision != rhs.rootKeyRevision {return false}
     if lhs.signatureSuite != rhs.signatureSuite {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Trust_V1_DeviceRootRotation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".DeviceRootRotation"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0\u{3}old_root_key_revision\0\u{3}old_root_public_key\0\u{3}new_root_key_revision\0\u{3}new_root_public_key\0\u{3}old_signs_new\0\u{3}new_signs_old\0\u{3}rotated_at\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.oldRootKeyRevision) }()
-      case 3: try { try decoder.decodeSingularBytesField(value: &self.oldRootPublicKey) }()
-      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.newRootKeyRevision) }()
-      case 5: try { try decoder.decodeSingularBytesField(value: &self.newRootPublicKey) }()
-      case 6: try { try decoder.decodeSingularBytesField(value: &self.oldSignsNew) }()
-      case 7: try { try decoder.decodeSingularBytesField(value: &self.newSignsOld) }()
-      case 8: try { try decoder.decodeSingularMessageField(value: &self._rotatedAt) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.deviceID.isEmpty {
-      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
-    }
-    if self.oldRootKeyRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.oldRootKeyRevision, fieldNumber: 2)
-    }
-    if !self.oldRootPublicKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.oldRootPublicKey, fieldNumber: 3)
-    }
-    if self.newRootKeyRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.newRootKeyRevision, fieldNumber: 4)
-    }
-    if !self.newRootPublicKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.newRootPublicKey, fieldNumber: 5)
-    }
-    if !self.oldSignsNew.isEmpty {
-      try visitor.visitSingularBytesField(value: self.oldSignsNew, fieldNumber: 6)
-    }
-    if !self.newSignsOld.isEmpty {
-      try visitor.visitSingularBytesField(value: self.newSignsOld, fieldNumber: 7)
-    }
-    try { if let v = self._rotatedAt {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Trust_V1_DeviceRootRotation, rhs: Agentvmm_Trust_V1_DeviceRootRotation) -> Bool {
-    if lhs.deviceID != rhs.deviceID {return false}
-    if lhs.oldRootKeyRevision != rhs.oldRootKeyRevision {return false}
-    if lhs.oldRootPublicKey != rhs.oldRootPublicKey {return false}
-    if lhs.newRootKeyRevision != rhs.newRootKeyRevision {return false}
-    if lhs.newRootPublicKey != rhs.newRootPublicKey {return false}
-    if lhs.oldSignsNew != rhs.oldSignsNew {return false}
-    if lhs.newSignsOld != rhs.newSignsOld {return false}
-    if lhs._rotatedAt != rhs._rotatedAt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3290,129 +3215,6 @@ nonisolated extension Agentvmm_Trust_V1_ApplyMeshSnapshotResponse: SwiftProtobuf
   }
 }
 
-nonisolated extension Agentvmm_Trust_V1_AuthorizeRouteRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".AuthorizeRouteRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}capability\0\u{3}expected_audience\0\u{3}observed_at\0\u{3}expected_source_device_id\0\u{3}expected_source_allocation_id\0\u{3}expected_destination_device_id\0\u{3}expected_destination_export_id\0\u{3}expected_route_generation\0\u{3}expected_policy_revision\0\u{3}expected_route_class\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._capability) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.expectedAudience) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._observedAt) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.expectedSourceDeviceID) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self._expectedSourceAllocationID) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.expectedDestinationDeviceID) }()
-      case 7: try { try decoder.decodeSingularStringField(value: &self.expectedDestinationExportID) }()
-      case 8: try { try decoder.decodeSingularUInt64Field(value: &self.expectedRouteGeneration) }()
-      case 9: try { try decoder.decodeSingularUInt64Field(value: &self.expectedPolicyRevision) }()
-      case 10: try { try decoder.decodeSingularStringField(value: &self.expectedRouteClass) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._capability {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if !self.expectedAudience.isEmpty {
-      try visitor.visitSingularStringField(value: self.expectedAudience, fieldNumber: 2)
-    }
-    try { if let v = self._observedAt {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
-    if !self.expectedSourceDeviceID.isEmpty {
-      try visitor.visitSingularStringField(value: self.expectedSourceDeviceID, fieldNumber: 4)
-    }
-    try { if let v = self._expectedSourceAllocationID {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
-    } }()
-    if !self.expectedDestinationDeviceID.isEmpty {
-      try visitor.visitSingularStringField(value: self.expectedDestinationDeviceID, fieldNumber: 6)
-    }
-    if !self.expectedDestinationExportID.isEmpty {
-      try visitor.visitSingularStringField(value: self.expectedDestinationExportID, fieldNumber: 7)
-    }
-    if self.expectedRouteGeneration != 0 {
-      try visitor.visitSingularUInt64Field(value: self.expectedRouteGeneration, fieldNumber: 8)
-    }
-    if self.expectedPolicyRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.expectedPolicyRevision, fieldNumber: 9)
-    }
-    if !self.expectedRouteClass.isEmpty {
-      try visitor.visitSingularStringField(value: self.expectedRouteClass, fieldNumber: 10)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Trust_V1_AuthorizeRouteRequest, rhs: Agentvmm_Trust_V1_AuthorizeRouteRequest) -> Bool {
-    if lhs._capability != rhs._capability {return false}
-    if lhs.expectedAudience != rhs.expectedAudience {return false}
-    if lhs._observedAt != rhs._observedAt {return false}
-    if lhs.expectedSourceDeviceID != rhs.expectedSourceDeviceID {return false}
-    if lhs._expectedSourceAllocationID != rhs._expectedSourceAllocationID {return false}
-    if lhs.expectedDestinationDeviceID != rhs.expectedDestinationDeviceID {return false}
-    if lhs.expectedDestinationExportID != rhs.expectedDestinationExportID {return false}
-    if lhs.expectedRouteGeneration != rhs.expectedRouteGeneration {return false}
-    if lhs.expectedPolicyRevision != rhs.expectedPolicyRevision {return false}
-    if lhs.expectedRouteClass != rhs.expectedRouteClass {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Trust_V1_AuthorizeRouteResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".AuthorizeRouteResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}authorized\0\u{3}denial_code\0\u{3}remaining_budget\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBoolField(value: &self.authorized) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.denialCode) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._remainingBudget) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if self.authorized != false {
-      try visitor.visitSingularBoolField(value: self.authorized, fieldNumber: 1)
-    }
-    if !self.denialCode.isEmpty {
-      try visitor.visitSingularStringField(value: self.denialCode, fieldNumber: 2)
-    }
-    try { if let v = self._remainingBudget {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Trust_V1_AuthorizeRouteResponse, rhs: Agentvmm_Trust_V1_AuthorizeRouteResponse) -> Bool {
-    if lhs.authorized != rhs.authorized {return false}
-    if lhs.denialCode != rhs.denialCode {return false}
-    if lhs._remainingBudget != rhs._remainingBudget {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentvmm_Trust_V1_PendingRegistryOperation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PendingRegistryOperation"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sequence\0\u{1}operation\0\u{3}mesh_descriptor\0")
@@ -3668,40 +3470,6 @@ nonisolated extension Agentvmm_Trust_V1_CommitRevokeRequest: SwiftProtobuf.Messa
   }
 }
 
-nonisolated extension Agentvmm_Trust_V1_MeshCommitResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".MeshCommitResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}snapshot\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._snapshot) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._snapshot {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Trust_V1_MeshCommitResponse, rhs: Agentvmm_Trust_V1_MeshCommitResponse) -> Bool {
-    if lhs._snapshot != rhs._snapshot {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentvmm_Trust_V1_GetSnapshotRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetSnapshotRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}mesh_id\0\u{3}minimum_revision\0")
@@ -3815,8 +3583,144 @@ nonisolated extension Agentvmm_Trust_V1_PublishEndpointResponse: SwiftProtobuf.M
   }
 }
 
-nonisolated extension Agentvmm_Trust_V1_ListMeshEndpointsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ListMeshEndpointsRequest"
+nonisolated extension Agentvmm_Trust_V1_CreateMeshResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CreateMeshResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}snapshot\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._snapshot) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._snapshot {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Trust_V1_CreateMeshResponse, rhs: Agentvmm_Trust_V1_CreateMeshResponse) -> Bool {
+    if lhs._snapshot != rhs._snapshot {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Trust_V1_CommitJoinResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CommitJoinResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}snapshot\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._snapshot) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._snapshot {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Trust_V1_CommitJoinResponse, rhs: Agentvmm_Trust_V1_CommitJoinResponse) -> Bool {
+    if lhs._snapshot != rhs._snapshot {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Trust_V1_CommitRevokeResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CommitRevokeResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}snapshot\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._snapshot) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._snapshot {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Trust_V1_CommitRevokeResponse, rhs: Agentvmm_Trust_V1_CommitRevokeResponse) -> Bool {
+    if lhs._snapshot != rhs._snapshot {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Trust_V1_GetSnapshotResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetSnapshotResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}snapshot\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._snapshot) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._snapshot {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Trust_V1_GetSnapshotResponse, rhs: Agentvmm_Trust_V1_GetSnapshotResponse) -> Bool {
+    if lhs._snapshot != rhs._snapshot {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Trust_V1_ListEndpointsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListEndpointsRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}mesh_id\0\u{3}expected_revision\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -3842,7 +3746,7 @@ nonisolated extension Agentvmm_Trust_V1_ListMeshEndpointsRequest: SwiftProtobuf.
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentvmm_Trust_V1_ListMeshEndpointsRequest, rhs: Agentvmm_Trust_V1_ListMeshEndpointsRequest) -> Bool {
+  public static func ==(lhs: Agentvmm_Trust_V1_ListEndpointsRequest, rhs: Agentvmm_Trust_V1_ListEndpointsRequest) -> Bool {
     if lhs.meshID != rhs.meshID {return false}
     if lhs.expectedRevision != rhs.expectedRevision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
@@ -3850,8 +3754,8 @@ nonisolated extension Agentvmm_Trust_V1_ListMeshEndpointsRequest: SwiftProtobuf.
   }
 }
 
-nonisolated extension Agentvmm_Trust_V1_ListMeshEndpointsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ListMeshEndpointsResponse"
+nonisolated extension Agentvmm_Trust_V1_ListEndpointsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListEndpointsResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}observations\0\u{3}mesh_revision\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -3877,79 +3781,9 @@ nonisolated extension Agentvmm_Trust_V1_ListMeshEndpointsResponse: SwiftProtobuf
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentvmm_Trust_V1_ListMeshEndpointsResponse, rhs: Agentvmm_Trust_V1_ListMeshEndpointsResponse) -> Bool {
+  public static func ==(lhs: Agentvmm_Trust_V1_ListEndpointsResponse, rhs: Agentvmm_Trust_V1_ListEndpointsResponse) -> Bool {
     if lhs.observations != rhs.observations {return false}
     if lhs.meshRevision != rhs.meshRevision {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Trust_V1_WatchRevisionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".WatchRevisionRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}mesh_id\0\u{3}after_revision\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.meshID) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.afterRevision) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.meshID.isEmpty {
-      try visitor.visitSingularStringField(value: self.meshID, fieldNumber: 1)
-    }
-    if self.afterRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.afterRevision, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Trust_V1_WatchRevisionRequest, rhs: Agentvmm_Trust_V1_WatchRevisionRequest) -> Bool {
-    if lhs.meshID != rhs.meshID {return false}
-    if lhs.afterRevision != rhs.afterRevision {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Trust_V1_RevisionNotice: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".RevisionNotice"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}mesh_id\0\u{1}revision\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.meshID) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.meshID.isEmpty {
-      try visitor.visitSingularStringField(value: self.meshID, fieldNumber: 1)
-    }
-    if self.revision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Trust_V1_RevisionNotice, rhs: Agentvmm_Trust_V1_RevisionNotice) -> Bool {
-    if lhs.meshID != rhs.meshID {return false}
-    if lhs.revision != rhs.revision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

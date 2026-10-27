@@ -6,13 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"golang.org/x/sys/unix"
 )
 
@@ -27,7 +27,7 @@ func (b *Builder) ReclaimCache(ctx context.Context, limit int, reason string) (i
 func (b *Builder) reclaimCache(ctx context.Context, root string, limit int, reason string) (removed int, reclaimErr error) {
 	started := time.Now()
 	defer func() {
-		log.Printf("BuildKit cache reclaim completed: root=%q reason=%q removed_roots=%d elapsed=%s error=%q", root, reason, removed, time.Since(started), fmt.Sprint(reclaimErr))
+		slog.Default().Info("BuildKit cache reclaim completed", "root", root, "reason", reason, "removed_roots", removed, "elapsed", time.Since(started), "error", reclaimErr)
 	}()
 	owners, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -87,7 +87,7 @@ func (b *Builder) reclaimCache(ctx context.Context, root string, limit int, reas
 		err = os.RemoveAll(directory)
 		afterErr := unix.Statfs(root, &after)
 		freeBefore, freeAfter := int64(before.Bavail)*before.Bsize, int64(after.Bavail)*after.Bsize
-		log.Printf("BuildKit cache reclaim: root=%q reason=%q free_bytes_before=%d free_bytes_after=%d filesystem_reclaimed_bytes=%d succeeded=%t error=%q measurement_error=%q", filepath.Dir(cache), reason, freeBefore, freeAfter, freeAfter-freeBefore, err == nil, fmt.Sprint(err), fmt.Sprint(errors.Join(beforeErr, afterErr)))
+		slog.Default().Info("BuildKit cache reclaimed", "root", filepath.Dir(cache), "reason", reason, "free_bytes_before", freeBefore, "free_bytes_after", freeAfter, "filesystem_reclaimed_bytes", freeAfter-freeBefore, "succeeded", err == nil, "error", err, "measurement_error", errors.Join(beforeErr, afterErr))
 		b.mu.Lock()
 		delete(b.cacheActive, isolatedCache)
 		b.mu.Unlock()
@@ -116,5 +116,5 @@ func logCacheState(header *vmmdv1.BuildImageHeader, root string) {
 	_, stateErr := os.Stat(state)
 	_, workerErr := os.Stat(workerRoot)
 	workerID, readErr := os.ReadFile(filepath.Join(workerRoot, "workerid"))
-	log.Printf("BuildKit cache entry: request_id=%q namespace=%q controller_scope=%q root=%q root_exists=%t state_exists=%t worker_exists=%t worker_id=%q observation_error=%q", header.GetRequestId(), header.GetActorNamespaceId(), header.GetControllerCacheScope(), root, rootErr == nil, stateErr == nil, workerErr == nil, string(workerID), fmt.Sprint(errors.Join(rootErr, stateErr, workerErr, readErr)))
+	slog.Default().Info("BuildKit cache entry", "request_id", header.GetRequestId(), "namespace_id", header.GetActorNamespaceId(), "controller_scope", header.GetControllerCacheScope(), "root", root, "root_exists", rootErr == nil, "state_exists", stateErr == nil, "worker_exists", workerErr == nil, "worker_id", string(workerID), "error", errors.Join(rootErr, stateErr, workerErr, readErr))
 }

@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package agentvmm.vmmd.v1;
+
+import "internal/vmmd/v1/resources.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1;vmmdv1";
+
+message BuildImageHeader {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string dockerfile_path = 3;
+  string image = 4;
+  optional string target = 5;
+  repeated BuildArgument build_args = 6;
+  BuildNetworkMode network_mode = 7;
+  repeated BuildSecret secrets = 8;
+  string base_image_reference = 9;
+  string base_manifest_digest = 10;
+  string context_sha256 = 11;
+  string execution_id = 12;
+  string container_id = 13;
+  string expected_instance_id = 14;
+  int64 execution_deadline_unix_nano = 15;
+  string controller_cache_scope = 16;
+}
+
+message BuildImageRequest {
+  oneof event {
+    BuildImageHeader header = 1;
+    BuildContextChunk context = 2;
+    BuildSecretChunk secret = 3;
+  }
+}
+
+message CopyImageRequest {
+  string request_id = 1;
+  string source_namespace_id = 2;
+  string target_namespace_id = 3;
+  string image_reference = 4;
+  string manifest_digest = 5;
+  string controller_request_sha256 = 6;
+  string controller_cache_scope = 7;
+  string retained_build_request_id = 8;
+}
+
+message BuildImageResult {
+  string image = 1;
+  string digest = 2;
+}
+
+message BuildImageResponse {
+  oneof event {
+    string progress = 1;
+    BuildImageResult result = 2;
+  }
+}
+
+message BuildApplianceRequest {
+  oneof event {
+    BuildImageHeader header = 1;
+    BuildContextChunk context = 2;
+    BuildSecretChunk secret = 3;
+  }
+}
+
+message BuildApplianceResult {
+  bytes archive_sha256 = 1;
+  string manifest_digest = 2;
+  uint64 archive_size = 3;
+  bool cache_hit = 4;
+}
+
+message BuildApplianceResponse {
+  oneof event {
+    string progress = 1;
+    bytes archive_chunk = 2;
+    BuildApplianceResult result = 3;
+  }
+}

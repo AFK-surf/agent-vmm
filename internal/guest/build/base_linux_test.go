@@ -8,7 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/containerd/v2/core/images"
@@ -16,10 +21,6 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 func TestExportedBaseLayoutRejectsPathsAndLinks(t *testing.T) {

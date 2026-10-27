@@ -1,12 +1,12 @@
 package signing
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 
-	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -19,6 +19,9 @@ const domain = "agent-vmm/signature/v1\x00"
 func CanonicalInput(message proto.Message) ([]byte, error) {
 	if message == nil {
 		return nil, errors.New("canonical signing input is nil")
+	}
+	if err := rejectMaps(message.ProtoReflect().Descriptor(), make(map[protoreflect.FullName]bool)); err != nil {
+		return nil, err
 	}
 	if err := rejectUnknownFields(message.ProtoReflect()); err != nil {
 		return nil, err
@@ -44,10 +47,9 @@ func CanonicalInput(message proto.Message) ([]byte, error) {
 
 func clearSignature(message proto.Message) (string, error) {
 	switch value := message.(type) {
-	case *trustv1.DeviceRootRotation:
-		value.OldSignsNew = nil
-		value.NewSignsOld = nil
-		return "DeviceRootRotation", nil
+	case *appliancev1.ApplianceLaunchClaim:
+		value.Signature = nil
+		return "ApplianceLaunchClaim", nil
 	case *trustv1.PersonalMeshDescriptor:
 		value.GenesisSignature = nil
 		return "PersonalMeshDescriptor", nil
@@ -69,7 +71,7 @@ func clearSignature(message proto.Message) (string, error) {
 	case *trustv1.RegistryReceipt:
 		value.Signature = nil
 		return "RegistryReceipt", nil
-	case *servicev1.PersonalRouteRequest:
+	case *servicev1.RequestPersonalRouteRequest:
 		value.SourceSignature = nil
 		return "PersonalRouteRequest", nil
 	default:
@@ -102,13 +104,22 @@ func rejectUnknownFields(message protoreflect.Message) error {
 	return nestedErr
 }
 
-// IsStrictlySortedBytes reports whether a repeated bytes field has the
-// canonical ascending order and contains no duplicate value.
-func IsStrictlySortedBytes(values [][]byte) bool {
-	for i := 1; i < len(values); i++ {
-		if bytes.Compare(values[i-1], values[i]) >= 0 {
-			return false
+func rejectMaps(descriptor protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) error {
+	if seen[descriptor.FullName()] {
+		return nil
+	}
+	seen[descriptor.FullName()] = true
+	fields := descriptor.Fields()
+	for index := 0; index < fields.Len(); index++ {
+		field := fields.Get(index)
+		if field.IsMap() {
+			return fmt.Errorf("map field in signed message: %s", field.FullName())
+		}
+		if field.Message() != nil {
+			if err := rejectMaps(field.Message(), seen); err != nil {
+				return err
+			}
 		}
 	}
-	return true
+	return nil
 }

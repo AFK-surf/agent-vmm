@@ -21,7 +21,7 @@ func TestLocalDisposalSurvivesRestartAndFencesOnlyItsConfirmedScope(t *testing.T
 		t.Fatal(err)
 	}
 	defer func() { database.Close() }()
-	registration := RemoteRegistration{ID: "A", Endpoint: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 5, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, EnrollmentRequestID: "old-install-managed-enrollment"}
+	registration := RemoteRegistration{ID: "A", Endpoint: "controller", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 5, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, EnrollmentRequestID: "old-install-managed-enrollment"}
 	a, err := database.CreateRemoteRegistration(ctx, registration)
 	if err != nil {
 		t.Fatal(err)
@@ -30,8 +30,8 @@ func TestLocalDisposalSurvivesRestartAndFencesOnlyItsConfirmedScope(t *testing.T
 	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
 		t.Fatal(err)
 	}
-	capacity := resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
-	environment := Environment{ID: "env-A", NamespaceID: "namespace-A", OwnerKind: OwnerRemoteRegistration, RegistrationID: "A", AllocationID: "allocation-A", AllocationGeneration: 1, AllocationState: 2, CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}
+	capacity := resourcev2.Contract{PIDMax: 128, WritableQuotaBytes: 4 << 30}
+	environment := Environment{ID: "env-A", NamespaceID: "namespace-A", OwnerKind: OwnerRemoteRegistration, RegistrationID: "A", AllocationID: "allocation-A", AllocationGeneration: 1, AllocationState: 2, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}
 	for i := 0; i < 101; i++ {
 		item := environment
 		item.ID = fmt.Sprintf("env-A-%03d", i)
@@ -142,7 +142,7 @@ func TestOwnerLocalDisposalDoesNotRevokeAnotherLocalEnvironment(t *testing.T) {
 	defer database.Close()
 	var target Environment
 	for _, id := range []string{"target", "other"} {
-		environment, err := database.CreateEnvironment(ctx, Environment{ID: id, NamespaceID: id, OwnerKind: OwnerLocal, CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 1 << 30, EgressMode: 1})
+		environment, err := database.CreateEnvironment(ctx, Environment{ID: id, NamespaceID: id, OwnerKind: OwnerLocal, PIDs: 128, DiskBytes: 1 << 30, EgressMode: 1})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,12 +212,12 @@ func TestAllocationDisposalKeepsRegistrationAndAdjacentAllocationAcrossRestart(t
 		t.Fatal(err)
 	}
 	defer func() { database.Close() }()
-	registration := RemoteRegistration{ID: "shared", Endpoint: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 5, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}
+	registration := RemoteRegistration{ID: "shared", Endpoint: "controller", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 5, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}
 	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
 		t.Fatal(err)
 	}
-	capacity := resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30}
-	target := Environment{ID: "env-target", NamespaceID: "namespace-target", OwnerKind: OwnerRemoteRegistration, RegistrationID: "shared", AllocationID: "target", AllocationGeneration: 7, AllocationState: 2, CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}
+	capacity := resourcev2.Contract{PIDMax: 128, WritableQuotaBytes: 4 << 30}
+	target := Environment{ID: "env-target", NamespaceID: "namespace-target", OwnerKind: OwnerRemoteRegistration, RegistrationID: "shared", AllocationID: "target", AllocationGeneration: 7, AllocationState: 2, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}
 	target, err = database.BeginWorkloadAdmission(ctx, target, capacity)
 	if err != nil {
 		t.Fatal(err)

@@ -4,19 +4,17 @@ package control
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/containerd/containerd/v2/core/mount"
 	"github.com/containerd/containerd/v2/core/snapshots"
 	"github.com/containerd/containerd/v2/plugins/snapshots/overlay"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/unix"
 )
 
@@ -76,6 +74,23 @@ func TestSystemOverlayReadonlyLayersAndCollection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	type lowerState struct {
+		project uint32
+		content [32]byte
+	}
+	lower := make(map[string]lowerState)
+	entries, err := os.ReadDir(filepath.Join(root, "snapshots"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		path := filepath.Join(root, "snapshots", entry.Name(), "fs")
+		project, err := projectID(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lower[path] = lowerState{project: project, content: snapshotContentHash(t, path)}
+	}
 	for _, name := range []string{"current", "pending-update", "restart"} {
 		mounts, err := snapshotter.View(ctx, name, parent)
 		if err != nil {
@@ -93,7 +108,7 @@ func TestSystemOverlayReadonlyLayersAndCollection(t *testing.T) {
 				return fmt.Errorf("read-only write error=%v, want EROFS", err)
 			}
 			if runsc := os.Getenv("AGENT_VMM_SYSTEM_TEST_RUNSC"); runsc != "" {
-				testSystemOverlaySandbox(t, runsc, root, name)
+				testFixedSupervisorSandbox(t, runsc, root, name, true)
 			}
 			return nil
 		})
@@ -102,6 +117,12 @@ func TestSystemOverlayReadonlyLayersAndCollection(t *testing.T) {
 		}
 		if err := snapshotter.Remove(ctx, name); err != nil {
 			t.Fatal(err)
+		}
+	}
+	for path, before := range lower {
+		project, err := projectID(path)
+		if err != nil || project != before.project || snapshotContentHash(t, path) != before.content {
+			t.Fatalf("sandbox start changed lower snapshot %s: project=%d, error=%v", path, project, err)
 		}
 	}
 	for layer := 10; layer >= 0; layer-- {
@@ -118,54 +139,39 @@ func TestSystemOverlayReadonlyLayersAndCollection(t *testing.T) {
 	}
 }
 
-func testSystemOverlaySandbox(t *testing.T, runsc, root, name string) {
+func snapshotContentHash(t *testing.T, root string) [32]byte {
 	t.Helper()
-	bundle := t.TempDir()
-	t.Cleanup(func() {
-		// runsc retains this namespace mount for reuse under its runtime root.
-		path := filepath.Join(bundle, "state", "null-netns")
-		if err := unix.Unmount(path, 0); err != nil && !errors.Is(err, unix.ENOENT) && !errors.Is(err, unix.EINVAL) {
-			t.Errorf("unmount test runtime namespace: %v", err)
+	hash := sha256.New()
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-	})
-	for _, path := range []string{"runtime", "data", "content"} {
-		directory := filepath.Join(bundle, path)
-		if err := os.Mkdir(directory, 0755); err != nil {
-			t.Fatal(err)
+		info, err := entry.Info()
+		if err != nil {
+			return err
 		}
-		if err := os.Chown(directory, systemContainerUID, systemContainerUID); err != nil {
-			t.Fatal(err)
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
 		}
-	}
-	spec := &specs.Spec{
-		Version: specs.Version,
-		Root:    &specs.Root{Path: root},
-		Process: &specs.Process{
-			Args: []string{"/bin/busybox", "sh", "-ec", "test \"$(/bin/busybox cat /version)\" = active-10; if echo bad > /version; then exit 1; fi; echo persistent > /var/lib/agent-vmm/result; test \"$(/bin/busybox cat /var/lib/agent-vmm/result)\" = persistent"},
-			Cwd:  "/", Env: []string{"PATH=/bin"},
-		},
-		Linux: &specs.Linux{Namespaces: []specs.LinuxNamespace{
-			{Type: specs.PIDNamespace}, {Type: specs.NetworkNamespace}, {Type: specs.IPCNamespace},
-			{Type: specs.UTSNamespace}, {Type: specs.MountNamespace},
-		}},
-		Mounts:      []specs.Mount{{Destination: "/proc", Type: "proc", Source: "proc"}},
-		Annotations: map[string]string{runscContainerType: runscSandbox},
-	}
-	if err := systemSpecOption(filepath.Join(bundle, "runtime"), filepath.Join(bundle, "data"), filepath.Join(bundle, "content"))(context.Background(), nil, nil, spec); err != nil {
+		fmt.Fprintf(hash, "%s\x00%d\x00", relative, info.Mode())
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			io.WriteString(hash, target)
+		} else if info.Mode().IsRegular() {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(hash, file)
+			return errors.Join(err, file.Close())
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bundle, "config.json"), data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, runsc, "--root="+filepath.Join(bundle, "state"), "--platform=systrap", "--directfs=false", "--overlay2=none", "--host-uds=create", "--network=none", "run", "--bundle="+bundle, name)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("runsc system view %s: %v\n%s", name, err, output)
-	}
+	return [32]byte(hash.Sum(nil))
 }

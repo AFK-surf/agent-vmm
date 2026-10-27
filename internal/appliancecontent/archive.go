@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	"github.com/AFK-surf/agent-vmm/internal/atomicfile"
 	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	digest "github.com/opencontainers/go-digest"
 	"google.golang.org/protobuf/proto"
@@ -92,33 +93,7 @@ func Publish(root string, file *os.File, content *appliancev1.ApplianceContentRe
 	if err != nil {
 		return err
 	}
-	metadata, err := os.CreateTemp(root, ".content-descriptor-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(metadata.Name())
-	defer metadata.Close()
-	if _, err := metadata.Write(encoded); err != nil {
-		return err
-	}
-	if err := metadata.Chmod(0444); err != nil {
-		return err
-	}
-	if err := metadata.Sync(); err != nil {
-		return err
-	}
-	if err := metadata.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(metadata.Name(), filepath.Join(root, ArchiveName(content)+".pb")); err != nil {
-		return err
-	}
-	directory, err := os.Open(root)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
+	return atomicfile.ReplaceFile(filepath.Join(root, ArchiveName(content)+".pb"), encoded, 0444)
 }
 
 type contextArchive struct {

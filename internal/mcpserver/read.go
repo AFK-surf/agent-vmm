@@ -48,7 +48,7 @@ func (adapter *Adapter) imageList(ctx context.Context, _ *mcp.CallToolRequest, i
 
 func (adapter *Adapter) environmentGet(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.call(ctx, 30*time.Second, false, func(ctx context.Context) (any, error) {
-		response, err := adapter.runtime.GetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+		response, err := adapter.runtime.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{})
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +84,7 @@ func (adapter *Adapter) containerList(ctx context.Context, _ *mcp.CallToolReques
 
 func (adapter *Adapter) containerGet(ctx context.Context, _ *mcp.CallToolRequest, input ContainerInput) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.call(ctx, 30*time.Second, false, func(ctx context.Context) (any, error) {
-		response, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		response, err := adapter.runtime.GetContainer(ctx, &hostv1.GetContainerRequest{ContainerId: input.ContainerID})
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +101,7 @@ func (adapter *Adapter) containerWait(ctx context.Context, _ *mcp.CallToolReques
 		return adapter.failure(status.Error(codes.InvalidArgument, "invalid timeout"))
 	}
 	return adapter.call(ctx, time.Duration(timeout)*time.Second, false, func(ctx context.Context) (any, error) {
-		response, err := adapter.runtime.WaitContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		response, err := adapter.runtime.WaitContainer(ctx, &hostv1.WaitContainerRequest{ContainerId: input.ContainerID})
 		if err != nil {
 			return nil, err
 		}
@@ -205,7 +205,7 @@ func limitsData(value *hostv1.ResourceLimits) LimitsData {
 	if value == nil {
 		return LimitsData{}
 	}
-	return LimitsData{CPUMillis: value.GetCpuMillis(), MemoryByte: value.GetMemoryBytes(), PIDs: value.GetPids(), DiskBytes: value.GetDiskBytes()}
+	return LimitsData{PIDs: value.GetPids(), DiskBytes: value.GetDiskBytes()}
 }
 func usageData(value *hostv1.Usage) UsageData {
 	if value == nil {

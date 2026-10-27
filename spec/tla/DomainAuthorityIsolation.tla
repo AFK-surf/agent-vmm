@@ -34,7 +34,9 @@ CrossDomainFailure(d) ==
   /\ crossDomainMutation' = TRUE
   /\ UNCHANGED mutationOwner
 
-Next == \E d \in Domains:
+Terminated == (\A d \in Domains: resourceRevision[d] = MaxRevision) /\ UNCHANGED vars
+
+Next == Terminated \/ \E d \in Domains:
   AuthorizedCommand(d) \/ WrongIdentityCommand(d) \/ CrossDomainFailure(d)
 
 TypeOK ==

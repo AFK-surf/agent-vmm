@@ -8,8 +8,9 @@ protocol HostServing: Sendable {
     func images(environmentID: String) async throws -> [EnvironmentImageModel]
     func deleteImage(environmentID: String, reference: String, expectedGenerationID: String, expectedDigest: String) async throws
     func logs(environmentID: String, containerID: String, since: Date?, after cursor: String?) -> AsyncThrowingStream<LogEntry, Error>
-    func startVM() async throws -> OperationModel
-    func stopVM(force: Bool) async throws -> OperationModel
+    func getVMImpactSummary() async throws -> Agentvmm_Host_V1_GetVMImpactSummaryResponse
+    func startVM(fence: Agentvmm_Host_V1_VMMutationFence) async throws -> OperationModel
+    func stopVM(force: Bool, fence: Agentvmm_Host_V1_VMMutationFence) async throws -> OperationModel
     func stopContainer(environmentID: String, containerID: String) async throws
     func continueContainer(environmentID: String, containerID: String) async throws
     func signalContainer(environmentID: String, containerID: String, signal: ContainerSignal) async throws
@@ -25,28 +26,14 @@ protocol HostServing: Sendable {
     func listPersonalMeshes() async throws -> [PersonalMeshModel]
     func createPersonalMesh(registryAudience: String) async throws -> PersonalMeshModel
     func revokePersonalMeshMember(meshID: String, deviceID: String, expectedRevision: UInt64) async throws -> PersonalMeshModel
-    func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String) async throws -> PersonalMeshPairingModel
-    func joinPersonalMeshPairing(invitationCode: String, pin: String, canManageMembers: Bool) async throws -> PersonalMeshPairingModel
+    func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String, canManageMembers: Bool) async throws -> PersonalMeshPairingModel
+    func joinPersonalMeshPairing(invitationCode: String, pin: String) async throws -> PersonalMeshPairingModel
     func getPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel
     func confirmPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel
     func rejectPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel
     func repairDeviceIdentity(confirmMembershipReset: Bool) async throws -> DeviceIdentityModel
-    func beginRemoteEnrollment(endpoint: String, displayName: String, pool: RemotePoolSettings) async throws -> RemoteRegistrationModel
-    func completeRemoteEnrollment(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func failRemoteEnrollment(registrationID: String, expectedRevision: UInt64, code: String, message: String) async throws -> RemoteRegistrationModel
-    func retryRemoteEnrollment(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func removeIncompleteRemoteRegistration(registrationID: String, expectedRevision: UInt64) async throws
-    func beginRemoteRevocation(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func completeRemoteRevocation(registrationID: String, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func updateRemotePool(registrationID: String, _ pool: RemotePoolSettings, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
-    func setRemoteAdmission(registrationID: String, _ state: RemoteAdmissionState, expectedRevision: UInt64) async throws -> RemoteRegistrationModel
     func listAppliances() async throws -> [ApplianceStatusModel]
-    func installBundledMCP(artifact: BundledApplianceArtifact, grant: ApplianceGrantModel) async throws
-    func activateAppliance(_ appliance: ApplianceStatusModel) async throws
-    func stopAppliance(_ appliance: ApplianceStatusModel) async throws
-    func restartAppliance(_ appliance: ApplianceStatusModel) async throws
-    func planRemoveAppliance(_ appliance: ApplianceStatusModel) async throws -> ApplianceRemovePlanModel
-    func executeRemoveAppliance(_ appliance: ApplianceStatusModel, plan: ApplianceRemovePlanModel) async throws
+
 }
 
 extension HostServing {
@@ -71,14 +58,6 @@ enum HostClientError: LocalizedError {
 
 func hostErrorMessage(_ error: any Error) -> String {
     if let rpcError = error as? RPCError {
-        switch rpcError.code {
-        case .unavailable, .unknown:
-            return "Agent VMM is temporarily unavailable. Try again."
-        case .deadlineExceeded:
-            return "Agent VMM did not respond in time. Try again."
-        default:
-            break
-        }
         if !rpcError.message.isEmpty { return rpcError.message }
         return "The control service request failed (\(rpcError.code))."
     }

@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package agentvmm.vmmd.v1;
+
+import "internal/vmmd/v1/resources.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1;vmmdv1";
+
+message CreateContainerRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string container_id = 3;
+  string image = 4;
+  reserved 5;
+  reserved "argv";
+  repeated string env = 6;
+  optional string workdir = 7;
+  optional string user = 8;
+  ResourceLimits limits = 9;
+  repeated VolumeMount volumes = 10;
+  bool read_only_root = 11;
+  uint64 log_limit_bytes = 12;
+  StringList entrypoint_override = 13;
+  StringList command_override = 14;
+  optional string configuration_fingerprint = 15;
+}
+
+message CreateContainerResponse {
+  Container container = 1;
+}
+
+message StartContainerRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string container_id = 3;
+  string expected_generation_id = 4;
+}
+
+message StartContainerResponse {
+  Container container = 1;
+}
+
+message StopContainerRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string container_id = 3;
+  optional uint32 timeout_seconds = 4;
+}
+
+message StopContainerResponse {
+  Container container = 1;
+}
+
+message WaitContainerRequest {
+  string actor_namespace_id = 1;
+  string container_id = 2;
+}
+
+message WaitContainerResponse {
+  uint32 exit_code = 1;
+}
+
+message DeleteContainerRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string container_id = 3;
+  string expected_generation_id = 4;
+}
+
+message DeleteContainerResponse {}
+
+message InspectContainerRequest {
+  string actor_namespace_id = 1;
+  string container_id = 2;
+}
+
+message InspectContainerResponse {
+  Container container = 1;
+}
+
+message ListContainersRequest {
+  string actor_namespace_id = 1;
+  uint32 limit = 2;
+  // Cursor pages are independent of the existing fail-on-overflow limit.
+  uint32 page_size = 3;
+  string after_container_id = 4;
+}
+
+message ListContainersResponse {
+  repeated Container containers = 1;
+  string next_cursor = 2;
+}
+
+message GetContainerUsageRequest {
+  string actor_namespace_id = 1;
+  string container_id = 2;
+}
+
+message GetUsageResponse {
+  Usage usage = 1;
+  Usage workload_pool = 2;
+  uint64 workload_memory_limit_bytes = 3;
+  double workload_memory_full_avg10 = 4;
+  uint64 workload_oom_kills = 5;
+  uint64 workload_oom_events = 10;
+  DiskAccounting disk = 6;
+  optional uint32 open_fds = 7;
+  string open_fds_unavailable_reason = 8;
+  string disk_unavailable_reason = 9;
+}
+
+message LogsRequest {
+  string actor_namespace_id = 1;
+  string container_id = 2;
+  uint64 tail_records = 3;
+  int64 since_unix_nano = 4;
+  string after_cursor = 5;
+  bool follow = 6;
+}
+
+message LogsResponse {
+  string cursor = 1;
+  int64 timestamp_unix_nano = 2;
+  LogStream stream = 3;
+  bytes data = 4;
+  bool truncated = 5;
+  uint64 dropped_records = 6;
+}
+
+message SignalContainerRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string container_id = 3;
+  ProcessSignal signal = 4;
+}
+
+message SignalContainerResponse {}
+
+message ExecStart {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string container_id = 3;
+  repeated string argv = 4;
+  repeated string env = 5;
+  optional string workdir = 6;
+  optional string user = 7;
+  bool tty = 8;
+  uint32 rows = 9;
+  uint32 columns = 10;
+}
+
+message ExecResize {
+  uint32 rows = 1;
+  uint32 columns = 2;
+}
+
+message ExecRequest {
+  oneof event {
+    ExecStart start = 1;
+    bytes stdin = 2;
+    bool close_stdin = 3;
+    ExecResize resize = 4;
+    ProcessSignal signal = 5;
+  }
+}
+
+message ExecResponse {
+  oneof event {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    uint32 exit_code = 3;
+  }
+}

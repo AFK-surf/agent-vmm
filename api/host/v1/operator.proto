@@ -1,0 +1,1089 @@
+syntax = "proto3";
+
+package agentvmm.host.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "host/v1/host_share.proto";
+import "host/v1/mesh.proto";
+import "host/v1/remote_pool.proto";
+import "host/v1/resources.proto";
+import "host/v1/runtime.proto";
+import "trust/v1/trust.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
+
+// OperatorService is the trusted local operator surface for Host policy, observation, and explicit
+// destructive actions.
+service OperatorService {
+  // CreateMCPToken issues a token for the built-in MCP appliance.
+  rpc CreateMCPToken(CreateMCPTokenRequest) returns (CreateMCPTokenResponse);
+  // RotateMCPTokenKey starts an appliance update that replaces the MCP token signing key.
+  rpc RotateMCPTokenKey(RotateMCPTokenKeyRequest) returns (RotateMCPTokenKeyResponse);
+  // StartVM starts the shared VM with a whole-VM acknowledgement and the observed mutation fence.
+  rpc StartVM(StartVMRequest) returns (StartVMResponse);
+  // GetVM reads current VM state without inferring individual workload readiness.
+  rpc GetVM(GetVMRequest) returns (GetVMResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // StopVM stops every workload in the shared VM under the supplied mutation fence.
+  rpc StopVM(StopVMRequest) returns (StopVMResponse);
+  // CreateAgentSession issues a revocable runtime session fixed to the selected environment.
+  rpc CreateAgentSession(CreateAgentSessionRequest) returns (CreateAgentSessionResponse);
+  // RevokeAgentSession revokes one runtime capability without deleting its environment or private
+  // data.
+  rpc RevokeAgentSession(RevokeAgentSessionRequest) returns (RevokeAgentSessionResponse);
+  // ListAgentIntegrations reads local integration intent and configuration state for operator
+  // review.
+  rpc ListAgentIntegrations(ListAgentIntegrationsRequest) returns (ListAgentIntegrationsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // PrepareAgentIntegration creates pending integration intent or reuses its existing environment
+  // without changing that environment's policy.
+  rpc PrepareAgentIntegration(PrepareAgentIntegrationRequest) returns (PrepareAgentIntegrationResponse);
+  // CommitAgentIntegration commits the configuration fingerprint at the current integration
+  // revision.
+  rpc CommitAgentIntegration(CommitAgentIntegrationRequest) returns (CommitAgentIntegrationResponse);
+  // BeginAgentIntegrationRemoval revokes access and records removal intent for the exact
+  // integration.
+  rpc BeginAgentIntegrationRemoval(BeginAgentIntegrationRemovalRequest) returns (BeginAgentIntegrationRemovalResponse);
+  // CompleteAgentIntegrationRemoval completes the recorded integration removal after its owned
+  // cleanup succeeds.
+  rpc CompleteAgentIntegrationRemoval(CompleteAgentIntegrationRemovalRequest) returns (CompleteAgentIntegrationRemovalResponse);
+  // ListAgentSessions reads session capability state separately from workload process state.
+  rpc ListAgentSessions(ListAgentSessionsRequest) returns (ListAgentSessionsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // RevokeAgentSessions revokes the selected integration's runtime sessions without discarding its
+  // environment.
+  rpc RevokeAgentSessions(RevokeAgentSessionsRequest) returns (RevokeAgentSessionsResponse);
+  // GetSystemSnapshot reads operator inventory across Host-owned environments and registrations.
+  rpc GetSystemSnapshot(GetSystemSnapshotRequest) returns (GetSystemSnapshotResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // GetSystemHealthSummary reads bounded Host and Guest health without enumerating workload
+  // contents.
+  rpc GetSystemHealthSummary(GetSystemHealthSummaryRequest) returns (GetSystemHealthSummaryResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // GetVMImpactSummary captures bounded owner references for a whole-VM decision, including
+  // partial or overflowing observation state.
+  rpc GetVMImpactSummary(GetVMImpactSummaryRequest) returns (GetVMImpactSummaryResponse);
+  // ListEnvironments lists operator-visible environments with their logical ownership and
+  // inventory freshness.
+  rpc ListEnvironments(ListEnvironmentsRequest) returns (ListEnvironmentsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // GetEnvironment reads environment policy and observed runtime facts under the caller's
+  // authority.
+  rpc GetEnvironment(OperatorServiceGetEnvironmentRequest) returns (OperatorServiceGetEnvironmentResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ListEnvironmentImages reads logical image grants in the selected operator-visible environment.
+  rpc ListEnvironmentImages(ListEnvironmentImagesRequest) returns (ListEnvironmentImagesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // DeleteEnvironmentImage deletes one environment's image grant while preserving references owned
+  // elsewhere.
+  rpc DeleteEnvironmentImage(DeleteEnvironmentImageRequest) returns (DeleteEnvironmentImageResponse);
+  // WatchEvents streams Host events for observation without granting mutation authority.
+  rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // WatchMetrics streams sampled usage and freshness rather than reserved capacity.
+  rpc WatchMetrics(WatchMetricsRequest) returns (stream WatchMetricsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Logs reads bounded container output under the caller's environment authority.
+  rpc Logs(OperatorServiceLogsRequest) returns (stream OperatorServiceLogsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // StopContainer stops the exact owned workload process under its current container fence.
+  rpc StopContainer(OperatorServiceStopContainerRequest) returns (OperatorServiceStopContainerResponse);
+  // ContinueContainer resumes Host desired-running intent for the selected operator-visible
+  // container.
+  rpc ContinueContainer(ContinueContainerRequest) returns (ContinueContainerResponse);
+  // SignalContainer signals the retained workload process, whose natural exit can race the
+  // request.
+  rpc SignalContainer(OperatorServiceSignalContainerRequest) returns (OperatorServiceSignalContainerResponse);
+  // DeleteContainer deletes an owned stopped container without deleting its named volumes.
+  rpc DeleteContainer(OperatorServiceDeleteContainerRequest) returns (OperatorServiceDeleteContainerResponse);
+  // UpdateEnvironmentPolicy changes the environment's approved PID, disk, and egress policy at its
+  // current revision.
+  rpc UpdateEnvironmentPolicy(UpdateEnvironmentPolicyRequest) returns (UpdateEnvironmentPolicyResponse);
+  // PlanResetEnvironment reads a revision-bound cleanup plan that preserves named volumes.
+  rpc PlanResetEnvironment(PlanResetEnvironmentRequest) returns (PlanResetEnvironmentResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // PlanDiscardEnvironment reads a revision-bound plan for deleting the environment's exact
+  // private resources.
+  rpc PlanDiscardEnvironment(PlanDiscardEnvironmentRequest) returns (PlanDiscardEnvironmentResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ExecuteCleanup accepts the reviewed cleanup revision and exact volume confirmations before
+  // Guest side effects.
+  rpc ExecuteCleanup(ExecuteCleanupRequest) returns (ExecuteCleanupResponse);
+  // PlanLocalDisposal freezes one local environment or exact registration for trusted operator
+  // disposal.
+  rpc PlanLocalDisposal(PlanLocalDisposalRequest) returns (PlanLocalDisposalResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ExecuteLocalDisposal accepts confirmed local disposal and persists its replay fence before
+  // resource deletion.
+  rpc ExecuteLocalDisposal(ExecuteLocalDisposalRequest) returns (ExecuteLocalDisposalResponse);
+  // GetOperation reads the stored result of the original Host operation.
+  rpc GetOperation(GetOperationRequest) returns (GetOperationResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // RunDiagnostics collects bounded operator diagnostics with explicit sensitivity options.
+  rpc RunDiagnostics(RunDiagnosticsRequest) returns (RunDiagnosticsResponse);
+  // PreviewSupportBundle lists diagnostic content and sensitivity before support bundle export.
+  rpc PreviewSupportBundle(PreviewSupportBundleRequest) returns (PreviewSupportBundleResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ExportSupportBundle exports only the operator-approved diagnostic scope.
+  rpc ExportSupportBundle(ExportSupportBundleRequest) returns (ExportSupportBundleResponse);
+  // BeginRemoteEnrollment records one controller registration and its approved scope before
+  // credential enrollment.
+  rpc BeginRemoteEnrollment(BeginRemoteEnrollmentRequest) returns (BeginRemoteEnrollmentResponse);
+  // ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
+  // local enrollment owner.
+  rpc ApplyManagedRemoteEnrollment(ApplyManagedRemoteEnrollmentRequest) returns (ApplyManagedRemoteEnrollmentResponse);
+  // CompleteRemoteEnrollment commits credential completion for the current registration revision.
+  rpc CompleteRemoteEnrollment(CompleteRemoteEnrollmentRequest) returns (CompleteRemoteEnrollmentResponse);
+  // RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
+  rpc RetryRemoteEnrollment(RetryRemoteEnrollmentRequest) returns (RetryRemoteEnrollmentResponse);
+  // BeginRemoteRevocation records revocation intent before stopping the registration's owned
+  // workload authority.
+  rpc BeginRemoteRevocation(BeginRemoteRevocationRequest) returns (BeginRemoteRevocationResponse);
+  // CompleteRemoteRevocation completes the selected registration's durable revocation.
+  rpc CompleteRemoteRevocation(CompleteRemoteRevocationRequest) returns (CompleteRemoteRevocationResponse);
+  // UpdateRemotePool changes one registration's allocation policy without reallocating existing
+  // workloads.
+  rpc UpdateRemotePool(UpdateRemotePoolRequest) returns (UpdateRemotePoolResponse);
+  // SetRemoteRegistrationState changes admission state independently of connector transport
+  // connectivity.
+  rpc SetRemoteRegistrationState(SetRemoteRegistrationStateRequest) returns (SetRemoteRegistrationStateResponse);
+  // GetRemoteRegistration reads the selected registration, connector observation, and owned
+  // allocations.
+  rpc GetRemoteRegistration(GetRemoteRegistrationRequest) returns (GetRemoteRegistrationResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // SignRegistrationRecovery signs only the bounded single-use registration-recovery challenge
+  // using the current device identity.
+  rpc SignRegistrationRecovery(SignRegistrationRecoveryRequest) returns (SignRegistrationRecoveryResponse);
+  // GetLocalDiskSummary reads Guest filesystem accounting without scanning every environment or
+  // collecting compute metrics.
+  rpc GetLocalDiskSummary(GetLocalDiskSummaryRequest) returns (GetLocalDiskSummaryResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ListLocalEnvironmentPage reads an indexed bounded page of local environment summaries.
+  rpc ListLocalEnvironmentPage(ListLocalEnvironmentPageRequest) returns (ListLocalEnvironmentPageResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ListLocalRegistrationPage reads an indexed bounded page of local registration metadata.
+  rpc ListLocalRegistrationPage(ListLocalRegistrationPageRequest) returns (ListLocalRegistrationPageResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // GetDeviceIdentity reads public device identity and custody state without exposing private key
+  // bytes.
+  rpc GetDeviceIdentity(GetDeviceIdentityRequest) returns (GetDeviceIdentityResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ListPersonalMeshes reads the local projection of verified personal mesh state.
+  rpc ListPersonalMeshes(ListPersonalMeshesRequest) returns (ListPersonalMeshesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // CreatePersonalMesh creates personal mesh intent rooted in the current device identity.
+  rpc CreatePersonalMesh(CreatePersonalMeshRequest) returns (CreatePersonalMeshResponse);
+  // RevokePersonalMeshMember queues the signed removal of one member under the current mesh
+  // revision.
+  rpc RevokePersonalMeshMember(RevokePersonalMeshMemberRequest) returns (RevokePersonalMeshMemberResponse);
+  // BeginPersonalMeshPairing creates a bounded pairing invitation without granting membership
+  // before confirmation.
+  rpc BeginPersonalMeshPairing(BeginPersonalMeshPairingRequest) returns (BeginPersonalMeshPairingResponse);
+  // JoinPersonalMeshPairing joins the selected pairing exchange using its separate PAKE secret.
+  rpc JoinPersonalMeshPairing(JoinPersonalMeshPairingRequest) returns (JoinPersonalMeshPairingResponse);
+  // GetPersonalMeshPairing reads pairing progress and its confirmation state.
+  rpc GetPersonalMeshPairing(GetPersonalMeshPairingRequest) returns (GetPersonalMeshPairingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ConfirmPersonalMeshPairing confirms the observed pairing identity before membership
+  // publication.
+  rpc ConfirmPersonalMeshPairing(ConfirmPersonalMeshPairingRequest) returns (ConfirmPersonalMeshPairingResponse);
+  // RejectPersonalMeshPairing rejects the exact pairing exchange and its pending authority.
+  rpc RejectPersonalMeshPairing(RejectPersonalMeshPairingRequest) returns (RejectPersonalMeshPairingResponse);
+  // RepairDeviceIdentity replaces unavailable identity through explicit membership reset while
+  // preserving the committed winner of concurrent repair.
+  rpc RepairDeviceIdentity(RepairDeviceIdentityRequest) returns (RepairDeviceIdentityResponse);
+  // CreateLocalServiceListener creates an operator-approved local listener for a current service
+  // route.
+  rpc CreateLocalServiceListener(CreateLocalServiceListenerRequest) returns (CreateLocalServiceListenerResponse);
+  // ListServiceListeners reads active and revoked listener facts without reconstructing a live
+  // listener after restart.
+  rpc ListServiceListeners(ListServiceListenersRequest) returns (ListServiceListenersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // RevokeServiceListener closes the exact listener and revokes its route authority.
+  rpc RevokeServiceListener(RevokeServiceListenerRequest) returns (RevokeServiceListenerResponse);
+  // CreateHostShare approves one checked Host directory for the selected environment.
+  rpc CreateHostShare(CreateHostShareRequest) returns (CreateHostShareResponse);
+  // RebindHostShare changes the checked source of an existing share under its revision fence.
+  rpc RebindHostShare(RebindHostShareRequest) returns (RebindHostShareResponse);
+  // RevokeHostShare revokes one share rather than granting general Host filesystem access.
+  rpc RevokeHostShare(RevokeHostShareRequest) returns (RevokeHostShareResponse);
+  // ListHostShares reads operator-approved directory shares and their current references.
+  rpc ListHostShares(ListHostSharesRequest) returns (ListHostSharesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+// GetDeviceIdentityRequest carries inputs for an operation that reads public device identity and
+// custody state without exposing private key bytes.
+message GetDeviceIdentityRequest {}
+
+// CreatePersonalMeshRequest carries inputs for an operation that creates personal mesh intent
+// rooted in the current device identity.
+message CreatePersonalMeshRequest {
+  string request_id = 1;
+  string registry_audience = 2;
+}
+
+// ListPersonalMeshesRequest carries inputs for an operation that reads the local projection of
+// verified personal mesh state.
+message ListPersonalMeshesRequest {}
+
+// ListPersonalMeshesResponse carries results from an operation that reads the local projection
+// of verified personal mesh state.
+message ListPersonalMeshesResponse {
+  repeated PersonalMeshResponse meshes = 1;
+}
+
+// CreateLocalServiceListenerRequest carries inputs for an operation that creates an operator-
+// approved local listener for a current service route.
+message CreateLocalServiceListenerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  uint32 target_port = 4;
+  ServiceListenerExposure exposure = 5;
+  string bind_address = 6;
+  uint32 bind_port = 7;
+}
+
+// ListServiceListenersRequest carries inputs for an operation that reads active and revoked
+// listener facts without reconstructing a live listener after restart.
+message ListServiceListenersRequest {}
+
+// ListServiceListenersResponse carries results from an operation that reads active and revoked
+// listener facts without reconstructing a live listener after restart.
+message ListServiceListenersResponse {
+  repeated ServiceListener listeners = 1;
+}
+
+// RevokeServiceListenerRequest carries inputs for an operation that closes the exact listener
+// and revokes its route authority.
+message RevokeServiceListenerRequest {
+  string request_id = 1;
+  string listener_id = 2;
+  uint64 expected_revision = 3;
+}
+
+// RevokePersonalMeshMemberRequest carries inputs for an operation that queues the signed removal
+// of one member under the current mesh revision.
+message RevokePersonalMeshMemberRequest {
+  string request_id = 1;
+  string mesh_id = 2;
+  string device_id = 3;
+  uint64 expected_revision = 4;
+}
+
+// BeginPersonalMeshPairingRequest carries inputs for an operation that creates a bounded pairing
+// invitation without granting membership before confirmation.
+message BeginPersonalMeshPairingRequest {
+  string request_id = 1;
+  string mesh_id = 2;
+  uint64 expected_revision = 3;
+  string pin = 4;
+  repeated agentvmm.trust.v1.MeshPermission permissions = 5;
+}
+
+// JoinPersonalMeshPairingRequest carries inputs for an operation that joins the selected pairing
+// exchange using its separate PAKE secret.
+message JoinPersonalMeshPairingRequest {
+  PersonalMeshPairingInvitation invitation = 1;
+  string pin = 2;
+}
+
+// GetPersonalMeshPairingRequest carries inputs for an operation that reads pairing progress and
+// its confirmation state.
+message GetPersonalMeshPairingRequest {
+  bytes session_id = 1;
+}
+
+// ConfirmPersonalMeshPairingRequest carries inputs for an operation that confirms the observed
+// pairing identity before membership publication.
+message ConfirmPersonalMeshPairingRequest {
+  bytes session_id = 1;
+}
+
+// RejectPersonalMeshPairingRequest carries inputs for an operation that rejects the exact
+// pairing exchange and its pending authority.
+message RejectPersonalMeshPairingRequest {
+  bytes session_id = 1;
+}
+
+// RepairDeviceIdentityRequest carries inputs for an operation that replaces unavailable identity
+// through explicit membership reset while preserving the committed winner of concurrent repair.
+message RepairDeviceIdentityRequest {
+  string request_id = 1;
+  bool confirm_membership_reset = 2;
+}
+
+// StartVMRequest carries a stable request identity and explicit acknowledgement of the complete
+// VM impact.
+message StartVMRequest {
+  string request_id = 1;
+  // fence is produced by the same Host's VM impact summary. The VM lifecycle
+  // owner validates available owner revisions immediately before mutation.
+  VMMutationFence fence = 2;
+}
+
+// GetVMRequest carries inputs for an operation that reads current VM state without inferring
+// individual workload readiness.
+message GetVMRequest {}
+
+// StopVMRequest carries the observed whole-VM fence and stable request identity, including
+// optional forced-stop approval.
+message StopVMRequest {
+  string request_id = 1;
+  bool force = 2;
+  VMMutationFence fence = 3;
+}
+
+// CreateAgentSessionRequest carries inputs for an operation that issues a revocable runtime
+// session fixed to the selected environment.
+message CreateAgentSessionRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  optional uint64 expected_integration_revision = 3;
+}
+
+// CreateAgentSessionResponse carries results from an operation that issues a revocable runtime
+// session fixed to the selected environment.
+message CreateAgentSessionResponse {
+  string session_id = 1;
+  string socket_path = 2;
+  AgentEnvironment environment = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+// RevokeAgentSessionRequest carries inputs for an operation that revokes one runtime capability
+// without deleting its environment or private data.
+message RevokeAgentSessionRequest {
+  string request_id = 1;
+  string session_id = 2;
+}
+
+// ListAgentIntegrationsRequest carries inputs for an operation that reads local integration
+// intent and configuration state for operator review.
+message ListAgentIntegrationsRequest {
+  bool include_removed = 1;
+}
+
+// ListAgentIntegrationsResponse carries results from an operation that reads local integration
+// intent and configuration state for operator review.
+message ListAgentIntegrationsResponse {
+  repeated AgentIntegration integrations = 1;
+}
+
+// PrepareAgentIntegrationRequest carries inputs for an operation that creates pending
+// integration intent or reuses its existing environment without changing that environment's
+// policy.
+message PrepareAgentIntegrationRequest {
+  string request_id = 1;
+  string adapter_id = 2;
+  string display_name = 3;
+  IntegrationScope scope = 4;
+  string config_target = 5;
+  optional string environment_id = 6;
+  ResourceLimits limits = 7;
+}
+
+// CommitAgentIntegrationRequest carries inputs for an operation that commits the configuration
+// fingerprint at the current integration revision.
+message CommitAgentIntegrationRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+  string config_fingerprint = 4;
+  bool needs_restart = 5;
+}
+
+// BeginAgentIntegrationRemovalRequest carries inputs for an operation that revokes access and
+// records removal intent for the exact integration.
+message BeginAgentIntegrationRemovalRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+}
+
+// CompleteAgentIntegrationRemovalRequest carries inputs for an operation that completes the
+// recorded integration removal after its owned cleanup succeeds.
+message CompleteAgentIntegrationRemovalRequest {
+  string request_id = 1;
+  string integration_id = 2;
+  uint64 expected_revision = 3;
+}
+
+// ListAgentSessionsRequest carries inputs for an operation that reads session capability state
+// separately from workload process state.
+message ListAgentSessionsRequest {
+  optional string integration_id = 1;
+  bool include_terminal = 2;
+}
+
+// ListAgentSessionsResponse carries results from an operation that reads session capability
+// state separately from workload process state.
+message ListAgentSessionsResponse {
+  repeated AgentSession sessions = 1;
+}
+
+// RevokeAgentSessionsRequest carries inputs for an operation that revokes the selected
+// integration's runtime sessions without discarding its environment.
+message RevokeAgentSessionsRequest {
+  string request_id = 1;
+  string integration_id = 2;
+}
+
+// ListEnvironmentsRequest carries inputs for an operation that lists operator-visible
+// environments with their logical ownership and inventory freshness.
+message ListEnvironmentsRequest {}
+
+// ListEnvironmentsResponse carries results from an operation that lists operator-visible
+// environments with their logical ownership and inventory freshness.
+message ListEnvironmentsResponse {
+  repeated AgentEnvironment environments = 1;
+}
+
+// ListEnvironmentImagesRequest carries inputs for an operation that reads logical image grants
+// in the selected operator-visible environment.
+message ListEnvironmentImagesRequest {
+  string environment_id = 1;
+}
+
+// DeleteEnvironmentImageRequest carries inputs for an operation that deletes one environment's
+// image grant while preserving references owned elsewhere.
+message DeleteEnvironmentImageRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string reference = 3;
+  string expected_generation_id = 4;
+  string expected_digest = 5;
+}
+
+// GetSystemSnapshotRequest carries inputs for an operation that reads operator inventory across
+// Host-owned environments and registrations.
+message GetSystemSnapshotRequest {}
+
+// GetSystemHealthSummaryRequest carries inputs for an operation that reads bounded Host and
+// Guest health without enumerating workload contents.
+message GetSystemHealthSummaryRequest {}
+
+// GetVMImpactSummaryRequest carries inputs for an operation that captures bounded owner
+// references for a whole-VM decision, including partial or overflowing observation state.
+message GetVMImpactSummaryRequest {}
+
+// GetVMImpactSummaryResponse carries results from an operation that captures bounded owner
+// references for a whole-VM decision, including partial or overflowing observation state.
+message GetVMImpactSummaryResponse {
+  VM vm = 1;
+  google.protobuf.Timestamp collected_at = 2;
+  // complete covers the bounded Host owner reads used for this summary. It
+  // does not mean that every Guest workload, lease, session, or system
+  // appliance has an individual entry in known_workloads.
+  bool complete = 3;
+  bool overflow = 4;
+  string issue = 5;
+  // known_workloads contains at most 100 Host-owned environment and
+  // registration references. The authorized impact_scope is always whole_vm.
+  repeated ResourceReference known_workloads = 6;
+}
+
+// WatchEventsRequest carries inputs for an operation that streams Host events for observation
+// without granting mutation authority.
+message WatchEventsRequest {
+  uint64 after_sequence = 1;
+}
+
+// WatchMetricsRequest carries inputs for an operation that streams sampled usage and freshness
+// rather than reserved capacity.
+message WatchMetricsRequest {
+  ResourceReference scope = 1;
+  google.protobuf.Duration interval = 2;
+}
+
+// UpdateEnvironmentPolicyRequest carries inputs for an operation that changes the environment's
+// approved PID, disk, and egress policy at its current revision.
+message UpdateEnvironmentPolicyRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  ResourceLimits limits = 3;
+  EgressMode egress_mode = 4;
+  uint64 expected_revision = 5;
+}
+
+// ExecuteCleanupRequest carries the reviewed plan revision and exact volume confirmations.
+// Transport uncertainty requires the same request identity.
+message ExecuteCleanupRequest {
+  string request_id = 1;
+  CleanupPlan plan = 2;
+  repeated string confirmed_volume_ids = 3;
+}
+
+// GetOperationRequest carries inputs for an operation that reads the stored result of the
+// original Host operation.
+message GetOperationRequest {
+  string operation_id = 1;
+}
+
+// RunDiagnosticsRequest carries inputs for an operation that collects bounded operator
+// diagnostics with explicit sensitivity options.
+message RunDiagnosticsRequest {
+  string request_id = 1;
+  optional string environment_id = 2;
+}
+
+// PreviewSupportBundleRequest carries inputs for an operation that lists diagnostic content and
+// sensitivity before support bundle export.
+message PreviewSupportBundleRequest {
+  optional string environment_id = 1;
+}
+
+// ExportSupportBundleRequest carries inputs for an operation that exports only the operator-
+// approved diagnostic scope.
+message ExportSupportBundleRequest {
+  string request_id = 1;
+  optional string environment_id = 2;
+  repeated string include_sensitive_items = 3;
+}
+
+// PlanLocalDisposalRequest carries inputs for an operation that freezes one local environment or
+// exact registration for trusted operator disposal.
+message PlanLocalDisposalRequest {
+  LocalDisposalTargetKind target_kind = 1;
+  string target_id = 2;
+}
+
+// ExecuteLocalDisposalRequest carries inputs for an operation that accepts confirmed local
+// disposal and persists its replay fence before resource deletion.
+message ExecuteLocalDisposalRequest {
+  string request_id = 1;
+  LocalDisposalPlan plan = 2;
+  bool irreversible_confirmation = 3;
+}
+
+// SignRegistrationRecoveryRequest carries inputs for an operation that signs only the bounded
+// single-use registration-recovery challenge using the current device identity.
+message SignRegistrationRecoveryRequest {
+  bytes challenge_json = 1;
+}
+
+// SignRegistrationRecoveryResponse carries results from an operation that signs only the bounded
+// single-use registration-recovery challenge using the current device identity.
+message SignRegistrationRecoveryResponse {
+  agentvmm.trust.v1.DeviceIdentity identity = 1;
+  bytes signature = 2;
+}
+
+// GetLocalDiskSummaryRequest carries inputs for an operation that reads Guest filesystem
+// accounting without scanning every environment or collecting compute metrics.
+message GetLocalDiskSummaryRequest {}
+
+// ListLocalEnvironmentPageRequest carries inputs for an operation that reads an indexed bounded
+// page of local environment summaries.
+message ListLocalEnvironmentPageRequest {
+  string after_id = 1;
+}
+
+// ListLocalRegistrationPageRequest carries inputs for an operation that reads an indexed bounded
+// page of local registration metadata.
+message ListLocalRegistrationPageRequest {
+  string after_id = 1;
+}
+
+// StartVMResponse carries results from an operation that starts the shared VM with a whole-VM
+// acknowledgement and the observed mutation fence.
+message StartVMResponse {
+  Operation operation = 1;
+}
+
+// GetVMResponse carries results from an operation that reads current VM state without inferring
+// individual workload readiness.
+message GetVMResponse {
+  VM vm = 1;
+}
+
+// StopVMResponse carries results from an operation that stops every workload in the shared VM
+// under the supplied mutation fence.
+message StopVMResponse {
+  Operation operation = 1;
+}
+
+// RevokeAgentSessionResponse carries results from an operation that revokes one runtime
+// capability without deleting its environment or private data.
+message RevokeAgentSessionResponse {}
+
+// PrepareAgentIntegrationResponse carries results from an operation that creates pending
+// integration intent or reuses its existing environment without changing that environment's
+// policy.
+message PrepareAgentIntegrationResponse {
+  AgentIntegration integration = 1;
+}
+
+// CommitAgentIntegrationResponse carries results from an operation that commits the
+// configuration fingerprint at the current integration revision.
+message CommitAgentIntegrationResponse {
+  AgentIntegration integration = 1;
+}
+
+// BeginAgentIntegrationRemovalResponse carries results from an operation that revokes access and
+// records removal intent for the exact integration.
+message BeginAgentIntegrationRemovalResponse {
+  AgentIntegration integration = 1;
+}
+
+// CompleteAgentIntegrationRemovalResponse carries results from an operation that completes the
+// recorded integration removal after its owned cleanup succeeds.
+message CompleteAgentIntegrationRemovalResponse {
+  AgentIntegration integration = 1;
+}
+
+// RevokeAgentSessionsResponse carries results from an operation that revokes the selected
+// integration's runtime sessions without discarding its environment.
+message RevokeAgentSessionsResponse {}
+
+// GetSystemHealthSummaryResponse carries results from an operation that reads bounded Host and
+// Guest health without enumerating workload contents.
+message GetSystemHealthSummaryResponse {
+  VM vm = 1;
+  HealthStatus health = 2;
+  Usage usage = 3;
+  repeated AgentEnvironment environments = 4;
+  google.protobuf.Timestamp collected_at = 5;
+  repeated RemoteRegistration remote_registrations = 6;
+  LayerResources host_resources = 7;
+  LayerResources guest_resources = 8;
+}
+
+// OperatorServiceGetEnvironmentRequest carries inputs for an operation that reads environment
+// policy and observed runtime facts under the caller's authority.
+message OperatorServiceGetEnvironmentRequest {
+  string environment_id = 1;
+}
+
+// OperatorServiceGetEnvironmentResponse carries results from an operation that reads environment
+// policy and observed runtime facts under the caller's authority.
+message OperatorServiceGetEnvironmentResponse {
+  AgentEnvironment environment = 1;
+}
+
+// ListEnvironmentImagesResponse carries results from an operation that reads logical image
+// grants in the selected operator-visible environment.
+message ListEnvironmentImagesResponse {
+  repeated Image images = 1;
+}
+
+// DeleteEnvironmentImageResponse carries results from an operation that deletes one
+// environment's image grant while preserving references owned elsewhere.
+message DeleteEnvironmentImageResponse {}
+
+// WatchEventsResponse carries results from an operation that streams Host events for observation
+// without granting mutation authority.
+message WatchEventsResponse {
+  uint64 sequence = 1;
+  string type = 2;
+  ResourceReference resource = 3;
+  string guest_boot_id = 4;
+  string request_id = 5;
+  string operation_id = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
+
+// WatchMetricsResponse carries results from an operation that streams sampled usage and
+// freshness rather than reserved capacity.
+message WatchMetricsResponse {
+  ResourceReference scope = 1;
+  Usage usage = 2;
+}
+
+// OperatorServiceLogsRequest carries inputs for an operation that reads bounded container output
+// under the caller's environment authority.
+message OperatorServiceLogsRequest {
+  string environment_id = 1;
+  LogsRequest query = 2;
+}
+
+// OperatorServiceLogsResponse carries results from an operation that reads bounded container
+// output under the caller's environment authority.
+message OperatorServiceLogsResponse {
+  string cursor = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  LogStream stream = 3;
+  bytes data = 4;
+  bool truncated = 5;
+  uint64 dropped_records = 6;
+}
+
+// OperatorServiceStopContainerRequest carries inputs for an operation that stops the exact owned
+// workload process under its current container fence.
+message OperatorServiceStopContainerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  optional uint32 timeout_seconds = 4;
+  optional uint64 expected_integration_revision = 5;
+  optional string integration_id = 6;
+}
+
+// OperatorServiceStopContainerResponse carries results from an operation that stops the exact
+// owned workload process under its current container fence.
+message OperatorServiceStopContainerResponse {
+  Container container = 1;
+}
+
+// ContinueContainerRequest carries inputs for an operation that resumes Host desired-running
+// intent for the selected operator-visible container.
+message ContinueContainerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+}
+
+// ContinueContainerResponse carries results from an operation that resumes Host desired-running
+// intent for the selected operator-visible container.
+message ContinueContainerResponse {
+  Container container = 1;
+}
+
+// OperatorServiceSignalContainerRequest carries inputs for an operation that signals the
+// retained workload process, whose natural exit can race the request.
+message OperatorServiceSignalContainerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  ProcessSignal signal = 4;
+}
+
+// OperatorServiceSignalContainerResponse carries results from an operation that signals the
+// retained workload process, whose natural exit can race the request.
+message OperatorServiceSignalContainerResponse {}
+
+// OperatorServiceDeleteContainerRequest carries inputs for an operation that deletes an owned
+// stopped container without deleting its named volumes.
+message OperatorServiceDeleteContainerRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  string container_id = 3;
+  string expected_generation_id = 4;
+}
+
+// OperatorServiceDeleteContainerResponse carries results from an operation that deletes an owned
+// stopped container without deleting its named volumes.
+message OperatorServiceDeleteContainerResponse {}
+
+// UpdateEnvironmentPolicyResponse carries results from an operation that changes the
+// environment's approved PID, disk, and egress policy at its current revision.
+message UpdateEnvironmentPolicyResponse {
+  AgentEnvironment environment = 1;
+}
+
+// PlanResetEnvironmentRequest carries inputs for an operation that reads a revision-bound
+// cleanup plan that preserves named volumes.
+message PlanResetEnvironmentRequest {
+  string environment_id = 1;
+}
+
+// PlanResetEnvironmentResponse carries results from an operation that reads a revision-bound
+// cleanup plan that preserves named volumes.
+message PlanResetEnvironmentResponse {
+  CleanupPlan plan = 1;
+}
+
+// PlanDiscardEnvironmentRequest carries inputs for an operation that reads a revision-bound plan
+// for deleting the environment's exact private resources.
+message PlanDiscardEnvironmentRequest {
+  string environment_id = 1;
+}
+
+// PlanDiscardEnvironmentResponse carries results from an operation that reads a revision-bound
+// plan for deleting the environment's exact private resources.
+message PlanDiscardEnvironmentResponse {
+  CleanupPlan plan = 1;
+}
+
+// ExecuteCleanupResponse carries results from an operation that accepts the reviewed cleanup
+// revision and exact volume confirmations before Guest side effects.
+message ExecuteCleanupResponse {
+  Operation operation = 1;
+}
+
+// PlanLocalDisposalResponse carries results from an operation that freezes one local environment
+// or exact registration for trusted operator disposal.
+message PlanLocalDisposalResponse {
+  LocalDisposalPlan plan = 1;
+}
+
+// ExecuteLocalDisposalResponse carries results from an operation that accepts confirmed local
+// disposal and persists its replay fence before resource deletion.
+message ExecuteLocalDisposalResponse {
+  Operation operation = 1;
+}
+
+// GetOperationResponse carries results from an operation that reads the stored result of the
+// original Host operation.
+message GetOperationResponse {
+  Operation operation = 1;
+}
+
+// RunDiagnosticsResponse carries results from an operation that collects bounded operator
+// diagnostics with explicit sensitivity options.
+message RunDiagnosticsResponse {
+  Operation operation = 1;
+}
+
+// PreviewSupportBundleResponse carries results from an operation that lists diagnostic content
+// and sensitivity before support bundle export.
+message PreviewSupportBundleResponse {
+  repeated SupportBundleItem items = 1;
+}
+
+// ExportSupportBundleResponse carries results from an operation that exports only the operator-
+// approved diagnostic scope.
+message ExportSupportBundleResponse {
+  Operation operation = 1;
+}
+
+// BeginRemoteEnrollmentResponse carries results from an operation that records one controller
+// registration and its approved scope before credential enrollment.
+message BeginRemoteEnrollmentResponse {
+  RemoteRegistration registration = 1;
+}
+
+// ApplyManagedRemoteEnrollmentResponse carries results from an operation that applies a managed
+// registration and one-time token within the local enrollment owner.
+message ApplyManagedRemoteEnrollmentResponse {
+  RemoteRegistration registration = 1;
+}
+
+// CompleteRemoteEnrollmentResponse carries results from an operation that commits credential
+// completion for the current registration revision.
+message CompleteRemoteEnrollmentResponse {
+  RemoteRegistration registration = 1;
+}
+
+// RetryRemoteEnrollmentResponse carries results from an operation that retries the existing
+// incomplete registration under its current revision.
+message RetryRemoteEnrollmentResponse {
+  RemoteRegistration registration = 1;
+}
+
+// CompleteRemoteRevocationResponse carries results from an operation that completes the selected
+// registration's durable revocation.
+message CompleteRemoteRevocationResponse {
+  RemoteRegistration registration = 1;
+}
+
+// UpdateRemotePoolResponse carries results from an operation that changes one registration's
+// allocation policy without reallocating existing workloads.
+message UpdateRemotePoolResponse {
+  RemoteRegistration registration = 1;
+}
+
+// SetRemoteRegistrationStateResponse carries results from an operation that changes admission
+// state independently of connector transport connectivity.
+message SetRemoteRegistrationStateResponse {
+  RemoteRegistration registration = 1;
+}
+
+// GetRemoteRegistrationResponse carries results from an operation that reads the selected
+// registration, connector observation, and owned allocations.
+message GetRemoteRegistrationResponse {
+  RemoteRegistration registration = 1;
+}
+
+// GetLocalDiskSummaryResponse carries results from an operation that reads Guest filesystem
+// accounting without scanning every environment or collecting compute metrics.
+message GetLocalDiskSummaryResponse {
+  google.protobuf.Timestamp collected_at = 1;
+  string boot_id = 2;
+  VMState vm_state = 3;
+  DiskAccounting guest_state_fs = 4;
+  string unavailable_reason = 5;
+}
+
+// ListLocalEnvironmentPageResponse carries results from an operation that reads an indexed
+// bounded page of local environment summaries.
+message ListLocalEnvironmentPageResponse {
+  repeated LocalEnvironmentSummary environments = 1;
+  string next_cursor = 2;
+  google.protobuf.Timestamp collected_at = 3;
+  string boot_id = 4;
+}
+
+// ListLocalRegistrationPageResponse carries results from an operation that reads an indexed
+// bounded page of local registration metadata.
+message ListLocalRegistrationPageResponse {
+  repeated LocalRegistrationMetadata registrations = 1;
+  string next_cursor = 2;
+}
+
+// GetDeviceIdentityResponse carries results from an operation that reads public device identity
+// and custody state without exposing private key bytes.
+message GetDeviceIdentityResponse {
+  agentvmm.trust.v1.DeviceIdentity identity = 1;
+  DeviceIdentityState state = 2;
+}
+
+// CreatePersonalMeshResponse carries results from an operation that creates personal mesh intent
+// rooted in the current device identity.
+message CreatePersonalMeshResponse {
+  PersonalMeshResponse mesh = 1;
+}
+
+// RevokePersonalMeshMemberResponse carries results from an operation that queues the signed
+// removal of one member under the current mesh revision.
+message RevokePersonalMeshMemberResponse {
+  PersonalMeshResponse mesh = 1;
+}
+
+// BeginPersonalMeshPairingResponse carries results from an operation that creates a bounded
+// pairing invitation without granting membership before confirmation.
+message BeginPersonalMeshPairingResponse {
+  PersonalMeshPairingInvitation invitation = 1;
+  agentvmm.trust.v1.PairingRole role = 2;
+  PersonalMeshPairingState state = 3;
+  uint32 attempts_remaining = 4;
+  string sas = 5;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 6;
+  PairingFailure last_failure = 7;
+}
+
+// JoinPersonalMeshPairingResponse carries results from an operation that joins the selected
+// pairing exchange using its separate PAKE secret.
+message JoinPersonalMeshPairingResponse {
+  PersonalMeshPairingInvitation invitation = 1;
+  agentvmm.trust.v1.PairingRole role = 2;
+  PersonalMeshPairingState state = 3;
+  uint32 attempts_remaining = 4;
+  string sas = 5;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 6;
+  PairingFailure last_failure = 7;
+}
+
+// GetPersonalMeshPairingResponse carries results from an operation that reads pairing progress
+// and its confirmation state.
+message GetPersonalMeshPairingResponse {
+  PersonalMeshPairingInvitation invitation = 1;
+  agentvmm.trust.v1.PairingRole role = 2;
+  PersonalMeshPairingState state = 3;
+  uint32 attempts_remaining = 4;
+  string sas = 5;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 6;
+  PairingFailure last_failure = 7;
+}
+
+// ConfirmPersonalMeshPairingResponse carries results from an operation that confirms the
+// observed pairing identity before membership publication.
+message ConfirmPersonalMeshPairingResponse {
+  PersonalMeshPairingInvitation invitation = 1;
+  agentvmm.trust.v1.PairingRole role = 2;
+  PersonalMeshPairingState state = 3;
+  uint32 attempts_remaining = 4;
+  string sas = 5;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 6;
+  PairingFailure last_failure = 7;
+}
+
+// RejectPersonalMeshPairingResponse carries results from an operation that rejects the exact
+// pairing exchange and its pending authority.
+message RejectPersonalMeshPairingResponse {
+  PersonalMeshPairingInvitation invitation = 1;
+  agentvmm.trust.v1.PairingRole role = 2;
+  PersonalMeshPairingState state = 3;
+  uint32 attempts_remaining = 4;
+  string sas = 5;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 6;
+  PairingFailure last_failure = 7;
+}
+
+// RepairDeviceIdentityResponse carries results from an operation that replaces unavailable
+// identity through explicit membership reset while preserving the committed winner of concurrent
+// repair.
+message RepairDeviceIdentityResponse {
+  agentvmm.trust.v1.DeviceIdentity identity = 1;
+  DeviceIdentityState state = 2;
+}
+
+// CreateLocalServiceListenerResponse carries results from an operation that creates an operator-
+// approved local listener for a current service route.
+message CreateLocalServiceListenerResponse {
+  ServiceListener listener = 1;
+}
+
+// RevokeServiceListenerResponse carries results from an operation that closes the exact listener
+// and revokes its route authority.
+message RevokeServiceListenerResponse {}
+
+// CreateHostShareResponse carries results from an operation that approves one checked Host
+// directory for the selected environment.
+message CreateHostShareResponse {
+  HostShare share = 1;
+}
+
+// RebindHostShareResponse carries results from an operation that changes the checked source of
+// an existing share under its revision fence.
+message RebindHostShareResponse {
+  HostShare share = 1;
+}
+
+// RevokeHostShareResponse carries results from an operation that revokes one share rather than
+// granting general Host filesystem access.
+message RevokeHostShareResponse {
+  HostShare share = 1;
+}
+
+// GetSystemSnapshotResponse carries results from an operation that reads operator inventory
+// across Host-owned environments and registrations.
+message GetSystemSnapshotResponse {
+  VM vm = 1;
+  HealthStatus health = 2;
+  Usage usage = 3;
+  repeated AgentEnvironment environments = 4;
+  google.protobuf.Timestamp collected_at = 5;
+  repeated RemoteRegistration remote_registrations = 6;
+  LayerResources host_resources = 7;
+  LayerResources guest_resources = 8;
+}
+
+// BeginRemoteRevocationResponse carries results from an operation that records revocation intent
+// before stopping the registration's owned workload authority.
+message BeginRemoteRevocationResponse {
+  RemoteRegistration registration = 1;
+}
+
+// CreateMCPTokenRequest selects the built-in MCP appliance token issuer.
+message CreateMCPTokenRequest {}
+
+// CreateMCPTokenResponse returns the issued bearer token.
+message CreateMCPTokenResponse {
+  string token = 1;
+}
+
+// RotateMCPTokenKeyRequest selects the built-in MCP appliance signing key.
+message RotateMCPTokenKeyRequest {}
+
+// RotateMCPTokenKeyResponse identifies the appliance update that replaces the signing key.
+message RotateMCPTokenKeyResponse {
+  string operation_id = 1;
+}

@@ -89,13 +89,13 @@ func runApplianceLifecycle(command, socket, product, installation, packagePath, 
 	defer connection.Close()
 	client := appliancev1.NewApplianceAdminServiceClient(connection)
 	deadline := time.Now().Add(timeout).UnixMilli()
-	var response *appliancev1.ApplianceOperationResponse
+	var response *appliancev1.ApplianceOperation
 	if command == "recover" {
 		if operationID == "" {
 			return errors.New("recover requires --operation")
 		}
 		watchCtx, watchCancel := context.WithCancel(ctx)
-		watch, err := client.WatchOperation(watchCtx, &appliancev1.WatchApplianceOperationRequest{InstallationId: installation, OperationId: operationID})
+		watch, err := client.WatchApplianceOperation(watchCtx, &appliancev1.WatchApplianceOperationRequest{InstallationId: installation, OperationId: operationID})
 		if err != nil {
 			watchCancel()
 			return err
@@ -113,12 +113,13 @@ func runApplianceLifecycle(command, socket, product, installation, packagePath, 
 		if deadline <= operation.GetDeadlineUnixMillis() {
 			return errors.New("recovery timeout must extend the operation deadline")
 		}
-		response, err = client.RecoverUpdate(ctx, &appliancev1.RecoverApplianceUpdateRequest{InstallationId: installation, OperationId: operationID, ExpectedUpdatedUnixNanos: operation.GetUpdatedAt().AsTime().UnixNano(), DeadlineUnixMillis: deadline})
+		recoverApplianceUpdateResponse, recoverApplianceUpdateResponseError := client.RecoverApplianceUpdate(ctx, &appliancev1.RecoverApplianceUpdateRequest{InstallationId: installation, OperationId: operationID, ExpectedUpdatedUnixNanos: operation.GetUpdatedAt().AsTime().UnixNano(), DeadlineUnixMillis: deadline})
+		response, err = recoverApplianceUpdateResponse.GetOperation(), recoverApplianceUpdateResponseError
 		if err != nil {
 			return err
 		}
 	} else if command == "stop" || command == "start" || command == "activate" || command == "restart" || command == "revoke" {
-		listed, listErr := client.List(ctx, &appliancev1.ListAppliancesRequest{})
+		listed, listErr := client.ListAppliances(ctx, &appliancev1.ListAppliancesRequest{})
 		if listErr != nil {
 			return listErr
 		}
@@ -131,18 +132,22 @@ func runApplianceLifecycle(command, socket, product, installation, packagePath, 
 		revision := selected.GetRevision()
 		switch command {
 		case "stop":
-			response, err = client.Stop(ctx, &appliancev1.StopApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			stopApplianceResponse, stopApplianceResponseError := client.StopAppliance(ctx, &appliancev1.StopApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			response, err = stopApplianceResponse.GetOperation(), stopApplianceResponseError
 		case "revoke":
-			response, err = client.Revoke(ctx, &appliancev1.RevokeApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			revokeApplianceResponse, revokeApplianceResponseError := client.RevokeAppliance(ctx, &appliancev1.RevokeApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			response, err = revokeApplianceResponse.GetOperation(), revokeApplianceResponseError
 		case "restart":
-			response, err = client.Restart(ctx, &appliancev1.RestartApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			restartApplianceResponse, restartApplianceResponseError := client.RestartAppliance(ctx, &appliancev1.RestartApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			response, err = restartApplianceResponse.GetOperation(), restartApplianceResponseError
 		default:
 			plan, planErr := client.PlanActivation(ctx, &appliancev1.PlanActivationRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
 			if planErr != nil {
 				return planErr
 			}
 			fmt.Println(protojson.Format(plan))
-			response, err = client.Activate(ctx, &appliancev1.ActivateRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			activateResponse, activateResponseError := client.Activate(ctx, &appliancev1.ActivateRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			response, err = activateResponse.GetOperation(), activateResponseError
 		}
 		if err != nil {
 			return err
@@ -198,12 +203,13 @@ func runApplianceLifecycle(command, socket, product, installation, packagePath, 
 			if err != nil {
 				return fmt.Errorf("install plan rejected; reduce --system-disk-gib or --environment-disk-gib to fit VM capacity, within manifest limits: %w", err)
 			}
-			response, err = client.Install(ctx, &appliancev1.InstallRequest{InstallationId: installation, RequestId: requestID, ArtifactId: artifact, DeadlineUnixMillis: deadline, ApprovedGrant: grant, OpaqueBootstrapSeed: seed})
+			installResponse, installResponseError := client.Install(ctx, &appliancev1.InstallRequest{InstallationId: installation, RequestId: requestID, ArtifactId: artifact, DeadlineUnixMillis: deadline, ApprovedGrant: grant, OpaqueBootstrapSeed: seed})
+			response, err = installResponse.GetOperation(), installResponseError
 			if err != nil {
 				return err
 			}
-			fmt.Printf("installation=%s operation=%s\n", installation, response.GetOperation().GetOperationId())
-			status, err := client.GetStatus(ctx, &appliancev1.GetApplianceStatusRequest{InstallationId: installation})
+			fmt.Printf("installation=%s operation=%s\n", installation, response.GetOperationId())
+			status, err := client.GetApplianceStatus(ctx, &appliancev1.GetApplianceStatusRequest{InstallationId: installation})
 			if err != nil {
 				return fmt.Errorf("installation %s is installed; continue with appliance activate --installation %s: %w", installation, installation, err)
 			}
@@ -213,12 +219,13 @@ func runApplianceLifecycle(command, socket, product, installation, packagePath, 
 			if err != nil {
 				return fmt.Errorf("installation %s is installed; continue with appliance activate --installation %s: %w", installation, installation, err)
 			}
-			response, err = client.Activate(ctx, &appliancev1.ActivateRequest{InstallationId: installation, RequestId: activateID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			activateResponse, activateResponseError := client.Activate(ctx, &appliancev1.ActivateRequest{InstallationId: installation, RequestId: activateID, ExpectedRevision: revision, DeadlineUnixMillis: deadline})
+			response, err = activateResponse.GetOperation(), activateResponseError
 			if err != nil {
 				return fmt.Errorf("installation %s is installed; continue with appliance activate --installation %s: %w", installation, installation, err)
 			}
 		} else {
-			listed, err := client.List(ctx, &appliancev1.ListAppliancesRequest{})
+			listed, err := client.ListAppliances(ctx, &appliancev1.ListAppliancesRequest{})
 			if err != nil {
 				return err
 			}
@@ -243,7 +250,8 @@ func runApplianceLifecycle(command, socket, product, installation, packagePath, 
 			}
 
 			fmt.Println(protojson.Format(plan))
-			response, err = client.Update(ctx, &appliancev1.UpdateApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, ArtifactId: artifact, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
+			updateApplianceResponse, updateApplianceResponseError := client.UpdateAppliance(ctx, &appliancev1.UpdateApplianceRequest{InstallationId: installation, RequestId: requestID, ExpectedRevision: revision, ArtifactId: artifact, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
+			response, err = updateApplianceResponse.GetOperation(), updateApplianceResponseError
 			if err != nil {
 				return err
 			}
@@ -252,10 +260,9 @@ func runApplianceLifecycle(command, socket, product, installation, packagePath, 
 	return watchApplianceOperation(ctx, client, installation, response)
 }
 
-func watchApplianceOperation(ctx context.Context, client appliancev1.ApplianceAdminServiceClient, installation string, response *appliancev1.ApplianceOperationResponse) error {
-	operation := response.GetOperation()
+func watchApplianceOperation(ctx context.Context, client appliancev1.ApplianceAdminServiceClient, installation string, operation *appliancev1.ApplianceOperation) error {
 	fmt.Printf("installation=%s operation=%s phase=%s\n", installation, operation.GetOperationId(), operation.GetPhase())
-	watch, err := client.WatchOperation(ctx, &appliancev1.WatchApplianceOperationRequest{InstallationId: installation, OperationId: operation.GetOperationId()})
+	watch, err := client.WatchApplianceOperation(ctx, &appliancev1.WatchApplianceOperationRequest{InstallationId: installation, OperationId: operation.GetOperationId()})
 	if err != nil {
 		return err
 	}
@@ -280,7 +287,7 @@ func watchApplianceOperation(ctx context.Context, client appliancev1.ApplianceAd
 }
 
 func lifecycleGrant(manifest *appliancev1.ControllerApplianceManifest, previous *appliancev1.ApprovedGrant, endpoints *string, approveChanges bool) (*appliancev1.ApprovedGrant, error) {
-	requested := &appliancev1.ApprovedGrant{SystemLimits: manifest.GetSystemLimits(), Capacity: manifest.GetRequestedCapacity(), EgressMode: manifest.GetRequestedEgressMode(), Frontends: manifest.GetRequestedFrontends(), DynamicHostLoopback: manifest.GetRequestedDynamicHostLoopback(), LanEgress: manifest.GetRequestedLanEgress()}
+	requested := &appliancev1.ApprovedGrant{SystemLimits: manifest.GetSystemLimits(), Capacity: manifest.GetRequestedCapacity(), EgressMode: manifest.GetRequestedEgressMode(), Frontends: manifest.GetRequestedFrontends(), LanEgress: manifest.GetRequestedLanEgress()}
 	grant := proto.Clone(requested).(*appliancev1.ApprovedGrant)
 	if previous != nil {
 		if !approveChanges {

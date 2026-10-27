@@ -5,15 +5,16 @@ package control
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -23,7 +24,7 @@ const hostShareTag = "agent.hostshares"
 
 func (s *Server) ApplyHostShares(ctx context.Context, request *vmmdv1.ApplyHostSharesRequest) (*vmmdv1.ApplyHostSharesResponse, error) {
 	if s.shuttingDown.Load() {
-		return nil, detailedError(codes.Unavailable, "GUEST_STOPPING", "Guest is stopping", "host_share", "")
+		return nil, status.Error(codes.Unavailable, "Guest is stopping")
 	}
 	response, err := s.runtime.applyHostShares(ctx, request.GetShares())
 	return response, rpcError(err)
@@ -84,7 +85,7 @@ func observeHostShareProjection(root string, shares []*vmmdv1.HostShareProjectio
 			err = unix.Statfs(path, &stat)
 		}
 		if err != nil {
-			log.Printf("host share %s directory %s is unavailable: %v", share.GetShareId(), path, err)
+			slog.Default().Warn("host share directory is unavailable", "share_id", share.GetShareId(), "path", path, "error", err)
 			continue
 		}
 		current[share.GetShareId()] = proto.Clone(share).(*vmmdv1.HostShareProjection)
@@ -106,16 +107,16 @@ func (r *Runtime) mountSource(namespace string, mount *vmmdv1.VolumeMount) (stri
 		defer r.hostShareMu.RUnlock()
 		share := r.hostShares[source.HostShare]
 		if share == nil || share.GetActorNamespaceId() != namespace || (share.GetReadOnly() && !mount.GetReadOnly()) {
-			return "", detailedError(codes.PermissionDenied, "HOST_SHARE_NOT_AUTHORIZED", "host share is unavailable or not authorized for this environment and access mode", "host_share", source.HostShare)
+			return "", status.Error(codes.PermissionDenied, "host share is unavailable or not authorized for this environment and access mode")
 		}
 		path := filepath.Join(hostShareRoot, source.HostShare)
 		var stat unix.Statfs_t
 		if err := unix.Statfs(path, &stat); err != nil {
-			return "", detailedError(codes.FailedPrecondition, "HOST_SHARE_UNAVAILABLE", err.Error(), "host_share", source.HostShare)
+			return "", status.Error(codes.FailedPrecondition, err.Error())
 		}
 		return path, nil
 	default:
-		return "", detailedError(codes.InvalidArgument, "MOUNT_SOURCE_REQUIRED", "owned volume or host share is required", "volume_mount", mount.GetDestination())
+		return "", status.Error(codes.InvalidArgument, "owned volume or host share is required")
 	}
 }
 

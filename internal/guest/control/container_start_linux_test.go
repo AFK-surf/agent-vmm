@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"reflect"
 	"syscall"
 	"testing"
+	"time"
 
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/cio"
@@ -67,6 +69,7 @@ func TestTaskStartCancellationUsesIndependentRetryingCleanup(t *testing.T) {
 }
 
 type guardedContainer struct {
+	labels     map[string]string
 	labelError func() error
 	containerd.Container
 	calls *[]string
@@ -172,4 +175,43 @@ func (process *guardedProcess) Delete(ctx context.Context, _ ...containerd.Proce
 
 func (process *guardedProcess) record(call string) {
 	*process.calls = append(*process.calls, call)
+}
+
+func TestOldMonitorCannotCleanReplacementInstance(t *testing.T) {
+	runtime := &Runtime{waiters: make(map[string][]chan uint32), logger: slog.Default().With("component", "guest-control")}
+	unlock, err := runtime.lockContainer(context.Background(), "owner", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := []string{}
+	container := &guardedContainer{calls: &calls, labels: map[string]string{containerInstanceLabel: "old", containerStateLabel: "running"}}
+	task := &guardedTask{calls: &calls}
+	process := &guardedProcess{calls: &calls}
+	exit := make(chan containerd.ExitStatus)
+	done := make(chan struct{})
+	waiter := runtime.addWaiter("owner/main/replacement")
+	go func() {
+		runtime.monitorTask("owner", "main", "old", container, task, process, exit, make(chan containerd.ExitStatus))
+		close(done)
+	}()
+	exit <- *containerd.NewExitStatus(23, time.Now(), nil)
+	container.labels[containerInstanceLabel] = "replacement"
+	unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("old monitor did not stop")
+	}
+	if len(calls) != 0 || container.labels[containerStateLabel] != "running" || container.labels[containerInstanceLabel] != "replacement" {
+		t.Fatalf("replacement changed: %v %+v", calls, container.labels)
+	}
+	select {
+	case <-waiter:
+		t.Fatal("replacement waiter was notified")
+	default:
+	}
+}
+
+func (container *guardedContainer) Labels(context.Context) (map[string]string, error) {
+	return container.labels, nil
 }

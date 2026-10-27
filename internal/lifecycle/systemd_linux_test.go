@@ -63,7 +63,7 @@ func TestRenderUnitRunsTheHostAsTheServiceUserAndKeepsTheVMM(t *testing.T) {
 			"--serial-log /var/lib/agent-vmm/logs/serial.log --operator-socket /var/lib/agent-vmm/operator.sock " +
 			"--remote-compute-socket /var/lib/agent-vmm/remote-compute.sock --database /var/lib/agent-vmm/host.sqlite " +
 			"--session-directory /var/lib/agent-vmm/sessions --data-worker /opt/agent-vmm/current/agent-vmm-data --disable-personal-mesh-pairing",
-		"StandardError=append:/var/lib/agent-vmm/logs/host.stderr.log", "WantedBy=multi-user.target",
+		"StandardError=append:/var/log/agent-vmm/host.stderr.log", "WantedBy=multi-user.target",
 	} {
 		if !strings.Contains(string(unit), "\n"+line+"\n") {
 			t.Fatalf("unit lacks %q:\n%s", line, unit)
@@ -71,7 +71,7 @@ func TestRenderUnitRunsTheHostAsTheServiceUserAndKeepsTheVMM(t *testing.T) {
 	}
 }
 
-func TestInstallReleasePublishesOnlyVerifiedContent(t *testing.T) {
+func TestInstallReleasePublishesCompleteRelease(t *testing.T) {
 	value := testPaths(t.TempDir())
 	contentID := writeTestRelease(t, value.source, "release-a")
 	if err := os.MkdirAll(filepath.Join(value.installRoot, ".install-"+contentID+"-interrupted", "guest"), 0o755); err != nil {
@@ -95,7 +95,6 @@ func TestInstallReleasePublishesOnlyVerifiedContent(t *testing.T) {
 	}
 
 	for name, damage := range map[string]func(string){
-		"changed": func(source string) { os.WriteFile(filepath.Join(source, "agent-vmm-data"), []byte("other!"), 0o755) },
 		"extra":   func(source string) { os.WriteFile(filepath.Join(source, "guest", "extra"), nil, 0o644) },
 		"missing": func(source string) { os.Remove(filepath.Join(source, "guest", "manifest.json")) },
 		"link":    func(source string) { os.Symlink("agent-vmm", filepath.Join(source, "guest", "link")) },
@@ -137,14 +136,14 @@ func TestLinuxUpdateSwitchesCurrentAndPreservesState(t *testing.T) {
 	newID := writeTestRelease(t, prepared, "release-b")
 
 	var steps []string
-	actions := linuxUpdateActions(value)
+	actions := linuxUpdateActions(value, "release-b")
 	actions.drain = func(paths) error { steps = append(steps, "drain:"+currentContentID(value)); return nil }
 	actions.repair = func(paths) error { steps = append(steps, "repair:"+currentContentID(value)); return nil }
-	actions.startVM = func(paths, string) error { steps = append(steps, "start"); return nil }
+	actions.startVM = func(context.Context, paths, string) error { steps = append(steps, "start"); return nil }
 	operation, err := runUpdateLifecycleOperation(value, "request-1", "release-b", func() error {
 		return updateApplicationWith(value, prepared, "release-b", "request-1", actions)
 	})
-	if err != nil || operation.Outcome != "succeeded" || operation.Stage != "complete" {
+	if err != nil || operation.Outcome != "succeeded" || operation.Stage != "settled" {
 		t.Fatalf("update = %+v, %v", operation, err)
 	}
 	if want := []string{"drain:" + oldID, "repair:" + newID, "start"}; strings.Join(steps, ",") != strings.Join(want, ",") {
@@ -212,5 +211,66 @@ func TestParseSystemdServiceObservation(t *testing.T) {
 	}
 	if _, err := parseSystemdServiceObservation([]byte("LoadState=not-found\nActiveState=inactive\nMainPID=0\n")); !errors.Is(err, errHostServiceNotFound) {
 		t.Fatalf("missing unit error = %v", err)
+	}
+}
+
+func TestReconcileServiceDrainsOnlyForChangedRelease(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		changed, failDrain bool
+	}{{name: "same release"}, {name: "changed release", changed: true}, {name: "drain refused", changed: true, failDrain: true}} {
+		t.Run(test.name, func(t *testing.T) {
+			value := testPaths(t.TempDir())
+			oldID := writeTestRelease(t, value.source, "release-a")
+			if _, err := installRelease(value, value.source); err != nil {
+				t.Fatal(err)
+			}
+			if err := switchCurrent(value, oldID); err != nil {
+				t.Fatal(err)
+			}
+			if test.changed {
+				writeTestRelease(t, value.source, "release-b")
+			}
+			drainCalls := 0
+			value.owner = &serviceOwner{drainVM: func(context.Context, paths, string) error {
+				drainCalls++
+				if currentContentID(value) != oldID {
+					t.Fatal("release switched before VM drain")
+				}
+				if test.failDrain {
+					return errors.New("drain refused")
+				}
+				return nil
+			}}
+			previous := commandOutput
+			defer func() { commandOutput = previous }()
+			var stops int
+			commandOutput = func(_ context.Context, name string, args ...string) ([]byte, error) {
+				if name == "systemctl" && args[0] == "show" {
+					return []byte("LoadState=loaded\nActiveState=active\nMainPID=42\n"), nil
+				}
+				if name == "systemctl" && args[0] == "stop" {
+					stops++
+				}
+				return nil, nil
+			}
+			err := reconcileService(context.Background(), value, false)
+			if test.failDrain {
+				if err == nil || currentContentID(value) != oldID || stops != 0 {
+					t.Fatalf("refused drain changed service: current=%s stops=%d err=%v", currentContentID(value), stops, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantDrain := 0
+			if test.changed {
+				wantDrain = 1
+			}
+			if drainCalls != wantDrain || stops != 1 {
+				t.Fatalf("drains=%d stops=%d", drainCalls, stops)
+			}
+		})
 	}
 }

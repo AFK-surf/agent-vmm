@@ -6,12 +6,10 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sync"
 	"testing"
-	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 )
@@ -40,11 +38,11 @@ func TestSystemHealthSummaryDoesNotReadInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	controller := newTestController(&Controller{store: database, manager: &vmm.Manager{}})
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
-	summary := controller.systemHealthSummary(context.Background())
+	summary := (&operatorServer{controller: controller}).systemHealthSummary(context.Background())
 	if summary.GetVm() == nil || summary.GetHealth().GetState() != hostv1.HealthState_HEALTH_STATE_UNAVAILABLE ||
 		len(summary.GetEnvironments()) != 0 || len(summary.GetRemoteRegistrations()) != 0 {
 		t.Fatalf("health summary = %+v", summary)
@@ -63,8 +61,8 @@ func TestVMImpactSummaryBoundsKnownHostWorkloadsAndMarksOverflow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
-	summary, err := controller.vmImpactSummary(context.Background())
+	controller := newTestController(&Controller{store: database, manager: &vmm.Manager{}})
+	summary, err := (&operatorServer{controller: controller}).vmImpactSummary(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,140 +71,18 @@ func TestVMImpactSummaryBoundsKnownHostWorkloadsAndMarksOverflow(t *testing.T) {
 	}
 }
 
-func TestVMMutationFenceAllowsMembershipAddedAfterWholeVMAcknowledgement(t *testing.T) {
-	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
-	before, err := controller.vmImpactSummary(context.Background())
-	if err != nil {
-		t.Fatalf("before=%+v err=%v", before, err)
-	}
-	_, err = database.CreateEnvironment(context.Background(), store.Environment{ID: "environment-new", NamespaceID: "namespace-new", DisplayName: "New", OwnerKind: store.OwnerLocal})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fence := &hostv1.VMMutationFence{State: before.GetVm().GetState(), BootId: before.GetVm().GetBootId(), ObservedWorkloads: before.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
-	controller.inventoryTransition.Lock()
-	err = controller.validateVMMutationFenceLocked(fence)
-	controller.inventoryTransition.Unlock()
-	if err != nil {
-		t.Fatalf("whole-VM acknowledgement rejected newly added membership: %v", err)
-	}
-}
-
-func TestInventoryTransitionWaitsForMutationWithoutFencingWholeVMByWorkloadRevision(t *testing.T) {
-	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
-	environment, err := database.CreateEnvironment(context.Background(), store.Environment{ID: "created", NamespaceID: "created", DisplayName: "Created", CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1, OwnerKind: store.OwnerLocal})
-	if err != nil {
-		t.Fatal(err)
-	}
-	before, err := controller.vmImpactSummary(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	fence := &hostv1.VMMutationFence{State: before.GetVm().GetState(), BootId: before.GetVm().GetBootId(), ObservedWorkloads: before.GetKnownWorkloads(), WholeVmImpactAcknowledged: true}
-
-	controller.inventoryTransition.RLock()
-	result := make(chan error, 1)
-	go func() {
-		controller.inventoryTransition.Lock()
-		defer controller.inventoryTransition.Unlock()
-		result <- controller.validateVMMutationFenceLocked(fence)
-	}()
-	select {
-	case err := <-result:
-		t.Fatalf("transition did not wait for membership mutation: %v", err)
-	case <-time.After(25 * time.Millisecond):
-	}
-	if _, err := database.UpdatePolicy(context.Background(), environment.ID, environment.PolicyRevision, store.Environment{CPUMillis: 2000, MemoryBytes: 2 << 30, PIDs: 256, DiskBytes: 8 << 30, EgressMode: 1}); err != nil {
-		t.Fatal(err)
-	}
-	controller.inventoryTransition.RUnlock()
-	if err := <-result; err != nil {
-		t.Fatalf("whole-VM acknowledgement rejected a workload revision change: %v", err)
-	}
-}
-
-func TestInventoryTransitionBlocksNewMembershipMutationAfterValidationBegins(t *testing.T) {
-	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
-	controller.inventoryTransition.Lock()
-	started := make(chan struct{})
-	finished := make(chan struct{})
-	var mutationErr error
-	var mutationMu sync.Mutex
-	go func() {
-		close(started)
-		controller.inventoryTransition.RLock()
-		defer controller.inventoryTransition.RUnlock()
-		_, err := database.CreateEnvironment(context.Background(), store.Environment{ID: "created", NamespaceID: "created", OwnerKind: store.OwnerLocal})
-		mutationMu.Lock()
-		mutationErr = err
-		mutationMu.Unlock()
-		close(finished)
-	}()
-	<-started
-	select {
-	case <-finished:
-		t.Fatal("membership mutation passed the active transition fence")
-	case <-time.After(25 * time.Millisecond):
-	}
-	controller.inventoryTransition.Unlock()
-	<-finished
-	mutationMu.Lock()
-	defer mutationMu.Unlock()
-	if mutationErr != nil {
-		t.Fatal(mutationErr)
-	}
-}
-
 func TestVMImpactSummaryReportsStoreReadFailure(t *testing.T) {
 	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	controller := newTestController(&Controller{store: database, manager: &vmm.Manager{}})
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
-	summary, err := controller.vmImpactSummary(context.Background())
+	summary, err := (&operatorServer{controller: controller}).vmImpactSummary(context.Background())
 	if err != nil || summary.GetComplete() || summary.GetIssue() == "" {
 		t.Fatalf("summary=%+v err=%v", summary, err)
-	}
-}
-
-func TestVMMutationFenceRequiresWholeVMImpactAcknowledgement(t *testing.T) {
-	database, err := openTestStore(filepath.Join(t.TempDir(), "host.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	controller := &Controller{store: database, manager: &vmm.Manager{}, observed: map[string][]*hostv1.Container{}}
-	controller.inventoryTransition.Lock()
-	err = controller.validateVMMutationFenceLocked(&hostv1.VMMutationFence{State: hostv1.VMState_VM_STATE_STOPPED})
-	controller.inventoryTransition.Unlock()
-	if err == nil {
-		t.Fatal("VM mutation accepted without whole-VM impact acknowledgement")
-	}
-	for _, fence := range []*hostv1.VMMutationFence{
-		{State: hostv1.VMState_VM_STATE_RUNNING, WholeVmImpactAcknowledged: true},
-		{State: hostv1.VMState_VM_STATE_STOPPED, BootId: "different-boot", WholeVmImpactAcknowledged: true},
-	} {
-		if err := controller.validateVMMutationFence(context.Background(), fence); err == nil {
-			t.Fatalf("VM mutation accepted stale state or boot: %v", fence)
-		}
 	}
 }
 
@@ -217,5 +93,17 @@ func TestGuestLayerResourcesPreservesUnavailableReason(t *testing.T) {
 	if resources.MemoryBytes != nil || resources.Pids != nil || resources.OpenFds != nil ||
 		resources.GetUnavailableReason() != "usage source is not readable; Guest FD source failed; Guest disk source failed" {
 		t.Fatalf("unavailable reason = %q", resources.GetUnavailableReason())
+	}
+}
+
+func TestEnvironmentSnapshotUsesStoppedVMState(t *testing.T) {
+	manager, err := vmm.NewManager(vmm.Config{BundleDirectory: t.TempDir(), InstanceDirectory: t.TempDir(), SerialLog: filepath.Join(t.TempDir(), "serial.log"), CPUCount: 1, MemoryBytes: 512 << 20, StateBytes: 1 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := newTestController(&Controller{manager: manager})
+	snapshot := controller.services.EnvironmentSnapshot(context.Background(), store.Environment{ID: "environment", NamespaceID: "namespace"})
+	if snapshot.GetInventoryState() != hostv1.InventoryState_INVENTORY_STATE_VM_STOPPED {
+		t.Fatalf("stopped inventory = %v", snapshot.GetInventoryState())
 	}
 }

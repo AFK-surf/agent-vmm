@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guest/bootstrap"
 	"github.com/AFK-surf/agent-vmm/internal/guest/containerddaemon"
 	"github.com/AFK-surf/agent-vmm/internal/guest/control"
@@ -33,49 +33,63 @@ const (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := run(); err != nil {
+		slog.Error("vmmd stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &unix.Rlimit{Cur: 1048576, Max: 1048576}); err != nil {
+		return err
+	}
 	if len(os.Args) == 2 && os.Args[1] == containerdLauncherArg {
-		log.Fatal(execContainerdWithoutQuotaBypass())
+		return execContainerdWithoutQuotaBypass()
 	}
 	startup := guestStartupReference()
 	reportGuestStartup(startup, "bootstrap", "started", nil)
 	prepared, err := bootstrap.Prepare()
 	if err != nil {
 		reportGuestStartup(startup, "bootstrap", "failed", err)
-		os.Exit(1)
+		return err
 	}
 	reportGuestStartup(startup, "bootstrap", "succeeded", nil)
 	reportGuestStartup(startup, "oci_storage", "started", nil)
 	if err := control.PrepareOCIStorage(prepared.StateDevice); err != nil {
 		reportGuestStartup(startup, "oci_storage", "failed", err)
-		os.Exit(1)
+		return err
 	}
 	reportGuestStartup(startup, "oci_storage", "succeeded", nil)
 	bootID, err := os.ReadFile("/proc/sys/kernel/random/uuid")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	pump, err := egress.New(strings.TrimSpace(string(bootID)))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	pumpContext, stopPump := context.WithCancel(context.Background())
 	defer stopPump()
 	defer pump.Close()
 	go func() {
 		if err := pump.Run(pumpContext); err != nil {
-			log.Printf("egress pump stopped: %v", err)
+			slog.Error("egress pump stopped", "component", "guest-egress", "error", err)
 		}
 	}()
-	networkManager, err := network.NewManager()
+	networkManager, err := network.NewManager(slog.Default())
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer networkManager.Close()
 	reportGuestStartup(startup, "containerd", "started", nil)
 	containerd, err := startContainerd()
 	if err != nil {
 		reportGuestStartup(startup, "containerd", "failed", err)
-		os.Exit(1)
+		return err
+	}
+	if err := dropQuotaBypass(); err != nil {
+		return err
 	}
 	reportGuestStartup(startup, "containerd", "succeeded", nil)
 	defer func() {
@@ -83,10 +97,10 @@ func main() {
 		_ = containerd.Wait()
 	}()
 	reportGuestStartup(startup, "recovery", "started", nil)
-	runtime, err := control.NewRuntime(prepared.StateDevice, prepared.ControlDevice, networkManager)
+	runtime, err := control.NewRuntime(prepared.StateDevice, prepared.ControlDevice, networkManager, slog.Default())
 	if err != nil {
 		reportGuestStartup(startup, "recovery", "failed", err)
-		os.Exit(1)
+		return err
 	}
 	reportGuestStartup(startup, "recovery", "succeeded", nil)
 	defer runtime.Close()
@@ -94,7 +108,7 @@ func main() {
 	listener, err := vsock.Listen(vmmdPort)
 	if err != nil {
 		reportGuestStartup(startup, "listener", "failed", err)
-		os.Exit(1)
+		return err
 	}
 	reportGuestStartup(startup, "listener", "succeeded", nil)
 	defer listener.Close()
@@ -145,8 +159,9 @@ func main() {
 		grpcServer.GracefulStop()
 	}()
 	if err := grpcServer.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-		log.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 type startupReference struct {
@@ -186,7 +201,7 @@ func reportGuestStartup(reference startupReference, stage, state string, failure
 		}
 	}
 	if data, err := json.Marshal(record); err == nil {
-		log.Printf("guest_startup=%s", data)
+		fmt.Fprintf(os.Stderr, "guest_startup=%s\n", data)
 	}
 }
 
@@ -257,12 +272,6 @@ func execContainerdWithoutQuotaBypass() error {
 	// hard limits. vmmd retains CAP_SYS_ADMIN as the quota/project-id authority.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	// This launcher bypasses the OpenRC containerd service, so set its file
-	// limit here. Gofer caches descriptors across mounts after workloads close
-	// their files; the inherited 4096 limit is insufficient for those caches.
-	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &unix.Rlimit{Cur: 1048576, Max: 1048576}); err != nil {
-		return fmt.Errorf("set containerd open file limit: %w", err)
-	}
 	// Give containerd the minimum OOM score before removing CAP_SYS_RESOURCE.
 	// The runsc shim inherits -1000 and raises itself to its built-in -999, which
 	// is permitted without restoring the capability that can override project

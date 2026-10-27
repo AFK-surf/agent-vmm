@@ -10,3 +10,4 @@ for command in oci bundle; do
   go build -trimpath -ldflags='-s -w -buildid=' -o "/binaries/$command" "./build/guest/$command"
 done
 go build -trimpath -ldflags='-s -w -buildid=' -o /binaries/appliance-manifest ./build/appliance/manifest
+go build -trimpath -ldflags='-s -w -buildid=' -o /binaries/notices ./build/notices

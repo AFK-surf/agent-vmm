@@ -49,6 +49,14 @@ test ! -e "$root/usr/bin/runc"
 test ! -e "$root/usr/bin/containerd-shim-runc-v2"
 test ! -e "$root/usr/bin/ctr"
 
+set -- -go-binary "$root" -go-binary "$work/builder-root" \
+  -apk-db "$root/lib/apk/db/installed" -apk-db "$work/builder-root/lib/apk/db/installed"
+if [ "$flavor" = standalone ]; then
+  set -- "$@" -go-binary "$mcp_root"
+fi
+"$binaries/notices" "$@" -extra gvisor.dev/gvisor=Apache-2.0 \
+  -licenses "$repository/third_party/licenses" -o "$bundle/THIRD_PARTY_NOTICES"
+
 initramfs=$work/initramfs
 mkdir -p "$initramfs/bin" "$initramfs/sbin" "$initramfs/lib" "$initramfs/dev" "$initramfs/proc" "$initramfs/sys" "$initramfs/newroot"
 cp "$root/bin/busybox" "$initramfs/bin/busybox"

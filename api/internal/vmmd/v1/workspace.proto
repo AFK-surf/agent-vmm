@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package agentvmm.vmmd.v1;
+
+import "internal/vmmd/v1/resources.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1;vmmdv1";
+
+message WorkspacePathRequest {
+  string actor_namespace_id = 1;
+  string path = 2;
+}
+
+message ListWorkspaceRequest {
+  string actor_namespace_id = 1;
+  string path = 2;
+  uint32 limit = 3;
+  string volume_id = 4;
+}
+
+message ListWorkspaceResponse {
+  repeated WorkspaceEntry entries = 1;
+}
+
+message ReadWorkspaceRequest {
+  string actor_namespace_id = 1;
+  string path = 2;
+  uint64 offset = 3;
+  uint64 max_bytes = 4;
+  string volume_id = 5;
+}
+
+message ReadWorkspaceResponse {
+  bytes data = 1;
+  uint64 offset = 2;
+  bytes sha256 = 3;
+  bool final = 4;
+}
+
+message WriteWorkspaceHeader {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string path = 3;
+  uint64 offset = 4;
+  bytes expected_prefix_sha256 = 5;
+  uint32 mode = 6;
+  string volume_id = 7;
+}
+
+message WriteWorkspaceRequest {
+  oneof payload {
+    WriteWorkspaceHeader header = 1;
+    bytes data = 2;
+    bool finish = 3;
+  }
+}
+
+message WriteWorkspaceResponse {
+  WorkspaceEntry entry = 1;
+  bytes sha256 = 2;
+}
+
+message ArchiveWorkspaceRequest {
+  string actor_namespace_id = 1;
+  string path = 2;
+}
+
+message ArchiveWorkspaceResponse {
+  bytes data = 1;
+  bytes sha256 = 2;
+  bool final = 3;
+}
+
+message ExtractWorkspaceHeader {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string path = 3;
+}
+
+message ExtractWorkspaceRequest {
+  oneof payload {
+    ExtractWorkspaceHeader header = 1;
+    bytes data = 2;
+    bool finish = 3;
+  }
+}

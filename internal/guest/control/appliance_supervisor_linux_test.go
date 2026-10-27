@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,12 +17,11 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	guestquota "github.com/AFK-surf/agent-vmm/internal/guest/quota"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -29,6 +29,7 @@ import (
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	bolt "go.etcd.io/bbolt"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -54,7 +55,6 @@ func TestSystemApplianceSpecIsNonRootReadOnlyAndDeviceFree(t *testing.T) {
 	}
 	wantMounts := []specs.Mount{
 		{Destination: "/run/agent-vmm", Type: "bind", Source: "/run/system-a", Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
-		{Destination: supervisorPath, Type: "bind", Source: supervisorHostPath, Options: []string{"bind", "ro", "nosuid", "nodev", "exec"}},
 		{Destination: "/var/lib/agent-vmm", Type: "bind", Source: "/data/system-a", Options: []string{"rbind", "rw", "nosuid", "nodev", "noexec"}},
 	}
 	wantMounts = append(wantMounts, specs.Mount{Destination: "/opt/agent-vmm/content", Type: "bind", Source: "/state/content-projections/system-a", Options: []string{"rbind", "ro", "nosuid", "nodev", "noexec"}})
@@ -67,7 +67,7 @@ func TestSystemApplianceSpecIsNonRootReadOnlyAndDeviceFree(t *testing.T) {
 }
 
 func TestDeleteSystemApplianceDataRejectsActiveInstallation(t *testing.T) {
-	supervisor := newApplianceSupervisor(nil, "boot")
+	supervisor := newApplianceSupervisor(&Runtime{materializationSlot: semaphore.NewWeighted(1)}, "boot")
 	supervisor.records["controller-a"] = &systemApplianceRecord{}
 	supervisor.order.ReplaceOrInsert("controller-a")
 	if err := supervisor.deleteData(context.Background(), "controller-a", "volume-a"); err == nil {
@@ -84,7 +84,7 @@ func TestFailedSystemApplianceIsRemovedFromListIndex(t *testing.T) {
 		{name: "sealed", run: func(supervisor *applianceSupervisor) { supervisor.seal("controller-a", "sealed") }},
 	} {
 		t.Run(fail.name, func(t *testing.T) {
-			supervisor := newApplianceSupervisor(nil, "boot")
+			supervisor := newApplianceSupervisor(&Runtime{materializationSlot: semaphore.NewWeighted(1)}, "boot")
 			supervisor.records["controller-a"] = &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: &vmmdv1.SystemApplianceIdentity{InstallationId: "controller-a"}}}
 			supervisor.order.ReplaceOrInsert("controller-a")
 			fail.run(supervisor)
@@ -97,7 +97,7 @@ func TestFailedSystemApplianceIsRemovedFromListIndex(t *testing.T) {
 }
 
 func TestGetSystemApplianceUsesExactInstallation(t *testing.T) {
-	supervisor := newApplianceSupervisor(nil, "boot")
+	supervisor := newApplianceSupervisor(&Runtime{materializationSlot: semaphore.NewWeighted(1)}, "boot")
 	for _, installationID := range []string{"controller-a", "controller-b"} {
 		supervisor.records[installationID] = &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: &vmmdv1.SystemApplianceIdentity{InstallationId: installationID}}}
 		supervisor.order.ReplaceOrInsert(installationID)
@@ -434,7 +434,7 @@ func TestBootstrapStreamOldReleasePreservesNewInstanceReservation(t *testing.T) 
 }
 
 func TestFailedApplianceCleanupRetainsRecordUntilExactRetry(t *testing.T) {
-	supervisor := newApplianceSupervisor(nil, "boot")
+	supervisor := newApplianceSupervisor(&Runtime{materializationSlot: semaphore.NewWeighted(1)}, "boot")
 	record := &systemApplianceRecord{stopping: true, status: &vmmdv1.SystemAppliance{Identity: &vmmdv1.SystemApplianceIdentity{InstallationId: "controller-a"}, State: vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_FAILED}, runtimePath: "/proc/version"}
 	supervisor.records["controller-a"] = record
 	supervisor.order.ReplaceOrInsert("controller-a")
@@ -472,7 +472,7 @@ func TestEnsureRPCRepeatedPartialCleanupUsesFreshExactRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	supervisor := newApplianceSupervisor(nil, "boot-a")
+	supervisor := newApplianceSupervisor(&Runtime{materializationSlot: semaphore.NewWeighted(1)}, "boot-a")
 	record := &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: cloneSystemIdentity(request.Identity), State: vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_FAILED}, launchFingerprint: sha256.Sum256(encoded), stopping: true, runtimePath: "/proc/version"}
 	supervisor.records["controller-a"] = record
 	supervisor.order.ReplaceOrInsert("controller-a")
@@ -487,8 +487,11 @@ func TestEnsureRPCRepeatedPartialCleanupUsesFreshExactRequest(t *testing.T) {
 		t.Fatal("different payload entered cleanup")
 	}
 	record.runtimePath = ""
-	if _, err := supervisor.ensure(context.Background(), request); err == nil || !strings.Contains(err.Error(), "data volume size is invalid") {
-		t.Fatalf("exact retry did not reach prepare: %v", err)
+	if err := supervisor.releaseRecord(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	if supervisor.records["controller-a"] != nil {
+		t.Fatal("completed cleanup retained the launch record")
 	}
 }
 
@@ -621,7 +624,7 @@ func TestSystemApplianceRemovalReleasesQuotaAfterCleanup(t *testing.T) {
 	}
 	fixture := &systemImageFixture{images: map[string]map[string]*imagesapi.Image{}, containers: map[string]*containersapi.Container{}}
 	client := systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(facts), containerd.WithLeasesService(&operationLeases{})))
-	network, err := guestnetwork.NewManager()
+	network, err := guestnetwork.NewManager(slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +633,7 @@ func TestSystemApplianceRemovalReleasesQuotaAfterCleanup(t *testing.T) {
 	for _, name := range []string{namespace, "system.sibling", applianceBuildNamespace} {
 		index.ensureNamespace(name)
 	}
-	runtime := &Runtime{client: client, controlDevice: device, inventory: index, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager), network: network}
+	runtime := &Runtime{client: client, controlDevice: device, inventory: index, diskBudget: new(guestdisk.Budget), materializationSlot: semaphore.NewWeighted(1), network: network, logger: slog.Default().With("component", "guest-control")}
 	runtime.builder = guestbuild.NewBuilder(client, network, nil)
 	buildLabels, err := facts.Labels(ctx, applianceBuildNamespace)
 	if err != nil {
@@ -721,16 +724,17 @@ func TestSystemApplianceRemovalReleasesQuotaAfterCleanup(t *testing.T) {
 	}
 	defer database.Close()
 	facts.db = database
-	restarted := &Runtime{client: client, controlDevice: device}
+	restarted := &Runtime{client: client, controlDevice: device, logger: slog.Default().With("component", "guest-control")}
 	if err := restarted.admitNamespaceDiskGrowth(ctx, "system.new", 2<<30, nil); err != nil {
 		t.Fatalf("restart restored removed commitment: %v", err)
 	}
 }
 
 func TestDeleteSystemApplianceDataBusyDoesNotHoldSupervisor(t *testing.T) {
-	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
+	runtime := &Runtime{materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	supervisor := newApplianceSupervisor(runtime, "boot")
-	unlock, ok := runtime.materializer.TryLockBuild()
+	ok := runtime.materializationSlot.TryAcquire(1)
+	unlock := func() { runtime.materializationSlot.Release(1) }
 	if !ok {
 		t.Fatal("fresh materializer occupied")
 	}

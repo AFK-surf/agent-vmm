@@ -159,3 +159,24 @@ func validateLayerBlobs(archive io.ReadSeeker, layers []ocispec.Descriptor) erro
 	}
 	return nil
 }
+
+// SelectSingleManifest selects the build output's single linux/arm64 manifest.
+func SelectSingleManifest(archive io.ReadSeeker) (digest.Digest, error) {
+	entries, err := readOCIEntries(archive, map[string]uint64{"oci-layout": 4096, "index.json": maxImportMetadataBytes})
+	if err != nil {
+		return "", err
+	}
+	var layout ociLayout
+	if json.Unmarshal(entries["oci-layout"], &layout) != nil || layout.ImageLayoutVersion != "1.0.0" {
+		return "", errors.New("archive has an invalid OCI layout")
+	}
+	var index ocispec.Index
+	if json.Unmarshal(entries["index.json"], &index) != nil || index.SchemaVersion != 2 || len(index.Manifests) != 1 {
+		return "", errors.New("OCI archive must contain exactly one image manifest")
+	}
+	manifest := index.Manifests[0]
+	if manifest.MediaType != ocispec.MediaTypeImageManifest || manifest.Platform == nil || manifest.Platform.OS != "linux" || manifest.Platform.Architecture != "arm64" || manifest.Platform.Variant != "" || manifest.Digest.Validate() != nil || manifest.Digest.Algorithm() != digest.SHA256 {
+		return "", errors.New("OCI archive does not select a linux/arm64 image manifest")
+	}
+	return manifest.Digest, nil
+}

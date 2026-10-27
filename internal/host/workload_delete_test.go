@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -52,7 +52,7 @@ func (guest *deleteWorkloadGuest) DeleteContainer(_ context.Context, request *vm
 func TestWorkloadDeleteSettlesIntentAndProjectionOnlyForConfirmedAbsence(t *testing.T) {
 	for _, mode := range []string{"deleted", "already-absent", "delete-failed", "new-generation", "replayed-success", "observation-unavailable"} {
 		t.Run(mode, func(t *testing.T) {
-			controller, integration := integrationAuthorityFixture(t)
+			controller, integration, _ := integrationAuthorityFixture(t)
 			ctx := t.Context()
 			const id = "worker"
 			generation := "original"
@@ -69,8 +69,7 @@ func TestWorkloadDeleteSettlesIntentAndProjectionOnlyForConfirmedAbsence(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			key := workloadRunKey(integration.EnvironmentID, id)
-			controller.setWorkloadRunLocked(key, &workloadRun{environmentID: integration.EnvironmentID, namespaceID: "namespace", containerID: id, instanceID: "instance"})
+			setTestWorkloadInstance(t, controller, integration.EnvironmentID, id, "instance")
 			guest := &deleteWorkloadGuest{recoveryServiceGuest: recoveryServiceGuest{containers: map[string]*vmmdv1.Container{id: {Id: id, GenerationId: generation, State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}}, containerErrors: map[string]codes.Code{}}}
 			if mode == "already-absent" {
 				delete(guest.containers, id)
@@ -94,8 +93,12 @@ func TestWorkloadDeleteSettlesIntentAndProjectionOnlyForConfirmedAbsence(t *test
 				guest.containers[id] = &vmmdv1.Container{Id: id, GenerationId: "replacement", State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}
 				guest.mu.Unlock()
 			}
-			unlock := controller.lockEnvironment(integration.EnvironmentID)
-			err = controller.deleteWorkloadContainerLocked(ctx, client, integration.EnvironmentID, request)
+			unlock, lockErr := controller.workloads.LockEnvironment(context.Background(), integration.EnvironmentID)
+			if lockErr != nil {
+				t.Fatal(lockErr)
+			}
+
+			err = controller.workloads.DeleteWorkloadContainerLocked(ctx, client, integration.EnvironmentID, request)
 			unlock()
 			wantCode := codes.OK
 			if mode == "delete-failed" || mode == "observation-unavailable" {
@@ -109,19 +112,19 @@ func TestWorkloadDeleteSettlesIntentAndProjectionOnlyForConfirmedAbsence(t *test
 			settled := mode == "deleted" || mode == "already-absent"
 			intent, intentErr := controller.store.GetManagedContainer(ctx, integration.EnvironmentID, id)
 			if settled {
-				if !errors.Is(intentErr, sql.ErrNoRows) || controller.workloadRuns[key] != nil {
-					t.Fatalf("successful deletion retained Host facts: intent=%+v error=%v run=%v", intent, intentErr, controller.workloadRuns[key])
+				if !errors.Is(intentErr, sql.ErrNoRows) || testWorkloadExists(controller, integration.EnvironmentID, id) {
+					t.Fatalf("successful deletion retained Host facts: intent=%+v error=%v run=%v", intent, intentErr, testWorkloadInstance(controller, integration.EnvironmentID, id))
 				}
 				inspections := guest.inspections
 				for range 2 {
-					if err := controller.restoreManagedServiceContainers(ctx, client); err != nil {
+					if err := controller.services.RestoreManagedServiceContainers(ctx, client); err != nil {
 						t.Fatal(err)
 					}
 				}
 				if guest.inspections != inspections {
 					t.Fatal("managed recovery kept polling the deleted container")
 				}
-			} else if intentErr != nil || intent.ContainerGenerationID != generation || !intent.DesiredRunning || controller.workloadRuns[key] == nil {
+			} else if intentErr != nil || intent.ContainerGenerationID != generation || !intent.DesiredRunning || !testWorkloadExists(controller, integration.EnvironmentID, id) {
 				t.Fatalf("unsettled or old deletion removed current Host fence: intent=%+v error=%v", intent, intentErr)
 			}
 			current, err := controller.store.GetServiceExport(ctx, exported.GetExportId())

@@ -7,13 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -27,7 +27,8 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	bolt "go.etcd.io/bbolt"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -101,13 +102,36 @@ func TestBundledSystemImageUsesOldCacheBeforeCurrentArchive(t *testing.T) {
 	index := newRuntimeInventoryIndex()
 	index.ensureNamespace(namespace)
 	index.addRuntimeImage(canonical)
-	runtime := &Runtime{client: client, inventory: index, materializer: new(ocimaterializer.Manager)}
+	runtime := &Runtime{client: client, inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	reference := bundledMCPImage + target.Digest.String()
 	for range 2 {
 		got, resolved, size, err := runtime.importBundledSystemImage(ctx, namespace, reference)
 		if err != nil || got != reference || resolved != target.Digest.String() || size == 0 {
 			t.Fatalf("cached controller: %s %s %d %v", got, resolved, size, err)
 		}
+	}
+	coldHeader := &vmmdv1.ImportImageHeader{RequestId: bundledImportRequestID(reference), ActorNamespaceId: namespace,
+		ImageReference: reference, ManifestDigest: target.Digest.String(), Platform: "linux/arm64", ArchiveSize: 4096}
+	coldFingerprint, err := importFingerprint(coldHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coldReceipt := importRequestValue(coldHeader.RequestId, coldFingerprint)
+	logicalContext := namespaceContext(ctx, namespace)
+	logical, err := client.ImageService().Get(logicalContext, reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical.Labels = map[string]string{importRequestLabel: coldReceipt}
+	if _, err := client.ImageService().Update(logicalContext, logical, "labels"); err != nil {
+		t.Fatal(err)
+	}
+	if got, resolved, size, err := runtime.importBundledSystemImage(ctx, namespace, reference); err != nil || got != reference || resolved != target.Digest.String() || size == 0 {
+		t.Fatalf("cached controller with cold receipt: %s %s %d %v", got, resolved, size, err)
+	}
+	logical, err = client.ImageService().Get(logicalContext, reference)
+	if err != nil || logical.Labels[importRequestLabel] != coldReceipt {
+		t.Fatalf("cold import receipt changed: %v %v", logical.Labels, err)
 	}
 	if !index.imageDigestReferenced(target.Digest.String()) {
 		t.Fatal("cached import did not grant namespace accounting")
@@ -130,13 +154,7 @@ func TestBundledSystemImageUsesOldCacheBeforeCurrentArchive(t *testing.T) {
 			t.Cleanup(func() { _ = os.Remove(bundledMCPPath) })
 		}
 		_, _, _, err := runtime.importBundledSystemImage(ctx, namespace, reference)
-		typed := false
-		for _, detail := range status.Convert(err).Details() {
-			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "APPLIANCE_IMAGE_SOURCE_UNAVAILABLE" {
-				typed = true
-			}
-		}
-		if !typed || !strings.Contains(err.Error(), "update") {
+		if status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "update") {
 			t.Fatalf("missing old source: %v", err)
 		}
 	}

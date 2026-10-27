@@ -5,13 +5,14 @@ package control
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 )
 
@@ -72,7 +73,7 @@ func TestComponentHealthReportsContainerdVersionProbeFailure(t *testing.T) {
 }
 
 func TestPersistentOCIQuotaSettlementFailureKeepsControlReadyAndMakesPoolHealthActionable(t *testing.T) {
-	runtime := &Runtime{diskBudget: new(guestdisk.Budget)}
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget), logger: slog.Default().With("component", "guest-control")}
 	_ = runtime.diskBudget.Settle(func() error { return errors.New("persistent settlement failure") })
 	server := &Server{runtime: runtime, healthProbe: func(context.Context) healthProbeResult { return healthProbeResult{} }}
 	health, err := server.Health(context.Background(), &vmmdv1.HealthRequest{})

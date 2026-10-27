@@ -22,7 +22,7 @@ func applianceServiceFixture(t *testing.T) (*Store, ApplianceInstallation, *appl
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: "gitea", NamespaceID: "gitea-ns", DisplayName: "gitea", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "gitea", NamespaceID: "gitea-ns", DisplayName: "gitea", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
 		t.Fatal(err)
 	}
 	exported, err := database.CreateServiceExport(ctx, "export", &servicev1.ServiceExport{ExportId: "export", EnvironmentId: "gitea", ContainerId: "gitea", ContainerInstanceId: "gitea-instance", Port: 3000, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP})
@@ -276,7 +276,7 @@ func TestInstallationServiceApprovalProjectsOnlyToItsPrivateRegistration(t *test
 			t.Fatalf("neighbor approval=%t err=%v", ok, err)
 		}
 	}
-	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "external", DisplayName: "external", ProtocolVersion: "1", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, OwnerKind: RemoteRegistrationExternal}); err != nil {
+	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "external", DisplayName: "external", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, OwnerKind: RemoteRegistrationExternal}); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := database.ServiceExportApproved(ctx, "external", "export"); err != nil || ok {

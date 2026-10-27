@@ -15,11 +15,16 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 	"github.com/AFK-surf/agent-vmm/internal/hypervisor"
 	"github.com/AFK-surf/agent-vmm/internal/hypervisor/virtio"
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
 	"golang.org/x/sys/unix"
 )
+
+// Virtio MMIO windows follow the arm64 platform's device range; IRQs are SPIs.
+const mmioBase = 0x0a000000
+
+var deviceIRQs = [...]uint32{32, 33, 34, 35, 36}
 
 func isRefused(err error) bool { return errors.Is(err, unix.ECONNREFUSED) }
 
@@ -83,9 +88,6 @@ func RunChild() error {
 	}
 	ready := os.NewFile(4, "VMM ready")
 	paths := []string{config.KernelPath, config.InitramfsPath, config.RootFSPath, config.StatePath}
-	if config.LegacyStatePath != "" {
-		paths = append(paths, config.LegacyStatePath)
-	}
 	files := make([]*os.File, len(paths))
 	for i, path := range paths {
 		files[i] = os.NewFile(uintptr(i+5), path)
@@ -141,7 +143,7 @@ func RunChild() error {
 	if err = vm.SetDevices(devices); err != nil {
 		return err
 	}
-	egress, err := socket.Listen(netprotocol.EgressPort)
+	egress, err := socket.Listen(egresslink.EgressPort)
 	if err != nil {
 		return err
 	}

@@ -21,8 +21,7 @@ func managedPreparedUpdatePath(targetApp, requestID string) string {
 	return filepath.Join(filepath.Dir(targetApp), "."+requestID)
 }
 
-// extractManagedUpdate unpacks the release tar into a hidden staging
-// directory. Lifecycle update verifies every file against release.json.
+// extractManagedUpdate unpacks the verified release archive into a hidden staging directory.
 func extractManagedUpdate(_ context.Context, archivePath, stagedApp, targetRelease string) error {
 	extracted, err := os.MkdirTemp(filepath.Dir(stagedApp), ".agent-vmm-update-extract-")
 	if err != nil {
@@ -98,6 +97,6 @@ func extractManagedReleaseArchive(archivePath, target string) error {
 	}
 }
 
-func managedHostReleaseID(app string, _ bool) (string, error) {
+func managedHostReleaseID(app string) (string, error) {
 	return lifecycle.ReleaseID(app)
 }

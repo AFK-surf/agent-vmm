@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,7 +200,7 @@ func RemoveRetiredNative(root string) error {
 		return err
 	}
 	if remaining {
-		log.Print("native snapshot retirement preserved non-VMM-owned references and their cache files")
+		slog.Default().Info("native snapshot retirement preserved non-VMM-owned references and their cache files")
 		return nil
 	}
 	for _, name := range []string{"native", "io.containerd.snapshotter.v1.native"} {

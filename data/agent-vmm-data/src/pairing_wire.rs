@@ -1,4 +1,4 @@
-//! Bounded wire adapter for `agent-vmm/pairing/1`.
+//! Bounded wire adapter for `agent-vmm/pairing/2`.
 //!
 //! The wire carries only PAKE shares, confirmation MACs, and PAKE-encrypted
 //! application payloads. PINs, QR secrets, PAKE scalars, and derived keys never
@@ -7,7 +7,7 @@
 use crate::{
     MAX_FRAME_BYTES,
     pairing::{PairingRole, finish_initiator, finish_responder},
-    pairing_session::PairingSession,
+    pairing_session::{PairingFailure, PairingSession},
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -85,7 +85,12 @@ where
     let result = run_joiner_inner(writer, reader, session, proposal, now).await;
     if result.is_err() {
         let _ = writer.shutdown().await;
-        session.attempt_failed(now);
+        if session.state() == crate::pairing_session::PairingSessionState::Handshaking {
+            session.attempt_failed(
+                PairingFailure::AuthenticationFailed,
+                std::time::Instant::now(),
+            );
+        }
     }
     result
 }
@@ -123,7 +128,6 @@ where
         },
     )
     .await?;
-    session.key_confirmed(now)?;
     let sas = confirmed.sas(&session.context().session_id)?;
     let mut records = confirmed.into_record_layer(PairingRole::Joiner)?;
     send_frame(
@@ -135,29 +139,12 @@ where
     .await?;
     let response: EncryptedRecord = receive_frame(reader).await?;
     let peer_payload = records.open(&response.ciphertext)?;
+    session.key_confirmed(std::time::Instant::now())?;
     Ok(PairingWireResult {
         sas,
         peer_payload,
         record_layer: Some(records),
     })
-}
-
-pub async fn run_manager<W, R>(
-    writer: &mut W,
-    reader: &mut R,
-    session: &mut PairingSession,
-    acceptance: &[u8],
-    now: std::time::Instant,
-) -> Result<PairingWireResult>
-where
-    W: AsyncWrite + Unpin,
-    R: AsyncRead + Unpin,
-{
-    let hello = match receive_manager_hello(reader).await {
-        Ok(hello) => hello,
-        Err(error) => return Err(error),
-    };
-    run_manager_after_hello(writer, reader, session, hello, acceptance, now).await
 }
 
 pub async fn receive_manager_hello<R: AsyncRead + Unpin>(reader: &mut R) -> Result<ManagerHello> {
@@ -179,7 +166,12 @@ where
     let result = run_manager_inner(writer, reader, session, hello.0, acceptance, now).await;
     if result.is_err() {
         let _ = writer.shutdown().await;
-        session.attempt_failed(now);
+        if session.state() == crate::pairing_session::PairingSessionState::Handshaking {
+            session.attempt_failed(
+                PairingFailure::AuthenticationFailed,
+                std::time::Instant::now(),
+            );
+        }
     }
     result
 }
@@ -201,8 +193,8 @@ where
         hello.context.session_id == session.context().session_id,
         "pairing session does not match invite"
     );
-    session.bind_joiner_context(&hello.context)?;
-    let (share, state) = session.begin_responder(now)?;
+    session.begin_manager_attempt(&hello.context, now)?;
+    let (share, state) = session.begin_responder()?;
     let pending = finish_responder(state, &hello.share)?;
     send_frame(
         writer,
@@ -214,7 +206,6 @@ where
     .await?;
     let peer: ClientConfirmation = receive_frame(reader).await?;
     let confirmed = pending.confirm(&peer.confirmation_mac)?;
-    session.key_confirmed(now)?;
     let sas = confirmed.sas(&session.context().session_id)?;
     let mut records = confirmed.into_record_layer(PairingRole::Manager)?;
     let proposal: EncryptedRecord = receive_frame(reader).await?;
@@ -226,6 +217,7 @@ where
         },
     )
     .await?;
+    session.key_confirmed(std::time::Instant::now())?;
     Ok(PairingWireResult {
         sas,
         peer_payload,
@@ -233,99 +225,69 @@ where
     })
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConfirmationRole {
-    Manager,
-    Joiner,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PairingRecord {
+    Confirmed,
+    Committed,
+    Rejected,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ConfirmationRecord {
-    session_id: Vec<u8>,
-    ciphertext: Vec<u8>,
-}
-
-pub struct PeerConfirmation(ConfirmationRecord);
-
-impl PeerConfirmation {
-    pub fn session_id(&self) -> &[u8] {
-        &self.0.session_id
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ConfirmationAck {
-    recorded: bool,
-}
-
-pub async fn send_local_confirmation<W: AsyncWrite + Unpin>(
+pub async fn send_record<W: AsyncWrite + Unpin>(
     writer: &mut W,
-    session_id: &[u8],
-    role: ConfirmationRole,
+    record: PairingRecord,
     records: &mut crate::pairing::PairingRecordLayer,
 ) -> Result<()> {
-    let plaintext = match role {
-        ConfirmationRole::Manager => b"manager-local-confirmed".as_slice(),
-        ConfirmationRole::Joiner => b"joiner-local-confirmed".as_slice(),
+    let plaintext: &[u8] = match record {
+        PairingRecord::Confirmed => b"confirmed",
+        PairingRecord::Committed => b"committed",
+        PairingRecord::Rejected => b"rejected",
     };
     send_frame(
         writer,
-        &ConfirmationRecord {
-            session_id: session_id.to_vec(),
+        &EncryptedRecord {
             ciphertext: records.seal(plaintext)?,
         },
     )
     .await
 }
 
-pub async fn receive_local_confirmation<R: AsyncRead + Unpin>(
+pub async fn receive_record<R: AsyncRead + Unpin>(
     reader: &mut R,
-    expected_session_id: &[u8],
     records: &mut crate::pairing::PairingRecordLayer,
-) -> Result<ConfirmationRole> {
-    let frame = receive_peer_confirmation(reader).await?;
-    open_local_confirmation(frame, expected_session_id, records)
-}
-
-pub async fn receive_peer_confirmation<R: AsyncRead + Unpin>(
-    reader: &mut R,
-) -> Result<PeerConfirmation> {
-    receive_frame(reader).await.map(PeerConfirmation)
-}
-
-pub fn open_local_confirmation(
-    frame: PeerConfirmation,
-    expected_session_id: &[u8],
-    records: &mut crate::pairing::PairingRecordLayer,
-) -> Result<ConfirmationRole> {
-    ensure!(
-        frame.0.session_id == expected_session_id,
-        "pairing confirmation session mismatch"
-    );
-    match records.open(&frame.0.ciphertext)?.as_slice() {
-        b"manager-local-confirmed" => Ok(ConfirmationRole::Manager),
-        b"joiner-local-confirmed" => Ok(ConfirmationRole::Joiner),
-        _ => anyhow::bail!("invalid pairing local confirmation"),
+    buffered: &mut Vec<u8>,
+) -> Result<PairingRecord> {
+    let frame = loop {
+        if buffered.len() >= 4 {
+            let length =
+                u32::from_be_bytes(buffered[..4].try_into().expect("frame length")) as usize;
+            ensure!(
+                length > 0 && length <= MAX_FRAME_BYTES,
+                "pairing frame is outside bounds"
+            );
+            if buffered.len() >= 4 + length {
+                let frame: EncryptedRecord = serde_json::from_slice(&buffered[4..4 + length])
+                    .context("decode pairing record")?;
+                buffered.drain(..4 + length);
+                break frame;
+            }
+        }
+        let mut chunk = [0u8; 4096];
+        let count = reader.read(&mut chunk).await?;
+        ensure!(count != 0, "pairing connection closed");
+        buffered.extend_from_slice(&chunk[..count]);
+    };
+    match records.open(&frame.ciphertext)?.as_slice() {
+        b"confirmed" => Ok(PairingRecord::Confirmed),
+        b"committed" => Ok(PairingRecord::Committed),
+        b"rejected" => Ok(PairingRecord::Rejected),
+        _ => anyhow::bail!("invalid pairing record"),
     }
-}
-
-pub async fn send_confirmation_ack<W: AsyncWrite + Unpin>(writer: &mut W) -> Result<()> {
-    send_frame(writer, &ConfirmationAck { recorded: true }).await
-}
-
-pub async fn receive_confirmation_ack<R: AsyncRead + Unpin>(reader: &mut R) -> Result<()> {
-    let ack: ConfirmationAck = receive_frame(reader).await?;
-    ensure!(ack.recorded, "pairing confirmation was not recorded");
-    Ok(())
 }
 
 fn ensure_payload(payload: &[u8]) -> Result<()> {
     ensure!(
         !payload.is_empty() && payload.len() <= crate::pairing::MAX_ENCRYPTED_RECORD_BYTES,
-        "pairing application payload is outside bounds"
+        "pairing payload is outside bounds"
     );
     Ok(())
 }
@@ -394,13 +356,18 @@ mod tests {
         let (mut joiner_read, mut joiner_write) = tokio::io::split(joiner_io);
 
         let (manager, joiner) = tokio::join!(
-            run_manager(
-                &mut manager_write,
-                &mut manager_read,
-                &mut manager_session,
-                b"manager-acceptance",
-                now
-            ),
+            async {
+                let hello = receive_manager_hello(&mut manager_read).await?;
+                run_manager_after_hello(
+                    &mut manager_write,
+                    &mut manager_read,
+                    &mut manager_session,
+                    hello,
+                    b"manager-acceptance",
+                    now,
+                )
+                .await
+            },
             run_joiner(
                 &mut joiner_write,
                 &mut joiner_read,
@@ -416,12 +383,68 @@ mod tests {
         assert_eq!(joiner.peer_payload, b"manager-acceptance");
         assert_eq!(
             manager_session.state(),
-            PairingSessionState::AwaitingLocalConfirmation
+            PairingSessionState::AwaitingConfirm
         );
+        assert_eq!(joiner_session.state(), PairingSessionState::AwaitingConfirm);
+    }
+
+    #[tokio::test]
+    async fn a_partial_record_survives_an_interleaved_local_command() {
+        let now = Instant::now();
+        let mut manager_session = session(b"12345678", 7, now);
+        let mut joiner_session = session(b"12345678", 7, now);
+        let (manager_io, joiner_io) = tokio::io::duplex(256 * 1024);
+        let (mut manager_read, mut manager_write) = tokio::io::split(manager_io);
+        let (mut joiner_read, mut joiner_write) = tokio::io::split(joiner_io);
+        let (manager, joiner) = tokio::join!(
+            async {
+                let hello = receive_manager_hello(&mut manager_read).await?;
+                run_manager_after_hello(
+                    &mut manager_write,
+                    &mut manager_read,
+                    &mut manager_session,
+                    hello,
+                    b"acceptance",
+                    now,
+                )
+                .await
+            },
+            run_joiner(
+                &mut joiner_write,
+                &mut joiner_read,
+                &mut joiner_session,
+                b"proposal",
+                now
+            )
+        );
+        let mut manager_records = manager.unwrap().take_record_layer().unwrap();
+        let mut joiner_records = joiner.unwrap().take_record_layer().unwrap();
+        let encoded = serde_json::to_vec(&EncryptedRecord {
+            ciphertext: joiner_records.seal(b"confirmed").unwrap(),
+        })
+        .unwrap();
+        let mut frame = (encoded.len() as u32).to_be_bytes().to_vec();
+        frame.extend(encoded);
+        joiner_write.write_all(&frame[..6]).await.unwrap();
+        let mut buffered = Vec::new();
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(10),
+                receive_record(&mut manager_read, &mut manager_records, &mut buffered)
+            )
+            .await
+            .is_err()
+        );
+        manager_session.confirm_local(Instant::now()).unwrap();
+        joiner_write.write_all(&frame[6..]).await.unwrap();
         assert_eq!(
-            joiner_session.state(),
-            PairingSessionState::AwaitingLocalConfirmation
+            receive_record(&mut manager_read, &mut manager_records, &mut buffered)
+                .await
+                .unwrap(),
+            PairingRecord::Confirmed
         );
+        manager_session.confirm_peer(Instant::now()).unwrap();
+        assert_eq!(manager_session.state(), PairingSessionState::ReadyToCommit);
     }
 
     #[tokio::test]
@@ -433,13 +456,18 @@ mod tests {
         let (mut manager_read, mut manager_write) = tokio::io::split(manager_io);
         let (mut joiner_read, mut joiner_write) = tokio::io::split(joiner_io);
         let (manager, joiner) = tokio::join!(
-            run_manager(
-                &mut manager_write,
-                &mut manager_read,
-                &mut manager_session,
-                b"manager-acceptance",
-                now
-            ),
+            async {
+                let hello = receive_manager_hello(&mut manager_read).await?;
+                run_manager_after_hello(
+                    &mut manager_write,
+                    &mut manager_read,
+                    &mut manager_session,
+                    hello,
+                    b"manager-acceptance",
+                    now,
+                )
+                .await
+            },
             run_joiner(
                 &mut joiner_write,
                 &mut joiner_read,
@@ -468,13 +496,18 @@ mod tests {
         let (mut manager_read, mut manager_write) = tokio::io::split(manager_io);
         let (mut joiner_read, mut joiner_write) = tokio::io::split(joiner_io);
         let (manager, joiner) = tokio::join!(
-            run_manager(
-                &mut manager_write,
-                &mut manager_read,
-                &mut manager_session,
-                b"manager-acceptance",
-                now
-            ),
+            async {
+                let hello = receive_manager_hello(&mut manager_read).await?;
+                run_manager_after_hello(
+                    &mut manager_write,
+                    &mut manager_read,
+                    &mut manager_session,
+                    hello,
+                    b"manager-acceptance",
+                    now,
+                )
+                .await
+            },
             run_joiner(
                 &mut joiner_write,
                 &mut joiner_read,
@@ -484,8 +517,11 @@ mod tests {
             )
         );
         assert!(manager.is_err() || joiner.is_err());
-        assert_ne!(manager_session.state(), PairingSessionState::KeyConfirmed);
-        assert_ne!(joiner_session.state(), PairingSessionState::KeyConfirmed);
+        assert_ne!(
+            manager_session.state(),
+            PairingSessionState::AwaitingConfirm
+        );
+        assert_ne!(joiner_session.state(), PairingSessionState::AwaitingConfirm);
     }
 
     #[tokio::test]
@@ -512,13 +548,18 @@ mod tests {
             let connection = incoming.await.unwrap();
             assert_eq!(connection.alpn(), crate::PAIRING_ALPN);
             let (mut send, mut receive) = connection.accept_bi().await.unwrap();
-            let result = run_manager(
-                &mut send,
-                &mut receive,
-                &mut manager_session,
-                b"manager-acceptance",
-                now,
-            )
+            let result = async {
+                let hello = receive_manager_hello(&mut receive).await?;
+                run_manager_after_hello(
+                    &mut send,
+                    &mut receive,
+                    &mut manager_session,
+                    hello,
+                    b"manager-acceptance",
+                    now,
+                )
+                .await
+            }
             .await;
             let _ = send.finish();
             let _ = receive.read_to_end(1).await;

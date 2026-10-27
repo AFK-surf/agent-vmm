@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -412,5 +413,30 @@ func TestSystemStreamHalfCloseStillBoundsInputIdle(t *testing.T) {
 				t.Fatal("half-close retained endpoint reader")
 			}
 		})
+	}
+}
+
+func TestSystemEndpointRejectsSocketSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "other.sock")
+	listener, err := net.Listen("unix", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	path := filepath.Join(root, "controller.sock")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if connection, err := dialPinnedSystemSocket(path); err == nil {
+		connection.Close()
+		t.Fatal("followed socket symlink")
+	}
+	if err := listener.(*net.UnixListener).SetDeadline(time.Now().Add(20 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if connection, err := listener.Accept(); err == nil {
+		connection.Close()
+		t.Fatal("other socket received connection")
 	}
 }

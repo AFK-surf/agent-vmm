@@ -17,10 +17,10 @@ import (
 )
 
 type Config struct {
-	KernelPath, InitramfsPath, RootFSPath, StatePath, LegacyStatePath string
-	InstanceDirectory, SerialLog, CommandLine, GuestManifestDigest    string
-	CPUCount                                                          uint
-	MemoryBytes                                                       uint64
+	KernelPath, InitramfsPath, RootFSPath, StatePath               string
+	InstanceDirectory, SerialLog, CommandLine, GuestManifestDigest string
+	CPUCount                                                       uint
+	MemoryBytes                                                    uint64
 }
 
 type request struct {

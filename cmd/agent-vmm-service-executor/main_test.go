@@ -3,70 +3,42 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"github.com/AFK-surf/agent-vmm/internal/launchdservice"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestParseJobRejectsForgedTargetsAndArguments(t *testing.T) {
-	for _, test := range [][]string{{"start"}, {"start", "--job", "other"}, {"start", "--job", "host", "--path", "/tmp/x"}, {"shell", "--job", "host"}} {
-		if _, err := parseJob(test[0], test[1:]); err == nil {
-			t.Fatalf("accepted %v", test)
+func TestActionsRejectArguments(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		action string
+		args   []string
+	}{{"start", []string{"--job", "host"}}, {"shell", nil}, {"install", []string{"--path", "/tmp/x"}}} {
+		if err := parseAction(test.action, test.args); err == nil {
+			t.Fatalf("accepted %+v", test)
 		}
 	}
-}
-
-func TestHostDefinitionMatchesLifecycleCurrentDeclaration(t *testing.T) {
-	config := ownerConfig{User: "service-user", Group: "staff", UID: 501, GID: 20, Home: "/Users/service-user"}
-	job, _ := resolveJob(config, "host")
-	template, err := os.ReadFile(filepath.Join("..", "..", "build", "host", "com.afk-surf.agent-vmm-host.plist.template"))
-	if err != nil {
+	if err := parseAction("start", nil); err != nil {
 		t.Fatal(err)
 	}
-	expected := strings.ReplaceAll(string(template), "__HOME__", config.Home)
-	expected = strings.ReplaceAll(expected, "__APP__", "/Users/service-user/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app")
-	expected = strings.Replace(expected, "  </array>", "  \t\t<string>--disable-personal-mesh-pairing</string>\n\t</array>", 1)
-	expected = strings.Replace(expected, "<string>Interactive</string>", "<string>Background</string>", 1)
-	expected = strings.Replace(expected, "</dict>\n</plist>", "\t<key>UserName</key>\n\t<string>service-user</string>\n\t<key>GroupName</key>\n\t<string>staff</string>\n</dict>\n</plist>", 1)
-	if actual := string(renderPlist(config, job)); actual != expected {
-		t.Fatalf("executor Host definition drifted from lifecycle declaration\nactual:\n%s\nexpected:\n%s", actual, expected)
-	}
 }
 
-func TestHostDefinitionDisablesPersonalMeshPairing(t *testing.T) {
+func TestHostDefinitionUsesConfiguredIdentity(t *testing.T) {
+	t.Parallel()
 	config := ownerConfig{User: "service-user", Group: "staff", UID: 501, GID: 20, Home: "/Users/service-user"}
-	job, _ := resolveJob(config, "host")
-	definition := string(renderPlist(config, job))
-	if strings.Count(definition, "<string>--disable-personal-mesh-pairing</string>") != 1 {
-		t.Fatalf("managed Host definition must disable personal mesh pairing: %s", definition)
+	job := resolveHostJob(config)
+	if job.label != hostLabel || job.program != "/Users/service-user/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app/Contents/MacOS/agent-vmm-host" {
+		t.Fatalf("job=%+v", job)
 	}
-}
-
-func TestResolveJobsUsesOnlyConfiguredIdentityAndFixedPaths(t *testing.T) {
-	config := ownerConfig{User: "service-user", Group: "staff", UID: 501, GID: 20, Home: "/Users/service-user"}
-	host, _ := resolveJob(config, "host")
-	runner, _ := resolveJob(config, "runner")
-	if host.label != hostLabel || host.program != "/Users/service-user/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app/Contents/MacOS/agent-vmm-host" {
-		t.Fatalf("host=%+v", host)
-	}
-	if runner.label != runnerLabel || runner.program != "/Users/service-user/.bridge-for-teams/bin/bft-runner" || len(runner.arguments) != 0 {
-		t.Fatalf("runner=%+v", runner)
-	}
-}
-
-func TestRunnerDefinitionRetainsApprovedContinuityPolicy(t *testing.T) {
-	config := ownerConfig{User: "svc<&", Group: "staff", UID: 501, GID: 20, Home: "/Users/svc"}
-	job, _ := resolveJob(config, "runner")
-	definition := string(renderPlist(config, job))
-	for _, expected := range []string{"<key>UserName</key><string>svc&lt;&amp;</string>", "<key>GroupName</key><string>staff</string>", runnerLabel, "/Users/svc/.bridge-for-teams/bin/bft-runner", "<key>KeepAlive</key><true/>", "<key>NumberOfFiles</key><integer>65536</integer>", "<key>NumberOfFiles</key><integer>524288</integer>", "<key>EnvironmentVariables</key>", fixedRunnerPath(config.Home), "/Users/svc/.bridge-for-teams/state/runner.out.log", "<key>WorkingDirectory</key><string>/Users/svc/.bridge-for-teams</string>"} {
+	definition := string(renderPlist(config))
+	for _, expected := range []string{"<string>--disable-personal-mesh-pairing</string>", "<string>service-user</string>", "/Library/Logs/AgentVMM/host.stderr.log"} {
 		if !strings.Contains(definition, expected) {
-			t.Fatalf("missing %q in %s", expected, definition)
+			t.Fatalf("missing %q", expected)
 		}
-	}
-	if strings.Contains(definition, "<string>root</string>") {
-		t.Fatalf("unsafe definition=%s", definition)
 	}
 }
 
@@ -97,135 +69,80 @@ func TestServiceProgramRejectsCrossIdentityAndWritableAncestors(t *testing.T) {
 }
 
 func TestStartDoesNotRestartRunningJob(t *testing.T) {
-	oldObserve, oldRun := observeLaunchctl, runLaunchctl
-	defer func() { observeLaunchctl, runLaunchctl = oldObserve, oldRun }()
-	observeLaunchctl = func(string) (bool, bool, int, error) { return true, true, 42, nil }
-	calls := 0
-	runLaunchctl = func(...string) error { calls++; return nil }
-	if err := startJob(fixedJob{label: hostLabel}); err != nil || calls != 0 {
-		t.Fatalf("err=%v calls=%d", err, calls)
+	t.Parallel()
+	owner := executor{system: launchdservice.System{
+		Launchctl: func(_ context.Context, args ...string) error {
+			if args[0] != "print" {
+				t.Fatalf("restarted: %v", args)
+			}
+			return nil
+		},
+		ServicePID:     func(context.Context, string) (int, error) { return 42, nil },
+		ProcessRunning: func(int) bool { return true },
+	}}
+	if err := owner.startJob(fixedJob{label: hostLabel}); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestStartKickstartsLoadedStoppedJob(t *testing.T) {
-	oldObserve, oldRun := observeLaunchctl, runLaunchctl
-	defer func() { observeLaunchctl, runLaunchctl = oldObserve, oldRun }()
-	observeLaunchctl = func(string) (bool, bool, int, error) { return true, false, 0, nil }
-	var arguments []string
-	runLaunchctl = func(args ...string) error {
-		arguments = append([]string(nil), args...)
-		return nil
-	}
-	if err := startJob(fixedJob{label: hostLabel}); err != nil {
+	t.Parallel()
+	var commands []string
+	owner := executor{system: launchdservice.System{
+		Launchctl: func(_ context.Context, args ...string) error {
+			commands = append(commands, strings.Join(args, " "))
+			return nil
+		},
+		ServicePID: func(context.Context, string) (int, error) { return 0, nil },
+	}}
+	if err := owner.startJob(fixedJob{label: hostLabel}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(arguments, " ") != "kickstart system/"+hostLabel {
-		t.Fatalf("arguments=%v", arguments)
+	if len(commands) != 2 || commands[1] != "kickstart system/"+hostLabel {
+		t.Fatalf("commands=%v", commands)
 	}
 }
 
-func TestHostStopRequiresReleasedStateDiskBeforeBootout(t *testing.T) {
-	oldObserve, oldRun, oldBusy := observeLaunchctl, runLaunchctl, stateDiskBusy
-	defer func() { observeLaunchctl, runLaunchctl, stateDiskBusy = oldObserve, oldRun, oldBusy }()
-	observeLaunchctl = func(string) (bool, bool, int, error) { return true, true, 42, nil }
+func TestHostStopRequiresReleasedDiskAndConfirmsExit(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
-		name string
-		busy bool
-		err  error
-	}{
-		{name: "attached", busy: true},
-		{name: "inspection failed", err: errors.New("inspection failed")},
-	} {
+		name   string
+		owners []int
+		err    error
+	}{{name: "released"}, {name: "attached", owners: []int{42}}, {name: "inspection failed", err: errors.New("inspection")}} {
 		t.Run(test.name, func(t *testing.T) {
-			stateDiskBusy = func(string) (bool, error) { return test.busy, test.err }
-			calls := 0
-			runLaunchctl = func(...string) error { calls++; return nil }
-			err := stopJob(ownerConfig{Home: "/Users/service"}, fixedJob{name: "host", label: hostLabel})
-			if err == nil || calls != 0 {
-				t.Fatalf("err=%v calls=%d", err, calls)
+			var commands []string
+			checks := 0
+			owner := executor{system: launchdservice.System{
+				Launchctl: func(_ context.Context, args ...string) error {
+					commands = append(commands, strings.Join(args, " "))
+					return nil
+				},
+				ServicePID:          func(context.Context, string) (int, error) { return 42, nil },
+				ProcessRunning:      func(int) bool { return false },
+				StateDiskOpenOwners: func(context.Context, string) ([]int, error) { checks++; return test.owners, test.err },
+			}}
+			err := owner.stopJob(ownerConfig{Home: "/Users/service"}, fixedJob{label: hostLabel})
+			wantFailure := test.err != nil || len(test.owners) > 0
+			if (err != nil) != wantFailure {
+				t.Fatalf("err=%v", err)
+			}
+			if wantFailure && len(commands) != 1 || !wantFailure && (len(commands) != 2 || checks != 2) {
+				t.Fatalf("commands=%v checks=%d", commands, checks)
 			}
 		})
 	}
 }
 
-func TestInstallRejectsInvalidProgramBeforeLaunchctl(t *testing.T) {
-	oldObserve := observeLaunchctl
-	defer func() { observeLaunchctl = oldObserve }()
-	calls := 0
-	observeLaunchctl = func(string) (bool, bool, int, error) { calls++; return false, false, 0, nil }
-	err := installJob(ownerConfig{UID: os.Getuid() + 1, Home: t.TempDir()}, fixedJob{name: "runner", label: runnerLabel, program: "/tmp/forged"})
-	if err == nil || calls != 0 {
-		t.Fatalf("err=%v launchctl calls=%d", err, calls)
+func TestInvalidProgramStopsBeforeLaunchctl(t *testing.T) {
+	t.Parallel()
+	owner := executor{system: launchdservice.System{Launchctl: func(context.Context, ...string) error { t.Fatal("called launchctl"); return nil }}}
+	config := ownerConfig{UID: os.Getuid() + 1, Home: t.TempDir()}
+	job := fixedJob{program: filepath.Join(config.Home, "missing")}
+	if err := owner.installJob(config, job); err == nil {
+		t.Fatal("accepted missing program")
 	}
-}
-
-func TestStartRejectsReplacedProgramBeforeLaunchctl(t *testing.T) {
-	oldObserve := observeLaunchctl
-	defer func() { observeLaunchctl = oldObserve }()
-	calls := 0
-	observeLaunchctl = func(string) (bool, bool, int, error) { calls++; return true, false, 0, nil }
-	home := t.TempDir()
-	program := filepath.Join(home, "bin", "runner")
-	if err := os.MkdirAll(filepath.Dir(program), 0o755); err != nil {
-		t.Fatal(err)
+	if err := owner.startConfiguredJob(config, job); err == nil {
+		t.Fatal("accepted missing program")
 	}
-	if err := os.WriteFile(program, []byte("binary"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(filepath.Dir(program), 0o777); err != nil {
-		t.Fatal(err)
-	}
-	err := startConfiguredJob(ownerConfig{UID: os.Getuid(), Home: home}, fixedJob{name: "runner", label: runnerLabel, program: program})
-	if err == nil || calls != 0 {
-		t.Fatalf("err=%v launchctl calls=%d", err, calls)
-	}
-}
-
-func TestHostStopBootsOutOnlyAfterReleaseAndConfirmsExit(t *testing.T) {
-	oldObserve, oldRun, oldBusy, oldAlive := observeLaunchctl, runLaunchctl, stateDiskBusy, processAlive
-	defer func() {
-		observeLaunchctl, runLaunchctl, stateDiskBusy, processAlive = oldObserve, oldRun, oldBusy, oldAlive
-	}()
-	observeLaunchctl = func(string) (bool, bool, int, error) { return true, true, 42, nil }
-	checks := 0
-	stateDiskBusy = func(string) (bool, error) { checks++; return false, nil }
-	processAlive = func(int) bool { return false }
-	var arguments []string
-	runLaunchctl = func(args ...string) error { arguments = append([]string(nil), args...); return nil }
-	if err := stopJob(ownerConfig{Home: "/Users/service"}, fixedJob{name: "host", label: hostLabel}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(arguments, " ") != "bootout system/"+hostLabel || checks != 2 {
-		t.Fatalf("args=%v checks=%d", arguments, checks)
-	}
-}
-
-func TestStateDiskReleaseAcrossRemoval(t *testing.T) {
-	directory, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(directory, "state.raw")
-	assertBusy := func(want bool) {
-		t.Helper()
-		busy, err := stateDiskBusy(path)
-		if err != nil || busy != want {
-			t.Fatalf("busy=%v want=%v err=%v", busy, want, err)
-		}
-	}
-	assertBusy(false)
-	disk, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer disk.Close()
-	assertBusy(true)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	assertBusy(true)
-	if err := disk.Close(); err != nil {
-		t.Fatal(err)
-	}
-	assertBusy(false)
 }

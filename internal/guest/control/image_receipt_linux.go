@@ -9,7 +9,7 @@ import (
 	"errors"
 	"unicode/utf8"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"google.golang.org/protobuf/proto"
 )

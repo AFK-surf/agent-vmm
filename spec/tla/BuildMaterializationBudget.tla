@@ -98,7 +98,13 @@ Restart ==
  /\ owner' = None /\ transaction' = FALSE /\ reserved' = 0 /\ sealed' = FALSE
  /\ UNCHANGED <<used, canceled, metadataDone, falseMetadataRejection, rejectedBuild, staleRun>>
 
-Next == Metadata \/ Restart \/ \E b \in Workers:
+Terminated ==
+ /\ metadataDone
+ /\ owner = None /\ ~transaction /\ ~sealed
+ /\ \A b \in Workers: phase[b] \in Terminal
+ /\ UNCHANGED vars
+
+Next == Terminated \/ Metadata \/ Restart \/ \E b \in Workers:
  FinishNative(b) \/ Cancel(b) \/ SettleCanceledWaiter(b) \/ Acquire(b) \/
  RejectOccupied(b) \/ Convert(b) \/ Settle(b, FALSE) \/ Settle(b, TRUE)
 

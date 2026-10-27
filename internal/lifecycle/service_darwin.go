@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/AFK-surf/agent-vmm/internal/launchdservice"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"strings"
 )
-
-const hostTemplateResource = productionHostLabel + ".plist.template"
 
 func resolveServiceConfig(request serviceRequest) (serviceConfig, error) {
 	account, err := lookupServiceAccount(request.user)
@@ -104,27 +102,7 @@ func (value paths) alternateServicePlist() string {
 }
 
 func renderServiceDefinition(value paths, disablePairing bool) ([]byte, error) {
-	template, err := os.ReadFile(filepath.Join(value.resources, hostTemplateResource))
-	if err != nil {
-		return nil, errors.New("bundled service definition is missing")
-	}
-	rendered := strings.Replace(string(template), "<string>"+productionHostLabel+"</string>", "<string>"+hostLabel+"</string>", 1)
-	rendered = strings.ReplaceAll(rendered, "__HOME__", xmlEscape(value.home))
-	rendered = strings.ReplaceAll(rendered, "__APP__", xmlEscape(value.app))
-	if disablePairing {
-		rendered = addProgramArgument(rendered, "--disable-personal-mesh-pairing")
-	}
-	if value.service.Mode == serviceModeDaemon {
-		rendered = strings.Replace(rendered, "<string>Interactive</string>", "<string>Background</string>", 1)
-		marker := "</dict>"
-		index := strings.LastIndex(rendered, marker)
-		if index < 0 {
-			return nil, errors.New("bundled service definition is invalid")
-		}
-		identity := fmt.Sprintf("\t<key>UserName</key>\n\t<string>%s</string>\n\t<key>GroupName</key>\n\t<string>%s</string>\n", xmlEscape(value.service.User), xmlEscape(value.service.Group))
-		rendered = rendered[:index] + identity + rendered[index:]
-	}
-	return []byte(rendered), nil
+	return launchdservice.RenderHostPlist(launchdservice.HostParams{Home: value.home, App: value.app, Label: hostLabel, User: value.service.User, Group: value.service.Group, Daemon: value.service.Mode == serviceModeDaemon, DisablePairing: disablePairing}), nil
 }
 
 func serviceDefinitionCurrent(ctx context.Context, value paths, desired []byte, disablePairing bool, run func(context.Context, ...string) error,

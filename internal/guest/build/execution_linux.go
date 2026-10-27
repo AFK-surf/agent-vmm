@@ -6,15 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	containerd "github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/pkg/cio"
-	"github.com/containerd/containerd/v2/pkg/namespaces"
-	"github.com/containerd/errdefs"
 	"os"
 	"sync"
 	"syscall"
 	"time"
+
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/pkg/cio"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
+	"github.com/containerd/errdefs"
 )
 
 func (w *Workspace) run(ctx context.Context, limits *vmmdv1.NamespaceLimits, progress func(string) error) (cacheHit bool, runErr error) {

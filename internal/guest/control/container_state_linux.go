@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"

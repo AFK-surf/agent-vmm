@@ -12,6 +12,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/session"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -19,7 +20,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type integrationRuntimeProbe struct {
@@ -28,19 +28,19 @@ type integrationRuntimeProbe struct {
 	starts     atomic.Int32
 }
 
-func (probe *integrationRuntimeProbe) StartContainer(context.Context, *hostv1.ContainerMutationRequest) (*hostv1.ContainerResponse, error) {
+func (probe *integrationRuntimeProbe) StartContainer(context.Context, *hostv1.StartContainerRequest) (*hostv1.StartContainerResponse, error) {
 	probe.starts.Add(1)
-	return &hostv1.ContainerResponse{}, nil
+	return &hostv1.StartContainerResponse{}, nil
 }
-func (probe *integrationRuntimeProbe) ImportImage(stream grpc.ClientStreamingServer[hostv1.ImportImageRequest, hostv1.Image]) error {
+func (probe *integrationRuntimeProbe) ImportImage(stream grpc.ClientStreamingServer[hostv1.ImportImageRequest, hostv1.ImportImageResponse]) error {
 	return (&agentServer{controller: probe.controller}).ImportImage(stream)
 }
 
-func (probe *integrationRuntimeProbe) ReleaseSession(ctx context.Context, request *hostv1.ReleaseSessionRequest) (*emptypb.Empty, error) {
+func (probe *integrationRuntimeProbe) ReleaseSession(ctx context.Context, request *hostv1.ReleaseSessionRequest) (*hostv1.ReleaseSessionResponse, error) {
 	return (&agentServer{controller: probe.controller}).ReleaseSession(ctx, request)
 }
 
-func integrationAuthorityFixture(t *testing.T) (*Controller, store.AgentIntegration) {
+func integrationAuthorityFixture(t *testing.T) (*Controller, store.AgentIntegration, *integrationProbeFactory) {
 	t.Helper()
 	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
@@ -54,49 +54,42 @@ func integrationAuthorityFixture(t *testing.T) (*Controller, store.AgentIntegrat
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Controller{store: database, sessions: make(map[string]*sessionServer)}, integration
+	controller := &Controller{store: database}
+	factory := &integrationProbeFactory{controller: controller, entered: make(chan string, 8), probes: make(chan *integrationRuntimeProbe, 8)}
+	config := testSessionConfig(t, controller)
+	config.Runtime = factory
+	config.StreamInterceptors = append([]grpc.StreamServerInterceptor{func(service any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		factory.entered <- info.FullMethod
+		return handler(service, stream)
+	}}, config.StreamInterceptors...)
+	controller.sessions = session.New(config)
+	t.Cleanup(controller.sessions.Close)
+	return newTestController(controller), integration, factory
 }
 
-func integrationSessionProbe(t *testing.T, controller *Controller, integration store.AgentIntegration, id string) (hostv1.AgentRuntimeServiceClient, *integrationRuntimeProbe, <-chan string) {
+type integrationProbeFactory struct {
+	controller *Controller
+	entered    chan string
+	probes     chan *integrationRuntimeProbe
+}
+
+func (factory *integrationProbeFactory) RuntimeService(context.Context) hostv1.AgentRuntimeServiceServer {
+	probe := &integrationRuntimeProbe{controller: factory.controller}
+	factory.probes <- probe
+	return probe
+}
+func integrationSessionProbe(t *testing.T, controller *Controller, integration store.AgentIntegration, factory *integrationProbeFactory) (hostv1.AgentRuntimeServiceClient, *integrationRuntimeProbe, <-chan string, store.Session) {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tracked := &sessionServer{listener: listener, integrationID: integration.ID, integrationRevision: integration.Revision, stopDone: make(chan struct{})}
-	entered := make(chan string, 8)
-	identity := auth.Identity{Role: auth.Agent, SessionID: id, EnvironmentID: integration.EnvironmentID, NamespaceID: "namespace"}
-	server := grpc.NewServer(grpc.WaitForHandlers(true), grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(identity), func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		entered <- info.FullMethod
-		return handler(ctx, request)
-	}, sessionActivityUnary(controller, id)), grpc.ChainStreamInterceptor(auth.StreamInterceptor(identity), sessionActivityStream(controller, id), func(service any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		entered <- info.FullMethod
-		return handler(service, stream)
-	}))
-	tracked.server = server
-	probe := &integrationRuntimeProbe{controller: controller}
-	hostv1.RegisterAgentRuntimeServiceServer(server, probe)
-	if err := controller.store.CreateAuthorizedSession(t.Context(), store.Session{ID: id, IntegrationID: integration.ID, EnvironmentID: integration.EnvironmentID, SocketPath: listener.Addr().String(), Origin: 1, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}, integration.Revision); err != nil {
-		t.Fatal(err)
-	}
-	controller.mu.Lock()
-	controller.sessions[id] = tracked
-	controller.mu.Unlock()
-	go server.Serve(listener)
-	t.Cleanup(func() { server.Stop(); listener.Close() })
-	connection, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { connection.Close() })
-	return hostv1.NewAgentRuntimeServiceClient(connection), probe, entered
+	record := createTestSession(t, controller, integration.EnvironmentID, integration.ID, integration.Revision, auth.Identity{})
+	client, _ := dialTestSession(t, record)
+	return client, <-factory.probes, factory.entered, record
 }
 
 func TestNewIntegrationIntentCancelsIdleImportAndOldCommitCannotReopenAuthority(t *testing.T) {
-	controller, integration := integrationAuthorityFixture(t)
+	controller, integration, factory := integrationAuthorityFixture(t)
 	operator := &operatorServer{controller: controller}
 	install := &hostv1.CommitAgentIntegrationRequest{RequestId: "install", IntegrationId: integration.ID, ExpectedRevision: integration.Revision, ConfigFingerprint: "first"}
-	first, err := callAsOperator(t, func(ctx context.Context) (*hostv1.AgentIntegrationResponse, error) {
+	first, err := callAsOperator(t, func(ctx context.Context) (*hostv1.CommitAgentIntegrationResponse, error) {
 		return operator.CommitAgentIntegration(ctx, install)
 	})
 	if err != nil {
@@ -106,7 +99,7 @@ func TestNewIntegrationIntentCancelsIdleImportAndOldCommitCannotReopenAuthority(
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, _, entered := integrationSessionProbe(t, controller, integration, "old")
+	client, oldProbe, entered, oldSession := integrationSessionProbe(t, controller, integration, factory)
 	stream, err := client.ImportImage(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +110,7 @@ func TestNewIntegrationIntentCancelsIdleImportAndOldCommitCannotReopenAuthority(
 		t.Fatal("idle import was not admitted")
 	}
 	stop := &hostv1.CommitAgentIntegrationRequest{RequestId: "stop", IntegrationId: integration.ID, ExpectedRevision: integration.Revision, ConfigFingerprint: "first"}
-	stopped, err := callAsOperator(t, func(operatorContext context.Context) (*hostv1.AgentIntegrationResponse, error) {
+	stopped, err := callAsOperator(t, func(operatorContext context.Context) (*hostv1.CommitAgentIntegrationResponse, error) {
 		ctx, cancel := context.WithTimeout(operatorContext, time.Second)
 		defer cancel()
 		return operator.CommitAgentIntegration(ctx, stop)
@@ -128,21 +121,25 @@ func TestNewIntegrationIntentCancelsIdleImportAndOldCommitCannotReopenAuthority(
 	if _, err := stream.CloseAndRecv(); err == nil {
 		t.Fatal("idle old import survived new intent")
 	}
-	if err := controller.authorizeSession(t.Context(), "old"); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("old authority=%v", err)
+	if _, err := client.StartContainer(t.Context(), &hostv1.StartContainerRequest{}); err == nil || oldProbe.starts.Load() != 0 {
+		t.Fatalf("old authority survived revocation: %v", err)
+	}
+	stored, err := controller.store.GetSession(t.Context(), oldSession.ID)
+	if err != nil || stored.RevokedAt == nil {
+		t.Fatalf("old session revocation=%+v %v", stored, err)
 	}
 	integration, err = controller.store.GetAgentIntegration(t.Context(), integration.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, _ = integrationSessionProbe(t, controller, integration, "current")
-	replayed, err := callAsOperator(t, func(ctx context.Context) (*hostv1.AgentIntegrationResponse, error) {
+	current, _, _, _ := integrationSessionProbe(t, controller, integration, factory)
+	replayed, err := callAsOperator(t, func(ctx context.Context) (*hostv1.CommitAgentIntegrationResponse, error) {
 		return operator.CommitAgentIntegration(ctx, install)
 	})
 	if err != nil || replayed.GetIntegration().GetRevision() != first.GetIntegration().GetRevision() || replayed.GetIntegration().GetRevision() == stopped.GetIntegration().GetRevision() {
 		t.Fatalf("original receipt=%v %v", replayed, err)
 	}
-	if err := controller.authorizeSession(t.Context(), "current"); err != nil {
+	if _, err := current.StartContainer(t.Context(), &hostv1.StartContainerRequest{}); err != nil {
 		t.Fatalf("replay cancelled current authority: %v", err)
 	}
 	_, err = callAsOperator(t, func(ctx context.Context) (*hostv1.CreateAgentSessionResponse, error) {
@@ -153,56 +150,10 @@ func TestNewIntegrationIntentCancelsIdleImportAndOldCommitCannotReopenAuthority(
 	}
 }
 
-func TestIntegrationMutationRechecksRevisionAfterAdmissionLock(t *testing.T) {
-	controller, integration := integrationAuthorityFixture(t)
-	client, probe, entered := integrationSessionProbe(t, controller, integration, "old")
-	unlock := controller.lockIntegration(integration.ID)
-	result := make(chan error, 1)
-	go func() {
-		_, err := client.StartContainer(t.Context(), &hostv1.ContainerMutationRequest{RequestId: "not-yet-started", ContainerId: "component", ExpectedGenerationId: "generation"})
-		result <- err
-	}()
-	select {
-	case <-entered:
-	case <-time.After(time.Second):
-		unlock()
-		t.Fatal("old RPC did not reach admission")
-	}
-	_, err := controller.store.CommitAgentIntegration(t.Context(), "new", integration.ID, integration.Revision, "new", 2)
-	unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-result:
-		if status.Code(err) != codes.PermissionDenied || probe.starts.Load() != 0 {
-			t.Fatalf("stale mutation=%v starts=%d", err, probe.starts.Load())
-		}
-	case <-time.After(time.Second):
-		t.Fatal("stale RPC did not finish")
-	}
-	if _, err := client.ReleaseSession(t.Context(), &hostv1.ReleaseSessionRequest{RequestId: "release-own"}); err != nil {
-		t.Fatalf("stale session could not release itself: %v", err)
-	}
-	until := time.Now().Add(time.Second)
-	for {
-		controller.mu.Lock()
-		_, active := controller.sessions["old"]
-		controller.mu.Unlock()
-		if !active {
-			break
-		}
-		if time.Now().After(until) {
-			t.Fatal("released stale session remained active")
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
 func TestOperatorStopSavesIntentWithoutGuestOrSessionAndRejectsOldClaim(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "before-first-start", true: "running-intent"}[existing], func(t *testing.T) {
-			controller, integration := integrationAuthorityFixture(t)
+			controller, integration, _ := integrationAuthorityFixture(t)
 			controller.manager = &vmm.Manager{}
 			if existing {
 				if err := controller.store.SetManagedContainerRunning(t.Context(), integration.EnvironmentID, "component", "generation", true); err != nil {
@@ -223,7 +174,7 @@ func TestOperatorStopSavesIntentWithoutGuestOrSessionAndRejectsOldClaim(t *testi
 			}
 			t.Cleanup(func() { connection.Close() })
 			client := hostv1.NewOperatorServiceClient(connection)
-			request := &hostv1.OperatorStopContainerRequest{RequestId: "stop", EnvironmentId: integration.EnvironmentID, ContainerId: "component", IntegrationId: optional(integration.ID), ExpectedIntegrationRevision: optional(integration.Revision)}
+			request := &hostv1.OperatorServiceStopContainerRequest{RequestId: "stop", EnvironmentId: integration.EnvironmentID, ContainerId: "component", IntegrationId: optional(integration.ID), ExpectedIntegrationRevision: optional(integration.Revision)}
 			_, err = client.StopContainer(t.Context(), request)
 			pending := false
 			for _, detail := range status.Convert(err).Details() {
@@ -238,7 +189,11 @@ func TestOperatorStopSavesIntentWithoutGuestOrSessionAndRejectsOldClaim(t *testi
 			if err != nil || intent.DesiredRunning || (existing && intent.ContainerGenerationID != "generation") {
 				t.Fatalf("saved stop intent=%+v %v", intent, err)
 			}
-			if len(controller.sessions) != 0 || controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING || controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_STARTING {
+			sessions, listErr := controller.store.ListSessions(t.Context(), "", true)
+			if listErr != nil {
+				t.Fatal(listErr)
+			}
+			if len(sessions) != 0 || controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING || controller.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_STARTING {
 				t.Fatal("Stop created session or started VM")
 			}
 			if _, err := client.CommitAgentIntegration(t.Context(), &hostv1.CommitAgentIntegrationRequest{RequestId: "new-start", IntegrationId: integration.ID, ExpectedRevision: integration.Revision, ConfigFingerprint: "first"}); err != nil {

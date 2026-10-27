@@ -10,12 +10,11 @@ import (
 	"strings"
 
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"github.com/AFK-surf/agent-vmm/internal/launchdservice"
 )
 
-var launchctlServiceObserver = launchctlServiceObservation
-
 func observeHostService(ctx context.Context, value paths) (hostServiceFacts, error) {
-	return launchctlServiceObserver(ctx, value.hostJob())
+	return value.serviceOwner().observe(ctx, value.hostJob())
 }
 
 func (value paths) hostJob() string { return value.serviceDomain() + "/" + hostLabel }
@@ -59,7 +58,7 @@ func parseLaunchctlServiceObservation(output []byte) (hostServiceFacts, error) {
 			}
 		}
 	}
-	if result.PID > 0 && !processRunning(result.PID) {
+	if result.PID > 0 && !launchdservice.DefaultSystem().ProcessRunning(result.PID) {
 		result.PID = 0
 	}
 	result.Running = result.PID > 0

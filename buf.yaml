@@ -6,11 +6,24 @@ lint:
     - api/google/rpc
   use:
     - STANDARD
+    - COMMENT_SERVICE
+    - COMMENT_RPC
+    - COMMENT_MESSAGE
   except:
     - PACKAGE_DIRECTORY_MATCH
-    - RPC_REQUEST_RESPONSE_UNIQUE
-    - RPC_REQUEST_STANDARD_NAME
-    - RPC_RESPONSE_STANDARD_NAME
+  ignore_only:
+    COMMENT_SERVICE:
+      - api/internal
+    COMMENT_RPC:
+      - api/internal
+    COMMENT_MESSAGE:
+      - api/internal
+    RPC_REQUEST_RESPONSE_UNIQUE:
+      - api/internal
+    RPC_REQUEST_STANDARD_NAME:
+      - api/internal
+    RPC_RESPONSE_STANDARD_NAME:
+      - api/internal
 breaking:
   use:
-    - FILE
+    - PACKAGE

@@ -6,17 +6,15 @@ import (
 	"context"
 	"io"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 )
 
 func (server *agentServer) requireWorkspaceVolume(ctx context.Context, identity auth.Identity, volumeID string) error {
-	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+	if err := server.controller.cleanup.RequireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
 		return err
 	}
 	if volumeID == "" {
@@ -32,21 +30,21 @@ func (server *agentServer) requireWorkspaceVolume(ctx context.Context, identity 
 	return nil
 }
 
-func (server *agentServer) StatWorkspace(ctx context.Context, request *hostv1.WorkspacePathRequest) (*hostv1.WorkspaceEntry, error) {
+func (server *agentServer) StatWorkspace(ctx context.Context, request *hostv1.StatWorkspaceRequest) (*hostv1.StatWorkspaceResponse, error) {
 	identity, err := auth.AgentIdentity(ctx)
 	if err != nil {
 		return nil, err
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, err
 	}
-	defer connection.Close()
+
 	entry, err := client.StatWorkspace(ctx, &vmmdv1.WorkspacePathRequest{ActorNamespaceId: identity.NamespaceID, Path: request.GetPath()})
 	if err != nil {
 		return nil, err
 	}
-	return workspaceEntryFromGuest(entry), nil
+	return &hostv1.StatWorkspaceResponse{Entry: workspaceEntryFromGuest(entry)}, nil
 }
 
 func (server *agentServer) ListWorkspace(ctx context.Context, request *hostv1.ListWorkspaceRequest) (*hostv1.ListWorkspaceResponse, error) {
@@ -57,11 +55,11 @@ func (server *agentServer) ListWorkspace(ctx context.Context, request *hostv1.Li
 	if err := server.requireWorkspaceVolume(ctx, identity, request.GetVolumeId()); err != nil {
 		return nil, err
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, err
 	}
-	defer connection.Close()
+
 	guest, err := client.ListWorkspace(ctx, &vmmdv1.ListWorkspaceRequest{ActorNamespaceId: identity.NamespaceID, Path: request.GetPath(), Limit: request.GetLimit(), VolumeId: request.GetVolumeId()})
 	if err != nil {
 		return nil, err
@@ -81,11 +79,11 @@ func (server *agentServer) ReadWorkspace(request *hostv1.ReadWorkspaceRequest, s
 	if err := server.requireWorkspaceVolume(stream.Context(), identity, request.GetVolumeId()); err != nil {
 		return err
 	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return workspaceGuestReadError(err, "start")
 	}
-	defer connection.Close()
+
 	guest, err := client.ReadWorkspace(stream.Context(), &vmmdv1.ReadWorkspaceRequest{ActorNamespaceId: identity.NamespaceID,
 		Path: request.GetPath(), Offset: request.GetOffset(), MaxBytes: request.GetMaxBytes(), VolumeId: request.GetVolumeId()})
 	if err != nil {
@@ -113,11 +111,11 @@ func (server *agentServer) WriteWorkspace(stream hostv1.AgentRuntimeService_Writ
 	if err != nil {
 		return err
 	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
+
 	guest, err := client.WriteWorkspace(stream.Context())
 	if err != nil {
 		return err
@@ -145,11 +143,11 @@ func (server *agentServer) ArchiveWorkspace(request *hostv1.ArchiveWorkspaceRequ
 	if err != nil {
 		return err
 	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
+
 	guest, err := client.ArchiveWorkspace(stream.Context(), &vmmdv1.ArchiveWorkspaceRequest{ActorNamespaceId: identity.NamespaceID, Path: request.GetPath()})
 	if err != nil {
 		return err
@@ -173,11 +171,11 @@ func (server *agentServer) ExtractWorkspace(stream hostv1.AgentRuntimeService_Ex
 	if err != nil {
 		return err
 	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
+
 	guest, err := client.ExtractWorkspace(stream.Context())
 	if err != nil {
 		return err
@@ -189,7 +187,7 @@ func (server *agentServer) ExtractWorkspace(stream hostv1.AgentRuntimeService_Ex
 			if err != nil {
 				return err
 			}
-			return stream.SendAndClose(&hostv1.WriteWorkspaceResponse{Entry: workspaceEntryFromGuest(response.GetEntry()), Sha256: response.GetSha256()})
+			return stream.SendAndClose(&hostv1.ExtractWorkspaceResponse{Entry: workspaceEntryFromGuest(response.GetEntry()), Sha256: response.GetSha256()})
 		}
 		if recvErr != nil {
 			return recvErr
@@ -244,12 +242,5 @@ func workspaceGuestReadError(err error, phase string) error {
 	if len(original.Proto().GetDetails()) != 0 {
 		return err
 	}
-	annotated, detailErr := status.New(original.Code(), "workspace guest relay failed").WithDetails(&errdetails.ErrorInfo{
-		Reason: "WORKSPACE_GUEST_RELAY_FAILURE", Domain: "agentvmm.afk.surf",
-		Metadata: map[string]string{"hop": "guest", "phase": phase},
-	})
-	if detailErr != nil {
-		return err
-	}
-	return annotated.Err()
+	return hostv1.NewError(original.Code(), hostv1.ErrorReason_ERROR_REASON_WORKSPACE_GUEST_RELAY_FAILURE, "workspace guest relay failed", hostv1.WithMetadata(map[string]string{"hop": "guest", "phase": phase}))
 }

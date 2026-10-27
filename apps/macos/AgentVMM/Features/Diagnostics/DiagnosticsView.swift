@@ -24,7 +24,7 @@ struct DiagnosticsView: View {
                 if let operation = model.latestOperation {
                     GroupBox("Latest operation") {
                         VStack(alignment: .leading, spacing: 7) {
-                            Label("\(operation.kind): \(operation.state) — \(operation.stage)", systemImage: operation.state == "Succeeded" ? "checkmark.circle.fill" : "clock.fill")
+                            Label("\(operation.kind): \(operation.state.label) — \(operation.stage)", systemImage: operation.state == .succeeded ? "checkmark.circle.fill" : "clock.fill")
                             if let resource = operation.resource { Text("Resource: \(resource)").foregroundStyle(.secondary) }
                             if let reason = operation.reason { Text("Reason: \(reason)").foregroundStyle(.secondary) }
                             Text(operation.nextStep).foregroundStyle(.secondary)
@@ -60,7 +60,6 @@ struct DiagnosticsView: View {
                         LabeledContent("Remote compute socket", value: AppModel.remoteComputeSocketPath)
                         LabeledContent("VM boot ID", value: model.snapshot.bootID.isEmpty ? "Unavailable" : model.snapshot.bootID)
                         LabeledContent("Appliances", value: String(model.appliances.count))
-                        LabeledContent("Configured MCP clients", value: String(model.mcpClientBindings.count))
                         ForEach(model.snapshot.remoteRegistrations, id: \.id) { remote in
                             LabeledContent("Connector release", value: remote.connector.release.isEmpty ? "Unavailable" : remote.connector.release)
                             LabeledContent("Connector phase", value: remote.connector.phase.rawValue)

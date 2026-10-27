@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
@@ -26,6 +26,7 @@ import (
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -197,24 +198,41 @@ func TestShutdownStopsRunningWritersBeforeHostPreparation(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
-			runtime := &Runtime{client: client, network: new(guestnetwork.Manager), inventory: index, waiters: make(map[string][]chan uint32)}
+			runtime := &Runtime{client: client, network: new(guestnetwork.Manager), inventory: index, waiters: make(map[string][]chan uint32), logger: slog.Default().With("component", "guest-control")}
+
 			containers, err := client.Containers(runtimeContext(context.Background()))
 			if err != nil {
 				t.Fatal(err)
 			}
 			for _, container := range containers {
-				info, err := container.Info(runtimeContext(context.Background()))
+				ctx := runtimeContext(context.Background())
+				labels, err := container.Labels(ctx)
 				if err != nil {
 					t.Fatal(err)
 				}
-				path := logPath(info.Labels[runtimeOwnerLabel], "payload", containerGenerationID(info.ID, info.CreatedAt))
-				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				task, err := container.Task(ctx, nil)
+				if err != nil {
 					t.Fatal(err)
 				}
+				process, err := task.LoadProcess(ctx, mainProcessID, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				taskExit, err := task.Wait(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				mainExit, err := process.Wait(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				runtime.tasks.Add(1)
+				go func() {
+					defer runtime.tasks.Done()
+					runtime.monitorTask(labels[runtimeOwnerLabel], labels[runtimeExternalIDLabel], labels[containerInstanceLabel], container, task, process, mainExit, taskExit)
+				}()
 			}
-			if err := runtime.recoverTaskMonitors(context.Background()); err != nil {
-				t.Fatal(err)
-			}
+
 			archiveFailure := errors.New("archive workspace cleanup incomplete")
 			if mode == "archive-cleanup-failure" {
 				done := make(chan struct{})
@@ -307,7 +325,7 @@ func TestShutdownStopsRunningWritersBeforeHostPreparation(t *testing.T) {
 func TestShutdownFreezesStartingAndFailedSupervisorRecords(t *testing.T) {
 	for _, state := range []vmmdv1.SystemApplianceState{vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_STARTING, vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_FAILED} {
 		t.Run(state.String(), func(t *testing.T) {
-			supervisor := newApplianceSupervisor(nil, "boot")
+			supervisor := newApplianceSupervisor(new(Runtime), "boot")
 			path := filepath.Join(t.TempDir(), "private-runtime")
 			if err := os.Mkdir(path, 0700); err != nil {
 				t.Fatal(err)
@@ -336,12 +354,15 @@ func TestShutdownFreezesStartingAndFailedSupervisorRecords(t *testing.T) {
 
 func TestShutdownWaitsForRestartAlreadyPastLaunchCheck(t *testing.T) {
 	fixture := &systemImageFixture{containers: map[string]*containersapi.Container{}}
-	runtime := &Runtime{client: systemImageClient(t, fixture)}
+	runtime := &Runtime{client: systemImageClient(t, fixture), logger: slog.Default().With("component", "guest-control")}
 	supervisor := newApplianceSupervisor(runtime, "boot")
 	record := &systemApplianceRecord{status: &vmmdv1.SystemAppliance{Identity: &vmmdv1.SystemApplianceIdentity{InstallationId: "controller", ContainerInstanceId: "previous"}, State: vmmdv1.SystemApplianceState_SYSTEM_APPLIANCE_STATE_STARTING, RestartCount: 1}}
 	supervisor.records["controller"] = record
 	supervisor.order.ReplaceOrInsert("controller")
-	unlock := runtime.lockNamespace("system.controller")
+	unlock, lockErr := runtime.lockNamespace(context.Background(), "system.controller")
+	if lockErr != nil {
+		t.Fatal(lockErr)
+	}
 	restartDone := make(chan struct{})
 	go func() {
 		supervisor.restartAfterBackoff("controller", "system.controller", "payload", "previous", 1)

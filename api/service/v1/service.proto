@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package agentvmm.service.v1;
 
-import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "trust/v1/trust.proto";
 
@@ -41,6 +40,8 @@ enum ServiceProtocol {
   SERVICE_PROTOCOL_HTTP = 2;
 }
 
+// ServiceExport authorizes one owned container ID and port while tracking its current instance
+// projection.
 message ServiceExport {
   string export_id = 1;
   string environment_id = 2;
@@ -54,11 +55,15 @@ message ServiceExport {
   string container_generation_id = 10;
 }
 
+// ApplianceFrontendDestination selects a manifest-declared frontend on one installation rather
+// than a raw endpoint.
 message ApplianceFrontendDestination {
   string installation_id = 1;
   string name = 2;
 }
 
+// ServiceImport records a current source container's approved connection to one destination
+// export.
 message ServiceImport {
   string import_id = 1;
   string source_environment_id = 2;
@@ -75,6 +80,8 @@ message ServiceImport {
   string source_container_generation_id = 13;
 }
 
+// AccessRoute records the authorized route state and generation independently of its live
+// transport.
 message AccessRoute {
   string route_id = 1;
   RouteClass route_class = 2;
@@ -97,6 +104,7 @@ message AccessRoute {
   uint64 destination_grant_revision = 19;
 }
 
+// RouteLease bounds one route use under its current revision, expiry, and budgets.
 message RouteLease {
   string lease_id = 1;
   string route_id = 2;
@@ -106,23 +114,8 @@ message RouteLease {
   agentvmm.trust.v1.RouteCapability capability = 6;
 }
 
-message ListServiceExportsRequest {
-  string environment_id = 1;
-}
-
-message ListServiceExportsResponse {
-  repeated ServiceExport exports = 1;
-}
-
-message GetServiceExportRequest {
-  string export_id = 1;
-}
-
-message RevokeServiceExportRequest {
-  string export_id = 1;
-  uint64 expected_revision = 2;
-}
-
+// OpenServiceForwardHeader binds the first transport frame to exact route, lease, source,
+// destination, and capability facts.
 message OpenServiceForwardHeader {
   string route_id = 1;
   string lease_id = 2;
@@ -132,6 +125,8 @@ message OpenServiceForwardHeader {
   agentvmm.trust.v1.RouteCapability capability = 6;
 }
 
+// OpenServiceForwardRequest carries inputs for an operation that verifies current route, lease,
+// generation, instances, and budgets before forwarding bytes.
 message OpenServiceForwardRequest {
   oneof payload {
     OpenServiceForwardHeader header = 1;
@@ -140,6 +135,8 @@ message OpenServiceForwardRequest {
   }
 }
 
+// OpenServiceForwardResponse carries results from an operation that verifies current route,
+// lease, generation, instances, and budgets before forwarding bytes.
 message OpenServiceForwardResponse {
   oneof payload {
     bytes data = 1;
@@ -147,7 +144,31 @@ message OpenServiceForwardResponse {
   }
 }
 
-message PersonalRouteRequest {
+// ServiceRouteService serves instance-fenced service transport.
+service ServiceRouteService {
+  // OpenServiceForward verifies current route, lease, generation, instances, and budgets before
+  // forwarding bytes.
+  rpc OpenServiceForward(stream OpenServiceForwardRequest) returns (stream OpenServiceForwardResponse);
+}
+
+// MeshControlService issues destination-authorized personal routes after current membership
+// verification.
+service MeshControlService {
+  // RequestPersonalRoute asks the destination to verify active source membership and sign a
+  // bounded personal capability.
+  rpc RequestPersonalRoute(RequestPersonalRouteRequest) returns (RequestPersonalRouteResponse);
+}
+
+// RequestPersonalRouteResponse carries results from an operation that asks the destination to
+// verify active source membership and sign a bounded personal capability.
+message RequestPersonalRouteResponse {
+  agentvmm.trust.v1.RouteCapability capability = 1;
+  ServiceExport destination_export = 2;
+}
+
+// RequestPersonalRouteRequest carries inputs for an operation that asks the destination to
+// verify active source membership and sign a bounded personal capability.
+message RequestPersonalRouteRequest {
   string request_id = 1;
   string mesh_id = 2;
   string source_device_id = 3;
@@ -164,18 +185,7 @@ message PersonalRouteRequest {
   RouteClass route_class = 14;
 }
 
-message PersonalRouteResponse {
-  agentvmm.trust.v1.RouteCapability capability = 1;
-  ServiceExport destination_export = 2;
-}
-
-service ServiceRouteService {
-  rpc ListServiceExports(ListServiceExportsRequest) returns (ListServiceExportsResponse);
-  rpc GetServiceExport(GetServiceExportRequest) returns (ServiceExport);
-  rpc RevokeServiceExport(RevokeServiceExportRequest) returns (google.protobuf.Empty);
-  rpc OpenServiceForward(stream OpenServiceForwardRequest) returns (stream OpenServiceForwardResponse);
-}
-
-service MeshControlService {
-  rpc RequestPersonalRoute(PersonalRouteRequest) returns (PersonalRouteResponse);
+// ListServiceExportsResponse returns the exports visible to the environment owner.
+message ListServiceExportsResponse {
+  repeated ServiceExport exports = 1;
 }

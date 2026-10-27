@@ -303,8 +303,12 @@ func TestManagedInstallStateRejectsSymlinkDirectories(t *testing.T) {
 }
 
 func TestManagedInstallStateOwnershipFailureDoesNotPublishPlan(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires an unprivileged identity for the ownership refusal")
+	}
 	value := testPaths(t.TempDir())
 	value.service.Mode = serviceModeDaemon
+	value.service.UID = os.Geteuid() + 1
 	owner := lifecycleOperationOwnerFor(value, 0, func(fd, _, _ int) error {
 		var stat unix.Stat_t
 		if err := unix.Fstat(fd, &stat); err != nil {

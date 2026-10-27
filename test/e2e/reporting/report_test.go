@@ -3,6 +3,7 @@ package reporting
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,36 @@ func TestReadResultsDoesNotMarkParallelParentInterrupted(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Name != "parallel/alpha" || results[0].Action != "pass" {
 		t.Fatalf("results = %+v", results)
+	}
+}
+
+func TestRenderPreparationFailureWithoutManifest(t *testing.T) {
+	directory := t.TempDir()
+	jsonPath := filepath.Join(directory, "test.json")
+	if err := os.WriteFile(jsonPath, []byte(`{"Action":"fail","Output":"E2E preparation failed"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(directory, "report.md")
+	if err := Render(directory, directory, jsonPath, report, 1); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "| `preparation` | FAIL |") {
+		t.Fatalf("report = %s", data)
+	}
+}
+
+func TestReadResultsReportsTopLevelLeaves(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.json")
+	if err := os.WriteFile(path, []byte(`{"Action":"run","Test":"TestExternalBridge"}
+{"Action":"pass","Test":"TestExternalBridge","Elapsed":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	results, _, _, err := readResults(path)
+	if err != nil || len(results) != 1 || results[0].Name != "TestExternalBridge" || results[0].Action != "pass" {
+		t.Fatalf("results = %+v, error = %v", results, err)
 	}
 }

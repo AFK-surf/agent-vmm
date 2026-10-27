@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/containerd/errdefs"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -47,7 +47,7 @@ func (r *Runtime) disposeNamespaceBatch(ctx context.Context, namespaceID string)
 	if err != nil {
 		return false, "inventory", err
 	}
-	ids, err := inventory.disposalBatch(namespaceID, false, disposalBatchSize)
+	ids, err := inventory.disposalBatch(namespaceID, false)
 	if err != nil {
 		return false, "containers", err
 	}
@@ -96,7 +96,7 @@ func (r *Runtime) disposeNamespaceBatch(ctx context.Context, namespaceID string)
 		}
 		return false, "volumes", nil
 	}
-	references, err := inventory.disposalBatch(namespaceID, true, disposalBatchSize)
+	references, err := inventory.disposalBatch(namespaceID, true)
 	if err != nil {
 		return false, "images", err
 	}
@@ -118,10 +118,10 @@ func (r *Runtime) disposeNamespaceBatch(ctx context.Context, namespaceID string)
 	return true, "complete", nil
 }
 
-func (index *runtimeInventoryIndex) disposalBatch(namespaceID string, images bool, limit int) ([]string, error) {
+func (index *runtimeInventoryIndex) disposalBatch(namespaceID string, images bool) ([]string, error) {
 	index.mu.RLock()
 	defer index.mu.RUnlock()
-	result := make([]string, 0, limit)
+	result := make([]string, 0, disposalBatchSize)
 	if images {
 		values, ok := index.images[namespaceID]
 		if !ok {
@@ -129,7 +129,7 @@ func (index *runtimeInventoryIndex) disposalBatch(namespaceID string, images boo
 		}
 		for id := range values {
 			result = append(result, id)
-			if len(result) == limit {
+			if len(result) == disposalBatchSize {
 				break
 			}
 		}
@@ -138,7 +138,7 @@ func (index *runtimeInventoryIndex) disposalBatch(namespaceID string, images boo
 		if !ok {
 			return nil, errors.New("runtime namespace is not indexed")
 		}
-		values.Ascend(func(id string) bool { result = append(result, id); return len(result) < limit })
+		values.Ascend(func(id string) bool { result = append(result, id); return len(result) < disposalBatchSize })
 	}
 	return result, nil
 }

@@ -25,7 +25,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 release="$work/$name"
 mkdir -p "$release/guest"
-for artifact in Image initramfs.xz rootfs.squashfs manifest.json; do
+for artifact in Image initramfs.xz rootfs.squashfs manifest.json THIRD_PARTY_NOTICES; do
 	cp "$guest/$artifact" "$release/guest/$artifact"
 done
 if [ -s "$guest/mcp-appliance.digest" ]; then
@@ -39,6 +39,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -tags=managedonly -trimpath \
 	-o "$release/agent-vmm" "$repo/cmd/agent-vmm"
 cp "$data_worker" "$release/agent-vmm-data"
 chmod 0755 "$release/agent-vmm" "$release/agent-vmm-data"
+cp "$repo/LICENSE" "$repo/NOTICE" "$release/"
+go run "$repo/build/notices" -o "$release/THIRD_PARTY_NOTICES" \
+  -licenses "$repo/third_party/licenses" -go-binary "$release/agent-vmm" \
+  -cargo-manifest "$repo/data/agent-vmm-data/Cargo.toml" -cargo-target aarch64-unknown-linux-gnu
 
 # release.json lists every file. Its SHA-256 is the content ID and the
 # installed directory name under /opt/agent-vmm.

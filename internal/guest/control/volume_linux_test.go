@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +69,7 @@ func TestInitializeVolumeDirectoryAppliesOwnerAndMode(t *testing.T) {
 		}
 	}
 	for _, mode := range []uint32{0o2777, 0o4777, 0o7777, 0o10000} {
-		if _, err := (&Runtime{}).CreateVolume(context.Background(), "namespace-a", "volume", nil, nil, &mode); err == nil {
+		if _, err := (&Runtime{logger: slog.Default().With("component", "guest-control")}).CreateVolume(context.Background(), "namespace-a", "volume", nil, nil, &mode); err == nil {
 			t.Fatalf("accepted privileged mode %o", mode)
 		}
 	}
@@ -103,13 +104,16 @@ func TestVolumeGenerationFenceRejectsConcurrentSameNameRecreation(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	runtime := &Runtime{}
+	runtime := &Runtime{logger: slog.Default().With("component", "guest-control")}
 	recreateDone := make(chan struct{})
 	recreateResult := make(chan error, 1)
-	unlockRecreation := runtime.lockNamespace("namespace-a")
+	unlockRecreation, lockErr := runtime.lockNamespace(context.Background(), "namespace-a")
+	if lockErr != nil {
+		t.Fatal(lockErr)
+	}
 	deleteResult := make(chan error, 1)
 	go func() {
-		unlock, err := runtime.lockVolumeGeneration("namespace-a", path, staleGeneration)
+		unlock, err := runtime.lockVolumeGeneration(context.Background(), "namespace-a", path, staleGeneration)
 		if unlock != nil {
 			unlock()
 		}

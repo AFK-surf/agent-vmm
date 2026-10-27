@@ -11,9 +11,8 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -66,7 +65,7 @@ func TestBuildFailureTrailersPreserveProgressAndReceiptCause(t *testing.T) {
 		reset   bool
 	}{
 		{name: "old untyped output exceeds peer headers", failure: errors.New(wrapped.Error()), reset: true},
-		{name: "domain error has short wire summary", failure: wrapped},
+		{name: "build failure has short wire summary", failure: wrapped},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			listener := bufconn.Listen(1 << 20)
@@ -112,12 +111,8 @@ func TestBuildFailureTrailersPreserveProgressAndReceiptCause(t *testing.T) {
 			if !strings.Contains(actual.Message(), "exit code 1") || !strings.Contains(actual.Message(), "image operation receipt") || strings.Contains(actual.Message(), finalCause) {
 				t.Fatalf("trailer is not a short build summary: %v", err)
 			}
-			if len(actual.Details()) != 2 {
-				t.Fatalf("typed failure details lost: %v", actual.Details())
-			}
-			info, ok := actual.Details()[0].(*errdetails.ErrorInfo)
-			if !ok || info.Reason != "RUNTIME_OPERATION_FAILED" || info.Domain != "agent-vmm" {
-				t.Fatalf("typed failure changed: %v", actual.Details())
+			if len(actual.Details()) != 0 {
+				t.Fatalf("uncatalogued build failure has wire details: %v", actual.Details())
 			}
 			observed, err := client.ObserveImageOperation(ctx, request)
 			if err != nil || observed.GetRequestId() != receipt.RequestId || observed.GetState() != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_FAILED || !observed.GetWriterSettled() || !strings.Contains(observed.GetStatus().GetMessage(), finalCause) || !strings.Contains(observed.GetStatus().GetMessage(), "runsc fatal") {

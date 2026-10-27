@@ -8,18 +8,9 @@ import (
 	"github.com/ti-mo/conntrack"
 )
 
-func deleteLinkConntrack(sources, destinations []Endpoint, ports []uint32) error {
-	sourceAddresses := make(map[string]bool, len(sources))
-	destinationAddresses := make(map[string]bool, len(destinations))
-	allowedPorts := make(map[uint16]bool, len(ports))
-	for _, endpoint := range sources {
-		sourceAddresses[endpoint.Address.String()] = true
-	}
-	for _, endpoint := range destinations {
-		destinationAddresses[endpoint.Address.String()] = true
-	}
-	for _, port := range ports {
-		allowedPorts[uint16(port)] = true
+func deleteRevokedConntrack(tuples map[revokedTuple]struct{}) error {
+	if len(tuples) == 0 {
+		return nil
 	}
 	connection, err := conntrack.Dial(nil)
 	if err != nil {
@@ -33,7 +24,8 @@ func deleteLinkConntrack(sources, destinations []Endpoint, ports []uint32) error
 	var result error
 	for _, flow := range flows {
 		tuple := flow.TupleOrig
-		if tuple.Proto.Protocol == 6 && sourceAddresses[tuple.IP.SourceAddress.String()] && destinationAddresses[tuple.IP.DestinationAddress.String()] && allowedPorts[tuple.Proto.DestinationPort] {
+		_, revoked := tuples[revokedTuple{tuple.IP.SourceAddress, tuple.IP.DestinationAddress, tuple.Proto.DestinationPort}]
+		if tuple.Proto.Protocol == 6 && revoked {
 			if err := connection.Delete(flow); err != nil {
 				result = errors.Join(result, err)
 			}

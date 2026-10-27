@@ -1,5 +1,0 @@
-KVM ABI definitions, ARM register definitions, Linux boot layout, FDT encoding,
-WHP bindings, virtio devices, and ../../build/guest/kernel ARM64 decoding derive from tinyrange/cc
-(https://github.com/tinyrange/cc),
-commit eed53ffb414a8bebcbb1d7934fab00558d78df00, under Apache License 2.0.
-The extracted code has been modified for agent-vmm. See LICENSE-cc.txt.

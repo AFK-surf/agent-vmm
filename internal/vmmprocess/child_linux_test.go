@@ -13,7 +13,7 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 )
 
 type childHarness struct {
@@ -106,7 +106,7 @@ func TestClaimFencesPendingRequestsWithoutStoppingVM(t *testing.T) {
 	results := make(chan error, 2)
 	for _, op := range []string{"wait", "accept"} {
 		go func() {
-			conn, _, err := exchange(ctx, h.path, request{Operation: op, Session: "first", Port: netprotocol.EgressPort})
+			conn, _, err := exchange(ctx, h.path, request{Operation: op, Session: "first", Port: egresslink.EgressPort})
 			if conn != nil {
 				_ = conn.Close()
 			}
@@ -174,7 +174,7 @@ func TestEgressAcceptRelayIsRevokedByClaim(t *testing.T) {
 	h := serveChild(t)
 	h.claim(t, "first")
 	client := &Client{path: h.path, session: "first"}
-	listener, err := client.Listen(netprotocol.EgressPort)
+	listener, err := client.Listen(egresslink.EgressPort)
 	if err != nil {
 		t.Fatal(err)
 	}

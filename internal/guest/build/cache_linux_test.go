@@ -7,21 +7,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 )
 
 func TestCachePressureReclaimsOnlySettledWriters(t *testing.T) {
 	var logs bytes.Buffer
-	previous := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(previous) })
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
 	root := t.TempDir()
 	builder := NewBuilder(nil, nil, nil)
 	for _, owner := range []string{"active", "locked", "settled"} {
@@ -43,7 +44,7 @@ func TestCachePressureReclaimsOnlySettledWriters(t *testing.T) {
 	}
 	header := &vmmdv1.BuildImageHeader{RequestId: "before-gc", ActorNamespaceId: "allocation", ControllerCacheScope: "controller"}
 	logCacheState(header, settled)
-	if !strings.Contains(logs.String(), `controller_scope="controller"`) || !strings.Contains(logs.String(), `worker_exists=true worker_id="original-worker"`) {
+	if !strings.Contains(logs.String(), `controller_scope=controller`) || !strings.Contains(logs.String(), `worker_exists=true worker_id=original-worker`) {
 		t.Fatalf("entry facts missing: %s", logs.String())
 	}
 	logs.Reset()
@@ -64,10 +65,10 @@ func TestCachePressureReclaimsOnlySettledWriters(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "settled")); !os.IsNotExist(err) {
 		t.Fatal("settled cache retained", err)
 	}
-	if !strings.Contains(logs.String(), `reason="storage_headroom_test"`) || !strings.Contains(logs.String(), `filesystem_reclaimed_bytes=`) || !strings.Contains(logs.String(), `succeeded=true`) {
+	if !strings.Contains(logs.String(), `reason=storage_headroom_test`) || !strings.Contains(logs.String(), `filesystem_reclaimed_bytes=`) || !strings.Contains(logs.String(), `succeeded=true`) {
 		t.Fatalf("GC facts missing: %s", logs.String())
 	}
-	if strings.Contains(logs.String(), `root="`+filepath.Join(root, "active")+`"`) || strings.Contains(logs.String(), `root="`+filepath.Join(root, "locked")+`"`) {
+	if strings.Contains(logs.String(), filepath.Join(root, "active")) || strings.Contains(logs.String(), filepath.Join(root, "locked")) {
 		t.Fatalf("logged active cache as reclaimed: %s", logs.String())
 	}
 	logs.Reset()
@@ -94,7 +95,7 @@ func TestCachePressureReclaimsOnlySettledWriters(t *testing.T) {
 	logs.Reset()
 	header.RequestId = "after-gc"
 	logCacheState(header, settled)
-	if !strings.Contains(logs.String(), `request_id="after-gc"`) || !strings.Contains(logs.String(), `root_exists=true state_exists=true worker_exists=true worker_id="rebuilt-worker"`) {
+	if !strings.Contains(logs.String(), `request_id=after-gc`) || !strings.Contains(logs.String(), `root_exists=true state_exists=true worker_exists=true worker_id=rebuilt-worker`) {
 		t.Fatalf("rebuilt entry facts missing: %s", logs.String())
 	}
 
@@ -106,7 +107,7 @@ func TestCachePressureReclaimsOnlySettledWriters(t *testing.T) {
 	if _, err := builder.reclaimCache(context.Background(), invalid, 1, "read_error_test"); err == nil {
 		t.Fatal("missing cache inventory error")
 	}
-	if !strings.Contains(logs.String(), `reason="read_error_test"`) || !strings.Contains(logs.String(), `not a directory`) {
+	if !strings.Contains(logs.String(), `reason=read_error_test`) || !strings.Contains(logs.String(), `not a directory`) {
 		t.Fatalf("cache inventory error context missing: %s", logs.String())
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
@@ -116,7 +117,20 @@ func TestCachePressureReclaimsOnlySettledWriters(t *testing.T) {
 	}
 }
 
-func TestCacheUnlinkLeavesAdmissionFreeIncludingInterruptedCollection(t *testing.T) {
+type cacheCollectionHandler struct {
+	slog.Handler
+	entered, release chan struct{}
+}
+
+func (handler cacheCollectionHandler) Handle(ctx context.Context, record slog.Record) error {
+	if record.Message == "BuildKit cache reclaimed" {
+		close(handler.entered)
+		<-handler.release
+	}
+	return handler.Handler.Handle(ctx, record)
+}
+
+func TestCacheCollectionLeavesAdmissionFreeIncludingInterruptedCollection(t *testing.T) {
 	for _, recovered := range []bool{false, true} {
 		t.Run(fmt.Sprint(recovered), func(t *testing.T) {
 			root := t.TempDir()
@@ -124,86 +138,52 @@ func TestCacheUnlinkLeavesAdmissionFreeIncludingInterruptedCollection(t *testing
 			if recovered {
 				owner = ".gc-interrupted"
 			}
-			cache := filepath.Join(root, owner, "buildkit")
-			if err := os.MkdirAll(cache, 0700); err != nil {
+			if err := os.MkdirAll(filepath.Join(root, owner, "buildkit"), 0700); err != nil {
 				t.Fatal(err)
 			}
-			const cacheFiles = 15000
-			for index := range cacheFiles {
-				if err := os.WriteFile(filepath.Join(cache, fmt.Sprint(index)), nil, 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
+			entered, release := make(chan struct{}), make(chan struct{})
+			previous := slog.Default()
+			slog.SetDefault(slog.New(cacheCollectionHandler{Handler: slog.NewTextHandler(io.Discard, nil), entered: entered, release: release}))
+			defer slog.SetDefault(previous)
 			builder := NewBuilder(nil, nil, nil)
 			done := make(chan struct{})
 			var collectionErr error
 			go func() {
-				count, err := builder.reclaimCache(context.Background(), root, 1, "concurrent-admission")
+				count, err := builder.reclaimCache(t.Context(), root, 1, "concurrent-admission")
 				if err == nil && count != 1 {
 					err = fmt.Errorf("collected %d roots", count)
 				}
 				collectionErr = err
 				close(done)
 			}()
-			t.Cleanup(func() { <-done })
-			deadline := time.Now().Add(5 * time.Second)
-			var unlinkingCache string
-			for {
-				owners, err := os.ReadDir(root)
-				if err != nil {
-					t.Fatal(err)
+			defer func() {
+				close(release)
+				<-done
+				if collectionErr != nil {
+					t.Error(collectionErr)
 				}
-				for _, owner := range owners {
-					if !strings.HasPrefix(owner.Name(), ".gc-") {
-						continue
-					}
-					path := filepath.Join(root, owner.Name(), "buildkit")
-					entries, err := os.ReadDir(path)
-					if err != nil && !os.IsNotExist(err) {
-						t.Fatal(err)
-					}
-					if len(entries) > 0 && len(entries) < cacheFiles {
-						unlinkingCache = path
-						break
-					}
+				if owners, err := os.ReadDir(root); err != nil || len(owners) != 0 {
+					t.Errorf("cache not reclaimed: %v %v", owners, err)
 				}
-				if unlinkingCache != "" {
-					break
-				}
-				select {
-				case <-done:
-					t.Fatalf("collection completed before concurrent admission: %v", collectionErr)
-				default:
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("collector did not begin unlinking cache")
-				}
-				time.Sleep(time.Millisecond)
-			}
-			// RunArchive and CleanupNamespace resolve owner locks through Builder.mu.
-			lock := builder.namespaceLock(filepath.Join(root, "concurrent-owner", "buildkit"))
-			lock.Lock()
-			lock.Unlock()
-			remaining, err := os.Open(unlinkingCache)
-			if err != nil {
-				t.Fatalf("cache unlink completed before concurrent admission: %v", err)
-			}
-			entries, readErr := remaining.ReadDir(1)
-			closeErr := remaining.Close()
-			if readErr != nil || closeErr != nil || len(entries) == 0 {
-				t.Fatalf("cache unlink completed before concurrent admission: %v %v", readErr, closeErr)
-			}
+			}()
 			select {
+			case <-entered:
 			case <-done:
-				t.Fatalf("collection completed before concurrent admission: %v", collectionErr)
-			default:
+				t.Fatal("collection did not reach reclamation")
+			case <-time.After(5 * time.Second):
+				t.Fatal("collection did not reach reclamation")
 			}
-			<-done
-			if collectionErr != nil {
-				t.Fatal(collectionErr)
-			}
-			if owners, err := os.ReadDir(root); err != nil || len(owners) != 0 {
-				t.Fatalf("isolated cache not reclaimed: %v %v", owners, err)
+			admitted := make(chan struct{})
+			go func() {
+				lock := builder.namespaceLock(filepath.Join(root, "concurrent-owner", "buildkit"))
+				lock.Lock()
+				lock.Unlock()
+				close(admitted)
+			}()
+			select {
+			case <-admitted:
+			case <-time.After(5 * time.Second):
+				t.Fatal("collection blocked unrelated admission")
 			}
 		})
 	}

@@ -125,7 +125,7 @@ func (adapter *Adapter) containerRun(ctx context.Context, _ *mcp.CallToolRequest
 		if err != nil {
 			return nil, err
 		}
-		started, err := adapter.runtime.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: created.GetContainer().GetGenerationId()})
+		started, err := adapter.runtime.StartContainer(ctx, &hostv1.StartContainerRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: created.GetContainer().GetGenerationId()})
 		if err != nil {
 			return nil, &toolFailure{data: RunData{Container: containerData(created.GetContainer()), LaunchSucceeded: false}, err: err}
 		}
@@ -140,7 +140,7 @@ func (adapter *Adapter) containerRun(ctx context.Context, _ *mcp.CallToolRequest
 			return nil, ctx.Err()
 		case <-timer.C:
 		}
-		observed, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		observed, err := adapter.runtime.GetContainer(ctx, &hostv1.GetContainerRequest{ContainerId: input.ContainerID})
 		if err != nil {
 			return nil, &toolFailure{data: RunData{Container: containerData(started.GetContainer()), LaunchSucceeded: true}, err: err}
 		}
@@ -149,13 +149,14 @@ func (adapter *Adapter) containerRun(ctx context.Context, _ *mcp.CallToolRequest
 }
 
 func (adapter *Adapter) containerStart(ctx context.Context, _ *mcp.CallToolRequest, input ContainerInput) (*mcp.CallToolResult, Envelope, error) {
-	return adapter.containerMutation(ctx, input.ContainerID, 2*time.Minute, func(ctx context.Context, requestID string) (*hostv1.ContainerResponse, error) {
+	return adapter.containerMutation(ctx, 2*time.Minute, func(ctx context.Context, requestID string) (*hostv1.Container, error) {
 		// Start targets the exact generation the caller can observe now.
-		current, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		current, err := adapter.runtime.GetContainer(ctx, &hostv1.GetContainerRequest{ContainerId: input.ContainerID})
 		if err != nil {
 			return nil, err
 		}
-		return adapter.runtime.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: current.GetContainer().GetGenerationId()})
+		response, err := adapter.runtime.StartContainer(ctx, &hostv1.StartContainerRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: current.GetContainer().GetGenerationId()})
+		return response.GetContainer(), err
 	})
 }
 
@@ -163,17 +164,18 @@ func (adapter *Adapter) containerStop(ctx context.Context, _ *mcp.CallToolReques
 	if input.TimeoutSeconds < 0 || input.TimeoutSeconds > 120 {
 		return adapter.failure(status.Error(codes.InvalidArgument, "invalid timeout"))
 	}
-	return adapter.containerMutation(ctx, input.ContainerID, 2*time.Minute, func(ctx context.Context, requestID string) (*hostv1.ContainerResponse, error) {
+	return adapter.containerMutation(ctx, 2*time.Minute, func(ctx context.Context, requestID string) (*hostv1.Container, error) {
 		var timeout *uint32
 		if input.TimeoutSeconds > 0 {
 			value := uint32(input.TimeoutSeconds)
 			timeout = &value
 		}
-		return adapter.runtime.StopContainer(ctx, &hostv1.StopContainerRequest{RequestId: requestID, ContainerId: input.ContainerID, TimeoutSeconds: timeout})
+		response, err := adapter.runtime.StopContainer(ctx, &hostv1.StopContainerRequest{RequestId: requestID, ContainerId: input.ContainerID, TimeoutSeconds: timeout})
+		return response.GetContainer(), err
 	})
 }
 
-func (adapter *Adapter) containerMutation(ctx context.Context, id string, timeout time.Duration, operation func(context.Context, string) (*hostv1.ContainerResponse, error)) (*mcp.CallToolResult, Envelope, error) {
+func (adapter *Adapter) containerMutation(ctx context.Context, timeout time.Duration, operation func(context.Context, string) (*hostv1.Container, error)) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.call(ctx, timeout, true, func(ctx context.Context) (any, error) {
 		requestID, err := newRequestID()
 		if err != nil {
@@ -183,7 +185,7 @@ func (adapter *Adapter) containerMutation(ctx context.Context, id string, timeou
 		if err != nil {
 			return nil, err
 		}
-		return containerData(response.GetContainer()), nil
+		return containerData(response), nil
 	})
 }
 
@@ -205,7 +207,7 @@ func (adapter *Adapter) containerSignal(ctx context.Context, _ *mcp.CallToolRequ
 
 func (adapter *Adapter) containerDelete(ctx context.Context, _ *mcp.CallToolRequest, input ContainerInput) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.call(ctx, 2*time.Minute, true, func(ctx context.Context) (any, error) {
-		container, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		container, err := adapter.runtime.GetContainer(ctx, &hostv1.GetContainerRequest{ContainerId: input.ContainerID})
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +215,7 @@ func (adapter *Adapter) containerDelete(ctx context.Context, _ *mcp.CallToolRequ
 		if err != nil {
 			return nil, err
 		}
-		_, err = adapter.runtime.DeleteContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: container.GetContainer().GetGenerationId()})
+		_, err = adapter.runtime.DeleteContainer(ctx, &hostv1.DeleteContainerRequest{RequestId: requestID, ContainerId: input.ContainerID, ExpectedGenerationId: container.GetContainer().GetGenerationId()})
 		return EmptyData{}, err
 	})
 }

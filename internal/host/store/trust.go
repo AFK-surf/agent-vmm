@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
+
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/protobuf/proto"
-	"time"
 )
 
 const (
@@ -86,51 +87,6 @@ func (store *Store) MarkDeviceIdentityNeedsRepair(ctx context.Context, expectedR
 		return ErrTrustRevisionConflict
 	}
 	return nil
-}
-
-func (store *Store) RotateDeviceIdentity(ctx context.Context, requestID string, expectedRevision uint64, record DeviceIdentityRecord, rotation *trustv1.DeviceRootRotation) error {
-	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(rotation)
-	if err != nil {
-		return err
-	}
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE device_identity SET root_public_key=?, root_key_revision=?, custody=?, state=?, updated_at=?
-		WHERE id=1 AND root_key_revision=?`, record.Identity.GetRootPublicKey(), record.Identity.GetRootKeyRevision(),
-		record.Custody, record.State, time.Now().UnixNano(), expectedRevision)
-	if err != nil {
-		return err
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if changed != 1 {
-		return ErrTrustRevisionConflict
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO device_root_rotations(new_revision, request_id, rotation, created_at) VALUES(?, ?, ?, ?)`,
-		record.Identity.GetRootKeyRevision(), requestID, payload, time.Now().UnixNano()); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM endpoint_observations WHERE device_id=?`, record.Identity.GetDeviceId()); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (store *Store) GetDeviceRootRotation(ctx context.Context, requestID string) (*trustv1.DeviceRootRotation, error) {
-	var payload []byte
-	if err := store.db.QueryRowContext(ctx, `SELECT rotation FROM device_root_rotations WHERE request_id=?`, requestID).Scan(&payload); err != nil {
-		return nil, err
-	}
-	rotation := new(trustv1.DeviceRootRotation)
-	if err := proto.Unmarshal(payload, rotation); err != nil {
-		return nil, err
-	}
-	return rotation, nil
 }
 
 func (store *Store) RepairDeviceIdentity(ctx context.Context, requestID string, record DeviceIdentityRecord) error {

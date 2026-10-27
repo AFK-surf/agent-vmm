@@ -25,7 +25,7 @@ func updateStoreFixture(t *testing.T) (*Store, ApplianceInstallation, ApplianceG
 		}
 	}
 	grant := ApplianceGrant{Revision: 1, System: ResourceAmount{PIDs: 1, DiskBytes: 2}, PerEnvironment: ResourceAmount{PIDs: 3, DiskBytes: 4}, EgressMode: 1, MaxEgressMode: 1}
-	installation, _, _, err := database.InstallApplianceDomain(ctx, ApplianceInstallation{ID: "installation", ProductID: "product", ArtifactID: "source", State: 1, Revision: 1, RegistrationID: "registration", DataVolumeID: "volume", DataVolumeBytes: 1024}, grant, RemoteRegistration{ID: "registration", DisplayName: "private", ProtocolVersion: "1", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 2, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, OwnerKind: RemoteRegistrationPrivate, InstallationID: "installation"}, nil, ApplianceOperation{ID: "install", RequestID: "install", State: 2, Phase: 5})
+	installation, _, _, err := database.InstallApplianceDomain(ctx, ApplianceInstallation{ID: "installation", ProductID: "product", ArtifactID: "source", State: 1, Revision: 1, RegistrationID: "registration", DataVolumeID: "volume", DataVolumeBytes: 1024, BootstrapID: "original-bootstrap"}, grant, RemoteRegistration{ID: "registration", DisplayName: "private", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 2, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, OwnerKind: RemoteRegistrationPrivate, InstallationID: "installation"}, nil, ApplianceOperation{ID: "install", RequestID: "install", State: 2, Phase: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,8 @@ func updateStoreFixture(t *testing.T) (*Store, ApplianceInstallation, ApplianceG
 }
 
 func TestApplianceUpdateSwitchIsAtomicAndRecoverKeepsPhase(t *testing.T) {
-	for _, target := range []string{"source", "target"} {
+	for _, test := range []struct{ target, bootstrapID string }{{"source", ""}, {"target", "new-bootstrap"}} {
+		target := test.target
 		t.Run(target, func(t *testing.T) {
 			database, installation, grant := updateStoreFixture(t)
 			ctx := context.Background()
@@ -53,20 +54,27 @@ func TestApplianceUpdateSwitchIsAtomicAndRecoverKeepsPhase(t *testing.T) {
 			grant.Revision++
 			grant.PerEnvironment.PIDs = 7
 			grant.HostTCPEndpoints = HostTCPEndpoints{netip.MustParseAddrPort("192.168.1.10:3000")}
-			if _, err = database.CommitApplianceUpdateSwitch(ctx, operation, "source", before.Revision+1, target, grant, nil); !errors.Is(err, ErrInstallationRevisionConflict) {
+			if _, err = database.CommitApplianceUpdateSwitch(ctx, operation, "source", before.Revision+1, target, "rejected-bootstrap", grant, nil); !errors.Is(err, ErrInstallationRevisionConflict) {
 				t.Fatalf("stale fence: %v", err)
 			}
 			unchanged, _ := database.GetApplianceInstallation(ctx, installation.ID)
-			if unchanged.ArtifactID != "source" || unchanged.Revision != before.Revision {
+			if unchanged.ArtifactID != "source" || unchanged.Revision != before.Revision || unchanged.BootstrapID != before.BootstrapID {
 				t.Fatal("failed switch changed installation")
 			}
-			switched, err := database.CommitApplianceUpdateSwitch(ctx, operation, "source", before.Revision, target, grant, []ApplianceFrontend{{Name: "http", Transport: 1, Exposure: 1, MaxFrameBytes: 1024, MaxTotalBytes: 4096, DeadlineSeconds: 10, IdleSeconds: 2, MaxConcurrentStreams: 1}})
+			switched, err := database.CommitApplianceUpdateSwitch(ctx, operation, "source", before.Revision, target, test.bootstrapID, grant, []ApplianceFrontend{{Name: "http", Transport: 1, Exposure: 1, MaxFrameBytes: 1024, MaxTotalBytes: 4096, DeadlineSeconds: 10, IdleSeconds: 2, MaxConcurrentStreams: 1}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			current, err := database.GetApplianceInstallation(ctx, installation.ID)
 			if err != nil || current.ArtifactID != target || current.Revision != before.Revision+1 || current.State != 2 || !current.DesiredEnabled || current.CurrentBootID != "" || current.DataVolumeID != before.DataVolumeID || current.RegistrationID != before.RegistrationID || switched.Phase != 10 {
 				t.Fatalf("switch=%+v operation=%+v err=%v", current, switched, err)
+			}
+			expectedBootstrap := before.BootstrapID
+			if test.bootstrapID != "" {
+				expectedBootstrap = test.bootstrapID
+			}
+			if current.BootstrapID != expectedBootstrap {
+				t.Fatalf("bootstrap ID = %q, want %q", current.BootstrapID, expectedBootstrap)
 			}
 			kept, _ := database.GetApplianceGrant(ctx, installation.ID)
 			registration, _ := database.GetRemoteRegistration(ctx, installation.RegistrationID)

@@ -27,26 +27,16 @@ func extractManagedUpdate(ctx context.Context, archivePath, stagedApp, targetRel
 	if output, extractErr := command.CombinedOutput(); extractErr != nil {
 		return managedUpdateFailure("preparation", fmt.Errorf("Host artifact extraction failed: %s", boundedManagedText(string(output), 256)))
 	}
-	extractedApp := filepath.Join(extracted, bundle.HostAppName)
-	if release, releaseErr := managedHostReleaseID(extractedApp, false); releaseErr != nil || release != targetRelease {
-		return managedUpdateFailure("preparation", errors.New("Host artifact release inventory does not match the selected target"))
-	}
-	verify := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", extractedApp)
-	if output, verifyErr := verify.CombinedOutput(); verifyErr != nil {
-		return managedUpdateFailure("preparation", fmt.Errorf("Host artifact signature verification failed: %s", boundedManagedText(string(output), 256)))
-	}
-	copyCommand := exec.CommandContext(ctx, "/usr/bin/ditto", extractedApp, stagedApp)
-	if output, copyErr := copyCommand.CombinedOutput(); copyErr != nil {
-		_ = os.RemoveAll(stagedApp)
-		return managedUpdateFailure("preparation", fmt.Errorf("Host artifact preparation failed: %s", boundedManagedText(string(output), 256)))
-	}
-	if release, releaseErr := managedHostReleaseID(stagedApp, true); releaseErr != nil || release != targetRelease {
-		_ = os.RemoveAll(stagedApp)
+	prepared := filepath.Join(extracted, bundle.HostAppName)
+	if release, releaseErr := managedHostReleaseID(prepared); releaseErr != nil || release != targetRelease {
 		return managedUpdateFailure("preparation", errors.New("prepared Host app does not match the selected target"))
+	}
+	if err := os.Rename(prepared, stagedApp); err != nil {
+		return managedUpdateFailure("preparation", err)
 	}
 	return nil
 }
 
-func managedHostReleaseID(app string, staged bool) (string, error) {
-	return bundle.HostReleaseID(app, staged)
+func managedHostReleaseID(app string) (string, error) {
+	return bundle.HostReleaseID(app)
 }

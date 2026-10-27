@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
-	guestimage "github.com/AFK-surf/agent-vmm/internal/guest/image"
+	"github.com/AFK-surf/agent-vmm/internal/imageref"
 	digest "github.com/opencontainers/go-digest"
 )
 
@@ -26,7 +26,7 @@ func ValidateReference(content *appliancev1.ApplianceContentReference) error {
 	default:
 		return errors.New("content role is invalid")
 	}
-	reference, err := guestimage.NormalizeReference(content.GetImageReference())
+	reference, err := imageref.NormalizeReference(content.GetImageReference())
 	if err != nil || reference != content.GetImageReference() {
 		return errors.New("content image reference must be canonical")
 	}

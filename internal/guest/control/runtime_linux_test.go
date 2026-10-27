@@ -9,18 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
-	containersapi "github.com/containerd/containerd/api/services/containers/v1"
-	imagesapi "github.com/containerd/containerd/api/services/images/v1"
-	"github.com/containerd/containerd/api/types"
-	containerd "github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/core/content"
-	snapshotsapi "github.com/containerd/containerd/v2/core/snapshots"
-	"github.com/containerd/containerd/v2/plugins/content/local"
-	digest "github.com/opencontainers/go-digest"
-	specsVersion "github.com/opencontainers/image-spec/specs-go"
 	"io"
+	"log/slog"
 	"net"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -28,15 +20,25 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
+	containersapi "github.com/containerd/containerd/api/services/containers/v1"
+	imagesapi "github.com/containerd/containerd/api/services/images/v1"
+	"github.com/containerd/containerd/api/types"
+	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
+	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/containerd/v2/core/images"
+	snapshotsapi "github.com/containerd/containerd/v2/core/snapshots"
 	"github.com/containerd/containerd/v2/pkg/oci"
+	"github.com/containerd/containerd/v2/plugins/content/local"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
+	digest "github.com/opencontainers/go-digest"
+	specsVersion "github.com/opencontainers/image-spec/specs-go"
 	opencontainers "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -54,18 +56,6 @@ func TestReusableSourceUnpackedSkipsStaleImageRecord(t *testing.T) {
 	want := io.ErrUnexpectedEOF
 	if _, err := reusableSourceUnpacked(false, want); !errors.Is(err, want) {
 		t.Fatalf("non-not-found error = %v, want %v", err, want)
-	}
-}
-
-func TestReusableTargetDescriptorPreservesManifestMetadata(t *testing.T) {
-	want := opencontainers.Descriptor{
-		MediaType: "application/vnd.oci.image.manifest.v1+json",
-		Digest:    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		Size:      1234,
-	}
-	got := reusableTargetDescriptor(images.Image{Target: want})
-	if got == nil || !reflect.DeepEqual(*got, want) {
-		t.Fatalf("reusable target descriptor = %+v, want %+v", got, want)
 	}
 }
 
@@ -146,7 +136,7 @@ func TestNormalizeImageReference(t *testing.T) {
 			t.Errorf("normalizeImageReference(%q) = %q, %v; want %q", test.input, got, err, test.want)
 		}
 	}
-	for _, input := range []string{"https://docker.io/library/postgres:16", "", "UPPERCASE/image:tag"} {
+	for _, input := range []string{"https://docker.io/library/postgres:16", "", "docker.io/UPPERCASE:tag"} {
 		if _, err := normalizeImageReference(input); err == nil {
 			t.Errorf("normalizeImageReference(%q) succeeded", input)
 		}
@@ -195,7 +185,7 @@ func TestContainerLogsAreGenerationIsolated(t *testing.T) {
 
 func TestNamespaceLabelsRoundTrip(t *testing.T) {
 	t.Parallel()
-	limits := &vmmdv1.NamespaceLimits{CpuMillis: 1500, MemoryBytes: 256 << 20, Pids: 64, DiskBytes: 2 << 30}
+	limits := &vmmdv1.NamespaceLimits{Pids: 64, DiskBytes: 2 << 30}
 	labels := namespaceLabels(limits, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 10240, "10.64.240.0/24")
 	projectID, namespace, err := namespaceFromLabels("agent-a", labels)
 	if err != nil {
@@ -236,11 +226,11 @@ func TestContainerRoleKeepsSystemAndWorkloadNamespacesSeparate(t *testing.T) {
 
 func TestFixedSpecPolicy(t *testing.T) {
 	t.Parallel()
-	runtime := &Runtime{network: new(guestnetwork.Manager)}
-	cpu, memory, pids := uint32(500), uint64(64<<20), uint32(16)
+	runtime := &Runtime{network: new(guestnetwork.Manager), logger: slog.Default().With("component", "guest-control")}
+	pids := uint32(16)
 	request := &vmmdv1.CreateContainerRequest{
 		ContainerId: "container", ReadOnlyRoot: true,
-		Limits:  &vmmdv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids},
+		Limits:  &vmmdv1.ResourceLimits{Pids: &pids},
 		Volumes: []*vmmdv1.VolumeMount{{Source: &vmmdv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data", ReadOnly: true}},
 	}
 	options := runtime.specOptions("agent-a", request, nil)
@@ -263,6 +253,7 @@ func TestFixedSpecPolicy(t *testing.T) {
 		t.Fatalf("resource policy mismatch: %+v", spec.Linux.Resources)
 	}
 	want := []specs.Mount{
+		{Destination: supervisorPath, Type: "bind", Source: supervisorHostPath, Options: []string{"bind", "ro", "nosuid", "nodev", "exec"}},
 		{Destination: "/data", Type: "bind", Source: "/state/volumes/agent-a/data", Options: []string{"rbind", "ro", "nosuid", "nodev"}},
 		{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"rw", "nosuid", "nodev", "noexec", "mode=1777", "size=64m"}},
 		{Destination: "/etc/resolv.conf", Type: "bind", Source: "/state/network/resolv/agent-a.conf", Options: []string{"bind", "ro", "nosuid", "nodev"}},
@@ -354,7 +345,7 @@ func TestStructuredLogReportsTruncation(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
 	path := filepath.Join(directory, "records.log")
-	stdout, stderr, err := newRecordLog(path, filepath.Join(directory, "records.meta"), logHeaderBytes+5)
+	stdout, stderr, err := newRecordLog(path, logHeaderBytes+5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,9 +365,21 @@ func TestStructuredLogReportsTruncation(t *testing.T) {
 	if len(records) != 1 || string(records[0].data) != "abcde" {
 		t.Fatalf("records = %+v", records)
 	}
-	_, dropped, err := readLogMeta(filepath.Join(directory, "records.meta"))
-	if err != nil || dropped != 1 {
-		t.Fatalf("dropped = %d, %v", dropped, err)
+	if err := os.WriteFile(path, append(mustReadLog(t, path), []byte("partial")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err = newRecordLog(path, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := stdout.Write([]byte("next")); err != nil || count != 4 {
+		t.Fatalf("append = %d, %v", count, err)
+	}
+	stdout.Close()
+	stderr.Close()
+	records, _, err = readLogRecords(path, 0)
+	if err != nil || len(records) != 2 || records[1].sequence != 2 || string(records[1].data) != "next" {
+		t.Fatalf("recovered = %+v, %v", records, err)
 	}
 }
 
@@ -570,8 +573,9 @@ func TestMaterializedImportAcknowledgesBeforeOccupiedWriterSlot(t *testing.T) {
 	index := newRuntimeInventoryIndex()
 	index.ensureNamespace(namespace)
 	index.ensureNamespace("system.cold")
-	runtime := &Runtime{client: client, inventory: index, materializer: new(ocimaterializer.Manager)}
-	unlock, err := runtime.materializer.LockBuild(ctx)
+	runtime := &Runtime{client: client, inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
+	err = runtime.materializationSlot.Acquire(ctx, 1)
+	unlock := func() { runtime.materializationSlot.Release(1) }
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,8 +615,8 @@ func TestMaterializedImportAcknowledgesBeforeOccupiedWriterSlot(t *testing.T) {
 	if _, err := server.CopyImage(timeout, copyRequest); err != nil {
 		t.Fatalf("occupied-slot copy replay: %v", err)
 	}
-	if release, acquired := runtime.materializer.TryLockBuild(); acquired {
-		release()
+	if runtime.materializationSlot.TryAcquire(1) {
+		runtime.materializationSlot.Release(1)
 		t.Fatal("warm copy released cold/GC exclusion")
 	}
 	snapshots.missing = true
@@ -630,7 +634,7 @@ func TestMaterializedImportAcknowledgesBeforeOccupiedWriterSlot(t *testing.T) {
 	if err != nil || stopped.State != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_STOPPED || !stopped.WriterSettled || stopped.GetStatus().GetCode() != int32(codes.ResourceExhausted) {
 		t.Fatalf("cold admission did not settle copy pin at its deadline: %v %v", stopped, err)
 	}
-	if _, err := runtime.lockImportSlot(queued, target.Digest.String()); status.Code(err) != codes.ResourceExhausted {
+	if _, err := runtime.lockImportSlot(queued); status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("cold writer admission = %v", err)
 	}
 }
@@ -654,8 +658,8 @@ func TestRunnerRequestIdentitiesPreserveMutationAndExecReplay(t *testing.T) {
 		changed := proto.Clone(request)
 		field := changed.ProtoReflect().Descriptor().Fields().ByName("actor_namespace_id")
 		changed.ProtoReflect().Set(field, protoreflect.ValueOfString("other"))
-		if _, err := server.mutate(context.Background(), "runner", changed, work); err == nil || calls != 1 {
-			t.Fatalf("conflicting runner mutation: calls=%d err=%v", calls, err)
+		if _, err := server.mutate(context.Background(), "runner", changed, work); err != nil || calls != 2 {
+			t.Fatalf("independent runner mutation: calls=%d err=%v", calls, err)
 		}
 		if server.events.events[0].GetRequestId() != mutationRequestID(request) {
 			t.Fatal("original receipt identity changed")
@@ -703,7 +707,7 @@ func TestDeleteContainerReplayAcknowledgesOriginalGenerationAfterReplacement(t *
 	if err := index.addContainer(namespace, id); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &Runtime{client: systemImageClient(t, fixture), inventory: index}
+	runtime := &Runtime{client: systemImageClient(t, fixture), inventory: index, logger: slog.Default().With("component", "guest-control")}
 	server := NewServer(runtime, HealthState{}, nil)
 	request := &vmmdv1.DeleteContainerRequest{RequestId: "delete-original", ActorNamespaceId: namespace, ContainerId: id, ExpectedGenerationId: containerGenerationID(key, created)}
 	canceled, cancel := context.WithCancel(ctx)
@@ -775,7 +779,7 @@ func TestStartReplayObservesRunningBeforeWithdrawnShareAdmission(t *testing.T) {
 		runtimeOwnerLabel: namespace, runtimeExternalIDLabel: id, runtimeImageLabel: "image", containerStateLabel: "running", containerInstanceLabel: "original", containerVolumeLabel: mounts,
 	}, Extensions: map[string]*anypb.Any{containerProcess: {TypeUrl: process.GetTypeUrl(), Value: process.GetValue()}}}
 	fixture := &systemImageFixture{containers: map[string]*containersapi.Container{key: record}}
-	runtime := &Runtime{client: systemImageClient(t, fixture)}
+	runtime := &Runtime{client: systemImageClient(t, fixture), logger: slog.Default().With("component", "guest-control")}
 	generation := containerGenerationID(key, created)
 	request := &vmmdv1.StartContainerRequest{ActorNamespaceId: namespace, ContainerId: id, ExpectedGenerationId: generation}
 	result, err := runtime.startContainer(ctx, namespace, id, false, request)
@@ -792,5 +796,93 @@ func TestStartReplayObservesRunningBeforeWithdrawnShareAdmission(t *testing.T) {
 	fixture.mu.Unlock()
 	if _, err := runtime.startContainer(ctx, namespace, id, false, request); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("new dispatch bypassed withdrawn share=%v", err)
+	}
+}
+
+func mustReadLog(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+type quotaRecordFile struct{ *os.File }
+
+func (file quotaRecordFile) Write(data []byte) (int, error) {
+	count, err := file.File.Write(data[:min(5, len(data))])
+	if err != nil {
+		return count, err
+	}
+	return count, syscall.EDQUOT
+}
+
+func TestStructuredLogQuotaFailurePreservesNextRecordGap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "records.log")
+	stdout, stderr, err := newRecordLog(path, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	defer stderr.Close()
+	log := stdout.(*recordWriter).log
+	file := log.file.(*os.File)
+	log.file = quotaRecordFile{file}
+	if count, err := stdout.Write([]byte("discarded")); err != nil || count != 9 {
+		t.Fatalf("quota write=%d %v", count, err)
+	}
+	log.file = file
+	if count, err := stdout.Write([]byte("kept")); err != nil || count != 4 {
+		t.Fatalf("next write=%d %v", count, err)
+	}
+	records, offset, err := readLogRecords(path, 0)
+	if err != nil || len(records) != 1 || records[0].sequence != 2 || string(records[0].data) != "kept" || offset != logHeaderBytes+4 {
+		t.Fatalf("records=%+v offset=%d err=%v", records, offset, err)
+	}
+	if _, err := file.Write([]byte{1, 2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	records, next, err := readLogRecords(path, offset)
+	if err != nil || len(records) != 0 || next != offset {
+		t.Fatalf("partial tail advanced: %+v %d %v", records, next, err)
+	}
+}
+
+func TestRuntimeLocksAreCancellableAndContainerScoped(t *testing.T) {
+	runtime := new(Runtime)
+	release, err := runtime.lockNamespace(context.Background(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := runtime.lockNamespace(ctx, "owner"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("namespace wait=%v", err)
+	}
+	containerRelease, err := runtime.lockContainer(context.Background(), "owner", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer containerRelease()
+	otherRelease, err := runtime.lockContainer(context.Background(), "owner", "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherRelease()
+}
+
+func TestMutationScopeSeparatesOwnersWithSharedRequestID(t *testing.T) {
+	server := new(Server)
+	calls := 0
+	for _, owner := range []string{"first-owner", "second-owner"} {
+		request := &vmmdv1.CreateVolumeRequest{RequestId: "shared", ActorNamespaceId: owner, VolumeId: "data"}
+		if _, err := server.mutate(context.Background(), "volume", request, func() (any, error) { calls++; return owner, nil }); err != nil {
+			t.Fatalf("owner %s conflicted: %v", owner, err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("owners shared a receipt: %d", calls)
 	}
 }

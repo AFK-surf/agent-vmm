@@ -12,6 +12,7 @@ enum HostShareState {
   HOST_SHARE_STATE_REVOKED = 4;
 }
 
+// HostShare records an operator-approved directory identity and its environment-scoped projection.
 message HostShare {
   string id = 1;
   string environment_id = 2;
@@ -22,6 +23,8 @@ message HostShare {
   string unavailable_reason = 7;
 }
 
+// CreateHostShareRequest carries inputs for an operation that approves one checked Host
+// directory for the selected environment.
 message CreateHostShareRequest {
   string request_id = 1;
   string environment_id = 2;
@@ -29,6 +32,8 @@ message CreateHostShareRequest {
   bool read_only = 4;
 }
 
+// RebindHostShareRequest carries inputs for an operation that changes the checked source of an
+// existing share under its revision fence.
 message RebindHostShareRequest {
   string request_id = 1;
   string share_id = 2;
@@ -37,12 +42,21 @@ message RebindHostShareRequest {
   bool read_only = 5;
 }
 
+// RevokeHostShareRequest carries inputs for an operation that revokes one share rather than
+// granting general Host filesystem access.
 message RevokeHostShareRequest {
   string request_id = 1;
   string share_id = 2;
   uint64 expected_revision = 3;
 }
 
-message HostShareResponse { HostShare share = 1; }
-message ListHostSharesRequest { optional string environment_id = 1; }
-message ListHostSharesResponse { repeated HostShare shares = 1; }
+// ListHostSharesRequest carries inputs for an operation that reads operator-approved directory
+// shares and their current references.
+message ListHostSharesRequest {
+  optional string environment_id = 1;
+}
+// ListHostSharesResponse carries results from an operation that reads operator-approved
+// directory shares and their current references.
+message ListHostSharesResponse {
+  repeated HostShare shares = 1;
+}

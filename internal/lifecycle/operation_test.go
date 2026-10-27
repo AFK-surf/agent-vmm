@@ -3,7 +3,9 @@
 package lifecycle
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +24,7 @@ func TestPersistedLifecycleOperationHasNoReleaseSelector(t *testing.T) {
 	if err := persistOperation(value, operation); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(value.operationFile)
+	data, err := os.ReadFile(filepath.Join(value.applicationData, maintenanceReceiptName(operation.RequestID)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,16 +42,12 @@ func TestDaemonRootLifecycleOperationPublishesServiceOwnedState(t *testing.T) {
 	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(value.operationFile, []byte(`{"operation_id":"operation-old","request_id":"request-old","kind":"repair","outcome":"succeeded"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	owner := lifecycleOperationOwnerFor(value, 0, unix.Fchown)
 	release, err := acquireOperationLockOwned(value, owner)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
-	assertFileOwner(t, value.operationFile, value.service.UID, value.service.GID)
 	operation := lifecycleOperation{
 		OperationID: "operation-owned", RequestID: "request-owned", Kind: "repair",
 		Outcome: "pending", Attempt: 1, StartedAt: 1, UpdatedAt: 1,
@@ -57,33 +55,8 @@ func TestDaemonRootLifecycleOperationPublishesServiceOwnedState(t *testing.T) {
 	if err := persistOperationOwned(value, operation, owner); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{value.applicationData, value.operationFile + ".lock", value.operationFile} {
+	for _, path := range []string{value.applicationData, filepath.Join(value.applicationData, "owner.lock"), filepath.Join(value.applicationData, maintenanceReceiptName(operation.RequestID))} {
 		assertFileOwner(t, path, value.service.UID, value.service.GID)
-	}
-}
-
-func TestDaemonRootLifecycleOperationDoesNotPublishBeforeOwnership(t *testing.T) {
-	value := testPaths(t.TempDir())
-	value.service.Mode = serviceModeDaemon
-	owner := lifecycleOperationOwnerFor(value, 0, func(fd, _, _ int) error {
-		var stat unix.Stat_t
-		if err := unix.Fstat(fd, &stat); err != nil {
-			return err
-		}
-		if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
-			return nil
-		}
-		return os.ErrPermission
-	})
-	operation := lifecycleOperation{
-		OperationID: "operation-unowned", RequestID: "request-unowned", Kind: "repair",
-		Outcome: "pending", Attempt: 1, StartedAt: 1, UpdatedAt: 1,
-	}
-	if err := persistOperationOwned(value, operation, owner); err == nil {
-		t.Fatal("ownership failure published lifecycle state")
-	}
-	if _, err := os.Stat(value.operationFile); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("unowned lifecycle state became visible: %v", err)
 	}
 }
 
@@ -111,7 +84,7 @@ func TestLifecycleOperationStateDoesNotFollowSymlinks(t *testing.T) {
 	if err := persistOperationOwned(value, operation, owner); err == nil {
 		t.Fatal("symlinked lifecycle state directory was accepted")
 	}
-	if _, err := os.Stat(filepath.Join(victimDirectory, filepath.Base(value.operationFile))); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(victimDirectory, maintenanceReceiptName(operation.RequestID))); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("symlink target was changed: %v", err)
 	}
 
@@ -125,16 +98,16 @@ func TestLifecycleOperationStateDoesNotFollowSymlinks(t *testing.T) {
 	if err := os.WriteFile(victimFile, []byte(`{"operation_id":"victim","request_id":"victim"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(victimFile, value.operationFile); err != nil {
+	if err := os.Symlink(victimFile, filepath.Join(value.applicationData, "state.json")); err != nil {
 		t.Fatal(err)
 	}
-	if observed := readOperation(value.operationFile); observed != nil {
-		t.Fatalf("symlinked operation was read: %+v", observed)
+	if observed := readLifecycleOperation(value); observed != nil {
+		t.Fatalf("symlinked state was read: %+v", observed)
 	}
-	if release, err := acquireOperationLockOwned(value, owner); err == nil {
-		release()
-		t.Fatal("symlinked operation was handed to the service user")
+	if err := persistOperationOwned(value, operation, owner); err == nil {
+		t.Fatal("symlinked owner state was replaced")
 	}
+
 }
 
 func TestLifecycleOperationLockRejectsFIFOWithoutBlocking(t *testing.T) {
@@ -144,7 +117,7 @@ func TestLifecycleOperationLockRejectsFIFOWithoutBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory.Close()
-	if err := unix.Mkfifo(value.operationFile+".lock", 0o600); err != nil {
+	if err := unix.Mkfifo(filepath.Join(value.applicationData, "owner.lock"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	result := make(chan error, 1)
@@ -170,5 +143,37 @@ func TestUpdateDrainRequestIDsAreUnique(t *testing.T) {
 	second := newOperationID("update-drain")
 	if first == second {
 		t.Fatalf("retry reused request id %q", first)
+	}
+}
+
+func TestTerminalOperationPersistenceFailureReturnsUnknown(t *testing.T) {
+	for _, actionFails := range []bool{false, true} {
+		t.Run(fmt.Sprint(actionFails), func(t *testing.T) {
+			value := testPaths(t.TempDir())
+			operation, err := runUpdateLifecycleOperationForArtifact(value, "update-write-failed", "release-a", strings.Repeat("a", 64), 1024, func() error {
+				path := filepath.Join(value.applicationData, "state.json")
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(path, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if actionFails {
+					return updatePreparationError{descriptor: updatePreparationFailureDescriptor{Version: 1, Stage: "download", Code: "update_download_unavailable", Message: "network unavailable", Retryable: true}}
+				}
+				return nil
+			})
+			if err == nil || operation.Outcome != "unknown" || operation.SecretDisposition != secretDispositionRetain {
+				t.Fatalf("operation=%+v err=%v", operation, err)
+			}
+			data, readErr := os.ReadFile(filepath.Join(value.applicationData, maintenanceReceiptName(operation.RequestID)))
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			var durable lifecycleOperation
+			if err := json.Unmarshal(data, &durable); err != nil || durable.Outcome != "pending" {
+				t.Fatalf("durable operation=%+v err=%v", durable, err)
+			}
+		})
 	}
 }

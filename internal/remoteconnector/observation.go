@@ -3,6 +3,7 @@ package remoteconnector
 import (
 	"context"
 	"errors"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"sync"
 	"time"
 
@@ -43,34 +44,6 @@ func (state *endpointObservationState) Store(value *trustv1.EndpointObservation)
 	state.value = proto.Clone(value).(*trustv1.EndpointObservation)
 }
 
-// RegistrationObservation is the host-owned registration truth used by local
-// lifecycle surfaces. A running LaunchAgent is not proof of controller access.
-type RegistrationObservation struct {
-	Ready   bool
-	Revoked bool
-}
-
-func ObserveRegistration(ctx context.Context, socket, registrationID string) (RegistrationObservation, error) {
-	local, err := newLocalClient(ctx, socket, registrationID)
-	if err != nil {
-		return RegistrationObservation{}, err
-	}
-	defer local.connection.Close()
-	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID, SummaryOnly: true})
-	if err != nil {
-		return RegistrationObservation{}, err
-	}
-	registration := state.GetRegistration()
-	revoked := registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED ||
-		registration.GetEnrollmentState() == hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_REVOKING
-	ready := !revoked && registration.GetId() != "" &&
-		registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED &&
-		registration.GetEnrollmentState() == hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY &&
-		registration.GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED &&
-		registration.GetConnectorStatus().GetPhase() == hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED
-	return RegistrationObservation{Ready: ready, Revoked: revoked}, nil
-}
-
 const observationInterval = 15 * time.Second
 
 var publicHealthComponents = map[string]struct{}{
@@ -79,14 +52,14 @@ var publicHealthComponents = map[string]struct{}{
 }
 
 type remoteObservationClient interface {
-	GetRemoteState(context.Context, *hostv1.GetRemoteStateRequest, ...grpc.CallOption) (*hostv1.GetRemoteStateResponse, error)
-	GetRemoteObservation(context.Context, *hostv1.GetRemoteObservationRequest, ...grpc.CallOption) (*hostv1.GetRemoteObservationResponse, error)
+	GetRemoteState(context.Context, *connectorv1.GetRemoteStateRequest, ...grpc.CallOption) (*connectorv1.GetRemoteStateResponse, error)
+	GetRemoteObservation(context.Context, *connectorv1.GetRemoteObservationRequest, ...grpc.CallOption) (*connectorv1.GetRemoteObservationResponse, error)
 }
 
 func collectObservation(ctx context.Context, client remoteObservationClient, registration *hostv1.RemoteRegistration, sequence uint64) *remotev1.RemoteObservationSnapshot {
 	now := time.Now()
 	result := observationBase(registration, sequence, now)
-	response, err := client.GetRemoteObservation(ctx, &hostv1.GetRemoteObservationRequest{RegistrationId: registration.GetId()})
+	response, err := client.GetRemoteObservation(ctx, &connectorv1.GetRemoteObservationRequest{RegistrationId: registration.GetId()})
 	if err != nil || response.GetObservedAt() == nil || !response.GetObservedAt().IsValid() {
 		result.Health = &remotev1.RemoteObservationHealth{Status: "unavailable", Issue: "observation_unavailable", Message: "Host observation is unavailable."}
 		result.Usage = &remotev1.RemoteObservationUsage{Stale: true, Issue: "observation_unavailable"}
@@ -103,13 +76,13 @@ func collectObservation(ctx context.Context, client remoteObservationClient, reg
 	result.Health = publicHealth(response.GetHealth())
 	result.Usage = publicUsage(response.GetUsage())
 	if candidate := response.GetReclaimCandidate(); candidate != nil && candidate.GetRegistrationId() == registration.GetId() {
-		result.ReclaimCandidate = proto.Clone(candidate).(*hostv1.WorkloadReclaimCandidate)
+		result.ReclaimCandidate = &remotev1.WorkloadReclaimCandidate{RegistrationId: candidate.GetRegistrationId(), AllocationId: candidate.GetAllocationId(), ContainerId: candidate.GetContainerId(), ContainerInstanceId: candidate.GetContainerInstanceId(), ExpiresUnixMillis: candidate.GetExpiresUnixMillis()}
 	}
 	return result
 }
 
 func collectCurrentObservation(ctx context.Context, client remoteObservationClient, registrationID string, sequence uint64) (*remotev1.RemoteObservationSnapshot, error) {
-	state, err := client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID, SummaryOnly: true})
+	state, err := client.GetRemoteState(ctx, &connectorv1.GetRemoteStateRequest{RegistrationId: registrationID, SummaryOnly: true})
 	if err != nil || state.GetRegistration() == nil {
 		return nil, errors.New("current remote registration observation is unavailable")
 	}
@@ -119,10 +92,8 @@ func collectCurrentObservation(ctx context.Context, client remoteObservationClie
 func observationBase(registration *hostv1.RemoteRegistration, sequence uint64, observed time.Time) *remotev1.RemoteObservationSnapshot {
 	pool := registration.GetPool()
 	return &remotev1.RemoteObservationSnapshot{
-		Sequence: sequence, ObservedUnixMillis: observed.UnixMilli(), ProtocolVersion: ProtocolVersion,
-		HostApiVersion: HostAPIVersion, ConnectorRelease: ConnectorRelease,
-		SupportedFeatures:           append([]string(nil), protocolFeatures...),
-		Capacity:                    &remotev1.Capacity{PerEnvironmentLimits: pool.GetPerEnvironmentLimits(), MaxEgressMode: pool.GetMaxEgressMode()},
+		Sequence: sequence, ObservedUnixMillis: observed.UnixMilli(),
+		Capacity:                    &remotev1.Capacity{PerEnvironmentLimits: limitsToRemote(pool.GetPerEnvironmentLimits()), MaxEgressMode: remotev1.EgressMode(pool.GetMaxEgressMode())},
 		InventoryWatermark:          registration.GetInventoryRevision(),
 		InventoryObservedUnixMillis: observed.UnixMilli(),
 	}
@@ -171,7 +142,7 @@ func publicUsage(value *hostv1.Usage) *remotev1.RemoteObservationUsage {
 	return result
 }
 
-func renewRemoteObservations(ctx context.Context, client hostv1.RemoteComputeServiceClient, registration *hostv1.RemoteRegistration, epoch uint64, initialSequence uint64, writer *controlWriter) error {
+func renewRemoteObservations(ctx context.Context, client connectorv1.RemoteComputeServiceClient, registration *hostv1.RemoteRegistration, epoch uint64, initialSequence uint64, writer *controlWriter) error {
 	ticker := time.NewTicker(observationInterval)
 	defer ticker.Stop()
 	sequence := initialSequence
@@ -184,7 +155,7 @@ func renewRemoteObservations(ctx context.Context, client hostv1.RemoteComputeSer
 			if err != nil {
 				return err
 			}
-			if err := writer.Send(ctx, &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_ObservationRenewal{ObservationRenewal: &remotev1.RemoteObservationRenewal{ConnectionEpoch: epoch, Observation: observation}}}); err != nil {
+			if err := writer.Send(ctx, &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_ObservationRenewal{ObservationRenewal: &remotev1.RemoteObservationRenewal{ConnectionEpoch: epoch, Observation: observation}}}); err != nil {
 				return err
 			}
 			sequence++

@@ -1,7 +1,4 @@
-//! In-memory lifecycle owner for one personal-mesh pairing invite.
-//!
-//! This state is deliberately not serializable. A worker restart drops the
-//! PIN/QR secret, PAKE attempt state, derived key, and local confirmations.
+//! The memory owner for one invitation and its authenticated attempt.
 
 use crate::pairing::{
     InitiatorState, OwnedPairingContext, PairingSecret, ResponderState, begin_initiator,
@@ -17,179 +14,184 @@ pub const MAX_PAIRING_ATTEMPTS: u8 = 5;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PairingSessionState {
-    Idle,
-    PakePending,
-    KeyConfirmed,
-    AwaitingLocalConfirmation,
+    Invited,
+    Handshaking,
+    AwaitingConfirm,
     ReadyToCommit,
     Committed,
     Rejected,
     Expired,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PairingFailure {
+    ContextMismatch,
+    Timeout,
+    AuthenticationFailed,
+    ProtocolViolation,
+    ConnectionLost,
+}
+
 pub struct PairingSession {
-    context: OwnedPairingContext,
+    invitation: OwnedPairingContext,
+    attempt: Option<OwnedPairingContext>,
     secret: Option<PairingSecret>,
     deadline: Instant,
     attempts: u8,
     state: PairingSessionState,
-    manager_confirmed: bool,
-    joiner_confirmed: bool,
-}
-
-impl core::fmt::Debug for PairingSession {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter
-            .debug_struct("PairingSession")
-            .field("session_id", &hex::encode(&self.context.session_id))
-            .field("attempts", &self.attempts)
-            .field("state", &self.state)
-            .field("secret", &"[REDACTED]")
-            .finish()
-    }
+    local_confirmed: bool,
+    peer_confirmed: bool,
+    last_failure: Option<PairingFailure>,
 }
 
 impl PairingSession {
     pub fn new(context: OwnedPairingContext, secret: PairingSecret, now: Instant) -> Result<Self> {
         context.as_borrowed().validate()?;
         Ok(Self {
-            context,
+            invitation: context,
+            attempt: None,
             secret: Some(secret),
             deadline: now + PAIRING_TTL,
             attempts: 0,
-            state: PairingSessionState::Idle,
-            manager_confirmed: false,
-            joiner_confirmed: false,
+            state: PairingSessionState::Invited,
+            local_confirmed: false,
+            peer_confirmed: false,
+            last_failure: None,
         })
     }
 
     pub fn state(&self) -> PairingSessionState {
         self.state
     }
-
-    pub fn context(&self) -> &OwnedPairingContext {
-        &self.context
+    pub fn deadline(&self) -> Instant {
+        self.deadline
     }
-
+    pub fn last_failure(&self) -> Option<PairingFailure> {
+        self.last_failure
+    }
+    pub fn context(&self) -> &OwnedPairingContext {
+        self.attempt.as_ref().unwrap_or(&self.invitation)
+    }
     pub fn attempts_remaining(&self) -> u8 {
         MAX_PAIRING_ATTEMPTS.saturating_sub(self.attempts)
     }
 
-    /// Bind the joiner's public identity before the manager computes its PAKE
-    /// share. The fixed invite fields must already match; an invite can adopt
-    /// a joiner only once and the resulting full context is PAKE-bound.
-    pub fn bind_joiner_context(&mut self, offered: &OwnedPairingContext) -> Result<()> {
-        ensure!(
-            self.state == PairingSessionState::Idle,
-            "pairing session is not idle"
-        );
-        ensure!(
-            self.context.session_id == offered.session_id
-                && self.context.mesh_id == offered.mesh_id
-                && self.context.invite_revision == offered.invite_revision
-                && self.context.manager_identity == offered.manager_identity
-                && self.context.manager_root_key == offered.manager_root_key,
-            "pairing invite context does not match manager"
-        );
-        ensure!(
-            !offered.joiner_identity.is_empty() && !offered.joiner_root_key.is_empty(),
-            "pairing joiner identity is required"
-        );
-        if self.context.joiner_identity.is_empty() && self.context.joiner_root_key.is_empty() {
-            self.context.joiner_identity = offered.joiner_identity.clone();
-            self.context.joiner_root_key = offered.joiner_root_key.clone();
-            self.context.roles_and_features = offered.roles_and_features.clone();
-        } else {
-            ensure!(
-                self.context.joiner_identity == offered.joiner_identity
-                    && self.context.joiner_root_key == offered.joiner_root_key
-                    && self.context.roles_and_features == offered.roles_and_features,
-                "pairing invite is already bound to another joiner"
-            );
+    pub fn begin_manager_attempt(
+        &mut self,
+        offered: &OwnedPairingContext,
+        now: Instant,
+    ) -> Result<()> {
+        self.begin(now)?;
+        if self.invitation.session_id != offered.session_id
+            || self.invitation.mesh_id != offered.mesh_id
+            || self.invitation.invite_revision != offered.invite_revision
+            || self.invitation.manager_identity != offered.manager_identity
+            || self.invitation.manager_root_key != offered.manager_root_key
+            || self.invitation.roles_and_features != offered.roles_and_features
+            || offered.joiner_identity.is_empty()
+            || offered.joiner_root_key.is_empty()
+        {
+            self.attempt_failed(PairingFailure::ContextMismatch, now);
+            anyhow::bail!("pairing context does not match invitation");
         }
-        self.context.as_borrowed().validate()
+        offered.as_borrowed().validate()?;
+        self.attempt = Some(offered.clone());
+        Ok(())
     }
 
     pub fn begin_initiator(&mut self, now: Instant) -> Result<(Vec<u8>, InitiatorState)> {
         self.begin(now)?;
         begin_initiator(
-            self.secret.as_ref().expect("active pairing has secret"),
-            &self.context.as_borrowed(),
+            self.secret.as_ref().expect("active pairing secret"),
+            &self.context().as_borrowed(),
         )
     }
 
-    pub fn begin_responder(&mut self, now: Instant) -> Result<(Vec<u8>, ResponderState)> {
-        self.begin(now)?;
+    pub fn begin_responder(&mut self) -> Result<(Vec<u8>, ResponderState)> {
+        ensure!(
+            self.state == PairingSessionState::Handshaking && self.attempt.is_some(),
+            "pairing attempt is unavailable"
+        );
         begin_responder(
-            self.secret.as_ref().expect("active pairing has secret"),
-            &self.context.as_borrowed(),
+            self.secret.as_ref().expect("active pairing secret"),
+            &self.context().as_borrowed(),
         )
     }
 
     fn begin(&mut self, now: Instant) -> Result<()> {
         self.expire_if_needed(now);
         ensure!(
-            self.state == PairingSessionState::Idle,
-            "pairing session is not idle"
+            self.state == PairingSessionState::Invited,
+            "pairing is not invited"
         );
         ensure!(
             self.attempts < MAX_PAIRING_ATTEMPTS,
-            "pairing attempt budget exhausted"
+            "pairing attempts exhausted"
         );
         self.attempts += 1;
-        self.state = PairingSessionState::PakePending;
+        self.state = PairingSessionState::Handshaking;
         Ok(())
     }
 
-    pub fn attempt_failed(&mut self, now: Instant) {
+    pub fn attempt_failed(&mut self, failure: PairingFailure, now: Instant) {
         self.expire_if_needed(now);
-        if self.state == PairingSessionState::Expired {
+        if self.terminal() {
             return;
         }
+        self.attempt = None;
+        self.last_failure = Some(failure);
         if self.attempts >= MAX_PAIRING_ATTEMPTS {
             self.terminate(PairingSessionState::Rejected);
         } else {
-            self.state = PairingSessionState::Idle;
+            self.state = PairingSessionState::Invited;
         }
     }
 
     pub fn key_confirmed(&mut self, now: Instant) -> Result<()> {
         self.expire_if_needed(now);
         ensure!(
-            self.state == PairingSessionState::PakePending,
+            self.state == PairingSessionState::Handshaking,
             "pairing key confirmation is out of order"
         );
-        self.state = PairingSessionState::KeyConfirmed;
-        self.state = PairingSessionState::AwaitingLocalConfirmation;
+        self.secret = None;
+        self.state = PairingSessionState::AwaitingConfirm;
         Ok(())
     }
 
-    pub fn confirm_manager(&mut self, now: Instant) -> Result<()> {
+    pub fn confirm_local(&mut self, now: Instant) -> Result<()> {
         self.confirm(now, true)
     }
 
-    pub fn confirm_joiner(&mut self, now: Instant) -> Result<()> {
+    pub fn confirm_peer(&mut self, now: Instant) -> Result<()> {
+        if self.peer_confirmed {
+            self.reject(Some(PairingFailure::ProtocolViolation));
+            anyhow::bail!("duplicate peer confirmation");
+        }
         self.confirm(now, false)
     }
 
-    fn confirm(&mut self, now: Instant, manager: bool) -> Result<()> {
+    fn confirm(&mut self, now: Instant, local: bool) -> Result<()> {
         self.expire_if_needed(now);
         ensure!(
-            self.state == PairingSessionState::AwaitingLocalConfirmation,
-            "pairing local confirmation is out of order"
+            self.state == PairingSessionState::AwaitingConfirm,
+            "pairing confirmation is out of order"
         );
-        if manager {
-            self.manager_confirmed = true;
+        if local {
+            ensure!(
+                !self.local_confirmed,
+                "local pairing confirmation already recorded"
+            );
+            self.local_confirmed = true;
         } else {
-            self.joiner_confirmed = true;
+            self.peer_confirmed = true;
         }
-        if self.manager_confirmed && self.joiner_confirmed {
+        if self.local_confirmed && self.peer_confirmed {
             self.state = PairingSessionState::ReadyToCommit;
         }
         Ok(())
     }
 
-    /// A registry CAS success is the only transition that creates membership.
     pub fn registry_committed(&mut self, now: Instant) -> Result<()> {
         self.expire_if_needed(now);
         ensure!(
@@ -200,17 +202,19 @@ impl PairingSession {
         Ok(())
     }
 
-    pub fn reject(&mut self) {
+    pub fn reject(&mut self, failure: Option<PairingFailure>) {
+        self.last_failure = failure;
         self.terminate(PairingSessionState::Rejected);
     }
 
     pub fn expire_if_needed(&mut self, now: Instant) {
         if now >= self.deadline && !self.terminal() {
+            self.last_failure = Some(PairingFailure::Timeout);
             self.terminate(PairingSessionState::Expired);
         }
     }
 
-    fn terminal(&self) -> bool {
+    pub fn terminal(&self) -> bool {
         matches!(
             self.state,
             PairingSessionState::Committed
@@ -221,8 +225,9 @@ impl PairingSession {
 
     fn terminate(&mut self, state: PairingSessionState) {
         self.secret = None;
-        self.manager_confirmed = false;
-        self.joiner_confirmed = false;
+        self.attempt = None;
+        self.local_confirmed = false;
+        self.peer_confirmed = false;
         self.state = state;
     }
 }
@@ -230,20 +235,18 @@ impl PairingSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn context() -> OwnedPairingContext {
+    pub fn context() -> OwnedPairingContext {
         OwnedPairingContext {
             session_id: vec![1; 16],
-            mesh_id: b"mesh-1".to_vec(),
-            invite_revision: 7,
+            mesh_id: b"mesh".to_vec(),
+            invite_revision: 1,
             manager_identity: b"manager".to_vec(),
-            joiner_identity: b"joiner".to_vec(),
             manager_root_key: vec![2; 33],
+            joiner_identity: b"joiner".to_vec(),
             joiner_root_key: vec![3; 33],
-            roles_and_features: b"use-services".to_vec(),
+            roles_and_features: vec![1],
         }
     }
-
     fn session(now: Instant) -> PairingSession {
         PairingSession::new(
             context(),
@@ -252,81 +255,65 @@ mod tests {
         )
         .unwrap()
     }
-
     #[test]
-    fn five_failed_attempts_destroy_the_secret_and_close_the_session() {
-        let now = Instant::now();
-        let mut session = session(now);
-        for expected_remaining in (0..MAX_PAIRING_ATTEMPTS).rev() {
-            session.begin_initiator(now).unwrap();
-            assert_eq!(session.attempts_remaining(), expected_remaining);
-            session.attempt_failed(now);
-        }
-        assert_eq!(session.state(), PairingSessionState::Rejected);
-        assert!(session.begin_initiator(now).is_err());
-        assert!(!format!("{session:?}").contains("12345678"));
-    }
-
-    #[test]
-    fn timeout_destroys_secret_and_rejects_late_confirmation() {
-        let now = Instant::now();
-        let mut session = session(now);
-        session.begin_responder(now).unwrap();
-        session.expire_if_needed(now + PAIRING_TTL);
-        assert_eq!(session.state(), PairingSessionState::Expired);
-        assert!(session.key_confirmed(now + PAIRING_TTL).is_err());
-    }
-
-    #[test]
-    fn both_local_confirmations_and_registry_cas_are_required() {
+    fn peer_confirmation_cannot_confirm_the_local_operator() {
         let now = Instant::now();
         let mut session = session(now);
         session.begin_initiator(now).unwrap();
         session.key_confirmed(now).unwrap();
-        session.confirm_manager(now).unwrap();
-        assert_eq!(
-            session.state(),
-            PairingSessionState::AwaitingLocalConfirmation
-        );
+        session.confirm_peer(now).unwrap();
+        assert_eq!(session.state(), PairingSessionState::AwaitingConfirm);
         assert!(session.registry_committed(now).is_err());
-        session.confirm_joiner(now).unwrap();
-        assert_eq!(session.state(), PairingSessionState::ReadyToCommit);
-        session.registry_committed(now).unwrap();
-        assert_eq!(session.state(), PairingSessionState::Committed);
+        assert!(session.confirm_peer(now).is_err());
+        assert_eq!(
+            session.last_failure(),
+            Some(PairingFailure::ProtocolViolation)
+        );
+        assert_eq!(session.state(), PairingSessionState::Rejected);
     }
-
     #[test]
-    fn restart_has_no_recoverable_pairing_state() {
+    fn failed_attempt_does_not_bind_the_invitation_to_an_attacker() {
         let now = Instant::now();
-        let mut before_restart = session(now);
-        before_restart.begin_initiator(now).unwrap();
-        drop(before_restart);
-
-        // The worker owns no serializer or durable store for PairingSession.
-        // A replacement process has to receive a newly generated invite.
-        let replacement = session(now);
-        assert_eq!(replacement.state(), PairingSessionState::Idle);
-        assert_eq!(replacement.attempts_remaining(), MAX_PAIRING_ATTEMPTS);
-    }
-
-    #[test]
-    fn manager_invite_binds_exactly_one_joiner_before_pake() {
-        let now = Instant::now();
-        let mut manager_context = context();
-        manager_context.joiner_identity.clear();
-        manager_context.joiner_root_key.clear();
-        manager_context.roles_and_features.clear();
+        let mut invited = context();
+        invited.joiner_identity.clear();
+        invited.joiner_root_key.clear();
         let mut session = PairingSession::new(
-            manager_context,
+            invited.clone(),
             PairingSecret::from_pin(b"12345678").unwrap(),
             now,
         )
         .unwrap();
-        let offered = context();
-        session.bind_joiner_context(&offered).unwrap();
-        assert_eq!(session.context(), &offered);
-        let mut attacker = offered;
+        let mut attacker = context();
         attacker.joiner_identity = b"attacker".to_vec();
-        assert!(session.bind_joiner_context(&attacker).is_err());
+        session.begin_manager_attempt(&attacker, now).unwrap();
+        session.attempt_failed(PairingFailure::AuthenticationFailed, now);
+        assert_eq!(session.context(), &invited);
+        assert_eq!(session.attempts_remaining(), 4);
+        assert_eq!(
+            session.last_failure(),
+            Some(PairingFailure::AuthenticationFailed)
+        );
+        session.begin_manager_attempt(&context(), now).unwrap();
+        session.key_confirmed(now).unwrap();
+        session.confirm_peer(now).unwrap();
+        session.confirm_local(now).unwrap();
+        session.registry_committed(now).unwrap();
+        assert_eq!(session.state(), PairingSessionState::Committed);
+    }
+    #[test]
+    fn permissions_are_fixed_and_attempts_and_time_are_bounded() {
+        let now = Instant::now();
+        let mut session = session(now);
+        let mut offered = context();
+        offered.roles_and_features.push(2);
+        for _ in 0..MAX_PAIRING_ATTEMPTS {
+            assert!(session.begin_manager_attempt(&offered, now).is_err());
+        }
+        assert_eq!(session.state(), PairingSessionState::Rejected);
+        assert_eq!(session.attempts_remaining(), 0);
+        let mut session = self::session(now);
+        session.expire_if_needed(now + PAIRING_TTL);
+        assert_eq!(session.state(), PairingSessionState::Expired);
+        assert!(session.begin_initiator(now + PAIRING_TTL).is_err());
     }
 }

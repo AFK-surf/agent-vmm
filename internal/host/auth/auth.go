@@ -49,18 +49,20 @@ func RemoteConnectorUnaryInterceptor() grpc.UnaryServerInterceptor {
 		if err != nil {
 			return nil, err
 		}
+		if err := authorizeRequestRegistration(identity, request); err != nil {
+			return nil, err
+		}
 		return handler(context.WithValue(ctx, identityKey{}, identity), request)
 	}
 }
 
-func RemoteConnectorStreamInterceptor() grpc.StreamServerInterceptor {
-	return func(server any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		identity, err := remoteConnectorMetadataIdentity(stream.Context())
-		if err != nil {
-			return err
+func authorizeRequestRegistration(identity Identity, request any) error {
+	if identity.Role == RemoteConnector {
+		if scoped, ok := request.(interface{ GetRegistrationId() string }); ok && scoped.GetRegistrationId() != identity.RegistrationID {
+			return status.Error(codes.PermissionDenied, "remote registration does not match transport identity")
 		}
-		return handler(server, &authenticatedStream{ServerStream: stream, ctx: context.WithValue(stream.Context(), identityKey{}, identity)})
 	}
+	return nil
 }
 
 func remoteConnectorMetadataIdentity(ctx context.Context) (Identity, error) {
@@ -75,22 +77,6 @@ func AgentIdentity(ctx context.Context) (Identity, error) {
 	identity, ok := ctx.Value(identityKey{}).(Identity)
 	if !ok || identity.Role != Agent || identity.SessionID == "" || identity.EnvironmentID == "" || identity.NamespaceID == "" {
 		return Identity{}, status.Error(codes.Unauthenticated, "agent session is not authenticated")
-	}
-	return identity, nil
-}
-
-func OperatorIdentity(ctx context.Context) (Identity, error) {
-	identity, ok := ctx.Value(identityKey{}).(Identity)
-	if !ok || identity.Role != Operator {
-		return Identity{}, status.Error(codes.PermissionDenied, "operator endpoint is required")
-	}
-	return identity, nil
-}
-
-func RemoteConnectorIdentity(ctx context.Context) (Identity, error) {
-	identity, ok := ctx.Value(identityKey{}).(Identity)
-	if !ok || identity.Role != RemoteConnector {
-		return Identity{}, status.Error(codes.PermissionDenied, "remote connector endpoint is required")
 	}
 	return identity, nil
 }

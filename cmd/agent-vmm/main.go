@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -29,6 +30,10 @@ import (
 const maxContextBytes = 256 << 20
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		os.Exit(runMCP(os.Args[2:]))
+	}
 	if runPlatformMode() {
 		return
 	}
@@ -54,11 +59,15 @@ func build(arguments []string) {
 	product := flags.String("product", "", "appliance product id")
 	release := flags.String("release", "", "appliance release")
 	socket := flags.String("operator-socket", filepath.Join(platformDataDirectory(os.Getenv("HOME")), "operator.sock"), "Agent VMM operator socket")
+	var frontends []string
+	flags.Func("frontend", "HTTP frontend NAME=loopback|outbound-only|lan-http (repeatable)", func(value string) error { frontends = append(frontends, value); return nil })
 	flags.Parse(arguments)
 	if *contextDirectory == "" || *output == "" || *product == "" || *release == "" {
 		flags.Usage()
 		os.Exit(2)
 	}
+	declaredFrontends, err := parseApplianceFrontends(frontends)
+	check(err)
 	archive, err := archiveContext(*contextDirectory)
 	check(err)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -115,7 +124,7 @@ func build(arguments []string) {
 		check(errors.New("build archive does not match guest commitment"))
 	}
 	check(os.Rename(temporaryPath, filepath.Join(*output, "image.oci.tar")))
-	writeManifest(*output, *product, *release, &appliancev1.ApplianceContentReference{Role: appliancev1.ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER, ArchiveSha256: result.GetArchiveSha256(), ArchiveSize: result.GetArchiveSize(), Platform: "linux/arm64", ImageReference: "agent-vmm.local/appliance@" + result.GetManifestDigest(), ImageManifestDigest: result.GetManifestDigest()})
+	writeManifest(*output, *product, *release, &appliancev1.ApplianceContentReference{Role: appliancev1.ApplianceContentRole_APPLIANCE_CONTENT_ROLE_CONTROLLER, ArchiveSha256: result.GetArchiveSha256(), ArchiveSize: result.GetArchiveSize(), Platform: "linux/arm64", ImageReference: "agent-vmm.local/appliance@" + result.GetManifestDigest(), ImageManifestDigest: result.GetManifestDigest()}, declaredFrontends...)
 
 }
 
@@ -201,14 +210,31 @@ func randomID() string {
 	}
 	return hex.EncodeToString(value)
 }
-func writeManifest(output, product, release string, content *appliancev1.ApplianceContentReference) []byte {
+func writeManifest(output, product, release string, content *appliancev1.ApplianceContentReference, frontends ...*appliancev1.ControllerFrontend) []byte {
 	limits := func(pids uint32, disk uint64) *hostv1.ResourceLimits {
 		return &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk}
 	}
-	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: product, Release: release, ImageReference: content.GetImageReference(), ImageManifestDigest: content.GetImageManifestDigest(), ContentRefs: []*appliancev1.ApplianceContentReference{content}, Platform: "linux/arm64", BootstrapProtocolVersion: "appliance-v1", ControllerProtocolVersion: "controller-ready-v1", SystemLimits: limits(256, 2<<30), DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{PerEnvironmentLimits: limits(1024, 16<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, RequestedFrontends: []*appliancev1.ControllerFrontend{{Name: "mcp-http", Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP, Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16}}}, StartupDeadlineSeconds: 60, ProbationSeconds: 5, HealthTimeoutSeconds: 10}
+	manifest := &appliancev1.ControllerApplianceManifest{ContractVersion: "1", ProductId: product, Release: release, ImageReference: content.GetImageReference(), ImageManifestDigest: content.GetImageManifestDigest(), ContentRefs: []*appliancev1.ApplianceContentReference{content}, Platform: "linux/arm64", SystemLimits: limits(256, 2<<30), DataVolumeBytes: 1 << 30, RequestedCapacity: &appliancev1.CapacityGrant{PerEnvironmentLimits: limits(1024, 16<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, RequestedEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, RequestedFrontends: frontends, StartupDeadlineSeconds: 60}
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
 	check(err)
 	check(os.WriteFile(filepath.Join(output, "manifest.pb"), canonical, 0o644))
 	hash := sha256.Sum256(canonical)
 	return hash[:]
+}
+
+func parseApplianceFrontends(values []string) ([]*appliancev1.ControllerFrontend, error) {
+	var frontends []*appliancev1.ControllerFrontend
+	for _, value := range values {
+		name, exposure, ok := strings.Cut(value, "=")
+		if !ok || name == "" {
+			return nil, errors.New("frontend requires NAME=loopback|outbound-only|lan-http")
+		}
+		modes := map[string]appliancev1.FrontendExposure{"loopback": appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK, "outbound-only": appliancev1.FrontendExposure_FRONTEND_EXPOSURE_OUTBOUND_ONLY, "lan-http": appliancev1.FrontendExposure_FRONTEND_EXPOSURE_LAN_HTTP}
+		mode, ok := modes[exposure]
+		if !ok {
+			return nil, fmt.Errorf("unknown frontend exposure %q", exposure)
+		}
+		frontends = append(frontends, &appliancev1.ControllerFrontend{Name: name, Transport: appliancev1.FrontendTransport_FRONTEND_TRANSPORT_HTTP, Exposure: mode, Bounds: &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16}})
+	}
+	return frontends, nil
 }

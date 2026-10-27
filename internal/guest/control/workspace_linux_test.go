@@ -6,15 +6,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"golang.org/x/sys/unix"
-	"google.golang.org/grpc"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"golang.org/x/sys/unix"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestVolumeListingIsCompleteBoundedAndNoFollow(t *testing.T) {
@@ -26,7 +30,7 @@ func TestVolumeListingIsCompleteBoundedAndNoFollow(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1)}}
+	server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1), logger: slog.Default().With("component", "guest-control")}}
 	for i := 0; i < 1001; i++ {
 		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("file-%04d", i)), nil, 0644); err != nil {
 			t.Fatal(err)
@@ -98,7 +102,7 @@ func TestWriteWorkspaceCreatesOwnedParentsAndResumesNestedUpload(t *testing.T) {
 	if err := os.Chown(root, 1000, 1000); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1)}}
+	server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1), logger: slog.Default().With("component", "guest-control")}}
 	write := func(requestID, path string, offset uint64, prefix, content []byte, finish bool) (*workspaceWriteStream, error) {
 		messages := []*vmmdv1.WriteWorkspaceRequest{{Payload: &vmmdv1.WriteWorkspaceRequest_Header{Header: &vmmdv1.WriteWorkspaceHeader{RequestId: requestID, ActorNamespaceId: namespace, VolumeId: volume, Path: path, Offset: offset, ExpectedPrefixSha256: prefix, Mode: 0644}}}, {Payload: &vmmdv1.WriteWorkspaceRequest_Data{Data: content}}}
 		if finish {
@@ -107,7 +111,7 @@ func TestWriteWorkspaceCreatesOwnedParentsAndResumesNestedUpload(t *testing.T) {
 		stream := &workspaceWriteStream{messages: messages}
 		return stream, server.WriteWorkspace(stream)
 	}
-	path := ".gitea/workflows/agentd-ci.yaml"
+	path := ".gitea/workflows/client-ci.yaml"
 	if _, err := write("source:0", path, 0, nil, []byte("prefix"), false); err == nil {
 		t.Fatal("unfinished upload reported success")
 	}
@@ -207,7 +211,7 @@ func TestWriteWorkspaceStreamsBeyondOldFileCeiling(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1)}}
+	server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1), logger: slog.Default().With("component", "guest-control")}}
 	const total = 257 << 20
 	chunk := make([]byte, maxWorkspaceChunk)
 	for i := range chunk {
@@ -238,5 +242,73 @@ func TestWriteWorkspaceStreamsBeyondOldFileCeiling(t *testing.T) {
 	}
 	if !equalDigest(stream.response.GetSha256(), verified.Sum(nil)) {
 		t.Fatal("file digest mismatch")
+	}
+}
+
+type blockedWorkspaceWriteStream struct {
+	workspaceWriteStream
+	entered, release chan struct{}
+	block            bool
+}
+
+func (stream *blockedWorkspaceWriteStream) Recv() (*vmmdv1.WriteWorkspaceRequest, error) {
+	if stream.block {
+		close(stream.entered)
+		<-stream.release
+		stream.block = false
+	} else if len(stream.messages) == 3 {
+		stream.block = true
+	}
+	return stream.workspaceWriteStream.Recv()
+}
+
+func TestWorkspaceUploadHasOneWriterPerStagingIdentity(t *testing.T) {
+	requireGuestRoot(t)
+	namespace := fmt.Sprintf("single-writer-%d", time.Now().UnixNano())
+	root := volumePath(namespace, "source")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 2), logger: slog.Default().With("component", "guest-control")}}
+	messages := func() []*vmmdv1.WriteWorkspaceRequest {
+		return []*vmmdv1.WriteWorkspaceRequest{
+			{Payload: &vmmdv1.WriteWorkspaceRequest_Header{Header: &vmmdv1.WriteWorkspaceHeader{RequestId: "same", ActorNamespaceId: namespace, VolumeId: "source", Path: "result", Mode: 0600}}},
+			{Payload: &vmmdv1.WriteWorkspaceRequest_Data{Data: []byte("complete")}},
+			{Payload: &vmmdv1.WriteWorkspaceRequest_Finish{Finish: true}},
+		}
+	}
+	first := &blockedWorkspaceWriteStream{workspaceWriteStream: workspaceWriteStream{messages: messages()}, entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() { done <- server.WriteWorkspace(first) }()
+	<-first.entered
+	second := &workspaceWriteStream{messages: messages()}
+	if err := server.WriteWorkspace(second); status.Code(err) != codes.Aborted {
+		close(first.release)
+		t.Fatalf("second writer=%v", err)
+	}
+	close(first.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "result")); err != nil || string(data) != "complete" {
+		t.Fatalf("first writer=%q %v", data, err)
+	}
+	key := "workspace-upload\x00" + namespace + "\x00source\x00result\x00same"
+	if _, active := server.runtime.resourceLocks.Load(key); active {
+		t.Fatal("completed upload retained its active marker")
+	}
+	for _, finish := range []bool{false, true} {
+		retry := messages()
+		if !finish {
+			retry = retry[:2]
+		}
+		err := server.WriteWorkspace(&workspaceWriteStream{messages: retry})
+		if (err == nil) != finish {
+			t.Fatalf("retry finish=%t: %v", finish, err)
+		}
+		if _, active := server.runtime.resourceLocks.Load(key); active {
+			t.Fatalf("upload finish=%t retained its active marker", finish)
+		}
 	}
 }

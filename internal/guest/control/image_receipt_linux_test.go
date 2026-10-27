@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,8 +17,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
@@ -34,6 +34,7 @@ import (
 	specsVersion "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	bolt "go.etcd.io/bbolt"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -74,7 +75,7 @@ func TestRetainedBuildSurvivesSourceReleaseAndScopesCollection(t *testing.T) {
 	}
 	index.addRuntimeImage(runtimeImageReference(target))
 	facts := &operationNamespaces{labels: map[string]map[string]string{}}
-	runtime := &Runtime{client: systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(facts))), inventory: index, materializer: new(ocimaterializer.Manager)}
+	runtime := &Runtime{client: systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(facts))), inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	receipt := &vmmdv1.ImageOperationReceipt{RequestId: "build", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_BUILD,
 		ImageReference: reference, ManifestDigest: target.String(), State: vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED}
 	if err := runtime.retainBuiltImage(ctx, "controller-a", "preparation", receipt); err == nil {
@@ -107,7 +108,7 @@ func TestRetainedBuildSurvivesSourceReleaseAndScopesCollection(t *testing.T) {
 	if _, err := runtime.retainedImage(ctx, "controller-b", reference, target.String(), receipt.RequestId); err == nil {
 		t.Fatal("other controller saw retained image")
 	}
-	if _, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32, false); err != nil {
+	if _, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err != nil {
 		t.Fatal(err)
 	}
 	if fixture.images[runtimeContainerdNamespace][runtimeImageReference(target)] == nil {
@@ -136,11 +137,11 @@ func TestRetainedBuildSurvivesSourceReleaseAndScopesCollection(t *testing.T) {
 	if err := runtime.saveImageOperation(ctx, "target", copyReceipt, ""); err != nil {
 		t.Fatal(err)
 	}
-	runtime.imageOperations.Delete("target" + "\x00" + imageOperationKey("copy", copyReceipt.Kind))
+	runtime.imageOperations.Delete(imageOperationRecordKey("target", "copy", copyReceipt.Kind))
 	facts.mu.Lock()
 	facts.labelReads = 0
 	facts.mu.Unlock()
-	if _, err := runtime.reclaimRetainedImageCache(ctx, 32, false); err != nil {
+	if _, err := runtime.reclaimRetainedImageCache(ctx, 32); err != nil {
 		t.Fatal(err)
 	}
 	facts.mu.Lock()
@@ -158,10 +159,10 @@ func TestRetainedBuildSurvivesSourceReleaseAndScopesCollection(t *testing.T) {
 	if err := runtime.finishImageOperation("target", copyReceipt, run, context.Canceled, nil, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.reclaimRetainedImageCache(ctx, 32, false); err != nil {
+	if _, err := runtime.reclaimRetainedImageCache(ctx, 32); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32, false); err != nil {
+	if _, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,7 +183,7 @@ func TestRetainedCacheCollectionReadsCopyPinAfterScopeAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	index.addRuntimeImage(record)
-	runtime := &Runtime{client: systemImageClient(t, fixture), inventory: index, materializer: new(ocimaterializer.Manager)}
+	runtime := &Runtime{client: systemImageClient(t, fixture), inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	var accepted sync.Once
 	fixture.mu.Lock()
 	fixture.beforeGet = func(name string) {
@@ -190,7 +191,10 @@ func TestRetainedCacheCollectionReadsCopyPinAfterScopeAdmission(t *testing.T) {
 			return
 		}
 		accepted.Do(func() {
-			unlock := runtime.lockNamespace(retainedImageOwner("controller"))
+			unlock, lockErr := runtime.lockNamespace(context.Background(), retainedImageOwner("controller"))
+			if lockErr != nil {
+				t.Fatal(lockErr)
+			}
 			defer unlock()
 			receipt := &vmmdv1.ImageOperationReceipt{RequestId: "copy-before-gc-lock", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, ImageReference: reference, ManifestDigest: target.String(), InputSha256: strings.Repeat("a", 64)}
 			if _, _, err := runtime.acceptImageOperation(ctx, "target", receipt, record, func() {}); err != nil {
@@ -199,7 +203,7 @@ func TestRetainedCacheCollectionReadsCopyPinAfterScopeAdmission(t *testing.T) {
 		})
 	}
 	fixture.mu.Unlock()
-	if count, err := runtime.reclaimRetainedImageCache(ctx, 32, false); err != nil || count != 0 {
+	if count, err := runtime.reclaimRetainedImageCache(ctx, 32); err != nil || count != 0 {
 		t.Fatalf("collection crossed accepted copy pin: %d %v", count, err)
 	}
 }
@@ -208,7 +212,7 @@ func TestRetainedCopyMissingCacheCannotHideOriginalAdmission(t *testing.T) {
 	ctx := context.Background()
 	namespaces := &operationNamespaces{labels: map[string]map[string]string{}}
 	fixture := &systemImageFixture{images: map[string]map[string]*imagesapi.Image{runtimeContainerdNamespace: {}}, containers: map[string]*containersapi.Container{}}
-	runtime := &Runtime{client: systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(namespaces))), inventory: newRuntimeInventoryIndex(), materializer: new(ocimaterializer.Manager)}
+	runtime := &Runtime{client: systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(namespaces))), inventory: newRuntimeInventoryIndex(), materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	server := &Server{runtime: runtime}
 	request := &vmmdv1.CopyImageRequest{RequestId: "copy", TargetNamespaceId: "target", ControllerCacheScope: "controller", RetainedBuildRequestId: "build", ImageReference: "docker.io/library/fixture:latest", ManifestDigest: digest.FromString("missing").String(), ControllerRequestSha256: strings.Repeat("a", 64)}
 	fixture.images["preparation"] = map[string]*imagesapi.Image{request.ImageReference: {Name: request.ImageReference, Target: &types.Descriptor{Digest: request.ManifestDigest}}}
@@ -220,7 +224,7 @@ func TestRetainedCopyMissingCacheCannotHideOriginalAdmission(t *testing.T) {
 	if err != nil || len(listed) != 1 {
 		t.Fatalf("cache probe: %v %v", listed, err)
 	}
-	if removed, err := runtime.reclaimRetainedImageCache(ctx, 32, false); err != nil || removed != 1 {
+	if removed, err := runtime.reclaimRetainedImageCache(ctx, 32); err != nil || removed != 1 {
 		t.Fatalf("cache GC window: %d %v", removed, err)
 	}
 	_, err = server.CopyImage(ctx, request)
@@ -237,7 +241,7 @@ func TestRetainedCopyMissingCacheCannotHideOriginalAdmission(t *testing.T) {
 	if _, _, err := runtime.acceptImageOperation(ctx, "target", receipt, "retained-original", func() {}); err != nil {
 		t.Fatal(err)
 	}
-	runtime.imageOperations.Delete("target" + "\x00" + imageOperationKey("copy", receipt.Kind))
+	runtime.imageOperations.Delete(imageOperationRecordKey("target", "copy", receipt.Kind))
 	if _, err := server.CopyImage(ctx, request); status.Code(err) != codes.Aborted {
 		t.Fatalf("lost accepted writer became cache miss: %v", err)
 	}
@@ -260,8 +264,11 @@ func TestCopyReceiptHandsSourceRetentionToTargetGrant(t *testing.T) {
 	}
 	index.addRuntimeImage(runtimeImageReference(target))
 	index.addRuntimeImage(runtimeImageReference(unrelated))
-	runtime := &Runtime{client: systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(facts))), inventory: index, materializer: new(ocimaterializer.Manager)}
-	unlock := runtime.lockNamespace("source")
+	runtime := &Runtime{client: systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(facts))), inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
+	unlock, lockErr := runtime.lockNamespace(context.Background(), "source")
+	if lockErr != nil {
+		t.Fatal(lockErr)
+	}
 	receipt := &vmmdv1.ImageOperationReceipt{RequestId: "copy-handoff", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, ManifestDigest: target.String(), ImageReference: reference, InputSha256: strings.Repeat("a", 64)}
 	run, _, err := runtime.acceptImageOperation(ctx, "target", receipt, reference, func() {})
 	unlock()
@@ -278,11 +285,12 @@ func TestCopyReceiptHandsSourceRetentionToTargetGrant(t *testing.T) {
 	facts.mu.Lock()
 	facts.labelReads = 0
 	facts.mu.Unlock()
-	unlockGC, err := runtime.materializer.LockBuild(ctx)
+	err = runtime.materializationSlot.Acquire(ctx, 1)
+	unlockGC := func() { runtime.materializationSlot.Release(1) }
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32, true)
+	removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32)
 	unlockGC()
 	if err != nil || removed != 1 {
 		t.Fatalf("active copy / unrelated GC: removed=%d err=%v", removed, err)
@@ -302,13 +310,13 @@ func TestCopyReceiptHandsSourceRetentionToTargetGrant(t *testing.T) {
 	if err := runtime.finishImageOperation("target", receipt, run, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
-	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32, false); err != nil || removed != 0 {
+	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err != nil || removed != 0 {
 		t.Fatalf("target grant lost at settlement: %d %v", removed, err)
 	}
 	if err := index.removeImage("target", reference); err != nil {
 		t.Fatal(err)
 	}
-	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32, false); err != nil || removed != 1 {
+	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err != nil || removed != 1 {
 		t.Fatalf("settled source remained pinned: %d %v", removed, err)
 	}
 }
@@ -380,7 +388,7 @@ func TestRetainedAliasGCLeavesCopiedSeedMaterialized(t *testing.T) {
 	}
 	fixture := &systemImageFixture{tasksAbsent: true, images: map[string]map[string]*imagesapi.Image{}, containers: map[string]*containersapi.Container{}}
 	client := systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(facts), containerd.WithIntrospectionService(warmSnapshotIntrospection{}), containerd.WithImageStore(metadata.NewImageStore(metadataDB)), containerd.WithContainerStore(metadata.NewContainerStore(metadataDB)), containerd.WithLeasesService(metadata.NewLeaseManager(metadataDB)), containerd.WithContentStore(store), containerd.WithSnapshotters(map[string]snapshotsapi.Snapshotter{containerSnapshotter: snapshots})))
-	runtime := &Runtime{client: client, inventory: index, materializer: new(ocimaterializer.Manager), stateDevice: device}
+	runtime := &Runtime{client: client, inventory: index, materializationSlot: semaphore.NewWeighted(1), stateDevice: device, logger: slog.Default().With("component", "guest-control")}
 	reference := "registry.example/seed:latest"
 	canonical := runtimeImageReference(target.Digest)
 	if _, err := client.ImageService().Create(nsctx, coreimages.Image{Name: canonical, Target: target}); err != nil {
@@ -412,13 +420,13 @@ func TestRetainedAliasGCLeavesCopiedSeedMaterialized(t *testing.T) {
 		}
 	}
 	deleteGrant("preparation")
-	if removed, err := runtime.reclaimRetainedImageCache(ctx, 32, false); err != nil || removed != 1 {
+	if removed, err := runtime.reclaimRetainedImageCache(ctx, 32); err != nil || removed != 1 {
 		t.Fatalf("retained alias collection: %d %v", removed, err)
 	}
 	if _, err := runtime.retainedImage(ctx, "controller", reference, target.Digest.String(), "built"); !errdefs.IsNotFound(err) {
 		t.Fatalf("alias stayed authorized: %v", err)
 	}
-	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32, false); err != nil || removed != 0 {
+	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err != nil || removed != 0 {
 		t.Fatalf("seed grant lost canonical: %d %v", removed, err)
 	}
 	if _, err := metadataDB.GarbageCollect(ctx); err != nil {
@@ -464,7 +472,7 @@ func TestRetainedAliasGCLeavesCopiedSeedMaterialized(t *testing.T) {
 	}
 	deleteGrant("seed")
 	deleteGrant("next")
-	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32, false); err != nil || removed != 1 {
+	if removed, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err != nil || removed != 1 {
 		t.Fatalf("final grant release did not collect canonical: %d %v", removed, err)
 	}
 	if _, err := metadataDB.GarbageCollect(ctx); err != nil {

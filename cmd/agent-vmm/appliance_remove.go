@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -65,7 +65,7 @@ func runApplianceRemove(socket, installation, requestID string, revision uint64,
 	client := appliancev1.NewApplianceAdminServiceClient(connection)
 	deadline := time.Now().Add(timeout).UnixMilli()
 	if !execute {
-		status, err := client.GetStatus(ctx, &appliancev1.GetApplianceStatusRequest{InstallationId: installation})
+		status, err := client.GetApplianceStatus(ctx, &appliancev1.GetApplianceStatusRequest{InstallationId: installation})
 		if err != nil {
 			return err
 		}
@@ -85,14 +85,12 @@ func runApplianceRemove(socket, installation, requestID string, revision uint64,
 	}
 	response, err := client.ExecuteRemove(ctx, request)
 	if err != nil {
-		for _, detail := range status.Convert(err).Details() {
-			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == "agentvmm.afk.surf" && info.Metadata["admission"] == "not_accepted" {
-				return fmt.Errorf("original removal intent was not accepted; review a new plan with appliance remove --installation %s, then approve it with a new --request-id: %w", installation, err)
-			}
+		if reason, ok := hostv1.ErrorReasonOf(err); ok && reason == hostv1.ErrorReason_ERROR_REASON_APPLIANCE_OPERATION_NOT_ADMITTED {
+			return fmt.Errorf("original removal intent was not accepted; review a new plan with appliance remove --installation %s, then approve it with a new --request-id: %w", installation, err)
 		}
 		return err
 	}
-	err = watchApplianceOperation(ctx, client, installation, response)
+	err = watchApplianceOperation(ctx, client, installation, response.GetOperation())
 	if status.Code(err) != codes.DeadlineExceeded {
 		return err
 	}

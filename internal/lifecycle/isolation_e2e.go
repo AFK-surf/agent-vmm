@@ -41,14 +41,14 @@ func serviceAccount(account *user.User) *user.User {
 	return &isolated
 }
 
-func supportedSchema() store.SchemaRange {
-	schema := store.SupportedSchema()
-	if value := os.Getenv("AGENT_VMM_E2E_SUPPORTED_SCHEMA_MAX"); value != "" {
+func currentSchema() int {
+	schema := store.CurrentSchema()
+	if value := os.Getenv("AGENT_VMM_E2E_CURRENT_SCHEMA"); value != "" {
 		maximum, err := strconv.Atoi(value)
 		if err != nil {
-			fatal("AGENT_VMM_E2E_SUPPORTED_SCHEMA_MAX must be an integer")
+			fatal("AGENT_VMM_E2E_CURRENT_SCHEMA must be an integer")
 		}
-		schema.Max = maximum
+		schema = maximum
 	}
 	return schema
 }

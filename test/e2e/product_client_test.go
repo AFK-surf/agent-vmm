@@ -102,7 +102,7 @@ func (client *productClient) EnsureEnvironment(ctx context.Context, environmentI
 	client.mu.Lock()
 	if session := client.sessions[environmentID]; session != nil {
 		client.mu.Unlock()
-		response, err := session.client.GetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+		response, err := session.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{})
 		return response.GetEnvironment(), err
 	}
 	client.mu.Unlock()
@@ -124,9 +124,6 @@ func (client *productClient) EnsureEnvironment(ctx context.Context, environmentI
 	created, err := client.operator.CreateAgentSession(ctx, &hostv1.CreateAgentSessionRequest{RequestId: requestID + "-session", IntegrationId: integration.GetIntegration().GetId()})
 	if err != nil {
 		return nil, err
-	}
-	if info, err := os.Stat(created.GetSocketPath()); err != nil || info.Mode().Perm() != 0o600 {
-		return nil, errors.New("agent session socket is not private")
 	}
 	connection, err := grpc.NewClient("passthrough:///agent", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", created.GetSocketPath())
@@ -175,7 +172,7 @@ func (client *productClient) DeleteEnvironment(ctx context.Context, environmentI
 	if err := client.RemoveEnvironmentAccess(ctx, environmentID, requestID); err != nil {
 		return err
 	}
-	plan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanEnvironmentRequest{EnvironmentId: environmentID})
+	plan, err := client.operator.PlanDiscardEnvironment(ctx, &hostv1.PlanDiscardEnvironmentRequest{EnvironmentId: environmentID})
 	if err != nil {
 		return err
 	}
@@ -238,11 +235,13 @@ func (client *productClient) ImportImage(ctx context.Context, environmentID stri
 	}
 	if err := stream.Send(&hostv1.ImportImageRequest{Payload: &hostv1.ImportImageRequest_Header{Header: header}}); err != nil {
 		if errors.Is(err, io.EOF) {
-			return stream.CloseAndRecv()
+			response, err := stream.CloseAndRecv()
+			return response.GetImage(), err
 		}
 		return nil, err
 	}
-	return stream.CloseAndRecv()
+	response, err := stream.CloseAndRecv()
+	return response.GetImage(), err
 }
 
 func (client *productClient) ListImages(ctx context.Context, environmentID string) (*hostv1.ListImagesResponse, error) {
@@ -262,7 +261,7 @@ func (client *productClient) DeleteImage(ctx context.Context, environmentID stri
 	return err
 }
 
-func (client *productClient) CreateVolume(ctx context.Context, environmentID string, request *hostv1.CreateVolumeRequest) (*hostv1.VolumeResponse, error) {
+func (client *productClient) CreateVolume(ctx context.Context, environmentID string, request *hostv1.CreateVolumeRequest) (*hostv1.CreateVolumeResponse, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
@@ -279,7 +278,7 @@ func (client *productClient) DeleteVolume(ctx context.Context, environmentID str
 	return err
 }
 
-func (client *productClient) CreateContainer(ctx context.Context, environmentID string, request *hostv1.CreateContainerRequest) (*hostv1.ContainerResponse, error) {
+func (client *productClient) CreateContainer(ctx context.Context, environmentID string, request *hostv1.CreateContainerRequest) (*hostv1.CreateContainerResponse, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
@@ -287,7 +286,7 @@ func (client *productClient) CreateContainer(ctx context.Context, environmentID 
 	return session.client.CreateContainer(ctx, request)
 }
 
-func (client *productClient) StartContainer(ctx context.Context, environmentID string, request *hostv1.ContainerMutationRequest) (*hostv1.ContainerResponse, error) {
+func (client *productClient) StartContainer(ctx context.Context, environmentID string, request *hostv1.StartContainerRequest) (*hostv1.StartContainerResponse, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
@@ -295,7 +294,7 @@ func (client *productClient) StartContainer(ctx context.Context, environmentID s
 	return session.client.StartContainer(ctx, request)
 }
 
-func (client *productClient) StopContainer(ctx context.Context, environmentID string, request *hostv1.StopContainerRequest) (*hostv1.ContainerResponse, error) {
+func (client *productClient) StopContainer(ctx context.Context, environmentID string, request *hostv1.StopContainerRequest) (*hostv1.StopContainerResponse, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
@@ -303,7 +302,7 @@ func (client *productClient) StopContainer(ctx context.Context, environmentID st
 	return session.client.StopContainer(ctx, request)
 }
 
-func (client *productClient) WaitContainer(ctx context.Context, environmentID string, request *hostv1.ContainerRequest) (*hostv1.WaitContainerResponse, error) {
+func (client *productClient) WaitContainer(ctx context.Context, environmentID string, request *hostv1.WaitContainerRequest) (*hostv1.WaitContainerResponse, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
@@ -311,24 +310,24 @@ func (client *productClient) WaitContainer(ctx context.Context, environmentID st
 	return session.client.WaitContainer(ctx, request)
 }
 
-func (client *productClient) DeleteContainer(ctx context.Context, environmentID string, request *hostv1.ContainerMutationRequest) error {
+func (client *productClient) DeleteContainer(ctx context.Context, environmentID string, request *hostv1.DeleteContainerRequest) error {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return err
 	}
 	if request.GetExpectedGenerationId() == "" {
-		current, err := session.client.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: request.GetContainerId()})
+		current, err := session.client.GetContainer(ctx, &hostv1.GetContainerRequest{ContainerId: request.GetContainerId()})
 		if err != nil {
 			return err
 		}
-		request = proto.Clone(request).(*hostv1.ContainerMutationRequest)
+		request = proto.Clone(request).(*hostv1.DeleteContainerRequest)
 		request.ExpectedGenerationId = current.GetContainer().GetGenerationId()
 	}
 	_, err = session.client.DeleteContainer(ctx, request)
 	return err
 }
 
-func (client *productClient) GetContainer(ctx context.Context, environmentID string, request *hostv1.ContainerRequest) (*hostv1.ContainerResponse, error) {
+func (client *productClient) GetContainer(ctx context.Context, environmentID string, request *hostv1.GetContainerRequest) (*hostv1.GetContainerResponse, error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
@@ -344,7 +343,7 @@ func (client *productClient) ListContainers(ctx context.Context, environmentID s
 	return session.client.ListContainers(ctx, &hostv1.ListContainersRequest{})
 }
 
-func (client *productClient) Logs(ctx context.Context, environmentID string, request *hostv1.LogsRequest) (grpc.ServerStreamingClient[hostv1.LogRecord], error) {
+func (client *productClient) Logs(ctx context.Context, environmentID string, request *hostv1.LogsRequest) (grpc.ServerStreamingClient[hostv1.LogsResponse], error) {
 	session, err := client.session(environmentID)
 	if err != nil {
 		return nil, err
@@ -378,14 +377,4 @@ func (client *productClient) BuildImage(ctx context.Context, environmentID strin
 
 func (client *productClient) Snapshot(ctx context.Context) (*hostv1.GetSystemSnapshotResponse, error) {
 	return client.operator.GetSystemSnapshot(ctx, &hostv1.GetSystemSnapshotRequest{})
-}
-
-func (client *productClient) ApplyNetworkLink(ctx context.Context, request *hostv1.ApplyNetworkLinkRequest) error {
-	_, err := client.operator.ApplyNetworkLink(ctx, request)
-	return err
-}
-
-func (client *productClient) DeleteNetworkLink(ctx context.Context, request *hostv1.DeleteNetworkLinkRequest) error {
-	_, err := client.operator.DeleteNetworkLink(ctx, request)
-	return err
 }

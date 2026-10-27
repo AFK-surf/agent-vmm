@@ -244,7 +244,9 @@ RecoverOperation ==
   /\ state' = [state EXCEPT !.operationPhase = "INTERRUPTED"]
   /\ UNCHANGED violations
 
-Next == StageArtifact \/ Install \/ Start \/ CommitInstanceFence \/
+Terminated == state.phase = "REMOVED" /\ UNCHANGED vars
+
+Next == Terminated \/ StageArtifact \/ Install \/ Start \/ CommitInstanceFence \/
   BootstrapInitial \/ Bootstrap \/ ReplayBootstrap \/ DeleteSeed \/ Settle \/
   Stop \/ Restart \/ Crash \/ BundledArtifactUpgrade \/ RejectInvalidBundledArtifact \/ PayloadCrash \/ AdoptReplacement \/
   StaleInstance \/ StaleSession \/ StaleFrontend \/ UnsafePublishBeforeFence \/

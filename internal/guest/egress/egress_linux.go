@@ -13,7 +13,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
+	"github.com/AFK-surf/agent-vmm/internal/guest/vsock"
+	"golang.org/x/sys/unix"
 )
 
 type DialFunc func(context.Context) (net.Conn, error)
@@ -53,7 +55,9 @@ func New(bootID string) (*Pump, error) {
 		_ = device.Close()
 		return nil, err
 	}
-	pump := NewWithTransport(device, dialHost, bootID)
+	pump := NewWithTransport(device, func(ctx context.Context) (net.Conn, error) {
+		return vsock.Dial(ctx, unix.VMADDR_CID_HOST, egresslink.EgressPort)
+	}, bootID)
 	pump.configured.Store(true)
 	return pump, nil
 }
@@ -66,7 +70,7 @@ func (pump *Pump) Run(ctx context.Context) error {
 	if pump.device == nil || pump.dial == nil || pump.bootID == "" {
 		return errors.New("egress device, dialer, and boot ID are required")
 	}
-	packets := make(chan []byte, netprotocol.QueueSize)
+	packets := make(chan []byte, egresslink.QueueSize)
 	readErr := make(chan error, 1)
 	go pump.readTUN(ctx, packets, readErr)
 	backoff := 100 * time.Millisecond
@@ -105,10 +109,10 @@ func (pump *Pump) Run(ctx context.Context) error {
 }
 
 func (pump *Pump) runSession(ctx context.Context, connection net.Conn, packets <-chan []byte) error {
-	if err := netprotocol.WriteHandshake(connection, netprotocol.Handshake{BootID: pump.bootID}); err != nil {
+	if err := egresslink.WriteHandshake(connection, egresslink.Handshake{BootID: pump.bootID}); err != nil {
 		return fmt.Errorf("egress handshake write: %w", err)
 	}
-	if _, err := netprotocol.ReadHandshake(connection, pump.bootID); err != nil {
+	if _, err := egresslink.ReadHandshake(connection, pump.bootID); err != nil {
 		return fmt.Errorf("egress handshake read: %w", err)
 	}
 	pump.connected.Store(true)
@@ -125,7 +129,7 @@ func (pump *Pump) runSession(ctx context.Context, connection net.Conn, packets <
 		case sent := <-ticker.C:
 			payload := make([]byte, 8)
 			binaryPutUint64(payload, uint64(sent.UnixNano()))
-			if err := pump.writeFrame(connection, netprotocol.Ping, payload); err != nil {
+			if err := pump.writeFrame(connection, egresslink.Ping, payload); err != nil {
 				return fmt.Errorf("egress ping write: %w", err)
 			}
 			continue
@@ -137,13 +141,13 @@ func (pump *Pump) runSession(ctx context.Context, connection net.Conn, packets <
 		case err := <-readErr:
 			return fmt.Errorf("egress frame read: %w", err)
 		case packet := <-packets:
-			if err := pump.writeFrame(connection, netprotocol.Data, packet); err != nil {
+			if err := pump.writeFrame(connection, egresslink.Data, packet); err != nil {
 				return fmt.Errorf("egress data write: %w", err)
 			}
 		case sent := <-ticker.C:
 			payload := make([]byte, 8)
 			binaryPutUint64(payload, uint64(sent.UnixNano()))
-			if err := pump.writeFrame(connection, netprotocol.Ping, payload); err != nil {
+			if err := pump.writeFrame(connection, egresslink.Ping, payload); err != nil {
 				return fmt.Errorf("egress ping write: %w", err)
 			}
 		}
@@ -152,21 +156,23 @@ func (pump *Pump) runSession(ctx context.Context, connection net.Conn, packets <
 
 func (pump *Pump) readFrames(ctx context.Context, connection net.Conn) error {
 	for {
-		_ = connection.SetReadDeadline(time.Now().Add(16 * time.Second))
-		frameType, payload, err := netprotocol.ReadFrame(connection)
+		if err := connection.SetReadDeadline(time.Now().Add(16 * time.Second)); err != nil {
+			return err
+		}
+		frameType, payload, err := egresslink.ReadFrame(connection)
 		if err != nil {
 			return err
 		}
 		switch frameType {
-		case netprotocol.Data:
+		case egresslink.Data:
 			if _, err := pump.device.Write(payload); err != nil {
 				return err
 			}
-		case netprotocol.Ping:
-			if err := pump.writeFrame(connection, netprotocol.Pong, payload); err != nil {
+		case egresslink.Ping:
+			if err := pump.writeFrame(connection, egresslink.Pong, payload); err != nil {
 				return err
 			}
-		case netprotocol.Pong:
+		case egresslink.Pong:
 			pump.rttNanos.Store(int64(time.Since(time.Unix(0, int64(binaryUint64(payload))))))
 		}
 		select {
@@ -178,19 +184,19 @@ func (pump *Pump) readFrames(ctx context.Context, connection net.Conn) error {
 }
 
 func (pump *Pump) readTUN(ctx context.Context, packets chan<- []byte, result chan<- error) {
-	buffer := make([]byte, netprotocol.MTU+1)
+	buffer := make([]byte, egresslink.MTU+1)
 	for {
 		count, err := pump.device.Read(buffer)
 		if err != nil {
 			result <- err
 			return
 		}
-		if count > netprotocol.MTU {
+		if count > egresslink.MTU {
 			pump.drops.Add(1)
 			continue
 		}
 		packet := append([]byte(nil), buffer[:count]...)
-		if err := netprotocol.ValidateDataPacket(packet); err != nil {
+		if err := egresslink.ValidateDataPacket(packet); err != nil {
 			pump.drops.Add(1)
 			continue
 		}
@@ -207,10 +213,10 @@ func (pump *Pump) readTUN(ctx context.Context, packets chan<- []byte, result cha
 	}
 }
 
-func (pump *Pump) writeFrame(connection net.Conn, frameType netprotocol.Type, payload []byte) error {
+func (pump *Pump) writeFrame(connection net.Conn, frameType egresslink.Type, payload []byte) error {
 	pump.writeMu.Lock()
 	defer pump.writeMu.Unlock()
-	return netprotocol.WriteFrame(connection, frameType, payload)
+	return egresslink.WriteFrame(connection, frameType, payload)
 }
 
 func (pump *Pump) Close() error {

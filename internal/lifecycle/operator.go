@@ -11,7 +11,6 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -25,7 +24,7 @@ type operatorFacts struct {
 	registrationRead   string
 	registrationState  string
 	registrationReason string
-	snapshot           *hostv1.GetSystemSnapshotResponse
+	snapshot           *hostv1.GetSystemHealthSummaryResponse
 }
 
 func parseStatusArgs(args []string) (string, error) {
@@ -43,12 +42,6 @@ func parseLifecycleOperationArgs(args []string) (string, error) {
 		return args[1], nil
 	}
 	return "", errors.New("operation requires --operation-id ID")
-}
-
-func readOperatorFacts(socket string) (operatorFacts, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return readOperatorFactsContext(ctx, socket)
 }
 
 func readOperatorFactsContext(ctx context.Context, socket string, registrationIDs ...string) (operatorFacts, error) {
@@ -252,7 +245,7 @@ func waitRemoteRegistrationConnected(value paths, registrationID string) error {
 	})
 }
 
-func waitRemoteRegistrationConnectedWith(ctx context.Context, registrationID string, get func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error), sleep func(context.Context) error) error {
+func waitRemoteRegistrationConnectedWith(ctx context.Context, registrationID string, get func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.GetRemoteRegistrationResponse, error), sleep func(context.Context) error) error {
 	for {
 		response, readErr := get(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
 		if readErr == nil && response.GetRegistration().GetId() == registrationID && response.GetRegistration().GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED {
@@ -272,8 +265,8 @@ func setRemoteRegistrationStateWith(
 	registrationID string,
 	state hostv1.RemoteRegistrationState,
 	requestID string,
-	get func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error),
-	set func(context.Context, *hostv1.SetRemoteRegistrationStateRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error),
+	get func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.GetRemoteRegistrationResponse, error),
+	set func(context.Context, *hostv1.SetRemoteRegistrationStateRequest, ...grpc.CallOption) (*hostv1.SetRemoteRegistrationStateResponse, error),
 ) error {
 	current, err := get(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registrationID})
 	if err != nil {
@@ -297,8 +290,6 @@ func setRemoteRegistrationStateWith(
 	return nil
 }
 
-var drainVMForUpdate = stopVMForUpdate
-
 func stopVMForUpdate(ctx context.Context, value paths, requestID string) error {
 	connection, err := operatorConnection(ctx, filepath.Join(value.applicationData, "operator.sock"))
 	if err != nil {
@@ -309,8 +300,8 @@ func stopVMForUpdate(ctx context.Context, value paths, requestID string) error {
 }
 
 type updateVMClient interface {
-	GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.VMResponse, error)
-	StopVM(context.Context, *hostv1.StopVMRequest, ...grpc.CallOption) (*hostv1.OperationResponse, error)
+	GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.GetVMResponse, error)
+	StopVM(context.Context, *hostv1.StopVMRequest, ...grpc.CallOption) (*hostv1.StopVMResponse, error)
 }
 
 func stopVMForUpdateWith(ctx context.Context, client updateVMClient, requestID string) error {
@@ -376,15 +367,8 @@ func revokeRemoteRegistration(ctx context.Context, value paths, registrationID, 
 }
 
 func registrationRevisionConflict(err error) bool {
-	if status.Code(err) != codes.Aborted {
-		return false
-	}
-	for _, detail := range status.Convert(err).Details() {
-		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "REGISTRATION_REVISION_CONFLICT" {
-			return true
-		}
-	}
-	return false
+	reason, ok := hostv1.ErrorReasonOf(err)
+	return ok && reason == hostv1.ErrorReason_ERROR_REASON_REGISTRATION_REVISION_CONFLICT
 }
 
 func completeRemoteRevocation(ctx context.Context, client hostv1.OperatorServiceClient, registrationID, requestID string) error {

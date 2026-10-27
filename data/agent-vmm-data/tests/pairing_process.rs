@@ -26,8 +26,6 @@ fn start_worker(root: &Path, name: &str) -> Worker {
     let socket = root.join(format!("{name}-control.sock"));
     let service = root.join(format!("{name}-service.sock"));
     let mesh = root.join(format!("{name}-mesh.sock"));
-    let capability = root.join(format!("{name}-service.cap"));
-    std::fs::write(&capability, [7u8; 32]).unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_agent-vmm-data"))
         .args([
             "--socket",
@@ -36,8 +34,6 @@ fn start_worker(root: &Path, name: &str) -> Worker {
             service.to_str().unwrap(),
             "--mesh-control-socket",
             mesh.to_str().unwrap(),
-            "--service-capability-file",
-            capability.to_str().unwrap(),
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -78,7 +74,7 @@ fn context(joiner_bound: bool) -> Value {
         "joiner_identity": bytes(if joiner_bound { b"joiner-device" } else { b"" }),
         "manager_root_key": bytes(&[2; 33]),
         "joiner_root_key": bytes(if joiner_bound { &[3; 33] } else { &[] }),
-        "roles_and_features": bytes(if joiner_bound { b"use-services" } else { b"" })
+        "roles_and_features": bytes(b"use-services")
     })
 }
 
@@ -115,7 +111,7 @@ fn two_worker_processes_complete_real_pairing_alpn_exchange() {
             "acceptance": bytes(b"manager-signed-acceptance")
         }),
     );
-    assert_eq!(prepared["state"], "idle");
+    assert_eq!(prepared["state"], "invited");
     assert_eq!(prepared["attempts_remaining"], 5);
 
     let joined = request(
@@ -129,7 +125,7 @@ fn two_worker_processes_complete_real_pairing_alpn_exchange() {
             "proposal": bytes(b"joiner-signed-identity-permission-proposal")
         }),
     );
-    assert_eq!(joined["state"], "awaiting_local_confirmation");
+    assert_eq!(joined["state"], "awaiting_confirm");
     assert_eq!(joined["peer_payload"], bytes(b"manager-signed-acceptance"));
     assert_eq!(joined["sas"].as_str().unwrap().len(), 6);
 
@@ -137,7 +133,7 @@ fn two_worker_processes_complete_real_pairing_alpn_exchange() {
         &manager.socket,
         json!({"command": "pairing_status", "session_id": bytes(&[9; 16])}),
     );
-    assert_eq!(manager_pairing["state"], "awaiting_local_confirmation");
+    assert_eq!(manager_pairing["state"], "awaiting_confirm");
     assert_eq!(
         manager_pairing["peer_payload"],
         bytes(b"joiner-signed-identity-permission-proposal")
@@ -148,27 +144,47 @@ fn two_worker_processes_complete_real_pairing_alpn_exchange() {
         &manager.socket,
         json!({"command": "confirm_pairing", "session_id": bytes(&[9; 16])}),
     );
-    assert_eq!(manager_confirmed["state"], "awaiting_local_confirmation");
-    let joiner_confirmed = request(
+    assert_eq!(manager_confirmed["state"], "awaiting_confirm");
+    request(
         &joiner.socket,
-        json!({"command": "confirm_pairing", "session_id": bytes(&[9; 16])}),
+        json!({"command":"confirm_pairing", "session_id":bytes(&[9;16])}),
     );
-    assert_eq!(joiner_confirmed["state"], "ready_to_commit");
-    let manager_ready = request(
-        &manager.socket,
-        json!({"command": "pairing_status", "session_id": bytes(&[9; 16])}),
-    );
-    assert_eq!(manager_ready["state"], "ready_to_commit");
-
     for worker in [&manager, &joiner] {
-        let committed = request(
-            &worker.socket,
-            json!({
-                "command": "commit_pairing",
-                "session_id": bytes(&[9; 16]),
-                "registry_cas_succeeded": true
-            }),
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let status = request(
+                &worker.socket,
+                json!({"command":"pairing_status", "session_id":bytes(&[9;16])}),
+            );
+            if status["state"] == "ready_to_commit" {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "pairing did not receive peer confirmation: {status}"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let committed = request(
+        &manager.socket,
+        json!({"command":"commit_pairing", "session_id":bytes(&[9;16]), "registry_cas_succeeded":true}),
+    );
+    assert_eq!(committed["state"], "committed");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = request(
+            &joiner.socket,
+            json!({"command":"pairing_status", "session_id":bytes(&[9;16])}),
         );
-        assert_eq!(committed["state"], "committed");
+        if status["state"] == "committed" {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "joiner did not receive manager commit: {status}"
+        );
+        thread::sleep(Duration::from_millis(10));
     }
 }

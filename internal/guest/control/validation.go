@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 )
 
 var opaqueID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
@@ -45,7 +45,7 @@ func validateDestination(value string) error {
 	return nil
 }
 
-func validateResourceLimits(namespaceID string, limits *vmmdv1.ResourceLimits, namespace *vmmdv1.NamespaceLimits) error {
+func validateResourceLimits(limits *vmmdv1.ResourceLimits, namespace *vmmdv1.NamespaceLimits) error {
 	if limits == nil {
 		return nil
 	}

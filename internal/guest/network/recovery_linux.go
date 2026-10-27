@@ -25,11 +25,10 @@ func (m *Manager) RestoreEndpoint(ctx context.Context, namespaceID, containerID,
 	if err != nil {
 		return err
 	}
-	m.endpoints[namespaceID][containerID] = endpoint
 	if err := m.startDNSLocked(namespaceID); err != nil {
 		return err
 	}
-	return m.reconcileLocked()
+	return m.mutateLocked(func(next *state) error { next.endpoints[namespaceID][containerID] = endpoint; return nil })
 }
 
 func retainedEndpoint(namespace Namespace, containerID, instanceID, path string, data []byte) (Endpoint, error) {

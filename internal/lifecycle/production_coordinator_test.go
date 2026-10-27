@@ -129,23 +129,23 @@ type managedInstallOperator struct {
 	request        *hostv1.ApplyManagedRemoteEnrollmentRequest
 }
 
-func (server *managedInstallOperator) GetVM(context.Context, *hostv1.GetVMRequest) (*hostv1.VMResponse, error) {
-	return &hostv1.VMResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}}, nil
+func (server *managedInstallOperator) GetVM(context.Context, *hostv1.GetVMRequest) (*hostv1.GetVMResponse, error) {
+	return &hostv1.GetVMResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}}, nil
 }
 func (server *managedInstallOperator) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapshotRequest) (*hostv1.GetSystemSnapshotResponse, error) {
 	return nil, status.Error(codes.Internal, "rich snapshot must not be used by managed lifecycle")
 }
-func (server *managedInstallOperator) GetSystemHealthSummary(context.Context, *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemSnapshotResponse, error) {
-	return &hostv1.GetSystemSnapshotResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}, Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY}}, nil
+func (server *managedInstallOperator) GetSystemHealthSummary(context.Context, *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemHealthSummaryResponse, error) {
+	return &hostv1.GetSystemHealthSummaryResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING}, Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY}}, nil
 }
-func (server *managedInstallOperator) ApplyManagedRemoteEnrollment(_ context.Context, request *hostv1.ApplyManagedRemoteEnrollmentRequest) (*hostv1.RemoteRegistrationResponse, error) {
+func (server *managedInstallOperator) ApplyManagedRemoteEnrollment(_ context.Context, request *hostv1.ApplyManagedRemoteEnrollmentRequest) (*hostv1.ApplyManagedRemoteEnrollmentResponse, error) {
 	server.mu.Lock()
 	server.applyCalls++
 	server.request = request
 	server.mu.Unlock()
-	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: request.GetRegistration().GetRegistrationId()}}, nil
+	return &hostv1.ApplyManagedRemoteEnrollmentResponse{Registration: &hostv1.RemoteRegistration{Id: request.GetRegistration().GetRegistrationId()}}, nil
 }
-func (server *managedInstallOperator) GetRemoteRegistration(_ context.Context, request *hostv1.GetRemoteRegistrationRequest) (*hostv1.RemoteRegistrationResponse, error) {
+func (server *managedInstallOperator) GetRemoteRegistration(_ context.Context, request *hostv1.GetRemoteRegistrationRequest) (*hostv1.GetRemoteRegistrationResponse, error) {
 	if request.GetRegistrationId() == "other-registration" {
 		return nil, status.Error(codes.NotFound, "registration not found")
 	}
@@ -155,5 +155,5 @@ func (server *managedInstallOperator) GetRemoteRegistration(_ context.Context, r
 		state = hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
 	}
 	server.mu.Unlock()
-	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: request.GetRegistrationId(), EnrollmentState: hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, ConnectionState: state}}, nil
+	return &hostv1.GetRemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: request.GetRegistrationId(), EnrollmentState: hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, ConnectionState: state}}, nil
 }

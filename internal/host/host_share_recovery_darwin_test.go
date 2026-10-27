@@ -13,9 +13,10 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
@@ -107,22 +108,17 @@ func TestHostShareSourceLossWaitsForEveryConsumerAndRequiresNextBoot(t *testing.
 		t.Fatal(err)
 	}
 	source := t.TempDir()
-	file, identity, err := openHostShareSource(source)
+	controller := newTestController(&Controller{store: database})
+	setupTestHostShareOwner(controller, nil)
+	created, err := controller.hostShares.CreateHostShare(ctx, &hostv1.CreateHostShareRequest{RequestId: "create", EnvironmentId: "service", SourcePath: source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	file.Close()
-	value := store.HostShare{ID: "share", EnvironmentID: "service", Source: identity, Revision: 1, State: hostv1.HostShareState_HOST_SHARE_STATE_AVAILABLE, OperationID: "create"}
-	body, err := json.Marshal(value)
+	value, err := database.GetHostShare(ctx, created.GetShare().GetId())
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := store.Operation{ID: "create", Kind: "host-share-create", EnvironmentID: "service", RequestID: "create", Receipt: body, State: int32(hostv1.OperationState_OPERATION_STATE_RUNNING)}
-	if _, err := database.BeginHostShareMutation(ctx, create, value, 0); err != nil {
-		t.Fatal(err)
-	}
-	create.State = int32(hostv1.OperationState_OPERATION_STATE_SUCCEEDED)
-	if err := database.FinishHostShareMutation(ctx, create, value); err != nil {
+	if err := controller.hostShares.PrepareHostShares(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(source, source+".original"); err != nil {
@@ -136,7 +132,7 @@ func TestHostShareSourceLossWaitsForEveryConsumerAndRequiresNextBoot(t *testing.
 	}
 	consumers := []string{}
 	for _, id := range ids {
-		share := "share"
+		share := value.ID
 		if id == "peer" || strings.HasPrefix(id, "consumer-") && id != "consumer-031" && id != "consumer-032" && id != "consumer-064" {
 			share = "unrelated"
 		} else {
@@ -157,9 +153,8 @@ func TestHostShareSourceLossWaitsForEveryConsumerAndRequiresNextBoot(t *testing.
 		t.Fatal(err)
 	}
 	defer connection.Close()
-	controller := &Controller{store: database, hostShares: map[string]store.HostShare{value.ID: value}}
 	client := vmmdv1.NewVMMDServiceClient(connection)
-	if err := controller.reconcileHostShares(ctx, client); err == nil {
+	if err := controller.hostShares.ReconcileHostShares(ctx, client); err == nil {
 		t.Fatalf("unconfirmed writer completed suspension: %v", err)
 	}
 	current, err := database.GetHostShare(ctx, value.ID)
@@ -168,7 +163,7 @@ func TestHostShareSourceLossWaitsForEveryConsumerAndRequiresNextBoot(t *testing.
 	}
 	guest.failStop = false
 	guest.pages = nil
-	if err := controller.reconcileHostShares(ctx, client); err != nil {
+	if err := controller.hostShares.ReconcileHostShares(ctx, client); err != nil {
 		t.Fatal(err)
 	}
 	sort.Strings(consumers)
@@ -186,11 +181,11 @@ func TestHostShareSourceLossWaitsForEveryConsumerAndRequiresNextBoot(t *testing.
 	if err := os.Rename(source+".original", source); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.reconcileHostShares(ctx, client); err != nil {
+	if err := controller.hostShares.ReconcileHostShares(ctx, client); err != nil {
 		t.Fatal(err)
 	}
 	current, err = database.GetHostShare(ctx, value.ID)
-	if err != nil || current.State != hostv1.HostShareState_HOST_SHARE_STATE_UNAVAILABLE || len(controller.hostShares) != 0 || len(guest.projections[len(guest.projections)-1].Shares) != 0 {
+	if err != nil || current.State != hostv1.HostShareState_HOST_SHARE_STATE_UNAVAILABLE || len(guest.projections[len(guest.projections)-1].Shares) != 0 {
 		t.Fatalf("source returned without a new boot: %+v %v", current, err)
 	}
 	for _, id := range ids {
@@ -218,10 +213,10 @@ func TestHostShareRebindRecoveryUsesFrozenCandidateAfterReopen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			controller := &Controller{store: database}
+			controller := newTestController(&Controller{store: database})
 			operator := &operatorServer{controller: controller}
 			source := t.TempDir()
-			created, err := callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+			created, err := callAsOperator(t, func(ctx context.Context) (*hostv1.CreateHostShareResponse, error) {
 				return operator.CreateHostShare(ctx, &hostv1.CreateHostShareRequest{RequestId: "create", EnvironmentId: "service", SourcePath: source, ReadOnly: true})
 			})
 			if err != nil {
@@ -283,7 +278,10 @@ func TestHostShareRebindRecoveryUsesFrozenCandidateAfterReopen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			controller = &Controller{store: database}
+			if err := database.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			controller = newTestController(&Controller{store: database})
 			operator = &operatorServer{controller: controller}
 			if mode == "failed" {
 				controller.manager, err = vmm.NewManager(vmm.Config{CPUCount: 1, MemoryBytes: 512 << 20, StateBytes: 1 << 30, BundleDirectory: t.TempDir(), InstanceDirectory: t.TempDir(), SerialLog: filepath.Join(t.TempDir(), "serial")})
@@ -292,19 +290,20 @@ func TestHostShareRebindRecoveryUsesFrozenCandidateAfterReopen(t *testing.T) {
 				}
 				controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
 				controller.manager.FailRecovery(fmt.Errorf("previous boot failed"))
-				if err := controller.prepareHostShares(ctx); err != nil {
+				shares := setupTestHostShareOwner(controller, nil)
+				if err := controller.hostShares.PrepareHostShares(ctx); err != nil {
 					t.Fatal(err)
 				}
-				if len(controller.hostShares) != 1 {
+				if len(shares.directories) != 1 {
 					t.Fatal("FAILED recovery omitted pending static share")
 				}
 			}
 			if mode != "interrupted-replay" {
-				if err := controller.reconcileHostShares(ctx, nil); err != nil {
+				if err := controller.hostShares.ReconcileHostShares(ctx, nil); err != nil {
 					t.Fatal(err)
 				}
 			}
-			response, err := callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+			response, err := callAsOperator(t, func(ctx context.Context) (*hostv1.RebindHostShareResponse, error) {
 				return operator.RebindHostShare(ctx, request)
 			})
 			if mode == "newer-revoke" || mode == "environment-removed" {

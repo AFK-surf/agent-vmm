@@ -30,7 +30,7 @@ func (adapter *Adapter) containerExec(ctx context.Context, _ *mcp.CallToolReques
 			return nil, err
 		}
 		// An exec activity binds the container instance the caller observes now.
-		current, err := adapter.runtime.GetContainer(ctx, &hostv1.ContainerRequest{ContainerId: input.ContainerID})
+		current, err := adapter.runtime.GetContainer(ctx, &hostv1.GetContainerRequest{ContainerId: input.ContainerID})
 		if err != nil {
 			return nil, err
 		}

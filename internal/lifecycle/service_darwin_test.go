@@ -10,6 +10,7 @@ import (
 )
 
 func TestAutoServiceSelectionUsesCurrentInstallerCapability(t *testing.T) {
+	t.Parallel()
 	mode, err := selectServiceMode(serviceModeAuto, serviceModeAgent, 0, 502, func(int) bool { return false })
 	if err != nil || mode != serviceModeDaemon {
 		t.Fatalf("root auto mode=%q err=%v", mode, err)
@@ -21,6 +22,7 @@ func TestAutoServiceSelectionUsesCurrentInstallerCapability(t *testing.T) {
 }
 
 func TestExistingOwnerActionsAreDistinguishedFromInstall(t *testing.T) {
+	t.Parallel()
 	for _, action := range []string{"status", "drain", "uninstall", "registration-state"} {
 		mode, err := selectServiceModeForAction(serviceModeAuto, serviceModeAgent, action, 0, 502, func(int) bool { return false })
 		if err != nil || mode != serviceModeAgent {
@@ -36,13 +38,10 @@ func TestExistingOwnerActionsAreDistinguishedFromInstall(t *testing.T) {
 }
 
 func TestDaemonDefinitionDropsPrivilegesAndIsBackground(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
-	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
+	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "vmmuser", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	template := `<plist><dict><key>ProcessType</key><string>Interactive</string><key>ProgramArguments</key><array><string>__APP__/Contents/MacOS/agent-vmm-host</string></array><key>Home</key><string>__HOME__</string></dict></plist>`
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(template), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rendered, err := renderServiceDefinition(value, false)
@@ -50,7 +49,7 @@ func TestDaemonDefinitionDropsPrivilegesAndIsBackground(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition := string(rendered)
-	for _, expected := range []string{"<string>Background</string>", "<key>UserName</key>", "<string>bftvmm</string>", "<key>GroupName</key>", "<string>staff</string>"} {
+	for _, expected := range []string{"<string>Background</string>", "<key>UserName</key>", "<string>vmmuser</string>", "<key>GroupName</key>", "<string>staff</string>"} {
 		if !strings.Contains(definition, expected) {
 			t.Errorf("daemon definition is missing %q: %s", expected, definition)
 		}
@@ -60,48 +59,11 @@ func TestDaemonDefinitionDropsPrivilegesAndIsBackground(t *testing.T) {
 	}
 }
 
-func TestServiceDefinitionUsesFreshBundleResourceGeometry(t *testing.T) {
-	value := testPaths(t.TempDir())
-	if err := os.MkdirAll(value.resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	template := `<plist><dict><key>ProgramArguments</key><array><string>host</string><string>--cpus</string><string>8</string><string>--memory</string><string>12884901888</string><string>--state-size</string><string>68719476736</string></array></dict></plist>`
-	current := `<plist><dict><key>ProgramArguments</key><array><string>host</string><string>--cpus</string><string>8</string><string>--memory</string><string>8589934592</string><string>--state-size</string><string>17179869184</string></array></dict></plist>`
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(template), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(value.hostPlist, []byte(current), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	rendered, err := renderServiceDefinition(value, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := string(rendered)
-	for _, expected := range []string{
-		"<string>--cpus</string><string>8</string>",
-		"<string>--memory</string><string>12884901888</string>",
-		"<string>--state-size</string><string>68719476736</string>",
-	} {
-		if !strings.Contains(definition, expected) {
-			t.Errorf("updated definition did not retain %q: %s", expected, definition)
-		}
-	}
-	if strings.Contains(definition, "<string>--state-size</string><string>17179869184</string>") {
-		t.Fatal("fresh profile inherited old state geometry")
-	}
-}
-
 func TestRepairRetainsConfiguredPairingRestriction(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	value.service.DisablePairing = true
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProgramArguments</key><array><string>host</string></array></dict></plist>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
@@ -126,13 +88,11 @@ func TestRepairRetainsConfiguredPairingRestriction(t *testing.T) {
 }
 
 func TestCurrentDaemonCanBeObservedWithoutReload(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
-	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
+	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "vmmuser", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
 	value.hostPlist = value.daemonPlist
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	desired, err := renderServiceDefinition(value, false)
@@ -195,16 +155,14 @@ func TestCurrentDaemonCanBeObservedWithoutReload(t *testing.T) {
 }
 
 func TestServiceUserAdoptsOnlyExactRunningAdministratorDaemon(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
-	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
+	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "vmmuser", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
 	value.hostPlist = value.daemonPlist
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProgramArguments</key><array><string>host</string></array><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	desired, err := renderServiceDefinition(value, true)
@@ -237,16 +195,14 @@ func TestServiceUserAdoptsOnlyExactRunningAdministratorDaemon(t *testing.T) {
 }
 
 func TestServiceUserRejectsStaleAdministratorDaemonWithoutPersistingConfig(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
-	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
+	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "vmmuser", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
 	value.hostPlist = value.daemonPlist
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
@@ -269,13 +225,11 @@ func TestServiceUserRejectsStaleAdministratorDaemonWithoutPersistingConfig(t *te
 }
 
 func TestCurrentDefinitionRejectsLoadedAlternateOwner(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
-	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "bftvmm", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
+	value.service = serviceConfig{Version: 1, Mode: serviceModeDaemon, User: "vmmuser", Group: "staff", UID: 502, GID: 20, ReleaseID: releaseID}
 	value.hostPlist = value.daemonPlist
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte(`<plist><dict><key>ProcessType</key><string>Interactive</string></dict></plist>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	desired, err := renderServiceDefinition(value, false)
@@ -302,6 +256,7 @@ func TestCurrentDefinitionRejectsLoadedAlternateOwner(t *testing.T) {
 }
 
 func TestAgentSwitchRequiresAdminToRemoveDaemonDefinition(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(value.daemonPlist), 0o700); err != nil {
 		t.Fatal(err)

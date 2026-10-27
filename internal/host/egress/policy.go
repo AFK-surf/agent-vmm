@@ -3,7 +3,7 @@ package egress
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/netip"
 	"slices"
 	"sort"
@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 )
 
 type Mode uint8
@@ -128,7 +128,7 @@ func DestinationAllowed(address netip.Addr, namespaceSubnets []netip.Prefix, all
 	if !address.Is4() || address.IsUnspecified() || address.IsMulticast() {
 		return false
 	}
-	guest, host, prefix := netprotocol.Addresses()
+	guest, host, prefix := egresslink.Addresses()
 	if address == guest || address == host || prefix.Contains(address) {
 		return false
 	}
@@ -299,7 +299,7 @@ func (policies *Policies) Context(parent context.Context, bootID string, address
 	expected = expected.Clone()
 	current, ok := policies.Lookup(bootID, address)
 	if !ok || !current.Equal(expected) {
-		log.Printf("egress flow authorization changed before attachment: boot=%s source=%s environment=%s namespace=%s expected_instance=%s observed_instance=%s source_present=%t", bootID, address, expected.EnvironmentID, expected.NamespaceID, expected.InstanceID, current.InstanceID, ok)
+		slog.Warn("egress flow authorization changed before attachment", "boot_id", bootID, "source", address, "environment_id", expected.EnvironmentID, "namespace_id", expected.NamespaceID, "expected_instance", expected.InstanceID, "observed_instance", current.InstanceID, "source_present", ok)
 		cancel()
 		return ctx, cancel
 	}
@@ -319,7 +319,7 @@ func (policies *Policies) Context(parent context.Context, bootID string, address
 						reason = "source_missing"
 					}
 				}
-				log.Printf("egress flow authorization ended: reason=%s boot=%s observed_boot=%s source=%s environment=%s namespace=%s expected_instance=%s observed_instance=%s", reason, bootID, observedBoot, address, expected.EnvironmentID, expected.NamespaceID, expected.InstanceID, current.InstanceID)
+				slog.Info("egress flow authorization ended", "reason", reason, "boot_id", bootID, "observed_boot", observedBoot, "source", address, "environment_id", expected.EnvironmentID, "namespace_id", expected.NamespaceID, "expected_instance", expected.InstanceID, "observed_instance", current.InstanceID)
 				cancel()
 				return
 			}
@@ -337,7 +337,7 @@ func LANDestinationAllowed(address netip.Addr, namespaceSubnets []netip.Prefix, 
 	if !address.Is4() || !address.IsPrivate() {
 		return false
 	}
-	_, _, transport := netprotocol.Addresses()
+	_, _, transport := egresslink.Addresses()
 	if transport.Contains(address) || namespacePool.Contains(address) {
 		return false
 	}

@@ -69,6 +69,9 @@ func TestNativeRetirementPreservesVolumesOverlayAndOtherOwners(t *testing.T) {
 				if foreign {
 					record, _ := containers.CreateBucket([]byte("foreign"))
 					record.Put([]byte("snapshotter"), []byte("native"))
+					labels, _ := record.CreateBucket([]byte("labels"))
+					labels.Put([]byte("agentvmm.afk.surf/owner-namespace"), []byte("system.retired"))
+					labels.Put([]byte("agentvmm.afk.surf/internal-build"), []byte("true"))
 				}
 				snapshots, _ := namespace.CreateBucket([]byte("snapshots"))
 				snapshots.CreateBucket([]byte("native"))

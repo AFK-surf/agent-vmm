@@ -50,7 +50,9 @@ DeleteAfterSettlement ==
   /\ namespaceExists' = FALSE
   /\ UNCHANGED <<settlement, mutationLock, recreatedBucket>>
 
-Next == BeginSettlement \/ DeleteNamespace \/ RunSynchronousBarrier \/
+Terminated == ~namespaceExists /\ settlement \in {"idle", "done"} /\ mutationLock = "free" /\ UNCHANGED vars
+
+Next == Terminated \/ BeginSettlement \/ DeleteNamespace \/ RunSynchronousBarrier \/
         FinishSettlement \/ DeleteAfterSettlement
 
 TypeOK ==

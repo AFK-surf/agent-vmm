@@ -6,12 +6,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -19,13 +20,14 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/AFK-surf/agent-vmm/internal/atomicfile"
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
+	"github.com/AFK-surf/agent-vmm/internal/launchdservice"
 )
 
 const (
-	configPath  = "/Library/Application Support/AgentVMM/service-owner.json"
-	hostLabel   = "com.afk-surf.agent-vmm-host"
-	runnerLabel = "com.bridgeforteams.runner"
+	configPath = "/Library/Application Support/AgentVMM/service-owner.json"
+	hostLabel  = bundle.HostBundleIdentifier
 )
 
 type ownerConfig struct {
@@ -38,50 +40,26 @@ type ownerConfig struct {
 type fixedJob struct {
 	name                                  string
 	label, program, plist, stdout, stderr string
-	arguments                             []string
 }
 
-var runLaunchctl = func(args ...string) error {
-	command := exec.Command("/bin/launchctl", args...)
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	return command.Run()
-}
-var observeLaunchctl = func(label string) (bool, bool, int, error) {
-	output, err := exec.Command("/bin/launchctl", "print", "system/"+label).CombinedOutput()
-	if err != nil {
-		text := string(output)
-		if strings.Contains(text, "Could not find service") || strings.Contains(text, "not found") {
-			return false, false, 0, nil
-		}
-		return false, false, 0, err
-	}
-	text := string(output)
-	running := strings.Contains(text, "state = running")
-	pid := 0
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "pid = ") {
-			pid, _ = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "pid = ")))
-		}
-	}
-	return true, running, pid, nil
-}
-var processAlive = func(pid int) bool { err := unix.Kill(pid, 0); return err == nil || errors.Is(err, unix.EPERM) }
+type executor struct{ system launchdservice.System }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("service executor failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+func run(args []string) error { return (executor{system: launchdservice.DefaultSystem()}).run(args) }
+
+func (owner executor) run(args []string) error {
 	if os.Geteuid() != 0 {
 		return errors.New("administrator access is required")
 	}
 	if len(args) == 0 {
-		return errors.New("usage: agent-vmm-service-executor configure --service-user USER | install|start|stop|remove|status --job host|runner")
+		return errors.New("usage: agent-vmm-service-executor configure --service-user USER | install|start|stop|remove|status")
 	}
 	if err := validateProtectedExecutable(os.Executable); err != nil {
 		return err
@@ -93,23 +71,20 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	jobName, err := parseJob(args[0], args[1:])
-	if err != nil {
+	if err := parseAction(args[0], args[1:]); err != nil {
 		return err
 	}
-	job, err := resolveJob(config, jobName)
-	if err != nil {
-		return err
-	}
+	job := resolveHostJob(config)
+
 	switch args[0] {
 	case "install":
-		return installJob(config, job)
+		return owner.installJob(config, job)
 	case "start":
-		return startConfiguredJob(config, job)
+		return owner.startConfiguredJob(config, job)
 	case "stop":
-		return stopJob(config, job)
+		return owner.stopJob(config, job)
 	case "remove":
-		if err := stopJob(config, job); err != nil {
+		if err := owner.stopJob(config, job); err != nil {
 			return err
 		}
 		err := os.Remove(job.plist)
@@ -118,7 +93,7 @@ func run(args []string) error {
 		}
 		return err
 	case "status":
-		return runLaunchctl("print", "system/"+job.label)
+		return owner.system.Launchctl(context.Background(), "print", "system/"+job.label)
 	default:
 		return errors.New("action must be install, start, stop, remove, or status")
 	}
@@ -181,14 +156,16 @@ func configure(args []string) error {
 	return validateProtectedPath(configPath, false)
 }
 
-func parseJob(action string, args []string) (string, error) {
-	if action != "install" && action != "start" && action != "stop" && action != "remove" && action != "status" {
-		return "", errors.New("unknown action")
+func parseAction(action string, args []string) error {
+	switch action {
+	case "install", "start", "stop", "remove", "status":
+	default:
+		return errors.New("unknown action")
 	}
-	if len(args) != 2 || args[0] != "--job" || args[1] != "host" && args[1] != "runner" {
-		return "", errors.New(action + " requires --job host|runner")
+	if len(args) != 0 {
+		return errors.New(action + " accepts no arguments")
 	}
-	return args[1], nil
+	return nil
 }
 
 func readConfig(path string) (ownerConfig, error) {
@@ -214,125 +191,39 @@ func readConfig(path string) (ownerConfig, error) {
 	return value, nil
 }
 
-func resolveJob(config ownerConfig, name string) (fixedJob, error) {
-	logs := filepath.Join(config.Home, "Library", "Logs")
-	if name == "host" {
-		program := filepath.Join(config.Home, "Library", "Application Support", "Agent VMM Host", "current", "Agent VMM Host.app", "Contents", "MacOS", "agent-vmm-host")
-		app := filepath.Dir(filepath.Dir(filepath.Dir(program)))
-		arguments := []string{"--state-size", "68719476736", "--bundle", filepath.Join(app, "Contents", "Resources", "Guest"), "--instance", filepath.Join(config.Home, "Library", "Application Support", "AgentVMM", "instance"), "--serial-log", filepath.Join(logs, "AgentVMM", "serial.log"), "--operator-socket", filepath.Join(config.Home, "Library", "Application Support", "AgentVMM", "operator.sock"), "--remote-compute-socket", filepath.Join(config.Home, "Library", "Application Support", "AgentVMM", "remote-compute.sock"), "--database", filepath.Join(config.Home, "Library", "Application Support", "AgentVMM", "host.sqlite"), "--session-directory", filepath.Join(config.Home, "Library", "Application Support", "AgentVMM", "sessions"), "--data-worker", filepath.Join(app, "Contents", "Helpers", "agent-vmm-data"), "--disable-personal-mesh-pairing"}
-		return fixedJob{name: "host", label: hostLabel, program: program, plist: "/Library/LaunchDaemons/" + hostLabel + ".plist", stdout: filepath.Join(logs, "AgentVMM", "host.stdout.log"), stderr: filepath.Join(logs, "AgentVMM", "host.stderr.log"), arguments: arguments}, nil
-	}
-	program := filepath.Join(config.Home, ".bridge-for-teams", "bin", "bft-runner")
-	state := filepath.Join(config.Home, ".bridge-for-teams", "state")
-	return fixedJob{name: "runner", label: runnerLabel, program: program, plist: "/Library/LaunchDaemons/" + runnerLabel + ".plist", stdout: filepath.Join(state, "runner.out.log"), stderr: filepath.Join(state, "runner.err.log")}, nil
+func resolveHostJob(config ownerConfig) fixedJob {
+	program := filepath.Join(config.Home, "Library", "Application Support", "Agent VMM Host", "current", bundle.HostAppName, "Contents", "MacOS", "agent-vmm-host")
+	return fixedJob{name: "host", label: hostLabel, program: program, plist: "/Library/LaunchDaemons/" + hostLabel + ".plist", stdout: "/Library/Logs/AgentVMM/host.stdout.log", stderr: "/Library/Logs/AgentVMM/host.stderr.log"}
 }
 
-func installJob(config ownerConfig, job fixedJob) error {
-	// The executable is service-user managed, so root validates it as a regular,
-	// non-symlink file but never executes it. launchd drops identity first.
+func (owner executor) installJob(config ownerConfig, job fixedJob) error {
 	if err := validateServiceProgram(config, job.program); err != nil {
 		return err
 	}
-	loaded, _, _, observeErr := observeLaunchctl(job.label)
-	if observeErr != nil {
-		return errors.New("fixed job state could not be read")
-	}
-	if loaded {
-		return errors.New("fixed job must be stopped before its definition is replaced")
-	}
-	if err := validateProtectedPath("/Library/LaunchDaemons", false); err != nil {
+	if err := validateProtectedPath(filepath.Dir(job.plist), false); err != nil {
 		return errors.New("launchd definition directory is not protected")
 	}
-	definition := renderPlist(config, job)
-	temporary, err := os.CreateTemp("/Library/LaunchDaemons", ".agent-vmm-job-*")
-	if err != nil {
+	if err := launchdservice.PrepareDaemonLogs(config.GID); err != nil {
 		return err
 	}
-	path := temporary.Name()
-	defer os.Remove(path)
-	if temporary.Chmod(0o644) != nil {
-		temporary.Close()
-		return errors.New("service definition mode could not be set")
+
+	definition := renderPlist(config)
+	loaded := owner.system.Launchctl(context.Background(), "print", "system/"+job.label)
+	if loaded == nil {
+		return errors.New("fixed job must be stopped before its definition is replaced")
 	}
-	if _, err = temporary.Write(definition); err != nil {
-		temporary.Close()
+	if !errors.Is(loaded, launchdservice.ErrNotFound) {
+		return errors.New("fixed job state could not be read")
+	}
+	if err := atomicfile.ReplaceFile(job.plist, definition, 0o644); err != nil {
 		return err
 	}
-	if err = temporary.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(path, job.plist); err != nil {
-		return err
-	}
-	return runLaunchctl("bootstrap", "system", job.plist)
+	return owner.system.Launchctl(context.Background(), "bootstrap", "system", job.plist)
 }
 
-func renderPlist(config ownerConfig, job fixedJob) []byte {
-	if job.name == "host" {
-		return renderHostPlist(config, job)
-	}
-	values := append([]string{job.program}, job.arguments...)
-	var arguments strings.Builder
-	for _, value := range values {
-		arguments.WriteString("<string>" + xmlEscape(value) + "</string>")
-	}
-	path := fixedRunnerPath(config.Home)
-	working := filepath.Join(config.Home, ".bridge-for-teams")
-	return []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>%s</string><key>EnvironmentVariables</key><dict><key>HOME</key><string>%s</string><key>PATH</key><string>%s</string></dict><key>ProgramArguments</key><array>%s</array><key>UserName</key><string>%s</string><key>GroupName</key><string>%s</string><key>WorkingDirectory</key><string>%s</string><key>StandardOutPath</key><string>%s</string><key>StandardErrorPath</key><string>%s</string><key>SoftResourceLimits</key><dict><key>NumberOfFiles</key><integer>65536</integer></dict><key>HardResourceLimits</key><dict><key>NumberOfFiles</key><integer>524288</integer></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>`, job.label, xmlEscape(config.Home), xmlEscape(path), arguments.String(), xmlEscape(config.User), xmlEscape(config.Group), xmlEscape(working), xmlEscape(job.stdout), xmlEscape(job.stderr)))
-}
-
-func fixedRunnerPath(home string) string {
-	parts := []string{filepath.Join(home, ".bridge-for-teams", "bin"), filepath.Join(home, ".local", "bin"), filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".yarn", "bin"), filepath.Join(home, ".bun", "bin"), filepath.Join(home, ".volta", "bin"), filepath.Join(home, ".asdf", "shims"), "/opt/homebrew/bin", "/Applications/LibreOffice.app/Contents/MacOS", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}
-	return strings.Join(parts, ":")
-}
-
-func renderHostPlist(config ownerConfig, job fixedJob) []byte {
-	values := append([]string{job.program}, job.arguments...)
-	var arguments strings.Builder
-	for _, value := range values {
-		if value == "--disable-personal-mesh-pairing" {
-			// Match the installed lifecycle definition byte for byte.
-			arguments.WriteString("  \t\t<string>" + xmlEscape(value) + "</string>\n")
-		} else {
-			arguments.WriteString("    <string>" + xmlEscape(value) + "</string>\n")
-		}
-	}
-	return []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>%s</string>
-  <key>ProgramArguments</key>
-  <array>
-%s%s</array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-  <key>ProcessType</key>
-  <string>Background</string>
-  <key>ExitTimeOut</key>
-  <integer>90</integer>
-  <key>StandardOutPath</key>
-  <string>%s</string>
-  <key>StandardErrorPath</key>
-  <string>%s</string>
-	<key>UserName</key>
-	<string>%s</string>
-	<key>GroupName</key>
-	<string>%s</string>
-</dict>
-</plist>
-`, job.label, arguments.String(), "\t", xmlEscape(job.stdout), xmlEscape(job.stderr), xmlEscape(config.User), xmlEscape(config.Group)))
-}
-
-func xmlEscape(value string) string {
-	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
-	return replacer.Replace(value)
+func renderPlist(config ownerConfig) []byte {
+	app := filepath.Join(config.Home, "Library", "Application Support", "Agent VMM Host", "current", bundle.HostAppName)
+	return launchdservice.RenderHostPlist(launchdservice.HostParams{Home: config.Home, App: app, User: config.User, Group: config.Group, Daemon: true, DisablePairing: true})
 }
 
 func validateServiceProgram(config ownerConfig, program string) error {
@@ -378,70 +269,59 @@ func validateServiceHome(config ownerConfig) error {
 	return nil
 }
 
-func startJob(job fixedJob) error {
-	loaded, running, _, err := observeLaunchctl(job.label)
-	if err != nil || !loaded {
+func (owner executor) startJob(job fixedJob) error {
+	ctx := context.Background()
+	if err := owner.system.Launchctl(ctx, "print", "system/"+job.label); err != nil {
 		return errors.New("fixed job is not loaded; install it before start")
 	}
-	if running {
+	pid, err := owner.system.ServicePID(ctx, "system/"+job.label)
+	if err != nil {
+		return err
+	}
+	if pid > 0 && owner.system.ProcessRunning(pid) {
 		return nil
 	}
-	return runLaunchctl("kickstart", "system/"+job.label)
+	return owner.system.Launchctl(ctx, "kickstart", "system/"+job.label)
 }
 
-func startConfiguredJob(config ownerConfig, job fixedJob) error {
+func (owner executor) startConfiguredJob(config ownerConfig, job fixedJob) error {
 	if err := validateServiceProgram(config, job.program); err != nil {
 		return err
 	}
-	return startJob(job)
+	return owner.startJob(job)
 }
 
-func stopJob(config ownerConfig, job fixedJob) error {
-	loaded, _, pid, err := observeLaunchctl(job.label)
-	if err != nil {
+func (owner executor) stopJob(config ownerConfig, job fixedJob) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := owner.system.Launchctl(ctx, "print", "system/"+job.label); errors.Is(err, launchdservice.ErrNotFound) {
+		return nil
+	} else if err != nil {
 		return errors.New("fixed job state could not be read")
 	}
-	if !loaded {
-		return nil
-	}
-	stateDisk := ""
-	if job.name == "host" {
-		stateDisk = filepath.Join(config.Home, "Library", "Application Support", "AgentVMM", "instance", "state.raw")
-		busy, checkErr := stateDiskBusy(stateDisk)
-		if checkErr != nil {
-			return errors.New("state disk attachment could not be checked")
-		}
-		if busy {
-			return errors.New("VM state disk is still attached; complete the service-user VM stop first")
-		}
-	}
-	if err := runLaunchctl("bootout", "system/"+job.label); err != nil {
+	pid, err := owner.system.ServicePID(ctx, "system/"+job.label)
+	if err != nil {
 		return err
 	}
-	deadline := time.Now().Add(30 * time.Second)
-	for pid > 0 && processAlive(pid) {
-		if time.Now().After(deadline) {
+	stateDisk := filepath.Join(config.Home, "Library", "Application Support", "AgentVMM", "instance", "state.raw")
+	owners, err := owner.system.StateDiskOpenOwners(ctx, stateDisk)
+	if err != nil {
+		return errors.New("state disk attachment could not be checked")
+	}
+	if len(owners) > 0 {
+		return errors.New("VM state disk is still attached; complete the service-user VM stop first")
+	}
+	if err := owner.system.Launchctl(ctx, "bootout", "system/"+job.label); err != nil {
+		return err
+	}
+	for pid > 0 && owner.system.ProcessRunning(pid) {
+		select {
+		case <-ctx.Done():
 			return errors.New("fixed service process did not exit")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if stateDisk != "" {
-		busy, checkErr := stateDiskBusy(stateDisk)
-		if checkErr != nil || busy {
-			return errors.New("VM state disk was not released after service stop")
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	return nil
-}
-
-func tolerateMissing(err error) error {
-	if err == nil {
-		return nil
-	}
-	if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "No such process") {
-		return nil
-	}
-	return err
+	return owner.system.WaitStateDiskRelease(ctx, stateDisk)
 }
 
 func validateProtectedExecutable(resolve func() (string, error)) error {

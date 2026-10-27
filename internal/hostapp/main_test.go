@@ -7,16 +7,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"google.golang.org/grpc"
+	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
-	"github.com/AFK-surf/agent-vmm/internal/vmm"
 )
 
 func TestStartFailureRecordFollowsDatabaseRefusal(t *testing.T) {
@@ -26,7 +26,7 @@ func TestStartFailureRecordFollowsDatabaseRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newer := store.SupportedSchema().Max + 1
+	newer := store.CurrentSchema() + 1
 	if _, err := database.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_migrations VALUES (?, 0)`, newer); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestStartFailureRecordFollowsDatabaseRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	var record store.StartFailure
-	if err := json.Unmarshal(data, &record); err != nil || record != (store.StartFailure{Code: store.SchemaDataNewer, DataSchema: newer, SupportedSchema: store.SupportedSchema()}) {
+	if err := json.Unmarshal(data, &record); err != nil || record != (store.StartFailure{Code: store.SchemaIncompatible, DataSchema: newer, CurrentSchema: store.CurrentSchema()}) {
 		t.Fatalf("record = %s %v", data, err)
 	}
 	if refused, err := recordStartResult(directory, errors.New("socket unavailable")); refused || err != nil {
@@ -89,26 +89,6 @@ func TestNewStateDiskRequiresControlAndWorkloadFilesystems(t *testing.T) {
 	}
 }
 
-func TestStateMigrationRequiresSeparateNewTarget(t *testing.T) {
-	directory := t.TempDir()
-	source := filepath.Join(directory, "legacy.raw")
-	file, err := os.Create(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Truncate(minimumNewStateBytes); err != nil {
-		file.Close()
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-	err = runStateMigration(vmm.Config{BundleDirectory: "bundle", InstanceDirectory: directory, SerialLog: filepath.Join(directory, "serial.log")}, source)
-	if err == nil || !strings.Contains(err.Error(), "separate instance directory") {
-		t.Fatalf("same-directory migration error = %v", err)
-	}
-}
-
 func TestRuntimeRejectsRoot(t *testing.T) {
 	if err := validateRuntimeUID(0); err == nil {
 		t.Fatal("root runtime was accepted")
@@ -122,12 +102,12 @@ func TestResumeInstalledVMUsesExistingStateDiskWithoutReformatting(t *testing.T)
 	directory := t.TempDir()
 	stateDisk := filepath.Join(directory, "state.raw")
 	calls := 0
-	start := func(_ context.Context, requestID string) (*hostv1.OperationResponse, error) {
+	start := func(_ context.Context, requestID string) (*hostv1.StartVMResponse, error) {
 		calls++
 		if requestID != "host-start-resume-test" {
 			t.Fatalf("unexpected request id %q", requestID)
 		}
-		return &hostv1.OperationResponse{}, nil
+		return &hostv1.StartVMResponse{}, nil
 	}
 	if err := resumeInstalledVM(context.Background(), stateDisk, "host-start-resume-test", start); err != nil || calls != 0 {
 		t.Fatalf("fresh install must not auto-start: calls=%d err=%v", calls, err)
@@ -162,7 +142,7 @@ func TestResumeInstalledVMUsesExistingStateDiskWithoutReformatting(t *testing.T)
 		t.Fatalf("symlink state must fail closed: calls=%d err=%v", calls, err)
 	}
 	want := errors.New("start failed")
-	if err := resumeInstalledVM(context.Background(), stateDisk, "host-start-resume-failure", func(context.Context, string) (*hostv1.OperationResponse, error) {
+	if err := resumeInstalledVM(context.Background(), stateDisk, "host-start-resume-failure", func(context.Context, string) (*hostv1.StartVMResponse, error) {
 		return nil, want
 	}); !errors.Is(err, want) {
 		t.Fatalf("start failure was not reported: %v", err)
@@ -212,36 +192,35 @@ func TestDisableCoreDumps(t *testing.T) {
 	}
 }
 
-func TestEnsureConnectorCapabilityIsStablePrivateAndRejectsSymlinks(t *testing.T) {
-	directory := t.TempDir()
-	path := filepath.Join(directory, "connector.cap")
-	first, err := ensureConnectorCapability(path)
-	if err != nil {
-		t.Fatal(err)
+func TestAuxiliaryServerFailureShutsDownHost(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var endpoints []serverListener
+	for range 2 {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		endpoints = append(endpoints, serverListener{grpc.NewServer(), listener})
 	}
-	second, err := ensureConnectorCapability(path)
-	if err != nil {
-		t.Fatal(err)
+	stopped := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- serveServers(ctx, endpoints, func(context.Context) error { close(stopped); return nil })
+	}()
+	endpoints[1].listener.Close()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("auxiliary server failure returned success")
+		}
+	case <-ctx.Done():
+		t.Fatal("servers did not stop")
 	}
-	if string(first) != string(second) || len(first) < 32 {
-		t.Fatal("install-scoped connector capability was not stable")
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("capability mode=%v", info.Mode().Perm())
-	}
-	target := filepath.Join(directory, "target")
-	if err := os.WriteFile(target, []byte("not-a-capability"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	symlink := filepath.Join(directory, "symlink.cap")
-	if err := os.Symlink(target, symlink); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ensureConnectorCapability(symlink); err == nil {
-		t.Fatal("symlink capability path was accepted")
+	select {
+	case <-stopped:
+	default:
+		t.Fatal("controller shutdown was not called")
 	}
 }

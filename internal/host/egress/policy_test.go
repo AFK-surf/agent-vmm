@@ -3,11 +3,12 @@ package egress
 import (
 	"context"
 	"fmt"
-	"gvisor.dev/gvisor/pkg/tcpip"
 	"net"
 	"net/netip"
 	"testing"
 	"time"
+
+	"gvisor.dev/gvisor/pkg/tcpip"
 )
 
 func TestPoliciesFailClosed(t *testing.T) {
@@ -44,7 +45,7 @@ func TestPoliciesFailClosed(t *testing.T) {
 func TestServiceRouteRequiresExactEnvironmentSourceAndVirtualDestination(t *testing.T) {
 	subsystem := New()
 	source := netip.MustParseAddr("10.64.1.8")
-	destination := netip.MustParseAddrPort("198.19.2.9:8443")
+	destination := netip.MustParseAddrPort("100.126.2.9:8443")
 	if err := subsystem.ApplyServiceRoute(ServiceRoute{ID: "route", Generation: 1, EnvironmentID: "env", SourceAddress: source,
 		Destination: destination, ExpiresAt: time.Now().Add(time.Minute), Dial: func(context.Context) (net.Conn, error) { return nil, nil }}); err != nil {
 		t.Fatal(err)
@@ -59,7 +60,7 @@ func TestServiceRouteRequiresExactEnvironmentSourceAndVirtualDestination(t *test
 	}{
 		{"other", source, destination},
 		{"env", netip.MustParseAddr("10.64.1.9"), destination},
-		{"env", source, netip.MustParseAddrPort("198.19.2.10:8443")},
+		{"env", source, netip.MustParseAddrPort("100.126.2.10:8443")},
 	} {
 		if _, ok := subsystem.serviceRoute(candidate.environment, candidate.source, candidate.destination.Addr(), candidate.destination.Port(), time.Now()); ok {
 			t.Fatal("forged service route coordinates were accepted")
@@ -401,7 +402,7 @@ func TestServiceRouteFlowLifetime(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			subsystem := New()
 			route := ServiceRoute{ID: "route", Generation: 1, EnvironmentID: "env", SourceAddress: netip.MustParseAddr("10.64.1.8"),
-				Destination: netip.MustParseAddrPort("198.19.2.9:80"), ExpiresAt: time.Now().Add(time.Minute), Dial: func(context.Context) (net.Conn, error) { return nil, nil }}
+				Destination: netip.MustParseAddrPort("100.126.2.9:80"), ExpiresAt: time.Now().Add(time.Minute), Dial: func(context.Context) (net.Conn, error) { return nil, nil }}
 			if change == "expire" {
 				route.ExpiresAt = time.Now().Add(30 * time.Millisecond)
 			}

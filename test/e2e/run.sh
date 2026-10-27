@@ -3,12 +3,14 @@ set -u
 
 # TestInstallationChainE2E is skipped here unless AGENT_VMM_E2E_INSTALL_CHAIN=1.
 # It runs the real lifecycle helper and launchd under an isolated label and
-# home. See cmd/agent-vmm-lifecycle/README.md#installation-chain-e2e.
+# home. See docs/contributing/testing.md.
 
 repository=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-bundle=${AGENT_VMM_E2E_BUNDLE:-/tmp/agent-vmm-e2e-bundle}
-host_binary=${AGENT_VMM_E2E_HOST_BINARY:-/tmp/agent-vmm-e2e-host}
-data_worker_binary=${AGENT_VMM_E2E_DATA_BINARY:-/tmp/agent-vmm-e2e-data}
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+bundle=${AGENT_VMM_E2E_BUNDLE:-$scratch/guest-bundle}
+host_binary=${AGENT_VMM_E2E_HOST_BINARY:-$scratch/agent-vmm-host}
+data_worker_binary=${AGENT_VMM_E2E_DATA_BINARY:-$scratch/agent-vmm-data}
 json=$repository/.build/test-results/e2e/test.json
 report=$repository/.build/test-results/e2e/report.md
 mkdir -p "$repository/.build/test-results/e2e"
@@ -27,7 +29,7 @@ if [ "$prepare_status" -eq 0 ]; then
   prepare_status=$?
 fi
 
-if [ "$prepare_status" -eq 0 ] && [ ! -x "$data_worker_binary" ]; then
+if [ "$prepare_status" -eq 0 ] && [ -z "${AGENT_VMM_E2E_DATA_BINARY:-}" ]; then
   (cd "$repository" && cargo build --locked --release --manifest-path data/agent-vmm-data/Cargo.toml && cp data/agent-vmm-data/target/release/agent-vmm-data "$data_worker_binary")
   prepare_status=$?
 fi
@@ -35,6 +37,7 @@ fi
 if [ "$prepare_status" -eq 0 ]; then
   (cd "$repository" && AGENT_VMM_E2E_BUNDLE="$bundle" AGENT_VMM_E2E_HOST_BINARY="$host_binary" \
     AGENT_VMM_E2E_DATA_BINARY="$data_worker_binary" \
+    AGENT_VMM_E2E_ARCHIVE_CACHE="${AGENT_VMM_E2E_ARCHIVE_CACHE:-$repository/.build/e2e-archives}" \
     go test -json -tags=e2e ./test/e2e -count=1 -timeout=45m) >"$json"
   test_status=$?
 else

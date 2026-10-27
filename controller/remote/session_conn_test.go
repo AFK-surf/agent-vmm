@@ -10,16 +10,16 @@ import (
 )
 
 type scriptedSessionStream struct {
-	received []*remotev1.HostSessionFrame
-	sent     []*remotev1.ControllerSessionFrame
+	received []*remotev1.ServeSessionRequest
+	sent     []*remotev1.ServeSessionResponse
 }
 
-func (stream *scriptedSessionStream) Send(frame *remotev1.ControllerSessionFrame) error {
+func (stream *scriptedSessionStream) Send(frame *remotev1.ServeSessionResponse) error {
 	stream.sent = append(stream.sent, frame)
 	return nil
 }
 
-func (stream *scriptedSessionStream) Recv() (*remotev1.HostSessionFrame, error) {
+func (stream *scriptedSessionStream) Recv() (*remotev1.ServeSessionRequest, error) {
 	if len(stream.received) == 0 {
 		return nil, io.EOF
 	}
@@ -32,9 +32,9 @@ func (*scriptedSessionStream) Context() context.Context { return context.Backgro
 
 func TestAcceptSessionReturnsBoundedNetConn(t *testing.T) {
 	t.Parallel()
-	stream := &scriptedSessionStream{received: []*remotev1.HostSessionFrame{
-		{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration-1", AllocationId: "allocation-1", AllocationGeneration: 2, ConnectionEpoch: 19}}},
-		{Payload: &remotev1.HostSessionFrame_Data{Data: []byte("from-host")}},
+	stream := &scriptedSessionStream{received: []*remotev1.ServeSessionRequest{
+		{Payload: &remotev1.ServeSessionRequest_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration-1", AllocationId: "allocation-1", AllocationGeneration: 2, ConnectionEpoch: 19}}},
+		{Payload: &remotev1.ServeSessionRequest_Data{Data: []byte("from-host")}},
 	}}
 	header, connection, err := controllerremote.AcceptSession(stream, "registration-1", 19)
 	if err != nil {

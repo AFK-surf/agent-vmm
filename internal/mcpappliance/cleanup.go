@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	"github.com/AFK-surf/agent-vmm/internal/mcpserver"
 	"google.golang.org/grpc/codes"
@@ -103,12 +102,12 @@ func (owner *clientCleanupOwner) ExecuteCleanup(ctx context.Context, execution m
 		return errors.New("cleanup result is incomplete")
 	}
 	switch remoteKind {
-	case hostv1.CleanupKind_CLEANUP_KIND_RESET:
-		if allocation.GetState() != hostv1.AllocationState_ALLOCATION_STATE_RETAINED {
+	case remotev1.CleanupKind_CLEANUP_KIND_RESET:
+		if allocation.GetState() != remotev1.AllocationState_ALLOCATION_STATE_RETAINED {
 			return errors.New("reset result has an invalid allocation state")
 		}
-	case hostv1.CleanupKind_CLEANUP_KIND_DISCARD:
-		if allocation.GetState() != hostv1.AllocationState_ALLOCATION_STATE_DISCARDED {
+	case remotev1.CleanupKind_CLEANUP_KIND_DISCARD:
+		if allocation.GetState() != remotev1.AllocationState_ALLOCATION_STATE_DISCARDED {
 			return errors.New("discard result has an invalid allocation state")
 		}
 	}
@@ -116,14 +115,14 @@ func (owner *clientCleanupOwner) ExecuteCleanup(ctx context.Context, execution m
 	return nil
 }
 
-func cleanupKind(kind string) (hostv1.CleanupKind, error) {
+func cleanupKind(kind string) (remotev1.CleanupKind, error) {
 	switch kind {
 	case "reset":
-		return hostv1.CleanupKind_CLEANUP_KIND_RESET, nil
+		return remotev1.CleanupKind_CLEANUP_KIND_RESET, nil
 	case "discard":
-		return hostv1.CleanupKind_CLEANUP_KIND_DISCARD, nil
+		return remotev1.CleanupKind_CLEANUP_KIND_DISCARD, nil
 	default:
-		return hostv1.CleanupKind_CLEANUP_KIND_UNSPECIFIED, status.Error(codes.InvalidArgument, "invalid cleanup kind")
+		return remotev1.CleanupKind_CLEANUP_KIND_UNSPECIFIED, status.Error(codes.InvalidArgument, "invalid cleanup kind")
 	}
 }
 

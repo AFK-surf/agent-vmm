@@ -65,7 +65,9 @@ Update ==
   /\ UNCHANGED <<configuredOwner, configuredGeometry, configuredPolicy, action,
                   agentLoaded, daemonLoaded, observedOwner>>
 
-Next == Observe \/ Remove \/ Update
+Terminated == outcome \in {"observed", "removed", "updated"} /\ UNCHANGED vars
+
+Next == Terminated \/ Observe \/ Remove \/ Update
 
 TypeOK ==
   /\ configuredOwner \in {"agent", "daemon"}

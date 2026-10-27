@@ -45,7 +45,7 @@ func testImportedImageForcedRestart(t *testing.T, harness *hostHarness) {
 		t.Fatal("imported image identity changed across forced VM restart")
 	}
 	container := createContainerWithImage(t, client, namespaceID, "imported-rootfs", reference, []string{"true"})
-	if err := client.DeleteContainer(context.Background(), namespaceID, &hostv1.ContainerMutationRequest{RequestId: "delete-imported-rootfs", ContainerId: container.GetId(), ExpectedGenerationId: container.GetGenerationId()}); err != nil {
+	if err := client.DeleteContainer(context.Background(), namespaceID, &hostv1.DeleteContainerRequest{RequestId: "delete-imported-rootfs", ContainerId: container.GetId(), ExpectedGenerationId: container.GetGenerationId()}); err != nil {
 		t.Fatal(err)
 	}
 	current := imageByReference(t, client, namespaceID, reference)
@@ -222,7 +222,7 @@ func archiveCacheDirectory() string {
 	if directory := os.Getenv("AGENT_VMM_E2E_ARCHIVE_CACHE"); directory != "" {
 		return directory
 	}
-	return "/tmp/agent-vmm-e2e-archives"
+	return filepath.Join("..", "..", ".build", "e2e-archives")
 }
 
 // archiveCacheKey returns the pinned digest of an immutable reference, or "".

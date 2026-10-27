@@ -13,36 +13,36 @@ import (
 )
 
 type serviceStatus struct {
-	AppInstalled         bool                              `json:"appInstalled"`
-	ServiceApp           string                            `json:"serviceApp"`
-	ServiceUser          string                            `json:"serviceUser"`
-	ServiceUID           int                               `json:"serviceUid"`
-	HostJob              string                            `json:"hostJob"`
-	OperatorSocket       string                            `json:"operatorSocket"`
-	HostInstalled        bool                              `json:"hostInstalled"`
-	HostObserved         bool                              `json:"hostObserved"`
-	HostObservationIssue string                            `json:"hostObservationIssue,omitempty"`
-	HostLoaded           bool                              `json:"hostLoaded"`
-	HostRunning          bool                              `json:"hostRunning"`
-	HostPID              int                               `json:"hostPid,omitempty"`
-	HostLastExitStatus   *int                              `json:"hostLastExitStatus,omitempty"`
-	ConnectorInstalled   bool                              `json:"connectorInstalled"`
-	ConnectorLoaded      bool                              `json:"connectorLoaded"`
-	HostReadable         bool                              `json:"hostReadable"`
-	HostHealthy          bool                              `json:"hostHealthy"`
-	HostHealth           *hostv1.HealthStatus              `json:"hostHealth,omitempty"`
-	RegistrationRead     string                            `json:"registrationRead,omitempty"`
-	RegistrationState    string                            `json:"registrationState,omitempty"`
-	RegistrationReason   string                            `json:"registrationReason,omitempty"`
-	HostResources        *hostv1.LayerResources            `json:"hostResources,omitempty"`
-	GuestResources       *hostv1.LayerResources            `json:"guestResources,omitempty"`
-	SnapshotObservedAt   string                            `json:"snapshotObservedAt,omitempty"`
-	Operation            *lifecycleOperation               `json:"operation,omitempty"`
-	Startup              *startupEvidence                  `json:"startup,omitempty"`
-	HostStartFailure     *store.StartFailure               `json:"hostStartFailure,omitempty"`
-	DataSchema           int                               `json:"dataSchema"`
-	DataSchemaIssue      string                            `json:"dataSchemaIssue,omitempty"`
-	Snapshot             *hostv1.GetSystemSnapshotResponse `json:"-"`
+	AppInstalled         bool                                   `json:"appInstalled"`
+	ServiceApp           string                                 `json:"serviceApp"`
+	ServiceUser          string                                 `json:"serviceUser"`
+	ServiceUID           int                                    `json:"serviceUid"`
+	HostJob              string                                 `json:"hostJob"`
+	OperatorSocket       string                                 `json:"operatorSocket"`
+	HostInstalled        bool                                   `json:"hostInstalled"`
+	HostObserved         bool                                   `json:"hostObserved"`
+	HostObservationIssue string                                 `json:"hostObservationIssue,omitempty"`
+	HostLoaded           bool                                   `json:"hostLoaded"`
+	HostRunning          bool                                   `json:"hostRunning"`
+	HostPID              int                                    `json:"hostPid,omitempty"`
+	HostLastExitStatus   *int                                   `json:"hostLastExitStatus,omitempty"`
+	ConnectorInstalled   bool                                   `json:"connectorInstalled"`
+	ConnectorLoaded      bool                                   `json:"connectorLoaded"`
+	HostReadable         bool                                   `json:"hostReadable"`
+	HostHealthy          bool                                   `json:"hostHealthy"`
+	HostHealth           *hostv1.HealthStatus                   `json:"hostHealth,omitempty"`
+	RegistrationRead     string                                 `json:"registrationRead,omitempty"`
+	RegistrationState    string                                 `json:"registrationState,omitempty"`
+	RegistrationReason   string                                 `json:"registrationReason,omitempty"`
+	HostResources        *hostv1.LayerResources                 `json:"hostResources,omitempty"`
+	GuestResources       *hostv1.LayerResources                 `json:"guestResources,omitempty"`
+	SnapshotObservedAt   string                                 `json:"snapshotObservedAt,omitempty"`
+	Operation            *lifecycleOperation                    `json:"operation,omitempty"`
+	Startup              *startupEvidence                       `json:"startup,omitempty"`
+	HostStartFailure     *store.StartFailure                    `json:"hostStartFailure,omitempty"`
+	DataSchema           int                                    `json:"dataSchema"`
+	DataSchemaIssue      string                                 `json:"dataSchemaIssue,omitempty"`
+	Snapshot             *hostv1.GetSystemHealthSummaryResponse `json:"-"`
 }
 
 type hostServiceFacts struct {
@@ -89,7 +89,7 @@ func readStatusContext(ctx context.Context, value paths, registrationIDs ...stri
 	} else {
 		result.HostObservationIssue = err.Error()
 	}
-	// Local Host and exact connector observations never claim Salix admission or
+	// Local Host and exact connector observations never claim controller admission or
 	// product Node readiness. Those facts are owned by the server observation.
 	result.ConnectorInstalled = result.HostInstalled
 	if result.HostRunning {

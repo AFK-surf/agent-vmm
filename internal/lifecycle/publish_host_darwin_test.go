@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"errors"
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,13 @@ func publicationFixture(t *testing.T) (paths, string, publicationActions) {
 	if err := os.MkdirAll(source, 0700); err != nil {
 		t.Fatal(err)
 	}
-	a := publicationActions{validate: func(string, bool) (string, error) { return "release-1", nil }, copy: func(_, target string) error { return os.MkdirAll(target, 0700) }}
+	if err := os.MkdirAll(filepath.Join(source, "Contents", "Resources"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, bundle.HostInventoryRelativePath), []byte(`{"release_id":"release-1"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := publicationActions{validate: func(string) (string, error) { return "release-1", nil }, copy: func(_, target string) error { return os.MkdirAll(target, 0700) }}
 	return p, source, a
 }
 
@@ -37,7 +44,7 @@ func TestPublicationReplaysWithoutOverwriting(t *testing.T) {
 	if _, err = os.Stat(marker); err != nil {
 		t.Fatal(err)
 	}
-	a.validate = func(path string, _ bool) (string, error) {
+	a.validate = func(path string) (string, error) {
 		if path == p.app {
 			return "different", nil
 		}
@@ -106,11 +113,11 @@ func TestPublicationCannotReplaceConcurrentTarget(t *testing.T) {
 
 func TestPublicationRejectsInvalidOrChangedSource(t *testing.T) {
 	p, s, a := publicationFixture(t)
-	a.validate = func(string, bool) (string, error) { return "", errors.New("invalid signature") }
+	a.validate = func(string) (string, error) { return "", errors.New("invalid signature") }
 	if _, err := publishHost(p, s, a); err == nil {
 		t.Fatal("published invalid signature")
 	}
-	a.validate = func(path string, _ bool) (string, error) {
+	a.validate = func(path string) (string, error) {
 		if path == s {
 			return "source", nil
 		}

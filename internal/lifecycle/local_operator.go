@@ -9,10 +9,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -20,7 +20,7 @@ import (
 
 func localOperatorCommand(command string) bool {
 	switch command {
-	case "local-plan", "local-execute", "local-operation", "comma-recovery-proof", "local-disk", "local-environments", "local-registrations":
+	case "local-plan", "local-execute", "local-operation", "registration-recovery-proof", "local-disk", "local-environments", "local-registrations":
 		return true
 	}
 	return false
@@ -74,9 +74,9 @@ func runLocalOperatorCommand(ctx context.Context, command, socket string, input 
 		if err = protojson.Unmarshal(raw, request); err == nil {
 			result, err = client.GetOperation(ctx, request)
 		}
-	case "comma-recovery-proof":
+	case "registration-recovery-proof":
 		// Host parses the fixed-purpose JSON. Do not expose a generic sign-bytes RPC.
-		result, err = client.SignCommaRecovery(ctx, &hostv1.SignCommaRecoveryRequest{ChallengeJson: raw})
+		result, err = client.SignRegistrationRecovery(ctx, &hostv1.SignRegistrationRecoveryRequest{ChallengeJson: raw})
 	default:
 		return errors.New("unknown local operator command")
 	}
@@ -107,11 +107,10 @@ func executeLocalOperator(command string, request serviceRequest, arguments []st
 	}
 	if err != nil {
 		reason := "LOCAL_OPERATOR_FAILED"
-		for _, detail := range status.Convert(err).Details() {
-			if info, ok := detail.(*errdetails.ErrorInfo); ok {
-				reason = info.Reason
-			}
+		if value, ok := hostv1.ErrorReasonOf(err); ok {
+			reason = strings.TrimPrefix(value.String(), "ERROR_REASON_")
 		}
+
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"error": map[string]string{"code": status.Code(err).String(), "reason": reason}})
 		os.Exit(1)
 	}

@@ -161,11 +161,6 @@ func parseInstallArgs(action string, args []string) (bool, string, bool, string,
 	return disablePairing, requestID, operationStdin, resumeOperationID, registrationID
 }
 
-func parseRepairArgs(args []string) (bool, string) {
-	disablePairing, requestID, _, _, _ := parseInstallArgs("repair", args)
-	return disablePairing, requestID
-}
-
 func parseInstallOperationAckArgs(args []string) (string, error) {
 	if len(args) != 2 || args[0] != "--operation-id" || !operationIDPattern.MatchString(args[1]) {
 		return "", errors.New("install-operation-ack requires a valid --operation-id")

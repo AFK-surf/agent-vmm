@@ -66,6 +66,8 @@ public nonisolated enum Agentvmm_Appliance_V1_FrontendTransport: SwiftProtobuf.E
 public nonisolated enum Agentvmm_Appliance_V1_FrontendExposure: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unspecified // = 0
+
+  /// All local users can connect; the appliance protocol must authenticate clients.
   case hostLoopback // = 1
   case outboundOnly // = 2
   case lanHTTP // = 3
@@ -375,7 +377,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceOperationPhase: SwiftProt
   public typealias RawValue = Int
   case unspecified // = 0
   case planned // = 1
-  case probation // = 2
   case repairingSealed // = 3
   case pendingDestroy // = 4
   case terminal // = 5
@@ -394,7 +395,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceOperationPhase: SwiftProt
     switch rawValue {
     case 0: self = .unspecified
     case 1: self = .planned
-    case 2: self = .probation
     case 3: self = .repairingSealed
     case 4: self = .pendingDestroy
     case 5: self = .terminal
@@ -411,7 +411,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceOperationPhase: SwiftProt
     switch self {
     case .unspecified: return 0
     case .planned: return 1
-    case .probation: return 2
     case .repairingSealed: return 3
     case .pendingDestroy: return 4
     case .terminal: return 5
@@ -428,7 +427,6 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceOperationPhase: SwiftProt
   public static let allCases: [Agentvmm_Appliance_V1_ApplianceOperationPhase] = [
     .unspecified,
     .planned,
-    .probation,
     .repairingSealed,
     .pendingDestroy,
     .terminal,
@@ -545,6 +543,7 @@ public nonisolated enum Agentvmm_Appliance_V1_ApplianceContentRole: SwiftProtobu
 
 }
 
+/// BuildArtifactHeader selects an appliance build request and context-relative Dockerfile options.
 public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactHeader: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -576,6 +575,8 @@ public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactHeader: Sendable {
   fileprivate var _target: String? = nil
 }
 
+/// BuildArtifactRequest carries inputs for an operation that builds an appliance archive and
+/// streams its bytes with a final size and digest commitment.
 public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -619,6 +620,7 @@ public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactRequest: Sendable {
   public init() {}
 }
 
+/// BuildArtifactResult commits the streamed archive size, SHA-256, and OCI manifest digest.
 public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -637,6 +639,8 @@ public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactResult: Sendable {
   public init() {}
 }
 
+/// BuildArtifactResponse carries results from an operation that builds an appliance archive and
+/// streams its bytes with a final size and digest commitment.
 public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -680,6 +684,8 @@ public nonisolated struct Agentvmm_Appliance_V1_BuildArtifactResponse: Sendable 
   public init() {}
 }
 
+/// StreamBounds limits frame size, concurrency, idle time, deadline, and declared cumulative bytes
+/// for one stream purpose.
 public nonisolated struct Agentvmm_Appliance_V1_StreamBounds: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -700,6 +706,7 @@ public nonisolated struct Agentvmm_Appliance_V1_StreamBounds: Sendable {
   public init() {}
 }
 
+/// ControllerFrontend declares one static appliance endpoint, its exposure, and its stream bounds.
 public nonisolated struct Agentvmm_Appliance_V1_ControllerFrontend: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -727,39 +734,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerFrontend: Sendable {
   fileprivate var _bounds: Agentvmm_Appliance_V1_StreamBounds? = nil
 }
 
-public nonisolated struct Agentvmm_Appliance_V1_DynamicHostLoopbackGrant: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var maxActiveLeases: UInt32 = 0
-
-  public var maxActiveLeasesPerAllocation: UInt32 = 0
-
-  public var maxLeaseSeconds: UInt32 = 0
-
-  public var maxConcurrentConnections: UInt32 = 0
-
-  public var maxConcurrentConnectionsPerLease: UInt32 = 0
-
-  public var connectionBounds: Agentvmm_Appliance_V1_StreamBounds {
-    get {_connectionBounds ?? Agentvmm_Appliance_V1_StreamBounds()}
-    set {_connectionBounds = newValue}
-  }
-  /// Returns true if `connectionBounds` has been explicitly set.
-  public var hasConnectionBounds: Bool {self._connectionBounds != nil}
-  /// Clears the value of `connectionBounds`. Subsequent reads from it will return its default value.
-  public mutating func clearConnectionBounds() {self._connectionBounds = nil}
-
-  public var maxUseCount: UInt32 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _connectionBounds: Agentvmm_Appliance_V1_StreamBounds? = nil
-}
-
+/// CapacityGrant bounds each environment contract requested by an appliance controller without a
+/// reservation ledger.
 public nonisolated struct Agentvmm_Appliance_V1_CapacityGrant: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -783,6 +759,8 @@ public nonisolated struct Agentvmm_Appliance_V1_CapacityGrant: Sendable {
   fileprivate var _perEnvironmentLimits: Agentvmm_Host_V1_ResourceLimits? = nil
 }
 
+/// ControllerApplianceManifest binds a product artifact to immutable content, protocols, requested
+/// limits, and static permissions.
 public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -818,16 +796,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @un
     set {_uniqueStorage()._platform = newValue}
   }
 
-  public var bootstrapProtocolVersion: String {
-    get {_storage._bootstrapProtocolVersion}
-    set {_uniqueStorage()._bootstrapProtocolVersion = newValue}
-  }
-
-  public var controllerProtocolVersion: String {
-    get {_storage._controllerProtocolVersion}
-    set {_uniqueStorage()._controllerProtocolVersion = newValue}
-  }
-
   public var dataVolumeBytes: UInt64 {
     get {_storage._dataVolumeBytes}
     set {_uniqueStorage()._dataVolumeBytes = newValue}
@@ -857,25 +825,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @un
     set {_uniqueStorage()._startupDeadlineSeconds = newValue}
   }
 
-  public var probationSeconds: UInt32 {
-    get {_storage._probationSeconds}
-    set {_uniqueStorage()._probationSeconds = newValue}
-  }
-
-  public var healthTimeoutSeconds: UInt32 {
-    get {_storage._healthTimeoutSeconds}
-    set {_uniqueStorage()._healthTimeoutSeconds = newValue}
-  }
-
-  public var requestedDynamicHostLoopback: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant {
-    get {_storage._requestedDynamicHostLoopback ?? Agentvmm_Appliance_V1_DynamicHostLoopbackGrant()}
-    set {_uniqueStorage()._requestedDynamicHostLoopback = newValue}
-  }
-  /// Returns true if `requestedDynamicHostLoopback` has been explicitly set.
-  public var hasRequestedDynamicHostLoopback: Bool {_storage._requestedDynamicHostLoopback != nil}
-  /// Clears the value of `requestedDynamicHostLoopback`. Subsequent reads from it will return its default value.
-  public mutating func clearRequestedDynamicHostLoopback() {_uniqueStorage()._requestedDynamicHostLoopback = nil}
-
   public var systemLimits: Agentvmm_Host_V1_ResourceLimits {
     get {_storage._systemLimits ?? Agentvmm_Host_V1_ResourceLimits()}
     set {_uniqueStorage()._systemLimits = newValue}
@@ -902,6 +851,7 @@ public nonisolated struct Agentvmm_Appliance_V1_ControllerApplianceManifest: @un
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// HostTcpEndpoint approves one exact Host-reachable IPv4 TCP endpoint for installation egress.
 public nonisolated struct Agentvmm_Appliance_V1_HostTcpEndpoint: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -916,70 +866,50 @@ public nonisolated struct Agentvmm_Appliance_V1_HostTcpEndpoint: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Appliance_V1_ApprovedGrant: @unchecked Sendable {
+/// ApprovedGrant records operator-approved permissions at the Host-owned grant revision.
+public nonisolated struct Agentvmm_Appliance_V1_ApprovedGrant: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var capacity: Agentvmm_Appliance_V1_CapacityGrant {
-    get {_storage._capacity ?? Agentvmm_Appliance_V1_CapacityGrant()}
-    set {_uniqueStorage()._capacity = newValue}
+    get {_capacity ?? Agentvmm_Appliance_V1_CapacityGrant()}
+    set {_capacity = newValue}
   }
   /// Returns true if `capacity` has been explicitly set.
-  public var hasCapacity: Bool {_storage._capacity != nil}
+  public var hasCapacity: Bool {self._capacity != nil}
   /// Clears the value of `capacity`. Subsequent reads from it will return its default value.
-  public mutating func clearCapacity() {_uniqueStorage()._capacity = nil}
+  public mutating func clearCapacity() {self._capacity = nil}
 
-  public var egressMode: Agentvmm_Host_V1_EgressMode {
-    get {_storage._egressMode}
-    set {_uniqueStorage()._egressMode = newValue}
-  }
+  public var egressMode: Agentvmm_Host_V1_EgressMode = .unspecified
 
-  public var frontends: [Agentvmm_Appliance_V1_ControllerFrontend] {
-    get {_storage._frontends}
-    set {_uniqueStorage()._frontends = newValue}
-  }
+  public var frontends: [Agentvmm_Appliance_V1_ControllerFrontend] = []
 
-  public var revision: UInt64 {
-    get {_storage._revision}
-    set {_uniqueStorage()._revision = newValue}
-  }
-
-  public var dynamicHostLoopback: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant {
-    get {_storage._dynamicHostLoopback ?? Agentvmm_Appliance_V1_DynamicHostLoopbackGrant()}
-    set {_uniqueStorage()._dynamicHostLoopback = newValue}
-  }
-  /// Returns true if `dynamicHostLoopback` has been explicitly set.
-  public var hasDynamicHostLoopback: Bool {_storage._dynamicHostLoopback != nil}
-  /// Clears the value of `dynamicHostLoopback`. Subsequent reads from it will return its default value.
-  public mutating func clearDynamicHostLoopback() {_uniqueStorage()._dynamicHostLoopback = nil}
+  public var revision: UInt64 = 0
 
   public var systemLimits: Agentvmm_Host_V1_ResourceLimits {
-    get {_storage._systemLimits ?? Agentvmm_Host_V1_ResourceLimits()}
-    set {_uniqueStorage()._systemLimits = newValue}
+    get {_systemLimits ?? Agentvmm_Host_V1_ResourceLimits()}
+    set {_systemLimits = newValue}
   }
   /// Returns true if `systemLimits` has been explicitly set.
-  public var hasSystemLimits: Bool {_storage._systemLimits != nil}
+  public var hasSystemLimits: Bool {self._systemLimits != nil}
   /// Clears the value of `systemLimits`. Subsequent reads from it will return its default value.
-  public mutating func clearSystemLimits() {_uniqueStorage()._systemLimits = nil}
+  public mutating func clearSystemLimits() {self._systemLimits = nil}
 
-  public var lanEgress: Bool {
-    get {_storage._lanEgress}
-    set {_uniqueStorage()._lanEgress = newValue}
-  }
+  public var lanEgress: Bool = false
 
-  public var hostTcpEndpoints: [Agentvmm_Appliance_V1_HostTcpEndpoint] {
-    get {_storage._hostTcpEndpoints}
-    set {_uniqueStorage()._hostTcpEndpoints = newValue}
-  }
+  public var hostTcpEndpoints: [Agentvmm_Appliance_V1_HostTcpEndpoint] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _storage = _StorageClass.defaultInstance
+  fileprivate var _capacity: Agentvmm_Appliance_V1_CapacityGrant? = nil
+  fileprivate var _systemLimits: Agentvmm_Host_V1_ResourceLimits? = nil
 }
 
+/// ApplianceLaunchClaim signs one installation launch under its artifact, boot, instance,
+/// configuration, and content fences.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceLaunchClaim: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1044,16 +974,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceLaunchClaim: @unchecked
     set {_uniqueStorage()._signature = newValue}
   }
 
-  public var deviceRootPublicKey: Data {
-    get {_storage._deviceRootPublicKey}
-    set {_uniqueStorage()._deviceRootPublicKey = newValue}
-  }
-
-  public var deviceRootRevision: UInt64 {
-    get {_storage._deviceRootRevision}
-    set {_uniqueStorage()._deviceRootRevision = newValue}
-  }
-
   public var registrationID: String {
     get {_storage._registrationID}
     set {_uniqueStorage()._registrationID = newValue}
@@ -1080,6 +1000,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceLaunchClaim: @unchecked
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// ApplianceManagedTrustBundle binds optional managed authority to the current authenticated
+/// appliance launch.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceManagedTrustBundle: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1140,6 +1062,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceManagedTrustBundle: @un
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// OpaqueBootstrapEnvelope carries opaque management seed bytes for one installation and single-use
+/// bootstrap identity.
 public nonisolated struct Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1160,6 +1084,7 @@ public nonisolated struct Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope: Sendabl
   public init() {}
 }
 
+/// BootstrapReceipt acknowledges consumption of the exact bootstrap envelope nonce.
 public nonisolated struct Agentvmm_Appliance_V1_BootstrapReceipt: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1176,6 +1101,7 @@ public nonisolated struct Agentvmm_Appliance_V1_BootstrapReceipt: Sendable {
   public init() {}
 }
 
+/// ApplianceHealth binds appliance readiness to the current launch and its readiness nonce.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceHealth: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1193,8 +1119,6 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceHealth: Sendable {
 
   public var status: String = String()
 
-  public var readinessNonce: Data = Data()
-
   public var registrationID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1202,101 +1126,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceHealth: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Appliance_V1_HostBootstrapFrame: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var payload: Agentvmm_Appliance_V1_HostBootstrapFrame.OneOf_Payload? = nil
-
-  public var launchClaim: Agentvmm_Appliance_V1_ApplianceLaunchClaim {
-    get {
-      if case .launchClaim(let v)? = payload {return v}
-      return Agentvmm_Appliance_V1_ApplianceLaunchClaim()
-    }
-    set {payload = .launchClaim(newValue)}
-  }
-
-  public var envelope: Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope {
-    get {
-      if case .envelope(let v)? = payload {return v}
-      return Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope()
-    }
-    set {payload = .envelope(newValue)}
-  }
-
-  public var closeWrite: Bool {
-    get {
-      if case .closeWrite(let v)? = payload {return v}
-      return false
-    }
-    set {payload = .closeWrite(newValue)}
-  }
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public nonisolated enum OneOf_Payload: Equatable, Sendable {
-    case launchClaim(Agentvmm_Appliance_V1_ApplianceLaunchClaim)
-    case envelope(Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope)
-    case closeWrite(Bool)
-
-  }
-
-  public init() {}
-}
-
-public nonisolated struct Agentvmm_Appliance_V1_ApplianceBootstrapFrame: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var payload: Agentvmm_Appliance_V1_ApplianceBootstrapFrame.OneOf_Payload? = nil
-
-  public var receipt: Agentvmm_Appliance_V1_BootstrapReceipt {
-    get {
-      if case .receipt(let v)? = payload {return v}
-      return Agentvmm_Appliance_V1_BootstrapReceipt()
-    }
-    set {payload = .receipt(newValue)}
-  }
-
-  public var health: Agentvmm_Appliance_V1_ApplianceHealth {
-    get {
-      if case .health(let v)? = payload {return v}
-      return Agentvmm_Appliance_V1_ApplianceHealth()
-    }
-    set {payload = .health(newValue)}
-  }
-
-  public var closeWrite: Bool {
-    get {
-      if case .closeWrite(let v)? = payload {return v}
-      return false
-    }
-    set {payload = .closeWrite(newValue)}
-  }
-
-  public var managedTrust: Agentvmm_Appliance_V1_ApplianceManagedTrustBundle {
-    get {
-      if case .managedTrust(let v)? = payload {return v}
-      return Agentvmm_Appliance_V1_ApplianceManagedTrustBundle()
-    }
-    set {payload = .managedTrust(newValue)}
-  }
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public nonisolated enum OneOf_Payload: Equatable, Sendable {
-    case receipt(Agentvmm_Appliance_V1_BootstrapReceipt)
-    case health(Agentvmm_Appliance_V1_ApplianceHealth)
-    case closeWrite(Bool)
-    case managedTrust(Agentvmm_Appliance_V1_ApplianceManagedTrustBundle)
-
-  }
-
-  public init() {}
-}
-
+/// ApplianceFrontendStatus reports the actual static endpoint and current availability for one
+/// container instance.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceFrontendStatus: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1314,11 +1145,15 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceFrontendStatus: Sendabl
 
   public var available: Bool = false
 
+  public var errorReason: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
+/// ApplianceStatus combines durable installation state with current launch, channel, frontend, and
+/// runtime-stop observations.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceStatus: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1418,6 +1253,7 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceStatus: @unchecked Send
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// ApplianceImpact declares an exact installation lifecycle effect before operator confirmation.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceImpact: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1438,6 +1274,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceImpact: Sendable {
   public init() {}
 }
 
+/// AppliancePlan binds approved lifecycle impacts to the current installation revision and
+/// artifact.
 public nonisolated struct Agentvmm_Appliance_V1_AppliancePlan: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1458,6 +1296,7 @@ public nonisolated struct Agentvmm_Appliance_V1_AppliancePlan: Sendable {
   public init() {}
 }
 
+/// ApplianceOperationError retains a safe lifecycle failure reason and message.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceOperationError: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1472,6 +1311,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceOperationError: Sendabl
   public init() {}
 }
 
+/// ApplianceOperation retains original lifecycle request identity, phase, deadline, and terminal
+/// evidence.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceOperation: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1571,71 +1412,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceOperation: @unchecked S
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-public nonisolated struct Agentvmm_Appliance_V1_ApplianceOperationResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
-    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
-    set {_operation = newValue}
-  }
-  /// Returns true if `operation` has been explicitly set.
-  public var hasOperation: Bool {self._operation != nil}
-  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
-  public mutating func clearOperation() {self._operation = nil}
-
-  public var artifactID: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
-}
-
-public nonisolated struct Agentvmm_Appliance_V1_AppliancePlanResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var plan: Agentvmm_Appliance_V1_AppliancePlan {
-    get {_plan ?? Agentvmm_Appliance_V1_AppliancePlan()}
-    set {_plan = newValue}
-  }
-  /// Returns true if `plan` has been explicitly set.
-  public var hasPlan: Bool {self._plan != nil}
-  /// Clears the value of `plan`. Subsequent reads from it will return its default value.
-  public mutating func clearPlan() {self._plan = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _plan: Agentvmm_Appliance_V1_AppliancePlan? = nil
-}
-
-public nonisolated struct Agentvmm_Appliance_V1_ApplianceStatusResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var status: Agentvmm_Appliance_V1_ApplianceStatus {
-    get {_status ?? Agentvmm_Appliance_V1_ApplianceStatus()}
-    set {_status = newValue}
-  }
-  /// Returns true if `status` has been explicitly set.
-  public var hasStatus: Bool {self._status != nil}
-  /// Clears the value of `status`. Subsequent reads from it will return its default value.
-  public mutating func clearStatus() {self._status = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _status: Agentvmm_Appliance_V1_ApplianceStatus? = nil
-}
-
+/// StageArtifactRequest carries inputs for an operation that validates and records a canonical
+/// appliance manifest without installing or activating it.
 public nonisolated struct Agentvmm_Appliance_V1_StageArtifactRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1661,6 +1439,8 @@ public nonisolated struct Agentvmm_Appliance_V1_StageArtifactRequest: Sendable {
   fileprivate var _manifest: Agentvmm_Appliance_V1_ControllerApplianceManifest? = nil
 }
 
+/// PlanInstallRequest carries inputs for an operation that reads installation impacts and checks
+/// the proposed grant before installation.
 public nonisolated struct Agentvmm_Appliance_V1_PlanInstallRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1692,6 +1472,8 @@ public nonisolated struct Agentvmm_Appliance_V1_PlanInstallRequest: Sendable {
   fileprivate var _approvedGrant: Agentvmm_Appliance_V1_ApprovedGrant? = nil
 }
 
+/// InstallRequest carries inputs for an operation that creates one installation, private
+/// registration, and data-volume identity under the approved grant.
 public nonisolated struct Agentvmm_Appliance_V1_InstallRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1725,6 +1507,8 @@ public nonisolated struct Agentvmm_Appliance_V1_InstallRequest: Sendable {
   fileprivate var _approvedGrant: Agentvmm_Appliance_V1_ApprovedGrant? = nil
 }
 
+/// PlanActivationRequest carries inputs for an operation that reads the current installation's
+/// activation impacts without starting it.
 public nonisolated struct Agentvmm_Appliance_V1_PlanActivationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1743,6 +1527,8 @@ public nonisolated struct Agentvmm_Appliance_V1_PlanActivationRequest: Sendable 
   public init() {}
 }
 
+/// ActivateRequest carries inputs for an operation that activates the exact installation revision
+/// and publishes only its current boot and instance.
 public nonisolated struct Agentvmm_Appliance_V1_ActivateRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1761,6 +1547,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ActivateRequest: Sendable {
   public init() {}
 }
 
+/// ListAppliancesRequest carries inputs for an operation that reads installation status and
+/// current frontend availability for the operator.
 public nonisolated struct Agentvmm_Appliance_V1_ListAppliancesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1771,6 +1559,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ListAppliancesRequest: Sendable 
   public init() {}
 }
 
+/// ListAppliancesResponse carries results from an operation that reads installation status and
+/// current frontend availability for the operator.
 public nonisolated struct Agentvmm_Appliance_V1_ListAppliancesResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1783,6 +1573,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ListAppliancesResponse: Sendable
   public init() {}
 }
 
+/// GetApplianceStatusRequest carries inputs for an operation that reads one installation and
+/// preserves unknown runtime-stop observations.
 public nonisolated struct Agentvmm_Appliance_V1_GetApplianceStatusRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1795,6 +1587,8 @@ public nonisolated struct Agentvmm_Appliance_V1_GetApplianceStatusRequest: Senda
   public init() {}
 }
 
+/// WatchApplianceOperationRequest carries inputs for an operation that streams the original
+/// installation operation receipt through terminal state.
 public nonisolated struct Agentvmm_Appliance_V1_WatchApplianceOperationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1809,6 +1603,8 @@ public nonisolated struct Agentvmm_Appliance_V1_WatchApplianceOperationRequest: 
   public init() {}
 }
 
+/// StopApplianceRequest carries inputs for an operation that stops one installation's runtime
+/// publication while retaining its private data and trust.
 public nonisolated struct Agentvmm_Appliance_V1_StopApplianceRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1827,6 +1623,8 @@ public nonisolated struct Agentvmm_Appliance_V1_StopApplianceRequest: Sendable {
   public init() {}
 }
 
+/// RestartApplianceRequest carries inputs for an operation that confirms the exact old writer
+/// stopped before launching another instance.
 public nonisolated struct Agentvmm_Appliance_V1_RestartApplianceRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1845,6 +1643,8 @@ public nonisolated struct Agentvmm_Appliance_V1_RestartApplianceRequest: Sendabl
   public init() {}
 }
 
+/// RevokeApplianceRequest carries inputs for an operation that retires the installation's private
+/// controller authority and its owned workloads.
 public nonisolated struct Agentvmm_Appliance_V1_RevokeApplianceRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1863,6 +1663,8 @@ public nonisolated struct Agentvmm_Appliance_V1_RevokeApplianceRequest: Sendable
   public init() {}
 }
 
+/// PlanRemoveRequest carries inputs for an operation that reads the exact installation domain and
+/// data impacts before irreversible removal.
 public nonisolated struct Agentvmm_Appliance_V1_PlanRemoveRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1881,6 +1683,8 @@ public nonisolated struct Agentvmm_Appliance_V1_PlanRemoveRequest: Sendable {
   public init() {}
 }
 
+/// ExecuteRemoveRequest carries the frozen installation revision, original deadline, and complete
+/// operator-confirmed resource set.
 public nonisolated struct Agentvmm_Appliance_V1_ExecuteRemoveRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1901,6 +1705,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ExecuteRemoveRequest: Sendable {
   public init() {}
 }
 
+/// PlanUpdateRequest carries inputs for an operation that reads impacts for the selected artifact
+/// and grant at the current installation revision.
 public nonisolated struct Agentvmm_Appliance_V1_PlanUpdateRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1932,6 +1738,8 @@ public nonisolated struct Agentvmm_Appliance_V1_PlanUpdateRequest: Sendable {
   fileprivate var _approvedGrant: Agentvmm_Appliance_V1_ApprovedGrant? = nil
 }
 
+/// UpdateApplianceRequest carries inputs for an operation that persists drain, stop, switch, and
+/// activation while preserving installation identity and private data.
 public nonisolated struct Agentvmm_Appliance_V1_UpdateApplianceRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1956,13 +1764,25 @@ public nonisolated struct Agentvmm_Appliance_V1_UpdateApplianceRequest: Sendable
   /// Clears the value of `approvedGrant`. Subsequent reads from it will return its default value.
   public mutating func clearApprovedGrant() {self._approvedGrant = nil}
 
+  public var opaqueBootstrapSeed: Data {
+    get {_opaqueBootstrapSeed ?? Data()}
+    set {_opaqueBootstrapSeed = newValue}
+  }
+  /// Returns true if `opaqueBootstrapSeed` has been explicitly set.
+  public var hasOpaqueBootstrapSeed: Bool {self._opaqueBootstrapSeed != nil}
+  /// Clears the value of `opaqueBootstrapSeed`. Subsequent reads from it will return its default value.
+  public mutating func clearOpaqueBootstrapSeed() {self._opaqueBootstrapSeed = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _approvedGrant: Agentvmm_Appliance_V1_ApprovedGrant? = nil
+  fileprivate var _opaqueBootstrapSeed: Data? = nil
 }
 
+/// RecoverApplianceUpdateRequest carries inputs for an operation that resumes the original failed
+/// update with a current observation fence and explicit extended deadline.
 public nonisolated struct Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1981,51 +1801,69 @@ public nonisolated struct Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest: S
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Appliance_V1_ApplianceUpdateProgress: Sendable {
+/// ApplianceUpdateProgress reports persisted update phases for the original source and target
+/// artifacts.
+public nonisolated struct Agentvmm_Appliance_V1_ApplianceUpdateProgress: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var request: Agentvmm_Appliance_V1_UpdateApplianceRequest {
-    get {_request ?? Agentvmm_Appliance_V1_UpdateApplianceRequest()}
-    set {_request = newValue}
+    get {_storage._request ?? Agentvmm_Appliance_V1_UpdateApplianceRequest()}
+    set {_uniqueStorage()._request = newValue}
   }
   /// Returns true if `request` has been explicitly set.
-  public var hasRequest: Bool {self._request != nil}
+  public var hasRequest: Bool {_storage._request != nil}
   /// Clears the value of `request`. Subsequent reads from it will return its default value.
-  public mutating func clearRequest() {self._request = nil}
+  public mutating func clearRequest() {_uniqueStorage()._request = nil}
 
-  public var sourceArtifactID: String = String()
+  public var sourceArtifactID: String {
+    get {_storage._sourceArtifactID}
+    set {_uniqueStorage()._sourceArtifactID = newValue}
+  }
 
-  public var installationRevision: UInt64 = 0
+  public var installationRevision: UInt64 {
+    get {_storage._installationRevision}
+    set {_uniqueStorage()._installationRevision = newValue}
+  }
 
   public var sourceGrant: Agentvmm_Appliance_V1_ApprovedGrant {
-    get {_sourceGrant ?? Agentvmm_Appliance_V1_ApprovedGrant()}
-    set {_sourceGrant = newValue}
+    get {_storage._sourceGrant ?? Agentvmm_Appliance_V1_ApprovedGrant()}
+    set {_uniqueStorage()._sourceGrant = newValue}
   }
   /// Returns true if `sourceGrant` has been explicitly set.
-  public var hasSourceGrant: Bool {self._sourceGrant != nil}
+  public var hasSourceGrant: Bool {_storage._sourceGrant != nil}
   /// Clears the value of `sourceGrant`. Subsequent reads from it will return its default value.
-  public mutating func clearSourceGrant() {self._sourceGrant = nil}
+  public mutating func clearSourceGrant() {_uniqueStorage()._sourceGrant = nil}
 
   public var recovery: Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest {
-    get {_recovery ?? Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest()}
-    set {_recovery = newValue}
+    get {_storage._recovery ?? Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest()}
+    set {_uniqueStorage()._recovery = newValue}
   }
   /// Returns true if `recovery` has been explicitly set.
-  public var hasRecovery: Bool {self._recovery != nil}
+  public var hasRecovery: Bool {_storage._recovery != nil}
   /// Clears the value of `recovery`. Subsequent reads from it will return its default value.
-  public mutating func clearRecovery() {self._recovery = nil}
+  public mutating func clearRecovery() {_uniqueStorage()._recovery = nil}
+
+  public var bootstrapID: String {
+    get {_storage._bootstrapID}
+    set {_uniqueStorage()._bootstrapID = newValue}
+  }
+
+  public var bootstrapSeedSha256: Data {
+    get {_storage._bootstrapSeedSha256}
+    set {_uniqueStorage()._bootstrapSeedSha256 = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _request: Agentvmm_Appliance_V1_UpdateApplianceRequest? = nil
-  fileprivate var _sourceGrant: Agentvmm_Appliance_V1_ApprovedGrant? = nil
-  fileprivate var _recovery: Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// ApplianceContentReference authorizes an exact archive role, size, hash, platform, and image
+/// manifest identity.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceContentReference: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2048,6 +1886,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceContentReference: Senda
   public init() {}
 }
 
+/// ApplianceContentMount projects one authorized immutable dependency archive into the current
+/// controller launch.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceContentMount: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2071,6 +1911,7 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceContentMount: Sendable 
   fileprivate var _content: Agentvmm_Appliance_V1_ApplianceContentReference? = nil
 }
 
+/// StageContentHeader commits archive identity before bounded content chunks arrive.
 public nonisolated struct Agentvmm_Appliance_V1_StageContentHeader: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2096,6 +1937,8 @@ public nonisolated struct Agentvmm_Appliance_V1_StageContentHeader: Sendable {
   fileprivate var _contentRef: Agentvmm_Appliance_V1_ApplianceContentReference? = nil
 }
 
+/// StageContentRequest carries inputs for an operation that stages one content-addressed archive
+/// after checking its header, size, and hash.
 public nonisolated struct Agentvmm_Appliance_V1_StageContentRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2130,6 +1973,8 @@ public nonisolated struct Agentvmm_Appliance_V1_StageContentRequest: Sendable {
   public init() {}
 }
 
+/// ApplianceContentStatus reports whether an exact content commitment is available in the Host
+/// cache.
 public nonisolated struct Agentvmm_Appliance_V1_ApplianceContentStatus: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2153,6 +1998,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ApplianceContentStatus: Sendable
   fileprivate var _contentRef: Agentvmm_Appliance_V1_ApplianceContentReference? = nil
 }
 
+/// GetContentStatusRequest carries inputs for an operation that reads whether the exact approved
+/// content archive is staged and available.
 public nonisolated struct Agentvmm_Appliance_V1_GetContentStatusRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2165,6 +2012,8 @@ public nonisolated struct Agentvmm_Appliance_V1_GetContentStatusRequest: Sendabl
   public init() {}
 }
 
+/// GetContentStatusResponse carries results from an operation that reads whether the exact
+/// approved content archive is staged and available.
 public nonisolated struct Agentvmm_Appliance_V1_GetContentStatusResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2177,6 +2026,8 @@ public nonisolated struct Agentvmm_Appliance_V1_GetContentStatusResponse: Sendab
   public init() {}
 }
 
+/// CreateApplianceServiceImportRequest carries inputs for an operation that approves service
+/// access from the current installation's private controller domain.
 public nonisolated struct Agentvmm_Appliance_V1_CreateApplianceServiceImportRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2205,6 +2056,8 @@ public nonisolated struct Agentvmm_Appliance_V1_CreateApplianceServiceImportRequ
   public init() {}
 }
 
+/// ListApplianceServiceImportsRequest carries inputs for an operation that reads only imports
+/// owned by the selected installation.
 public nonisolated struct Agentvmm_Appliance_V1_ListApplianceServiceImportsRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2217,6 +2070,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ListApplianceServiceImportsReque
   public init() {}
 }
 
+/// ListApplianceServiceImportsResponse carries results from an operation that reads only imports
+/// owned by the selected installation.
 public nonisolated struct Agentvmm_Appliance_V1_ListApplianceServiceImportsResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2229,6 +2084,8 @@ public nonisolated struct Agentvmm_Appliance_V1_ListApplianceServiceImportsRespo
   public init() {}
 }
 
+/// RevokeApplianceServiceImportRequest carries inputs for an operation that revokes the exact
+/// installation-owned service import revision.
 public nonisolated struct Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2249,6 +2106,9 @@ public nonisolated struct Agentvmm_Appliance_V1_RevokeApplianceServiceImportRequ
   public init() {}
 }
 
+/// CreateApplianceFrontendServiceImportRequest supplies the inputs for
+/// CreateApplianceFrontendServiceImport. The operation approves a workload service as the selected static
+/// appliance frontend target.
 public nonisolated struct Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2277,6 +2137,554 @@ public nonisolated struct Agentvmm_Appliance_V1_CreateApplianceFrontendServiceIm
   public var virtualServiceName: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// CreateApplianceServiceImportResponse carries results from an operation that approves service
+/// access from the current installation's private controller domain.
+public nonisolated struct Agentvmm_Appliance_V1_CreateApplianceServiceImportResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var `import`: Agentvmm_Service_V1_ServiceImport {
+    get {_import ?? Agentvmm_Service_V1_ServiceImport()}
+    set {_import = newValue}
+  }
+  /// Returns true if ``import`` has been explicitly set.
+  public var hasImport: Bool {self._import != nil}
+  /// Clears the value of ``import``. Subsequent reads from it will return its default value.
+  public mutating func clearImport() {self._import = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _import: Agentvmm_Service_V1_ServiceImport? = nil
+}
+
+/// CreateApplianceFrontendServiceImportResponse reports the result of
+/// CreateApplianceFrontendServiceImport. The operation approves a workload service as the selected static
+/// appliance frontend target.
+public nonisolated struct Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var `import`: Agentvmm_Service_V1_ServiceImport {
+    get {_import ?? Agentvmm_Service_V1_ServiceImport()}
+    set {_import = newValue}
+  }
+  /// Returns true if ``import`` has been explicitly set.
+  public var hasImport: Bool {self._import != nil}
+  /// Clears the value of ``import``. Subsequent reads from it will return its default value.
+  public mutating func clearImport() {self._import = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _import: Agentvmm_Service_V1_ServiceImport? = nil
+}
+
+/// RevokeApplianceServiceImportResponse carries results from an operation that revokes the exact
+/// installation-owned service import revision.
+public nonisolated struct Agentvmm_Appliance_V1_RevokeApplianceServiceImportResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// StageContentResponse carries results from an operation that stages one content-addressed
+/// archive after checking its header, size, and hash.
+public nonisolated struct Agentvmm_Appliance_V1_StageContentResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// StageArtifactResponse carries results from an operation that validates and records a canonical
+/// appliance manifest without installing or activating it.
+public nonisolated struct Agentvmm_Appliance_V1_StageArtifactResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// PlanInstallResponse carries results from an operation that reads installation impacts and
+/// checks the proposed grant before installation.
+public nonisolated struct Agentvmm_Appliance_V1_PlanInstallResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var plan: Agentvmm_Appliance_V1_AppliancePlan {
+    get {_plan ?? Agentvmm_Appliance_V1_AppliancePlan()}
+    set {_plan = newValue}
+  }
+  /// Returns true if `plan` has been explicitly set.
+  public var hasPlan: Bool {self._plan != nil}
+  /// Clears the value of `plan`. Subsequent reads from it will return its default value.
+  public mutating func clearPlan() {self._plan = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _plan: Agentvmm_Appliance_V1_AppliancePlan? = nil
+}
+
+/// InstallResponse carries results from an operation that creates one installation, private
+/// registration, and data-volume identity under the approved grant.
+public nonisolated struct Agentvmm_Appliance_V1_InstallResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// PlanUpdateResponse carries results from an operation that reads impacts for the selected
+/// artifact and grant at the current installation revision.
+public nonisolated struct Agentvmm_Appliance_V1_PlanUpdateResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var plan: Agentvmm_Appliance_V1_AppliancePlan {
+    get {_plan ?? Agentvmm_Appliance_V1_AppliancePlan()}
+    set {_plan = newValue}
+  }
+  /// Returns true if `plan` has been explicitly set.
+  public var hasPlan: Bool {self._plan != nil}
+  /// Clears the value of `plan`. Subsequent reads from it will return its default value.
+  public mutating func clearPlan() {self._plan = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _plan: Agentvmm_Appliance_V1_AppliancePlan? = nil
+}
+
+/// UpdateApplianceResponse carries results from an operation that persists drain, stop, switch,
+/// and activation while preserving installation identity and private data.
+public nonisolated struct Agentvmm_Appliance_V1_UpdateApplianceResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// RecoverApplianceUpdateResponse carries results from an operation that resumes the original
+/// failed update with a current observation fence and explicit extended deadline.
+public nonisolated struct Agentvmm_Appliance_V1_RecoverApplianceUpdateResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// PlanActivationResponse carries results from an operation that reads the current installation's
+/// activation impacts without starting it.
+public nonisolated struct Agentvmm_Appliance_V1_PlanActivationResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var plan: Agentvmm_Appliance_V1_AppliancePlan {
+    get {_plan ?? Agentvmm_Appliance_V1_AppliancePlan()}
+    set {_plan = newValue}
+  }
+  /// Returns true if `plan` has been explicitly set.
+  public var hasPlan: Bool {self._plan != nil}
+  /// Clears the value of `plan`. Subsequent reads from it will return its default value.
+  public mutating func clearPlan() {self._plan = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _plan: Agentvmm_Appliance_V1_AppliancePlan? = nil
+}
+
+/// ActivateResponse carries results from an operation that activates the exact installation
+/// revision and publishes only its current boot and instance.
+public nonisolated struct Agentvmm_Appliance_V1_ActivateResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// GetApplianceStatusResponse carries results from an operation that reads one installation and
+/// preserves unknown runtime-stop observations.
+public nonisolated struct Agentvmm_Appliance_V1_GetApplianceStatusResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var status: Agentvmm_Appliance_V1_ApplianceStatus {
+    get {_status ?? Agentvmm_Appliance_V1_ApplianceStatus()}
+    set {_status = newValue}
+  }
+  /// Returns true if `status` has been explicitly set.
+  public var hasStatus: Bool {self._status != nil}
+  /// Clears the value of `status`. Subsequent reads from it will return its default value.
+  public mutating func clearStatus() {self._status = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _status: Agentvmm_Appliance_V1_ApplianceStatus? = nil
+}
+
+/// WatchApplianceOperationResponse carries results from an operation that streams the original
+/// installation operation receipt through terminal state.
+public nonisolated struct Agentvmm_Appliance_V1_WatchApplianceOperationResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// StopApplianceResponse carries results from an operation that stops one installation's runtime
+/// publication while retaining its private data and trust.
+public nonisolated struct Agentvmm_Appliance_V1_StopApplianceResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// RestartApplianceResponse carries results from an operation that confirms the exact old writer
+/// stopped before launching another instance.
+public nonisolated struct Agentvmm_Appliance_V1_RestartApplianceResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// RevokeApplianceResponse carries results from an operation that retires the installation's
+/// private controller authority and its owned workloads.
+public nonisolated struct Agentvmm_Appliance_V1_RevokeApplianceResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// PlanRemoveResponse carries results from an operation that reads the exact installation domain
+/// and data impacts before irreversible removal.
+public nonisolated struct Agentvmm_Appliance_V1_PlanRemoveResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var plan: Agentvmm_Appliance_V1_AppliancePlan {
+    get {_plan ?? Agentvmm_Appliance_V1_AppliancePlan()}
+    set {_plan = newValue}
+  }
+  /// Returns true if `plan` has been explicitly set.
+  public var hasPlan: Bool {self._plan != nil}
+  /// Clears the value of `plan`. Subsequent reads from it will return its default value.
+  public mutating func clearPlan() {self._plan = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _plan: Agentvmm_Appliance_V1_AppliancePlan? = nil
+}
+
+/// ExecuteRemoveResponse carries results from an operation that accepts the reviewed revision and
+/// exact confirmed resources, retaining its receipt until cleanup completes.
+public nonisolated struct Agentvmm_Appliance_V1_ExecuteRemoveResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var operation: Agentvmm_Appliance_V1_ApplianceOperation {
+    get {_operation ?? Agentvmm_Appliance_V1_ApplianceOperation()}
+    set {_operation = newValue}
+  }
+  /// Returns true if `operation` has been explicitly set.
+  public var hasOperation: Bool {self._operation != nil}
+  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
+  public mutating func clearOperation() {self._operation = nil}
+
+  public var artifactID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _operation: Agentvmm_Appliance_V1_ApplianceOperation? = nil
+}
+
+/// BootstrapRequest sends a launch claim, optional opaque seed envelope, then explicit write
+/// closure for one launch.
+public nonisolated struct Agentvmm_Appliance_V1_BootstrapRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var payload: Agentvmm_Appliance_V1_BootstrapRequest.OneOf_Payload? = nil
+
+  public var launchClaim: Agentvmm_Appliance_V1_ApplianceLaunchClaim {
+    get {
+      if case .launchClaim(let v)? = payload {return v}
+      return Agentvmm_Appliance_V1_ApplianceLaunchClaim()
+    }
+    set {payload = .launchClaim(newValue)}
+  }
+
+  public var envelope: Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope {
+    get {
+      if case .envelope(let v)? = payload {return v}
+      return Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope()
+    }
+    set {payload = .envelope(newValue)}
+  }
+
+  public var closeWrite: Bool {
+    get {
+      if case .closeWrite(let v)? = payload {return v}
+      return false
+    }
+    set {payload = .closeWrite(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum OneOf_Payload: Equatable, Sendable {
+    case launchClaim(Agentvmm_Appliance_V1_ApplianceLaunchClaim)
+    case envelope(Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope)
+    case closeWrite(Bool)
+
+  }
+
+  public init() {}
+}
+
+/// BootstrapResponse returns seed consumption receipt when needed, current health, optional
+/// managed trust, and explicit write closure.
+public nonisolated struct Agentvmm_Appliance_V1_BootstrapResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var payload: Agentvmm_Appliance_V1_BootstrapResponse.OneOf_Payload? = nil
+
+  public var receipt: Agentvmm_Appliance_V1_BootstrapReceipt {
+    get {
+      if case .receipt(let v)? = payload {return v}
+      return Agentvmm_Appliance_V1_BootstrapReceipt()
+    }
+    set {payload = .receipt(newValue)}
+  }
+
+  public var health: Agentvmm_Appliance_V1_ApplianceHealth {
+    get {
+      if case .health(let v)? = payload {return v}
+      return Agentvmm_Appliance_V1_ApplianceHealth()
+    }
+    set {payload = .health(newValue)}
+  }
+
+  public var closeWrite: Bool {
+    get {
+      if case .closeWrite(let v)? = payload {return v}
+      return false
+    }
+    set {payload = .closeWrite(newValue)}
+  }
+
+  public var managedTrust: Agentvmm_Appliance_V1_ApplianceManagedTrustBundle {
+    get {
+      if case .managedTrust(let v)? = payload {return v}
+      return Agentvmm_Appliance_V1_ApplianceManagedTrustBundle()
+    }
+    set {payload = .managedTrust(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum OneOf_Payload: Equatable, Sendable {
+    case receipt(Agentvmm_Appliance_V1_BootstrapReceipt)
+    case health(Agentvmm_Appliance_V1_ApplianceHealth)
+    case closeWrite(Bool)
+    case managedTrust(Agentvmm_Appliance_V1_ApplianceManagedTrustBundle)
+
+  }
 
   public init() {}
 }
@@ -2314,7 +2722,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceOperationKind: SwiftProtobu
 }
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceOperationPhase: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPLIANCE_OPERATION_PHASE_UNSPECIFIED\0\u{1}APPLIANCE_OPERATION_PHASE_PLANNED\0\u{1}APPLIANCE_OPERATION_PHASE_PROBATION\0\u{1}APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED\0\u{1}APPLIANCE_OPERATION_PHASE_PENDING_DESTROY\0\u{1}APPLIANCE_OPERATION_PHASE_TERMINAL\0\u{1}APPLIANCE_OPERATION_PHASE_PREPARING\0\u{1}APPLIANCE_OPERATION_PHASE_DRAINING\0\u{1}APPLIANCE_OPERATION_PHASE_STOPPING\0\u{1}APPLIANCE_OPERATION_PHASE_SWITCHING\0\u{1}APPLIANCE_OPERATION_PHASE_ACTIVATING\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPLIANCE_OPERATION_PHASE_UNSPECIFIED\0\u{1}APPLIANCE_OPERATION_PHASE_PLANNED\0\u{2}\u{2}APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED\0\u{1}APPLIANCE_OPERATION_PHASE_PENDING_DESTROY\0\u{1}APPLIANCE_OPERATION_PHASE_TERMINAL\0\u{1}APPLIANCE_OPERATION_PHASE_PREPARING\0\u{1}APPLIANCE_OPERATION_PHASE_DRAINING\0\u{1}APPLIANCE_OPERATION_PHASE_STOPPING\0\u{1}APPLIANCE_OPERATION_PHASE_SWITCHING\0\u{1}APPLIANCE_OPERATION_PHASE_ACTIVATING\0")
 }
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceTerminalReason: SwiftProtobuf._ProtoNameProviding {
@@ -2686,70 +3094,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerFrontend: SwiftProtobuf.Me
   }
 }
 
-nonisolated extension Agentvmm_Appliance_V1_DynamicHostLoopbackGrant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".DynamicHostLoopbackGrant"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}max_active_leases\0\u{3}max_active_leases_per_allocation\0\u{3}max_lease_seconds\0\u{3}max_concurrent_connections\0\u{3}max_concurrent_connections_per_lease\0\u{3}connection_bounds\0\u{3}max_use_count\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.maxActiveLeases) }()
-      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.maxActiveLeasesPerAllocation) }()
-      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.maxLeaseSeconds) }()
-      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.maxConcurrentConnections) }()
-      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.maxConcurrentConnectionsPerLease) }()
-      case 6: try { try decoder.decodeSingularMessageField(value: &self._connectionBounds) }()
-      case 7: try { try decoder.decodeSingularUInt32Field(value: &self.maxUseCount) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if self.maxActiveLeases != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxActiveLeases, fieldNumber: 1)
-    }
-    if self.maxActiveLeasesPerAllocation != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxActiveLeasesPerAllocation, fieldNumber: 2)
-    }
-    if self.maxLeaseSeconds != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxLeaseSeconds, fieldNumber: 3)
-    }
-    if self.maxConcurrentConnections != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxConcurrentConnections, fieldNumber: 4)
-    }
-    if self.maxConcurrentConnectionsPerLease != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxConcurrentConnectionsPerLease, fieldNumber: 5)
-    }
-    try { if let v = self._connectionBounds {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-    } }()
-    if self.maxUseCount != 0 {
-      try visitor.visitSingularUInt32Field(value: self.maxUseCount, fieldNumber: 7)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant, rhs: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant) -> Bool {
-    if lhs.maxActiveLeases != rhs.maxActiveLeases {return false}
-    if lhs.maxActiveLeasesPerAllocation != rhs.maxActiveLeasesPerAllocation {return false}
-    if lhs.maxLeaseSeconds != rhs.maxLeaseSeconds {return false}
-    if lhs.maxConcurrentConnections != rhs.maxConcurrentConnections {return false}
-    if lhs.maxConcurrentConnectionsPerLease != rhs.maxConcurrentConnectionsPerLease {return false}
-    if lhs._connectionBounds != rhs._connectionBounds {return false}
-    if lhs.maxUseCount != rhs.maxUseCount {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CapacityGrant"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{3}per_environment_limits\0\u{3}max_egress_mode\0\u{b}max_environments\0\u{b}aggregate_limits\0\u{b}max_lease_seconds\0\u{b}disconnect_grace_seconds\0\u{c}\u{1}\u{1}\u{c}\u{2}\u{1}\u{c}\u{5}\u{1}\u{c}\u{6}\u{1}")
@@ -2791,7 +3135,7 @@ nonisolated extension Agentvmm_Appliance_V1_CapacityGrant: SwiftProtobuf.Message
 
 nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ControllerApplianceManifest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}contract_version\0\u{3}product_id\0\u{2}\u{2}release\0\u{3}image_reference\0\u{3}image_manifest_digest\0\u{1}platform\0\u{3}bootstrap_protocol_version\0\u{3}controller_protocol_version\0\u{4}\u{2}data_volume_bytes\0\u{3}requested_capacity\0\u{3}requested_egress_mode\0\u{3}requested_frontends\0\u{3}startup_deadline_seconds\0\u{3}probation_seconds\0\u{3}health_timeout_seconds\0\u{4}\u{2}requested_dynamic_host_loopback\0\u{3}system_limits\0\u{3}requested_lan_egress\0\u{3}content_refs\0\u{b}publisher_key_id\0\u{b}system_resources\0\u{b}minimum_appliance_runtime\0\u{c}\u{3}\u{1}\u{c}\u{a}\u{1}\u{c}\u{12}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}contract_version\0\u{3}product_id\0\u{2}\u{2}release\0\u{3}image_reference\0\u{3}image_manifest_digest\0\u{1}platform\0\u{4}\u{4}data_volume_bytes\0\u{3}requested_capacity\0\u{3}requested_egress_mode\0\u{3}requested_frontends\0\u{3}startup_deadline_seconds\0\u{4}\u{5}system_limits\0\u{3}requested_lan_egress\0\u{3}content_refs\0\u{b}requested_dynamic_host_loopback\0\u{b}publisher_key_id\0\u{b}system_resources\0\u{b}minimum_appliance_runtime\0\u{b}probation_seconds\0\u{b}health_timeout_seconds\0\u{c}\u{13}\u{1}\u{c}\u{3}\u{1}\u{c}\u{a}\u{1}\u{c}\u{12}\u{1}\u{c}\u{10}\u{1}\u{c}\u{11}\u{1}")
 
   fileprivate class _StorageClass {
     var _contractVersion: String = String()
@@ -2800,16 +3144,11 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
     var _imageReference: String = String()
     var _imageManifestDigest: String = String()
     var _platform: String = String()
-    var _bootstrapProtocolVersion: String = String()
-    var _controllerProtocolVersion: String = String()
     var _dataVolumeBytes: UInt64 = 0
     var _requestedCapacity: Agentvmm_Appliance_V1_CapacityGrant? = nil
     var _requestedEgressMode: Agentvmm_Host_V1_EgressMode = .unspecified
     var _requestedFrontends: [Agentvmm_Appliance_V1_ControllerFrontend] = []
     var _startupDeadlineSeconds: UInt32 = 0
-    var _probationSeconds: UInt32 = 0
-    var _healthTimeoutSeconds: UInt32 = 0
-    var _requestedDynamicHostLoopback: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant? = nil
     var _systemLimits: Agentvmm_Host_V1_ResourceLimits? = nil
     var _requestedLanEgress: Bool = false
     var _contentRefs: [Agentvmm_Appliance_V1_ApplianceContentReference] = []
@@ -2829,16 +3168,11 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       _imageReference = source._imageReference
       _imageManifestDigest = source._imageManifestDigest
       _platform = source._platform
-      _bootstrapProtocolVersion = source._bootstrapProtocolVersion
-      _controllerProtocolVersion = source._controllerProtocolVersion
       _dataVolumeBytes = source._dataVolumeBytes
       _requestedCapacity = source._requestedCapacity
       _requestedEgressMode = source._requestedEgressMode
       _requestedFrontends = source._requestedFrontends
       _startupDeadlineSeconds = source._startupDeadlineSeconds
-      _probationSeconds = source._probationSeconds
-      _healthTimeoutSeconds = source._healthTimeoutSeconds
-      _requestedDynamicHostLoopback = source._requestedDynamicHostLoopback
       _systemLimits = source._systemLimits
       _requestedLanEgress = source._requestedLanEgress
       _contentRefs = source._contentRefs
@@ -2866,16 +3200,11 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         case 5: try { try decoder.decodeSingularStringField(value: &_storage._imageReference) }()
         case 6: try { try decoder.decodeSingularStringField(value: &_storage._imageManifestDigest) }()
         case 7: try { try decoder.decodeSingularStringField(value: &_storage._platform) }()
-        case 8: try { try decoder.decodeSingularStringField(value: &_storage._bootstrapProtocolVersion) }()
-        case 9: try { try decoder.decodeSingularStringField(value: &_storage._controllerProtocolVersion) }()
         case 11: try { try decoder.decodeSingularUInt64Field(value: &_storage._dataVolumeBytes) }()
         case 12: try { try decoder.decodeSingularMessageField(value: &_storage._requestedCapacity) }()
         case 13: try { try decoder.decodeSingularEnumField(value: &_storage._requestedEgressMode) }()
         case 14: try { try decoder.decodeRepeatedMessageField(value: &_storage._requestedFrontends) }()
         case 15: try { try decoder.decodeSingularUInt32Field(value: &_storage._startupDeadlineSeconds) }()
-        case 16: try { try decoder.decodeSingularUInt32Field(value: &_storage._probationSeconds) }()
-        case 17: try { try decoder.decodeSingularUInt32Field(value: &_storage._healthTimeoutSeconds) }()
-        case 19: try { try decoder.decodeSingularMessageField(value: &_storage._requestedDynamicHostLoopback) }()
         case 20: try { try decoder.decodeSingularMessageField(value: &_storage._systemLimits) }()
         case 21: try { try decoder.decodeSingularBoolField(value: &_storage._requestedLanEgress) }()
         case 22: try { try decoder.decodeRepeatedMessageField(value: &_storage._contentRefs) }()
@@ -2909,12 +3238,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       if !_storage._platform.isEmpty {
         try visitor.visitSingularStringField(value: _storage._platform, fieldNumber: 7)
       }
-      if !_storage._bootstrapProtocolVersion.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._bootstrapProtocolVersion, fieldNumber: 8)
-      }
-      if !_storage._controllerProtocolVersion.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._controllerProtocolVersion, fieldNumber: 9)
-      }
       if _storage._dataVolumeBytes != 0 {
         try visitor.visitSingularUInt64Field(value: _storage._dataVolumeBytes, fieldNumber: 11)
       }
@@ -2930,15 +3253,6 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
       if _storage._startupDeadlineSeconds != 0 {
         try visitor.visitSingularUInt32Field(value: _storage._startupDeadlineSeconds, fieldNumber: 15)
       }
-      if _storage._probationSeconds != 0 {
-        try visitor.visitSingularUInt32Field(value: _storage._probationSeconds, fieldNumber: 16)
-      }
-      if _storage._healthTimeoutSeconds != 0 {
-        try visitor.visitSingularUInt32Field(value: _storage._healthTimeoutSeconds, fieldNumber: 17)
-      }
-      try { if let v = _storage._requestedDynamicHostLoopback {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 19)
-      } }()
       try { if let v = _storage._systemLimits {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
       } }()
@@ -2963,16 +3277,11 @@ nonisolated extension Agentvmm_Appliance_V1_ControllerApplianceManifest: SwiftPr
         if _storage._imageReference != rhs_storage._imageReference {return false}
         if _storage._imageManifestDigest != rhs_storage._imageManifestDigest {return false}
         if _storage._platform != rhs_storage._platform {return false}
-        if _storage._bootstrapProtocolVersion != rhs_storage._bootstrapProtocolVersion {return false}
-        if _storage._controllerProtocolVersion != rhs_storage._controllerProtocolVersion {return false}
         if _storage._dataVolumeBytes != rhs_storage._dataVolumeBytes {return false}
         if _storage._requestedCapacity != rhs_storage._requestedCapacity {return false}
         if _storage._requestedEgressMode != rhs_storage._requestedEgressMode {return false}
         if _storage._requestedFrontends != rhs_storage._requestedFrontends {return false}
         if _storage._startupDeadlineSeconds != rhs_storage._startupDeadlineSeconds {return false}
-        if _storage._probationSeconds != rhs_storage._probationSeconds {return false}
-        if _storage._healthTimeoutSeconds != rhs_storage._healthTimeoutSeconds {return false}
-        if _storage._requestedDynamicHostLoopback != rhs_storage._requestedDynamicHostLoopback {return false}
         if _storage._systemLimits != rhs_storage._systemLimits {return false}
         if _storage._requestedLanEgress != rhs_storage._requestedLanEgress {return false}
         if _storage._contentRefs != rhs_storage._contentRefs {return false}
@@ -3022,118 +3331,63 @@ nonisolated extension Agentvmm_Appliance_V1_HostTcpEndpoint: SwiftProtobuf.Messa
 
 nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApprovedGrant"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}capacity\0\u{3}egress_mode\0\u{1}frontends\0\u{1}revision\0\u{3}dynamic_host_loopback\0\u{3}system_limits\0\u{3}lan_egress\0\u{3}host_tcp_endpoints\0\u{b}system_resources\0\u{c}\u{1}\u{1}")
-
-  fileprivate class _StorageClass {
-    var _capacity: Agentvmm_Appliance_V1_CapacityGrant? = nil
-    var _egressMode: Agentvmm_Host_V1_EgressMode = .unspecified
-    var _frontends: [Agentvmm_Appliance_V1_ControllerFrontend] = []
-    var _revision: UInt64 = 0
-    var _dynamicHostLoopback: Agentvmm_Appliance_V1_DynamicHostLoopbackGrant? = nil
-    var _systemLimits: Agentvmm_Host_V1_ResourceLimits? = nil
-    var _lanEgress: Bool = false
-    var _hostTcpEndpoints: [Agentvmm_Appliance_V1_HostTcpEndpoint] = []
-
-      // This property is used as the initial default value for new instances of the type.
-      // The type itself is protecting the reference to its storage via CoW semantics.
-      // This will force a copy to be made of this reference when the first mutation occurs;
-      // hence, it is safe to mark this as `nonisolated(unsafe)`.
-      static nonisolated(unsafe) let defaultInstance = _StorageClass()
-
-    private init() {}
-
-    init(copying source: _StorageClass) {
-      _capacity = source._capacity
-      _egressMode = source._egressMode
-      _frontends = source._frontends
-      _revision = source._revision
-      _dynamicHostLoopback = source._dynamicHostLoopback
-      _systemLimits = source._systemLimits
-      _lanEgress = source._lanEgress
-      _hostTcpEndpoints = source._hostTcpEndpoints
-    }
-  }
-
-  fileprivate mutating func _uniqueStorage() -> _StorageClass {
-    if !isKnownUniquelyReferenced(&_storage) {
-      _storage = _StorageClass(copying: _storage)
-    }
-    return _storage
-  }
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}capacity\0\u{3}egress_mode\0\u{1}frontends\0\u{1}revision\0\u{4}\u{2}system_limits\0\u{3}lan_egress\0\u{3}host_tcp_endpoints\0\u{b}dynamic_host_loopback\0\u{b}system_resources\0\u{c}\u{6}\u{1}\u{c}\u{1}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    _ = _uniqueStorage()
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      while let fieldNumber = try decoder.nextFieldNumber() {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch fieldNumber {
-        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._capacity) }()
-        case 3: try { try decoder.decodeSingularEnumField(value: &_storage._egressMode) }()
-        case 4: try { try decoder.decodeRepeatedMessageField(value: &_storage._frontends) }()
-        case 5: try { try decoder.decodeSingularUInt64Field(value: &_storage._revision) }()
-        case 6: try { try decoder.decodeSingularMessageField(value: &_storage._dynamicHostLoopback) }()
-        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._systemLimits) }()
-        case 8: try { try decoder.decodeSingularBoolField(value: &_storage._lanEgress) }()
-        case 9: try { try decoder.decodeRepeatedMessageField(value: &_storage._hostTcpEndpoints) }()
-        default: break
-        }
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._capacity) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.egressMode) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.frontends) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 7: try { try decoder.decodeSingularMessageField(value: &self._systemLimits) }()
+      case 8: try { try decoder.decodeSingularBoolField(value: &self.lanEgress) }()
+      case 9: try { try decoder.decodeRepeatedMessageField(value: &self.hostTcpEndpoints) }()
+      default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every if/case branch local when no optimizations
-      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-      // https://github.com/apple/swift-protobuf/issues/1182
-      try { if let v = _storage._capacity {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-      } }()
-      if _storage._egressMode != .unspecified {
-        try visitor.visitSingularEnumField(value: _storage._egressMode, fieldNumber: 3)
-      }
-      if !_storage._frontends.isEmpty {
-        try visitor.visitRepeatedMessageField(value: _storage._frontends, fieldNumber: 4)
-      }
-      if _storage._revision != 0 {
-        try visitor.visitSingularUInt64Field(value: _storage._revision, fieldNumber: 5)
-      }
-      try { if let v = _storage._dynamicHostLoopback {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-      } }()
-      try { if let v = _storage._systemLimits {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
-      } }()
-      if _storage._lanEgress != false {
-        try visitor.visitSingularBoolField(value: _storage._lanEgress, fieldNumber: 8)
-      }
-      if !_storage._hostTcpEndpoints.isEmpty {
-        try visitor.visitRepeatedMessageField(value: _storage._hostTcpEndpoints, fieldNumber: 9)
-      }
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._capacity {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if self.egressMode != .unspecified {
+      try visitor.visitSingularEnumField(value: self.egressMode, fieldNumber: 3)
+    }
+    if !self.frontends.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.frontends, fieldNumber: 4)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 5)
+    }
+    try { if let v = self._systemLimits {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+    } }()
+    if self.lanEgress != false {
+      try visitor.visitSingularBoolField(value: self.lanEgress, fieldNumber: 8)
+    }
+    if !self.hostTcpEndpoints.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.hostTcpEndpoints, fieldNumber: 9)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Appliance_V1_ApprovedGrant, rhs: Agentvmm_Appliance_V1_ApprovedGrant) -> Bool {
-    if lhs._storage !== rhs._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
-        let _storage = _args.0
-        let rhs_storage = _args.1
-        if _storage._capacity != rhs_storage._capacity {return false}
-        if _storage._egressMode != rhs_storage._egressMode {return false}
-        if _storage._frontends != rhs_storage._frontends {return false}
-        if _storage._revision != rhs_storage._revision {return false}
-        if _storage._dynamicHostLoopback != rhs_storage._dynamicHostLoopback {return false}
-        if _storage._systemLimits != rhs_storage._systemLimits {return false}
-        if _storage._lanEgress != rhs_storage._lanEgress {return false}
-        if _storage._hostTcpEndpoints != rhs_storage._hostTcpEndpoints {return false}
-        return true
-      }
-      if !storagesAreEqual {return false}
-    }
+    if lhs._capacity != rhs._capacity {return false}
+    if lhs.egressMode != rhs.egressMode {return false}
+    if lhs.frontends != rhs.frontends {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs._systemLimits != rhs._systemLimits {return false}
+    if lhs.lanEgress != rhs.lanEgress {return false}
+    if lhs.hostTcpEndpoints != rhs.hostTcpEndpoints {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3141,7 +3395,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApprovedGrant: SwiftProtobuf.Message
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceLaunchClaim: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApplianceLaunchClaim"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}installation_id\0\u{3}artifact_id\0\u{3}boot_id\0\u{3}system_namespace\0\u{3}container_instance\0\u{3}boot_nonce\0\u{3}bootstrap_id\0\u{3}config_revision\0\u{3}approved_grant\0\u{3}expires_unix_millis\0\u{1}signature\0\u{3}device_root_public_key\0\u{3}device_root_revision\0\u{3}registration_id\0\u{3}device_identity\0\u{3}content_mounts\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}installation_id\0\u{3}artifact_id\0\u{3}boot_id\0\u{3}system_namespace\0\u{3}container_instance\0\u{3}boot_nonce\0\u{3}bootstrap_id\0\u{3}config_revision\0\u{3}approved_grant\0\u{3}expires_unix_millis\0\u{1}signature\0\u{4}\u{3}registration_id\0\u{3}device_identity\0\u{3}content_mounts\0")
 
   fileprivate class _StorageClass {
     var _installationID: String = String()
@@ -3155,8 +3409,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceLaunchClaim: SwiftProtobuf.
     var _approvedGrant: Agentvmm_Appliance_V1_ApprovedGrant? = nil
     var _expiresUnixMillis: Int64 = 0
     var _signature: Data = Data()
-    var _deviceRootPublicKey: Data = Data()
-    var _deviceRootRevision: UInt64 = 0
     var _registrationID: String = String()
     var _deviceIdentity: Agentvmm_Trust_V1_DeviceIdentity? = nil
     var _contentMounts: [Agentvmm_Appliance_V1_ApplianceContentMount] = []
@@ -3181,8 +3433,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceLaunchClaim: SwiftProtobuf.
       _approvedGrant = source._approvedGrant
       _expiresUnixMillis = source._expiresUnixMillis
       _signature = source._signature
-      _deviceRootPublicKey = source._deviceRootPublicKey
-      _deviceRootRevision = source._deviceRootRevision
       _registrationID = source._registrationID
       _deviceIdentity = source._deviceIdentity
       _contentMounts = source._contentMounts
@@ -3215,8 +3465,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceLaunchClaim: SwiftProtobuf.
         case 9: try { try decoder.decodeSingularMessageField(value: &_storage._approvedGrant) }()
         case 10: try { try decoder.decodeSingularInt64Field(value: &_storage._expiresUnixMillis) }()
         case 11: try { try decoder.decodeSingularBytesField(value: &_storage._signature) }()
-        case 12: try { try decoder.decodeSingularBytesField(value: &_storage._deviceRootPublicKey) }()
-        case 13: try { try decoder.decodeSingularUInt64Field(value: &_storage._deviceRootRevision) }()
         case 14: try { try decoder.decodeSingularStringField(value: &_storage._registrationID) }()
         case 15: try { try decoder.decodeSingularMessageField(value: &_storage._deviceIdentity) }()
         case 16: try { try decoder.decodeRepeatedMessageField(value: &_storage._contentMounts) }()
@@ -3265,12 +3513,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceLaunchClaim: SwiftProtobuf.
       if !_storage._signature.isEmpty {
         try visitor.visitSingularBytesField(value: _storage._signature, fieldNumber: 11)
       }
-      if !_storage._deviceRootPublicKey.isEmpty {
-        try visitor.visitSingularBytesField(value: _storage._deviceRootPublicKey, fieldNumber: 12)
-      }
-      if _storage._deviceRootRevision != 0 {
-        try visitor.visitSingularUInt64Field(value: _storage._deviceRootRevision, fieldNumber: 13)
-      }
       if !_storage._registrationID.isEmpty {
         try visitor.visitSingularStringField(value: _storage._registrationID, fieldNumber: 14)
       }
@@ -3300,8 +3542,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceLaunchClaim: SwiftProtobuf.
         if _storage._approvedGrant != rhs_storage._approvedGrant {return false}
         if _storage._expiresUnixMillis != rhs_storage._expiresUnixMillis {return false}
         if _storage._signature != rhs_storage._signature {return false}
-        if _storage._deviceRootPublicKey != rhs_storage._deviceRootPublicKey {return false}
-        if _storage._deviceRootRevision != rhs_storage._deviceRootRevision {return false}
         if _storage._registrationID != rhs_storage._registrationID {return false}
         if _storage._deviceIdentity != rhs_storage._deviceIdentity {return false}
         if _storage._contentMounts != rhs_storage._contentMounts {return false}
@@ -3525,7 +3765,7 @@ nonisolated extension Agentvmm_Appliance_V1_BootstrapReceipt: SwiftProtobuf.Mess
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceHealth: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApplianceHealth"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}installation_id\0\u{3}boot_id\0\u{3}container_instance\0\u{3}config_revision\0\u{1}healthy\0\u{1}status\0\u{3}readiness_nonce\0\u{3}registration_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}installation_id\0\u{3}boot_id\0\u{3}container_instance\0\u{3}config_revision\0\u{1}healthy\0\u{1}status\0\u{4}\u{2}registration_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3539,7 +3779,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceHealth: SwiftProtobuf.Messa
       case 4: try { try decoder.decodeSingularUInt64Field(value: &self.configRevision) }()
       case 5: try { try decoder.decodeSingularBoolField(value: &self.healthy) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.status) }()
-      case 7: try { try decoder.decodeSingularBytesField(value: &self.readinessNonce) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       default: break
       }
@@ -3565,9 +3804,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceHealth: SwiftProtobuf.Messa
     if !self.status.isEmpty {
       try visitor.visitSingularStringField(value: self.status, fieldNumber: 6)
     }
-    if !self.readinessNonce.isEmpty {
-      try visitor.visitSingularBytesField(value: self.readinessNonce, fieldNumber: 7)
-    }
     if !self.registrationID.isEmpty {
       try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 8)
     }
@@ -3581,183 +3817,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceHealth: SwiftProtobuf.Messa
     if lhs.configRevision != rhs.configRevision {return false}
     if lhs.healthy != rhs.healthy {return false}
     if lhs.status != rhs.status {return false}
-    if lhs.readinessNonce != rhs.readinessNonce {return false}
     if lhs.registrationID != rhs.registrationID {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Appliance_V1_HostBootstrapFrame: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".HostBootstrapFrame"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}launch_claim\0\u{1}envelope\0\u{3}close_write\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try {
-        var v: Agentvmm_Appliance_V1_ApplianceLaunchClaim?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .launchClaim(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .launchClaim(v)
-        }
-      }()
-      case 2: try {
-        var v: Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .envelope(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .envelope(v)
-        }
-      }()
-      case 3: try {
-        var v: Bool?
-        try decoder.decodeSingularBoolField(value: &v)
-        if let v = v {
-          if self.payload != nil {try decoder.handleConflictingOneOf()}
-          self.payload = .closeWrite(v)
-        }
-      }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    switch self.payload {
-    case .launchClaim?: try {
-      guard case .launchClaim(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    }()
-    case .envelope?: try {
-      guard case .envelope(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    }()
-    case .closeWrite?: try {
-      guard case .closeWrite(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
-    }()
-    case nil: break
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Appliance_V1_HostBootstrapFrame, rhs: Agentvmm_Appliance_V1_HostBootstrapFrame) -> Bool {
-    if lhs.payload != rhs.payload {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Appliance_V1_ApplianceBootstrapFrame: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ApplianceBootstrapFrame"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}receipt\0\u{1}health\0\u{3}close_write\0\u{3}managed_trust\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try {
-        var v: Agentvmm_Appliance_V1_BootstrapReceipt?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .receipt(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .receipt(v)
-        }
-      }()
-      case 2: try {
-        var v: Agentvmm_Appliance_V1_ApplianceHealth?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .health(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .health(v)
-        }
-      }()
-      case 3: try {
-        var v: Bool?
-        try decoder.decodeSingularBoolField(value: &v)
-        if let v = v {
-          if self.payload != nil {try decoder.handleConflictingOneOf()}
-          self.payload = .closeWrite(v)
-        }
-      }()
-      case 4: try {
-        var v: Agentvmm_Appliance_V1_ApplianceManagedTrustBundle?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .managedTrust(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .managedTrust(v)
-        }
-      }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    switch self.payload {
-    case .receipt?: try {
-      guard case .receipt(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    }()
-    case .health?: try {
-      guard case .health(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    }()
-    case .closeWrite?: try {
-      guard case .closeWrite(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
-    }()
-    case .managedTrust?: try {
-      guard case .managedTrust(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-    }()
-    case nil: break
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Appliance_V1_ApplianceBootstrapFrame, rhs: Agentvmm_Appliance_V1_ApplianceBootstrapFrame) -> Bool {
-    if lhs.payload != rhs.payload {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3765,7 +3825,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceBootstrapFrame: SwiftProtob
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceFrontendStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApplianceFrontendStatus"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}transport\0\u{1}exposure\0\u{1}endpoint\0\u{3}container_instance\0\u{1}available\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}transport\0\u{1}exposure\0\u{1}endpoint\0\u{3}container_instance\0\u{1}available\0\u{3}error_reason\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3779,6 +3839,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceFrontendStatus: SwiftProtob
       case 4: try { try decoder.decodeSingularStringField(value: &self.endpoint) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.containerInstance) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self.available) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.errorReason) }()
       default: break
       }
     }
@@ -3803,6 +3864,9 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceFrontendStatus: SwiftProtob
     if self.available != false {
       try visitor.visitSingularBoolField(value: self.available, fieldNumber: 6)
     }
+    if !self.errorReason.isEmpty {
+      try visitor.visitSingularStringField(value: self.errorReason, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3813,6 +3877,7 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceFrontendStatus: SwiftProtob
     if lhs.endpoint != rhs.endpoint {return false}
     if lhs.containerInstance != rhs.containerInstance {return false}
     if lhs.available != rhs.available {return false}
+    if lhs.errorReason != rhs.errorReason {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -4284,113 +4349,6 @@ nonisolated extension Agentvmm_Appliance_V1_ApplianceOperation: SwiftProtobuf.Me
       }
       if !storagesAreEqual {return false}
     }
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Appliance_V1_ApplianceOperationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ApplianceOperationResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._operation {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if !self.artifactID.isEmpty {
-      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Appliance_V1_ApplianceOperationResponse, rhs: Agentvmm_Appliance_V1_ApplianceOperationResponse) -> Bool {
-    if lhs._operation != rhs._operation {return false}
-    if lhs.artifactID != rhs.artifactID {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Appliance_V1_AppliancePlanResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".AppliancePlanResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}plan\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._plan) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._plan {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Appliance_V1_AppliancePlanResponse, rhs: Agentvmm_Appliance_V1_AppliancePlanResponse) -> Bool {
-    if lhs._plan != rhs._plan {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Appliance_V1_ApplianceStatusResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ApplianceStatusResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}status\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._status) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._status {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Appliance_V1_ApplianceStatusResponse, rhs: Agentvmm_Appliance_V1_ApplianceStatusResponse) -> Bool {
-    if lhs._status != rhs._status {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -5058,7 +5016,7 @@ nonisolated extension Agentvmm_Appliance_V1_PlanUpdateRequest: SwiftProtobuf.Mes
 
 nonisolated extension Agentvmm_Appliance_V1_UpdateApplianceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".UpdateApplianceRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}installation_id\0\u{3}request_id\0\u{3}expected_revision\0\u{3}artifact_id\0\u{3}deadline_unix_millis\0\u{3}approved_grant\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}installation_id\0\u{3}request_id\0\u{3}expected_revision\0\u{3}artifact_id\0\u{3}deadline_unix_millis\0\u{3}approved_grant\0\u{3}opaque_bootstrap_seed\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -5072,6 +5030,7 @@ nonisolated extension Agentvmm_Appliance_V1_UpdateApplianceRequest: SwiftProtobu
       case 4: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
       case 5: try { try decoder.decodeSingularInt64Field(value: &self.deadlineUnixMillis) }()
       case 6: try { try decoder.decodeSingularMessageField(value: &self._approvedGrant) }()
+      case 7: try { try decoder.decodeSingularBytesField(value: &self._opaqueBootstrapSeed) }()
       default: break
       }
     }
@@ -5100,6 +5059,9 @@ nonisolated extension Agentvmm_Appliance_V1_UpdateApplianceRequest: SwiftProtobu
     try { if let v = self._approvedGrant {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
     } }()
+    try { if let v = self._opaqueBootstrapSeed {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 7)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -5110,6 +5072,7 @@ nonisolated extension Agentvmm_Appliance_V1_UpdateApplianceRequest: SwiftProtobu
     if lhs.artifactID != rhs.artifactID {return false}
     if lhs.deadlineUnixMillis != rhs.deadlineUnixMillis {return false}
     if lhs._approvedGrant != rhs._approvedGrant {return false}
+    if lhs._opaqueBootstrapSeed != rhs._opaqueBootstrapSeed {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -5162,53 +5125,111 @@ nonisolated extension Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest: Swift
 
 nonisolated extension Agentvmm_Appliance_V1_ApplianceUpdateProgress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApplianceUpdateProgress"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{3}source_artifact_id\0\u{3}installation_revision\0\u{3}source_grant\0\u{1}recovery\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{3}source_artifact_id\0\u{3}installation_revision\0\u{3}source_grant\0\u{1}recovery\0\u{3}bootstrap_id\0\u{3}bootstrap_seed_sha256\0")
+
+  fileprivate class _StorageClass {
+    var _request: Agentvmm_Appliance_V1_UpdateApplianceRequest? = nil
+    var _sourceArtifactID: String = String()
+    var _installationRevision: UInt64 = 0
+    var _sourceGrant: Agentvmm_Appliance_V1_ApprovedGrant? = nil
+    var _recovery: Agentvmm_Appliance_V1_RecoverApplianceUpdateRequest? = nil
+    var _bootstrapID: String = String()
+    var _bootstrapSeedSha256: Data = Data()
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _request = source._request
+      _sourceArtifactID = source._sourceArtifactID
+      _installationRevision = source._installationRevision
+      _sourceGrant = source._sourceGrant
+      _recovery = source._recovery
+      _bootstrapID = source._bootstrapID
+      _bootstrapSeedSha256 = source._bootstrapSeedSha256
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._request) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.sourceArtifactID) }()
-      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.installationRevision) }()
-      case 4: try { try decoder.decodeSingularMessageField(value: &self._sourceGrant) }()
-      case 5: try { try decoder.decodeSingularMessageField(value: &self._recovery) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._request) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._sourceArtifactID) }()
+        case 3: try { try decoder.decodeSingularUInt64Field(value: &_storage._installationRevision) }()
+        case 4: try { try decoder.decodeSingularMessageField(value: &_storage._sourceGrant) }()
+        case 5: try { try decoder.decodeSingularMessageField(value: &_storage._recovery) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._bootstrapID) }()
+        case 7: try { try decoder.decodeSingularBytesField(value: &_storage._bootstrapSeedSha256) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._request {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if !self.sourceArtifactID.isEmpty {
-      try visitor.visitSingularStringField(value: self.sourceArtifactID, fieldNumber: 2)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._request {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      if !_storage._sourceArtifactID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourceArtifactID, fieldNumber: 2)
+      }
+      if _storage._installationRevision != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._installationRevision, fieldNumber: 3)
+      }
+      try { if let v = _storage._sourceGrant {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+      } }()
+      try { if let v = _storage._recovery {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+      } }()
+      if !_storage._bootstrapID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._bootstrapID, fieldNumber: 6)
+      }
+      if !_storage._bootstrapSeedSha256.isEmpty {
+        try visitor.visitSingularBytesField(value: _storage._bootstrapSeedSha256, fieldNumber: 7)
+      }
     }
-    if self.installationRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.installationRevision, fieldNumber: 3)
-    }
-    try { if let v = self._sourceGrant {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-    } }()
-    try { if let v = self._recovery {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
-    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Appliance_V1_ApplianceUpdateProgress, rhs: Agentvmm_Appliance_V1_ApplianceUpdateProgress) -> Bool {
-    if lhs._request != rhs._request {return false}
-    if lhs.sourceArtifactID != rhs.sourceArtifactID {return false}
-    if lhs.installationRevision != rhs.installationRevision {return false}
-    if lhs._sourceGrant != rhs._sourceGrant {return false}
-    if lhs._recovery != rhs._recovery {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._request != rhs_storage._request {return false}
+        if _storage._sourceArtifactID != rhs_storage._sourceArtifactID {return false}
+        if _storage._installationRevision != rhs_storage._installationRevision {return false}
+        if _storage._sourceGrant != rhs_storage._sourceGrant {return false}
+        if _storage._recovery != rhs_storage._recovery {return false}
+        if _storage._bootstrapID != rhs_storage._bootstrapID {return false}
+        if _storage._bootstrapSeedSha256 != rhs_storage._bootstrapSeedSha256 {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -5768,6 +5789,867 @@ nonisolated extension Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImport
     if lhs.sourceContainerInstanceID != rhs.sourceContainerInstanceID {return false}
     if lhs.frontendName != rhs.frontendName {return false}
     if lhs.virtualServiceName != rhs.virtualServiceName {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_CreateApplianceServiceImportResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CreateApplianceServiceImportResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}import\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._import) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._import {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_CreateApplianceServiceImportResponse, rhs: Agentvmm_Appliance_V1_CreateApplianceServiceImportResponse) -> Bool {
+    if lhs._import != rhs._import {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CreateApplianceFrontendServiceImportResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}import\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._import) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._import {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportResponse, rhs: Agentvmm_Appliance_V1_CreateApplianceFrontendServiceImportResponse) -> Bool {
+    if lhs._import != rhs._import {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_RevokeApplianceServiceImportResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RevokeApplianceServiceImportResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_RevokeApplianceServiceImportResponse, rhs: Agentvmm_Appliance_V1_RevokeApplianceServiceImportResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_StageContentResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StageContentResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_StageContentResponse, rhs: Agentvmm_Appliance_V1_StageContentResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_StageArtifactResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StageArtifactResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_StageArtifactResponse, rhs: Agentvmm_Appliance_V1_StageArtifactResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_PlanInstallResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PlanInstallResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}plan\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._plan) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._plan {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_PlanInstallResponse, rhs: Agentvmm_Appliance_V1_PlanInstallResponse) -> Bool {
+    if lhs._plan != rhs._plan {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_InstallResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".InstallResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_InstallResponse, rhs: Agentvmm_Appliance_V1_InstallResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_PlanUpdateResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PlanUpdateResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}plan\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._plan) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._plan {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_PlanUpdateResponse, rhs: Agentvmm_Appliance_V1_PlanUpdateResponse) -> Bool {
+    if lhs._plan != rhs._plan {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_UpdateApplianceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".UpdateApplianceResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_UpdateApplianceResponse, rhs: Agentvmm_Appliance_V1_UpdateApplianceResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_RecoverApplianceUpdateResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RecoverApplianceUpdateResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_RecoverApplianceUpdateResponse, rhs: Agentvmm_Appliance_V1_RecoverApplianceUpdateResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_PlanActivationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PlanActivationResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}plan\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._plan) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._plan {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_PlanActivationResponse, rhs: Agentvmm_Appliance_V1_PlanActivationResponse) -> Bool {
+    if lhs._plan != rhs._plan {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_ActivateResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ActivateResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_ActivateResponse, rhs: Agentvmm_Appliance_V1_ActivateResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_GetApplianceStatusResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetApplianceStatusResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}status\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._status) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._status {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_GetApplianceStatusResponse, rhs: Agentvmm_Appliance_V1_GetApplianceStatusResponse) -> Bool {
+    if lhs._status != rhs._status {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_WatchApplianceOperationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".WatchApplianceOperationResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_WatchApplianceOperationResponse, rhs: Agentvmm_Appliance_V1_WatchApplianceOperationResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_StopApplianceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StopApplianceResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_StopApplianceResponse, rhs: Agentvmm_Appliance_V1_StopApplianceResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_RestartApplianceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RestartApplianceResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_RestartApplianceResponse, rhs: Agentvmm_Appliance_V1_RestartApplianceResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_RevokeApplianceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RevokeApplianceResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_RevokeApplianceResponse, rhs: Agentvmm_Appliance_V1_RevokeApplianceResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_PlanRemoveResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PlanRemoveResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}plan\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._plan) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._plan {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_PlanRemoveResponse, rhs: Agentvmm_Appliance_V1_PlanRemoveResponse) -> Bool {
+    if lhs._plan != rhs._plan {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_ExecuteRemoveResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ExecuteRemoveResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0\u{3}artifact_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.artifactID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._operation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.artifactID.isEmpty {
+      try visitor.visitSingularStringField(value: self.artifactID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_ExecuteRemoveResponse, rhs: Agentvmm_Appliance_V1_ExecuteRemoveResponse) -> Bool {
+    if lhs._operation != rhs._operation {return false}
+    if lhs.artifactID != rhs.artifactID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_BootstrapRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".BootstrapRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}launch_claim\0\u{1}envelope\0\u{3}close_write\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Agentvmm_Appliance_V1_ApplianceLaunchClaim?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .launchClaim(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .launchClaim(v)
+        }
+      }()
+      case 2: try {
+        var v: Agentvmm_Appliance_V1_OpaqueBootstrapEnvelope?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .envelope(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .envelope(v)
+        }
+      }()
+      case 3: try {
+        var v: Bool?
+        try decoder.decodeSingularBoolField(value: &v)
+        if let v = v {
+          if self.payload != nil {try decoder.handleConflictingOneOf()}
+          self.payload = .closeWrite(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.payload {
+    case .launchClaim?: try {
+      guard case .launchClaim(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .envelope?: try {
+      guard case .envelope(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case .closeWrite?: try {
+      guard case .closeWrite(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_BootstrapRequest, rhs: Agentvmm_Appliance_V1_BootstrapRequest) -> Bool {
+    if lhs.payload != rhs.payload {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Appliance_V1_BootstrapResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".BootstrapResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}receipt\0\u{1}health\0\u{3}close_write\0\u{3}managed_trust\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Agentvmm_Appliance_V1_BootstrapReceipt?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .receipt(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .receipt(v)
+        }
+      }()
+      case 2: try {
+        var v: Agentvmm_Appliance_V1_ApplianceHealth?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .health(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .health(v)
+        }
+      }()
+      case 3: try {
+        var v: Bool?
+        try decoder.decodeSingularBoolField(value: &v)
+        if let v = v {
+          if self.payload != nil {try decoder.handleConflictingOneOf()}
+          self.payload = .closeWrite(v)
+        }
+      }()
+      case 4: try {
+        var v: Agentvmm_Appliance_V1_ApplianceManagedTrustBundle?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .managedTrust(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .managedTrust(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.payload {
+    case .receipt?: try {
+      guard case .receipt(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .health?: try {
+      guard case .health(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case .closeWrite?: try {
+      guard case .closeWrite(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
+    }()
+    case .managedTrust?: try {
+      guard case .managedTrust(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Appliance_V1_BootstrapResponse, rhs: Agentvmm_Appliance_V1_BootstrapResponse) -> Bool {
+    if lhs.payload != rhs.payload {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

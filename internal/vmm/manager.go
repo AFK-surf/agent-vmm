@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"sync"
@@ -57,7 +57,7 @@ func reportStartProgress(ctx context.Context, stage, state string, err error) {
 		}
 	}
 	if data, marshalErr := json.Marshal(record); marshalErr == nil {
-		log.Printf("vmm_start=%s", data)
+		_, _ = fmt.Fprintf(os.Stderr, "vmm_start=%s\n", data)
 	}
 }
 
@@ -65,9 +65,9 @@ var physicalMemoryBytes = HostPhysicalMemoryBytes
 var processMemoryBytes = currentProcessMemoryBytes
 
 type Config struct {
+	Logger              *slog.Logger
 	BundleDirectory     string
 	InstanceDirectory   string
-	LegacyStatePath     string
 	CPUCount            uint
 	MemoryBytes         uint64
 	StateBytes          int64
@@ -76,6 +76,7 @@ type Config struct {
 }
 
 type Manager struct {
+	logger *slog.Logger
 	config Config
 	platformConfig
 
@@ -135,16 +136,11 @@ func NewManager(config Config) (*Manager, error) {
 			return nil, errors.New("missing VM path")
 		}
 	}
-	if config.LegacyStatePath != "" {
-		info, err := os.Lstat(config.LegacyStatePath)
-		if err != nil || !info.Mode().IsRegular() {
-			return nil, errors.New("legacy state disk must be an existing regular file")
-		}
-		if info.Size() != config.StateBytes {
-			return nil, errors.New("legacy and target state disk sizes must match")
-		}
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
-	return &Manager{config: config, state: hostv1.VMState_VM_STATE_STOPPED}, nil
+	return &Manager{logger: logger.With("component", "vmm"), config: config, state: hostv1.VMState_VM_STATE_STOPPED}, nil
 }
 
 func (manager *Manager) Snapshot() *hostv1.VM {

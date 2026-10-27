@@ -9,27 +9,27 @@ import (
 	"sync/atomic"
 	"time"
 
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
+	"google.golang.org/protobuf/proto"
 )
 
 type referenceAllocation struct {
 	id        string
 	label     string
-	resources *hostv1.WorkloadResourcesV2
+	resources *remotev1.ResourceLimits
 }
 
 func referenceAllocations() []referenceAllocation {
 	return []referenceAllocation{
-		{id: "durable-service", label: "Reference durable service", resources: referenceResources(100, 128<<20, 64, 256<<20)},
-		{id: "ephemeral-task", label: "Reference ephemeral task", resources: referenceResources(100, 128<<20, 64, 256<<20)},
+		{id: "durable-service", label: "Reference durable service", resources: referenceResources(512, 256<<20)},
+		{id: "ephemeral-task", label: "Reference ephemeral task", resources: referenceResources(64, 256<<20)},
 	}
 }
 
-func referenceResources(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.WorkloadResourcesV2 {
-	return &hostv1.WorkloadResourcesV2{CpuMaxMillis: cpu,
-		MemoryMaxBytes: memory, PidMax: pids, WritableQuotaBytes: disk}
+func referenceResources(pids uint32, disk uint64) *remotev1.ResourceLimits {
+	return &remotev1.ResourceLimits{
+		Pids: proto.Uint32(pids), DiskBytes: proto.Uint64(disk)}
 }
 
 type referenceCommandCursor struct {
@@ -46,8 +46,8 @@ func reconcileReferenceAllocations(ctx context.Context, cursor *referenceCommand
 	allocations := make(map[string]*remotev1.Allocation, len(referenceAllocations()))
 	for _, desired := range referenceAllocations() {
 		result, err := dispatchReferenceCommand(ctx, cursor, "ensure-"+desired.id, &remotev1.ControllerCommand{TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{
-			AllocationId: desired.id, Generation: 1, DisplayLabel: desired.label, ResourcesV2: desired.resources,
-			EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision(),
+			AllocationId: desired.id, Generation: 1, DisplayLabel: desired.label, Limits: desired.resources,
+			EgressMode: remotev1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision(),
 		}}})
 		if err != nil {
 			return nil, err

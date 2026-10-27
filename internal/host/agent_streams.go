@@ -5,12 +5,13 @@ package host
 import (
 	"context"
 	"io"
-	"log"
+	"log/slog"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -28,7 +29,7 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 		return status.Error(codes.InvalidArgument, "first exec event must be start")
 	}
 	start := first.GetStart()
-	right, err := server.controller.acquireStreamExecution(
+	right, err := server.controller.workloads.AcquireStreamExecution(stream.Context(),
 		identity,
 		start.GetContainerId(),
 		start.GetExpectedInstanceId(),
@@ -43,7 +44,7 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 	guestContext := context.WithoutCancel(stream.Context())
 	guest, connection, err := server.guestExec(guestContext)
 	if err != nil {
-		server.controller.releaseStreamExecution(right)
+		server.controller.workloads.ReleaseStreamExecution(right)
 		return err
 	}
 	if err := guest.Send(execRequestToGuest(first, identity.NamespaceID)); err != nil {
@@ -89,16 +90,16 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 		for {
 			response, err := guest.Recv()
 			if err == io.EOF {
-				log.Printf("Guest exec observation ended without terminal evidence: session=%s allocation=%s execution=%s", identity.SessionID, identity.AllocationID, start.GetExecutionId())
+				slog.Warn("Guest exec observation ended without terminal evidence", "session_id", identity.SessionID, "allocation_id", identity.AllocationID, "execution", start.GetExecutionId())
 				if controllerAttached {
-					finished <- streamReceiveResult(receiveError)
+					finished <- guestconn.StreamReceiveResult(receiveError)
 				} else {
 					finished <- nil
 				}
 				return
 			}
 			if err != nil {
-				log.Printf("Guest exec observation failed: session=%s allocation=%s execution=%s error=%v details=%v", identity.SessionID, identity.AllocationID, start.GetExecutionId(), err, status.Convert(err).Details())
+				slog.Warn("Guest exec observation failed", "session_id", identity.SessionID, "allocation_id", identity.AllocationID, "execution", start.GetExecutionId(), "error", err)
 				finished <- err
 				return
 			}
@@ -108,7 +109,7 @@ func (server *agentServer) Exec(stream hostv1.AgentRuntimeService_ExecServer) er
 				}
 			}
 			if _, terminal := response.GetEvent().(*vmmdv1.ExecResponse_ExitCode); terminal {
-				server.controller.releaseStreamExecution(right)
+				server.controller.workloads.ReleaseStreamExecution(right)
 				finished <- nil
 				return
 			}
@@ -147,16 +148,17 @@ func (server *agentServer) guestExec(ctx context.Context) (vmmdv1.VMMDService_Ex
 	if server.openGuestExec != nil {
 		return server.openGuestExec(ctx)
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, nil, err
 	}
-	guest, err := client.Exec(ctx)
+	streamContext, cancel := context.WithCancel(ctx)
+	guest, err := client.Exec(streamContext)
 	if err != nil {
-		connection.Close()
+		cancel()
 		return nil, nil, err
 	}
-	return guest, connection, nil
+	return guest, cancelGuestStream(cancel), nil
 }
 
 func execResponseFromGuest(response *vmmdv1.ExecResponse) *hostv1.ExecResponse {
@@ -177,11 +179,10 @@ func (server *agentServer) ForwardTCP(stream hostv1.AgentRuntimeService_ForwardT
 	if err != nil {
 		return err
 	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
 	guest, err := client.ForwardTCP(stream.Context())
 	if err != nil {
 		return err
@@ -216,7 +217,7 @@ func (server *agentServer) ForwardTCP(stream hostv1.AgentRuntimeService_ForwardT
 	for {
 		response, err := guest.Recv()
 		if err == io.EOF {
-			return streamReceiveResult(receiveError)
+			return guestconn.StreamReceiveResult(receiveError)
 		}
 		if err != nil {
 			return err
@@ -247,7 +248,27 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 	if header == nil {
 		return status.Error(codes.InvalidArgument, "first build event must be header")
 	}
-	right, err := server.controller.acquireStreamExecution(
+	fingerprint, err := buildInputSHA256(header)
+	if err != nil {
+		return err
+	}
+	key, _ := imageOperationStoreKey(identity, hostv1.ImageOperationKind_IMAGE_OPERATION_KIND_BUILD, header.RequestId)
+	releaseImage, err := server.controller.workloads.RLockImageOperation(stream.Context(), key)
+	if err != nil {
+		return err
+	}
+	defer releaseImage()
+	cached, err := server.cachedImageOperation(stream.Context(), identity, hostv1.ImageOperationKind_IMAGE_OPERATION_KIND_BUILD, header.RequestId)
+	if err != nil {
+		return err
+	}
+	if cached != nil {
+		if cached.InputSha256 != fingerprint || cached.State != hostv1.ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED {
+			return status.Error(codes.Aborted, "build request differs from accepted input or is already terminal")
+		}
+		return stream.Send(&hostv1.BuildImageResponse{Event: &hostv1.BuildImageResponse_Result{Result: &hostv1.BuildImageResult{Image: cached.ImageReference, Digest: cached.ManifestDigest}}})
+	}
+	right, err := server.controller.workloads.AcquireStreamExecution(stream.Context(),
 		identity,
 		header.GetContainerId(),
 		header.GetExpectedInstanceId(),
@@ -264,7 +285,7 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 	defer stopRevocation()
 	guest, connection, err := server.guestBuild(guestContext)
 	if err != nil {
-		server.controller.releaseStreamExecution(right)
+		server.controller.workloads.ReleaseStreamExecution(right)
 		return err
 	}
 	defer connection.Close()
@@ -296,7 +317,7 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 		response, err := guest.Recv()
 		if err == io.EOF {
 			if controllerAttached {
-				return streamReceiveResult(receiveError)
+				return guestconn.StreamReceiveResult(receiveError)
 			}
 			return nil
 		}
@@ -317,7 +338,7 @@ func (server *agentServer) BuildImage(stream hostv1.AgentRuntimeService_BuildIma
 			}
 		}
 		if response.GetResult() != nil {
-			server.controller.releaseStreamExecution(right)
+			server.controller.workloads.ReleaseStreamExecution(right)
 			right = nil
 		}
 	}
@@ -327,16 +348,17 @@ func (server *agentServer) guestBuild(ctx context.Context) (vmmdv1.VMMDService_B
 	if server.openGuestBuild != nil {
 		return server.openGuestBuild(ctx)
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, nil, err
 	}
-	guest, err := client.BuildImage(ctx)
+	streamContext, cancel := context.WithCancel(ctx)
+	guest, err := client.BuildImage(streamContext)
 	if err != nil {
-		connection.Close()
+		cancel()
 		return nil, nil, err
 	}
-	return guest, connection, nil
+	return guest, cancelGuestStream(cancel), nil
 }
 
 func buildRequestToGuest(request *hostv1.BuildImageRequest, identity auth.Identity) *vmmdv1.BuildImageRequest {
@@ -360,11 +382,6 @@ func buildRequestToGuest(request *hostv1.BuildImageRequest, identity auth.Identi
 	return result
 }
 
-func streamReceiveResult(channel <-chan error) error {
-	select {
-	case err := <-channel:
-		return err
-	default:
-		return nil
-	}
-}
+type cancelGuestStream context.CancelFunc
+
+func (cancel cancelGuestStream) Close() error { cancel(); return nil }

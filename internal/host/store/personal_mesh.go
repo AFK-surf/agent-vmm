@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
+
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/protobuf/proto"
-	"time"
 )
 
 func (store *Store) CreatePersonalMesh(ctx context.Context, descriptor *trustv1.PersonalMeshDescriptor, snapshot *trustv1.MeshSnapshot, operation *trustv1.RegistryOperation) error {

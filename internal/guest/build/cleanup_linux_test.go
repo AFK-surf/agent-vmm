@@ -5,11 +5,11 @@ package build
 import (
 	"context"
 	"errors"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/core/images"

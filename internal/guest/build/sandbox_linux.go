@@ -6,9 +6,8 @@ import (
 	"context"
 	"path/filepath"
 
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
-
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/oci"

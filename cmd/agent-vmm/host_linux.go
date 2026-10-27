@@ -1,8 +1,12 @@
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
+	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/AFK-surf/agent-vmm/internal/hostapp"
 	"github.com/AFK-surf/agent-vmm/internal/lifecycle"
@@ -20,12 +24,20 @@ func runPlatformMode() bool {
 	switch os.Args[1] {
 	case "__vmm":
 		if err := vmmprocess.RunChild(); err != nil {
-			log.Fatal(err)
+			slog.Error("VMM stopped", "error", err)
+			os.Exit(1)
 		}
 		return true
 	case "host":
 		os.Args = append(os.Args[:1], os.Args[2:]...)
-		hostapp.Run(guestManifestDigest)
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+		if err := hostapp.Run(ctx, guestManifestDigest); err != nil {
+			slog.Error("Host stopped", "error", err)
+			if !errors.Is(err, hostapp.ErrSchemaRejected) {
+				os.Exit(1)
+			}
+		}
 		return true
 	case "lifecycle":
 		os.Args = append(os.Args[:1], os.Args[2:]...)

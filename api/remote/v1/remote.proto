@@ -2,101 +2,86 @@ syntax = "proto3";
 
 package agentvmm.remote.v1;
 
-import "host/v1/host.proto";
 import "trust/v1/trust.proto";
 
 option go_package = "github.com/AFK-surf/agent-vmm/api/remote/v1;remotev1";
 
+// RemoteControllerService is the provider-neutral controller endpoint for registration, command
+// delivery, and runtime tunnels.
 service RemoteControllerService {
+  // Enroll exchanges one registration's enrollment token for its bearer credential and managed
+  // trust bundle.
   rpc Enroll(EnrollRequest) returns (EnrollResponse);
-  rpc Connect(stream HostControlMessage) returns (stream ControllerControlMessage);
-  rpc ServeSession(stream HostSessionFrame) returns (stream ControllerSessionFrame);
-  rpc ServeFrontend(stream agentvmm.host.v1.HostFrontendFrame) returns (stream agentvmm.host.v1.ControllerFrontendFrame);
+  // Connect exchanges current inventory, command authority, ordered commands, and terminal
+  // delivery evidence.
+  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+  // ServeSession carries a current allocation's framed runtime connection under its issued session
+  // identity.
+  rpc ServeSession(stream ServeSessionRequest) returns (stream ServeSessionResponse);
 }
 
+// EnrollRequest binds a one-time enrollment token to the registration and public device
+// identity.
 message EnrollRequest {
   string protocol_version = 1;
   string registration_id = 2;
   bytes enrollment_token = 3;
-  string endpoint_identity = 4;
-  string connector_release = 5;
-  repeated string supported_features = 6;
-  repeated string required_features = 7;
   agentvmm.trust.v1.DeviceIdentity device_identity = 8;
 }
 
+// EnrollResponse returns the consumed token's bearer credential and managed trust bundle.
 message EnrollResponse {
-  string protocol_version = 1;
   string registration_id = 2;
   string controller_display_name = 3;
   bytes credential = 4;
-  repeated string enabled_features = 5;
   agentvmm.trust.v1.TrustAnchor trust_anchor = 6;
   agentvmm.trust.v1.MembershipCredential membership_credential = 7;
 }
 
-message HostControlMessage {
-  oneof payload {
-    HostHello hello = 1;
-    CommandResult result = 2;
-    HostEvent event = 3;
-    CommandAck ack = 4;
-    CommandEvidence evidence = 5;
-    EndpointObservationRenewal endpoint_observation_renewal = 6;
-    agentvmm.host.v1.HostLoopbackFrontendEvent frontend_event = 7;
-    RemoteObservationRenewal observation_renewal = 8;
-  }
-}
-
+// EndpointObservationRenewal updates reachability under the current controller connection epoch.
 message EndpointObservationRenewal {
   uint64 connection_epoch = 1;
   agentvmm.trust.v1.EndpointObservation endpoint_observation = 2;
 }
 
+// RemoteObservationRenewal updates a sampled Host observation without changing command authority.
 message RemoteObservationRenewal {
   uint64 connection_epoch = 1;
   RemoteObservationSnapshot observation = 2;
 }
 
+// HostHello offers current registration inventory, connection epoch, capacity, features, and
+// observation watermark.
 message HostHello {
   string protocol_version = 1;
-  string host_api_version = 2;
   string connector_release = 3;
   string registration_id = 4;
   string connection_instance = 5;
   uint64 pool_revision = 6;
   Capacity capacity = 7;
   repeated Allocation inventory = 8;
-  HostHealth health = 9;
   uint64 connection_epoch = 10;
   uint64 inventory_watermark = 11;
-  uint64 acknowledged_controller_sequence = 12;
   repeated string supported_features = 13;
-  repeated string required_features = 14;
   agentvmm.trust.v1.EndpointObservation endpoint_observation = 15;
-  agentvmm.host.v1.HostLoopbackFrontendCapacity host_loopback_frontend = 16;
   RemoteObservationSnapshot observation = 17;
 }
 
+// RemoteObservationSnapshot reports bounded current health, usage, and inventory freshness rather
+// than stored-workload reservations.
 message RemoteObservationSnapshot {
-  agentvmm.host.v1.WorkloadReclaimCandidate reclaim_candidate = 14;
-  reserved 13;
-  reserved "workload_start_available";
+  WorkloadReclaimCandidate reclaim_candidate = 14;
   uint64 sequence = 1;
   int64 observed_unix_millis = 2;
-  string protocol_version = 3;
-  string host_api_version = 4;
-  string connector_release = 5;
-  repeated string supported_features = 6;
   Capacity capacity = 7;
   RemoteObservationHealth health = 8;
   RemoteObservationUsage usage = 9;
   uint64 inventory_watermark = 10;
-  reserved 11;
-  reserved "inventory_count";
   int64 inventory_observed_unix_millis = 12;
 }
 
+// RemoteObservationHealth reports the connector-visible health projection without granting
+// lifecycle authority.
 message RemoteObservationHealth {
   string status = 1;
   string issue = 2;
@@ -104,11 +89,14 @@ message RemoteObservationHealth {
   repeated RemoteObservationComponent components = 4;
 }
 
+// RemoteObservationComponent names one observed component and its current health classification.
 message RemoteObservationComponent {
   string component = 1;
   string status = 2;
 }
 
+// RemoteObservationUsage reports sampled active-workload usage and explicit stale or unavailable
+// state.
 message RemoteObservationUsage {
   uint64 cpu_nanos = 1;
   uint64 memory_bytes = 2;
@@ -123,41 +111,27 @@ message RemoteObservationUsage {
   string issue = 11;
 }
 
+// Capacity bounds one environment request and maximum egress policy without an aggregate
+// reservation ledger.
 message Capacity {
-  reserved 1, 2, 5, 6;
-  reserved "max_environments", "aggregate_limits", "max_lease_seconds", "disconnect_grace_seconds";
-  agentvmm.host.v1.ResourceLimits per_environment_limits = 3;
-  agentvmm.host.v1.EgressMode max_egress_mode = 4;
+  ResourceLimits per_environment_limits = 3;
+  EgressMode max_egress_mode = 4;
 }
 
+// Allocation identifies a durable controller-owned environment and its generation, revision,
+// policy, and state.
 message Allocation {
-  reserved 7;
-  reserved "lease";
   string allocation_id = 1;
   string display_label = 2;
-  agentvmm.host.v1.ResourceLimits limits = 3;
-  agentvmm.host.v1.EgressMode egress_mode = 4;
+  ResourceLimits limits = 3;
+  EgressMode egress_mode = 4;
   uint64 revision = 5;
-  agentvmm.host.v1.AllocationState state = 6;
+  AllocationState state = 6;
   uint64 generation = 8;
-  agentvmm.host.v1.WorkloadResourcesV2 resources_v2 = 9;
 }
 
-message HostHealth {
-  bool runtime_ready = 1;
-  bool network_ready = 2;
-  string status = 3;
-}
-
-message ControllerControlMessage {
-  oneof payload {
-    ControllerCommand command = 1;
-    RotateCredential rotate_credential = 2;
-    RevokeCredential revoke_credential = 3;
-    ControllerReady controller_ready = 4;
-  }
-}
-
+// ControllerReady acknowledges the exact Hello epoch and inventory watermark before command
+// admission.
 message ControllerReady {
   string registration_id = 1;
   uint64 connection_epoch = 2;
@@ -165,16 +139,13 @@ message ControllerReady {
   repeated string enabled_features = 4;
 }
 
+// ControllerCommand binds one ordered command to its epoch, relative timeout, and target revision.
 message ControllerCommand {
-  reserved 14, 15, 16;
-  reserved "lease_generation", "acquire_lease", "renew_lease", "release_lease";
   string command_id = 1;
   uint64 sequence = 2;
   uint64 connection_epoch = 3;
-  int64 deadline_unix_millis = 4;
+  uint64 timeout_millis = 8;
   uint64 target_revision = 5;
-  uint64 target_generation = 6;
-  uint64 acknowledged_host_sequence = 7;
   oneof command {
     EnsureAllocation ensure_allocation = 10;
     ReleaseAllocation release_allocation = 11;
@@ -183,76 +154,61 @@ message ControllerCommand {
     ExecuteCleanupAllocation execute_cleanup_allocation = 13;
     DrainRegistration drain_registration = 17;
     OpenSession open_session = 18;
-    AcquireHostLoopbackFrontend acquire_host_loopback_frontend = 19;
-    RenewHostLoopbackFrontend renew_host_loopback_frontend = 20;
-    ReleaseHostLoopbackFrontend release_host_loopback_frontend = 21;
   }
 }
 
-message AcquireHostLoopbackFrontend {
-  reserved 2;
-  reserved "allocation_lease_id";
-  string allocation_id = 1;
-  uint64 allocation_generation = 3;
-  string assignment_id = 4;
-  uint32 duration_seconds = 5;
-}
-message RenewHostLoopbackFrontend {
-  reserved 3, 4;
-  reserved "allocation_lease_id", "allocation_lease_generation";
-  string frontend_lease_id = 1;
-  uint64 generation = 2;
-  uint32 duration_seconds = 5;
-}
-message ReleaseHostLoopbackFrontend {
-  string frontend_lease_id = 1;
-  uint64 generation = 2;
-}
-
+// EnsureAllocation requests idempotent allocation identity with an exact policy contract and
+// generation.
 message EnsureAllocation {
   string allocation_id = 1;
   string display_label = 2;
-  agentvmm.host.v1.ResourceLimits limits = 3;
-  agentvmm.host.v1.EgressMode egress_mode = 4;
+  ResourceLimits limits = 3;
+  EgressMode egress_mode = 4;
   uint64 policy_revision = 5;
   uint64 generation = 6;
-  agentvmm.host.v1.WorkloadResourcesV2 resources_v2 = 7;
 }
+// ReleaseAllocation retires the exact current allocation authority while preserving retained
+// private data.
 message ReleaseAllocation {
   string allocation_id = 1;
   uint64 expected_revision = 2;
   uint64 expected_generation = 3;
 }
+// DisposeAllocation requests disposal of an exact allocation under stable request and generation
+// fences.
 message DisposeAllocation {
   string allocation_id = 1;
   uint64 expected_revision = 2;
   uint64 expected_generation = 3;
   string request_id = 4;
 }
+// PlanCleanupAllocation reads reset or discard impacts without revoking an allocation's current
+// authority.
 message PlanCleanupAllocation {
   string allocation_id = 1;
-  agentvmm.host.v1.CleanupKind kind = 2;
+  CleanupKind kind = 2;
 }
+// ExecuteCleanupAllocation confirms a current cleanup revision and exact volume set before
+// deletion.
 message ExecuteCleanupAllocation {
-  reserved 5, 6;
-  reserved "expected_lease_id", "expected_lease_generation";
   string allocation_id = 1;
   uint64 plan_revision = 2;
   repeated string confirmed_volume_ids = 3;
-  agentvmm.host.v1.CleanupKind kind = 4;
+  CleanupKind kind = 4;
 }
+// DrainRegistration closes new allocation admission while preserving existing allocations and
+// sessions.
 message DrainRegistration {}
+// OpenSession requests replacement runtime authority for the current allocation generation.
 message OpenSession {
-  reserved 2;
-  reserved "lease_id";
   string allocation_id = 1;
   uint64 allocation_generation = 3;
   string execution_owner_id = 4;
 }
 
+// CommandResult reports the command's terminal outcome with its original sequence, epoch, and
+// accepted resource facts.
 message CommandResult {
-  reserved 6;
-  reserved "lease";
   string command_id = 1;
   CommandOutcome outcome = 2;
   ErrorReason reason = 3;
@@ -261,7 +217,6 @@ message CommandResult {
     Allocation allocation = 5;
     CleanupPlan cleanup_plan = 7;
     SessionReady session_ready = 8;
-    agentvmm.host.v1.HostLoopbackFrontendLease host_loopback_frontend_lease = 12;
   }
   uint64 sequence = 9;
   uint64 connection_epoch = 10;
@@ -271,16 +226,10 @@ message CommandResult {
 
 enum CapacityDimension {
   CAPACITY_DIMENSION_UNSPECIFIED = 0;
-  reserved 1;
-  reserved "CAPACITY_DIMENSION_CPU_GUARANTEE";
-  CAPACITY_DIMENSION_CPU_MAX = 2;
-  CAPACITY_DIMENSION_MEMORY = 3;
   CAPACITY_DIMENSION_PIDS = 4;
   CAPACITY_DIMENSION_WRITABLE = 5;
   CAPACITY_DIMENSION_STORAGE_HEADROOM = 6;
   CAPACITY_DIMENSION_IMPORT_SLOT = 7;
-  reserved 8, 9;
-  reserved "CAPACITY_DIMENSION_RUN_SLOT", "CAPACITY_DIMENSION_MEMORY_PRESSURE";
 }
 
 enum CommandAckDisposition {
@@ -290,6 +239,7 @@ enum CommandAckDisposition {
   COMMAND_ACK_DISPOSITION_DUPLICATE = 3;
 }
 
+// CommandAck acknowledges command admission separately from execution or terminal success.
 message CommandAck {
   string command_id = 1;
   uint64 sequence = 2;
@@ -305,6 +255,7 @@ enum ExecutionStage {
   EXECUTION_STAGE_FINISHED = 2;
 }
 
+// CommandEvidence reports command execution progress without replacing its final outcome.
 message CommandEvidence {
   string command_id = 1;
   uint64 sequence = 2;
@@ -321,8 +272,6 @@ enum CommandOutcome {
 }
 
 enum ErrorReason {
-  reserved 8, 9;
-  reserved "ERROR_REASON_LEASE_CONFLICT", "ERROR_REASON_LEASE_REVOKED";
   ERROR_REASON_UNSPECIFIED = 0;
   ERROR_REASON_INVALID_ARGUMENT = 1;
   ERROR_REASON_UNAUTHENTICATED = 2;
@@ -342,56 +291,119 @@ enum ErrorReason {
   ERROR_REASON_ADMISSION_PAUSED = 18;
 }
 
+// CleanupPlan binds remote cleanup impacts to the current allocation generation and plan revision.
 message CleanupPlan {
   string allocation_id = 1;
   uint64 revision = 2;
   repeated string volume_ids = 3;
-  agentvmm.host.v1.CleanupKind kind = 4;
-  repeated agentvmm.host.v1.CleanupImpact impacts = 5;
+  CleanupKind kind = 4;
+  repeated CleanupImpact impacts = 5;
   uint64 allocation_generation = 6;
 }
+// SessionReady issues the current runtime tunnel identity after previous session revocation
+// succeeds.
 message SessionReady {
-  reserved 2;
-  reserved "lease_id";
   string allocation_id = 1;
   uint64 allocation_generation = 3;
   string tunnel_nonce = 4;
   int64 expires_unix_millis = 5;
 }
-message HostEvent {
-  reserved 3;
-  reserved "lease_id";
-  string kind = 1;
-  string allocation_id = 2;
-  string status = 4;
-  uint64 sequence = 5;
-  uint64 connection_epoch = 6;
-  uint64 inventory_watermark = 7;
-}
-message RotateCredential { bytes credential = 1; }
-message RevokeCredential { string reason = 1; }
 
+// SessionHeader binds a tunnel to its current registration, allocation, session, and connection
+// authority.
 message SessionHeader {
-  reserved 4;
-  reserved "lease_id";
-  string protocol_version = 1;
   string registration_id = 2;
   string allocation_id = 3;
   uint64 allocation_generation = 5;
   string tunnel_nonce = 6;
-  uint32 frame_bytes = 7;
-  uint32 max_in_flight_bytes = 8;
   uint64 connection_epoch = 9;
   int64 expires_unix_millis = 10;
 }
-message HostSessionFrame {
+
+// ResourceLimits contains remote PID and disk limits independent of the Host protobuf types.
+message ResourceLimits {
+  optional uint32 pids = 3;
+  optional uint64 disk_bytes = 4;
+}
+
+enum EgressMode {
+  EGRESS_MODE_UNSPECIFIED = 0;
+  EGRESS_MODE_DENY_ALL = 1;
+  EGRESS_MODE_PUBLIC_INTERNET = 2;
+}
+
+enum AllocationState {
+  ALLOCATION_STATE_UNSPECIFIED = 0;
+  ALLOCATION_STATE_READY = 1;
+  ALLOCATION_STATE_DRAINING = 3;
+  ALLOCATION_STATE_RETAINED = 4;
+  ALLOCATION_STATE_DISCARDED = 5;
+}
+
+enum CleanupKind {
+  CLEANUP_KIND_UNSPECIFIED = 0;
+  CLEANUP_KIND_RESET = 1;
+  CLEANUP_KIND_DISCARD = 2;
+}
+
+// CleanupImpact describes one remote-visible cleanup effect without exposing Host environment
+// identifiers.
+message CleanupImpact {
+  ResourceReference resource = 1;
+  string effect = 2;
+  bool irreversible = 3;
+  bool blocker = 4;
+}
+
+// WorkloadReclaimCandidate identifies a bounded reclaim suggestion without authorizing deletion.
+message WorkloadReclaimCandidate {
+  string registration_id = 1;
+  string allocation_id = 2;
+  string container_id = 3;
+  string container_instance_id = 4;
+  int64 expires_unix_millis = 5;
+}
+
+// ResourceReference identifies only the kind and resource ID forwarded to the remote controller.
+message ResourceReference {
+  string kind = 1;
+  string resource_id = 3;
+}
+
+// ConnectRequest carries Host handshake, observations, and command evidence for the
+// authenticated registration connection.
+message ConnectRequest {
+  oneof payload {
+    HostHello hello = 1;
+    CommandResult result = 2;
+    CommandAck ack = 4;
+    CommandEvidence evidence = 5;
+    EndpointObservationRenewal endpoint_observation_renewal = 6;
+    RemoteObservationRenewal observation_renewal = 8;
+  }
+}
+
+// ConnectResponse carries controller handshake, ordered commands, and current connection control
+// frames.
+message ConnectResponse {
+  oneof payload {
+    ControllerCommand command = 1;
+    ControllerReady controller_ready = 4;
+  }
+}
+
+// ServeSessionRequest carries the exact session header before bounded runtime tunnel frames.
+message ServeSessionRequest {
   oneof payload {
     SessionHeader header = 1;
     bytes data = 2;
     bool close_write = 3;
   }
 }
-message ControllerSessionFrame {
+
+// ServeSessionResponse carries framed runtime tunnel responses under the established session
+// authority.
+message ServeSessionResponse {
   oneof payload {
     bytes data = 1;
     bool close_write = 2;

@@ -9,13 +9,13 @@ import (
 
 func TestExtractServiceRequestLeavesLifecycleArguments(t *testing.T) {
 	request, remaining, err := extractServiceRequest([]string{
-		"--operation-stdin", "--service-user", "bftvmm", "--request-id", "operation", "--service-type", "daemon",
-		"--service-app", "/Users/bftvmm/Agent VMM Host.app",
+		"--operation-stdin", "--service-user", "vmmuser", "--request-id", "operation", "--service-type", "daemon",
+		"--service-app", "/Users/vmmuser/Agent VMM Host.app",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if request.mode != serviceModeDaemon || request.user != "bftvmm" || request.app != "/Users/bftvmm/Agent VMM Host.app" {
+	if request.mode != serviceModeDaemon || request.user != "vmmuser" || request.app != "/Users/vmmuser/Agent VMM Host.app" {
 		t.Fatalf("request=%+v", request)
 	}
 	if want := []string{"--operation-stdin", "--request-id", "operation"}; !reflect.DeepEqual(remaining, want) {

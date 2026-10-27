@@ -4,21 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"net"
-	"os"
 	"time"
 
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const maxTrustCapabilityBytes = 256
-
-func probeTrust(ctx context.Context, socketPath, capabilityPath string) error {
-	client, requestContext, closeClient, err := trustClient(ctx, socketPath, capabilityPath)
+func probeTrust(ctx context.Context, socketPath string) error {
+	client, requestContext, closeClient, err := trustClient(ctx, socketPath)
 	if err != nil {
 		return err
 	}
@@ -33,8 +30,8 @@ func probeTrust(ctx context.Context, socketPath, capabilityPath string) error {
 	return nil
 }
 
-func enrollmentIdentity(ctx context.Context, socketPath, capabilityPath string) (*trustv1.DeviceIdentity, error) {
-	client, requestContext, closeClient, err := trustClient(ctx, socketPath, capabilityPath)
+func enrollmentIdentity(ctx context.Context, socketPath string) (*trustv1.DeviceIdentity, error) {
+	client, requestContext, closeClient, err := trustClient(ctx, socketPath)
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +43,11 @@ func enrollmentIdentity(ctx context.Context, socketPath, capabilityPath string) 
 	return identity, nil
 }
 
-func installManagedTrust(ctx context.Context, socketPath, capabilityPath string, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
+func installManagedTrust(ctx context.Context, socketPath string, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
 	if anchor == nil || credential == nil {
 		return errors.New("controller managed trust bundle is incomplete")
 	}
-	client, requestContext, closeClient, err := trustClient(ctx, socketPath, capabilityPath)
+	client, requestContext, closeClient, err := trustClient(ctx, socketPath)
 	if err != nil {
 		return err
 	}
@@ -59,11 +56,11 @@ func installManagedTrust(ctx context.Context, socketPath, capabilityPath string,
 	return err
 }
 
-func signEndpointObservation(ctx context.Context, socketPath, capabilityPath, endpointID string, generation uint64) (*trustv1.EndpointObservation, error) {
+func signEndpointObservation(ctx context.Context, socketPath, endpointID string, generation uint64) (*trustv1.EndpointObservation, error) {
 	if endpointID == "" || generation == 0 {
 		return nil, errors.New("complete data endpoint identity is required")
 	}
-	client, requestContext, closeClient, err := trustClient(ctx, socketPath, capabilityPath)
+	client, requestContext, closeClient, err := trustClient(ctx, socketPath)
 	if err != nil {
 		return nil, err
 	}
@@ -79,18 +76,11 @@ func signEndpointObservation(ctx context.Context, socketPath, capabilityPath, en
 	}})
 }
 
-func trustClient(ctx context.Context, socketPath, capabilityPath string) (trustv1.TrustServiceClient, context.Context, func(), error) {
-	return trustClientWithTimeout(ctx, socketPath, capabilityPath, 5*time.Second)
+func trustClient(ctx context.Context, socketPath string) (connectorv1.TrustServiceClient, context.Context, func(), error) {
+	return trustClientWithTimeout(ctx, socketPath, 5*time.Second)
 }
 
-func trustClientWithTimeout(ctx context.Context, socketPath, capabilityPath string, timeout time.Duration) (trustv1.TrustServiceClient, context.Context, func(), error) {
-	capability, err := os.ReadFile(capabilityPath)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if len(capability) < 32 || len(capability) > maxTrustCapabilityBytes {
-		return nil, nil, nil, errors.New("connector trust capability is invalid")
-	}
+func trustClientWithTimeout(ctx context.Context, socketPath string, timeout time.Duration) (connectorv1.TrustServiceClient, context.Context, func(), error) {
 	dialer := func(ctx context.Context, _ string) (net.Conn, error) {
 		var dialer net.Dialer
 		return dialer.DialContext(ctx, "unix", socketPath)
@@ -100,7 +90,6 @@ func trustClientWithTimeout(ctx context.Context, socketPath, capabilityPath stri
 		return nil, nil, nil, err
 	}
 	requestContext, cancel := context.WithTimeout(ctx, timeout)
-	requestContext = metadata.NewOutgoingContext(requestContext, metadata.Pairs("authorization", string(capability)))
 	closeClient := func() { cancel(); _ = connection.Close() }
-	return trustv1.NewTrustServiceClient(connection), requestContext, closeClient, nil
+	return connectorv1.NewTrustServiceClient(connection), requestContext, closeClient, nil
 }

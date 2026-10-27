@@ -3,6 +3,7 @@ package remoteconnector
 import (
 	"context"
 	"errors"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"strings"
 	"testing"
 	"time"
@@ -13,22 +14,22 @@ import (
 )
 
 type observationClientStub struct {
-	state            *hostv1.GetRemoteStateResponse
+	state            *connectorv1.GetRemoteStateResponse
 	stateErr         error
 	observationCalls int
-	candidate        *hostv1.WorkloadReclaimCandidate
+	candidate        *connectorv1.WorkloadReclaimCandidate
 }
 
-func (client *observationClientStub) GetRemoteState(_ context.Context, request *hostv1.GetRemoteStateRequest, _ ...grpc.CallOption) (*hostv1.GetRemoteStateResponse, error) {
+func (client *observationClientStub) GetRemoteState(_ context.Context, request *connectorv1.GetRemoteStateRequest, _ ...grpc.CallOption) (*connectorv1.GetRemoteStateResponse, error) {
 	if !request.GetSummaryOnly() {
 		panic("periodic observation must not load stored allocations")
 	}
 	return client.state, client.stateErr
 }
 
-func (client *observationClientStub) GetRemoteObservation(context.Context, *hostv1.GetRemoteObservationRequest, ...grpc.CallOption) (*hostv1.GetRemoteObservationResponse, error) {
+func (client *observationClientStub) GetRemoteObservation(context.Context, *connectorv1.GetRemoteObservationRequest, ...grpc.CallOption) (*connectorv1.GetRemoteObservationResponse, error) {
 	client.observationCalls++
-	return &hostv1.GetRemoteObservationResponse{ObservedAt: timestamppb.Now(), ReclaimCandidate: client.candidate}, nil
+	return &connectorv1.GetRemoteObservationResponse{ObservedAt: timestamppb.Now(), ReclaimCandidate: client.candidate}, nil
 }
 
 func TestPublicObservationUsesFiniteHealthAndDropsNativeReasons(t *testing.T) {
@@ -55,7 +56,7 @@ func TestPublicObservationUsesFiniteHealthAndDropsNativeReasons(t *testing.T) {
 
 func TestCurrentObservationDoesNotRefreshCachedInventoryWhenStateReadFails(t *testing.T) {
 	client := &observationClientStub{
-		state: &hostv1.GetRemoteStateResponse{Registration: &hostv1.RemoteRegistration{
+		state: &connectorv1.GetRemoteStateResponse{Registration: &hostv1.RemoteRegistration{
 			Id: "registration", InventoryRevision: 41,
 		}},
 		stateErr: errors.New("state unavailable"),
@@ -72,7 +73,7 @@ func TestCurrentObservationDoesNotRefreshCachedInventoryWhenStateReadFails(t *te
 
 func TestObservationReclaimCandidateDoesNotCrossRegistration(t *testing.T) {
 	for _, owner := range []string{"registration-a", "registration-b"} {
-		client := &observationClientStub{candidate: &hostv1.WorkloadReclaimCandidate{RegistrationId: owner, AllocationId: "allocation", ContainerId: "worker", ContainerInstanceId: "instance", ExpiresUnixMillis: time.Now().Add(time.Second).UnixMilli()}}
+		client := &observationClientStub{candidate: &connectorv1.WorkloadReclaimCandidate{RegistrationId: owner, AllocationId: "allocation", ContainerId: "worker", ContainerInstanceId: "instance", ExpiresUnixMillis: time.Now().Add(time.Second).UnixMilli()}}
 		observation := collectObservation(context.Background(), client, &hostv1.RemoteRegistration{Id: "registration-a"}, 1)
 		if owner == "registration-a" {
 			if observation.GetReclaimCandidate().GetContainerInstanceId() != "instance" {

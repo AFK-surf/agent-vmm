@@ -8,20 +8,21 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
     aead::{Aead, KeyInit, Payload},
 };
+use getrandom::SysRng;
 use pakery_core::{
     SharedSecret,
     crypto::{CpaceGroup, Hash, Kdf},
 };
 use pakery_crypto::{HkdfSha256, P256Group, Sha256Hash, Spake2P256};
 use pakery_spake2::{PartyA, PartyAState, PartyB, PartyBState, Spake2Output};
-use rand_core::{OsRng, UnwrapErr};
+use rand_core::UnwrapErr;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 const APPLICATION_LABEL: &[u8] = b"agent-vmm/pairing";
-const PROTOCOL_VERSION: &[u8] = b"1";
-const SAS_LABEL: &[u8] = b"agent-vmm/pairing/1/sas";
-const RECORD_LABEL: &[u8] = b"agent-vmm/pairing/1/record";
+const PROTOCOL_VERSION: &[u8] = b"2";
+const SAS_LABEL: &[u8] = b"agent-vmm/pairing/2/sas";
+const RECORD_LABEL: &[u8] = b"agent-vmm/pairing/2/record";
 const MAX_CONTEXT_FIELD_BYTES: usize = 4096;
 pub const MAX_ENCRYPTED_RECORD_BYTES: usize = 64 * 1024;
 pub const MAX_PAIRING_RECORDS_PER_DIRECTION: u64 = 16;
@@ -297,7 +298,8 @@ fn derive_direction_key(
     ))
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PairingRole {
     Manager,
     Joiner,
@@ -407,7 +409,7 @@ pub fn begin_initiator(
 ) -> Result<(Vec<u8>, InitiatorState)> {
     let w = password_scalar(secret)?;
     let aad = context.aad()?;
-    let mut rng = UnwrapErr(OsRng);
+    let mut rng = UnwrapErr(SysRng);
     let (share, state) = PartyA::<Spake2P256>::start(
         &w,
         context.manager_identity,
@@ -432,7 +434,7 @@ pub fn begin_responder(
 ) -> Result<(Vec<u8>, ResponderState)> {
     let w = password_scalar(secret)?;
     let aad = context.aad()?;
-    let mut rng = UnwrapErr(OsRng);
+    let mut rng = UnwrapErr(SysRng);
     let (share, state) = PartyB::<Spake2P256>::start(
         &w,
         context.manager_identity,
@@ -523,7 +525,7 @@ mod tests {
         let digest = Sha256Hash::digest(&context(b"session-00000001", 7).aad().unwrap());
         assert_eq!(
             hex(&digest),
-            "7b9129ee42293b8037afcbd0442e03796d46909987bcbad116c741f66217a004"
+            "3663e40e3a7aa57bd787c90c1a5036e61dd711d4e01f01017e6d116d3b20c72e"
         );
     }
 
@@ -722,16 +724,16 @@ mod tests {
         );
         assert_eq!(
             hex(&mac_a),
-            "0dd1ef7bf8374534e4bd89db14d3c7159adc45ee72ca1ed5f1c4b22467105c77"
+            "bf096ab4c2352ab5f919a60aec2f4d7d5627a5cd53bb64e1ce52aa02bea7e2b5"
         );
         assert_eq!(
             hex(&mac_b),
-            "15a2c887959e9ebe1b7b540b906f09c246cdd846f2e14aafeed73ae39843dea4"
+            "9d29a239f8626fdd5f0b95128e2579bc650475af6c01a1195b83fe3ac0a3df6e"
         );
         assert_eq!(
             hex(confirmed_a.key_bytes()),
             "6aaf6dd7812528c67dddf99e259e8c2c"
         );
-        assert_eq!(confirmed_a.sas(ctx.session_id).unwrap(), "108203");
+        assert_eq!(confirmed_a.sas(ctx.session_id).unwrap(), "298184");
     }
 }

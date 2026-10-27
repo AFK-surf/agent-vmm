@@ -185,7 +185,9 @@ ExitHost ==
                   admissionEpoch, commitEpoch, guestQuiesced, vzTerminal,
                   diskReleased>>
 
-Next == StartHost \/ ResumeSuccess \/ ResumeFailure \/ OpenSession \/
+Terminated == ~hostRunning /\ diskReleased /\ (shutdownRequested \/ (EnforceInstalledStateGuard /\ (~installedState \/ initializingState))) /\ UNCHANGED vars
+
+Next == Terminated \/ StartHost \/ ResumeSuccess \/ ResumeFailure \/ OpenSession \/
         UnexpectedStop \/ RecoverySuccess \/ RecoveryCommit \/ TerminalDuringCommit \/ RecoveryRetry \/ RecoveryFailure \/
         BeginShutdown \/ GuestQuiesceSuccess \/ GuestQuiesceFailure \/
         VZTerminal \/ ReleaseDisk \/ ExitHost

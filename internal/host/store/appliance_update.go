@@ -19,21 +19,21 @@ func (store *Store) ResumeApplianceUpdate(ctx context.Context, operation Applian
 	return store.GetApplianceOperation(ctx, operation.ID)
 }
 
-func (store *Store) CommitApplianceUpdateSwitch(ctx context.Context, operation ApplianceOperation, sourceArtifact string, installationRevision uint64, targetArtifact string, grant ApplianceGrant, frontends []ApplianceFrontend) (ApplianceOperation, error) {
+func (store *Store) CommitApplianceUpdateSwitch(ctx context.Context, operation ApplianceOperation, sourceArtifact string, installationRevision uint64, targetArtifact, bootstrapID string, grant ApplianceGrant, frontends []ApplianceFrontend) (ApplianceOperation, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ApplianceOperation{}, err
 	}
 	defer tx.Rollback()
 	now := time.Now().UnixNano()
-	result, err := tx.ExecContext(ctx, `UPDATE appliance_installations SET artifact_id=?,desired_enabled=1,state=2,revision=revision+1,current_boot_id='',current_container_instance='',updated_at=? WHERE id=? AND revision=? AND artifact_id=? AND desired_enabled=0 AND state=4`, targetArtifact, now, operation.InstallationID, installationRevision, sourceArtifact)
+	result, err := tx.ExecContext(ctx, `UPDATE appliance_installations SET artifact_id=?,bootstrap_id=COALESCE(NULLIF(?,''),bootstrap_id),desired_enabled=1,state=2,revision=revision+1,current_boot_id='',current_container_instance='',updated_at=? WHERE id=? AND revision=? AND artifact_id=? AND desired_enabled=0 AND state=4`, targetArtifact, bootstrapID, now, operation.InstallationID, installationRevision, sourceArtifact)
 	if err != nil {
 		return ApplianceOperation{}, err
 	}
 	if count, err := result.RowsAffected(); err != nil || count != 1 {
 		return ApplianceOperation{}, ErrInstallationRevisionConflict
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE appliance_grants SET revision=?,system_pids=?,system_disk_bytes=?,per_env_pids=?,per_env_disk_bytes=?,egress_mode=?,max_egress_mode=?,dynamic_max_active_leases=?,dynamic_max_active_leases_per_allocation=?,dynamic_max_lease_seconds=?,dynamic_max_concurrent_connections=?,dynamic_max_concurrent_connections_per_lease=?,dynamic_max_frame_bytes=?,dynamic_max_connection_bytes=?,dynamic_connection_deadline_seconds=?,dynamic_connection_idle_seconds=?,dynamic_max_use_count=?,lan_egress=?,host_tcp_endpoints=?,updated_at=? WHERE installation_id=?`, grant.Revision, grant.System.PIDs, grant.System.DiskBytes, grant.PerEnvironment.PIDs, grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode, grant.DynamicHostLoopback.MaxActiveLeases, grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation, grant.DynamicHostLoopback.MaxLeaseSeconds, grant.DynamicHostLoopback.MaxConcurrentConnections, grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, grant.DynamicHostLoopback.MaxFrameBytes, grant.DynamicHostLoopback.MaxConnectionBytes, grant.DynamicHostLoopback.ConnectionDeadlineSeconds, grant.DynamicHostLoopback.ConnectionIdleSeconds, grant.DynamicHostLoopback.MaxUseCount, grant.LANEgress, grant.HostTCPEndpoints, now, operation.InstallationID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE appliance_grants SET revision=?,system_pids=?,system_disk_bytes=?,per_env_pids=?,per_env_disk_bytes=?,egress_mode=?,max_egress_mode=?,lan_egress=?,host_tcp_endpoints=?,updated_at=? WHERE installation_id=?`, grant.Revision, grant.System.PIDs, grant.System.DiskBytes, grant.PerEnvironment.PIDs, grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode, grant.LANEgress, grant.HostTCPEndpoints, now, operation.InstallationID); err != nil {
 		return ApplianceOperation{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM appliance_frontends WHERE installation_id=?`, operation.InstallationID); err != nil {

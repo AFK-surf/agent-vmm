@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"sync"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/containerd/errdefs"
 	digest "github.com/opencontainers/go-digest"
 	"google.golang.org/grpc/codes"
@@ -75,12 +75,15 @@ func (server *Server) ReconcileSystemImages(ctx context.Context, request *vmmdv1
 			return nil, err
 		}
 		namespace := systemInstallationNamespace(request.GetInstallationId())
-		value, _ := server.runtime.resourceLocks.LoadOrStore(namespace, new(sync.Mutex))
-		lock := value.(*sync.Mutex)
-		if !lock.TryLock() {
+		unlock, available := server.runtime.tryLockResource("namespace\x00" + namespace)
+		if !available {
 			return nil, status.Error(codes.Unavailable, "system image retention deferred while namespace lifecycle is busy")
 		}
-		defer lock.Unlock()
+		defer func() {
+			if unlock != nil {
+				unlock()
+			}
+		}()
 		if err := server.runtime.namespaceExistsForRole(ctx, namespace, true); err != nil {
 			if errdefs.IsNotFound(err) {
 				return &vmmdv1.ReconcileSystemImagesResponse{}, nil
@@ -106,13 +109,22 @@ func (server *Server) ReconcileSystemImages(ctx context.Context, request *vmmdv1
 		if !needsPrune {
 			return &vmmdv1.ReconcileSystemImagesResponse{}, nil
 		}
-		unlockMaterializer, available := server.runtime.materializer.TryLockBuild()
+		unlock()
+		unlock = nil
+		available = server.runtime.materializationSlot.TryAcquire(1)
+		unlockMaterializer := func() { server.runtime.materializationSlot.Release(1) }
 		if !available {
-			return nil, detailedErrorMetadata(codes.Unavailable, "SYSTEM_IMAGE_COLLECTION_DEFERRED", "system image collection deferred while materializer is busy", "system_namespace", namespace, map[string]string{"projection_applied": "true"})
+			return nil, hostv1.NewError(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_SYSTEM_IMAGE_COLLECTION_DEFERRED, "system image collection deferred while materializer is busy", hostv1.WithResource("system_namespace", namespace), hostv1.WithMetadata(map[string]string{"projection_applied": "true"}))
 		}
 		defer unlockMaterializer()
+		namespaceUnlock, err := server.runtime.lockNamespace(ctx, namespace)
+		if err != nil {
+			return nil, err
+		}
+		defer namespaceUnlock()
+
 		if err := server.runtime.pruneSystemImages(ctx, namespace, "", ""); err != nil {
-			return nil, detailedErrorMetadata(codes.Unavailable, "SYSTEM_IMAGE_COLLECTION_DEFERRED", "system image projection applied; collection failed: "+err.Error(), "system_namespace", namespace, map[string]string{"projection_applied": "true"})
+			return nil, hostv1.NewError(codes.Unavailable, hostv1.ErrorReason_ERROR_REASON_SYSTEM_IMAGE_COLLECTION_DEFERRED, "system image projection applied; collection failed: "+err.Error(), hostv1.WithResource("system_namespace", namespace), hostv1.WithMetadata(map[string]string{"projection_applied": "true"}))
 		}
 		return &vmmdv1.ReconcileSystemImagesResponse{}, nil
 	})

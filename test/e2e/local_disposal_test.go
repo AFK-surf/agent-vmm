@@ -53,11 +53,11 @@ func TestLocalDisposalE2E(t *testing.T) {
 		defer stopServer()
 		id := fmt.Sprintf("disposal-domain-%d", index)
 		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}
-		registration, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: id, RegistrationId: id, Endpoint: endpoint, ProtocolVersion: remoteconnector.ProtocolVersion, DisplayName: id, Pool: pool})
+		registration, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: id, RegistrationId: id, Endpoint: endpoint, DisplayName: id, Pool: pool})
 		if err != nil {
 			t.Fatal(err)
 		}
-		registration, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: id + "-complete", RegistrationId: id, ExpectedRevision: registration.GetRegistration().GetRevision()})
+		_, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: id + "-complete", RegistrationId: id, ExpectedRevision: registration.GetRegistration().GetRevision()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -65,7 +65,7 @@ func TestLocalDisposalE2E(t *testing.T) {
 		connectorContext, stop := context.WithCancel(ctx)
 		defer stop()
 		go func() {
-			_ = remoteconnector.Run(connectorContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: id, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: &e2eCredentialStore{value: []byte("remote-e2e")}, TLSRoots: roots})
+			_ = remoteconnector.Run(connectorContext, remoteconnector.Config{RegistrationID: id, RemoteComputeSocket: harness.remoteComputeSocket, Transport: remoteconnector.ExternalTransport{Endpoint: endpoint, Credentials: &e2eCredentialStore{value: []byte("remote-e2e")}, Roots: roots}})
 		}()
 		var raw net.Conn
 		select {
@@ -79,12 +79,12 @@ func TestLocalDisposalE2E(t *testing.T) {
 		}
 		defer connection.Close()
 		runtime := hostv1.NewAgentRuntimeServiceClient(connection)
-		registration, err = harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: id})
-		if err != nil || len(registration.GetRegistration().GetAllocations()) != 1 {
+		currentRegistration, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: id})
+		if err != nil || len(currentRegistration.GetRegistration().GetAllocations()) != 1 {
 			t.Fatalf("registration=%v, %v", registration, err)
 		}
-		item := domain{id: id, environment: registration.GetRegistration().GetAllocations()[0].GetEnvironmentId(), runtime: runtime, connection: connection, stop: stop}
-		before, err := harness.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: item.environment})
+		item := domain{id: id, environment: currentRegistration.GetRegistration().GetAllocations()[0].GetEnvironmentId(), runtime: runtime, connection: connection, stop: stop}
+		before, err := harness.client.GetEnvironment(ctx, &hostv1.OperatorServiceGetEnvironmentRequest{EnvironmentId: item.environment})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +93,7 @@ func TestLocalDisposalE2E(t *testing.T) {
 			reconnectContext, reconnectCancel := context.WithCancel(ctx)
 			t.Cleanup(reconnectCancel)
 			go func() {
-				_ = remoteconnector.Run(reconnectContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: id, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: &e2eCredentialStore{value: []byte("remote-e2e")}, TLSRoots: roots})
+				_ = remoteconnector.Run(reconnectContext, remoteconnector.Config{RegistrationID: id, RemoteComputeSocket: harness.remoteComputeSocket, Transport: remoteconnector.ExternalTransport{Endpoint: endpoint, Credentials: &e2eCredentialStore{value: []byte("remote-e2e")}, Roots: roots}})
 			}()
 			var next net.Conn
 			select {
@@ -148,7 +148,7 @@ func TestLocalDisposalE2E(t *testing.T) {
 	if err != nil || repeated.GetRegistration().GetRevision() != revoking.GetRegistration().GetRevision() {
 		t.Fatalf("repeat revoke=%v,%v", repeated, err)
 	}
-	retained, err := harness.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: domains[0].environment})
+	retained, err := harness.client.GetEnvironment(ctx, &hostv1.OperatorServiceGetEnvironmentRequest{EnvironmentId: domains[0].environment})
 	if err != nil || len(revoking.GetRegistration().GetAllocations()) != 1 || revoking.GetRegistration().GetAllocations()[0].GetState() != hostv1.AllocationState_ALLOCATION_STATE_RETAINED || len(retained.GetEnvironment().GetVolumes()) != 101 {
 		t.Fatalf("retained=%v,%v", retained, err)
 	}
@@ -192,14 +192,14 @@ func TestLocalDisposalE2E(t *testing.T) {
 	if err != nil || replay.GetOperation().GetId() != accepted.GetOperation().GetId() || replay.GetOperation().GetState() != hostv1.OperationState_OPERATION_STATE_SUCCEEDED {
 		t.Fatalf("replay=%v,%v", replay, err)
 	}
-	if _, err := harness.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: domains[0].environment}); status.Code(err) != codes.NotFound {
+	if _, err := harness.client.GetEnvironment(ctx, &hostv1.OperatorServiceGetEnvironmentRequest{EnvironmentId: domains[0].environment}); status.Code(err) != codes.NotFound {
 		t.Fatalf("deleted environment still readable: %v", err)
 	}
-	if _, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: domains[0].id, RegistrationId: domains[0].id, Endpoint: "https://localhost", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}}); err == nil {
+	if _, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: domains[0].id, RegistrationId: domains[0].id, Endpoint: "https://localhost", Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(64, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, StopGrace: durationpb.New(time.Second)}}); err == nil {
 		t.Fatal("old enrollment replayed")
 	}
 	_, preservedRuntime := domains[1].connect()
-	other, err := harness.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: domains[1].environment})
+	other, err := harness.client.GetEnvironment(ctx, &hostv1.OperatorServiceGetEnvironmentRequest{EnvironmentId: domains[1].environment})
 	if err != nil || other.GetEnvironment().GetId() != domains[1].environment {
 		t.Fatalf("other registration environment: %v,%v", other, err)
 	}

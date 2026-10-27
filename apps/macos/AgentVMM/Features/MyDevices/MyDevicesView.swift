@@ -55,10 +55,11 @@ struct MyDevicesView: View {
                             }
                         }
                         SecureField("8-digit pairing PIN", text: $pairingPIN)
+                        Toggle("Allow the invited device to manage members", isOn: $grantManagerPermission)
                         Button("Create pairing invitation") {
                             let pin = pairingPIN
                             pairingPIN = ""
-                            Task { await model.beginPersonalMeshPairing(meshID: mesh.id, expectedRevision: mesh.revision, pin: pin) }
+                            Task { await model.beginPersonalMeshPairing(meshID: mesh.id, expectedRevision: mesh.revision, pin: pin, canManageMembers: grantManagerPermission) }
                         }
                         .disabled(model.deviceActionInProgress || pairingPIN.count != 8)
                     } label: {
@@ -79,27 +80,17 @@ struct MyDevicesView: View {
             }
 
             Section("Join another device") {
-                if !model.pairingDiscovery.invitations.isEmpty {
-                    Picker("Nearby pairing invitation", selection: $invitationCode) {
-                        Text("Choose nearby device").tag("")
-                        ForEach(model.pairingDiscovery.invitations, id: \.self) { value in
-                            Text("Agent VMM on local network").tag(value)
-                        }
-                    }
-                }
                 TextEditor(text: $invitationCode)
                     .frame(minHeight: 64)
                     .font(.caption.monospaced())
                 SecureField("8-digit pairing PIN", text: $pairingPIN)
-                Toggle("Allow this device to manage members", isOn: $grantManagerPermission)
                 Button("Start secure pairing") {
                     let pin = pairingPIN
                     pairingPIN = ""
                     Task {
                         await model.joinPersonalMeshPairing(
                             invitationCode: invitationCode.trimmingCharacters(in: .whitespacesAndNewlines),
-                            pin: pin,
-                            canManageMembers: grantManagerPermission
+                            pin: pin
                         )
                     }
                 }
@@ -109,15 +100,16 @@ struct MyDevicesView: View {
             if let pairing = model.personalMeshPairing {
                 Section("Pairing verification") {
                     if pairing.role == "manager" {
-                        PairingQRCodeView(value: pairingDeepLink(pairing.invitationCode))
+                        PairingQRCodeView(value: pairing.invitationCode)
                             .frame(width: 180, height: 180)
                             .accessibilityLabel("Pairing invitation QR code")
                         LabeledContent("Invitation") {
                             Text(pairing.invitationCode).font(.caption.monospaced()).textSelection(.enabled)
                         }
                     }
-                    LabeledContent("State", value: pairing.state)
+                    LabeledContent("State", value: pairing.state.label)
                     LabeledContent("Attempts remaining", value: String(pairing.attemptsRemaining))
+                    if let failure = pairing.lastFailure { Text(failure).foregroundStyle(.secondary) }
                     if !pairing.sas.isEmpty {
                         LabeledContent("Verify on both devices") {
                             Text(pairing.sas).font(.title2.monospaced().bold())
@@ -134,9 +126,9 @@ struct MyDevicesView: View {
                         Button("Refresh") { Task { await model.refreshPersonalMeshPairing() } }
                             .disabled(model.deviceActionInProgress || model.deviceRefreshInProgress)
                         Button("Confirm codes match") { Task { await model.confirmPersonalMeshPairing() } }
-                            .disabled(model.deviceActionInProgress || pairing.sas.isEmpty || pairing.state == "committed")
+                            .disabled(model.deviceActionInProgress || pairing.sas.isEmpty || pairing.state == .committed)
                         Button("Reject", role: .destructive) { Task { await model.rejectPersonalMeshPairing() } }
-                            .disabled(model.deviceActionInProgress || pairing.state == "committed" || pairing.state == "rejected")
+                            .disabled(model.deviceActionInProgress || pairing.state == .committed || pairing.state == .rejected)
                     }
                 }
             }
@@ -167,19 +159,6 @@ struct MyDevicesView: View {
         } message: {
             Text("Use this only when the protected root key is unavailable. Existing mesh membership cannot silently transfer to a new key.")
         }
-        .onChange(of: model.incomingPairingInvitation) { _, value in
-            guard !value.isEmpty else { return }
-            invitationCode = value
-            model.incomingPairingInvitation = ""
-        }
-    }
-
-    private func pairingDeepLink(_ invitation: String) -> String {
-        var components = URLComponents()
-        components.scheme = "agent-vmm"
-        components.host = "pair"
-        components.queryItems = [URLQueryItem(name: "invite", value: invitation)]
-        return components.url?.absoluteString ?? invitation
     }
 }
 

@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"strconv"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 var (
@@ -58,36 +57,7 @@ func resourceCapacityExhaustedMetadata(dimension resourcev2.CapacityDimension, s
 	for key, value := range values {
 		metadata[key] = value
 	}
-	return detailedErrorMetadata(codes.ResourceExhausted, "RESOURCE_CAPACITY_EXHAUSTED", message,
-		"guest_capacity", string(dimension), metadata)
-}
-
-func detailedError(code codes.Code, reason, message, resourceType, resourceName string) error {
-	return detailedErrorMetadata(code, reason, message, resourceType, resourceName, nil)
-}
-
-func detailedErrorMetadata(code codes.Code, reason, message, resourceType, resourceName string, metadata map[string]string) error {
-	value := status.New(code, message)
-	withDetails, err := value.WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "agent-vmm", Metadata: metadata})
-	if err != nil {
-		return value.Err()
-	}
-	if resourceType == "" && resourceName == "" {
-		return withDetails.Err()
-	}
-	withDetails, err = withDetails.WithDetails(&errdetails.ResourceInfo{ResourceType: resourceType, ResourceName: resourceName})
-	if err != nil {
-		return value.Err()
-	}
-	return withDetails.Err()
-}
-
-func imageError(code codes.Code, reason, message, reference string) error {
-	return detailedError(code, reason, message, "image", reference)
-}
-
-func imageErrorMetadata(code codes.Code, reason, message, reference, failureClass string) error {
-	return detailedErrorMetadata(code, reason, message, "image", reference, map[string]string{"failure_class": failureClass})
+	return hostv1.NewError(codes.ResourceExhausted, hostv1.ErrorReason_ERROR_REASON_RESOURCE_CAPACITY_EXHAUSTED, message, hostv1.WithResource("guest_capacity", string(dimension)), hostv1.WithMetadata(metadata))
 }
 
 func failedPrecondition(message string) error {

@@ -3,6 +3,7 @@ package remoteconnector
 import (
 	"context"
 	"fmt"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -25,24 +26,24 @@ import (
 )
 
 type sessionLocal struct {
-	hostv1.UnimplementedRemoteComputeServiceServer
+	connectorv1.UnimplementedRemoteComputeServiceServer
 	socket    string
 	sessionID string
 	expiresAt time.Time
-	revoked   chan *hostv1.RevokeRuntimeSessionRequest
-	open      func(context.Context) (*hostv1.CreateAgentSessionResponse, error)
-	revoke    func(context.Context, *hostv1.RevokeRuntimeSessionRequest) error
+	revoked   chan *connectorv1.RevokeRuntimeSessionRequest
+	open      func(context.Context) (*connectorv1.OpenRuntimeSessionResponse, error)
+	revoke    func(context.Context, *connectorv1.RevokeRuntimeSessionRequest) error
 }
 
-func (server sessionLocal) OpenRuntimeSession(ctx context.Context, _ *hostv1.OpenRuntimeSessionRequest) (*hostv1.CreateAgentSessionResponse, error) {
+func (server sessionLocal) OpenRuntimeSession(ctx context.Context, _ *connectorv1.OpenRuntimeSessionRequest) (*connectorv1.OpenRuntimeSessionResponse, error) {
 	if server.open != nil {
 		return server.open(ctx)
 	}
-	return &hostv1.CreateAgentSessionResponse{SocketPath: server.socket, SessionId: server.sessionID, ExpiresAt: timestamppb.New(server.expiresAt)}, nil
+	return &connectorv1.OpenRuntimeSessionResponse{SocketPath: server.socket, SessionId: server.sessionID, ExpiresAt: timestamppb.New(server.expiresAt)}, nil
 
 }
 
-func (server sessionLocal) RevokeRuntimeSession(ctx context.Context, request *hostv1.RevokeRuntimeSessionRequest) (*emptypb.Empty, error) {
+func (server sessionLocal) RevokeRuntimeSession(ctx context.Context, request *connectorv1.RevokeRuntimeSessionRequest) (*emptypb.Empty, error) {
 	if server.revoke != nil {
 		return &emptypb.Empty{}, server.revoke(ctx, request)
 	}
@@ -60,18 +61,15 @@ type closingSessionController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
 }
 
-func (closingSessionController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+func (closingSessionController) ServeSession(stream grpc.BidiStreamingServer[remotev1.ServeSessionRequest, remotev1.ServeSessionResponse]) error {
 	_, err := stream.Recv()
 	return err
 }
 
-func (server sessionController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+func (server sessionController) ServeSession(stream grpc.BidiStreamingServer[remotev1.ServeSessionRequest, remotev1.ServeSessionResponse]) error {
 	first, err := stream.Recv()
 	if err != nil {
 		return err
-	}
-	if first.GetHeader().GetFrameBytes() != FrameBytes || first.GetHeader().GetMaxInFlightBytes() != MaxInFlightBytes {
-		return io.ErrUnexpectedEOF
 	}
 	server.headerExpires <- first.GetHeader().GetExpiresUnixMillis()
 	frame, err := stream.Recv()
@@ -79,10 +77,10 @@ func (server sessionController) ServeSession(stream grpc.BidiStreamingServer[rem
 		return err
 	}
 	server.received <- string(frame.GetData())
-	if err := stream.Send(&remotev1.ControllerSessionFrame{Payload: &remotev1.ControllerSessionFrame_Data{Data: []byte("from-controller")}}); err != nil {
+	if err := stream.Send(&remotev1.ServeSessionResponse{Payload: &remotev1.ServeSessionResponse_Data{Data: []byte("from-controller")}}); err != nil {
 		return err
 	}
-	if err := stream.Send(&remotev1.ControllerSessionFrame{Payload: &remotev1.ControllerSessionFrame_CloseWrite{CloseWrite: true}}); err != nil {
+	if err := stream.Send(&remotev1.ServeSessionResponse{Payload: &remotev1.ServeSessionResponse_CloseWrite{CloseWrite: true}}); err != nil {
 		return err
 	}
 	frame, err = stream.Recv()
@@ -107,9 +105,6 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	if err := os.Chmod(socket, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	runtimeReceived := make(chan string, 1)
 	go func() {
 		connection, err := listener.Accept()
@@ -123,7 +118,7 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 		runtimeReceived <- string(value)
 		unix.Close()
 	}()
-	revoked := make(chan *hostv1.RevokeRuntimeSessionRequest, 1)
+	revoked := make(chan *connectorv1.RevokeRuntimeSessionRequest, 1)
 	expiresAt := time.Now().Add(5 * time.Minute).Truncate(time.Millisecond)
 	localConnection, localCleanup := localSessionClient(t, sessionLocal{socket: socket, sessionID: "private", expiresAt: expiresAt, revoked: revoked})
 	defer localCleanup()
@@ -132,7 +127,7 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 	defer controllerCleanup()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
+	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), connectorv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
 	ready, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 1, ExecutionOwnerId: "runtime:allocation:1"})
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +161,9 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		active, completed := manager.Metrics()
+		manager.mu.Lock()
+		active, completed := len(manager.active), append([]tunnelMetrics(nil), manager.completed...)
+		manager.mu.Unlock()
 		if active == 0 && len(completed) == 1 {
 			if completed[0].BytesToController == 0 || completed[0].BytesToRuntime == 0 {
 				t.Fatal("byte metrics are empty")
@@ -193,12 +190,12 @@ func TestTunnelBridgeAndHalfClose(t *testing.T) {
 }
 
 func TestTunnelOpenFailureRevokesRuntimeSession(t *testing.T) {
-	revoked := make(chan *hostv1.RevokeRuntimeSessionRequest, 1)
+	revoked := make(chan *connectorv1.RevokeRuntimeSessionRequest, 1)
 	localConnection, localCleanup := localSessionClient(t, sessionLocal{socket: "/missing/runtime.sock", sessionID: "opened-before-failure", revoked: revoked})
 	defer localCleanup()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	manager := newTunnelManager(ctx, nil, hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
+	manager := newTunnelManager(ctx, nil, connectorv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
 	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 3, ExecutionOwnerId: "runtime:allocation:1"}); err == nil {
 		t.Fatal("invalid runtime socket was accepted")
 	}
@@ -213,59 +210,80 @@ func TestTunnelOpenFailureRevokesRuntimeSession(t *testing.T) {
 }
 
 func TestControllerCloseRevokesRuntimeSession(t *testing.T) {
-	directory, err := os.MkdirTemp("/tmp", "agent-vmm-close-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(directory)
-	socket := filepath.Join(directory, "runtime.sock")
-	listener, err := net.Listen("unix", socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	if err := os.Chmod(socket, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	accepted := make(chan net.Conn, 1)
-	go func() {
-		connection, err := listener.Accept()
-		if err == nil {
-			accepted <- connection
-		}
-	}()
-	revoked := make(chan *hostv1.RevokeRuntimeSessionRequest, 1)
-	localConnection, localCleanup := localSessionClient(t, sessionLocal{socket: socket, sessionID: "controller-closed", revoked: revoked})
-	defer localCleanup()
-	controllerConnection, controllerCleanup := controllerSessionClient(t, closingSessionController{})
-	defer controllerCleanup()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), hostv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
-	if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 5, ExecutionOwnerId: "runtime:allocation:1"}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case connection := <-accepted:
-		defer connection.Close()
-	case <-time.After(3 * time.Second):
-		t.Fatal("runtime connection was not accepted")
-	}
-	select {
-	case request := <-revoked:
-		if request.GetSessionId() != "controller-closed" || request.GetAllocationGeneration() != 5 {
-			t.Fatalf("revoke request = %+v", request)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("controller close did not revoke its runtime session")
+	for _, stale := range []bool{false, true} {
+		t.Run(fmt.Sprintf("already-revoked=%t", stale), func(t *testing.T) {
+			directory, err := os.MkdirTemp("/tmp", "agent-vmm-close-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(directory)
+			socket := filepath.Join(directory, "runtime.sock")
+			listener, err := net.Listen("unix", socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			accepted := make(chan net.Conn, 1)
+			go func() {
+				connection, err := listener.Accept()
+				if err == nil {
+					accepted <- connection
+				}
+			}()
+			revoked := make(chan *connectorv1.RevokeRuntimeSessionRequest, 1)
+			localConnection, localCleanup := localSessionClient(t, sessionLocal{socket: socket, sessionID: "controller-closed", revoke: func(_ context.Context, request *connectorv1.RevokeRuntimeSessionRequest) error {
+				revoked <- request
+				if stale {
+					return hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_STALE_RUNTIME_SESSION, "runtime session has been replaced or revoked", hostv1.WithResource("runtime_session", request.GetSessionId()))
+				}
+				return nil
+			}})
+			defer localCleanup()
+			controllerConnection, controllerCleanup := controllerSessionClient(t, closingSessionController{})
+			defer controllerCleanup()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(controllerConnection), connectorv1.NewRemoteComputeServiceClient(localConnection), "registration", "connection", 17, nil)
+			if _, err := manager.Open(ctx, &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 5, ExecutionOwnerId: "runtime:allocation:1"}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case connection := <-accepted:
+				defer connection.Close()
+			case <-time.After(3 * time.Second):
+				t.Fatal("runtime connection was not accepted")
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			sawRevocation := false
+			for {
+				select {
+				case request := <-revoked:
+					if request.GetSessionId() != "controller-closed" || request.GetAllocationGeneration() != 5 {
+						t.Fatalf("revoke request = %+v", request)
+					}
+					sawRevocation = true
+				default:
+				}
+				manager.mu.Lock()
+				active := len(manager.active)
+				manager.mu.Unlock()
+				if sawRevocation && active == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("controller close left active sessions: revoke=%t active=%d", sawRevocation, active)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
 	}
 }
 
-func localSessionClient(t *testing.T, service hostv1.RemoteComputeServiceServer) (*grpc.ClientConn, func()) {
+func localSessionClient(t *testing.T, service connectorv1.RemoteComputeServiceServer) (*grpc.ClientConn, func()) {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	hostv1.RegisterRemoteComputeServiceServer(server, service)
+	connectorv1.RegisterRemoteComputeServiceServer(server, service)
 	go server.Serve(listener)
 	connection, err := grpc.NewClient("passthrough:///local", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
 	if err != nil {
@@ -290,7 +308,7 @@ type holdingSessionController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
 }
 
-func (holdingSessionController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+func (holdingSessionController) ServeSession(stream grpc.BidiStreamingServer[remotev1.ServeSessionRequest, remotev1.ServeSessionResponse]) error {
 	for {
 		if _, err := stream.Recv(); err != nil {
 			return err
@@ -312,9 +330,6 @@ func TestTunnelSessionReplacement(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer listener.Close()
-			if err := os.Chmod(socket, 0600); err != nil {
-				t.Fatal(err)
-			}
 			accepted := make(chan net.Conn, 20)
 			go func() {
 				for {
@@ -341,7 +356,7 @@ func TestTunnelSessionReplacement(t *testing.T) {
 			opens := 0
 			reject := false
 			revocations := map[string]int{}
-			local := sessionLocal{open: func(ctx context.Context) (*hostv1.CreateAgentSessionResponse, error) {
+			local := sessionLocal{open: func(ctx context.Context) (*connectorv1.OpenRuntimeSessionResponse, error) {
 				mu.Lock()
 				defer mu.Unlock()
 				if current != "" {
@@ -349,17 +364,17 @@ func TestTunnelSessionReplacement(t *testing.T) {
 				}
 				opens++
 				current = fmt.Sprintf("session-%d", opens)
-				return &hostv1.CreateAgentSessionResponse{SessionId: current, SocketPath: socket, ExpiresAt: timestamppb.Now()}, nil
-			}, revoke: func(ctx context.Context, r *hostv1.RevokeRuntimeSessionRequest) error {
+				return &connectorv1.OpenRuntimeSessionResponse{SessionId: current, SocketPath: socket, ExpiresAt: timestamppb.Now()}, nil
+			}, revoke: func(ctx context.Context, r *connectorv1.RevokeRuntimeSessionRequest) error {
 				mu.Lock()
 				defer mu.Unlock()
 				if reject {
 					if mode == "already-revoked" {
 						current = ""
-						rejected, _ := status.New(codes.Aborted, "absent").WithDetails(&errdetails.ErrorInfo{Reason: "STALE_RUNTIME_SESSION"})
+						rejected, _ := status.New(codes.Aborted, "absent").WithDetails(&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "STALE_RUNTIME_SESSION"})
 						return rejected.Err()
 					}
-					failure, _ := status.New(codes.Unavailable, "revoke unavailable").WithDetails(&errdetails.ErrorInfo{Reason: "REVOCATION_BACKEND_UNAVAILABLE"})
+					failure, _ := status.New(codes.Unavailable, "revoke unavailable").WithDetails(&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "REVOCATION_BACKEND_UNAVAILABLE"})
 					return failure.Err()
 				}
 				if current != r.GetSessionId() {
@@ -375,7 +390,7 @@ func TestTunnelSessionReplacement(t *testing.T) {
 			defer controllerCleanup()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(cc), hostv1.NewRemoteComputeServiceClient(lc), "registration", "connection", 1, nil)
+			manager := newTunnelManager(ctx, remotev1.NewRemoteControllerServiceClient(cc), connectorv1.NewRemoteComputeServiceClient(lc), "registration", "connection", 1, nil)
 			defer manager.Close()
 			request := &remotev1.OpenSession{AllocationId: "allocation", AllocationGeneration: 1, ExecutionOwnerId: "owner"}
 			if _, err := manager.Open(ctx, request); err != nil {

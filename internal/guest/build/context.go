@@ -66,7 +66,12 @@ func ExtractContext(reader io.Reader, root string) error {
 				return err
 			}
 		case tar.TypeSymlink:
-			if err := validateLinkTarget(name, header.Linkname); err != nil {
+			relativeParent, err := filepath.Rel(root, filepath.Dir(destination))
+			if err != nil {
+				return err
+			}
+			physicalName := path.Join(filepath.ToSlash(relativeParent), path.Base(name))
+			if err := validateLinkTarget(physicalName, header.Linkname); err != nil {
 				return err
 			}
 			if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {

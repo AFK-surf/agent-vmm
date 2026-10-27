@@ -1,10 +1,10 @@
 version: v2
 plugins:
-  - local: protoc-gen-go
+  - local: [go, tool, protoc-gen-go]
     out: .
     opt:
       - module=github.com/AFK-surf/agent-vmm
-  - local: protoc-gen-go-grpc
+  - local: [go, tool, protoc-gen-go-grpc]
     out: .
     opt:
       - module=github.com/AFK-surf/agent-vmm

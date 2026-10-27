@@ -31,9 +31,9 @@ func stopForMaintenanceWith(ctx context.Context, value paths, run func(context.C
 			return fmt.Errorf("observe Host before maintenance: %w", err)
 		}
 		if domain == "system" && os.Geteuid() != 0 {
-			return errors.New("administrator must stop the Host with agent-vmm-service-executor stop --job host, then retry this maintenance request")
+			return errors.New("administrator must stop the Host with agent-vmm-service-executor stop, then retry this maintenance request")
 		}
-		pid, err := launchctlPID(ctx, domain+"/"+hostLabel)
+		pid, err := value.serviceOwner().system.ServicePID(ctx, domain+"/"+hostLabel)
 		if err != nil {
 			return fmt.Errorf("observe Host process before maintenance: %w", err)
 		}
@@ -43,7 +43,7 @@ func stopForMaintenanceWith(ctx context.Context, value paths, run func(context.C
 	}
 	if len(pids) > 0 {
 		graceful, cancel := context.WithTimeout(ctx, 40*time.Second)
-		_ = drainVMForUpdate(graceful, value, newOperationID("maintenance-stop"))
+		_ = value.serviceOwner().drainVM(graceful, value, newOperationID("maintenance-stop"))
 		cancel()
 	}
 	for _, domain := range domains {
@@ -52,9 +52,9 @@ func stopForMaintenanceWith(ctx context.Context, value paths, run func(context.C
 		}
 	}
 	for _, pid := range pids {
-		if err := waitForProcessExit(ctx, pid); err != nil {
+		if err := waitForProcessExit(ctx, pid, value.serviceOwner().system.ProcessRunning); err != nil {
 			return fmt.Errorf("Host process exit is not confirmed: %w", err)
 		}
 	}
-	return waitForStateDiskRelease(ctx, filepath.Join(value.applicationData, "instance", "state.raw"))
+	return value.serviceOwner().system.WaitStateDiskRelease(ctx, filepath.Join(value.applicationData, "instance", "state.raw"))
 }

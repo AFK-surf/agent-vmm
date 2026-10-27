@@ -38,14 +38,15 @@ type runningCase struct {
 
 func Render(repository, bundleDirectory, jsonPath, reportPath string, status int) error {
 	manifestBytes, err := os.ReadFile(filepath.Join(bundleDirectory, bundle.ManifestName))
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	var manifest bundle.Manifest
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		return err
+	if len(manifestBytes) > 0 {
+		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+			return err
+		}
 	}
-	manifestHash := sha256.Sum256(manifestBytes)
 	cases, peak, coldStart, err := readResults(jsonPath)
 	if err != nil {
 		return err
@@ -60,9 +61,11 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 	fmt.Fprintf(&output, "\n- Result: `%s`\n", result)
 	fmt.Fprintf(&output, "- Revision: `%s`\n", command(repository, "git", "rev-parse", "HEAD"))
 	fmt.Fprintf(&output, "- Host: `%s %s`\n", command(repository, "sw_vers", "-productVersion"), runtime.GOARCH)
-	fmt.Fprintln(&output, "- VM: 2 vCPU, 4,294,967,296 bytes memory")
-	fmt.Fprintf(&output, "- Guest manifest SHA-256: `%s`\n", hex.EncodeToString(manifestHash[:]))
-	fmt.Fprintf(&output, "- Rootfs: %d packed bytes, SHA-256 `%s`\n", rootfs.Size, rootfs.SHA256)
+	if len(manifestBytes) > 0 {
+		manifestHash := sha256.Sum256(manifestBytes)
+		fmt.Fprintf(&output, "- Guest manifest SHA-256: `%s`\n", hex.EncodeToString(manifestHash[:]))
+		fmt.Fprintf(&output, "- Rootfs: %d packed bytes, SHA-256 `%s`\n", rootfs.Size, rootfs.SHA256)
+	}
 	if peak != 0 {
 		fmt.Fprintf(&output, "- Parallel E2E peak: %d cases\n", peak)
 	}
@@ -79,8 +82,7 @@ func Render(repository, bundleDirectory, jsonPath, reportPath string, status int
 			fmt.Fprintf(&output, "| `%s` | %s | %.2fs |\n", item.Name, strings.ToUpper(item.Action), item.Duration)
 		}
 	}
-	fmt.Fprintln(&output, "\n## Isolation and cleanup assertions")
-	fmt.Fprintln(&output, "\nThe suite checks guest network counter propagation, namespace enumeration and volume ownership, mounted-volume deletion guards, project quotas, bounded-log truncation, default cross-namespace denial, selector/port-limited Link rules, Link revocation, filtered public egress, build context/cache/secret isolation, cancellation cleanup, host policy replay and snapshot-first event reconnection after VM restart, forced-stop UNKNOWN/stale semantics, revision-bound and interrupted cleanup recovery, and a final residual namespace scan. The report contains no environment values, build context, secret bytes, or full workload logs.")
+
 	if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
 		return err
 	}
@@ -102,6 +104,7 @@ func readResults(path string) ([]caseResult, int, int64, error) {
 	var results []caseResult
 	running := make(map[string]runningCase)
 	terminal := make(map[string]bool)
+	parents := make(map[string]bool)
 	active := 0
 	peak := 0
 	var coldStart int64
@@ -110,14 +113,23 @@ func readResults(path string) ([]caseResult, int, int64, error) {
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	for scanner.Scan() {
 		var event testEvent
-		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Test == "" {
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+			continue
+		}
+		if event.Test == "" {
+			if event.Action == "fail" && strings.Contains(event.Output, "E2E preparation failed") {
+				results = append(results, caseResult{Name: "preparation", Action: "fail"})
+			}
 			continue
 		}
 		if event.Time.After(latestEvent) {
 			latestEvent = event.Time
 		}
-		if strings.Count(event.Test, "/") >= 1 && event.Action == "run" {
+		if event.Action == "run" {
 			running[event.Test] = runningCase{startedAt: event.Time}
+			if index := strings.LastIndex(event.Test, "/"); index >= 0 {
+				parents[event.Test[:index]] = true
+			}
 		}
 		if event.Action == "output" {
 			if value, ok := metric(event.Output, "E2E_PARALLEL_PEAK="); ok {
@@ -138,15 +150,21 @@ func readResults(path string) ([]caseResult, int, int64, error) {
 				active--
 			}
 		}
-		if strings.Count(event.Test, "/") >= 1 && (event.Action == "pass" || event.Action == "fail" || event.Action == "skip") {
+		if event.Action == "pass" || event.Action == "fail" || event.Action == "skip" {
 			terminal[event.Test] = true
-			if event.Test != "TestE2E/parallel" {
-				results = append(results, caseResult{Name: strings.TrimPrefix(event.Test, "TestE2E/"), Action: event.Action, Duration: event.Elapsed})
-			}
+			results = append(results, caseResult{Name: event.Test, Action: event.Action, Duration: event.Elapsed})
 		}
 	}
+	leaves := results[:0]
+	for _, result := range results {
+		if !parents[result.Name] {
+			result.Name = strings.TrimPrefix(result.Name, "TestE2E/")
+			leaves = append(leaves, result)
+		}
+	}
+	results = leaves
 	for name, item := range running {
-		if terminal[name] {
+		if terminal[name] || parents[name] {
 			continue
 		}
 		duration := 0.0

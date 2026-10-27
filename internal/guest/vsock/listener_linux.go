@@ -3,6 +3,8 @@
 package vsock
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -15,8 +17,8 @@ type Listener struct {
 	file *os.File
 }
 
-func Listen(port uint32) (*Listener, error) {
-	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+func Listen(port uint32) (net.Listener, error) {
+	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_CLOEXEC|unix.SOCK_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -32,9 +34,21 @@ func Listen(port uint32) (*Listener, error) {
 }
 
 func (listener *Listener) Accept() (net.Conn, error) {
-	fd, _, err := unix.Accept4(int(listener.file.Fd()), unix.SOCK_CLOEXEC)
+	raw, err := listener.file.SyscallConn()
 	if err != nil {
 		return nil, err
+	}
+	var fd int
+	var acceptErr error
+	err = raw.Read(func(socket uintptr) bool {
+		fd, _, acceptErr = unix.Accept4(int(socket), unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC)
+		return !errors.Is(acceptErr, unix.EAGAIN) && !errors.Is(acceptErr, unix.EINTR)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if acceptErr != nil {
+		return nil, acceptErr
 	}
 	return &connection{file: os.NewFile(uintptr(fd), "vsock-connection")}, nil
 }
@@ -65,3 +79,64 @@ type address string
 
 func (address address) Network() string { return "vsock" }
 func (address address) String() string  { return fmt.Sprintf("%s", string(address)) }
+
+// Dial connects through the poller so cancellation and deadlines wake I/O.
+func Dial(ctx context.Context, cid, port uint32) (net.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	connectErr := unix.Connect(fd, &unix.SockaddrVM{CID: cid, Port: port})
+	if connectErr != nil && !errors.Is(connectErr, unix.EINPROGRESS) {
+		unix.Close(fd)
+		return nil, connectErr
+	}
+	file := os.NewFile(uintptr(fd), "vsock-connection")
+	if connectErr == nil {
+		return &connection{file: file}, nil
+	}
+	raw, err := file.SyscallConn()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+	canceled := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { _ = file.SetWriteDeadline(time.Now()); close(canceled) })
+	var socketErr error
+	err = raw.Write(func(socket uintptr) bool {
+		failure, readErr := unix.GetsockoptInt(int(socket), unix.SOL_SOCKET, unix.SO_ERROR)
+		if readErr != nil {
+			socketErr = readErr
+			return true
+		}
+		if failure != 0 {
+			socketErr = unix.Errno(failure)
+			return true
+		}
+		_, peerErr := unix.Getpeername(int(socket))
+		if errors.Is(peerErr, unix.ENOTCONN) {
+			return false
+		}
+		socketErr = peerErr
+		return true
+	})
+	if !stop() {
+		<-canceled
+	}
+	if ctx.Err() != nil {
+		file.Close()
+		return nil, ctx.Err()
+	}
+	if err != nil || socketErr != nil {
+		file.Close()
+		return nil, errors.Join(err, socketErr)
+	}
+	if err := file.SetWriteDeadline(time.Time{}); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return &connection{file: file}, nil
+}

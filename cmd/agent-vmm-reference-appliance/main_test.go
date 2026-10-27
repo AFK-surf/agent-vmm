@@ -24,26 +24,25 @@ type referenceControlStream struct {
 	ctx       context.Context
 	hello     *remotev1.HostHello
 	once      sync.Once
-	responses chan *remotev1.HostControlMessage
+	responses chan *remotev1.ConnectRequest
 	mu        sync.Mutex
 	commands  []*remotev1.ControllerCommand
 	ready     *remotev1.ControllerReady
 }
 
 func newReferenceControlStream(ctx context.Context, inventory []*remotev1.Allocation) *referenceControlStream {
-	return &referenceControlStream{ctx: ctx, responses: make(chan *remotev1.HostControlMessage, 32), hello: &remotev1.HostHello{
-		ProtocolVersion: controllerremote.ProtocolVersion, HostApiVersion: "host.v1", RegistrationId: "registration", ConnectionEpoch: 7,
+	return &referenceControlStream{ctx: ctx, responses: make(chan *remotev1.ConnectRequest, 32), hello: &remotev1.HostHello{
+		ProtocolVersion: controllerremote.ProtocolVersion, RegistrationId: "registration", ConnectionEpoch: 7,
 		InventoryWatermark: 3, PoolRevision: 2, Inventory: inventory,
-		SupportedFeatures: append([]string(nil), controllerremote.RequiredFeatures...), RequiredFeatures: append([]string(nil), controllerremote.RequiredFeatures...),
 	}}
 }
 
 func (stream *referenceControlStream) Context() context.Context { return stream.ctx }
 
-func (stream *referenceControlStream) Recv() (*remotev1.HostControlMessage, error) {
-	var first *remotev1.HostControlMessage
+func (stream *referenceControlStream) Recv() (*remotev1.ConnectRequest, error) {
+	var first *remotev1.ConnectRequest
 	stream.once.Do(func() {
-		first = &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Hello{Hello: stream.hello}}
+		first = &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_Hello{Hello: stream.hello}}
 	})
 	if first != nil {
 		return first, nil
@@ -56,7 +55,7 @@ func (stream *referenceControlStream) Recv() (*remotev1.HostControlMessage, erro
 	}
 }
 
-func (stream *referenceControlStream) Send(message *remotev1.ControllerControlMessage) error {
+func (stream *referenceControlStream) Send(message *remotev1.ConnectResponse) error {
 	if ready := message.GetControllerReady(); ready != nil {
 		stream.ready = ready
 		return nil
@@ -65,13 +64,13 @@ func (stream *referenceControlStream) Send(message *remotev1.ControllerControlMe
 	stream.mu.Lock()
 	stream.commands = append(stream.commands, command)
 	stream.mu.Unlock()
-	stream.responses <- &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Ack{Ack: &remotev1.CommandAck{
+	stream.responses <- &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_Ack{Ack: &remotev1.CommandAck{
 		CommandId: command.GetCommandId(), Sequence: command.GetSequence(), ConnectionEpoch: command.GetConnectionEpoch(), Disposition: remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_ADMITTED,
 	}}}
 	result := &remotev1.CommandResult{CommandId: command.GetCommandId(), Sequence: command.GetSequence(), ConnectionEpoch: command.GetConnectionEpoch(), Outcome: remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED, InventoryWatermark: 4}
 	switch value := command.GetCommand().(type) {
 	case *remotev1.ControllerCommand_EnsureAllocation:
-		allocation := &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Generation: value.EnsureAllocation.GetGeneration(), ResourcesV2: value.EnsureAllocation.GetResourcesV2(), EgressMode: value.EnsureAllocation.GetEgressMode(), Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}
+		allocation := &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Generation: value.EnsureAllocation.GetGeneration(), Limits: value.EnsureAllocation.GetLimits(), EgressMode: value.EnsureAllocation.GetEgressMode(), Revision: 5, State: remotev1.AllocationState_ALLOCATION_STATE_READY}
 		for _, existing := range stream.hello.GetInventory() {
 			if existing.GetAllocationId() == allocation.GetAllocationId() {
 				allocation.Generation = existing.GetGeneration()
@@ -81,7 +80,7 @@ func (stream *referenceControlStream) Send(message *remotev1.ControllerControlMe
 	case *remotev1.ControllerCommand_OpenSession:
 		result.Result = &remotev1.CommandResult_SessionReady{SessionReady: &remotev1.SessionReady{AllocationId: value.OpenSession.GetAllocationId(), AllocationGeneration: value.OpenSession.GetAllocationGeneration(), TunnelNonce: "nonce"}}
 	}
-	stream.responses <- &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: result}}
+	stream.responses <- &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_Result{Result: result}}
 	return nil
 }
 
@@ -92,8 +91,8 @@ func TestReferenceControllerReconcilesEmptyAndRestartedInventory(t *testing.T) {
 		commands  int
 	}{
 		{name: "empty inventory", commands: 4},
-		{name: "retained inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Generation: 2, Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_RETAINED}, {AllocationId: "ephemeral-task", Generation: 3, Revision: 4, State: hostv1.AllocationState_ALLOCATION_STATE_RETAINED}}, commands: 4},
-		{name: "active inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Generation: 2, Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}, {AllocationId: "ephemeral-task", Generation: 3, Revision: 5, State: hostv1.AllocationState_ALLOCATION_STATE_READY}}, commands: 4},
+		{name: "retained inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Generation: 2, Revision: 4, State: remotev1.AllocationState_ALLOCATION_STATE_RETAINED}, {AllocationId: "ephemeral-task", Generation: 3, Revision: 4, State: remotev1.AllocationState_ALLOCATION_STATE_RETAINED}}, commands: 4},
+		{name: "active inventory", inventory: []*remotev1.Allocation{{AllocationId: "durable-service", Generation: 2, Revision: 5, State: remotev1.AllocationState_ALLOCATION_STATE_READY}, {AllocationId: "ephemeral-task", Generation: 3, Revision: 5, State: remotev1.AllocationState_ALLOCATION_STATE_READY}}, commands: 4},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -188,7 +187,7 @@ func TestRequireCoreDumpsDisabled(t *testing.T) {
 	}
 }
 
-// The Host bounds appliance trust on its own clock (docs/trust-service-protocol.md):
+// The Host bounds appliance trust on its own clock (docs/protocols/trust-service.md):
 // anchor remaining and span at most 365 days (+1 minute span), membership at
 // most 30 days. A Guest clock that leads the Host must not exceed them.
 func TestReferenceAuthorityFitsHostTrustBoundsUnderGuestClockLead(t *testing.T) {
@@ -210,11 +209,11 @@ type replayedImportServer struct {
 }
 
 // ImportImage answers a replayed request from its receipt right after the header.
-func (replayedImportServer) ImportImage(stream grpc.ClientStreamingServer[hostv1.ImportImageRequest, hostv1.Image]) error {
+func (replayedImportServer) ImportImage(stream grpc.ClientStreamingServer[hostv1.ImportImageRequest, hostv1.ImportImageResponse]) error {
 	if _, err := stream.Recv(); err != nil {
 		return err
 	}
-	return stream.SendAndClose(&hostv1.Image{Reference: referenceImage})
+	return stream.SendAndClose(&hostv1.ImportImageResponse{Image: &hostv1.Image{Reference: referenceImage}})
 }
 
 func TestReferenceImportAcceptsAReplayedImportResult(t *testing.T) {

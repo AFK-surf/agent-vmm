@@ -12,7 +12,7 @@ import (
 
 func TestCgroupContractWritesPlatformSharingAndHardIsolationFiles(t *testing.T) {
 	root := t.TempDir()
-	contract := resourcev2.Contract{CPUMaxMillis: 2000, MemoryMaxBytes: 2 << 30, PIDMax: 512}
+	contract := resourcev2.Contract{PIDMax: 512}
 	if err := applyResourceCgroupAt(root, "workload", contract); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestResourcePoolsShareVMComputeAndKeepChildPIDLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, namespace := range []string{"workload-a", "system.appliance-a"} {
-		if err := applyResourceCgroupAt(root, namespace, resourcev2.Contract{CPUMaxMillis: 2000, MemoryMaxBytes: 2 << 30, PIDMax: 512}); err != nil {
+		if err := applyResourceCgroupAt(root, namespace, resourcev2.Contract{PIDMax: 512}); err != nil {
 			t.Fatal(err)
 		}
 	}

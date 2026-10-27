@@ -43,8 +43,6 @@ func checkMutationUser(euid int) error {
 // Linux has no shared-Host maintenance journal or publication command.
 func executePlatformCommand(string, serviceRequest, []string) bool { return false }
 
-func acquireMaintenanceMutation(paths, string, string) (func(), error) { return func() {}, nil }
-
 func checkMaintenanceInstallTarget(paths, string) error { return nil }
 
 func (value paths) hostJob() string { return linuxUnitName }
@@ -61,7 +59,7 @@ func renderUnit(value paths) ([]byte, error) {
 	var rendered bytes.Buffer
 	err = parsed.Execute(&rendered, map[string]string{
 		"User": value.service.User, "Group": value.service.Group,
-		"Current": value.app, "State": value.applicationData,
+		"Current": value.app, "State": value.applicationData, "ServiceLogs": value.serviceLogs,
 	})
 	return rendered.Bytes(), err
 }
@@ -121,7 +119,12 @@ func reconcileService(ctx context.Context, value paths, _ bool) error {
 	if bytes.Equal(installed, desired) && currentContentID(value) == contentID && facts.Running {
 		return persistServiceConfig(value, true)
 	}
-	if facts.Loaded {
+	releaseChanged := currentContentID(value) != contentID
+	if releaseChanged && facts.Loaded {
+		if err := drainService(ctx, value); err != nil {
+			return err
+		}
+	} else if facts.Loaded {
 		if err := runCommand(ctx, "systemctl", "stop", value.hostJob()); err != nil {
 			return fmt.Errorf("host service could not be stopped before reload: %w", err)
 		}
@@ -154,7 +157,7 @@ func drainService(ctx context.Context, value paths) error {
 		return fmt.Errorf("host service status could not be read before drain: %w", err)
 	}
 	if facts.Running {
-		if err := drainVMForUpdate(ctx, value, newOperationID("update-drain")); err != nil {
+		if err := value.serviceOwner().drainVM(ctx, value, newOperationID("update-drain")); err != nil {
 			return err
 		}
 	}
@@ -187,7 +190,7 @@ func removeService(ctx context.Context, value paths, purge bool) error {
 	}
 	_ = os.Remove(value.serviceConfigFile)
 	if purge {
-		if err := os.RemoveAll(value.applicationData); err != nil {
+		if err := removeHostData(value); err != nil {
 			return errors.New("application data could not be removed")
 		}
 	}
@@ -244,14 +247,14 @@ func validatePreparedUpdate(value paths, sourceApp string) error {
 // updateApplication installs the prepared release and switches the current
 // link. The state directory is never part of the release.
 func updateApplication(value paths, sourceApp, targetReleaseID, requestID string) error {
-	return updateApplicationWith(value, sourceApp, targetReleaseID, requestID, linuxUpdateActions(value))
+	return updateApplicationWith(value, sourceApp, targetReleaseID, requestID, linuxUpdateActions(value, targetReleaseID))
 }
 
-func linuxUpdateActions(value paths) updateApplicationActions {
+func linuxUpdateActions(value paths, targetReleaseID string) updateApplicationActions {
 	current := value
 	current.source = value.app
 	return updateApplicationActions{
-		releaseID: func(directory string, _ bool) (string, error) { return ReleaseID(directory) },
+		releaseID: func(directory string) (string, error) { return ReleaseID(directory) },
 		drain: func(value paths) error {
 			return withHostStopTimeout(func(ctx context.Context) error { return drainService(ctx, value) })
 		},
@@ -260,12 +263,15 @@ func linuxUpdateActions(value paths) updateApplicationActions {
 			if err != nil {
 				return err
 			}
+			if release, err := ReleaseID(filepath.Join(value.installRoot, contentID)); err != nil || release != targetReleaseID {
+				return errors.New("copied Host release does not match the selected target")
+			}
 			return switchCurrent(value, contentID)
 		},
 		repair: func(paths) error {
 			return withHostStopTimeout(func(ctx context.Context) error { return reconcileService(ctx, current, true) })
 		},
-		startVM: ensureVMStarted,
+		startVM: ensureVMStartedContext,
 		remove: func(source string) error {
 			if err := os.RemoveAll(source); err != nil {
 				return err

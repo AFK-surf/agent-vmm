@@ -28,6 +28,9 @@ func TestWriteManifestProducesOnlyCanonicalArtifact(t *testing.T) {
 	if manifest.GetProductId() != "product" || manifest.GetImageManifestDigest() != digest {
 		t.Fatalf("manifest identity = product %q digest %q", manifest.GetProductId(), manifest.GetImageManifestDigest())
 	}
+	if len(manifest.GetRequestedFrontends()) != 0 {
+		t.Fatal("generic build added an undeclared frontend")
+	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		t.Fatal(err)

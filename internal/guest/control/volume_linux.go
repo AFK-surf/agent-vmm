@@ -8,11 +8,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/atomicfile"
 	"github.com/containerd/errdefs"
 )
 
@@ -29,7 +31,10 @@ func (r *Runtime) CreateVolume(ctx context.Context, namespaceID, volumeID string
 	if requestedMode != nil && *requestedMode & ^uint32(0o1777) != 0 {
 		return nil, fmt.Errorf("mode must contain only permission bits and the sticky bit")
 	}
-	unlock := r.lockNamespace(namespaceID)
+	unlock, err := r.lockNamespace(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
 	if err := r.namespaceExists(ctx, namespaceID); err != nil {
 		return nil, err
@@ -100,7 +105,11 @@ func initializeVolumeDirectory(path string, mode uint32, ownerUID, ownerGID *uin
 	if err := os.Rename(staging, path); err != nil {
 		return err
 	}
-	return nil
+	directory, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	return errors.Join(directory.Sync(), directory.Close())
 }
 
 func cleanupVolumeStaging() error {
@@ -146,7 +155,7 @@ func (r *Runtime) DeleteVolume(ctx context.Context, namespaceID, volumeID, expec
 	if err := validateID("volume_id", volumeID); err != nil {
 		return err
 	}
-	unlock, err := r.lockVolumeGeneration(namespaceID, volumePath(namespaceID, volumeID), expectedGenerationID)
+	unlock, err := r.lockVolumeGeneration(ctx, namespaceID, volumePath(namespaceID, volumeID), expectedGenerationID)
 	if err != nil {
 		return err
 	}
@@ -175,8 +184,11 @@ func (r *Runtime) DeleteVolume(ctx context.Context, namespaceID, volumeID, expec
 	return nil
 }
 
-func (r *Runtime) lockVolumeGeneration(namespaceID, path, expectedGenerationID string) (func(), error) {
-	unlock := r.lockNamespace(namespaceID)
+func (r *Runtime) lockVolumeGeneration(ctx context.Context, namespaceID, path, expectedGenerationID string) (func(), error) {
+	unlock, err := r.lockNamespace(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
 	if expectedGenerationID != "" {
 		if err := requireVolumeGeneration(path, expectedGenerationID); err != nil {
 			unlock()
@@ -212,28 +224,7 @@ func replaceVolumeGenerationID(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(marker), ".agent-vmm-generation-")
-	if err != nil {
-		return "", err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if _, err := temporary.WriteString(value + "\n"); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if err := temporary.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Rename(temporaryPath, marker); err != nil {
+	if err := atomicfile.ReplaceFile(marker, []byte(value+"\n"), 0600); err != nil {
 		return "", err
 	}
 	return value, nil
@@ -248,29 +239,8 @@ func backfillVolumeGenerationID(path string, before os.FileInfo) (string, error)
 	if err != nil {
 		return "", err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(marker), ".agent-vmm-generation-")
-	if err != nil {
-		return "", err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if _, err := temporary.WriteString(value + "\n"); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return "", err
-	}
-	if err := temporary.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Link(temporaryPath, marker); err != nil {
-		if errors.Is(err, os.ErrExist) {
+	if err := atomicfile.PublishOnce(marker, []byte(value+"\n"), 0600); err != nil {
+		if errors.Is(err, fs.ErrExist) {
 			return readVolumeGenerationID(marker)
 		}
 		return "", err
@@ -281,14 +251,6 @@ func backfillVolumeGenerationID(path string, before os.FileInfo) (string, error)
 			return "", err
 		}
 		return "", errors.New("volume changed while its generation marker was created")
-	}
-	directory, err := os.Open(filepath.Dir(marker))
-	if err != nil {
-		return "", err
-	}
-	defer directory.Close()
-	if err := directory.Sync(); err != nil {
-		return "", err
 	}
 	return value, nil
 }
@@ -323,4 +285,22 @@ func requireVolumeGeneration(path, expectedGenerationID string) error {
 		return failedPrecondition("volume generation changed")
 	}
 	return nil
+}
+
+func volumeGenerationID(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("volume incarnation is unavailable")
+	}
+	value, err := readVolumeGenerationID(volumeGenerationMarkerPath(path))
+	if err == nil {
+		return value, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return backfillVolumeGenerationID(path, info)
 }

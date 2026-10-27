@@ -15,11 +15,11 @@ import (
 
 type recordingControlStream struct {
 	mu       sync.Mutex
-	messages []*remotev1.HostControlMessage
+	messages []*remotev1.ConnectRequest
 	sent     chan struct{}
 }
 
-func (stream *recordingControlStream) Send(message *remotev1.HostControlMessage) error {
+func (stream *recordingControlStream) Send(message *remotev1.ConnectRequest) error {
 	stream.mu.Lock()
 	stream.messages = append(stream.messages, message)
 	stream.mu.Unlock()
@@ -75,7 +75,7 @@ func TestControlWriterSerializesConcurrentSends(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			if err := writer.Send(ctx, &remotev1.HostControlMessage{}); err != nil {
+			if err := writer.Send(ctx, &remotev1.ConnectRequest{}); err != nil {
 				t.Errorf("Send error = %v", err)
 			}
 		}()

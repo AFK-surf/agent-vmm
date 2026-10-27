@@ -1,4 +1,5 @@
-// Derived from tinyrange/cc, commit eed53ffb414a8bebcbb1d7934fab00558d78df00.
+// SPDX-License-Identifier: Apache-2.0
+// Derived from tinyrange/cc commit eed53ffb414a8bebcbb1d7934fab00558d78df00; modified for agent-vmm.
 // Licensed under the Apache License, Version 2.0; see ../LICENSE-cc.txt.
 package virtio
 

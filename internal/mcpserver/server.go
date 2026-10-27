@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -30,6 +29,8 @@ type Adapter struct {
 	draining  atomic.Bool
 }
 
+const SourceURL = "https://github.com/AFK-surf/agent-vmm"
+
 func New(runtime hostv1.AgentRuntimeServiceClient, cleanup CleanupOwner, logger *slog.Logger) *Adapter {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, nil))
@@ -39,7 +40,7 @@ func New(runtime hostv1.AgentRuntimeServiceClient, cleanup CleanupOwner, logger 
 }
 
 func (adapter *Adapter) Server() *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "agent-vmm-mcp", Version: "1"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "agent-vmm-mcp", Version: "1", WebsiteURL: SourceURL}, &mcp.ServerOptions{
 		Logger:       adapter.logger,
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
@@ -171,15 +172,11 @@ func mapError(err error) ToolError {
 	case code == codes.AlreadyExists:
 		result.Code, result.Message = "ALREADY_EXISTS", "resource already exists"
 	case code == codes.FailedPrecondition:
-		result.Code, result.Message = reasonFromStatus(err, "FAILED_PRECONDITION"), "runtime precondition failed"
+		result.Code, result.Message = "FAILED_PRECONDITION", "runtime precondition failed"
 	case code == codes.PermissionDenied || code == codes.Unauthenticated:
 		result.Code, result.Message = "PERMISSION_DENIED", "operation is not permitted"
 	case code == codes.Internal || code == codes.Unknown:
-		// Host and guest interceptors attach a structured reason to most
-		// failures, but a low-level storage or transport error can still arrive
-		// as plain Internal. Keep the MCP contract machine-readable instead of
-		// exposing a bare INTERNAL result.
-		result.Code, result.Message = "RUNTIME_OPERATION_FAILED", "runtime operation failed"
+		result.Code, result.Message = "INTERNAL", "runtime operation failed"
 	case code == codes.ResourceExhausted:
 		result.Code, result.Message = "RESOURCE_EXHAUSTED", "resource limit exceeded"
 	case code == codes.Aborted:
@@ -187,14 +184,15 @@ func mapError(err error) ToolError {
 	case code == codes.Unavailable:
 		result.Code, result.Message, result.Retryable = "UNAVAILABLE", "runtime is unavailable", true
 	}
+	result.Retryable = code == codes.Unavailable
+	if reason, ok := hostv1.ErrorReasonOf(err); ok {
+		result.Code = strings.TrimPrefix(reason.String(), "ERROR_REASON_")
+		result.Message = grpcStatus.Message()
+	}
 	for _, detail := range grpcStatus.Details() {
 		switch value := detail.(type) {
-		case *errdetails.ErrorInfo:
-			if allowedRuntimeReason(value.GetReason()) {
-				result.Code = value.GetReason()
-				result.Message = grpcStatus.Message()
-				result.Retryable = retryableRuntimeReason(value.GetReason()) || result.Retryable
-			}
+		case *errdetails.RetryInfo:
+			result.Retryable = true
 		case *errdetails.ResourceInfo:
 			result.Resource = &Resource{Kind: value.GetResourceType(), ID: value.GetResourceName()}
 		}
@@ -228,36 +226,6 @@ func invalidArgumentMessage(value *status.Status) string {
 		return value.Message()
 	}
 	return "request is invalid"
-}
-
-func allowedRuntimeReason(value string) bool {
-	switch value {
-	case "IMAGE_REFERENCE_INVALID", "IMAGE_IMPORT_REQUIRED", "IMAGE_RESOLVE_FAILED", "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_PLATFORM_UNAVAILABLE", "IMAGE_BLOB_FETCH_FAILED", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_DOWNLOAD_TIMEOUT", "IMAGE_REGISTRY_RATE_LIMITED", "IMAGE_UNPACK_FAILED", "IMAGE_METADATA_FAILED", "IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT", "CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "CONTAINER_GENERATION_CONFLICT", "EXEC_START_FAILED", "PID_LIMIT_EXCEEDED", "LOG_CURSOR_STALE", "IMAGE_NOT_FOUND", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED", "ENVIRONMENT_INVALID", "RUNTIME_OPERATION_FAILED", "RUNTIME_PRECONDITION_FAILED", "SOURCE_CONTAINER_INSTANCE_STALE", "DESTINATION_CONTAINER_INSTANCE_STALE", "SERVICE_EXPORT_NOT_FOUND", "SERVICE_EXPORT_ENVIRONMENT_NOT_FOUND", "CROSS_DOMAIN_SERVICE_ROUTE", "REMOTE_SERVICE_TRANSPORT_UNAVAILABLE", "DESTINATION_ENDPOINT_STALE", "ROUTE_CAPABILITY_DENIED", "SERVICE_PROJECTION_APPLY_FAILED", "SERVICE_PROJECTION_DELETE_FAILED", "SERVICE_ROUTE_APPLY_FAILED", "SERVICE_EXPORT_INVALIDATION_FAILED", "SERVICE_EXPORT_REVISION_CONFLICT", "SERVICE_IMPORT_NOT_FOUND", "SERVICE_IMPORT_REVISION_CONFLICT", "SERVICE_IMPORT_PERSIST_FAILED", "SERVICE_IMPORT_ENVIRONMENT_UNAVAILABLE", "PERSONAL_ROUTE_DESTINATION_INVALID", "PERSONAL_ROUTE_REQUEST_DENIED", "PERSONAL_ROUTE_RESULT_UNKNOWN", "DEVICE_IDENTITY_UNAVAILABLE", "TRUST_UNAVAILABLE":
-		return true
-	default:
-		return false
-	}
-}
-
-func retryableRuntimeReason(value string) bool {
-	switch value {
-	case "IMAGE_REGISTRY_UNAVAILABLE", "IMAGE_MANIFEST_FETCH_FAILED", "IMAGE_BLOB_FETCH_FAILED", "IMAGE_AUTH_UNAVAILABLE", "IMAGE_DOWNLOAD_INTERRUPTED", "IMAGE_DOWNLOAD_TIMEOUT", "IMAGE_REGISTRY_RATE_LIMITED":
-		return true
-	default:
-		return false
-	}
-}
-
-func reasonFromStatus(err error, defaultReason string) string {
-	for _, detail := range status.Convert(err).Details() {
-		text := fmt.Sprint(detail)
-		for _, reason := range []string{"CONTAINER_NOT_RUNNING", "CONTAINER_RUNNING", "CONTAINER_GENERATION_CONFLICT", "EXEC_START_FAILED", "PID_LIMIT_EXCEEDED", "LOG_CURSOR_STALE", "IMAGE_NOT_FOUND", "IMAGE_IN_USE", "IMAGE_GENERATION_CONFLICT", "IMAGE_DIGEST_CONFLICT", "VOLUME_MOUNTED", "PLAN_STALE", "LEASE_REVOKED", "ALLOCATION_RETAINED", "ENVIRONMENT_INVALID", "RUNTIME_OPERATION_FAILED", "SOURCE_CONTAINER_INSTANCE_STALE", "DESTINATION_CONTAINER_INSTANCE_STALE", "SERVICE_EXPORT_NOT_FOUND", "SERVICE_EXPORT_ENVIRONMENT_NOT_FOUND", "CROSS_DOMAIN_SERVICE_ROUTE", "REMOTE_SERVICE_TRANSPORT_UNAVAILABLE", "DESTINATION_ENDPOINT_STALE", "ROUTE_CAPABILITY_DENIED", "SERVICE_PROJECTION_APPLY_FAILED", "SERVICE_PROJECTION_DELETE_FAILED", "SERVICE_ROUTE_APPLY_FAILED", "SERVICE_EXPORT_INVALIDATION_FAILED", "SERVICE_EXPORT_REVISION_CONFLICT", "SERVICE_IMPORT_NOT_FOUND", "SERVICE_IMPORT_REVISION_CONFLICT", "SERVICE_IMPORT_PERSIST_FAILED", "SERVICE_IMPORT_ENVIRONMENT_UNAVAILABLE", "PERSONAL_ROUTE_DESTINATION_INVALID", "PERSONAL_ROUTE_REQUEST_DENIED", "PERSONAL_ROUTE_RESULT_UNKNOWN", "DEVICE_IDENTITY_UNAVAILABLE", "TRUST_UNAVAILABLE"} {
-			if strings.Contains(text, reason) {
-				return reason
-			}
-		}
-	}
-	return defaultReason
 }
 
 func pageBounds(total, requested int, cursor string) (int, int, string, error) {

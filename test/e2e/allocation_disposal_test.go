@@ -4,6 +4,10 @@ package e2e
 
 import (
 	"context"
+	"net"
+	"testing"
+	"time"
+
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
@@ -12,9 +16,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"net"
-	"testing"
-	"time"
 )
 
 // Only this harness's temporary Host directory and newly allocated VM disk are targets.
@@ -40,7 +41,7 @@ func TestAllocationDisposalE2E(t *testing.T) {
 		endpoint, roots, stopServer := startRemoteController(t, controller)
 		t.Cleanup(stopServer)
 		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
-		registration, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: id, RegistrationId: id, Endpoint: endpoint, DisplayName: id, ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+		registration, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: id, RegistrationId: id, Endpoint: endpoint, DisplayName: id, Pool: pool})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -50,7 +51,7 @@ func TestAllocationDisposalE2E(t *testing.T) {
 		run := func() context.CancelFunc {
 			connectorContext, stop := context.WithCancel(ctx)
 			go func() {
-				_ = remoteconnector.Run(connectorContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: id, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: &e2eCredentialStore{value: []byte("remote-e2e")}, TLSRoots: roots})
+				_ = remoteconnector.Run(connectorContext, remoteconnector.Config{RegistrationID: id, RemoteComputeSocket: harness.remoteComputeSocket, Transport: remoteconnector.ExternalTransport{Endpoint: endpoint, Credentials: &e2eCredentialStore{value: []byte("remote-e2e")}, Roots: roots}})
 			}()
 			return stop
 		}
@@ -94,7 +95,7 @@ func TestAllocationDisposalE2E(t *testing.T) {
 	if allocation == nil {
 		t.Fatal("exact target missing")
 	}
-	environment, err := harness.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: allocation.GetEnvironmentId()})
+	environment, err := harness.client.GetEnvironment(ctx, &hostv1.OperatorServiceGetEnvironmentRequest{EnvironmentId: allocation.GetEnvironmentId()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestAllocationDisposalE2E(t *testing.T) {
 	for {
 		result := dispatch()
 		if result.GetOutcome() == remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
-			if result.GetAllocation().GetState() != hostv1.AllocationState_ALLOCATION_STATE_DISCARDED {
+			if result.GetAllocation().GetState() != remotev1.AllocationState_ALLOCATION_STATE_DISCARDED {
 				t.Fatalf("false completion=%v", result)
 			}
 			break
@@ -159,7 +160,7 @@ func TestAllocationDisposalE2E(t *testing.T) {
 			t.Fatal("persistent cleanup did not converge")
 		}
 	}
-	if _, err := harness.client.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{EnvironmentId: environment.GetEnvironment().GetId()}); status.Code(err) != codes.NotFound {
+	if _, err := harness.client.GetEnvironment(ctx, &hostv1.OperatorServiceGetEnvironmentRequest{EnvironmentId: environment.GetEnvironment().GetId()}); status.Code(err) != codes.NotFound {
 		t.Fatalf("deleted target readable: %v", err)
 	}
 	// Check actual bytes in both neighbors, not just their resource-row survival.

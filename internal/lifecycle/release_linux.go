@@ -73,7 +73,7 @@ func readReleaseManifest(directory string) (releaseManifest, string, error) {
 }
 
 // copyRelease copies every listed file and rejects a source tree that has a
-// different file set or different file content. It syncs every copied
+// different file set. It syncs every copied
 // directory so a published release survives a power loss.
 func copyRelease(source, target string, manifest releaseManifest) error {
 	files := make(map[string]releaseFile, len(manifest.Files))
@@ -96,14 +96,14 @@ func copyRelease(source, target string, manifest releaseManifest) error {
 		case !entry.Type().IsRegular():
 			return fmt.Errorf("release entry %s is not a regular file", relative)
 		case relative == ReleaseManifestName:
-			return copyReleaseFile(path, filepath.Join(target, relative), releaseFile{}, false)
+			return copyReleaseFile(path, filepath.Join(target, relative), releaseFile{})
 		}
 		file, listed := files[relative]
 		if !listed {
 			return fmt.Errorf("release entry %s is not listed in the release inventory", relative)
 		}
 		delete(files, relative)
-		return copyReleaseFile(path, filepath.Join(target, relative), file, true)
+		return copyReleaseFile(path, filepath.Join(target, relative), file)
 	})
 	if err != nil {
 		return err
@@ -128,7 +128,7 @@ func syncDirectory(path string) error {
 	return errors.Join(syncErr, directory.Close())
 }
 
-func copyReleaseFile(source, target string, expected releaseFile, verify bool) error {
+func copyReleaseFile(source, target string, expected releaseFile) error {
 	input, err := os.Open(source)
 	if err != nil {
 		return err
@@ -142,15 +142,11 @@ func copyReleaseFile(source, target string, expected releaseFile, verify bool) e
 	if err != nil {
 		return err
 	}
-	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(output, hash), input)
+	_, copyErr := io.Copy(output, input)
 	syncErr := output.Sync()
 	closeErr := output.Close()
 	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
 		return err
-	}
-	if verify && (written != expected.Size || hex.EncodeToString(hash.Sum(nil)) != expected.SHA256) {
-		return fmt.Errorf("release file %s does not match the release inventory", expected.Path)
 	}
 	return nil
 }

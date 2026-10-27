@@ -44,7 +44,7 @@ func check(err error) {
 
 func applianceStatus(arguments []string) {
 	flags := flag.NewFlagSet("appliance status", flag.ExitOnError)
-	socket := flags.String("operator-socket", filepath.Join(platformDataDirectory(os.Getenv("HOME")), "operator.sock"), "Agent VMM operator socket")
+	socket := flags.String("operator-socket", filepath.Join(serviceDataDirectory(os.Getenv("HOME")), "operator.sock"), "Agent VMM operator socket")
 	flags.Parse(arguments)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -53,13 +53,13 @@ func applianceStatus(arguments []string) {
 	}))
 	check(err)
 	defer connection.Close()
-	response, err := appliancev1.NewApplianceAdminServiceClient(connection).List(ctx, &appliancev1.ListAppliancesRequest{})
+	response, err := appliancev1.NewApplianceAdminServiceClient(connection).ListAppliances(ctx, &appliancev1.ListAppliancesRequest{})
 	check(err)
 	for _, appliance := range response.GetAppliances() {
 		health := appliance.GetHealth()
 		fmt.Printf("id=%s state=%s channel=%s enabled=%t healthy=%t status=%s boot=%s container=%s\n", appliance.GetInstallationId(), appliance.GetApplianceState(), appliance.GetChannelState(), appliance.GetEnabled(), health.GetHealthy(), health.GetStatus(), appliance.GetBootId(), appliance.GetContainerInstance())
 		for _, frontend := range appliance.GetFrontends() {
-			fmt.Printf("  frontend=%s endpoint=%s available=%t\n", frontend.GetName(), frontend.GetEndpoint(), frontend.GetAvailable())
+			fmt.Printf("  frontend=%s endpoint=%s available=%t error_reason=%s\n", frontend.GetName(), frontend.GetEndpoint(), frontend.GetAvailable(), frontend.GetErrorReason())
 		}
 	}
 }

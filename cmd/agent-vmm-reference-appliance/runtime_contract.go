@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -57,15 +58,17 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	if _, err := durable.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: "start-service", ContainerId: service.GetId(), ExpectedGenerationId: service.GetGenerationId()}); err != nil {
+	started, err := durable.StartContainer(ctx, &hostv1.StartContainerRequest{RequestId: "start-service", ContainerId: service.GetId(), ExpectedGenerationId: service.GetGenerationId()})
+	if err != nil {
 		return err
 	}
+	service = started.GetContainer()
 	time.Sleep(100 * time.Millisecond)
 	sidecar, err := createReferenceContainer(ctx, durable, "sidecar", "sidecar", mount)
 	if err != nil {
 		return err
 	}
-	if _, err := durable.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: "start-sidecar", ContainerId: sidecar.GetId(), ExpectedGenerationId: sidecar.GetGenerationId()}); err != nil {
+	if _, err := durable.StartContainer(ctx, &hostv1.StartContainerRequest{RequestId: "start-sidecar", ContainerId: sidecar.GetId(), ExpectedGenerationId: sidecar.GetGenerationId()}); err != nil {
 		return err
 	}
 	cycle := fmt.Sprint(cursor.session.Hello().GetConnectionEpoch())
@@ -73,34 +76,35 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	source, err := createReferenceContainer(ctx, task, "route-client", "task", nil)
+	source, err := createReferenceContainer(ctx, task, "route-client", "idle", nil)
 	if err != nil {
 		return err
 	}
-	environment, err := task.GetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+	startedSource, err := task.StartContainer(ctx, &hostv1.StartContainerRequest{RequestId: "start-route-client", ContainerId: source.GetId(), ExpectedGenerationId: source.GetGenerationId()})
 	if err != nil {
 		return err
 	}
-	capability, err := controller.routeCapability(exported, allocations["ephemeral-task"], environment.GetEnvironment().GetPolicyRevision())
+	source = startedSource.GetContainer()
+	environment, err := task.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{})
+	if err != nil {
+		return err
+	}
+	capability, err := controller.routeCapability(exported.GetExport(), allocations["ephemeral-task"], environment.GetEnvironment().GetPolicyRevision())
 	if err != nil {
 		return err
 	}
 	imported, err := task.CreateServiceImport(ctx, &hostv1.CreateServiceImportRequest{RequestId: "reference-import-" + cycle, SourceContainerId: source.GetId(), SourceContainerInstanceId: source.GetInstanceId(),
-		DestinationDeviceId: capability.GetDestinationDeviceId(), DestinationExportId: exported.GetExportId(), VirtualServiceName: "reference-service", Capability: capability})
+		DestinationDeviceId: capability.GetDestinationDeviceId(), DestinationExportId: exported.GetExport().GetExportId(), VirtualServiceName: "reference-service", Capability: capability})
 	if err != nil {
 		return err
 	}
-	if _, err := task.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: "start-route-client", ContainerId: source.GetId(), ExpectedGenerationId: source.GetGenerationId()}); err != nil {
+	if err := runReferenceRouteTask(ctx, task, source, cycle); err != nil {
 		return err
 	}
-	wait, err := task.WaitContainer(ctx, &hostv1.ContainerRequest{ContainerId: source.GetId()})
-	if err != nil || wait.GetExitCode() != 0 {
-		return errors.Join(errors.New("reference service route traffic failed"), err)
-	}
-	if _, err := task.RevokeServiceImport(ctx, &hostv1.RevokeServiceImportRequest{RequestId: "reference-revoke-import-" + cycle, ImportId: imported.GetImportId(), ExpectedRevision: imported.GetRevision()}); err != nil {
+	if _, err := task.RevokeServiceImport(ctx, &hostv1.RevokeServiceImportRequest{RequestId: "reference-revoke-import-" + cycle, ImportId: imported.GetImport().GetImportId(), ExpectedRevision: imported.GetImport().GetRevision()}); err != nil {
 		return err
 	}
-	if _, err := durable.RevokeServiceExport(ctx, &hostv1.RevokeOwnServiceExportRequest{RequestId: "reference-revoke-export-" + cycle, ExportId: exported.GetExportId(), ExpectedRevision: exported.GetRevision()}); err != nil {
+	if _, err := durable.RevokeServiceExport(ctx, &hostv1.RevokeServiceExportRequest{RequestId: "reference-revoke-export-" + cycle, ExportId: exported.GetExport().GetExportId(), ExpectedRevision: exported.GetExport().GetRevision()}); err != nil {
 		return err
 	}
 	if err := taskOwner.Close(); err != nil {
@@ -114,6 +118,36 @@ func (controller referenceController) runReferenceContract(ctx context.Context, 
 	return nil
 }
 
+func runReferenceRouteTask(ctx context.Context, client hostv1.AgentRuntimeServiceClient, source *hostv1.Container, cycle string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stream, err := client.Exec(ctx)
+	if err != nil {
+		return err
+	}
+	deadline, _ := ctx.Deadline()
+	if err := stream.Send(&hostv1.ExecRequest{Event: &hostv1.ExecRequest_Start{Start: &hostv1.ExecStart{RequestId: "reference-route-" + cycle, ContainerId: source.GetId(), ExpectedInstanceId: source.GetInstanceId(), ExecutionId: "reference-route:" + cycle, ExecutionKind: hostv1.ExecutionKind_EXECUTION_KIND_EXEC, ExecutionDeadlineUnixNano: deadline.UnixNano(), Argv: []string{"/usr/bin/reference-workload", "task"}}}}); err != nil {
+		return err
+	}
+	if err := stream.CloseSend(); err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	for {
+		response, err := stream.Recv()
+		if err != nil {
+			return fmt.Errorf("reference service route has no successful exit: %w: %s", err, stderr.String())
+		}
+		stderr.Write(response.GetStderr())
+		if exit, ok := response.GetEvent().(*hostv1.ExecResponse_ExitCode); ok {
+			if exit.ExitCode != 0 {
+				return fmt.Errorf("reference service route exit %d: %s", exit.ExitCode, stderr.String())
+			}
+			return nil
+		}
+	}
+}
+
 func cleanupReferenceTaskAllocation(ctx context.Context, cursor *referenceCommandCursor, allocation *remotev1.Allocation) error {
 	if allocation == nil {
 		return errors.New("ephemeral task allocation is unavailable")
@@ -121,12 +155,12 @@ func cleanupReferenceTaskAllocation(ctx context.Context, cursor *referenceComman
 	if _, err := dispatchReferenceCommand(ctx, cursor, "release-task-allocation", &remotev1.ControllerCommand{TargetRevision: allocation.GetRevision(), Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{AllocationId: allocation.GetAllocationId(), ExpectedRevision: allocation.GetRevision(), ExpectedGeneration: allocation.GetGeneration()}}}); err != nil {
 		return err
 	}
-	planned, err := dispatchReferenceCommand(ctx, cursor, "plan-task-cleanup", &remotev1.ControllerCommand{Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+	planned, err := dispatchReferenceCommand(ctx, cursor, "plan-task-cleanup", &remotev1.ControllerCommand{Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: remotev1.CleanupKind_CLEANUP_KIND_DISCARD}}})
 	if err != nil {
 		return err
 	}
 	plan := planned.GetCleanupPlan()
-	_, err = dispatchReferenceCommand(ctx, cursor, "execute-task-cleanup", &remotev1.ControllerCommand{TargetRevision: plan.GetRevision(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetRevision(), ConfirmedVolumeIds: plan.GetVolumeIds()}}})
+	_, err = dispatchReferenceCommand(ctx, cursor, "execute-task-cleanup", &remotev1.ControllerCommand{TargetRevision: plan.GetRevision(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: remotev1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetRevision(), ConfirmedVolumeIds: plan.GetVolumeIds()}}})
 	return err
 }
 

@@ -3,21 +3,15 @@
 package network
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"sort"
 	"strings"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
-	"github.com/google/nftables"
-	"github.com/google/nftables/binaryutil"
-	"github.com/google/nftables/expr"
-	"github.com/mdlayher/netlink"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -41,7 +35,7 @@ var blockedEgressPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("240.0.0.0/4"),
 }
 
-var remoteServicePrefix = netip.MustParsePrefix("198.19.0.0/16")
+var remoteServicePrefix = netip.MustParsePrefix(egresslink.ServicePrefix)
 
 func blockedEgress(address netip.Addr) bool {
 	for _, prefix := range blockedEgressPrefixes {
@@ -72,8 +66,7 @@ func (m *Manager) ApplyLink(link *vmmdv1.NetworkLink) error {
 			return errors.New("dns alias already exists in source namespace")
 		}
 	}
-	m.links[link.GetId()] = proto.Clone(link).(*vmmdv1.NetworkLink)
-	return m.reconcileLocked()
+	return m.mutateLocked(func(next *state) error { next.links[link.Id] = proto.Clone(link).(*vmmdv1.NetworkLink); return nil })
 }
 
 func (m *Manager) DeleteLink(linkID string) error {
@@ -82,16 +75,14 @@ func (m *Manager) DeleteLink(linkID string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	link := m.links[linkID]
-	if link == nil {
+	return m.mutateLocked(func(next *state) error {
+		link := m.links[linkID]
+		if link != nil {
+			next.revoke(m.selectedEndpoints(link.SourceNamespaceId, link.Source), m.selectedEndpoints(link.DestinationNamespaceId, link.Destination), link.TcpPorts)
+			delete(next.links, linkID)
+		}
 		return nil
-	}
-	delete(m.links, linkID)
-	if err := m.reconcileLocked(); err != nil {
-		m.links[linkID] = link
-		return err
-	}
-	return deleteLinkConntrack(m.selectedEndpoints(link.GetSourceNamespaceId(), link.GetSource()), m.selectedEndpoints(link.GetDestinationNamespaceId(), link.GetDestination()), link.GetTcpPorts())
+	})
 }
 
 // ApplyServiceProjection is the namespace-scoped service projection boundary.
@@ -121,23 +112,10 @@ func (m *Manager) ApplyServiceProjection(projection *vmmdv1.ServiceProjection) e
 			return errors.New("service projection DNS alias already exists")
 		}
 	}
-	m.services[projection.GetId()] = proto.Clone(projection).(*vmmdv1.ServiceProjection)
-	if err := m.reconcileLocked(); err != nil {
-		delete(m.services, projection.GetId())
-		return err
-	}
-	delay := time.Until(time.UnixMilli(projection.GetExpiresUnixMillis()))
-	id, expiry := projection.GetId(), projection.GetExpiresUnixMillis()
-	time.AfterFunc(max(delay, 0), func() {
-		m.mu.RLock()
-		current := m.services[id]
-		shouldDelete := current != nil && current.GetExpiresUnixMillis() == expiry
-		m.mu.RUnlock()
-		if shouldDelete {
-			_ = m.DeleteServiceProjection(id)
-		}
+	return m.mutateLocked(func(next *state) error {
+		next.services[projection.Id] = proto.Clone(projection).(*vmmdv1.ServiceProjection)
+		return nil
 	})
-	return nil
 }
 
 func (m *Manager) ServiceProjectionSourceAddress(id string) (string, error) {
@@ -160,23 +138,14 @@ func (m *Manager) DeleteServiceProjection(id string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	projection := m.services[id]
-	if projection == nil {
+	return m.mutateLocked(func(next *state) error {
+		projection := m.services[id]
+		if projection != nil {
+			m.revokeProjectionLocked(next, projection)
+			delete(next.services, id)
+		}
 		return nil
-	}
-	delete(m.services, id)
-	if err := m.reconcileLocked(); err != nil {
-		m.services[id] = projection
-		return err
-	}
-	if !projection.GetRemote() && projection.GetSourceNamespaceId() == projection.GetDestinationNamespaceId() {
-		return nil
-	}
-	return deleteLinkConntrack(
-		m.selectedEndpoints(projection.GetSourceNamespaceId(), &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_ContainerIds{ContainerIds: &vmmdv1.ContainerIDList{Ids: []string{projection.GetSourceContainerId()}}}}),
-		m.serviceDestinationEndpoints(projection),
-		[]uint32{projection.GetDestinationPort()},
-	)
+	})
 }
 
 func validateServiceProjection(value *vmmdv1.ServiceProjection) error {
@@ -198,7 +167,7 @@ func validateServiceProjection(value *vmmdv1.ServiceProjection) error {
 		return errors.New("service projection expiry must be in the future")
 	}
 	alias := value.GetDnsAlias()
-	if alias == "" || len(alias) > 63 || strings.Trim(alias, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" || alias[0] == '-' || alias[len(alias)-1] == '-' {
+	if !validDNSLabel(alias) {
 		return errors.New("service projection DNS alias must be a lowercase DNS label")
 	}
 	return nil
@@ -239,7 +208,7 @@ func validateLink(link *vmmdv1.NetworkLink) error {
 		seen[port] = true
 	}
 	alias := link.GetDnsAlias()
-	if alias == "" || len(alias) > 63 || strings.Trim(alias, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" || alias[0] == '-' || alias[len(alias)-1] == '-' {
+	if !validDNSLabel(alias) {
 		return errors.New("dns_alias must be a lowercase DNS label")
 	}
 	return nil
@@ -272,7 +241,10 @@ func validateSelector(selector *vmmdv1.ContainerSelector) error {
 }
 
 func (m *Manager) selectedEndpoints(namespaceID string, selector *vmmdv1.ContainerSelector) []Endpoint {
-	all := m.endpoints[namespaceID]
+	return selectEndpoints(m.endpoints[namespaceID], selector)
+}
+
+func selectEndpoints(all map[string]Endpoint, selector *vmmdv1.ContainerSelector) []Endpoint {
 	result := make([]Endpoint, 0, len(all))
 	if selector.GetAllContainers() {
 		for _, endpoint := range all {
@@ -289,220 +261,6 @@ func (m *Manager) selectedEndpoints(namespaceID string, selector *vmmdv1.Contain
 	return result
 }
 
-func (m *Manager) reconcileLocked() error {
-	deadline := time.Now().Add(5 * time.Second)
-	connection, err := nftables.New(nftables.AsLasting(), nftables.WithSockOptions(func(socket *netlink.Conn) error {
-		// Rule creation returns ACKs and full rule echoes before Flush reads them.
-		if err := socket.SetReadBuffer(4 << 20); err != nil {
-			return err
-		}
-		if err := socket.SetReadDeadline(deadline); err != nil {
-			return err
-		}
-		return socket.SetWriteDeadline(deadline)
-	}))
-	if err != nil {
-		return err
-	}
-	defer connection.CloseLasting()
-	tables, err := connection.ListTables()
-	if err != nil {
-		return err
-	}
-	for _, table := range tables {
-		if table.Name == "agent-vmm" && (table.Family == nftables.TableFamilyINet || table.Family == nftables.TableFamilyIPv4) {
-			connection.DelTable(table)
-		}
-	}
-	filterTable := connection.AddTable(&nftables.Table{Name: "agent-vmm", Family: nftables.TableFamilyINet})
-	policy := nftables.ChainPolicyDrop
-	forward := connection.AddChain(&nftables.Chain{Name: "forward", Table: filterTable, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &policy})
-	connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: establishedRule()})
-
-	namespaceIDs := make([]string, 0, len(m.namespaces))
-	sets := make(map[string]*nftables.Set)
-	for id := range m.namespaces {
-		namespaceIDs = append(namespaceIDs, id)
-	}
-	sort.Strings(namespaceIDs)
-	for index, id := range namespaceIDs {
-		namespace := m.namespaces[id]
-		set := &nftables.Set{Table: filterTable, Name: fmt.Sprintf("ns%d", index), KeyType: nftables.TypeIPAddr}
-		elements := endpointElements(m.endpoints[id])
-		if err := connection.AddSet(set, elements); err != nil {
-			return err
-		}
-		sets[id] = set
-		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: interfacePairRule(namespace.Bridge, namespace.Bridge, expr.VerdictAccept)})
-
-	}
-
-	linkIDs := make([]string, 0, len(m.links))
-	for id := range m.links {
-		linkIDs = append(linkIDs, id)
-	}
-	sort.Strings(linkIDs)
-	for _, id := range linkIDs {
-		link := m.links[id]
-		sources := selectedElements(m.selectedEndpoints(link.GetSourceNamespaceId(), link.GetSource()))
-		destinations := selectedElements(m.selectedEndpoints(link.GetDestinationNamespaceId(), link.GetDestination()))
-		if len(sources) == 0 || len(destinations) == 0 {
-			continue
-		}
-		sourceSet := &nftables.Set{Table: filterTable, Name: "ls" + shortSetID(id), KeyType: nftables.TypeIPAddr}
-		destinationSet := &nftables.Set{Table: filterTable, Name: "ld" + shortSetID(id), KeyType: nftables.TypeIPAddr}
-		portSet := &nftables.Set{Table: filterTable, Name: "lp" + shortSetID(id), KeyType: nftables.TypeInetService, KeyByteOrder: binaryutil.BigEndian}
-		if err := connection.AddSet(sourceSet, sources); err != nil {
-			return err
-		}
-		if err := connection.AddSet(destinationSet, destinations); err != nil {
-			return err
-		}
-		if err := connection.AddSet(portSet, portElements(link.GetTcpPorts())); err != nil {
-			return err
-		}
-		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: linkRule(sourceSet, destinationSet, portSet)})
-	}
-	serviceIDs := make([]string, 0, len(m.services))
-	for id := range m.services {
-		serviceIDs = append(serviceIDs, id)
-	}
-	sort.Strings(serviceIDs)
-	for _, id := range serviceIDs {
-		service := m.services[id]
-		if service.GetExpiresUnixMillis() <= time.Now().UnixMilli() {
-			continue
-		}
-		if !service.GetRemote() && service.GetSourceNamespaceId() == service.GetDestinationNamespaceId() {
-			continue
-		}
-		sources := selectedElements(m.selectedEndpoints(service.GetSourceNamespaceId(), &vmmdv1.ContainerSelector{Selection: &vmmdv1.ContainerSelector_ContainerIds{ContainerIds: &vmmdv1.ContainerIDList{Ids: []string{service.GetSourceContainerId()}}}}))
-		destinations := selectedElements(m.serviceDestinationEndpoints(service))
-		if len(sources) == 0 || len(destinations) == 0 {
-			continue
-		}
-		sourceSet := &nftables.Set{Table: filterTable, Name: "ss" + shortSetID(id), KeyType: nftables.TypeIPAddr}
-		destinationSet := &nftables.Set{Table: filterTable, Name: "sd" + shortSetID(id), KeyType: nftables.TypeIPAddr}
-		portSet := &nftables.Set{Table: filterTable, Name: "sp" + shortSetID(id), KeyType: nftables.TypeInetService, KeyByteOrder: binaryutil.BigEndian}
-		if err := connection.AddSet(sourceSet, sources); err != nil {
-			return err
-		}
-		if err := connection.AddSet(destinationSet, destinations); err != nil {
-			return err
-		}
-		if err := connection.AddSet(portSet, portElements([]uint32{service.GetDestinationPort()})); err != nil {
-			return err
-		}
-		connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: linkRule(sourceSet, destinationSet, portSet)})
-	}
-
-	for _, id := range namespaceIDs {
-		namespace := m.namespaces[id]
-		set := sets[id]
-		if namespace.EgressMode == vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET || namespace.LANEgress {
-			for _, blocked := range blockedEgressPrefixes {
-				if namespace.LANEgress && blocked.Addr().IsPrivate() {
-					continue
-				}
-				connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), prefixDestinationRule(blocked, expr.VerdictDrop)...)})
-			}
-			connection.AddRule(&nftables.Rule{Table: filterTable, Chain: forward, Exprs: append(sourceSetRule(set), outputInterfaceRule(netprotocol.TunName, expr.VerdictAccept)...)})
-		}
-	}
-
-	return connection.Flush()
-}
-
-func endpointElements(endpoints map[string]Endpoint) []nftables.SetElement {
-	values := make([]Endpoint, 0, len(endpoints))
-	for _, endpoint := range endpoints {
-		values = append(values, endpoint)
-	}
-	return selectedElements(values)
-}
-
-func selectedElements(endpoints []Endpoint) []nftables.SetElement {
-	elements := make([]nftables.SetElement, 0, len(endpoints))
-	for _, endpoint := range endpoints {
-		elements = append(elements, nftables.SetElement{Key: endpoint.Address.AsSlice()})
-	}
-	return elements
-}
-
-func portElements(ports []uint32) []nftables.SetElement {
-	elements := make([]nftables.SetElement, 0, len(ports))
-	for _, port := range ports {
-		value := make([]byte, 2)
-		binary.BigEndian.PutUint16(value, uint16(port))
-		elements = append(elements, nftables.SetElement{Key: value})
-	}
-	return elements
-}
-
-func shortSetID(id string) string {
-	var value uint32 = 2166136261
-	for i := range len(id) {
-		value = (value ^ uint32(id[i])) * 16777619
-	}
-	return fmt.Sprintf("%08x", value)
-}
-
-func establishedRule() []expr.Any {
-	state := expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED
-	return []expr.Any{
-		&expr.Ct{Register: 1, Key: expr.CtKeySTATE},
-		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: binaryutil.NativeEndian.PutUint32(state), Xor: binaryutil.NativeEndian.PutUint32(0)},
-		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: []byte{0, 0, 0, 0}},
-		&expr.Verdict{Kind: expr.VerdictAccept},
-	}
-}
-
-func interfacePairRule(input, output string, verdict expr.VerdictKind) []expr.Any {
-	return []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(input)},
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(output)},
-		&expr.Verdict{Kind: verdict},
-	}
-}
-
-func outputInterfaceRule(output string, verdict expr.VerdictKind) []expr.Any {
-	return []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: interfaceName(output)},
-		&expr.Verdict{Kind: verdict},
-	}
-}
-
-func interfaceName(name string) []byte { value := make([]byte, 16); copy(value, name); return value }
-
-func sourceSetRule(set *nftables.Set) []expr.Any {
-	return []expr.Any{&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, &expr.Lookup{SourceRegister: 1, SetName: set.Name, SetID: set.ID}}
-}
-
-func prefixDestinationRule(prefix netip.Prefix, verdict expr.VerdictKind) []expr.Any {
-	mask := net.CIDRMask(prefix.Bits(), 32)
-	return []expr.Any{
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
-		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: mask, Xor: []byte{0, 0, 0, 0}},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: prefix.Masked().Addr().AsSlice()}, &expr.Verdict{Kind: verdict},
-	}
-}
-
-func prefixSourceRule(prefix netip.Prefix) []expr.Any {
-	mask := net.CIDRMask(prefix.Bits(), 32)
-	return []expr.Any{
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
-		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: mask, Xor: []byte{0, 0, 0, 0}},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: prefix.Masked().Addr().AsSlice()},
-	}
-}
-
-func linkRule(source, destination, ports *nftables.Set) []expr.Any {
-	return []expr.Any{
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, &expr.Lookup{SourceRegister: 1, SetName: source.Name, SetID: source.ID},
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, &expr.Lookup{SourceRegister: 1, SetName: destination.Name, SetID: destination.ID},
-		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{6}},
-		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2}, &expr.Lookup{SourceRegister: 1, SetName: ports.Name, SetID: ports.ID},
-		&expr.Verdict{Kind: expr.VerdictAccept},
-	}
+func validDNSLabel(alias string) bool {
+	return alias != "" && len(alias) <= 63 && strings.Trim(alias, "abcdefghijklmnopqrstuvwxyz0123456789-") == "" && alias[0] != '-' && alias[len(alias)-1] != '-'
 }

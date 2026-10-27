@@ -4,6 +4,7 @@ package network
 
 import (
 	"errors"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -11,13 +12,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 )
 
 const (
-	publicResolver     = netprotocol.VirtualDNS
+	publicResolver     = egresslink.VirtualDNS
 	netnsRoot          = "/run/netns"
 	workloadResolvRoot = "/state/network/resolv"
 	systemResolvRoot   = "/control/network/resolv"
@@ -108,20 +111,25 @@ func orientCounters(counters Counters, swapDirection bool) Counters {
 }
 
 type Manager struct {
-	mu         sync.RWMutex
-	namespaces map[string]Namespace
-	endpoints  map[string]map[string]Endpoint
-	settled    map[string]Counters
-	settledOK  map[string]bool
-	links      map[string]*vmmdv1.NetworkLink
-	services   map[string]*vmmdv1.ServiceProjection
-	dns        map[string]*dnsServer
-	forwards   map[string]map[net.Conn]struct{}
-	closed     bool
+	logger      *slog.Logger
+	mu          sync.RWMutex
+	namespaces  map[string]Namespace
+	endpoints   map[string]map[string]Endpoint
+	settled     map[string]Counters
+	settledOK   map[string]bool
+	links       map[string]*vmmdv1.NetworkLink
+	services    map[string]*vmmdv1.ServiceProjection
+	dns         map[string]*dnsServer
+	forwards    map[string]map[net.Conn]struct{}
+	closed      bool
+	revoking    map[revokedTuple]struct{}
+	expiryTimer *time.Timer
+	lastError   error
+	dnsView     atomic.Pointer[dnsView]
 }
 
-func NewManager() (*Manager, error) {
-	manager := &Manager{
+func NewManager(logger *slog.Logger) (*Manager, error) {
+	manager := &Manager{logger: logger.With("component", "guest-network"),
 		namespaces: make(map[string]Namespace),
 		endpoints:  make(map[string]map[string]Endpoint),
 		settled:    make(map[string]Counters),
@@ -131,6 +139,7 @@ func NewManager() (*Manager, error) {
 		dns:        make(map[string]*dnsServer),
 		forwards:   make(map[string]map[net.Conn]struct{}),
 	}
+	manager.publishDNSLocked()
 	if err := manager.reconcileLocked(); err != nil {
 		return nil, err
 	}
@@ -141,6 +150,9 @@ func (m *Manager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
+	if m.expiryTimer != nil {
+		m.expiryTimer.Stop()
+	}
 	for id, server := range m.dns {
 		server.close(id)
 		delete(m.dns, id)
@@ -158,19 +170,17 @@ func (m *Manager) Close() error {
 }
 
 func (m *Manager) Health() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.closed {
 		return errors.New("network manager is closed")
 	}
 	for id := range m.namespaces {
-		if len(m.endpoints[id]) != 0 {
-			if err := m.startDNSLocked(id); err != nil {
-				return err
-			}
+		if len(m.endpoints[id]) != 0 && m.dns[id] == nil {
+			return errors.New("namespace DNS listener is unavailable")
 		}
 	}
-	return m.reconcileLocked()
+	return m.lastError
 }
 
 func (m *Manager) EnsureNamespace(id, subnet string, egress vmmdv1.EgressMode) error {
@@ -193,52 +203,53 @@ func (m *Manager) EnsureNamespace(id, subnet string, egress vmmdv1.EgressMode) e
 		}
 		namespace.LANEgress = current.LANEgress
 	}
-	m.namespaces[id] = namespace
-	if m.endpoints[id] == nil {
-		m.endpoints[id] = make(map[string]Endpoint)
+	if err := writeResolvConf(id, namespace.Gateway); err != nil {
+		return err
+	}
+	err = m.mutateLocked(func(next *state) error {
+		next.namespaces[id] = namespace
+		if next.endpoints[id] == nil {
+			next.endpoints[id] = make(map[string]Endpoint)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	if _, ok := m.settledOK[id]; !ok {
 		m.settledOK[id] = true
 	}
-	if err := writeResolvConf(id, namespace.Gateway); err != nil {
-		return err
-	}
-	return m.reconcileLocked()
+	return nil
 }
 
 func (m *Manager) DeleteNamespace(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.endpoints[id]) != 0 {
-		return errors.New("namespace still has network endpoints")
+	if err := m.canDeleteNamespaceLocked(id); err != nil {
+		return err
 	}
-	for _, link := range m.links {
-		if link.GetSourceNamespaceId() == id || link.GetDestinationNamespaceId() == id {
-			return errors.New("namespace is referenced by a network link")
-		}
-	}
-	for _, service := range m.services {
-		if service.GetSourceNamespaceId() == id || service.GetDestinationNamespaceId() == id {
-			return errors.New("namespace is referenced by a service projection")
-		}
+	if err := m.mutateLocked(func(next *state) error { delete(next.endpoints, id); delete(next.namespaces, id); return nil }); err != nil {
+		return err
 	}
 	if server := m.dns[id]; server != nil {
 		server.close(id)
 		delete(m.dns, id)
 	}
-	delete(m.endpoints, id)
 	delete(m.settled, id)
 	delete(m.settledOK, id)
-	delete(m.namespaces, id)
 	if err := os.Remove(resolvPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return m.reconcileLocked()
+	return nil
 }
 
 func (m *Manager) CanDeleteNamespace(id string) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.canDeleteNamespaceLocked(id)
+}
+
+func (m *Manager) canDeleteNamespaceLocked(id string) error {
 	if len(m.endpoints[id]) != 0 {
 		return errors.New("namespace still has network endpoints")
 	}
@@ -265,6 +276,9 @@ func writeResolvConf(id string, gateway netip.Addr) error {
 		return err
 	}
 	content := "nameserver " + gateway.String() + "\nsearch " + id + ".agent\noptions ndots:1\n"
+	if current, err := os.ReadFile(path); err == nil && string(current) == content {
+		return nil
+	}
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
@@ -287,6 +301,5 @@ func (m *Manager) SetSystemLAN(id string, allowed bool) error {
 		return errors.New("system namespace does not exist")
 	}
 	namespace.LANEgress = allowed
-	m.namespaces[id] = namespace
-	return m.reconcileLocked()
+	return m.mutateLocked(func(next *state) error { next.namespaces[id] = namespace; return nil })
 }

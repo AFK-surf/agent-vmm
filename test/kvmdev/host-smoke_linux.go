@@ -5,7 +5,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -82,7 +81,7 @@ func runHostSmoke(ctx context.Context, opts hostSmokeOptions) error {
 		return fmt.Errorf("Host VM status: %w", err)
 	}
 	fmt.Printf("Host initial VM state=%s boot=%s\n", vm.GetVm().GetState(), vm.GetVm().GetBootId())
-	limits := &hostv1.ResourceLimits{CpuMillis: proto.Uint32(1000), MemoryBytes: proto.Uint64(512 << 20), Pids: proto.Uint32(128), DiskBytes: proto.Uint64(128 << 20)}
+	limits := &hostv1.ResourceLimits{Pids: proto.Uint32(128), DiskBytes: proto.Uint64(128 << 20)}
 	prepared, err := operator.PrepareAgentIntegration(ctx, &hostv1.PrepareAgentIntegrationRequest{RequestId: opts.runID + "-prepare", AdapterId: "linux-host-smoke", DisplayName: opts.runID, Scope: hostv1.IntegrationScope_INTEGRATION_SCOPE_MANUAL, ConfigTarget: "smoke://" + opts.runID, EnvironmentId: proto.String(opts.runID), Limits: limits})
 	if err != nil {
 		return fmt.Errorf("prepare manual integration: %w", err)
@@ -153,16 +152,16 @@ func runHostSmoke(ctx context.Context, opts hostSmokeOptions) error {
  test "$certificate_exit" -eq 60
  echo HOST_SMOKE_UNTRUSTED_CERT_REJECTED
  `
-	created, err := agent.CreateContainer(ctx, &hostv1.CreateContainerRequest{RequestId: opts.runID + "-create", ContainerId: "https", Image: opts.image, Limits: &hostv1.ResourceLimits{CpuMillis: proto.Uint32(1000), MemoryBytes: proto.Uint64(256 << 20), Pids: proto.Uint32(64)}, ReadOnlyRoot: true, LogLimitBytes: 64 << 10, EntrypointOverride: &hostv1.StringList{Values: []string{"/bin/sh"}}, CommandOverride: &hostv1.StringList{Values: []string{"-ec", script, "host-smoke", opts.trustedURL, opts.invalidURL}}})
+	created, err := agent.CreateContainer(ctx, &hostv1.CreateContainerRequest{RequestId: opts.runID + "-create", ContainerId: "https", Image: opts.image, Limits: &hostv1.ResourceLimits{Pids: proto.Uint32(64)}, ReadOnlyRoot: true, LogLimitBytes: 64 << 10, EntrypointOverride: &hostv1.StringList{Values: []string{"/bin/sh"}}, CommandOverride: &hostv1.StringList{Values: []string{"-ec", script, "host-smoke", opts.trustedURL, opts.invalidURL}}})
 	if err != nil {
 		return fmt.Errorf("create HTTPS workload: %w", err)
 	}
-	started, err := agent.StartContainer(ctx, &hostv1.ContainerMutationRequest{RequestId: opts.runID + "-start", ContainerId: "https", ExpectedGenerationId: created.GetContainer().GetGenerationId()})
+	started, err := agent.StartContainer(ctx, &hostv1.StartContainerRequest{RequestId: opts.runID + "-start", ContainerId: "https", ExpectedGenerationId: created.GetContainer().GetGenerationId()})
 	if err != nil {
 		return fmt.Errorf("start HTTPS workload: %w", err)
 	}
 	fmt.Printf("gVisor workload instance=%s\n", started.GetContainer().GetInstanceId())
-	waited, err := agent.WaitContainer(ctx, &hostv1.ContainerRequest{ContainerId: "https"})
+	waited, err := agent.WaitContainer(ctx, &hostv1.WaitContainerRequest{ContainerId: "https"})
 	if err != nil {
 		return fmt.Errorf("wait HTTPS workload: %w", err)
 	}
@@ -213,15 +212,7 @@ func smokeDataWorker(ctx context.Context, opts hostSmokeOptions) error {
 		return err
 	}
 	defer os.RemoveAll(directory)
-	capability := make([]byte, 32)
-	if _, err := rand.Read(capability); err != nil {
-		return err
-	}
-	capabilityPath := filepath.Join(directory, "peer.cap")
-	if err := os.WriteFile(capabilityPath, capability, 0600); err != nil {
-		return err
-	}
-	peer, err := dataworker.Start(ctx, opts.workerBinary, filepath.Join(directory, "peer.sock"), filepath.Join(directory, "unused-service.sock"), filepath.Join(directory, "unused-mesh.sock"), capabilityPath)
+	peer, err := dataworker.Start(ctx, opts.workerBinary, filepath.Join(directory, "peer.sock"), filepath.Join(directory, "unused-service.sock"), filepath.Join(directory, "unused-mesh.sock"))
 	if err != nil {
 		return err
 	}
@@ -243,7 +234,7 @@ func smokeDataWorker(ctx context.Context, opts hostSmokeOptions) error {
 	defer tunnel.Close()
 	probe, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	_, err = servicev1.NewMeshControlServiceClient(tunnel).RequestPersonalRoute(probe, &servicev1.PersonalRouteRequest{RequestId: opts.runID + "-mesh-probe", DestinationExportId: opts.runID + "-missing-export"})
+	_, err = servicev1.NewMeshControlServiceClient(tunnel).RequestPersonalRoute(probe, &servicev1.RequestPersonalRouteRequest{RequestId: opts.runID + "-mesh-probe", DestinationExportId: opts.runID + "-missing-export"})
 	if status.Code(err) != codes.NotFound {
 		return fmt.Errorf("Host MeshControl through Rust QUIC peer returned %v; require NotFound", err)
 	}

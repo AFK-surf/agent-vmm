@@ -53,7 +53,9 @@ PublishReady ==
   /\ phase' = "ready"
   /\ UNCHANGED <<kind, gcPending, unsafeTighten>>
 
-Next == StartContainerd \/ RecoverState \/ DrainExistingGC \/
+Terminated == phase = "ready" /\ UNCHANGED vars
+
+Next == Terminated \/ StartContainerd \/ RecoverState \/ DrainExistingGC \/
         TightenFresh \/ TightenExisting \/ PublishReady
 
 TypeOK ==

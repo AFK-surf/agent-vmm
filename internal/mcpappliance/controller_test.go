@@ -9,26 +9,24 @@ import (
 	"testing"
 	"time"
 
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"github.com/AFK-surf/agent-vmm/internal/mcpserver"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type applianceControlStream struct {
 	ctx       context.Context
-	received  chan *remotev1.HostControlMessage
+	received  chan *remotev1.ConnectRequest
 	onCommand func(*remotev1.ControllerCommand)
 	mu        sync.Mutex
 	commands  []*remotev1.ControllerCommand
 	next      uint64
 }
 
-func (stream *applianceControlStream) Send(message *remotev1.ControllerControlMessage) error {
+func (stream *applianceControlStream) Send(message *remotev1.ConnectResponse) error {
 	command := message.GetCommand()
 	if command == nil {
 		return nil
@@ -38,7 +36,7 @@ func (stream *applianceControlStream) Send(message *remotev1.ControllerControlMe
 	if stream.next == 0 {
 		stream.next = 1
 	}
-	admitted := command.GetSequence() == stream.next && validFrontendGeneration(command)
+	admitted := command.GetSequence() == stream.next
 	if admitted {
 		stream.next++
 	}
@@ -50,43 +48,29 @@ func (stream *applianceControlStream) Send(message *remotev1.ControllerControlMe
 	if !admitted {
 		disposition = remotev1.CommandAckDisposition_COMMAND_ACK_DISPOSITION_REJECTED
 	}
-	stream.received <- &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Ack{Ack: &remotev1.CommandAck{CommandId: command.GetCommandId(), Sequence: command.GetSequence(), ConnectionEpoch: command.GetConnectionEpoch(), Disposition: disposition}}}
+	stream.received <- &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_Ack{Ack: &remotev1.CommandAck{CommandId: command.GetCommandId(), Sequence: command.GetSequence(), ConnectionEpoch: command.GetConnectionEpoch(), Disposition: disposition}}}
 	if !admitted {
 		return nil
 	}
 	result := &remotev1.CommandResult{CommandId: command.GetCommandId(), Sequence: command.GetSequence(), ConnectionEpoch: command.GetConnectionEpoch(), Outcome: remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED, InventoryWatermark: command.GetSequence() + 1}
 	switch value := command.GetCommand().(type) {
 	case *remotev1.ControllerCommand_EnsureAllocation:
-		result.Result = &remotev1.CommandResult_Allocation{Allocation: &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Generation: value.EnsureAllocation.GetGeneration(), ResourcesV2: value.EnsureAllocation.GetResourcesV2(), Revision: 10}}
+		result.Result = &remotev1.CommandResult_Allocation{Allocation: &remotev1.Allocation{AllocationId: value.EnsureAllocation.GetAllocationId(), Generation: value.EnsureAllocation.GetGeneration(), Limits: value.EnsureAllocation.GetLimits(), Revision: 10}}
 	case *remotev1.ControllerCommand_PlanCleanupAllocation:
-		result.Result = &remotev1.CommandResult_CleanupPlan{CleanupPlan: &remotev1.CleanupPlan{AllocationId: value.PlanCleanupAllocation.GetAllocationId(), Revision: 19, Kind: value.PlanCleanupAllocation.GetKind(), VolumeIds: []string{"volume-b", "volume-a"}, Impacts: []*hostv1.CleanupImpact{{Resource: &hostv1.ResourceReference{Kind: "volume", ResourceId: "volume-b"}, Effect: "delete", Irreversible: true}, {Resource: &hostv1.ResourceReference{Kind: "volume", ResourceId: "volume-a"}, Effect: "delete", Irreversible: true}, {Resource: &hostv1.ResourceReference{Kind: "container", ResourceId: "service"}, Effect: "delete", Irreversible: true}}}}
+		result.Result = &remotev1.CommandResult_CleanupPlan{CleanupPlan: &remotev1.CleanupPlan{AllocationId: value.PlanCleanupAllocation.GetAllocationId(), Revision: 19, Kind: value.PlanCleanupAllocation.GetKind(), VolumeIds: []string{"volume-b", "volume-a"}, Impacts: []*remotev1.CleanupImpact{{Resource: &remotev1.ResourceReference{Kind: "volume", ResourceId: "volume-b"}, Effect: "delete", Irreversible: true}, {Resource: &remotev1.ResourceReference{Kind: "volume", ResourceId: "volume-a"}, Effect: "delete", Irreversible: true}, {Resource: &remotev1.ResourceReference{Kind: "container", ResourceId: "service"}, Effect: "delete", Irreversible: true}}}}
 	case *remotev1.ControllerCommand_ExecuteCleanupAllocation:
-		state := hostv1.AllocationState_ALLOCATION_STATE_RETAINED
-		if value.ExecuteCleanupAllocation.GetKind() == hostv1.CleanupKind_CLEANUP_KIND_DISCARD {
-			state = hostv1.AllocationState_ALLOCATION_STATE_DISCARDED
+		state := remotev1.AllocationState_ALLOCATION_STATE_RETAINED
+		if value.ExecuteCleanupAllocation.GetKind() == remotev1.CleanupKind_CLEANUP_KIND_DISCARD {
+			state = remotev1.AllocationState_ALLOCATION_STATE_DISCARDED
 		}
 		result.Result = &remotev1.CommandResult_Allocation{Allocation: &remotev1.Allocation{AllocationId: value.ExecuteCleanupAllocation.GetAllocationId(), State: state}}
-	case *remotev1.ControllerCommand_AcquireHostLoopbackFrontend:
-		expires := min(time.Duration(value.AcquireHostLoopbackFrontend.GetDurationSeconds())*time.Second, 2*time.Second)
-		result.Result = &remotev1.CommandResult_HostLoopbackFrontendLease{HostLoopbackFrontendLease: &hostv1.HostLoopbackFrontendLease{FrontendLeaseId: "frontend-" + value.AcquireHostLoopbackFrontend.GetAssignmentId(), Generation: 1, RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, AllocationId: value.AcquireHostLoopbackFrontend.GetAllocationId(), AllocationGeneration: value.AcquireHostLoopbackFrontend.GetAllocationGeneration(), AllocationRevision: command.GetTargetRevision(), AssignmentId: value.AcquireHostLoopbackFrontend.GetAssignmentId(), Endpoint: "127.0.0.1:4567", AccessToken: make([]byte, 32), ExpiresAt: timestamppb.New(time.Now().Add(expires)), EffectiveCapacity: applianceHello().GetHostLoopbackFrontend()}}
-	case *remotev1.ControllerCommand_RenewHostLoopbackFrontend:
-		result.Result = &remotev1.CommandResult_HostLoopbackFrontendLease{HostLoopbackFrontendLease: &hostv1.HostLoopbackFrontendLease{FrontendLeaseId: value.RenewHostLoopbackFrontend.GetFrontendLeaseId(), Generation: value.RenewHostLoopbackFrontend.GetGeneration(), RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, AllocationId: "allocation", AllocationGeneration: 1, AllocationRevision: 11, AssignmentId: "assignment", Endpoint: "127.0.0.1:4567", AccessToken: make([]byte, 32), ExpiresAt: timestamppb.New(time.Now().Add(time.Duration(value.RenewHostLoopbackFrontend.GetDurationSeconds()) * time.Second)), EffectiveCapacity: applianceHello().GetHostLoopbackFrontend()}}
+
 	}
-	stream.received <- &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Result{Result: result}}
+	stream.received <- &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_Result{Result: result}}
 	return nil
 }
 
-func validFrontendGeneration(command *remotev1.ControllerCommand) bool {
-	if request := command.GetRenewHostLoopbackFrontend(); request != nil {
-		return command.GetTargetGeneration() == request.GetGeneration()
-	}
-	if request := command.GetReleaseHostLoopbackFrontend(); request != nil {
-		return command.GetTargetGeneration() == request.GetGeneration()
-	}
-	return true
-}
-
-func (stream *applianceControlStream) Recv() (*remotev1.HostControlMessage, error) {
+func (stream *applianceControlStream) Recv() (*remotev1.ConnectRequest, error) {
 	select {
 	case message := <-stream.received:
 		return message, nil
@@ -101,9 +85,9 @@ func TestConcurrentClientsReceiveIndependentAllocations(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stream := &applianceControlStream{ctx: ctx, received: make(chan *remotev1.HostControlMessage, 16)}
+	stream := &applianceControlStream{ctx: ctx, received: make(chan *remotev1.ConnectRequest, 16)}
 	hello := applianceHello()
-	stream.received <- &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Hello{Hello: hello}}
+	stream.received <- &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_Hello{Hello: hello}}
 	session, err := controllerremote.AcceptControl(stream, "registration")
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +95,7 @@ func TestConcurrentClientsReceiveIndependentAllocations(t *testing.T) {
 	if err := session.Ready(); err != nil {
 		t.Fatal(err)
 	}
-	controller := NewController(&Identity{}, t.TempDir(), nil)
+	controller := NewController(&Identity{}, nil)
 	liveCtx, stopLive := context.WithCancel(ctx)
 	live := &controlConnection{session: session, requests: make(chan commandRequest), done: make(chan struct{}), hello: hello, close: stopLive}
 	controller.install(live)
@@ -158,7 +142,7 @@ func TestConcurrentClientsReceiveIndependentAllocations(t *testing.T) {
 
 func TestAllocationRejectsIncompleteCapacity(t *testing.T) {
 	t.Parallel()
-	controller := NewController(&Identity{}, t.TempDir(), nil)
+	controller := NewController(&Identity{}, nil)
 	controller.live = &controlConnection{hello: &remotev1.HostHello{Capacity: &remotev1.Capacity{}}, done: make(chan struct{})}
 	if _, _, err := controller.allocate(context.Background(), "client", "allocation"); err == nil {
 		t.Fatal("allocate accepted incomplete capacity")
@@ -168,9 +152,9 @@ func TestAllocationRejectsIncompleteCapacity(t *testing.T) {
 func TestCleanupOwnerUsesExactAllocationFence(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stream := &applianceControlStream{ctx: ctx, received: make(chan *remotev1.HostControlMessage, 16)}
+	stream := &applianceControlStream{ctx: ctx, received: make(chan *remotev1.ConnectRequest, 16)}
 	hello := applianceHello()
-	stream.received <- &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_Hello{Hello: hello}}
+	stream.received <- &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_Hello{Hello: hello}}
 	session, err := controllerremote.AcceptControl(stream, "registration")
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +162,7 @@ func TestCleanupOwnerUsesExactAllocationFence(t *testing.T) {
 	if err := session.Ready(); err != nil {
 		t.Fatal(err)
 	}
-	controller := NewController(&Identity{}, t.TempDir(), nil)
+	controller := NewController(&Identity{}, nil)
 	liveCtx, stopLive := context.WithCancel(ctx)
 	live := &controlConnection{session: session, requests: make(chan commandRequest), done: make(chan struct{}), hello: hello, close: stopLive}
 	controller.install(live)
@@ -207,14 +191,14 @@ func TestCleanupOwnerUsesExactAllocationFence(t *testing.T) {
 			targetRevision = command.GetTargetRevision()
 		}
 	}
-	if execute == nil || execute.GetAllocationId() != "allocation" || execute.GetKind() != hostv1.CleanupKind_CLEANUP_KIND_DISCARD || execute.GetPlanRevision() != 19 || targetRevision != 19 || !slices.Equal(execute.GetConfirmedVolumeIds(), []string{"volume-a", "volume-b"}) {
+	if execute == nil || execute.GetAllocationId() != "allocation" || execute.GetKind() != remotev1.CleanupKind_CLEANUP_KIND_DISCARD || execute.GetPlanRevision() != 19 || targetRevision != 19 || !slices.Equal(execute.GetConfirmedVolumeIds(), []string{"volume-a", "volume-b"}) {
 		t.Fatalf("cleanup execute = %#v target=%d", execute, targetRevision)
 	}
 }
 
 func TestServeSessionRoutesOnlyTheExactAllocationGeneration(t *testing.T) {
 	t.Parallel()
-	controller := NewController(&Identity{}, t.TempDir(), nil)
+	controller := NewController(&Identity{}, nil)
 	controller.live = &controlConnection{hello: applianceHello(), done: make(chan struct{})}
 	key := sessionKey{allocationID: "allocation", allocationGeneration: 2}
 	waiter := make(chan controllerremote.SessionConnection, 1)
@@ -235,7 +219,7 @@ func TestServeSessionRoutesOnlyTheExactAllocationGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration", ConnectionEpoch: 7, AllocationId: "allocation", AllocationGeneration: 2}}}); err != nil {
+	if err := stream.Send(&remotev1.ServeSessionRequest{Payload: &remotev1.ServeSessionRequest_Header{Header: &remotev1.SessionHeader{RegistrationId: "registration", ConnectionEpoch: 7, AllocationId: "allocation", AllocationGeneration: 2}}}); err != nil {
 		t.Fatal(err)
 	}
 	var runtimeConnection controllerremote.SessionConnection
@@ -251,7 +235,7 @@ func TestServeSessionRoutesOnlyTheExactAllocationGeneration(t *testing.T) {
 	if err != nil || string(frame.GetData()) != "controller-to-host" {
 		t.Fatalf("controller frame = %q, %v", frame.GetData(), err)
 	}
-	if err := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Data{Data: []byte("host-to-controller")}}); err != nil {
+	if err := stream.Send(&remotev1.ServeSessionRequest{Payload: &remotev1.ServeSessionRequest_Data{Data: []byte("host-to-controller")}}); err != nil {
 		t.Fatal(err)
 	}
 	value := make([]byte, 32)
@@ -263,8 +247,8 @@ func TestServeSessionRoutesOnlyTheExactAllocationGeneration(t *testing.T) {
 }
 
 func applianceHello() *remotev1.HostHello {
-	features := append([]string(nil), controllerremote.RequiredFeatures...)
-	return &remotev1.HostHello{ProtocolVersion: controllerremote.ProtocolVersion, HostApiVersion: "host.v1", RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, InventoryWatermark: 1, PoolRevision: 3, SupportedFeatures: features, RequiredFeatures: features, Capacity: &remotev1.Capacity{PerEnvironmentLimits: &hostv1.ResourceLimits{Pids: uint32Pointer(256), DiskBytes: uint64Pointer(2 << 30)}, MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}, HostLoopbackFrontend: &hostv1.HostLoopbackFrontendCapacity{MaxActiveLeases: 16, MaxActiveLeasesPerAllocation: 16, MaxLeaseSeconds: 60, MaxConcurrentConnections: 64, MaxConcurrentConnectionsPerLease: 16, MaxFrameBytes: 64 << 10, MaxConnectionBytes: 1 << 30, ConnectionDeadlineSeconds: 3600, ConnectionIdleSeconds: 300, MaxUseCount: 1024}}
+	features := []string{}
+	return &remotev1.HostHello{ProtocolVersion: controllerremote.ProtocolVersion, RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, InventoryWatermark: 1, PoolRevision: 3, SupportedFeatures: features, Capacity: &remotev1.Capacity{PerEnvironmentLimits: &remotev1.ResourceLimits{Pids: uint32Pointer(256), DiskBytes: uint64Pointer(2 << 30)}, MaxEgressMode: remotev1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}}
 }
 
 func uint32Pointer(value uint32) *uint32 { return &value }

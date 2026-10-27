@@ -6,9 +6,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/opencontainers/go-digest"
 	"google.golang.org/grpc/codes"
@@ -16,7 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (server *agentServer) CopyImage(ctx context.Context, request *hostv1.CopyImageRequest) (*hostv1.Image, error) {
+func (server *agentServer) CopyImage(ctx context.Context, request *hostv1.CopyImageRequest) (*hostv1.CopyImageResponse, error) {
 	identity, err := auth.AgentIdentity(ctx)
 	if err != nil {
 		return nil, err
@@ -27,7 +29,7 @@ func (server *agentServer) CopyImage(ctx context.Context, request *hostv1.CopyIm
 	if identity.AllocationID != request.GetTargetAllocationId() || identity.AllocationGeneration != request.GetTargetAllocationGeneration() {
 		return nil, status.Error(codes.PermissionDenied, "image target does not match current allocation session")
 	}
-	release, err := server.controller.lockInventoryMutation(ctx)
+	ctx, release, err := server.controller.inventory.Enter(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -44,23 +46,49 @@ func (server *agentServer) CopyImage(ctx context.Context, request *hostv1.CopyIm
 	if err != nil {
 		return nil, err
 	}
-	if err := server.controller.requireUndisposedEnvironment(ctx, target.ID); err != nil {
+	if err := server.controller.cleanup.RequireUndisposedEnvironment(ctx, target.ID); err != nil {
 		return nil, err
 	}
-	client, connection, err := server.controller.guestClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
 	input, err := proto.MarshalOptions{Deterministic: true}.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	image, err := client.CopyImage(ctx, &vmmdv1.CopyImageRequest{RequestId: request.GetRequestId(), SourceNamespaceId: sourceNamespace, ControllerCacheScope: scope, RetainedBuildRequestId: request.GetSource().GetRetained().GetBuildRequestId(), TargetNamespaceId: target.NamespaceID, ImageReference: request.GetImageReference(), ManifestDigest: request.GetManifestDigest(), ControllerRequestSha256: fmt.Sprintf("%x", sha256.Sum256(input))})
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(input))
+	key, _ := imageOperationStoreKey(identity, hostv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, request.RequestId)
+	releaseImage, err := server.controller.workloads.RLockImageOperation(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	return imageFromGuest(image), nil
+	defer func() {
+		if releaseImage != nil {
+			releaseImage()
+		}
+	}()
+	cached, err := server.cachedImageOperation(ctx, identity, hostv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, request.RequestId)
+	if err != nil {
+		return nil, err
+	}
+	if cached != nil {
+		if cached.InputSha256 != fingerprint || cached.State != hostv1.ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED {
+			return nil, status.Error(codes.Aborted, "image copy request differs from accepted input or is already terminal")
+		}
+		return &hostv1.CopyImageResponse{Image: &hostv1.Image{Reference: cached.ImageReference, Digest: cached.ManifestDigest, CopyReceipt: cached}}, nil
+	}
+	client, err := server.controller.guestConnection.Client()
+	if err != nil {
+		return nil, err
+	}
+	image, err := client.CopyImage(ctx, &vmmdv1.CopyImageRequest{RequestId: request.GetRequestId(), SourceNamespaceId: sourceNamespace, ControllerCacheScope: scope, RetainedBuildRequestId: request.GetSource().GetRetained().GetBuildRequestId(), TargetNamespaceId: target.NamespaceID, ImageReference: request.GetImageReference(), ManifestDigest: request.GetManifestDigest(), ControllerRequestSha256: fingerprint})
+	if err != nil {
+		return nil, err
+	}
+	releaseImage()
+	releaseImage = nil
+	converted := guestconn.Image(image)
+	if err := server.retainImageOperation(ctx, client, identity, target.NamespaceID, converted.GetCopyReceipt()); err != nil {
+		return nil, err
+	}
+	return &hostv1.CopyImageResponse{Image: converted}, nil
 }
 
 func validateImageCopyAllocations(identity auth.Identity, request *hostv1.CopyImageRequest, source, target store.Environment, requireReady bool) error {
@@ -87,7 +115,7 @@ func (server *agentServer) authorizeImageSource(ctx context.Context, identity au
 			return "", "", err
 		}
 		if ready {
-			if err := server.controller.requireUndisposedEnvironment(ctx, allocation.ID); err != nil {
+			if err := server.controller.cleanup.RequireUndisposedEnvironment(ctx, allocation.ID); err != nil {
 				return "", "", err
 			}
 		}

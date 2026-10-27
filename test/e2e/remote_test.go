@@ -10,14 +10,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
 	"math/big"
 	"net"
-	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -26,7 +23,6 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
-	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"github.com/AFK-surf/agent-vmm/internal/remoteconnector"
 	"google.golang.org/grpc"
@@ -35,6 +31,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -85,7 +82,7 @@ func (server *remoteE2EController) Enroll(context.Context, *remotev1.EnrollReque
 	return nil, status.Error(codes.Unimplemented, "not used")
 }
 
-func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage]) error {
+func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
 	if values := metadata.ValueFromIncomingContext(stream.Context(), "authorization"); len(values) != 1 || values[0] != controllerremote.EncodeBearer([]byte("remote-e2e")) {
 		return status.Error(codes.Unauthenticated, "rejected")
 	}
@@ -115,17 +112,17 @@ func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remot
 		if _, retired := server.retired.Load(allocationID); retired {
 			continue
 		}
-		egress := hostv1.EgressMode_EGRESS_MODE_DENY_ALL
+		egress := remotev1.EgressMode_EGRESS_MODE_DENY_ALL
 		if index == 0 {
-			egress = hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
+			egress = remotev1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
 		}
 		if existing := initialAllocations[allocationID]; existing != nil {
 			// A reconnect can carry the durable allocation. Preserve it instead of
 			// issuing EnsureAllocation against a partially settled inventory.
 			continue
 		}
-		resources := remoteResources(500, 1<<30, 256, 2<<30)
-		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, Generation: 1, DisplayLabel: allocationID, ResourcesV2: resources, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
+		resources := remoteResources(256, 2<<30)
+		result, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "ensure-" + allocationID, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, Generation: 1, DisplayLabel: allocationID, Limits: resources, EgressMode: egress, PolicyRevision: hello.GetPoolRevision()}}})
 		if err != nil {
 			return err
 		}
@@ -173,11 +170,11 @@ waiting:
 		if err != nil || releasedAllocation.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "release allocation %s failed: %v %s", allocation.GetAllocationId(), err, releasedAllocation.GetMessage())
 		}
-		plan, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "plan-" + allocation.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+		plan, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "plan-" + allocation.GetAllocationId(), Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: remotev1.CleanupKind_CLEANUP_KIND_DISCARD}}})
 		if err != nil || plan.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "plan discard %s failed: %v %s", allocation.GetAllocationId(), err, plan.GetMessage())
 		}
-		discarded, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "discard-" + allocation.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
+		discarded, err := server.command(cursor, &remotev1.ControllerCommand{CommandId: "discard-" + allocation.GetAllocationId(), Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: allocation.GetAllocationId(), Kind: remotev1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
 		if err != nil || discarded.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 			return status.Errorf(codes.Internal, "discard %s failed: %v %s", allocation.GetAllocationId(), err, discarded.GetMessage())
 		}
@@ -249,7 +246,7 @@ func (server *isolatedDomainController) Enroll(context.Context, *remotev1.Enroll
 	return nil, status.Error(codes.Unimplemented, "not used")
 }
 
-func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage]) error {
+func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
 	if values := metadata.ValueFromIncomingContext(stream.Context(), "authorization"); len(values) != 1 || values[0] != controllerremote.EncodeBearer([]byte("remote-e2e")) {
 		return status.Error(codes.Unauthenticated, "rejected")
 	}
@@ -270,8 +267,8 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 		return status.Error(codes.FailedPrecondition, "isolated domain started with unexpected inventory")
 	}
 	cursor := &remoteCommandCursor{session: session}
-	resources := remoteResources(100, 128<<20, 64, 256<<20)
-	ensured, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "ensure-shared", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "shared", Generation: 1, DisplayLabel: "shared", ResourcesV2: resources, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision()}}})
+	resources := remoteResources(64, 256<<20)
+	ensured, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "ensure-shared", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "shared", Generation: 1, DisplayLabel: "shared", Limits: resources, EgressMode: remotev1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: hello.GetPoolRevision()}}})
 	if err != nil || ensured.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "ensure failed: %v %s", err, ensured.GetMessage())
 	}
@@ -289,11 +286,11 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 	if err != nil || released.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "release allocation failed: %v %s", err, released.GetMessage())
 	}
-	plan, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "plan-shared", Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}}})
+	plan, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "plan-shared", Command: &remotev1.ControllerCommand_PlanCleanupAllocation{PlanCleanupAllocation: &remotev1.PlanCleanupAllocation{AllocationId: "shared", Kind: remotev1.CleanupKind_CLEANUP_KIND_DISCARD}}})
 	if err != nil || plan.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "plan discard failed: %v %s", err, plan.GetMessage())
 	}
-	discarded, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "discard-shared", Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "shared", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
+	discarded, err := dispatchRemoteCommand(cursor, &remotev1.ControllerCommand{CommandId: "discard-shared", Command: &remotev1.ControllerCommand_ExecuteCleanupAllocation{ExecuteCleanupAllocation: &remotev1.ExecuteCleanupAllocation{AllocationId: "shared", Kind: remotev1.CleanupKind_CLEANUP_KIND_DISCARD, PlanRevision: plan.GetCleanupPlan().GetRevision(), ConfirmedVolumeIds: plan.GetCleanupPlan().GetVolumeIds()}}})
 	if err != nil || discarded.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 		return status.Errorf(codes.Internal, "discard failed: %v %s", err, discarded.GetMessage())
 	}
@@ -302,7 +299,7 @@ func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[
 	return nil
 }
 
-func (server *isolatedDomainController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+func (server *isolatedDomainController) ServeSession(stream grpc.BidiStreamingServer[remotev1.ServeSessionRequest, remotev1.ServeSessionResponse]) error {
 	_, connection, err := controllerremote.AcceptSession(stream, server.registrationID, server.epoch.Load())
 	if err != nil {
 		return err
@@ -326,7 +323,7 @@ func (server *isolatedDomainController) ServeSession(stream grpc.BidiStreamingSe
 	}
 }
 
-func (server *remoteE2EController) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+func (server *remoteE2EController) ServeSession(stream grpc.BidiStreamingServer[remotev1.ServeSessionRequest, remotev1.ServeSessionResponse]) error {
 	header, connection, err := controllerremote.AcceptSession(stream, server.registrationID, server.connectionEpoch.Load())
 	if err != nil {
 		return status.Error(codes.Unauthenticated, "bad session header")
@@ -345,28 +342,17 @@ func (server *remoteE2EController) ServeSession(stream grpc.BidiStreamingServer[
 }
 
 func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
-	trustConnection, err := grpc.NewClient("passthrough:///trust", grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", harness.trustSocket)
-		}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer trustConnection.Close()
-	if _, err := trustv1.NewTrustServiceClient(trustConnection).GetDeviceIdentity(context.Background(), &trustv1.GetDeviceIdentityRequest{}); status.Code(err) != codes.Unauthenticated {
-		t.Fatalf("same-UID trust client without connector capability code=%s err=%v", status.Code(err), err)
-	}
 	controller := &remoteE2EController{sessions: make(chan remoteE2ESession, 4), finish: make(chan struct{}), connections: make(chan int, 8), failures: make(chan string, 8)}
 	endpoint, roots, stopController := startRemoteController(t, controller)
 	defer stopController()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(2 * time.Second)}
-	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", RegistrationId: "registration-remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", RegistrationId: "registration-remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", Pool: pool})
 	if err != nil {
 		t.Fatal(err)
 	}
-	registered, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{
+	_, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{
 		RequestId: "remote-e2e-complete", RegistrationId: registered.GetRegistration().GetId(),
 		ExpectedRevision: registered.GetRegistration().GetRevision(),
 	})
@@ -379,9 +365,9 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		connectorContext, stop := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() {
-			done <- remoteconnector.Run(connectorContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost",
-				RegistrationID: controller.registrationID, RemoteComputeSocket: harness.remoteComputeSocket, TrustSocket: harness.trustSocket,
-				TrustCapabilityFile: harness.trustCapabilityFile, CredentialStore: store, TLSRoots: roots})
+			done <- remoteconnector.Run(connectorContext, remoteconnector.Config{
+				RegistrationID: controller.registrationID, RemoteComputeSocket: harness.remoteComputeSocket, Transport: remoteconnector.ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots, Trust: &remoteconnector.TrustBoundary{Socket: harness.trustSocket}},
+			})
 		}()
 		return stop, done
 	}
@@ -448,7 +434,7 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 		}
 		clients[allocationID] = connection
 		runtime := hostv1.NewAgentRuntimeServiceClient(connection)
-		environment, err := runtime.GetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+		environment, err := runtime.GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -531,11 +517,11 @@ func testSixRemoteDomains(t *testing.T, harness *hostHarness) {
 		controller := &isolatedDomainController{session: make(chan net.Conn, 1), finish: make(chan struct{}), cleaned: make(chan struct{})}
 		endpoint, roots, stopServer := startRemoteController(t, controller)
 		requestID := "six-domain-" + strconv.Itoa(index)
-		registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, RegistrationId: "registration-" + requestID, Endpoint: endpoint, DisplayName: requestID, ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
+		registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, RegistrationId: "registration-" + requestID, Endpoint: endpoint, DisplayName: requestID, Pool: pool})
 		if err != nil {
 			t.Fatal(err)
 		}
-		registered, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: requestID + "-complete", RegistrationId: registered.GetRegistration().GetId(), ExpectedRevision: registered.GetRegistration().GetRevision()})
+		_, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: requestID + "-complete", RegistrationId: registered.GetRegistration().GetId(), ExpectedRevision: registered.GetRegistration().GetRevision()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -543,7 +529,7 @@ func testSixRemoteDomains(t *testing.T, harness *hostHarness) {
 		connectorContext, stop := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() {
-			done <- remoteconnector.Run(connectorContext, remoteconnector.Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: controller.registrationID, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: &e2eCredentialStore{value: []byte("remote-e2e")}, TLSRoots: roots})
+			done <- remoteconnector.Run(connectorContext, remoteconnector.Config{RegistrationID: controller.registrationID, RemoteComputeSocket: harness.remoteComputeSocket, Transport: remoteconnector.ExternalTransport{Endpoint: endpoint, Credentials: &e2eCredentialStore{value: []byte("remote-e2e")}, Roots: roots}})
 		}()
 		domains = append(domains, domain{controller: controller, registration: controller.registrationID, stop: stop, done: done, stopServer: stopServer})
 	}
@@ -665,7 +651,7 @@ func testRemoteForward(t *testing.T, client *productClient, containerID string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	container, err := client.GetContainer(ctx, "remote-a", &hostv1.ContainerRequest{ContainerId: containerID})
+	container, err := client.GetContainer(ctx, "remote-a", &hostv1.GetContainerRequest{ContainerId: containerID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -701,9 +687,9 @@ func isolationLimits(pids uint32, disk uint64) *hostv1.ResourceLimits {
 	return &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk}
 }
 
-func remoteResources(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.WorkloadResourcesV2 {
-	return &hostv1.WorkloadResourcesV2{CpuMaxMillis: cpu,
-		MemoryMaxBytes: memory, PidMax: pids, WritableQuotaBytes: disk}
+func remoteResources(pids uint32, disk uint64) *remotev1.ResourceLimits {
+	return &remotev1.ResourceLimits{
+		Pids: proto.Uint32(pids), DiskBytes: proto.Uint64(disk)}
 }
 
 func startRemoteController(t *testing.T, service remotev1.RemoteControllerServiceServer) (string, *x509.CertPool, func()) {
@@ -733,95 +719,4 @@ func startRemoteController(t *testing.T, service remotev1.RemoteControllerServic
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(certPEM)
 	return net.JoinHostPort("localhost", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)), roots, func() { server.Stop(); listener.Close() }
-}
-
-// TestCuePressureBridgeE2E is driven by Cue's opt-in Salix integration test.
-// All registrations and VM state belong to that fixture, never a saved host.
-func TestCuePressureBridgeE2E(t *testing.T) {
-	configPath := os.Getenv("CUE_VMM_E2E_CONFIG")
-	if configPath == "" {
-		t.Skip("set CUE_VMM_E2E_CONFIG from the Cue pressure integration test")
-	}
-	var fixture struct {
-		Endpoint      string `json:"remote_endpoint"`
-		CA            string `json:"ca_file"`
-		Archive       string `json:"archive_path"`
-		Registrations []struct {
-			ID         string `json:"id"`
-			Credential []byte `json:"credential"`
-		} `json:"registrations"`
-	}
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(raw, &fixture); err != nil {
-		t.Fatal(err)
-	}
-	if len(fixture.Registrations) != 6 {
-		t.Fatal("pressure fixture requires exactly six isolated registrations")
-	}
-	roots := x509.NewCertPool()
-	raw, err = os.ReadFile(fixture.CA)
-	if err != nil || !roots.AppendCertsFromPEM(raw) {
-		t.Fatal("invalid fixture CA")
-	}
-	harness := startHostWithState(t, 32<<30)
-	harness.start(t)
-	t.Cleanup(func() { harness.stop(t, true) })
-	t.Cleanup(func() {
-		for suffix, name := range map[string]string{"": "guest.log", ".host.log": "host-runtime.log"} {
-			if err := os.WriteFile(filepath.Join(filepath.Dir(configPath), name), readFileTail(harness.serial+suffix, 256<<10), 0600); err != nil {
-				t.Errorf("preserve pressure fixture diagnostics: %v", err)
-			}
-		}
-	})
-	archiveName := "import-cue-pressure.tar"
-	source, err := os.Open(fixture.Archive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	destination, err := os.Create(filepath.Join(harness.runtimeClient.archiveDirectory, archiveName))
-	if err != nil {
-		source.Close()
-		t.Fatal(err)
-	}
-	_, copyErr := io.Copy(destination, source)
-	if err := errors.Join(copyErr, source.Close(), destination.Close()); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	failures := make(chan error, 6)
-	for _, registration := range fixture.Registrations {
-		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(512, 3<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
-		started, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: registration.ID + "-begin", RegistrationId: registration.ID, Endpoint: fixture.Endpoint, DisplayName: "Cue pressure fixture", ProtocolVersion: remoteconnector.ProtocolVersion, Pool: pool})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: registration.ID + "-complete", RegistrationId: registration.ID, ExpectedRevision: started.GetRegistration().GetRevision()}); err != nil {
-			t.Fatal(err)
-		}
-		go func() {
-			failures <- remoteconnector.Run(ctx, remoteconnector.Config{Endpoint: fixture.Endpoint, EndpointIdentity: "localhost", RegistrationID: registration.ID, RemoteComputeSocket: harness.remoteComputeSocket, CredentialStore: &e2eCredentialStore{value: registration.Credential}, TLSRoots: roots})
-		}()
-	}
-	ready, _ := json.Marshal(map[string]string{"archive_url": harness.runtimeClient.archiveURL + "/" + archiveName, "serial_log": harness.serial})
-	if err := os.WriteFile(configPath+".host-ready", ready, 0600); err != nil {
-		t.Fatal(err)
-	}
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case err := <-failures:
-			t.Fatalf("fixture remote connector exited: %v", err)
-		case <-ctx.Done():
-			t.Fatal("Cue pressure fixture exceeded 15 minutes")
-		case <-ticker.C:
-			if _, err := os.Stat(configPath + ".stop"); err == nil {
-				return
-			}
-		}
-	}
 }

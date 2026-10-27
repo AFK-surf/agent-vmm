@@ -65,7 +65,9 @@ SyncReturn ==
   /\ s' = [s EXCEPT !.returned = TRUE,
        !.violations = IF Ready THEN @ ELSE @ \cup {"false_completion"}]
 
-Next == (\E a \in Actors: CaptureHost(a) \/ ObserveGuest(a) \/
+Terminated == (\A a \in Actors: s.step[a] = "done") /\ s.returned /\ s.disabled /\ s.restarted /\ UNCHANGED vars
+
+Next == Terminated \/ (\E a \in Actors: CaptureHost(a) \/ ObserveGuest(a) \/
           SelectRecovery(a) \/ Launch(a) \/ Publish(a)) \/
         ExplicitDisable \/ GuestRestart \/ SyncReturn
 Spec == Init /\ [][Next]_vars

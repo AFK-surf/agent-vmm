@@ -3,17 +3,15 @@
 package control
 
 import (
-	"log"
 	"syscall"
 )
 
 func (r *Runtime) logSystemImageStorage(stage string) {
 	var filesystem syscall.Statfs_t
 	if err := syscall.Statfs(stateRoot, &filesystem); err != nil {
-		log.Printf("system image storage: stage=%s pool_statfs_error=%v", stage, err)
+		r.logger.Warn("system image storage observation failed", "stage", stage, "error", err)
 		return
 	}
 	used, err := projectUsage(r.stateDevice, ociProjectID)
-	log.Printf("system image storage: stage=%s pool_capacity_bytes=%d pool_available_bytes=%d image_project_used_bytes=%d project_error=%v", stage,
-		filesystem.Blocks*uint64(filesystem.Bsize), filesystem.Bavail*uint64(filesystem.Bsize), used, err)
+	r.logger.Info("system image storage", "stage", stage, "pool_capacity_bytes", filesystem.Blocks*uint64(filesystem.Bsize), "pool_available_bytes", filesystem.Bavail*uint64(filesystem.Bsize), "image_project_used_bytes", used, "error", err)
 }

@@ -17,7 +17,7 @@ const (
 
 var (
 	ErrCoordinatorAdapterUnavailable = errors.New("lifecycle adapter step is unavailable")
-	ErrCoordinatorNotReady           = errors.New("Salix readiness was not observed")
+	ErrCoordinatorNotReady           = errors.New("controller readiness was not observed")
 )
 
 // These actions are the local coordinator contract. The coordinator delegates
@@ -41,7 +41,7 @@ type LifecycleRequest struct {
 
 // LifecycleFacts are observations from the local operator boundary.
 // RemoteAttached means the exact managed registration is enrolled and its
-// connector is connected. It is not Salix admission or product Node readiness.
+// connector is connected. It is not controller admission or product Node readiness.
 type LifecycleFacts struct {
 	HostHealthy    bool
 	RemoteAttached bool

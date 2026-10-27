@@ -7,9 +7,11 @@ import (
 	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 )
 
-var ServiceAddressPrefix = netip.MustParsePrefix("198.19.0.0/16")
+var ServiceAddressPrefix = netip.MustParsePrefix(egresslink.ServicePrefix)
 
 type ServiceRoute struct {
 	ID            string

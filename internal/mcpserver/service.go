@@ -24,7 +24,7 @@ func (adapter *Adapter) registerServiceTools(server *mcp.Server) {
 
 func (adapter *Adapter) meshServiceList(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, Envelope, error) {
 	return adapter.call(ctx, 30*time.Second, false, func(ctx context.Context) (any, error) {
-		exports, err := adapter.runtime.ListServiceExports(ctx, &hostv1.ListOwnServiceExportsRequest{})
+		exports, err := adapter.runtime.ListServiceExports(ctx, &hostv1.ListServiceExportsRequest{})
 		if err != nil {
 			return nil, err
 		}
@@ -32,8 +32,8 @@ func (adapter *Adapter) meshServiceList(ctx context.Context, _ *mcp.CallToolRequ
 		if err != nil {
 			return nil, err
 		}
-		result := MeshServiceListData{Exports: make([]ServiceExportData, 0, len(exports.GetExports())), Imports: make([]ServiceImportData, 0, len(imports.GetImports()))}
-		for _, value := range exports.GetExports() {
+		result := MeshServiceListData{Exports: make([]ServiceExportData, 0, len(exports.GetExports().GetExports())), Imports: make([]ServiceImportData, 0, len(imports.GetImports()))}
+		for _, value := range exports.GetExports().GetExports() {
 			result.Exports = append(result.Exports, exportData(value))
 		}
 		for _, value := range imports.GetImports() {
@@ -63,7 +63,7 @@ func (adapter *Adapter) serviceExport(ctx context.Context, _ *mcp.CallToolReques
 		if err != nil {
 			return nil, err
 		}
-		return exportData(value), nil
+		return exportData(value.GetExport()), nil
 	})
 }
 
@@ -84,10 +84,11 @@ func (adapter *Adapter) serviceImport(ctx context.Context, _ *mcp.CallToolReques
 			if input.Capability != "" || input.ConnectionLimit == 0 || input.ByteLimit == 0 || input.ConcurrencyLimit == 0 {
 				return nil, status.Error(codes.InvalidArgument, "personal mesh import requires mesh_id, no capability, and all three nonzero budget fields")
 			}
-			value, err = adapter.runtime.CreatePersonalServiceImport(ctx, &hostv1.CreatePersonalServiceImportRequest{RequestId: requestID, MeshId: input.MeshID,
+			response, callErr := adapter.runtime.CreatePersonalServiceImport(ctx, &hostv1.CreatePersonalServiceImportRequest{RequestId: requestID, MeshId: input.MeshID,
 				SourceContainerId: input.SourceContainerID, SourceContainerInstanceId: input.SourceContainerInstanceID,
 				DestinationDeviceId: input.DestinationDeviceID, DestinationExportId: input.DestinationExportID, VirtualServiceName: input.VirtualServiceName,
 				Budget: &trustv1.RouteBudget{ConnectionLimit: input.ConnectionLimit, ByteLimit: input.ByteLimit, ConcurrencyLimit: input.ConcurrencyLimit}})
+			value, err = response.GetImport(), callErr
 		} else {
 			if input.Capability == "" {
 				if input.DestinationDeviceID != "local" {
@@ -96,7 +97,8 @@ func (adapter *Adapter) serviceImport(ctx context.Context, _ *mcp.CallToolReques
 				if input.DestinationPort != 0 {
 					return nil, status.Error(codes.InvalidArgument, "destination_port must be omitted for a local route")
 				}
-				value, err = adapter.runtime.CreateServiceImport(ctx, &hostv1.CreateServiceImportRequest{RequestId: requestID, SourceContainerId: input.SourceContainerID, SourceContainerInstanceId: input.SourceContainerInstanceID, DestinationDeviceId: input.DestinationDeviceID, DestinationExportId: input.DestinationExportID, VirtualServiceName: input.VirtualServiceName})
+				response, callErr := adapter.runtime.CreateServiceImport(ctx, &hostv1.CreateServiceImportRequest{RequestId: requestID, SourceContainerId: input.SourceContainerID, SourceContainerInstanceId: input.SourceContainerInstanceID, DestinationDeviceId: input.DestinationDeviceID, DestinationExportId: input.DestinationExportID, VirtualServiceName: input.VirtualServiceName})
+				value, err = response.GetImport(), callErr
 				if err != nil {
 					return nil, err
 				}
@@ -117,7 +119,8 @@ func (adapter *Adapter) serviceImport(ctx context.Context, _ *mcp.CallToolReques
 			if decodeErr := proto.Unmarshal(encoded, capability); decodeErr != nil {
 				return nil, status.Error(codes.InvalidArgument, "route capability is malformed")
 			}
-			value, err = adapter.runtime.CreateServiceImport(ctx, &hostv1.CreateServiceImportRequest{RequestId: requestID, SourceContainerId: input.SourceContainerID, SourceContainerInstanceId: input.SourceContainerInstanceID, DestinationDeviceId: input.DestinationDeviceID, DestinationExportId: input.DestinationExportID, DestinationPort: input.DestinationPort, VirtualServiceName: input.VirtualServiceName, Capability: capability})
+			response, callErr := adapter.runtime.CreateServiceImport(ctx, &hostv1.CreateServiceImportRequest{RequestId: requestID, SourceContainerId: input.SourceContainerID, SourceContainerInstanceId: input.SourceContainerInstanceID, DestinationDeviceId: input.DestinationDeviceID, DestinationExportId: input.DestinationExportID, DestinationPort: input.DestinationPort, VirtualServiceName: input.VirtualServiceName, Capability: capability})
+			value, err = response.GetImport(), callErr
 		}
 		if err != nil {
 			return nil, err
@@ -137,7 +140,7 @@ func (adapter *Adapter) serviceRouteRevoke(ctx context.Context, _ *mcp.CallToolR
 		}
 		switch input.Kind {
 		case "export":
-			_, err = adapter.runtime.RevokeServiceExport(ctx, &hostv1.RevokeOwnServiceExportRequest{RequestId: requestID, ExportId: input.ID, ExpectedRevision: input.ExpectedRevision})
+			_, err = adapter.runtime.RevokeServiceExport(ctx, &hostv1.RevokeServiceExportRequest{RequestId: requestID, ExportId: input.ID, ExpectedRevision: input.ExpectedRevision})
 		case "import":
 			_, err = adapter.runtime.RevokeServiceImport(ctx, &hostv1.RevokeServiceImportRequest{RequestId: requestID, ImportId: input.ID, ExpectedRevision: input.ExpectedRevision})
 		default:

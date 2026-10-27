@@ -9,8 +9,6 @@ struct EnvironmentActionsView: View {
     let resetDisabledReason: String?
     let discardDisabledReason: String?
 
-    @State private var cpuMillis = ""
-    @State private var memoryMiB = ""
     @State private var pids = ""
     @State private var diskGiB = ""
 
@@ -19,8 +17,6 @@ struct EnvironmentActionsView: View {
             VStack(alignment: .leading, spacing: 18) {
                 GroupBox("Resource limits") {
                     Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
-                        policyField("CPU millicores", text: $cpuMillis)
-                        policyField("Memory MiB", text: $memoryMiB)
                         policyField("Process limit", text: $pids)
                         policyField("Retained disk GiB", text: $diskGiB)
                         GridRow {
@@ -123,11 +119,10 @@ struct EnvironmentActionsView: View {
     }
 
     private var parsedLimits: EnvironmentLimits? {
-        guard let cpu = UInt32(cpuMillis), let processCount = UInt32(pids),
-              let memory = scaledBytes(memoryMiB, multiplier: 1_048_576),
+        guard let processCount = UInt32(pids),
               let disk = scaledBytes(diskGiB, multiplier: 1_073_741_824),
-              cpu > 0, processCount > 0, memory > 0, disk > 0 else { return nil }
-        return EnvironmentLimits(cpuMillis: cpu, memoryBytes: memory, pids: processCount, diskBytes: disk)
+              processCount > 0, disk > 0 else { return nil }
+        return EnvironmentLimits(pids: processCount, diskBytes: disk)
     }
 
     private var limitsChanged: Bool { parsedLimits.map { $0 != environment.limits } ?? false }
@@ -139,8 +134,6 @@ struct EnvironmentActionsView: View {
     }
 
     private func loadPolicy() {
-        cpuMillis = String(environment.limits.cpuMillis)
-        memoryMiB = String(environment.limits.memoryBytes / 1_048_576)
         pids = String(environment.limits.pids)
         diskGiB = String(environment.limits.diskBytes / 1_073_741_824)
     }

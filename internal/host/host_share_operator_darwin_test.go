@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,7 +15,10 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	hostlifecycle "github.com/AFK-surf/agent-vmm/internal/host/lifecycle"
+	"github.com/AFK-surf/agent-vmm/internal/host/session"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
 	"google.golang.org/grpc"
@@ -45,11 +47,11 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	server := &operatorServer{controller: &Controller{store: database}}
+	server := &operatorServer{controller: newTestController(&Controller{store: database})}
 	source := t.TempDir()
 	replacement := t.TempDir()
 	request := &hostv1.CreateHostShareRequest{RequestId: "create", EnvironmentId: "service", SourcePath: source, ReadOnly: true}
-	created, err := callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+	created, err := callAsOperator(t, func(ctx context.Context) (*hostv1.CreateHostShareResponse, error) {
 		return server.CreateHostShare(ctx, request)
 	})
 	if err != nil {
@@ -58,10 +60,7 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 	if created.GetShare().GetRevision() != 1 || created.GetShare().GetState() != hostv1.HostShareState_HOST_SHARE_STATE_UNAVAILABLE {
 		t.Fatal(created)
 	}
-	if _, err := server.CreateHostShare(ctx, request); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("non-operator authorization: %v", err)
-	}
-	_, err = callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+	_, err = callAsOperator(t, func(ctx context.Context) (*hostv1.CreateHostShareResponse, error) {
 		return server.CreateHostShare(ctx, &hostv1.CreateHostShareRequest{RequestId: "controller", EnvironmentId: "controller", SourcePath: source})
 	})
 	if status.Code(err) != codes.PermissionDenied {
@@ -78,16 +77,16 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 	}
 	mount := &vmmdv1.VolumeMount{Source: &vmmdv1.VolumeMount_HostShare{HostShare: id}, ReadOnly: true}
 	for _, environment := range []string{"other", "controller"} {
-		if err := server.controller.authorizeHostShareMounts(ctx, environment, []*vmmdv1.VolumeMount{mount}); status.Code(err) != codes.PermissionDenied {
+		if err := server.controller.hostShares.AuthorizeHostShareMounts(ctx, environment, []*vmmdv1.VolumeMount{mount}); status.Code(err) != codes.PermissionDenied {
 			t.Fatalf("cross-environment grant accepted: %v", err)
 		}
 	}
 	mount.ReadOnly = false
-	if err := server.controller.authorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{mount}); status.Code(err) != codes.PermissionDenied {
+	if err := server.controller.hostShares.AuthorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{mount}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("write amplification accepted: %v", err)
 	}
 	mount.ReadOnly = true
-	if err := server.controller.authorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{mount}); err != nil {
+	if err := server.controller.hostShares.AuthorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{mount}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(source, source+".original"); err != nil {
@@ -96,7 +95,7 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 	if err := os.Mkdir(source, 0700); err != nil {
 		t.Fatal(err)
 	}
-	sourceErr := server.controller.authorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{mount})
+	sourceErr := server.controller.hostShares.AuthorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{mount})
 	if status.Code(sourceErr) != codes.FailedPrecondition || strings.Contains(sourceErr.Error(), source) || strings.Contains(sourceErr.Error(), grant.Source.Path) {
 		t.Fatalf("replacement admitted or runtime exposed Host path: %v", sourceErr)
 	}
@@ -107,19 +106,19 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rebound, err := callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+	rebound, err := callAsOperator(t, func(ctx context.Context) (*hostv1.RebindHostShareResponse, error) {
 		return server.RebindHostShare(ctx, &hostv1.RebindHostShareRequest{RequestId: "rebind", ShareId: id, ExpectedRevision: 1, SourcePath: replacement})
 	})
 	if err != nil || rebound.GetShare().GetRevision() != 2 {
 		t.Fatal(rebound, err)
 	}
-	_, err = callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+	_, err = callAsOperator(t, func(ctx context.Context) (*hostv1.RevokeHostShareResponse, error) {
 		return server.RevokeHostShare(ctx, &hostv1.RevokeHostShareRequest{RequestId: "stale", ShareId: id, ExpectedRevision: 1})
 	})
 	if status.Code(err) != codes.Aborted {
 		t.Fatalf("stale revision accepted: %v", err)
 	}
-	revoked, err := callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+	revoked, err := callAsOperator(t, func(ctx context.Context) (*hostv1.RevokeHostShareResponse, error) {
 		return server.RevokeHostShare(ctx, &hostv1.RevokeHostShareRequest{RequestId: "revoke", ShareId: id, ExpectedRevision: 2})
 	})
 	if err != nil || revoked.GetShare().GetState() != hostv1.HostShareState_HOST_SHARE_STATE_REVOKED {
@@ -130,11 +129,14 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.controller = &Controller{store: database}
+	if err := database.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	server.controller = newTestController(&Controller{store: database})
 	if err := os.Remove(source); err != nil {
 		t.Fatal(err)
 	}
-	replay, err := callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+	replay, err := callAsOperator(t, func(ctx context.Context) (*hostv1.CreateHostShareResponse, error) {
 		return server.CreateHostShare(ctx, request)
 	})
 	if err != nil || replay.GetShare().GetId() != id || replay.GetShare().GetRevision() != 1 {
@@ -146,10 +148,10 @@ func TestHostShareOperatorReplayRebindAndRevokeSurviveReopen(t *testing.T) {
 	}
 	conflict := proto.Clone(request).(*hostv1.CreateHostShareRequest)
 	conflict.SourcePath = replacement
-	_, err = callAsOperator(t, func(ctx context.Context) (*hostv1.HostShareResponse, error) {
+	_, err = callAsOperator(t, func(ctx context.Context) (*hostv1.CreateHostShareResponse, error) {
 		return server.CreateHostShare(ctx, conflict)
 	})
-	if status.Code(err) != codes.AlreadyExists {
+	if reason, _ := hostv1.ErrorReasonOf(err); status.Code(err) != codes.Aborted || reason != hostv1.ErrorReason_ERROR_REASON_REQUEST_ID_CONFLICT {
 		t.Fatalf("changed replay accepted: %v", err)
 	}
 }
@@ -172,11 +174,12 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := &Controller{store: database, manager: manager}
+	controller := newTestController(&Controller{store: database, manager: manager})
 	controller.vmLifecycle = newVMLifecycleOwner(controller, manager)
 	var observed atomic.Int32
 	observed.Store(int32(hostv1.VMState_VM_STATE_STOPPED))
-	controller.vmLifecycle.snapshot = func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState(observed.Load())} }
+	setTestLifecycleSnapshot(controller, func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState(observed.Load())} })
+	shares := setupTestHostShareOwner(controller, func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState(observed.Load())} })
 	guest := new(hostShareConsumersGuest)
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer(grpc.UnaryInterceptor(auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})))
@@ -240,19 +243,19 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 	if err := os.Remove(missing); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.prepareHostShares(ctx); err != nil {
+	if err := controller.hostShares.PrepareHostShares(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(controller.hostShares) != 2 || controller.hostShares[id].Source.Path != rebound.GetShare().GetSourcePath() {
-		t.Fatalf("wrong boot array: %+v", controller.hostShares)
+	if len(shares.directories) != 2 || shares.directories[id] == nil {
+		t.Fatalf("wrong boot array: %+v", shares.directories)
 	}
 	observed.Store(int32(hostv1.VMState_VM_STATE_RUNNING))
 	guest.failProjection = true
-	if err := controller.reconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err == nil || !controller.hostSharesDirty {
+	if err := controller.hostShares.ReconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err == nil {
 		t.Fatalf("lost projection response was treated as settled: %v", err)
 	}
 	guest.failProjection = false
-	if err := controller.reconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil {
+	if err := controller.hostShares.ReconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil {
 		t.Fatal(err)
 	}
 	if len(guest.projections) != 2 {
@@ -267,7 +270,7 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 			t.Fatalf("incomplete Guest boot array: %v", projection)
 		}
 	}
-	if err := controller.reconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil {
+	if err := controller.hostShares.ReconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil {
 		t.Fatal(err)
 	}
 	if len(guest.projections) != 2 {
@@ -283,15 +286,17 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 	}
 
 	guest.unavailableShare = second.GetShare().GetId()
-	controller.hostSharesDirty = true
-	if err := controller.reconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); status.Code(err) != codes.Unavailable || !controller.hostSharesDirty {
+	if err := controller.hostShares.PrepareHostShares(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.hostShares.ReconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); status.Code(err) != codes.Unavailable {
 		t.Fatalf("partial projection was not retained for retry: %v", err)
 	}
 	good, err = database.GetHostShare(ctx, id)
 	if err != nil || good.State != hostv1.HostShareState_HOST_SHARE_STATE_AVAILABLE {
 		t.Fatalf("healthy share lost authority: %+v %v", good, err)
 	}
-	if err := controller.authorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{{Source: &vmmdv1.VolumeMount_HostShare{HostShare: id}}}); err != nil {
+	if err := controller.hostShares.AuthorizeHostShareMounts(ctx, "service", []*vmmdv1.VolumeMount{{Source: &vmmdv1.VolumeMount_HostShare{HostShare: id}}}); err != nil {
 		t.Fatalf("healthy share mount failed: %v", err)
 	}
 	unavailable, err = database.GetHostShare(ctx, second.GetShare().GetId())
@@ -299,7 +304,7 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 		t.Fatalf("missing Guest directory retained authority: %+v %v", unavailable, err)
 	}
 	guest.unavailableShare = ""
-	if err := controller.reconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil || controller.hostSharesDirty {
+	if err := controller.hostShares.ReconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil {
 		t.Fatalf("partial projection did not recover: %v", err)
 	}
 
@@ -307,11 +312,16 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 	observed.Store(int32(hostv1.VMState_VM_STATE_STOPPED))
 	entered, release, startDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
-		controller.vmLifecycle.execute(ctx, vmLifecycleStart, func() vmLifecycleResult {
+		controller.vmLifecycle.Run(ctx, hostlifecycle.Start, nil, func(context.Context) error {
+			transition, err := controller.inventory.Transition(ctx)
+			if err != nil {
+				return err
+			}
+			defer transition()
 			close(entered)
 			<-release
 			observed.Store(int32(hostv1.VMState_VM_STATE_RUNNING))
-			return vmLifecycleResult{}
+			return nil
 		})
 		close(startDone)
 	}()
@@ -335,11 +345,16 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 	observed.Store(int32(hostv1.VMState_VM_STATE_STOPPED))
 	entered, release, startDone = make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
-		controller.vmLifecycle.execute(ctx, vmLifecycleStart, func() vmLifecycleResult {
+		controller.vmLifecycle.Run(ctx, hostlifecycle.Start, nil, func(context.Context) error {
+			transition, err := controller.inventory.Transition(ctx)
+			if err != nil {
+				return err
+			}
+			defer transition()
 			close(entered)
 			<-release
 			observed.Store(int32(hostv1.VMState_VM_STATE_RUNNING))
-			return vmLifecycleResult{}
+			return nil
 		})
 		close(startDone)
 	}()
@@ -366,7 +381,7 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 	if err := database.SetManagedContainerRunning(ctx, "service", "consumer", "generation", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.reconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil {
+	if err := controller.hostShares.ReconcileHostShares(ctx, vmmdv1.NewVMMDServiceClient(connection)); err != nil {
 		t.Fatal(err)
 	}
 	good, err = database.GetHostShare(ctx, id)
@@ -379,23 +394,23 @@ func TestHostShareStaticBootAndOfflineMutationsUseLifecycleFence(t *testing.T) {
 			t.Fatalf("publishing another share overwrote revoke intent: %+v %v", current, err)
 		}
 	}
-	if err := controller.settleEnvironmentHostShares(ctx, "no-shares"); err != nil {
+	if err := controller.hostShares.SettleEnvironmentHostShares(ctx, "no-shares"); err != nil {
 		t.Fatalf("unrelated environment blocked: %v", err)
 	}
 	observed.Store(int32(hostv1.VMState_VM_STATE_STOPPED))
-	if err := controller.settleEnvironmentHostShares(ctx, "service"); err != nil {
+	if err := controller.hostShares.SettleEnvironmentHostShares(ctx, "service"); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.prepareHostShares(ctx); err != nil {
+	if err := controller.hostShares.PrepareHostShares(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(controller.hostShares) != 0 {
+	if len(shares.directories) != 0 {
 		t.Fatal("revoked shares were configured on next boot")
 	}
 }
 
 func TestRemovingSharedEnvironmentIntegrationKeepsOnlineHostShare(t *testing.T) {
-	controller, owner := integrationAuthorityFixture(t)
+	controller, owner, _ := integrationAuthorityFixture(t)
 	ctx := context.Background()
 	if _, err := controller.store.CreateAgentIntegration(ctx, store.AgentIntegration{ID: "remaining-owner", EnvironmentID: owner.EnvironmentID, AdapterID: "other-service", DisplayName: "Other", Scope: 1, ConfigTarget: "other", DesiredState: 1, ConfigState: 2, PrepareRequestID: "other-prepare"}); err != nil {
 		t.Fatal(err)
@@ -405,8 +420,8 @@ func TestRemovingSharedEnvironmentIntegrationKeepsOnlineHostShare(t *testing.T) 
 		t.Fatal(err)
 	}
 	controller.manager = &vmm.Manager{}
-	controller.vmLifecycle = &VMLifecycleOwner{snapshot: func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING} }}
-	_, err := callAsOperator(t, func(ctx context.Context) (*hostv1.AgentIntegrationResponse, error) {
+	controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
+	_, err := callAsOperator(t, func(ctx context.Context) (*hostv1.BeginAgentIntegrationRemovalResponse, error) {
 		return (&operatorServer{controller: controller}).BeginAgentIntegrationRemoval(ctx, &hostv1.BeginAgentIntegrationRemovalRequest{RequestId: "remove-owner", IntegrationId: owner.ID, ExpectedRevision: owner.Revision})
 	})
 	if err != nil {
@@ -436,11 +451,12 @@ func TestLocalDisposalRevokesStaticSharesBeforeGuestAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := &Controller{store: database, manager: manager}
+	controller := newTestController(&Controller{store: database, manager: manager})
 	controller.vmLifecycle = newVMLifecycleOwner(controller, manager)
 	var state atomic.Int32
 	state.Store(int32(hostv1.VMState_VM_STATE_STOPPED))
-	controller.vmLifecycle.snapshot = func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState(state.Load())} }
+	setTestLifecycleSnapshot(controller, func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState(state.Load())} })
+	shares := setupTestHostShareOwner(controller, func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState(state.Load())} })
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer(grpc.UnaryInterceptor(auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})))
 	hostv1.RegisterOperatorServiceServer(server, &operatorServer{controller: controller})
@@ -460,12 +476,15 @@ func TestLocalDisposalRevokesStaticSharesBeforeGuestAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessionListener := bufconn.Listen(1024)
-	session := &sessionServer{server: grpc.NewServer(), listener: sessionListener, path: filepath.Join(t.TempDir(), "session.sock")}
-	controller.sessions = map[string]*sessionServer{"session": session}
-	if err := database.CreateSession(ctx, store.Session{ID: "session", IntegrationID: "owner", EnvironmentID: "service", SocketPath: session.path, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+	controller.sessions = session.New(testSessionConfig(t, controller))
+	t.Cleanup(controller.sessions.Close)
+	controller.cleanup = assembleCleanup(controller)
+	controller.remote.BindCleanup(controller.cleanup)
+	integration, err := database.GetAgentIntegration(ctx, "owner")
+	if err != nil {
 		t.Fatal(err)
 	}
+	record := createTestSession(t, controller, "service", integration.ID, integration.Revision, auth.Identity{})
 	plan, err := operator.PlanLocalDisposal(ctx, &hostv1.PlanLocalDisposalRequest{TargetKind: hostv1.LocalDisposalTargetKind_LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT, TargetId: "service"})
 	if err != nil {
 		t.Fatal(err)
@@ -482,27 +501,28 @@ func TestLocalDisposalRevokesStaticSharesBeforeGuestAvailability(t *testing.T) {
 	if root.OperationID != accepted.GetOperation().GetId() {
 		t.Fatal("disposal lost original operation identity")
 	}
-	controller.inventoryTransition.Lock()
+	releaseInventory := holdTestInventory(t, controller)
 	queued := make(chan error, 1)
 	queuedCtx, cancelQueued := context.WithTimeout(ctx, time.Second)
 	defer cancelQueued()
-	go func() { queued <- controller.reconcileLocalDisposal(queuedCtx, root) }()
+	go func() { queued <- controller.cleanup.ReconcileLocalDisposal(queuedCtx, root) }()
 	select {
 	case err := <-queued:
-		controller.inventoryTransition.Unlock()
+		releaseInventory()
 		t.Fatalf("offline share revocation crossed the VM start transition: %v", err)
 	case <-time.After(25 * time.Millisecond):
 	}
 	state.Store(int32(hostv1.VMState_VM_STATE_RUNNING))
-	controller.inventoryTransition.Unlock()
+	releaseInventory()
 	if err := <-queued; status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "Unavailable") {
 		t.Fatalf("queued disposal lost offline fence or Guest failure: %v", err)
 	}
-	closedSession, err := database.GetSession(ctx, "session")
-	if err != nil || closedSession.ClosedAt == nil || len(controller.sessions) != 0 {
+	closedSession, err := database.GetSession(ctx, record.ID)
+	if err != nil || closedSession.ClosedAt == nil {
 		t.Fatalf("online share failure kept session live: %+v %v", closedSession, err)
 	}
-	if _, err := sessionListener.Dial(); err == nil {
+	if connection, err := net.Dial("unix", record.SocketPath); err == nil {
+		connection.Close()
 		t.Fatal("disposed session listener still accepts connections")
 	}
 	pending, err := database.GetHostShare(ctx, share.GetShare().GetId())
@@ -513,7 +533,7 @@ func TestLocalDisposalRevokesStaticSharesBeforeGuestAvailability(t *testing.T) {
 		t.Fatalf("online disposal removed environment before physical share revocation: %v", err)
 	}
 	state.Store(int32(hostv1.VMState_VM_STATE_STOPPED))
-	if err := controller.reconcileLocalDisposal(ctx, root); status.Code(err) != codes.Unavailable {
+	if err := controller.cleanup.ReconcileLocalDisposal(ctx, root); status.Code(err) != codes.Unavailable {
 		t.Fatalf("offline Guest observation: %v", err)
 	}
 	retired, err := database.GetHostShare(ctx, share.GetShare().GetId())
@@ -534,19 +554,31 @@ func TestLocalDisposalRevokesStaticSharesBeforeGuestAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := database.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	controller.store = database
+	controller.services = nil
+	controller.workloads = nil
+	controller.remote = nil
+	controller.cleanup = nil
+	controller.appliances = nil
+	controller.sessions = nil
+	controller.hostShares = nil
+	newTestController(controller)
+	shares = setupTestHostShareOwner(controller, func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState(state.Load())} })
 	persisted, err := database.GetHostShare(ctx, retired.ID)
 	if err != nil || persisted.State != hostv1.HostShareState_HOST_SHARE_STATE_REVOKED || persisted.Revision != retired.Revision {
 		t.Fatalf("share revocation was not durable: %+v %v", persisted, err)
 	}
-	if err := controller.prepareHostShares(ctx); err != nil {
+	if err := controller.hostShares.PrepareHostShares(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(controller.hostShares) != 0 {
+	if len(shares.directories) != 0 {
 		t.Fatal("disposed share entered the next boot map")
 	}
 	state.Store(int32(hostv1.VMState_VM_STATE_RUNNING))
-	if err := controller.reconcileLocalDisposal(ctx, root); status.Code(err) != codes.Unavailable {
+	if err := controller.cleanup.ReconcileLocalDisposal(ctx, root); status.Code(err) != codes.Unavailable {
 		t.Fatalf("online continuation was blocked by the already revoked share: %v", err)
 	}
 	replay, err := operator.ExecuteLocalDisposal(ctx, request)

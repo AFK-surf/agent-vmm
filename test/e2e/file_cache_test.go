@@ -25,7 +25,7 @@ func testGoferFileCache(t *testing.T, client *productClient) {
 	startContainer(t, client, namespace, container.GetId())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	result, err := client.WaitContainer(ctx, namespace, &hostv1.ContainerRequest{ContainerId: container.GetId()})
+	result, err := client.WaitContainer(ctx, namespace, &hostv1.WaitContainerRequest{ContainerId: container.GetId()})
 	if err != nil {
 		t.Fatal(err)
 	}

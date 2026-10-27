@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,13 +17,12 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	"golang.org/x/time/rate"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type TunnelMetrics struct {
+type tunnelMetrics struct {
 	AllocationID         string
 	AllocationGeneration uint64
 	BytesToController    uint64
@@ -36,15 +36,15 @@ type TunnelMetrics struct {
 type tunnelManager struct {
 	ctx                context.Context
 	controller         remotev1.RemoteControllerServiceClient
-	local              hostv1.RemoteComputeServiceClient
+	local              connectorv1.RemoteComputeServiceClient
 	registrationID     string
 	connectionInstance string
 	connectionEpoch    uint64
-	logger             Logger
+	logger             *slog.Logger
 	openGate           chan struct{}
 	mu                 sync.Mutex
 	active             map[string]*activeTunnel
-	completed          []TunnelMetrics
+	completed          []tunnelMetrics
 	pool               sync.Pool
 	bandwidth          *rate.Limiter
 }
@@ -58,14 +58,14 @@ type activeTunnel struct {
 	ctx                  context.Context
 	revokeGate           chan struct{}
 	revoked              bool
-	metrics              TunnelMetrics
+	metrics              tunnelMetrics
 	toController         atomic.Uint64
 	toRuntime            atomic.Uint64
 	stalls               atomic.Uint64
 	blockedNanos         atomic.Int64
 }
 
-func newTunnelManager(ctx context.Context, controller remotev1.RemoteControllerServiceClient, local hostv1.RemoteComputeServiceClient, registrationID, connectionInstance string, connectionEpoch uint64, logger Logger) *tunnelManager {
+func newTunnelManager(ctx context.Context, controller remotev1.RemoteControllerServiceClient, local connectorv1.RemoteComputeServiceClient, registrationID, connectionInstance string, connectionEpoch uint64, logger *slog.Logger) *tunnelManager {
 	manager := &tunnelManager{ctx: ctx, controller: controller, local: local, registrationID: registrationID, connectionInstance: connectionInstance, connectionEpoch: connectionEpoch, logger: logger, active: make(map[string]*activeTunnel), openGate: make(chan struct{}, 1), bandwidth: rate.NewLimiter(rate.Limit(MaxTunnelBytesPerSecond), MaxInFlightBytes)}
 	manager.pool.New = func() any { return make([]byte, FrameBytes) }
 	return manager
@@ -102,7 +102,7 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 			return nil, fmt.Errorf("previous runtime session revocation failed: %w", err)
 		}
 	}
-	opened, err := manager.local.OpenRuntimeSession(ctx, &hostv1.OpenRuntimeSessionRequest{RegistrationId: manager.registrationID, ConnectionInstance: manager.connectionInstance, AllocationGeneration: request.GetAllocationGeneration(), AllocationId: request.GetAllocationId(), ExecutionOwnerId: request.GetExecutionOwnerId()})
+	opened, err := manager.local.OpenRuntimeSession(ctx, &connectorv1.OpenRuntimeSessionRequest{RegistrationId: manager.registrationID, ConnectionInstance: manager.connectionInstance, AllocationGeneration: request.GetAllocationGeneration(), AllocationId: request.GetAllocationId(), ExecutionOwnerId: request.GetExecutionOwnerId()})
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +135,8 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 		return nil, err
 	}
 	expiresUnixMillis := opened.GetExpiresAt().AsTime().UnixMilli()
-	header := &remotev1.SessionHeader{ProtocolVersion: ProtocolVersion, RegistrationId: manager.registrationID, AllocationId: request.GetAllocationId(), AllocationGeneration: request.GetAllocationGeneration(), TunnelNonce: nonce, FrameBytes: FrameBytes, MaxInFlightBytes: MaxInFlightBytes, ConnectionEpoch: manager.connectionEpoch, ExpiresUnixMillis: expiresUnixMillis}
-	if err := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Header{Header: header}}); err != nil {
+	header := &remotev1.SessionHeader{RegistrationId: manager.registrationID, AllocationId: request.GetAllocationId(), AllocationGeneration: request.GetAllocationGeneration(), TunnelNonce: nonce, ConnectionEpoch: manager.connectionEpoch, ExpiresUnixMillis: expiresUnixMillis}
+	if err := stream.Send(&remotev1.ServeSessionRequest{Payload: &remotev1.ServeSessionRequest_Header{Header: header}}); err != nil {
 		cancel()
 		connection.Close()
 		return nil, fmt.Errorf("controller session handshake failed")
@@ -147,7 +147,7 @@ func (manager *tunnelManager) Open(ctx context.Context, request *remotev1.OpenSe
 		connection.Close()
 		return nil, err
 	}
-	active := &activeTunnel{revokeGate: make(chan struct{}, 1), allocationID: request.GetAllocationId(), sessionID: opened.GetSessionId(), allocationGeneration: request.GetAllocationGeneration(), cancel: cancel, connection: connection, ctx: tunnelContext, metrics: TunnelMetrics{AllocationID: request.GetAllocationId(), AllocationGeneration: request.GetAllocationGeneration(), StartedAt: time.Now()}}
+	active := &activeTunnel{revokeGate: make(chan struct{}, 1), allocationID: request.GetAllocationId(), sessionID: opened.GetSessionId(), allocationGeneration: request.GetAllocationGeneration(), cancel: cancel, connection: connection, ctx: tunnelContext, metrics: tunnelMetrics{AllocationID: request.GetAllocationId(), AllocationGeneration: request.GetAllocationGeneration(), StartedAt: time.Now()}}
 	manager.mu.Lock()
 	manager.active[tunnelKey] = active
 	manager.mu.Unlock()
@@ -168,7 +168,7 @@ func (manager *tunnelManager) bridge(active *activeTunnel, stream remotev1.Remot
 	}()
 	first := <-done
 	if first.err != nil && manager.logger != nil {
-		manager.logger.Printf("runtime session bridge failed allocation=%s generation=%d: %v", active.allocationID, active.allocationGeneration, first.err)
+		manager.logger.Warn("runtime session bridge failed", "allocation_id", active.allocationID, "generation", active.allocationGeneration, "error", first.err)
 	}
 	if first.err != nil || first.controllerToRuntime {
 		active.cancel()
@@ -176,7 +176,7 @@ func (manager *tunnelManager) bridge(active *activeTunnel, stream remotev1.Remot
 	}
 	second := <-done
 	if second.err != nil && manager.logger != nil {
-		manager.logger.Printf("runtime session bridge shutdown allocation=%s generation=%d: %v", active.allocationID, active.allocationGeneration, second.err)
+		manager.logger.Warn("runtime session bridge shutdown", "allocation_id", active.allocationID, "generation", active.allocationGeneration, "error", second.err)
 	}
 	if second.err != nil {
 		active.cancel()
@@ -197,11 +197,11 @@ func (manager *tunnelManager) bridge(active *activeTunnel, stream remotev1.Remot
 	active.metrics.EndedAt = time.Now()
 	manager.completed = append(manager.completed, active.metrics)
 	if len(manager.completed) > MaxActiveTunnels {
-		manager.completed = append([]TunnelMetrics(nil), manager.completed[len(manager.completed)-MaxActiveTunnels:]...)
+		manager.completed = append([]tunnelMetrics(nil), manager.completed[len(manager.completed)-MaxActiveTunnels:]...)
 	}
 	manager.mu.Unlock()
 	if manager.logger != nil {
-		manager.logger.Printf("runtime session closed allocation=%s generation=%d bytes_out=%d bytes_in=%d stalls=%d", active.allocationID, active.allocationGeneration, active.metrics.BytesToController, active.metrics.BytesToRuntime, active.metrics.SendStalls)
+		manager.logger.Info("runtime session closed", "allocation_id", active.allocationID, "generation", active.allocationGeneration, "bytes_out", active.metrics.BytesToController, "bytes_in", active.metrics.BytesToRuntime, "stalls", active.metrics.SendStalls)
 	}
 }
 
@@ -230,19 +230,15 @@ func (manager *tunnelManager) revokeSessionContext(parent context.Context, sessi
 	}
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
-	_, err := manager.local.RevokeRuntimeSession(ctx, &hostv1.RevokeRuntimeSessionRequest{
+	_, err := manager.local.RevokeRuntimeSession(ctx, &connectorv1.RevokeRuntimeSessionRequest{
 		SessionId: sessionID, AllocationId: allocationID, AllocationGeneration: allocationGeneration,
 		RegistrationId: manager.registrationID, ConnectionInstance: manager.connectionInstance,
 	})
-	if status.Code(err) == codes.Aborted {
-		for _, detail := range status.Convert(err).Details() {
-			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.GetReason() == "STALE_RUNTIME_SESSION" {
-				return nil
-			}
-		}
+	if reason, ok := hostv1.ErrorReasonOf(err); ok && reason == hostv1.ErrorReason_ERROR_REASON_STALE_RUNTIME_SESSION && status.Code(err) == codes.Aborted {
+		return nil
 	}
 	if err != nil {
-		log.Printf("runtime session revoke failed: registration=%s allocation=%s generation=%d session=%s error=%v details=%v", manager.registrationID, allocationID, allocationGeneration, sessionID, err, status.Convert(err).Details())
+		slog.Warn("runtime session revoke failed", "registration_id", manager.registrationID, "allocation_id", allocationID, "generation", allocationGeneration, "session_id", sessionID, "error", err)
 	}
 	return err
 }
@@ -258,7 +254,7 @@ func (manager *tunnelManager) runtimeToController(active *activeTunnel, stream r
 			}
 			payload := append([]byte(nil), buffer[:count]...)
 			started := time.Now()
-			sendErr := stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_Data{Data: payload}})
+			sendErr := stream.Send(&remotev1.ServeSessionRequest{Payload: &remotev1.ServeSessionRequest_Data{Data: payload}})
 			blocked := time.Since(started)
 			if blocked > time.Millisecond {
 				active.stalls.Add(1)
@@ -271,7 +267,7 @@ func (manager *tunnelManager) runtimeToController(active *activeTunnel, stream r
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				_ = stream.Send(&remotev1.HostSessionFrame{Payload: &remotev1.HostSessionFrame_CloseWrite{CloseWrite: true}})
+				_ = stream.Send(&remotev1.ServeSessionRequest{Payload: &remotev1.ServeSessionRequest_CloseWrite{CloseWrite: true}})
 				return stream.CloseSend()
 			}
 			return err
@@ -335,13 +331,6 @@ func (manager *tunnelManager) Close() {
 	manager.closeMatching(func(*activeTunnel) bool { return true })
 }
 
-func (manager *tunnelManager) Metrics() (int, []TunnelMetrics) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	completed := append([]TunnelMetrics(nil), manager.completed...)
-	return len(manager.active), completed
-}
-
 func (manager *tunnelManager) DomainMetrics() *hostv1.ControllerDomainMetrics {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -383,8 +372,8 @@ func validateRuntimeSocket(path string) error {
 	if err != nil {
 		return fmt.Errorf("runtime session socket unavailable")
 	}
-	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600 {
-		return fmt.Errorf("runtime session socket has unsafe permissions")
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("runtime session path is not a socket")
 	}
 	return checkSocketOwner(info, "runtime session socket")
 }

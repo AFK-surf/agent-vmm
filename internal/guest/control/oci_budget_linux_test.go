@@ -6,19 +6,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	"github.com/containerd/containerd/api/types"
@@ -27,6 +28,7 @@ import (
 	"github.com/containerd/containerd/v2/plugins/snapshots/overlay"
 	"github.com/opencontainers/go-digest"
 	bolt "go.etcd.io/bbolt"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/sys/unix"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/status"
@@ -95,15 +97,15 @@ func TestPrepareOCIStorageKeepsImagesOnPoolDevice(t *testing.T) {
 }
 
 func TestRuntimeImportSlotDeadlineReportsExactCapacityDimension(t *testing.T) {
-	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
-	unlock, err := runtime.lockImportSlot(context.Background(), "sha256:first")
+	runtime := &Runtime{materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
+	unlock, err := runtime.lockImportSlot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, err = runtime.lockImportSlot(ctx, "sha256:second"); err == nil {
+	if _, err = runtime.lockImportSlot(ctx); err == nil {
 		t.Fatal("unrelated import acquired an occupied global slot")
 	}
 	for _, detail := range status.Convert(err).Details() {
@@ -115,15 +117,15 @@ func TestRuntimeImportSlotDeadlineReportsExactCapacityDimension(t *testing.T) {
 }
 
 func TestBuildMaterializationWaitHonorsCancellation(t *testing.T) {
-	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
-	unlock, err := runtime.lockImportSlot(context.Background(), "sha256:occupied")
+	runtime := &Runtime{materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
+	unlock, err := runtime.lockImportSlot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	err = runtime.guardOCIPhysicalGrowth(ctx, "second-build", true, func() error { t.Fatal("occupied build materialization ran"); return nil })
+	err = runtime.guardOCIPhysicalGrowth(ctx, "second-build", func() error { t.Fatal("occupied build materialization ran"); return nil })
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("admitted build returned %v instead of waiting to its deadline", err)
 	}
@@ -167,7 +169,7 @@ func TestOCIProjectQuotaCeilingCannotConsumeProtectedHeadroom(t *testing.T) {
 func TestOCIProjectQuotaSettlementRetriesAndPreservesRunFailure(t *testing.T) {
 	runErr := errors.New("containerd metadata mutation failed")
 	attempts := 0
-	runtime := &Runtime{diskBudget: new(guestdisk.Budget)}
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget), logger: slog.Default().With("component", "guest-control")}
 	err := errors.Join(runErr, runtime.diskBudget.Settle(func() error {
 		return retryOCIProjectQuota(func() error {
 			attempts++
@@ -185,7 +187,7 @@ func TestOCIProjectQuotaSettlementRetriesAndPreservesRunFailure(t *testing.T) {
 func TestOCIProjectQuotaSettlementReportsRunAndPersistentTightenFailures(t *testing.T) {
 	runErr := errors.New("containerd metadata mutation failed")
 	tightenErr := errors.New("quota ioctl unavailable")
-	runtime := &Runtime{diskBudget: new(guestdisk.Budget)}
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget), logger: slog.Default().With("component", "guest-control")}
 	err := errors.Join(runErr, runtime.diskBudget.Settle(func() error {
 		return retryOCIProjectQuota(func() error { return tightenErr }, 2, 0)
 	}))
@@ -198,9 +200,9 @@ func TestOCIProjectQuotaSettlementReportsRunAndPersistentTightenFailures(t *test
 }
 
 func TestSealedImportAllowsControlInventory(t *testing.T) {
-	runtime := &Runtime{diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
+	runtime := &Runtime{diskBudget: new(guestdisk.Budget), materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	_ = runtime.diskBudget.Settle(func() error { return errors.New("persistent settlement failure") })
-	if err := runtime.guardOCIPhysicalGrowth(context.Background(), "sealed-test", false, func() error { t.Fatal("sealed import ran"); return nil }); !errors.Is(err, guestdisk.ErrGrowthSealed) {
+	if err := runtime.guardOCIPhysicalGrowth(context.Background(), "sealed-test", func() error { t.Fatal("sealed import ran"); return nil }); !errors.Is(err, guestdisk.ErrGrowthSealed) {
 		t.Fatalf("physical gate: %v", err)
 	}
 	ran := false
@@ -254,16 +256,17 @@ func TestImportReservationSummaryRejectsUnboundedDirectory(t *testing.T) {
 func TestImageGrowthUsesAlreadyHeldMaterializerSlot(t *testing.T) {
 	for _, waiting := range []bool{false, true} {
 		t.Run(fmt.Sprintf("wait=%t", waiting), func(t *testing.T) {
-			runtime := &Runtime{materializer: new(ocimaterializer.Manager), diskBudget: new(guestdisk.Budget)}
+			runtime := &Runtime{materializationSlot: semaphore.NewWeighted(1), diskBudget: new(guestdisk.Budget), logger: slog.Default().With("component", "guest-control")}
 			_ = runtime.diskBudget.Settle(func() error { return errors.New("quota settlement failed") })
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			var unlock func()
 			var err error
 			if waiting {
-				unlock, err = runtime.materializer.LockBuild(ctx)
+				err = runtime.materializationSlot.Acquire(ctx, 1)
+				unlock = func() { runtime.materializationSlot.Release(1) }
 			} else {
-				unlock, err = runtime.lockImportSlot(ctx, "sha256:copy")
+				unlock, err = runtime.lockImportSlot(ctx)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -278,7 +281,7 @@ func TestImageGrowthUsesAlreadyHeldMaterializerSlot(t *testing.T) {
 			}
 			queued, cancelQueued := context.WithTimeout(ctx, 20*time.Millisecond)
 			defer cancelQueued()
-			if _, err := runtime.lockImportSlot(queued, "sha256:other"); err == nil {
+			if _, err := runtime.lockImportSlot(queued); err == nil {
 				t.Fatal("growth released another owner's slot")
 			}
 		})
@@ -311,7 +314,7 @@ func TestLongBuilderQuotaCreditLeavesBudgetLockAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	runtime := &Runtime{client: client, stateDevice: device, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager), inventory: newRuntimeInventoryIndex()}
+	runtime := &Runtime{client: client, stateDevice: device, diskBudget: new(guestdisk.Budget), materializationSlot: semaphore.NewWeighted(1), inventory: newRuntimeInventoryIndex(), logger: slog.Default().With("component", "guest-control")}
 	if err := PrepareOCIStorage(device); err != nil {
 		t.Fatal(err)
 	}
@@ -325,8 +328,8 @@ func TestLongBuilderQuotaCreditLeavesBudgetLockAvailable(t *testing.T) {
 	if err := setProjectQuota(device, 10001, 2<<30); err != nil {
 		t.Fatal(err)
 	}
-	namespaceFacts.labels["budget-workload"] = namespaceLabels(&vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 64 << 20, Pids: 64, DiskBytes: 2 << 30}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 10001, "10.42.1.0/24")
-	namespaceFacts.labels["system.fixture"] = namespaceLabels(&vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 64 << 20, Pids: 64, DiskBytes: 3 << 30}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 10002, "10.42.2.0/24")
+	namespaceFacts.labels["budget-workload"] = namespaceLabels(&vmmdv1.NamespaceLimits{Pids: 64, DiskBytes: 2 << 30}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 10001, "10.42.1.0/24")
+	namespaceFacts.labels["system.fixture"] = namespaceLabels(&vmmdv1.NamespaceLimits{Pids: 64, DiskBytes: 3 << 30}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 10002, "10.42.2.0/24")
 	initial, err := runtime.guestDiskSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -378,9 +381,11 @@ func TestLongBuilderQuotaCreditLeavesBudgetLockAvailable(t *testing.T) {
 		t.Fatalf("missing writer credit: %d %v", quota, err)
 	}
 	observed := make(chan error, 1)
+	admitted := make(chan struct{})
 	go func() {
 		observed <- runtime.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
-			if _, err := runtime.reclaimOCIWithMaterializerTransaction(context.Background(), maxGCDeletes, false, transaction, "active_quota_credit_test"); err != nil {
+			close(admitted)
+			if _, err := runtime.reclaimOCIMaterializerHeld(context.Background(), maxGCDeletes, "active_quota_credit_test"); err != nil {
 				return err
 			}
 			snapshot, err := runtime.guestDiskSnapshot(context.Background())
@@ -440,6 +445,8 @@ func TestLongBuilderQuotaCreditLeavesBudgetLockAvailable(t *testing.T) {
 			if err := unix.Fallocate(int(full.Fd()), 0, 0, length); err != nil {
 				return fmt.Errorf("fill cache hard quota: %w", err)
 			}
+			goruntime.LockOSThread()
+			defer goruntime.UnlockOSThread()
 			if err := unix.Prctl(unix.PR_CAPBSET_DROP, unix.CAP_SYS_RESOURCE, 0, 0, 0); err != nil {
 				return err
 			}
@@ -483,12 +490,17 @@ func TestLongBuilderQuotaCreditLeavesBudgetLockAvailable(t *testing.T) {
 		})
 	}()
 	select {
+	case <-admitted:
+	case <-time.After(time.Second):
+		t.Fatal("long writer holds Stop/observation/GC budget lock")
+	}
+	select {
 	case err := <-observed:
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("long writer holds Stop/observation/GC budget lock")
+	case <-time.After(30 * time.Second):
+		t.Fatal("filesystem quota checks did not complete")
 	}
 	_, err = runtime.reserveImport(context.Background(), &vmmdv1.ImportImageHeader{RequestId: "concurrent-cold", ManifestDigest: "sha256:" + strings.Repeat("1", 64)})
 	if err == nil {
@@ -555,7 +567,7 @@ func TestLongBuilderQuotaCreditLeavesBudgetLockAvailable(t *testing.T) {
 	}
 	close(liveStop)
 	<-liveDone
-	if err := runtime.settleBuilderCacheReservation(context.Background(), identity); err != nil {
+	if err := runtime.settleBuilderCacheReservation(identity); err != nil {
 		t.Fatal(err)
 	}
 	if limit, err := activeBuilderQuotaLimit(filepath.Join(stateRoot, "import-reservations")); err != nil || limit != 0 {
@@ -612,7 +624,7 @@ func TestBuilderReservationConversionFailureRetainsPriorFacts(t *testing.T) {
 	}
 }
 
-func TestControlSystemQuotaCommitmentsShareGuestBudget(t *testing.T) {
+func TestControlSystemQuotaUsesPeerUsageAndKeepsMetadataAvailable(t *testing.T) {
 	device := os.Getenv("AGENT_VMM_CONTROL_BUDGET_DEVICE")
 	if device == "" {
 		t.Skip("requires disposable /control ext4 project quota mount")
@@ -623,7 +635,7 @@ func TestControlSystemQuotaCommitmentsShareGuestBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	runtime := &Runtime{client: client, controlDevice: device, diskBudget: new(guestdisk.Budget)}
+	runtime := &Runtime{client: client, controlDevice: device, diskBudget: new(guestdisk.Budget), logger: slog.Default().With("component", "guest-control")}
 	grant := func(name string, project uint32, size uint64) error {
 		return runtime.diskBudget.MutateInventory(func(*guestdisk.Transaction) error {
 			facts.mu.Lock()
@@ -643,7 +655,7 @@ func TestControlSystemQuotaCommitmentsShareGuestBudget(t *testing.T) {
 				return err
 			}
 			facts.mu.Lock()
-			facts.labels[name] = namespaceLabels(&vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 64 << 20, Pids: 64, DiskBytes: size}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, project, "10.42.1.0/24")
+			facts.labels[name] = namespaceLabels(&vmmdv1.NamespaceLimits{Pids: 64, DiskBytes: size}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, project, "10.42.1.0/24")
 			facts.mu.Unlock()
 			return nil
 		})
@@ -661,7 +673,7 @@ func TestControlSystemQuotaCommitmentsShareGuestBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if successes != 1 {
+	if successes != 2 {
 		t.Fatalf("independent controllers admitted %d grants", successes)
 	}
 	facts.mu.Lock()
@@ -679,15 +691,18 @@ func TestControlSystemQuotaCommitmentsShareGuestBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := unix.Fallocate(int(file.Fd()), 0, 0, 64<<20); err != nil {
+	if err := unix.Fallocate(int(file.Fd()), 0, 0, 2<<30); err != nil {
 		t.Fatal(err)
 	}
 	file.Close()
+	if err := grant("system.third", 11002, 3<<30); !errors.Is(err, guestdisk.ErrCapacityUnavailable) {
+		t.Fatalf("new quota ignored peer usage: %v", err)
+	}
 	if err := grant("system.third", 11002, 1<<30); err != nil {
 		t.Fatalf("written usage double counted: %v", err)
 	}
-	runtime = &Runtime{client: client, controlDevice: device, diskBudget: new(guestdisk.Budget)}
-	if err := grant("system.fourth", 11003, 1<<20); !errors.Is(err, guestdisk.ErrCapacityUnavailable) {
+	runtime = &Runtime{client: client, controlDevice: device, diskBudget: new(guestdisk.Budget), logger: slog.Default().With("component", "guest-control")}
+	if err := grant("system.fourth", 11003, 3<<30); !errors.Is(err, guestdisk.ErrCapacityUnavailable) {
 		t.Fatalf("restart forgot commitments: %v", err)
 	}
 	if err := runtime.diskBudget.MutateInventory(func(*guestdisk.Transaction) error {
@@ -718,12 +733,15 @@ func TestControlSystemQuotaCommitmentsShareGuestBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 		full.Close()
+		goruntime.LockOSThread()
 		if err := unix.Prctl(unix.PR_CAPBSET_DROP, unix.CAP_SYS_RESOURCE, 0, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 		command := exec.Command(os.Args[0], "-test.run=^TestLongBuilderQuotaCreditLeavesBudgetLockAvailable$")
 		command.Env = append(os.Environ(), "AGENT_VMM_CACHE_QUOTA_HELPER="+full.Name(), "AGENT_VMM_CACHE_QUOTA_OFFSET="+strconv.FormatInt(length, 10))
-		if output, err := command.CombinedOutput(); err != nil {
+		output, err := command.CombinedOutput()
+		goruntime.UnlockOSThread()
+		if err != nil {
 			t.Fatalf("bounded system writer: %v: %s", err, output)
 		}
 	}
@@ -741,7 +759,7 @@ func TestControlSystemQuotaCommitmentsShareGuestBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer metadataClient.Close()
-	metadataRuntime := &Runtime{client: metadataClient, imageOperationWriterID: "fixture-owner-ended"}
+	metadataRuntime := &Runtime{client: metadataClient, imageOperationWriterID: "fixture-owner-ended", logger: slog.Default().With("component", "guest-control")}
 	receipt := &vmmdv1.ImageOperationReceipt{RequestId: "pressure-stop", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, State: vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_STOPPED, WriterSettled: true}
 	if err := metadataRuntime.saveImageOperation(context.Background(), "system.third", receipt, ""); err != nil {
 		t.Fatalf("pressure prevented stopped receipt: %v", err)
@@ -775,7 +793,7 @@ func TestImportAdmissionPreservesCachesWhenHeadroomFits(t *testing.T) {
 	reference := "docker.io/library/fixture:latest"
 	fixture := &systemImageFixture{images: map[string]map[string]*imagesapi.Image{runtimeContainerdNamespace: {}, "preparation": {reference: {Name: reference, Target: &types.Descriptor{Digest: digest.String()}}}}, containers: map[string]*containersapi.Container{}}
 	client := systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(namespaceFacts)))
-	runtime := &Runtime{client: client, stateDevice: device, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager), inventory: newRuntimeInventoryIndex(), builder: guestbuild.NewBuilder(client, nil, nil)}
+	runtime := &Runtime{client: client, stateDevice: device, diskBudget: new(guestdisk.Budget), materializationSlot: semaphore.NewWeighted(1), inventory: newRuntimeInventoryIndex(), builder: guestbuild.NewBuilder(client, nil, nil), logger: slog.Default().With("component", "guest-control")}
 	if err := PrepareOCIStorage(device); err != nil {
 		t.Fatal(err)
 	}
@@ -810,7 +828,7 @@ func TestImportAdmissionPreservesCachesWhenHeadroomFits(t *testing.T) {
 	if err := setProjectQuota(device, 10001, quota); err != nil {
 		t.Fatal(err)
 	}
-	namespaceFacts.labels["committed-workload"] = namespaceLabels(&vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 64 << 20, Pids: 64, DiskBytes: quota}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 10001, "10.42.1.0/24")
+	namespaceFacts.labels["committed-workload"] = namespaceLabels(&vmmdv1.NamespaceLimits{Pids: 64, DiskBytes: quota}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 10001, "10.42.1.0/24")
 	snapshot, err := runtime.guestDiskSnapshot(ctx)
 	if err != nil {
 		t.Fatal(err)

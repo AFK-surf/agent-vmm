@@ -41,8 +41,11 @@ run_model() {
   run_dir="$scratch/$config"
   mkdir -p "$run_dir/states"
   cp "$spec_dir/$module.tla" "$spec_dir/$config.cfg" "$run_dir/"
-  (cd "$run_dir" && java -XX:+UseParallelGC -cp "$jar" tlc2.TLC -deadlock -workers 1 -metadir "$run_dir/states" -config "$config.cfg" "$module.tla") >"$output" 2>&1
-  grep -q 'Model checking completed. No error has been found.' "$output"
+  if ! (cd "$run_dir" && java -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers 1 -metadir "$run_dir/states" -config "$config.cfg" "$module.tla") >"$output" 2>&1 ||
+    ! grep -q 'Model checking completed. No error has been found.' "$output"; then
+    cat "$output" >&2
+    exit 1
+  fi
 }
 
 run_negative() {
@@ -54,7 +57,7 @@ run_negative() {
   run_dir="$scratch/$config"
   mkdir -p "$run_dir/states"
   cp "$spec_dir/$module.tla" "$spec_dir/$config.cfg" "$run_dir/"
-  if (cd "$run_dir" && java -XX:+UseParallelGC -cp "$jar" tlc2.TLC -deadlock -workers 1 -metadir "$run_dir/states" -config "$config.cfg" "$module.tla") >"$output" 2>&1; then
+  if (cd "$run_dir" && java -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers 1 -metadir "$run_dir/states" -config "$config.cfg" "$module.tla") >"$output" 2>&1; then
     echo "$config unexpectedly passed" >&2
     exit 1
   fi

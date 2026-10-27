@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 )
 
 const defaultContainerStopTimeout = 10 * time.Second

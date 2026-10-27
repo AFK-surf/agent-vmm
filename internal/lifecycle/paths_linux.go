@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -23,13 +25,14 @@ const (
 // paths is the fixed Linux layout. app is the current release link; source
 // is the release directory that contains the running executable.
 type paths struct {
+	owner             *serviceOwner
 	source            string
 	installRoot       string
 	app               string
 	unit              string
 	applicationData   string
 	logs              string
-	operationFile     string
+	serviceLogs       string
 	serviceConfigFile string
 	service           serviceConfig
 }
@@ -42,7 +45,7 @@ func pathsUnder(root, source string, service serviceConfig) paths {
 		unit:              filepath.Join(root, linuxUnitDirectory, linuxUnitName),
 		applicationData:   data,
 		logs:              filepath.Join(data, "logs"),
-		operationFile:     filepath.Join(data, "compute-node-operation.json"),
+		serviceLogs:       filepath.Join(root, "/var/log/agent-vmm"),
 		serviceConfigFile: filepath.Join(data, "service.json"),
 		service:           service,
 	}
@@ -147,7 +150,25 @@ func prepareServiceStateDirectories(value paths) error {
 			return errors.New("service user directory ownership could not be applied")
 		}
 	}
-	return nil
+	if err := os.MkdirAll(value.serviceLogs, 0750); err != nil {
+		return err
+	}
+	fd, err := unix.Open(value.serviceLogs, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return err
+	}
+	if stat.Uid != 0 {
+		return errors.New("service log directory must be owned by root")
+	}
+	if err := unix.Fchown(fd, 0, value.service.GID); err != nil {
+		return err
+	}
+	return unix.Fchmod(fd, 0750)
 }
 
 func openApplicationDataDirectory(value paths, owner *operationFileOwner) (*os.File, error) {
@@ -159,3 +180,7 @@ func openExistingApplicationDataDirectory(value paths) (*os.File, error) {
 }
 
 func preflightDataDirectory() (string, error) { return linuxStateDirectory, nil }
+
+func builtinMCPPackageDirectory(value paths) string {
+	return filepath.Join(value.app, "guest", "mcp-appliance")
+}

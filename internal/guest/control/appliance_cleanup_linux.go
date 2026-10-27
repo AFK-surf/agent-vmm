@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/containerd/errdefs"
 )
 
@@ -86,7 +86,7 @@ func (supervisor *applianceSupervisor) releaseRecord(ctx context.Context, record
 	if current != record {
 		return nil
 	}
-	if supervisor.runtime != nil && record.containerDispatched {
+	if record.containerDispatched {
 		identity := record.status.GetIdentity()
 		if err := supervisor.replaceStoppedContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId()); err != nil {
 			return err

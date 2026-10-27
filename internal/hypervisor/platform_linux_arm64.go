@@ -2,13 +2,15 @@
 
 package hypervisor
 
-// Derived from tinyrange/cc eed53ffb414a8bebcbb1d7934fab00558d78df00.
+// SPDX-License-Identifier: Apache-2.0
+// Derived from tinyrange/cc commit eed53ffb414a8bebcbb1d7934fab00558d78df00; modified for agent-vmm.
 // Modified for agent-vmm; see LICENSE-cc.txt.
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 const uartBase = arm64UARTBase
@@ -16,9 +18,6 @@ const uartIRQ = arm64UARTIRQ
 
 func (m *machine) memoryBase() uint64 { return arm64RAMBase }
 func (m *machine) createVM() error {
-	if m.cfg.EnableHyperV {
-		return fmt.Errorf("Hyper-V enlightenments require amd64 KVM")
-	}
 	if m.cfg.CPUs > arm64MaxCPUs {
 		return fmt.Errorf("arm64 layout fits at most %d GICv3 redistributors, requested %d vCPUs", arm64MaxCPUs, m.cfg.CPUs)
 	}
@@ -97,13 +96,13 @@ func (m *machine) prepareCPUs(fds []int) (func(), error) {
 	return cleanup, nil
 }
 
-func (m *machine) handleExit(reason uint32, run []byte) (bool, error) {
+func (m *machine) handleExit(reason uint32, run []byte) error {
 	switch reason {
 	case 8:
-		return false, fmt.Errorf("KVM guest shutdown without poweroff")
+		return fmt.Errorf("KVM guest shutdown without poweroff")
 	case 17:
-		return false, fmt.Errorf("KVM internal error %d", *(*uint32)(unsafe.Pointer(&run[32])))
+		return fmt.Errorf("KVM internal error %d", *(*uint32)(unsafe.Pointer(&run[32])))
 	default:
-		return false, fmt.Errorf("unhandled ARM64 KVM exit %d", reason)
+		return fmt.Errorf("unhandled ARM64 KVM exit %d", reason)
 	}
 }

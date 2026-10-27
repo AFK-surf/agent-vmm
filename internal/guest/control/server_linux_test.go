@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"strings"
@@ -13,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -36,12 +37,9 @@ func TestRPCErrorReportsRuntimeStageAndSourceForMissingResource(t *testing.T) {
 	if status.Code(err) != codes.NotFound || !strings.Contains(err.Error(), source) {
 		t.Fatalf("staged missing resource error = %v", err)
 	}
-	for _, detail := range status.Convert(err).Details() {
-		if value, ok := detail.(*errdetails.ErrorInfo); ok && value.GetReason() == "RUNTIME_RESOURCE_NOT_FOUND" && value.GetMetadata()["stage"] == "rootfs_snapshot" {
-			return
-		}
+	if !strings.Contains(status.Convert(err).Message(), "rootfs_snapshot") || len(status.Convert(err).Details()) != 0 {
+		t.Fatalf("uncatalogued missing resource summary = %v", err)
 	}
-	t.Fatalf("staged missing resource error omitted stage: %v", err)
 }
 
 func TestRPCErrorMapsPIDLimit(t *testing.T) {
@@ -73,7 +71,7 @@ func TestRPCErrorPreservesRealStorageCapacityOwnerFailures(t *testing.T) {
 	if err := os.MkdirAll(stateRoot, 0700); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &Runtime{client: client}
+	runtime := &Runtime{client: client, logger: slog.Default().With("component", "guest-control")}
 	snapshot, err := runtime.guestDiskSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)

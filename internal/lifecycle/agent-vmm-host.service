@@ -15,8 +15,8 @@ KillMode=process
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=90
-StandardOutput=append:{{.State}}/logs/host.stdout.log
-StandardError=append:{{.State}}/logs/host.stderr.log
+StandardOutput=append:{{.ServiceLogs}}/host.stdout.log
+StandardError=append:{{.ServiceLogs}}/host.stderr.log
 
 [Install]
 WantedBy=multi-user.target

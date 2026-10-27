@@ -1,4 +1,0 @@
-{
-  "success": {"ok":true,"data":{"state":"running"}},
-  "failure": {"ok":false,"error":{"code":"CONTAINER_NOT_RUNNING","message":"container is not running","retryable":false,"resource":{"kind":"container","id":"workspace"}}}
-}

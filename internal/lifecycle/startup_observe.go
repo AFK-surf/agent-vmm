@@ -48,7 +48,7 @@ func readStartupEvidence(value paths, operation *lifecycleOperation) *startupEvi
 		marker string
 		name   string
 	}{
-		{filepath.Join(value.logs, "host.stderr.log"), "vmm_start=", "host_start_log"},
+		{filepath.Join(value.serviceLogDirectory(), "host.stderr.log"), "vmm_start=", "host_start_log"},
 		{filepath.Join(value.logs, "serial.log.previous"), "guest_startup=", "guest_serial_log"},
 		{filepath.Join(value.logs, "serial.log"), "guest_startup=", "guest_serial_log"},
 	} {
@@ -145,4 +145,8 @@ func readTailNoFollow(path string, limit int64) ([]byte, time.Time, error) {
 	}
 	data, err := io.ReadAll(io.LimitReader(file, limit))
 	return data, info.ModTime(), err
+}
+
+func (value paths) serviceLogDirectory() string {
+	return value.serviceLogs
 }

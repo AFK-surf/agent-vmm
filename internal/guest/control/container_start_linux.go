@@ -12,14 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -34,10 +34,8 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 		if startErr == nil || dispatched {
 			return
 		}
-		failure, err := status.Convert(rpcError(startErr)).WithDetails(&errdetails.ErrorInfo{Reason: "CONTAINER_START_NOT_ADMITTED", Domain: "agent-vmm", Metadata: map[string]string{"admission": "not_accepted"}})
-		if err == nil {
-			startErr = failure.Err()
-		}
+		failure := status.Convert(rpcError(startErr))
+		startErr = hostv1.NewError(failure.Code(), hostv1.ErrorReason_ERROR_REASON_CONTAINER_START_NOT_ADMITTED, failure.Message(), hostv1.WithMetadata(map[string]string{"admission": "not_accepted"}))
 	}()
 	var identityErr error
 	if system {
@@ -51,8 +49,15 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 	if err := validateID("container_id", containerID); err != nil {
 		return nil, err
 	}
-	unlock := r.lockNamespace(namespaceID)
-	defer unlock()
+	unlock, err := r.lockNamespace(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -65,7 +70,7 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 		request = requests[0]
 	}
 	if request != nil && request.GetExpectedGenerationId() != "" && request.GetExpectedGenerationId() != current.GetGenerationId() {
-		return nil, detailedError(codes.FailedPrecondition, "CONTAINER_GENERATION_MISMATCH", "container generation changed", "container", containerID)
+		return nil, status.Error(codes.FailedPrecondition, "container generation changed")
 	}
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return current, nil
@@ -75,19 +80,27 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 			return nil, err
 		}
 	}
+	unlockContainer, err := r.lockContainer(ctx, namespaceID, containerID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlockContainer()
+	unlock()
+	unlock = nil
+	current, err = r.inspectContainer(nsctx, namespaceID, container)
+	if err != nil {
+		return nil, err
+	}
+	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+		return current, nil
+	}
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_UNKNOWN {
-		return nil, detailedError(codes.FailedPrecondition, "CONTAINER_STATE_UNKNOWN", "previous sandbox has not stopped; stop and reconcile it before restarting", "container", containerID)
+		return nil, status.Error(codes.FailedPrecondition, "previous sandbox has not stopped; stop and reconcile it before restarting")
 	}
 	// A process can have exited while the containerd task is still being
 	// reaped by monitorTask.  Do not race a replacement task with that cleanup.
 	if err := r.removeExitedTask(nsctx, container); err != nil {
 		return nil, err
-	}
-	// Reinstall the trusted supervisor before every task. A workload with root
-	// inside its runsc sandbox may mutate its own upper layer after startup; it
-	// must not control the supervisor executed on a later start.
-	if err := r.materializeSupervisor(nsctx, namespaceID, container); err != nil {
-		return nil, atRuntimeStage("supervisor_materialization", err)
 	}
 	labels, err := container.Labels(nsctx)
 	if err != nil {
@@ -113,7 +126,7 @@ func (r *Runtime) startContainer(ctx context.Context, namespaceID, containerID s
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
 	}
-	stdout, stderr, err := newRecordLog(logPath(namespaceID, containerID, current.GetGenerationId()), logMetaPath(namespaceID, containerID, current.GetGenerationId()), limit)
+	stdout, stderr, err := newRecordLog(logPath(namespaceID, containerID, current.GetGenerationId()), limit)
 	if err != nil {
 		_ = r.network.Detach(context.Background(), namespaceID, containerID, instanceID)
 		return nil, err
@@ -212,6 +225,20 @@ func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, conta
 	if err != nil {
 		code = containerd.UnknownExitStatus
 	}
+	defer func() {
+		for _, log := range logs {
+			_ = log.Close()
+		}
+	}()
+	unlock, lockErr := r.lockContainer(context.Background(), namespaceID, containerID)
+	if lockErr != nil {
+		return
+	}
+	defer unlock()
+	labels, labelsErr := container.Labels(runtimeContext(context.Background()))
+	if labelsErr != nil || labels[containerInstanceLabel] != instanceID {
+		return
+	}
 	processContext, cancelProcesses := context.WithTimeout(runtimeContext(context.Background()), 10*time.Second)
 	_ = task.Kill(processContext, syscall.SIGTERM)
 	select {
@@ -234,10 +261,7 @@ func (r *Runtime) monitorTask(namespaceID, containerID, instanceID string, conta
 		_, _ = container.SetLabels(metadataContext, map[string]string{containerStateLabel: "stopped", containerExitLabel: strconv.FormatUint(uint64(code), 10), containerInstanceLabel: "", containerFinishedLabel: strconv.FormatInt(time.Now().UnixNano(), 10)})
 		cancelMetadata()
 	}
-	for _, log := range logs {
-		_ = log.Close()
-	}
-	r.notifyWaiters(namespaceID+"/"+containerID, code)
+	r.notifyWaiters(namespaceID+"/"+containerID+"/"+instanceID, code)
 }
 
 func (r *Runtime) removeExitedTask(ctx context.Context, container containerd.Container) error {

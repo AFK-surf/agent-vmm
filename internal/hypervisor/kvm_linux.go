@@ -1,8 +1,9 @@
-//go:build linux && (arm64 || amd64)
+//go:build linux && arm64
 
 package hypervisor
 
-// Derived from tinyrange/cc eed53ffb414a8bebcbb1d7934fab00558d78df00.
+// SPDX-License-Identifier: Apache-2.0
+// Derived from tinyrange/cc commit eed53ffb414a8bebcbb1d7934fab00558d78df00; modified for agent-vmm.
 // Modified for agent-vmm; see LICENSE-cc.txt.
 
 import (
@@ -246,13 +247,7 @@ func (m *machine) runCPU(ctx context.Context, vcpufd, mmapSize int) error {
 			}
 			return fmt.Errorf("guest system event %d", event)
 		default:
-			done, err := m.handleExit(exit, run)
-			if err != nil {
-				return err
-			}
-			if done {
-				return nil
-			}
+			return m.handleExit(exit, run)
 		}
 	}
 }

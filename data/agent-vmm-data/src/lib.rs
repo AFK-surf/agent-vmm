@@ -7,14 +7,12 @@ pub mod pairing;
 pub mod pairing_session;
 pub mod pairing_wire;
 
-pub const PAIRING_ALPN: &[u8] = b"agent-vmm/pairing/1";
+pub const PAIRING_ALPN: &[u8] = b"agent-vmm/pairing/2";
 pub const MESH_CONTROL_ALPN: &[u8] = b"agent-vmm/mesh-control/1";
 pub const SERVICE_TUNNEL_ALPN: &[u8] = b"agent-vmm/service-tunnel/1";
 pub const ALPNS: [&[u8]; 3] = [PAIRING_ALPN, MESH_CONTROL_ALPN, SERVICE_TUNNEL_ALPN];
 pub const MAX_STREAMS: usize = 32;
 pub const MAX_FRAME_BYTES: usize = 64 * 1024;
-pub const MAX_LOCAL_CAPABILITY_BYTES: usize = 4096;
-pub const SERVICE_PREFACE_MAGIC: &[u8; 16] = b"AVM-SVC-TUNNEL1\0";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +61,8 @@ pub enum Command {
     },
     RejectPairing {
         session_id: Vec<u8>,
+        #[serde(default)]
+        context_mismatch: bool,
     },
 }
 
@@ -188,12 +188,11 @@ mod tests {
         assert_eq!(
             ALPNS,
             [
-                b"agent-vmm/pairing/1".as_slice(),
+                b"agent-vmm/pairing/2".as_slice(),
                 b"agent-vmm/mesh-control/1".as_slice(),
                 b"agent-vmm/service-tunnel/1".as_slice()
             ]
         );
-        assert!(ALPNS.iter().all(|value| !value.starts_with(b"salix/")));
     }
 
     #[test]

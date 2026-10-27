@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -324,7 +325,7 @@ func TestManagedInspectRejectsMissingTargetIdentity(t *testing.T) {
 	}
 }
 
-func TestManagedInspectResolvesBFTWorkloadThroughExistingOwners(t *testing.T) {
+func TestManagedInspectResolvesControllerWorkloadThroughExistingOwners(t *testing.T) {
 	runtime := managedRuntime{
 		now: func() time.Time { return time.Date(2026, 9, 14, 8, 0, 0, 0, time.UTC) },
 		runHelper: func(context.Context, string, []string) ([]byte, []byte, error) {
@@ -525,7 +526,7 @@ func TestManagedVMMutationTreatsUntypedTransportFailuresAsUnknown(t *testing.T) 
 }
 
 func TestManagedVMMutationTypedHostRejectionIsDefinite(t *testing.T) {
-	value, detailErr := status.New(codes.Aborted, "VM fence changed").WithDetails(&errdetails.ErrorInfo{Reason: "VM_FENCE_CONFLICT"})
+	value, detailErr := status.New(codes.Aborted, "VM fence changed").WithDetails(&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "VM_ADMISSION_CLOSED"})
 	if detailErr != nil {
 		t.Fatal(detailErr)
 	}
@@ -547,6 +548,7 @@ func TestManagedVMMutationTypedHostRejectionIsDefinite(t *testing.T) {
 
 func TestManagedVMMutationTerminalPersistenceFailureCarriesOperationRepair(t *testing.T) {
 	value, detailErr := status.New(codes.Unavailable, "terminal result was not saved").WithDetails(&errdetails.ErrorInfo{
+		Domain:   hostv1.ErrorDomain,
 		Reason:   "VM_TERMINAL_PERSIST_FAILED",
 		Metadata: map[string]string{"operation_id": "operation-1", "request_id": "request-stable"},
 	})
@@ -687,7 +689,7 @@ func TestManagedCleanupTypedStaleResultRequiresNewPlan(t *testing.T) {
 			return nil, nil
 		},
 		executeCleanup: func(context.Context, string, string, *hostv1.CleanupPlan, []string) (*hostv1.Operation, error) {
-			value, detailErr := status.New(codes.Aborted, "cleanup plan is stale").WithDetails(&errdetails.ErrorInfo{Reason: "CLEANUP_PLAN_STALE"})
+			value, detailErr := status.New(codes.Aborted, "cleanup plan is stale").WithDetails(&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "CLEANUP_PLAN_STALE"})
 			if detailErr != nil {
 				t.Fatal(detailErr)
 			}
@@ -712,7 +714,7 @@ func TestManagedCleanupAdmissionTimeoutIsDefiniteBeforeOperationAcceptance(t *te
 			return &hostv1.CleanupPlan{EnvironmentId: "environment-1", Kind: hostv1.CleanupKind_CLEANUP_KIND_RESET, Revision: 9}, nil
 		},
 		executeCleanup: func(context.Context, string, string, *hostv1.CleanupPlan, []string) (*hostv1.Operation, error) {
-			value, detailErr := status.New(codes.DeadlineExceeded, "cleanup admission deadline exceeded").WithDetails(&errdetails.ErrorInfo{Reason: "CLEANUP_ADMISSION_TIMEOUT"})
+			value, detailErr := status.New(codes.DeadlineExceeded, "cleanup admission deadline exceeded").WithDetails(&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "CLEANUP_ADMISSION_TIMEOUT"})
 			if detailErr != nil {
 				t.Fatal(detailErr)
 			}
@@ -765,6 +767,7 @@ func TestManagedCleanupTerminalPersistenceFailureCarriesOperationRepair(t *testi
 		now: time.Now,
 		executeCleanup: func(context.Context, string, string, *hostv1.CleanupPlan, []string) (*hostv1.Operation, error) {
 			value, detailErr := status.New(codes.Unavailable, "terminal result was not saved").WithDetails(&errdetails.ErrorInfo{
+				Domain: hostv1.ErrorDomain,
 				Reason: "CLEANUP_TERMINAL_PERSIST_FAILED",
 				Metadata: map[string]string{
 					"operation_id": "operation-1",
@@ -794,6 +797,7 @@ func TestManagedCleanupAdmissionReconciliationFailureIsUnknown(t *testing.T) {
 		now: time.Now,
 		executeCleanup: func(context.Context, string, string, *hostv1.CleanupPlan, []string) (*hostv1.Operation, error) {
 			value, detailErr := status.New(codes.Unavailable, "request result could not be read").WithDetails(&errdetails.ErrorInfo{
+				Domain:   hostv1.ErrorDomain,
 				Reason:   "CLEANUP_ADMISSION_OUTCOME_UNKNOWN",
 				Metadata: map[string]string{"request_id": "cleanup-1"},
 			})
@@ -882,26 +886,41 @@ func TestManagedDaemonUpdateRequiresAdministratorBeforeDownload(t *testing.T) {
 	}
 }
 
-func TestManagedUpdateClassifiesOnlyTransientDownloadFailuresForRetry(t *testing.T) {
+func TestManagedUpdateRejectsDownloadFailuresBeforePreparation(t *testing.T) {
 	originalClient := managedUpdateHTTPClient
 	t.Cleanup(func() { managedUpdateHTTPClient = originalClient })
 	root := t.TempDir()
-	status := map[string]any{"serviceApp": filepath.Join(root, managedServiceAppName)}
-	opts := managedOptions{artifactSize: 1, artifactSHA256: strings.Repeat("a", 64), requestID: "update-1", targetRelease: "release-2"}
+	target := filepath.Join(root, managedServiceAppName)
+	status := map[string]any{"serviceApp": target}
+	digest := sha256.Sum256([]byte("worker"))
+	opts := managedOptions{artifactSHA256: fmt.Sprintf("%x", digest), requestID: "update-1", targetRelease: "release-2"}
 	for _, test := range []struct {
 		name      string
 		status    int
+		body      string
+		size      uint64
 		retryable bool
-	}{{name: "server unavailable", status: http.StatusServiceUnavailable, retryable: true}, {name: "missing artifact", status: http.StatusNotFound, retryable: false}} {
+	}{
+		{name: "server unavailable", status: http.StatusServiceUnavailable, size: 1, retryable: true},
+		{name: "missing artifact", status: http.StatusNotFound, size: 1},
+		{name: "changed bytes", status: http.StatusOK, body: "other!", size: 6},
+		{name: "changed size", status: http.StatusOK, body: "other!", size: 1},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(test.status) }))
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.body))
+			}))
 			defer server.Close()
 			managedUpdateHTTPClient = server.Client()
-			opts.artifactURL = server.URL
-			_, err := prepareManagedUpdate(context.Background(), opts, status)
+			opts.artifactURL, opts.artifactSize = server.URL, test.size
+			_, err := prepareManagedUpdate(t.Context(), opts, status)
 			var failure managedUpdateError
 			if !errors.As(err, &failure) || failure.stage != "download" || failure.retryable != test.retryable {
 				t.Fatalf("failure=%+v err=%v", failure, err)
+			}
+			if _, err := os.Stat(managedPreparedUpdatePath(target, opts.requestID)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("rejected archive published a staged release: %v", err)
 			}
 		})
 	}
@@ -963,12 +982,12 @@ func TestManagedCleanupRejectionShowsOnlyKnownCodeAndReason(t *testing.T) {
 			{"active_access", codes.FailedPrecondition, "AGENT_ACCESS_ACTIVE", false, "AGENT_ACCESS_ACTIVE"},
 			{"unknown_reason", codes.Unavailable, "SECRET_REASON", false, "UNKNOWN"},
 			{"untyped", codes.Unknown, "", true, "UNKNOWN"},
-			{"unknown_code", codes.Code(99), "ENVIRONMENT_NOT_FOUND", false, "ENVIRONMENT_NOT_FOUND"},
+			{"unknown_code", codes.Code(99), "ENVIRONMENT_INVALID", false, "ENVIRONMENT_INVALID"},
 		} {
 			t.Run(action+"/"+test.name, func(t *testing.T) {
 				ownerError := error(errors.New("SECRET_MESSAGE"))
 				if !test.untyped {
-					value, err := status.New(test.code, "SECRET_MESSAGE").WithDetails(&errdetails.ErrorInfo{Reason: test.reason, Domain: "SECRET_DOMAIN", Metadata: map[string]string{"resource": "SECRET_RESOURCE"}})
+					value, err := status.New(test.code, "SECRET_MESSAGE").WithDetails(&errdetails.ErrorInfo{Reason: test.reason, Domain: hostv1.ErrorDomain, Metadata: map[string]string{"resource": "SECRET_RESOURCE"}})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -982,7 +1001,7 @@ func TestManagedCleanupRejectionShowsOnlyKnownCodeAndReason(t *testing.T) {
 				options := managedOptions{environmentID: "environment", cleanupKind: "discard", planRevision: 1, requestID: "request"}
 				envelope, err := runtime.cleanup(context.Background(), action, options)
 				// Untyped execute errors retain the existing unknown-outcome envelope.
-				if action == "execute" && test.untyped {
+				if action == "execute" && (test.untyped || test.expectedReason == "UNKNOWN") {
 					if err != nil {
 						t.Fatal(err)
 					}

@@ -35,7 +35,7 @@ func TestPairingContextDigestVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := hex.EncodeToString(value[:]); got != "7b9129ee42293b8037afcbd0442e03796d46909987bcbad116c741f66217a004" {
+	if got := hex.EncodeToString(value[:]); got != "3663e40e3a7aa57bd787c90c1a5036e61dd711d4e01f01017e6d116d3b20c72e" {
 		t.Fatalf("pairing context digest = %s", got)
 	}
 }

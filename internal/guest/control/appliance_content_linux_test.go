@@ -6,14 +6,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/appliancecontent"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,8 +23,9 @@ import (
 
 func TestStageApplianceContentDuringActiveBuild(t *testing.T) {
 	requireGuestRoot(t)
-	runtime := &Runtime{materializer: new(ocimaterializer.Manager)}
-	unlock, err := runtime.materializer.LockBuild(context.Background())
+	runtime := &Runtime{materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
+	err := runtime.materializationSlot.Acquire(context.Background(), 1)
+	unlock := func() { runtime.materializationSlot.Release(1) }
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +61,7 @@ func TestStageApplianceContentDuringActiveBuild(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stream := &applianceContentStream{header: &appliancev1.StageContentHeader{RequestId: t.Name(), DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli(), ContentRef: content}}
+			stream := &applianceContentStream{header: &appliancev1.StageContentHeader{RequestId: t.Name(), DeadlineUnixMillis: time.Now().Add(100 * time.Millisecond).UnixMilli(), ContentRef: content}}
 			err := server.StageApplianceContent(stream)
 			if state == "warm" {
 				if err != nil || !stream.response.GetAvailable() {
@@ -78,13 +81,13 @@ type applianceContentStream struct {
 }
 
 func (*applianceContentStream) Context() context.Context { return context.Background() }
-func (stream *applianceContentStream) Recv() (*appliancev1.StageContentRequest, error) {
+func (stream *applianceContentStream) Recv() (*vmmdv1.StageApplianceContentRequest, error) {
 	if stream.header == nil {
 		return nil, io.EOF
 	}
 	header := stream.header
 	stream.header = nil
-	return &appliancev1.StageContentRequest{Payload: &appliancev1.StageContentRequest_Header{Header: header}}, nil
+	return &vmmdv1.StageApplianceContentRequest{Payload: &vmmdv1.StageApplianceContentRequest_Header{Header: header}}, nil
 }
 func (stream *applianceContentStream) SendAndClose(response *appliancev1.ApplianceContentStatus) error {
 	stream.response = response

@@ -4,8 +4,6 @@ package lifecycle
 
 import (
 	"context"
-	"encoding/base64"
-	"fmt"
 	"path/filepath"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -28,20 +26,6 @@ func lifecycleAdapterFor(adapter *productionLifecycleAdapter) LifecycleAdapter {
 		Register: adapter.register,
 		Observe:  adapter.observe,
 	})
-}
-
-func decodeOperationField(name, encoded string, maxBytes int) ([]byte, error) {
-	if encoded == "" {
-		return nil, fmt.Errorf("operation handoff %s is required", name)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, fmt.Errorf("decode operation handoff %s: %w", name, err)
-	}
-	if len(decoded) == 0 || len(decoded) > maxBytes {
-		return nil, fmt.Errorf("operation handoff %s has invalid size", name)
-	}
-	return decoded, nil
 }
 
 func (adapter *productionLifecycleAdapter) register(ctx context.Context, request LifecycleRequest) error {

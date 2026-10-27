@@ -1,4 +1,5 @@
 import Foundation
+import GRPCCore
 import Observation
 
 @MainActor
@@ -30,24 +31,14 @@ final class AppModel {
         case forceStopping
     }
 
-    enum EnrollmentStage: String {
-        case creating = "Creating registration"
-        case storingCredential = "Storing credential"
-        case connecting = "Connecting"
-    }
-
     var section: Section? = .system
     var selectedEnvironmentID: String?
     var environmentSection: EnvironmentSection = .overview
     var snapshot = SystemSnapshotModel.loading
     var appliances: [ApplianceStatusModel] = []
-    var mcpClientBindings: [MCPClientBindingModel] = []
-    var mcpManualConfigurations: [UUID: MCPManualConfiguration] = [:]
     var deviceIdentity: DeviceIdentityModel?
     var personalMeshes: [PersonalMeshModel] = []
     var personalMeshPairing: PersonalMeshPairingModel?
-    var incomingPairingInvitation = ""
-    let pairingDiscovery = PairingDiscovery()
     var deviceActionInProgress = false
     var deviceRefreshInProgress = false
     var events: [ActivityEvent] = []
@@ -57,27 +48,31 @@ final class AppModel {
     var latestOperation: OperationModel?
     var gracefulStopFailed = false
     var vmAction: VMAction?
-    var enrollmentStage: EnrollmentStage?
-    var applianceAction: ApplianceAction?
-    var applianceActionInProgress: Bool { applianceAction != nil }
-    var mcpClientActionInProgress = false
+    var vmImpactSummary: Agentvmm_Host_V1_GetVMImpactSummaryResponse?
     var cleanupActionInProgress = false
     var policyActionInProgress = false
     var diagnosticsActionInProgress = false
     var supportPreviewInProgress = false
-    var lifecycleStatus: LifecycleStatus?
-    var lifecycleOperationInProgress = false
 
     var client: (any HostServing)?
     var observationTask: Task<Void, Never>?
     private var metricsTask: Task<Void, Never>?
     private var snapshotRefreshTask: Task<Void, Never>?
     private var eventBootID = ""
-    private var syncedCodexEndpoint = ""
-    let mcpClientConfiguration = MCPClientConfiguration()
+    var isConnected = false
+    @ObservationIgnored private lazy var refreshScheduler = RefreshScheduler { [weak self] in
+        guard let self else { throw CancellationError() }
+        try await self.performRefresh()
+    }
 
     init(client: (any HostServing)? = nil) {
         self.client = client
+    }
+
+    isolated deinit {
+        observationTask?.cancel()
+        metricsTask?.cancel()
+        snapshotRefreshTask?.cancel()
     }
 
     func start(socketPath: String = AppModel.defaultSocketPath) async {
@@ -87,49 +82,41 @@ final class AppModel {
             if let existing = self.client { client = existing }
             else { client = try GRPCHostClient(socketPath: socketPath) }
             self.client = client
-            try await refresh()
-            await refreshDevices()
-            if let operationID = UserDefaults.standard.string(forKey: "latestOperationID") {
-                latestOperation = try? await client.getOperation(id: operationID)
-            }
             observationTask = Task { [weak self] in await self?.observe(client: client) }
             metricsTask = Task { [weak self] in await self?.observeMetrics(client: client) }
-            snapshotRefreshTask = Task { [weak self] in await self?.observeSnapshots(client: client) }
+            snapshotRefreshTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(5)) }
+                    catch { return }
+                    self?.refreshScheduler.requestRefresh()
+                }
+            }
         } catch {
             isLoading = false
             errorMessage = hostErrorMessage(error)
         }
-        await refreshLifecycleStatus()
     }
 
     func refresh() async throws {
+        try await refreshScheduler.refreshNow()
+    }
+
+    private func performRefresh() async throws {
         guard let client else { throw HostClientError.disconnected }
-        async let nextSnapshot = client.snapshot()
-        async let nextAppliances = client.listAppliances()
-        applySnapshot(try await nextSnapshot)
-        appliances = try await nextAppliances
-        reloadMCPClientBindings()
-        if let codex = mcpClientBindings.first(where: { $0.kind == .codex }),
-           let endpoint = try? mcpClientConfiguration.endpointURL(for: codex),
-           endpoint.absoluteString != syncedCodexEndpoint {
-            if let endpoint = try? await mcpClientConfiguration.syncCodexEndpoint(for: codex) {
-                syncedCodexEndpoint = endpoint.absoluteString
-            }
+        do {
+            async let nextSnapshot = client.snapshot()
+            async let nextAppliances = client.listAppliances()
+            let (value, next) = try await (nextSnapshot, nextAppliances)
+            applySnapshot(value)
+            appliances = next
+            isConnected = true
+            isLoading = false
+        } catch {
+            isConnected = false
+            isLoading = false
+            errorMessage = hostErrorMessage(error)
+            throw error
         }
-        isLoading = false
-    }
-
-    func reloadMCPClientBindings() {
-        mcpClientBindings = (try? mcpClientConfiguration.bindings()) ?? []
-        mcpManualConfigurations = Dictionary(uniqueKeysWithValues: mcpClientBindings.compactMap { binding in
-            guard binding.kind == .manual,
-                  let configuration = try? mcpClientConfiguration.manualConnection(binding: binding.binding) else { return nil }
-            return (binding.id, configuration)
-        })
-    }
-
-    func manualMCPConfiguration(for binding: MCPClientBindingModel) -> MCPManualConfiguration? {
-        mcpManualConfigurations[binding.id]
     }
 
     func applySnapshot(_ value: SystemSnapshotModel) {
@@ -197,22 +184,21 @@ final class AppModel {
         }
     }
 
-    func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String) async {
+    func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String, canManageMembers: Bool) async {
         guard let client, !deviceActionInProgress else { return }
         deviceActionInProgress = true
         defer { deviceActionInProgress = false }
         do {
-            personalMeshPairing = try await client.beginPersonalMeshPairing(meshID: meshID, expectedRevision: expectedRevision, pin: pin)
-            if let pairing = personalMeshPairing { pairingDiscovery.advertise(pairing.invitationCode) }
+            personalMeshPairing = try await client.beginPersonalMeshPairing(meshID: meshID, expectedRevision: expectedRevision, pin: pin, canManageMembers: canManageMembers)
         }
         catch { errorMessage = hostErrorMessage(error) }
     }
 
-    func joinPersonalMeshPairing(invitationCode: String, pin: String, canManageMembers: Bool) async {
+    func joinPersonalMeshPairing(invitationCode: String, pin: String) async {
         guard let client, !deviceActionInProgress else { return }
         deviceActionInProgress = true
         defer { deviceActionInProgress = false }
-        do { personalMeshPairing = try await client.joinPersonalMeshPairing(invitationCode: invitationCode, pin: pin, canManageMembers: canManageMembers) }
+        do { personalMeshPairing = try await client.joinPersonalMeshPairing(invitationCode: invitationCode, pin: pin) }
         catch { errorMessage = hostErrorMessage(error) }
     }
 
@@ -236,7 +222,6 @@ final class AppModel {
         defer { deviceActionInProgress = false }
         do {
             personalMeshPairing = try await client.rejectPersonalMeshPairing(sessionID: pairing.sessionID)
-            pairingDiscovery.stopAdvertising()
         }
         catch { errorMessage = hostErrorMessage(error) }
     }
@@ -246,24 +231,39 @@ final class AppModel {
         catch { errorMessage = hostErrorMessage(error) }
     }
 
+    func prepareVMAction() async -> Bool {
+        do {
+            guard let client else { throw HostClientError.disconnected }
+            vmImpactSummary = try await client.getVMImpactSummary()
+            return true
+        } catch {
+            errorMessage = hostErrorMessage(error)
+            return false
+        }
+    }
+
     func startVM() async {
-        guard vmAction == nil else { return }
+        guard vmAction == nil, let summary = vmImpactSummary else { return }
         vmAction = .starting
         errorMessage = nil
         defer { vmAction = nil }
-        do { remember(try await client?.startVM()); gracefulStopFailed = false; try await refresh() }
-        catch { errorMessage = hostErrorMessage(error) }
+        do { remember(try await client?.startVM(fence: GRPCHostClient.vmMutationFence(summary))); gracefulStopFailed = false; try await refresh() }
+        catch {
+            errorMessage = hostErrorMessage(error)
+            if (error as? RPCError)?.code == .aborted { _ = await prepareVMAction() }
+        }
     }
 
     func stopVM(force: Bool) async {
-        guard vmAction == nil else { return }
+        guard vmAction == nil, let summary = vmImpactSummary else { return }
         vmAction = force ? .forceStopping : .stopping
         errorMessage = nil
         defer { vmAction = nil }
-        do { remember(try await client?.stopVM(force: force)); gracefulStopFailed = false; try await refresh() }
+        do { remember(try await client?.stopVM(force: force, fence: GRPCHostClient.vmMutationFence(summary))); gracefulStopFailed = false; try await refresh() }
         catch {
             if !force { gracefulStopFailed = true }
             errorMessage = hostErrorMessage(error)
+            if (error as? RPCError)?.code == .aborted { _ = await prepareVMAction() }
         }
     }
 
@@ -320,7 +320,7 @@ final class AppModel {
             }
             let completed = try await waitForOperation(operation)
             try await refresh()
-            guard completed.state == "Succeeded" else {
+            guard completed.state == .succeeded else {
                 errorMessage = completed.message ?? completed.reason ?? "The environment could not be cleaned up."
                 return false
             }
@@ -368,13 +368,13 @@ final class AppModel {
     private func waitForOperation(_ operation: OperationModel) async throws -> OperationModel {
         var current = operation
         remember(current)
-        guard current.state == "Running" else { return current }
+        guard current.state == .running else { return current }
         guard let client else { throw HostClientError.disconnected }
         for _ in 0..<600 {
             try await Task.sleep(for: .milliseconds(500))
             current = try await client.getOperation(id: current.id)
             remember(current)
-            if current.state != "Running" { return current }
+            if current.state != .running { return current }
         }
         throw HostClientError.invalidResponse("The operation did not finish in time. Check Activity for its current state.")
     }
@@ -400,38 +400,33 @@ final class AppModel {
         }
     }
 
-    private func observeSnapshots(client: any HostServing) async {
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: .seconds(5))
-                applySnapshot(try await client.snapshot())
-            } catch is CancellationError {
-                return
-            } catch {
-                // The event observer owns connection-level error reporting and retry backoff.
-            }
-        }
-    }
-
     private func observe(client: any HostServing) async {
         var delay = Duration.milliseconds(250)
+        var recoveredInitialState = false
         while !Task.isCancelled {
             do {
+                try await refresh()
+                delay = .milliseconds(250)
+                if !recoveredInitialState {
+                    await refreshDevices()
+                    if let operationID = UserDefaults.standard.string(forKey: "latestOperationID") {
+                        latestOperation = try? await client.getOperation(id: operationID)
+                    }
+                    recoveredInitialState = true
+                }
                 let sequence = events.last?.id ?? 0
                 for try await event in client.events(after: sequence) {
                     record(event)
-                    try await refresh()
+                    refreshScheduler.requestRefresh()
                 }
                 throw HostClientError.disconnected
             } catch is CancellationError {
                 return
             } catch {
+                isConnected = false
+                errorMessage = hostErrorMessage(error)
                 try? await Task.sleep(for: delay)
                 delay = min(delay * 2, .seconds(8))
-                do {
-                    try await refresh()
-                    delay = .milliseconds(250)
-                } catch {}
             }
         }
     }

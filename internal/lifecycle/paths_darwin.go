@@ -11,13 +11,14 @@ import (
 )
 
 type paths struct {
+	owner             *serviceOwner
 	home              string
 	app               string
 	resources         string
 	hostPlist         string
 	applicationData   string
 	logs              string
-	operationFile     string
+	serviceLogs       string
 	serviceConfigFile string
 	agentPlist        string
 	daemonPlist       string
@@ -94,7 +95,7 @@ func observationPathsForConfig(home, executable string, service serviceConfig, t
 		hostPlist: hostPlist, agentPlist: agentPlist, daemonPlist: daemonPlist, service: service,
 		applicationData:   filepath.Join(home, "Library", "Application Support", "AgentVMM"),
 		logs:              filepath.Join(home, "Library", "Logs", "AgentVMM"),
-		operationFile:     filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		serviceLogs:       serviceLogPath(home, service.Mode),
 		serviceConfigFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "service.json"),
 	}, nil
 }
@@ -144,16 +145,10 @@ func lifecyclePathsForConfigWithApp(home, executable string, service serviceConf
 	if filepath.Base(sourceApp) != bundle.HostAppName {
 		return paths{}, fmt.Errorf("application bundle must be %q", bundle.HostAppName)
 	}
-	if err := bundle.ValidateHostApp(sourceApp); err != nil {
-		return paths{}, fmt.Errorf("host application bundle is invalid: %w", err)
-	}
 	app := sourceApp
 	if targetApp != "" {
 		if !filepath.IsAbs(targetApp) || filepath.Base(targetApp) != bundle.HostAppName {
 			return paths{}, errors.New("service app must be an absolute Agent VMM Host.app path")
-		}
-		if err := bundle.ValidateHostApp(targetApp); err != nil {
-			return paths{}, fmt.Errorf("target host application bundle is invalid: %w", err)
 		}
 		app = targetApp
 	}
@@ -172,7 +167,7 @@ func lifecyclePathsForConfigWithApp(home, executable string, service serviceConf
 		service:           service,
 		applicationData:   filepath.Join(home, "Library", "Application Support", "AgentVMM"),
 		logs:              filepath.Join(home, "Library", "Logs", "AgentVMM"),
-		operationFile:     filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		serviceLogs:       serviceLogPath(home, service.Mode),
 		serviceConfigFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "service.json"),
 	}, nil
 }
@@ -244,4 +239,15 @@ func openOrCreateAncestorDirectoryAt(parent *os.File, name string) (*os.File, er
 		}
 	}
 	return directory, nil
+}
+
+func serviceLogPath(home string, mode serviceMode) string {
+	if mode == serviceModeDaemon {
+		return "/Library/Logs/AgentVMM"
+	}
+	return filepath.Join(home, "Library", "Logs", "AgentVMM")
+}
+
+func builtinMCPPackageDirectory(value paths) string {
+	return filepath.Join(value.app, "Contents", "Resources", "Guest", "mcp-appliance")
 }

@@ -88,7 +88,7 @@ func TestLifecycleCoordinatorInstallRunsBoundedForwardContract(t *testing.T) {
 	}
 }
 
-func TestLifecycleCoordinatorDoesNotDeriveSalixReadinessFromHealth(t *testing.T) {
+func TestLifecycleCoordinatorDoesNotDeriveControllerReadinessFromHealth(t *testing.T) {
 	mock := &coordinatorMock{facts: LifecycleFacts{
 		HostHealthy:    true,
 		RemoteAttached: false,

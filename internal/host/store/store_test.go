@@ -27,8 +27,8 @@ func TestServiceRoutePersistenceAndRevocationFences(t *testing.T) {
 	defer database.Close()
 	ctx := context.Background()
 	for _, environment := range []Environment{
-		{ID: "source", NamespaceID: "source-ns", DisplayName: "Source", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
-		{ID: "destination", NamespaceID: "destination-ns", DisplayName: "Destination", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+		{ID: "source", NamespaceID: "source-ns", DisplayName: "Source", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+		{ID: "destination", NamespaceID: "destination-ns", DisplayName: "Destination", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
 	} {
 		if _, err := database.CreateEnvironment(ctx, environment); err != nil {
 			t.Fatal(err)
@@ -240,8 +240,8 @@ func TestServiceExportsAndImportsFollowReplacementContainerGeneration(t *testing
 	defer database.Close()
 	ctx := context.Background()
 	for _, environment := range []Environment{
-		{ID: "source", NamespaceID: "source-ns", DisplayName: "Source", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
-		{ID: "destination", NamespaceID: "destination-ns", DisplayName: "Destination", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+		{ID: "source", NamespaceID: "source-ns", DisplayName: "Source", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
+		{ID: "destination", NamespaceID: "destination-ns", DisplayName: "Destination", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal},
 	} {
 		if _, err := database.CreateEnvironment(ctx, environment); err != nil {
 			t.Fatal(err)
@@ -326,6 +326,9 @@ func TestServiceListenerPersistenceRevocationAndRestartFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
+	if err := reopened.RecoverAfterRestart(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	recovered, err := reopened.GetServiceListener(ctx, "listener")
 	if err != nil || !recovered.Listener.GetRevoked() || recovered.Listener.GetRevision() != 2 {
 		t.Fatalf("recovered=%+v err=%v", recovered, err)
@@ -343,15 +346,15 @@ func TestEnvironmentOwnerConstraints(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 	cases := []Environment{
-		{ID: "local-with-remote", NamespaceID: "n1", DisplayName: "bad", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal, RegistrationID: "r", AllocationID: "a"},
-		{ID: "remote-without-owner", NamespaceID: "n2", DisplayName: "bad", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerRemoteRegistration, AllocationState: 1},
+		{ID: "local-with-remote", NamespaceID: "n1", DisplayName: "bad", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal, RegistrationID: "r", AllocationID: "a"},
+		{ID: "remote-without-owner", NamespaceID: "n2", DisplayName: "bad", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerRemoteRegistration, AllocationState: 1},
 	}
 	for _, value := range cases {
 		if _, err := store.CreateEnvironment(ctx, value); err == nil {
 			t.Fatalf("invalid owner was accepted: %+v", value)
 		}
 	}
-	remote := Environment{ID: "remote-a", NamespaceID: "rn1", DisplayName: "remote", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerRemoteRegistration, RegistrationID: "r", AllocationID: "a", AllocationState: 1}
+	remote := Environment{ID: "remote-a", NamespaceID: "rn1", DisplayName: "remote", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerRemoteRegistration, RegistrationID: "r", AllocationID: "a", AllocationState: 1}
 	if _, err := store.CreateEnvironment(ctx, remote); err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +362,7 @@ func TestEnvironmentOwnerConstraints(t *testing.T) {
 	if _, err := store.CreateEnvironment(ctx, remote); err == nil {
 		t.Fatal("duplicate registration/allocation mapping was accepted")
 	}
-	if _, err := store.UpdatePolicy(ctx, "remote-a", 1, Environment{CPUMillis: 2, MemoryBytes: 2, PIDs: 2, DiskBytes: 2, EgressMode: 1}); err == nil {
+	if _, err := store.UpdatePolicy(ctx, "remote-a", 1, Environment{PIDs: 2, DiskBytes: 2, EgressMode: 1}); err == nil {
 		t.Fatal("remote allocation policy was mutable through the local store path")
 	}
 }
@@ -372,8 +375,7 @@ func TestMultipleRemoteRegistrations(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 	registration := RemoteRegistration{
-		ID: "one", Endpoint: "controller.example:443", DisplayName: "one", ProtocolVersion: "1",
-		PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
+		ID: "one", Endpoint: "controller.example:443", DisplayName: "one", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, StopGraceSeconds: 10, State: 1, ConnectionState: 1,
 		EnrollmentState: 2, ConnectorPhase: 1,
 	}
@@ -418,8 +420,7 @@ func TestListRemoteActiveEnvironmentsBoundedScopesAndExposesOverflow(t *testing.
 	defer database.Close()
 	ctx := context.Background()
 	registration := RemoteRegistration{
-		ID: "one", Endpoint: "controller.example:443", ProtocolVersion: "1",
-		PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		ID: "one", Endpoint: "controller.example:443", PerEnvPIDs: 1, PerEnvDiskBytes: 1,
 		MaxEgressMode: 1, StopGraceSeconds: 1,
 		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
 	}
@@ -430,19 +431,19 @@ func TestListRemoteActiveEnvironmentsBoundedScopesAndExposesOverflow(t *testing.
 	if _, err := database.CreateRemoteRegistration(ctx, registration); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: "local", NamespaceID: "local", OwnerKind: OwnerLocal, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "local", NamespaceID: "local", OwnerKind: OwnerLocal, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: "other", NamespaceID: "other", OwnerKind: OwnerRemoteRegistration, RegistrationID: "two", AllocationID: "other", AllocationState: 1, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "other", NamespaceID: "other", OwnerKind: OwnerRemoteRegistration, RegistrationID: "two", AllocationID: "other", AllocationState: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 		t.Fatal(err)
 	}
 	for index := 0; index < 65; index++ {
 		id := fmt.Sprintf("one-%02d", index)
-		if _, err := database.CreateEnvironment(ctx, Environment{ID: id, NamespaceID: id, OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: id, AllocationState: 1, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+		if _, err := database.CreateEnvironment(ctx, Environment{ID: id, NamespaceID: id, OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: id, AllocationState: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: "retained", NamespaceID: "retained", OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: "retained", AllocationState: 4, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "retained", NamespaceID: "retained", OwnerKind: OwnerRemoteRegistration, RegistrationID: "one", AllocationID: "retained", AllocationState: 4, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 		t.Fatal(err)
 	}
 	environments, err := database.ListRemoteActiveEnvironmentsBounded(ctx, "one", 65)
@@ -468,7 +469,7 @@ func TestEnvironmentPolicyAndSessionPersistence(t *testing.T) {
 	ctx := context.Background()
 	environment, err := store.CreateEnvironment(ctx, Environment{
 		ID: "environment-a", NamespaceID: "namespace-a", DisplayName: "Agent A",
-		CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1, OwnerKind: OwnerLocal,
+		PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1, OwnerKind: OwnerLocal,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -477,12 +478,12 @@ func TestEnvironmentPolicyAndSessionPersistence(t *testing.T) {
 		t.Fatalf("revision = %d", environment.PolicyRevision)
 	}
 	updated, err := store.UpdatePolicy(ctx, environment.ID, 1, Environment{
-		CPUMillis: 2000, MemoryBytes: 2 << 30, PIDs: 256, DiskBytes: 8 << 30, EgressMode: 2,
+		PIDs: 256, DiskBytes: 8 << 30, EgressMode: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.PolicyRevision != 2 || updated.CPUMillis != 2000 {
+	if updated.PolicyRevision != 2 || updated.PIDs != 256 {
 		t.Fatalf("updated = %+v", updated)
 	}
 	if _, err := store.UpdatePolicy(ctx, environment.ID, 1, Environment{}); err == nil {
@@ -507,6 +508,9 @@ func TestEnvironmentPolicyAndSessionPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	if err := store.RecoverAfterRestart(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	session, err := store.GetSession(ctx, "session-a")
 	if err != nil {
 		t.Fatal(err)
@@ -531,7 +535,7 @@ func TestAgentIntegrationOwnsSessionAuthorizationAndRemovalKeepsEnvironment(t *t
 	ctx := context.Background()
 	if _, err := database.CreateEnvironment(ctx, Environment{
 		ID: "agent-data", NamespaceID: "agent-namespace", DisplayName: "Agent data",
-		CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30,
+		PIDs: 128, DiskBytes: 4 << 30,
 		EgressMode: 1, OwnerKind: OwnerLocal,
 	}); err != nil {
 		t.Fatal(err)
@@ -570,7 +574,7 @@ func TestAgentIntegrationOwnsSessionAuthorizationAndRemovalKeepsEnvironment(t *t
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.MarkSessionConnected(ctx, "session-a"); err != nil {
+	if err := database.MarkSessionConnected(ctx, "session-a", "", 0); err != nil {
 		t.Fatal(err)
 	}
 	sessions, err := database.ListSessions(ctx, ready.ID, false)
@@ -615,7 +619,7 @@ func TestAgentSessionAuthorizationIsAtomicWithRemoval(t *testing.T) {
 	}
 	defer database.Close()
 	ctx := context.Background()
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "Environment", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "Environment", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
 		t.Fatal(err)
 	}
 	prepared, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: "integration", AdapterID: "codex", DisplayName: "Codex", Scope: 1, ConfigTarget: "config", EnvironmentID: "environment", DesiredState: 1, ConfigState: 1, PrepareRequestID: "prepare"})
@@ -661,7 +665,7 @@ func TestCancelledPendingIntegrationPreservesOwnerUntilDiscard(t *testing.T) {
 	ctx := context.Background()
 	integrationID := "cancelled"
 	environmentID := "integration-" + integrationID
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: environmentID, NamespaceID: "namespace", DisplayName: "Pending", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: environmentID, NamespaceID: "namespace", DisplayName: "Pending", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
 		t.Fatal(err)
 	}
 	prepared, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: integrationID, AdapterID: "codex", DisplayName: "Codex", Scope: 1, ConfigTarget: "config", EnvironmentID: environmentID, DesiredState: 1, ConfigState: 1, PrepareRequestID: "prepare"})
@@ -704,7 +708,7 @@ func TestCancelledIntegrationCleanupRollsBackWhenEnvironmentIsReferenced(t *test
 	defer database.Close()
 	ctx := context.Background()
 	integrationID, environmentID := "blocked", "integration-blocked"
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: environmentID, NamespaceID: "namespace", DisplayName: "Pending", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: environmentID, NamespaceID: "namespace", DisplayName: "Pending", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
 		t.Fatal(err)
 	}
 	prepared, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: integrationID, AdapterID: "codex", DisplayName: "Codex", Scope: 1, ConfigTarget: "config", EnvironmentID: environmentID, DesiredState: 1, ConfigState: 1, PrepareRequestID: "prepare-blocked"})
@@ -738,8 +742,7 @@ func TestRemoteEnrollmentTransitionsAreRevisionAndStateFenced(t *testing.T) {
 	defer database.Close()
 	ctx := context.Background()
 	pending, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{
-		ID: "registration", Endpoint: "controller.example:443", DisplayName: "controller", ProtocolVersion: "1",
-		PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
+		ID: "registration", Endpoint: "controller.example:443", DisplayName: "controller", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, StopGraceSeconds: 10,
 		State: 1, ConnectionState: 1, EnrollmentState: 1, ConnectorPhase: 2, EnrollmentRequestID: "begin-registration",
 	})
@@ -801,8 +804,7 @@ func TestConnectorStatusRejectsStaleInstances(t *testing.T) {
 	defer database.Close()
 	ctx := context.Background()
 	registration, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{
-		ID: "registration", Endpoint: "controller.example:443", ProtocolVersion: "1",
-		PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		ID: "registration", Endpoint: "controller.example:443", PerEnvPIDs: 1, PerEnvDiskBytes: 1,
 		MaxEgressMode: 1, StopGraceSeconds: 10,
 		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
 	})
@@ -839,8 +841,7 @@ func TestRemotePoolPolicyRevisionIsIndependentFromLifecycleRevision(t *testing.T
 	defer database.Close()
 	ctx := context.Background()
 	registration, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{
-		ID: "policy-revision", Endpoint: "controller.example:443", ProtocolVersion: "1",
-		PerEnvPIDs: 1, PerEnvDiskBytes: 1,
+		ID: "policy-revision", Endpoint: "controller.example:443", PerEnvPIDs: 1, PerEnvDiskBytes: 1,
 		MaxEgressMode: 1, StopGraceSeconds: 10,
 		State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1,
 	})
@@ -931,6 +932,9 @@ func TestOpenPreservesResumableOperationsAndInterruptsLostHandlers(t *testing.T)
 				t.Fatal(err)
 			}
 			defer second.Close()
+			if err := second.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
 			recovered, err := second.GetOperation(context.Background(), created.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -1037,7 +1041,7 @@ func TestDiscardEnvironmentRemovesOnlyFullyRemovedIntegrationHistory(t *testing.
 	ctx := context.Background()
 	if _, err := database.CreateEnvironment(ctx, Environment{
 		ID: "retained", NamespaceID: "retained-namespace", DisplayName: "Retained",
-		CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal,
+		PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1088,7 +1092,7 @@ func TestDiscardEnvironmentRejectsActiveIntegrationWithoutMutation(t *testing.T)
 	ctx := context.Background()
 	if _, err := database.CreateEnvironment(ctx, Environment{
 		ID: "active", NamespaceID: "active-namespace", DisplayName: "Active",
-		CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal,
+		PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1125,7 +1129,7 @@ func TestDiscardEnvironmentRequiresRetainedRemoteAllocation(t *testing.T) {
 		id := fmt.Sprintf("remote-active-%d", index)
 		if _, err := database.CreateEnvironment(ctx, Environment{
 			ID: id, NamespaceID: id + "-namespace", DisplayName: id,
-			CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1,
+			PIDs: 1, DiskBytes: 1, EgressMode: 1,
 			OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: id,
 			AllocationState: int32(state),
 		}); err != nil {
@@ -1143,7 +1147,7 @@ func TestDiscardEnvironmentRequiresRetainedRemoteAllocation(t *testing.T) {
 	}
 	if _, err := database.CreateEnvironment(ctx, Environment{
 		ID: "remote-retained", NamespaceID: "remote-retained-namespace", DisplayName: "retained",
-		CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1,
+		PIDs: 1, DiskBytes: 1, EgressMode: 1,
 		OwnerKind: OwnerRemoteRegistration, RegistrationID: "registration", AllocationID: "retained",
 		AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED),
 	}); err != nil {
@@ -1162,17 +1166,16 @@ func TestOpenPreservesRetainedRemoteAllocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", ProtocolVersion: "2",
-		PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
+	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller", DisplayName: "controller", PerEnvPIDs: 256, PerEnvDiskBytes: 4 << 30,
 		MaxEgressMode: 1, StopGraceSeconds: 30, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1}); err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
-	contract := resourcev2.Contract{CPUMaxMillis: 500, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 2 << 30}
+	contract := resourcev2.Contract{PIDMax: 128, WritableQuotaBytes: 2 << 30}
 	created, err := database.BeginWorkloadAdmission(ctx, Environment{
 		ID: "remote-leased", NamespaceID: "remote-leased-namespace", DisplayName: "leased", OwnerKind: OwnerRemoteRegistration,
-		RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY), AllocationGeneration: 7, CPUMillis: uint32(contract.CPUMaxMillis), MemoryBytes: contract.MemoryMaxBytes, PIDs: uint32(contract.PIDMax), DiskBytes: contract.WritableQuotaBytes},
-		resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 2 << 30, PIDMax: 256, WritableQuotaBytes: 4 << 30})
+		RegistrationID: "registration", AllocationID: "allocation", AllocationState: int32(hostv1.AllocationState_ALLOCATION_STATE_READY), AllocationGeneration: 7, PIDs: uint32(contract.PIDMax), DiskBytes: contract.WritableQuotaBytes},
+		resourcev2.Contract{PIDMax: 256, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
@@ -1191,6 +1194,9 @@ func TestOpenPreservesRetainedRemoteAllocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
+	if err := reopened.RecoverAfterRestart(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	recovered, err := reopened.GetEnvironment(context.Background(), created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1216,7 +1222,7 @@ func TestDiscardEnvironmentRollsBackRelatedHistoryOnFailure(t *testing.T) {
 	ctx := context.Background()
 	if _, err := database.CreateEnvironment(ctx, Environment{
 		ID: "rollback", NamespaceID: "rollback-namespace", DisplayName: "Rollback",
-		CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal,
+		PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1258,7 +1264,7 @@ func TestSessionTerminalReplaysPreserveFirstReasonAndRejectMissing(t *testing.T)
 			}
 			defer database.Close()
 			ctx := context.Background()
-			environment := Environment{ID: "terminal-env", NamespaceID: "terminal-ns", OwnerKind: OwnerLocal, CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1}
+			environment := Environment{ID: "terminal-env", NamespaceID: "terminal-ns", OwnerKind: OwnerLocal, PIDs: 1, DiskBytes: 1, EgressMode: 1}
 			if _, err := database.CreateEnvironment(ctx, environment); err != nil {
 				t.Fatal(err)
 			}
@@ -1299,10 +1305,10 @@ func TestPartialServiceRemovalPreservesOwnerForReplay(t *testing.T) {
 	}
 	ctx := context.Background()
 	environment := "integration-partial-service"
-	if _, err := database.CreateEnvironment(ctx, Environment{ID: environment, NamespaceID: "partial-namespace", DisplayName: "Partial", CPUMillis: 1, MemoryBytes: 1, PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: environment, NamespaceID: "partial-namespace", DisplayName: "Partial", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: "partial-service", AdapterID: "agentd-service", DisplayName: "gitea", Scope: 1, ConfigTarget: "image", EnvironmentID: environment, DesiredState: 1, ConfigState: 1, PrepareRequestID: "prepare-partial"})
+	owner, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: "partial-service", AdapterID: "client-service", DisplayName: "gitea", Scope: 1, ConfigTarget: "image", EnvironmentID: environment, DesiredState: 1, ConfigState: 1, PrepareRequestID: "prepare-partial"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1365,7 +1371,7 @@ func TestRemoteEnrollmentRestartPreservesPrivatePreparation(t *testing.T) {
 		if kind == RemoteRegistrationPrivate {
 			installationID = "installation"
 		}
-		_, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: id, Endpoint: "controller.example:443", DisplayName: "controller", ProtocolVersion: "1", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 10, State: 1, ConnectionState: 1, EnrollmentState: 1, ConnectorPhase: 2, OwnerKind: kind, InstallationID: installationID})
+		_, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: id, Endpoint: "controller.example:443", DisplayName: "controller", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 10, State: 1, ConnectionState: 1, EnrollmentState: 1, ConnectorPhase: 2, OwnerKind: kind, InstallationID: installationID})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1378,6 +1384,9 @@ func TestRemoteEnrollmentRestartPreservesPrivatePreparation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
+	if err := database.RecoverAfterRestart(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	external, err := database.GetRemoteRegistration(ctx, "registration-1")
 	if err != nil || external.EnrollmentState != 3 || external.EnrollmentErrorCode != "ENROLLMENT_INTERRUPTED" {
 		t.Fatalf("external interrupted enrollment=%+v %v", external, err)
@@ -1385,5 +1394,40 @@ func TestRemoteEnrollmentRestartPreservesPrivatePreparation(t *testing.T) {
 	private, err := database.GetRemoteRegistration(ctx, "registration-2")
 	if err != nil || private.EnrollmentState != 1 || private.EnrollmentErrorCode != "" || private.ConnectionState != 1 {
 		t.Fatalf("private preparation lost after restart=%+v %v", private, err)
+	}
+}
+
+func TestRestartRecoveryRollsBackAllOwners(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "host.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	if _, err := database.CreateEnvironment(ctx, Environment{ID: "environment", NamespaceID: "namespace", DisplayName: "test", PIDs: 1, DiskBytes: 1, EgressMode: 1, OwnerKind: OwnerLocal}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateSession(ctx, Session{ID: "session", EnvironmentID: "environment", SocketPath: "session.sock", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := database.PutOperation(ctx, Operation{ID: "operation", Kind: "diagnostic", RequestID: "request", State: int32(hostv1.OperationState_OPERATION_STATE_RUNNING)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateRemoteRegistration(ctx, RemoteRegistration{ID: "registration", Endpoint: "controller.example:443", DisplayName: "test", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 1, ConnectorPhase: 1, OwnerKind: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`CREATE TRIGGER reject_recovery BEFORE UPDATE ON remote_registrations BEGIN SELECT RAISE(ABORT,'injected recovery failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RecoverAfterRestart(ctx, time.Now()); err == nil {
+		t.Fatal("recovery unexpectedly succeeded")
+	}
+	operation, err := database.GetOperation(ctx, "operation")
+	if err != nil || operation.State != int32(hostv1.OperationState_OPERATION_STATE_RUNNING) {
+		t.Fatalf("operation changed: %+v, %v", operation, err)
+	}
+	session, err := database.GetSession(ctx, "session")
+	if err != nil || session.RevokedAt != nil {
+		t.Fatalf("session changed: %+v, %v", session, err)
 	}
 }

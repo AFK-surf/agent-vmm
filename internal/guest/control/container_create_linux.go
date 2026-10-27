@@ -7,14 +7,14 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -23,9 +23,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
-	securejoin "github.com/cyphar/filepath-securejoin"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -46,10 +44,8 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		if createErr == nil || dispatched {
 			return
 		}
-		failure, err := status.Convert(rpcError(createErr)).WithDetails(&errdetails.ErrorInfo{Reason: "CONTAINER_CREATE_NOT_ADMITTED", Domain: "agent-vmm", Metadata: map[string]string{"admission": "not_accepted"}})
-		if err == nil {
-			createErr = failure.Err()
-		}
+		failure := status.Convert(rpcError(createErr))
+		createErr = hostv1.NewError(failure.Code(), hostv1.ErrorReason_ERROR_REASON_CONTAINER_CREATE_NOT_ADMITTED, failure.Message(), hostv1.WithMetadata(map[string]string{"admission": "not_accepted"}))
 	}()
 	namespaceID := request.GetActorNamespaceId()
 	if system {
@@ -63,10 +59,18 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 		return nil, err
 	}
 	if len(request.GetEntrypointOverride().GetValues()) > 256 || len(request.GetCommandOverride().GetValues()) > 256 || len(request.GetEnv()) > 256 || request.GetLogLimitBytes() == 0 || request.GetLogLimitBytes() > 64<<20 {
-		return nil, detailedError(codes.InvalidArgument, "CONTAINER_LAUNCH_INVALID", "entrypoint, command, env, or log limit is outside the allowed range", "container", request.GetContainerId())
+		return nil, status.Error(codes.InvalidArgument, "entrypoint, command, env, or log limit is outside the allowed range")
 	}
-	unlock := r.lockNamespace(namespaceID)
+	unlock, err := r.lockNamespace(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
+	unlockContainer, err := r.lockContainer(ctx, namespaceID, request.GetContainerId())
+	if err != nil {
+		return nil, err
+	}
+	defer unlockContainer()
 	if err := r.namespaceExistsForRole(ctx, namespaceID, system); err != nil {
 		return nil, err
 	}
@@ -75,7 +79,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	}
 
 	if err := validateEnvironment(request.GetEnv()); err != nil {
-		return nil, detailedError(codes.InvalidArgument, "ENVIRONMENT_INVALID", err.Error(), "container", request.GetContainerId())
+		return nil, hostv1.NewError(codes.InvalidArgument, hostv1.ErrorReason_ERROR_REASON_ENVIRONMENT_INVALID, err.Error(), hostv1.WithResource("container", request.GetContainerId()))
 	}
 	processValues := append([]string(nil), request.GetEntrypointOverride().GetValues()...)
 	processValues = append(processValues, request.GetCommandOverride().GetValues()...)
@@ -90,7 +94,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	if err != nil {
 		return nil, err
 	}
-	if err := validateResourceLimits(namespaceID, request.GetLimits(), namespace.GetLimits()); err != nil {
+	if err := validateResourceLimits(request.GetLimits(), namespace.GetLimits()); err != nil {
 		return nil, err
 	}
 	for _, mount := range request.GetVolumes() {
@@ -108,12 +112,12 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	logicalContext := namespaceContext(ctx, namespaceID)
 	canonicalImage, err := normalizeImageReference(request.GetImage())
 	if err != nil {
-		return nil, imageError(codes.InvalidArgument, "IMAGE_REFERENCE_INVALID", "image reference is invalid", request.GetImage())
+		return nil, hostv1.NewError(codes.InvalidArgument, hostv1.ErrorReason_ERROR_REASON_IMAGE_REFERENCE_INVALID, "image reference is invalid", hostv1.WithResource("image", request.GetImage()))
 	}
 	logicalImage, err := r.client.GetImage(logicalContext, canonicalImage)
 	if err != nil {
 		if errdefs.IsNotFound(err) {
-			return nil, imageError(codes.NotFound, "IMAGE_NOT_FOUND", "image is not available in this environment", canonicalImage)
+			return nil, hostv1.NewError(codes.NotFound, hostv1.ErrorReason_ERROR_REASON_IMAGE_NOT_FOUND, "image is not available in this environment", hostv1.WithResource("image", canonicalImage))
 		}
 		return nil, err
 	}
@@ -121,16 +125,16 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 	image, err := r.client.GetImage(nsctx, runtimeImageReference(logicalImage.Target().Digest))
 	if err != nil {
 		if errdefs.IsNotFound(err) {
-			return nil, imageError(codes.NotFound, "IMAGE_NOT_FOUND", "image is not available in this environment", canonicalImage)
+			return nil, hostv1.NewError(codes.NotFound, hostv1.ErrorReason_ERROR_REASON_IMAGE_NOT_FOUND, "image is not available in this environment", hostv1.WithResource("image", canonicalImage))
 		}
 		return nil, err
 	}
 	unpacked, err := image.IsUnpacked(nsctx, containerSnapshotter)
 	if err != nil {
-		return nil, imageError(codes.Internal, "IMAGE_METADATA_FAILED", "image unpack state could not be read", canonicalImage)
+		return nil, status.Error(codes.Internal, "image unpack state could not be read")
 	}
 	if !unpacked {
-		return nil, imageError(codes.FailedPrecondition, "IMAGE_ROOTFS_UNAVAILABLE", "image root filesystem is not materialized; import the exact image again", canonicalImage)
+		return nil, status.Error(codes.FailedPrecondition, "image root filesystem is not materialized; import the exact image again")
 	}
 	volumeJSON, err := encodeContainerMounts(request.GetVolumes())
 	if err != nil {
@@ -175,10 +179,7 @@ func (r *Runtime) createContainer(ctx context.Context, request *vmmdv1.CreateCon
 			r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
 			return nil, atRuntimeStage("snapshot_quota", err)
 		}
-		if err := r.materializeSupervisor(nsctx, namespaceID, container); err != nil {
-			r.rollbackNewContainer(nsctx, namespaceID, request.GetContainerId(), container)
-			return nil, atRuntimeStage("supervisor_materialization", err)
-		}
+
 	}
 	current, err := r.inspectContainer(nsctx, namespaceID, container)
 	if err != nil {
@@ -235,80 +236,6 @@ func withSupervisedProcess() containerd.NewContainerOpts {
 	}
 }
 
-func (r *Runtime) materializeSupervisor(ctx context.Context, namespaceID string, container containerd.Container) error {
-	info, err := container.Info(ctx)
-	if err != nil {
-		return err
-	}
-	mounts, err := r.client.SnapshotService(info.Snapshotter).Mounts(ctx, info.SnapshotKey)
-	if err != nil {
-		return err
-	}
-	writableRoot, err := writableSnapshotRoot(mounts)
-	if err != nil {
-		return err
-	}
-	destination, err := securejoin.SecureJoin(writableRoot, supervisorPath)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return err
-	}
-	labels, err := r.client.NamespaceService().Labels(context.Background(), namespaceID)
-	if err != nil {
-		return err
-	}
-	projectID, _, err := namespaceFromLabels(namespaceID, labels)
-	if err != nil {
-		return err
-	}
-	if err := assignProject(filepath.Dir(destination), projectID); err != nil {
-		return err
-	}
-	source, err := os.Open(supervisorHostPath)
-	if err != nil {
-		return err
-	}
-	defer source.Close()
-	// No task is running while this function executes. Remove the prior copy
-	// first so a quota-full upper can restart without requiring a second
-	// supervisor-sized allocation. O_EXCL also prevents following a path a
-	// previous workload replaced with a symlink.
-	if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(output, source)
-	closeErr := output.Close()
-	if copyErr != nil {
-		_ = os.Remove(destination)
-		return copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(destination)
-		return closeErr
-	}
-	return nil
-}
-
-func writableSnapshotRoot(mounts []mount.Mount) (string, error) {
-	for _, snapshotMount := range mounts {
-		if snapshotMount.Type == "bind" && snapshotMount.Source != "" {
-			return snapshotMount.Source, nil
-		}
-		for _, option := range snapshotMount.Options {
-			if value, ok := strings.CutPrefix(option, "upperdir="); ok && value != "" {
-				return value, nil
-			}
-		}
-	}
-	return "", errors.New("writable snapshot has no materialization directory")
-}
-
 func containerMainProcess(ctx context.Context, container containerd.Container) (*specs.Process, error) {
 	extensions, err := container.Extensions(ctx)
 	if err != nil {
@@ -347,6 +274,7 @@ func (r *Runtime) specOptions(namespaceID string, request *vmmdv1.CreateContaine
 			spec.Annotations = make(map[string]string)
 		}
 		spec.Annotations[runscContainerType] = runscSandbox
+		spec.Mounts = append(spec.Mounts, specs.Mount{Destination: supervisorPath, Type: "bind", Source: supervisorHostPath, Options: []string{"bind", "ro", "nosuid", "nodev", "exec"}})
 		spec.Process.NoNewPrivileges = true
 		spec.Process.Capabilities = &specs.LinuxCapabilities{}
 		if spec.Linux == nil {

@@ -87,7 +87,7 @@ func Start(ctx context.Context, config Config) (*Client, error) {
 	}
 	defer readyRead.Close()
 	files = append(files, readyWrite)
-	for i, path := range []string{config.KernelPath, config.InitramfsPath, config.RootFSPath, config.StatePath, config.LegacyStatePath} {
+	for i, path := range []string{config.KernelPath, config.InitramfsPath, config.RootFSPath, config.StatePath} {
 		if path == "" && i == 4 {
 			break
 		}

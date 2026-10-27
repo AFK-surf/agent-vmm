@@ -19,463 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TrustService_GetDeviceIdentity_FullMethodName            = "/agentvmm.trust.v1.TrustService/GetDeviceIdentity"
-	TrustService_SignEndpointObservation_FullMethodName      = "/agentvmm.trust.v1.TrustService/SignEndpointObservation"
-	TrustService_ApplyMeshEndpointObservation_FullMethodName = "/agentvmm.trust.v1.TrustService/ApplyMeshEndpointObservation"
-	TrustService_GetEndpointObservation_FullMethodName       = "/agentvmm.trust.v1.TrustService/GetEndpointObservation"
-	TrustService_ListPersonalMeshes_FullMethodName           = "/agentvmm.trust.v1.TrustService/ListPersonalMeshes"
-	TrustService_InstallManagedTrust_FullMethodName          = "/agentvmm.trust.v1.TrustService/InstallManagedTrust"
-	TrustService_ApplyMeshSnapshot_FullMethodName            = "/agentvmm.trust.v1.TrustService/ApplyMeshSnapshot"
-	TrustService_AuthorizeRoute_FullMethodName               = "/agentvmm.trust.v1.TrustService/AuthorizeRoute"
-	TrustService_PullRegistryOperations_FullMethodName       = "/agentvmm.trust.v1.TrustService/PullRegistryOperations"
-	TrustService_CommitRegistryOperation_FullMethodName      = "/agentvmm.trust.v1.TrustService/CommitRegistryOperation"
-)
-
-// TrustServiceClient is the client API for TrustService service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// TrustService is the connector-only local surface. It signs and verifies
-// bounded trust artifacts; it never exposes a device root private key.
-type TrustServiceClient interface {
-	GetDeviceIdentity(ctx context.Context, in *GetDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentity, error)
-	SignEndpointObservation(ctx context.Context, in *SignEndpointObservationRequest, opts ...grpc.CallOption) (*EndpointObservation, error)
-	ApplyMeshEndpointObservation(ctx context.Context, in *ApplyMeshEndpointObservationRequest, opts ...grpc.CallOption) (*EndpointObservation, error)
-	GetEndpointObservation(ctx context.Context, in *GetEndpointObservationRequest, opts ...grpc.CallOption) (*EndpointObservation, error)
-	ListPersonalMeshes(ctx context.Context, in *ListPersonalMeshesRequest, opts ...grpc.CallOption) (*ListPersonalMeshesResponse, error)
-	InstallManagedTrust(ctx context.Context, in *InstallManagedTrustRequest, opts ...grpc.CallOption) (*InstallManagedTrustResponse, error)
-	ApplyMeshSnapshot(ctx context.Context, in *ApplyMeshSnapshotRequest, opts ...grpc.CallOption) (*ApplyMeshSnapshotResponse, error)
-	AuthorizeRoute(ctx context.Context, in *AuthorizeRouteRequest, opts ...grpc.CallOption) (*AuthorizeRouteResponse, error)
-	PullRegistryOperations(ctx context.Context, in *PullRegistryOperationsRequest, opts ...grpc.CallOption) (*PullRegistryOperationsResponse, error)
-	CommitRegistryOperation(ctx context.Context, in *CommitRegistryOperationRequest, opts ...grpc.CallOption) (*ApplyMeshSnapshotResponse, error)
-}
-
-type trustServiceClient struct {
-	cc grpc.ClientConnInterface
-}
-
-func NewTrustServiceClient(cc grpc.ClientConnInterface) TrustServiceClient {
-	return &trustServiceClient{cc}
-}
-
-func (c *trustServiceClient) GetDeviceIdentity(ctx context.Context, in *GetDeviceIdentityRequest, opts ...grpc.CallOption) (*DeviceIdentity, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeviceIdentity)
-	err := c.cc.Invoke(ctx, TrustService_GetDeviceIdentity_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) SignEndpointObservation(ctx context.Context, in *SignEndpointObservationRequest, opts ...grpc.CallOption) (*EndpointObservation, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EndpointObservation)
-	err := c.cc.Invoke(ctx, TrustService_SignEndpointObservation_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) ApplyMeshEndpointObservation(ctx context.Context, in *ApplyMeshEndpointObservationRequest, opts ...grpc.CallOption) (*EndpointObservation, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EndpointObservation)
-	err := c.cc.Invoke(ctx, TrustService_ApplyMeshEndpointObservation_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) GetEndpointObservation(ctx context.Context, in *GetEndpointObservationRequest, opts ...grpc.CallOption) (*EndpointObservation, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EndpointObservation)
-	err := c.cc.Invoke(ctx, TrustService_GetEndpointObservation_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) ListPersonalMeshes(ctx context.Context, in *ListPersonalMeshesRequest, opts ...grpc.CallOption) (*ListPersonalMeshesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListPersonalMeshesResponse)
-	err := c.cc.Invoke(ctx, TrustService_ListPersonalMeshes_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) InstallManagedTrust(ctx context.Context, in *InstallManagedTrustRequest, opts ...grpc.CallOption) (*InstallManagedTrustResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(InstallManagedTrustResponse)
-	err := c.cc.Invoke(ctx, TrustService_InstallManagedTrust_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) ApplyMeshSnapshot(ctx context.Context, in *ApplyMeshSnapshotRequest, opts ...grpc.CallOption) (*ApplyMeshSnapshotResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplyMeshSnapshotResponse)
-	err := c.cc.Invoke(ctx, TrustService_ApplyMeshSnapshot_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) AuthorizeRoute(ctx context.Context, in *AuthorizeRouteRequest, opts ...grpc.CallOption) (*AuthorizeRouteResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AuthorizeRouteResponse)
-	err := c.cc.Invoke(ctx, TrustService_AuthorizeRoute_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) PullRegistryOperations(ctx context.Context, in *PullRegistryOperationsRequest, opts ...grpc.CallOption) (*PullRegistryOperationsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PullRegistryOperationsResponse)
-	err := c.cc.Invoke(ctx, TrustService_PullRegistryOperations_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *trustServiceClient) CommitRegistryOperation(ctx context.Context, in *CommitRegistryOperationRequest, opts ...grpc.CallOption) (*ApplyMeshSnapshotResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplyMeshSnapshotResponse)
-	err := c.cc.Invoke(ctx, TrustService_CommitRegistryOperation_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// TrustServiceServer is the server API for TrustService service.
-// All implementations must embed UnimplementedTrustServiceServer
-// for forward compatibility.
-//
-// TrustService is the connector-only local surface. It signs and verifies
-// bounded trust artifacts; it never exposes a device root private key.
-type TrustServiceServer interface {
-	GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentity, error)
-	SignEndpointObservation(context.Context, *SignEndpointObservationRequest) (*EndpointObservation, error)
-	ApplyMeshEndpointObservation(context.Context, *ApplyMeshEndpointObservationRequest) (*EndpointObservation, error)
-	GetEndpointObservation(context.Context, *GetEndpointObservationRequest) (*EndpointObservation, error)
-	ListPersonalMeshes(context.Context, *ListPersonalMeshesRequest) (*ListPersonalMeshesResponse, error)
-	InstallManagedTrust(context.Context, *InstallManagedTrustRequest) (*InstallManagedTrustResponse, error)
-	ApplyMeshSnapshot(context.Context, *ApplyMeshSnapshotRequest) (*ApplyMeshSnapshotResponse, error)
-	AuthorizeRoute(context.Context, *AuthorizeRouteRequest) (*AuthorizeRouteResponse, error)
-	PullRegistryOperations(context.Context, *PullRegistryOperationsRequest) (*PullRegistryOperationsResponse, error)
-	CommitRegistryOperation(context.Context, *CommitRegistryOperationRequest) (*ApplyMeshSnapshotResponse, error)
-	mustEmbedUnimplementedTrustServiceServer()
-}
-
-// UnimplementedTrustServiceServer must be embedded to have
-// forward compatible implementations.
-//
-// NOTE: this should be embedded by value instead of pointer to avoid a nil
-// pointer dereference when methods are called.
-type UnimplementedTrustServiceServer struct{}
-
-func (UnimplementedTrustServiceServer) GetDeviceIdentity(context.Context, *GetDeviceIdentityRequest) (*DeviceIdentity, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetDeviceIdentity not implemented")
-}
-func (UnimplementedTrustServiceServer) SignEndpointObservation(context.Context, *SignEndpointObservationRequest) (*EndpointObservation, error) {
-	return nil, status.Error(codes.Unimplemented, "method SignEndpointObservation not implemented")
-}
-func (UnimplementedTrustServiceServer) ApplyMeshEndpointObservation(context.Context, *ApplyMeshEndpointObservationRequest) (*EndpointObservation, error) {
-	return nil, status.Error(codes.Unimplemented, "method ApplyMeshEndpointObservation not implemented")
-}
-func (UnimplementedTrustServiceServer) GetEndpointObservation(context.Context, *GetEndpointObservationRequest) (*EndpointObservation, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetEndpointObservation not implemented")
-}
-func (UnimplementedTrustServiceServer) ListPersonalMeshes(context.Context, *ListPersonalMeshesRequest) (*ListPersonalMeshesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListPersonalMeshes not implemented")
-}
-func (UnimplementedTrustServiceServer) InstallManagedTrust(context.Context, *InstallManagedTrustRequest) (*InstallManagedTrustResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method InstallManagedTrust not implemented")
-}
-func (UnimplementedTrustServiceServer) ApplyMeshSnapshot(context.Context, *ApplyMeshSnapshotRequest) (*ApplyMeshSnapshotResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ApplyMeshSnapshot not implemented")
-}
-func (UnimplementedTrustServiceServer) AuthorizeRoute(context.Context, *AuthorizeRouteRequest) (*AuthorizeRouteResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method AuthorizeRoute not implemented")
-}
-func (UnimplementedTrustServiceServer) PullRegistryOperations(context.Context, *PullRegistryOperationsRequest) (*PullRegistryOperationsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method PullRegistryOperations not implemented")
-}
-func (UnimplementedTrustServiceServer) CommitRegistryOperation(context.Context, *CommitRegistryOperationRequest) (*ApplyMeshSnapshotResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CommitRegistryOperation not implemented")
-}
-func (UnimplementedTrustServiceServer) mustEmbedUnimplementedTrustServiceServer() {}
-func (UnimplementedTrustServiceServer) testEmbeddedByValue()                      {}
-
-// UnsafeTrustServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to TrustServiceServer will
-// result in compilation errors.
-type UnsafeTrustServiceServer interface {
-	mustEmbedUnimplementedTrustServiceServer()
-}
-
-func RegisterTrustServiceServer(s grpc.ServiceRegistrar, srv TrustServiceServer) {
-	// If the following call panics, it indicates UnimplementedTrustServiceServer was
-	// embedded by pointer and is nil.  This will cause panics if an
-	// unimplemented method is ever invoked, so we test this at initialization
-	// time to prevent it from happening at runtime later due to I/O.
-	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
-		t.testEmbeddedByValue()
-	}
-	s.RegisterService(&TrustService_ServiceDesc, srv)
-}
-
-func _TrustService_GetDeviceIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetDeviceIdentityRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).GetDeviceIdentity(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_GetDeviceIdentity_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).GetDeviceIdentity(ctx, req.(*GetDeviceIdentityRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_SignEndpointObservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SignEndpointObservationRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).SignEndpointObservation(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_SignEndpointObservation_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).SignEndpointObservation(ctx, req.(*SignEndpointObservationRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_ApplyMeshEndpointObservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyMeshEndpointObservationRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).ApplyMeshEndpointObservation(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_ApplyMeshEndpointObservation_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).ApplyMeshEndpointObservation(ctx, req.(*ApplyMeshEndpointObservationRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_GetEndpointObservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetEndpointObservationRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).GetEndpointObservation(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_GetEndpointObservation_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).GetEndpointObservation(ctx, req.(*GetEndpointObservationRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_ListPersonalMeshes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListPersonalMeshesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).ListPersonalMeshes(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_ListPersonalMeshes_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).ListPersonalMeshes(ctx, req.(*ListPersonalMeshesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_InstallManagedTrust_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InstallManagedTrustRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).InstallManagedTrust(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_InstallManagedTrust_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).InstallManagedTrust(ctx, req.(*InstallManagedTrustRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_ApplyMeshSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyMeshSnapshotRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).ApplyMeshSnapshot(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_ApplyMeshSnapshot_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).ApplyMeshSnapshot(ctx, req.(*ApplyMeshSnapshotRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_AuthorizeRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AuthorizeRouteRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).AuthorizeRoute(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_AuthorizeRoute_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).AuthorizeRoute(ctx, req.(*AuthorizeRouteRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_PullRegistryOperations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PullRegistryOperationsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).PullRegistryOperations(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_PullRegistryOperations_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).PullRegistryOperations(ctx, req.(*PullRegistryOperationsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TrustService_CommitRegistryOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CommitRegistryOperationRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TrustServiceServer).CommitRegistryOperation(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TrustService_CommitRegistryOperation_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TrustServiceServer).CommitRegistryOperation(ctx, req.(*CommitRegistryOperationRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-// TrustService_ServiceDesc is the grpc.ServiceDesc for TrustService service.
-// It's only intended for direct use with grpc.RegisterService,
-// and not to be introspected or modified (even as a copy)
-var TrustService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "agentvmm.trust.v1.TrustService",
-	HandlerType: (*TrustServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "GetDeviceIdentity",
-			Handler:    _TrustService_GetDeviceIdentity_Handler,
-		},
-		{
-			MethodName: "SignEndpointObservation",
-			Handler:    _TrustService_SignEndpointObservation_Handler,
-		},
-		{
-			MethodName: "ApplyMeshEndpointObservation",
-			Handler:    _TrustService_ApplyMeshEndpointObservation_Handler,
-		},
-		{
-			MethodName: "GetEndpointObservation",
-			Handler:    _TrustService_GetEndpointObservation_Handler,
-		},
-		{
-			MethodName: "ListPersonalMeshes",
-			Handler:    _TrustService_ListPersonalMeshes_Handler,
-		},
-		{
-			MethodName: "InstallManagedTrust",
-			Handler:    _TrustService_InstallManagedTrust_Handler,
-		},
-		{
-			MethodName: "ApplyMeshSnapshot",
-			Handler:    _TrustService_ApplyMeshSnapshot_Handler,
-		},
-		{
-			MethodName: "AuthorizeRoute",
-			Handler:    _TrustService_AuthorizeRoute_Handler,
-		},
-		{
-			MethodName: "PullRegistryOperations",
-			Handler:    _TrustService_PullRegistryOperations_Handler,
-		},
-		{
-			MethodName: "CommitRegistryOperation",
-			Handler:    _TrustService_CommitRegistryOperation_Handler,
-		},
-	},
-	Streams:  []grpc.StreamDesc{},
-	Metadata: "trust/v1/trust.proto",
-}
-
-const (
 	PersonalMeshRegistryService_CreateMesh_FullMethodName      = "/agentvmm.trust.v1.PersonalMeshRegistryService/CreateMesh"
 	PersonalMeshRegistryService_CommitJoin_FullMethodName      = "/agentvmm.trust.v1.PersonalMeshRegistryService/CommitJoin"
 	PersonalMeshRegistryService_CommitRevoke_FullMethodName    = "/agentvmm.trust.v1.PersonalMeshRegistryService/CommitRevoke"
 	PersonalMeshRegistryService_GetSnapshot_FullMethodName     = "/agentvmm.trust.v1.PersonalMeshRegistryService/GetSnapshot"
 	PersonalMeshRegistryService_PublishEndpoint_FullMethodName = "/agentvmm.trust.v1.PersonalMeshRegistryService/PublishEndpoint"
 	PersonalMeshRegistryService_ListEndpoints_FullMethodName   = "/agentvmm.trust.v1.PersonalMeshRegistryService/ListEndpoints"
-	PersonalMeshRegistryService_WatchRevision_FullMethodName   = "/agentvmm.trust.v1.PersonalMeshRegistryService/WatchRevision"
 )
 
 // PersonalMeshRegistryServiceClient is the client API for PersonalMeshRegistryService service.
@@ -485,13 +34,20 @@ const (
 // PersonalMeshRegistryService is provider-neutral. Registry implementations
 // linearize device-signed operations but never become route issuers.
 type PersonalMeshRegistryServiceClient interface {
-	CreateMesh(ctx context.Context, in *CreateMeshRequest, opts ...grpc.CallOption) (*MeshCommitResponse, error)
-	CommitJoin(ctx context.Context, in *CommitJoinRequest, opts ...grpc.CallOption) (*MeshCommitResponse, error)
-	CommitRevoke(ctx context.Context, in *CommitRevokeRequest, opts ...grpc.CallOption) (*MeshCommitResponse, error)
-	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*MeshSnapshot, error)
+	// CreateMesh commits the initial signed personal mesh operation and returns its signed registry
+	// receipt.
+	CreateMesh(ctx context.Context, in *CreateMeshRequest, opts ...grpc.CallOption) (*CreateMeshResponse, error)
+	// CommitJoin applies one signed membership join under the expected registry revision.
+	CommitJoin(ctx context.Context, in *CommitJoinRequest, opts ...grpc.CallOption) (*CommitJoinResponse, error)
+	// CommitRevoke applies one signed membership revocation and retains its durable tombstone.
+	CommitRevoke(ctx context.Context, in *CommitRevokeRequest, opts ...grpc.CallOption) (*CommitRevokeResponse, error)
+	// GetSnapshot reads the signed mesh snapshot required for current membership verification.
+	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
+	// PublishEndpoint publishes a member-signed bounded endpoint observation without granting route
+	// authority.
 	PublishEndpoint(ctx context.Context, in *PublishEndpointRequest, opts ...grpc.CallOption) (*PublishEndpointResponse, error)
-	ListEndpoints(ctx context.Context, in *ListMeshEndpointsRequest, opts ...grpc.CallOption) (*ListMeshEndpointsResponse, error)
-	WatchRevision(ctx context.Context, in *WatchRevisionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RevisionNotice], error)
+	// ListEndpoints reads bounded endpoint observations for current mesh reachability checks.
+	ListEndpoints(ctx context.Context, in *ListEndpointsRequest, opts ...grpc.CallOption) (*ListEndpointsResponse, error)
 }
 
 type personalMeshRegistryServiceClient struct {
@@ -502,9 +58,9 @@ func NewPersonalMeshRegistryServiceClient(cc grpc.ClientConnInterface) PersonalM
 	return &personalMeshRegistryServiceClient{cc}
 }
 
-func (c *personalMeshRegistryServiceClient) CreateMesh(ctx context.Context, in *CreateMeshRequest, opts ...grpc.CallOption) (*MeshCommitResponse, error) {
+func (c *personalMeshRegistryServiceClient) CreateMesh(ctx context.Context, in *CreateMeshRequest, opts ...grpc.CallOption) (*CreateMeshResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(MeshCommitResponse)
+	out := new(CreateMeshResponse)
 	err := c.cc.Invoke(ctx, PersonalMeshRegistryService_CreateMesh_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -512,9 +68,9 @@ func (c *personalMeshRegistryServiceClient) CreateMesh(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *personalMeshRegistryServiceClient) CommitJoin(ctx context.Context, in *CommitJoinRequest, opts ...grpc.CallOption) (*MeshCommitResponse, error) {
+func (c *personalMeshRegistryServiceClient) CommitJoin(ctx context.Context, in *CommitJoinRequest, opts ...grpc.CallOption) (*CommitJoinResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(MeshCommitResponse)
+	out := new(CommitJoinResponse)
 	err := c.cc.Invoke(ctx, PersonalMeshRegistryService_CommitJoin_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -522,9 +78,9 @@ func (c *personalMeshRegistryServiceClient) CommitJoin(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *personalMeshRegistryServiceClient) CommitRevoke(ctx context.Context, in *CommitRevokeRequest, opts ...grpc.CallOption) (*MeshCommitResponse, error) {
+func (c *personalMeshRegistryServiceClient) CommitRevoke(ctx context.Context, in *CommitRevokeRequest, opts ...grpc.CallOption) (*CommitRevokeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(MeshCommitResponse)
+	out := new(CommitRevokeResponse)
 	err := c.cc.Invoke(ctx, PersonalMeshRegistryService_CommitRevoke_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -532,9 +88,9 @@ func (c *personalMeshRegistryServiceClient) CommitRevoke(ctx context.Context, in
 	return out, nil
 }
 
-func (c *personalMeshRegistryServiceClient) GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*MeshSnapshot, error) {
+func (c *personalMeshRegistryServiceClient) GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(MeshSnapshot)
+	out := new(GetSnapshotResponse)
 	err := c.cc.Invoke(ctx, PersonalMeshRegistryService_GetSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -552,34 +108,15 @@ func (c *personalMeshRegistryServiceClient) PublishEndpoint(ctx context.Context,
 	return out, nil
 }
 
-func (c *personalMeshRegistryServiceClient) ListEndpoints(ctx context.Context, in *ListMeshEndpointsRequest, opts ...grpc.CallOption) (*ListMeshEndpointsResponse, error) {
+func (c *personalMeshRegistryServiceClient) ListEndpoints(ctx context.Context, in *ListEndpointsRequest, opts ...grpc.CallOption) (*ListEndpointsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListMeshEndpointsResponse)
+	out := new(ListEndpointsResponse)
 	err := c.cc.Invoke(ctx, PersonalMeshRegistryService_ListEndpoints_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
-
-func (c *personalMeshRegistryServiceClient) WatchRevision(ctx context.Context, in *WatchRevisionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RevisionNotice], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &PersonalMeshRegistryService_ServiceDesc.Streams[0], PersonalMeshRegistryService_WatchRevision_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[WatchRevisionRequest, RevisionNotice]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type PersonalMeshRegistryService_WatchRevisionClient = grpc.ServerStreamingClient[RevisionNotice]
 
 // PersonalMeshRegistryServiceServer is the server API for PersonalMeshRegistryService service.
 // All implementations must embed UnimplementedPersonalMeshRegistryServiceServer
@@ -588,13 +125,20 @@ type PersonalMeshRegistryService_WatchRevisionClient = grpc.ServerStreamingClien
 // PersonalMeshRegistryService is provider-neutral. Registry implementations
 // linearize device-signed operations but never become route issuers.
 type PersonalMeshRegistryServiceServer interface {
-	CreateMesh(context.Context, *CreateMeshRequest) (*MeshCommitResponse, error)
-	CommitJoin(context.Context, *CommitJoinRequest) (*MeshCommitResponse, error)
-	CommitRevoke(context.Context, *CommitRevokeRequest) (*MeshCommitResponse, error)
-	GetSnapshot(context.Context, *GetSnapshotRequest) (*MeshSnapshot, error)
+	// CreateMesh commits the initial signed personal mesh operation and returns its signed registry
+	// receipt.
+	CreateMesh(context.Context, *CreateMeshRequest) (*CreateMeshResponse, error)
+	// CommitJoin applies one signed membership join under the expected registry revision.
+	CommitJoin(context.Context, *CommitJoinRequest) (*CommitJoinResponse, error)
+	// CommitRevoke applies one signed membership revocation and retains its durable tombstone.
+	CommitRevoke(context.Context, *CommitRevokeRequest) (*CommitRevokeResponse, error)
+	// GetSnapshot reads the signed mesh snapshot required for current membership verification.
+	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
+	// PublishEndpoint publishes a member-signed bounded endpoint observation without granting route
+	// authority.
 	PublishEndpoint(context.Context, *PublishEndpointRequest) (*PublishEndpointResponse, error)
-	ListEndpoints(context.Context, *ListMeshEndpointsRequest) (*ListMeshEndpointsResponse, error)
-	WatchRevision(*WatchRevisionRequest, grpc.ServerStreamingServer[RevisionNotice]) error
+	// ListEndpoints reads bounded endpoint observations for current mesh reachability checks.
+	ListEndpoints(context.Context, *ListEndpointsRequest) (*ListEndpointsResponse, error)
 	mustEmbedUnimplementedPersonalMeshRegistryServiceServer()
 }
 
@@ -605,26 +149,23 @@ type PersonalMeshRegistryServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedPersonalMeshRegistryServiceServer struct{}
 
-func (UnimplementedPersonalMeshRegistryServiceServer) CreateMesh(context.Context, *CreateMeshRequest) (*MeshCommitResponse, error) {
+func (UnimplementedPersonalMeshRegistryServiceServer) CreateMesh(context.Context, *CreateMeshRequest) (*CreateMeshResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateMesh not implemented")
 }
-func (UnimplementedPersonalMeshRegistryServiceServer) CommitJoin(context.Context, *CommitJoinRequest) (*MeshCommitResponse, error) {
+func (UnimplementedPersonalMeshRegistryServiceServer) CommitJoin(context.Context, *CommitJoinRequest) (*CommitJoinResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CommitJoin not implemented")
 }
-func (UnimplementedPersonalMeshRegistryServiceServer) CommitRevoke(context.Context, *CommitRevokeRequest) (*MeshCommitResponse, error) {
+func (UnimplementedPersonalMeshRegistryServiceServer) CommitRevoke(context.Context, *CommitRevokeRequest) (*CommitRevokeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CommitRevoke not implemented")
 }
-func (UnimplementedPersonalMeshRegistryServiceServer) GetSnapshot(context.Context, *GetSnapshotRequest) (*MeshSnapshot, error) {
+func (UnimplementedPersonalMeshRegistryServiceServer) GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSnapshot not implemented")
 }
 func (UnimplementedPersonalMeshRegistryServiceServer) PublishEndpoint(context.Context, *PublishEndpointRequest) (*PublishEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PublishEndpoint not implemented")
 }
-func (UnimplementedPersonalMeshRegistryServiceServer) ListEndpoints(context.Context, *ListMeshEndpointsRequest) (*ListMeshEndpointsResponse, error) {
+func (UnimplementedPersonalMeshRegistryServiceServer) ListEndpoints(context.Context, *ListEndpointsRequest) (*ListEndpointsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListEndpoints not implemented")
-}
-func (UnimplementedPersonalMeshRegistryServiceServer) WatchRevision(*WatchRevisionRequest, grpc.ServerStreamingServer[RevisionNotice]) error {
-	return status.Error(codes.Unimplemented, "method WatchRevision not implemented")
 }
 func (UnimplementedPersonalMeshRegistryServiceServer) mustEmbedUnimplementedPersonalMeshRegistryServiceServer() {
 }
@@ -739,7 +280,7 @@ func _PersonalMeshRegistryService_PublishEndpoint_Handler(srv interface{}, ctx c
 }
 
 func _PersonalMeshRegistryService_ListEndpoints_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListMeshEndpointsRequest)
+	in := new(ListEndpointsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -751,21 +292,10 @@ func _PersonalMeshRegistryService_ListEndpoints_Handler(srv interface{}, ctx con
 		FullMethod: PersonalMeshRegistryService_ListEndpoints_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PersonalMeshRegistryServiceServer).ListEndpoints(ctx, req.(*ListMeshEndpointsRequest))
+		return srv.(PersonalMeshRegistryServiceServer).ListEndpoints(ctx, req.(*ListEndpointsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
-
-func _PersonalMeshRegistryService_WatchRevision_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(WatchRevisionRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(PersonalMeshRegistryServiceServer).WatchRevision(m, &grpc.GenericServerStream[WatchRevisionRequest, RevisionNotice]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type PersonalMeshRegistryService_WatchRevisionServer = grpc.ServerStreamingServer[RevisionNotice]
 
 // PersonalMeshRegistryService_ServiceDesc is the grpc.ServiceDesc for PersonalMeshRegistryService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -799,12 +329,6 @@ var PersonalMeshRegistryService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PersonalMeshRegistryService_ListEndpoints_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "WatchRevision",
-			Handler:       _PersonalMeshRegistryService_WatchRevision_Handler,
-			ServerStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "trust/v1/trust.proto",
 }

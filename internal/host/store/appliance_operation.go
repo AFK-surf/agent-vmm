@@ -7,6 +7,7 @@ import (
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 )
 
 const applianceOperationInsert = `INSERT INTO appliance_operations(id, installation_id, request_id,
@@ -68,6 +69,16 @@ func (store *Store) BeginApplianceStateMutation(ctx context.Context, installatio
 		return ApplianceOperation{}, ErrInstallationRevisionConflict
 	}
 	if operation.Kind == int32(appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_REVOKE) {
+		if _, err := tx.ExecContext(ctx, `UPDATE appliance_installations SET revoked_at=COALESCE(revoked_at,?) WHERE id=?`, now, installation.ID); err != nil {
+			return ApplianceOperation{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE remote_registrations SET state=?,revision=revision+1,updated_at=? WHERE id=? AND state<>?`, int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED), now, installation.RegistrationID, int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED)); err != nil {
+			return ApplianceOperation{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO revoked_appliance_authorities(authority_id,installation_id,revoked_at) SELECT authority_id,installation_id,? FROM appliance_trust_authorities WHERE installation_id=? ON CONFLICT(authority_id) DO NOTHING`, now, installation.ID); err != nil {
+			return ApplianceOperation{}, err
+		}
+
 		if _, err := tx.ExecContext(ctx, `UPDATE service_imports SET revoked=1,revision=revision+1,updated_at=? WHERE (source_installation_id=? OR destination_installation_id=?) AND revoked=0`, now, installation.ID, installation.ID); err != nil {
 			return ApplianceOperation{}, err
 		}
@@ -98,8 +109,7 @@ func (store *Store) ApplianceOperationByRequest(ctx context.Context, requestID s
 
 func (store *Store) HasApplianceRevocation(ctx context.Context, installationID string) (bool, error) {
 	var revoked bool
-	err := store.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM appliance_operations WHERE installation_id=? AND kind=?)`, installationID,
-		appliancev1.ApplianceOperationKind_APPLIANCE_OPERATION_KIND_REVOKE).Scan(&revoked)
+	err := store.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM appliance_installations WHERE id=? AND revoked_at IS NOT NULL)`, installationID).Scan(&revoked)
 	return revoked, err
 }
 
@@ -265,21 +275,21 @@ func (store *Store) CommitApplianceRemove(ctx context.Context, remove ApplianceR
 			return ApplianceOperation{}, err
 		}
 	}
-	result, err = tx.ExecContext(ctx, `UPDATE appliance_operations SET state=2, operation_phase=5,
-		terminal_reason=7, stage='removed', error_reason='', error_message='', receipt=?, updated_at=? WHERE id=? AND installation_id=?
-		AND state=1 AND operation_phase=4`, applianceBlob(remove.Receipt), time.Now().UnixNano(),
-		remove.OperationID, remove.InstallationID)
+	operation, err := scanApplianceOperation(tx.QueryRowContext(ctx, applianceOperationSelect+` WHERE id=? AND installation_id=? AND state=1 AND operation_phase=4`, remove.OperationID, remove.InstallationID))
 	if err != nil {
 		return ApplianceOperation{}, err
 	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return ApplianceOperation{}, err
-		}
-		return ApplianceOperation{}, ErrOperationReceiptConflict
+	if _, err := tx.ExecContext(ctx, `DELETE FROM appliance_operations WHERE installation_id=?`, remove.InstallationID); err != nil {
+		return ApplianceOperation{}, err
 	}
+	operation.State = int32(appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED)
+	operation.Phase = int32(appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_TERMINAL)
+	operation.TerminalReason = int32(appliancev1.ApplianceTerminalReason_APPLIANCE_TERMINAL_REASON_REMOVED)
+	operation.Stage, operation.ErrorReason, operation.ErrorMessage = "removed", "", ""
+	operation.Receipt, operation.UpdatedAt = remove.Receipt, time.Now()
+
 	if err := tx.Commit(); err != nil {
 		return ApplianceOperation{}, err
 	}
-	return store.GetApplianceOperation(ctx, remove.OperationID)
+	return operation, nil
 }

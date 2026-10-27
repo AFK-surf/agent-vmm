@@ -7,11 +7,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
-	"sync"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/errdefs"
 )
@@ -33,7 +31,10 @@ func (r *Runtime) retainBuiltImage(ctx context.Context, scope, namespace string,
 	if receipt.State != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED || !receipt.WriterSettled {
 		return errors.New("image retention requires settled successful build")
 	}
-	unlock := r.lockNamespace(retainedImageOwner(scope))
+	unlock, err := r.lockNamespace(ctx, retainedImageOwner(scope))
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	source, err := r.client.ImageService().Get(namespaceContext(ctx, namespace), receipt.ImageReference)
 	if err != nil {
@@ -123,7 +124,10 @@ func (r *Runtime) deleteRetainedImage(ctx context.Context, scope, reference, gen
 	if err != nil {
 		return err
 	}
-	unlock := r.lockNamespace(retainedImageOwner(scope))
+	unlock, err := r.lockNamespace(ctx, retainedImageOwner(scope))
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	records, err := r.client.ImageService().List(runtimeContext(ctx))
 	if err != nil {
@@ -170,14 +174,7 @@ func (r *Runtime) retainSuccessfulBuild(ctx context.Context, namespace string, r
 	return r.retainBuiltImage(ctx, record.Labels[builtControllerLabel], namespace, receipt)
 }
 
-func (r *Runtime) reclaimRetainedImageCache(ctx context.Context, limit int, materializerHeld bool) (int, error) {
-	if !materializerHeld {
-		unlock, err := r.materializer.LockBuild(ctx)
-		if err != nil {
-			return 0, err
-		}
-		defer unlock()
-	}
+func (r *Runtime) reclaimRetainedImageCache(ctx context.Context, limit int) (int, error) {
 	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return 0, err
@@ -220,13 +217,12 @@ func (r *Runtime) reclaimRetainedImageCache(ctx context.Context, limit int, mate
 	}
 	removed := 0
 	for scope, candidates := range byScope {
-		value, _ := r.resourceLocks.LoadOrStore(retainedImageOwner(scope), new(sync.Mutex))
-		lock := value.(*sync.Mutex)
-		if !lock.TryLock() {
+		unlock, available := r.tryLockResource("namespace\x00" + retainedImageOwner(scope))
+		if !available {
 			continue
 		}
 		count, err := func() (int, error) {
-			defer lock.Unlock()
+			defer unlock()
 			references, err := r.unsettledImageReferences(ctx)
 			if err != nil {
 				return 0, err
@@ -249,7 +245,7 @@ func (r *Runtime) reclaimRetainedImageCache(ctx context.Context, limit int, mate
 					return count, err
 				}
 				err = r.client.ImageService().Delete(runtimeContext(ctx), record.Name, coreimages.SynchronousDelete())
-				log.Printf("retained image cache reclaim: controller_scope=%q reference=%q manifest_digest=%q build_request_id=%q record=%q succeeded=%t error=%v", scope, record.Labels[retainedReferenceLabel], record.Target.Digest.String(), imageOperationReceipt(record, "build").GetRequestId(), record.Name, err == nil, err)
+				r.logger.Info("retained image cache reclaimed", "controller_scope", scope, "reference", record.Labels[retainedReferenceLabel], "digest", record.Target.Digest.String(), "request_id", imageOperationReceipt(record, "build").GetRequestId(), "record", record.Name, "succeeded", err == nil, "error", err)
 				if err != nil {
 					return count, err
 				}

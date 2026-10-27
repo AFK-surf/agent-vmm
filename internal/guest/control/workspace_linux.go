@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"golang.org/x/sys/unix"
 )
 
@@ -73,12 +73,7 @@ func openWorkspaceRoot(namespaceID, volumeID, relative string, flags int) (*os.F
 		return nil, err
 	}
 	defer root.Close()
-	fd, err := unix.Openat2(int(root.Fd()), clean, &unix.OpenHow{Flags: uint64(flags | unix.O_CLOEXEC),
-		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_SYMLINKS})
-	if err != nil {
-		return nil, err
-	}
-	return os.NewFile(uintptr(fd), clean), nil
+	return openBeneath(root, clean, flags)
 }
 
 func workspaceEntry(relative string, file *os.File, includeDigest bool) (*vmmdv1.WorkspaceEntry, error) {
@@ -157,7 +152,7 @@ func (s *Server) ListWorkspace(ctx context.Context, request *vmmdv1.ListWorkspac
 	base := path.Clean(request.GetPath())
 	for _, name := range names {
 		relative := path.Join(base, name)
-		file, err := openWorkspaceRoot(request.GetActorNamespaceId(), request.GetVolumeId(), relative, unix.O_RDONLY|unix.O_NONBLOCK)
+		file, err := openWorkspaceRoot(request.GetActorNamespaceId(), request.GetVolumeId(), relative, unix.O_RDONLY)
 		if err != nil {
 			return nil, rpcError(err)
 		}

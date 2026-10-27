@@ -27,3 +27,5 @@ func managedPrivilegeIssue(command string, euid int) (managedIssue, string, bool
 	}
 	return managedIssue{Code: "needs_service_user", Message: "repair must run as the configured non-root service user", Layer: "lifecycle", Retryable: managedBool(true)}, "service_user", true
 }
+
+func serviceOutputLogDirectory(home string) string { return serviceLogDirectory(home) }

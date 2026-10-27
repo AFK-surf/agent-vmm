@@ -5,10 +5,10 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/AFK-surf/agent-vmm/internal/mcptoken"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -38,9 +38,6 @@ func (controller *Controller) ServeHTTPFrontend(ctx context.Context, listener ne
 	frontend := &httpFrontend{controller: controller, context: ctx, agents: make(map[string]*httpAgent)}
 	handler := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		identity := auth.TokenInfoFromContext(request.Context())
-		if identity == nil {
-			return nil
-		}
 		frontend.mu.Lock()
 		agent := frontend.agents[identity.UserID]
 		frontend.mu.Unlock()
@@ -49,16 +46,8 @@ func (controller *Controller) ServeHTTPFrontend(ctx context.Context, listener ne
 		}
 		return agent.server
 	}, &mcp.StreamableHTTPOptions{Logger: controller.logger, SessionTimeout: httpSessionIdleTimeout, MaxRequestBodyBytes: 4 << 20, PropagateRequestCancellation: true})
-	authenticated := auth.RequireBearerToken(validateHTTPBinding, &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(frontend.middleware(handler))
-	frontendHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") == "" {
-			if token := request.URL.Query().Get("access_token"); token != "" {
-				request.Header.Set("Authorization", "Bearer "+token)
-			}
-		}
-		authenticated.ServeHTTP(response, request)
-	})
-	server := &http.Server{Handler: frontendHandler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: httpSessionIdleTimeout, MaxHeaderBytes: 16 << 10}
+	authenticated := auth.RequireBearerToken(controller.validateHTTPBinding, &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(frontend.middleware(handler))
+	server := &http.Server{Handler: authenticated, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: httpSessionIdleTimeout, MaxHeaderBytes: 16 << 10}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -77,14 +66,12 @@ func (controller *Controller) ServeHTTPFrontend(ctx context.Context, listener ne
 	return err
 }
 
-func validateHTTPBinding(_ context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
-	if len(token) != bindingTokenLength || token != strings.ToLower(token) {
+func (controller *Controller) validateHTTPBinding(_ context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
+	controller.identity.mu.RLock()
+	valid := mcptoken.Verify(controller.identity.tokenKey, token)
+	controller.identity.mu.RUnlock()
+	if !valid {
 		return nil, auth.ErrInvalidToken
-	}
-	for _, value := range token {
-		if !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f')) {
-			return nil, auth.ErrInvalidToken
-		}
 	}
 	return &auth.TokenInfo{UserID: allocationForBinding(token)}, nil
 }
@@ -92,20 +79,10 @@ func validateHTTPBinding(_ context.Context, token string, _ *http.Request) (*aut
 func (frontend *httpFrontend) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		identity := auth.TokenInfoFromContext(request.Context())
-		if identity == nil {
-			http.Error(response, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
 		if request.Header.Get("Mcp-Session-Id") != "" {
-			frontend.mu.Lock()
-			agent := frontend.agents[identity.UserID]
-			if agent != nil && agent.runtime != nil && agent.runtime.context.Err() == nil {
-				agent.active++
-				agent.lastUsed = time.Now()
-			}
-			frontend.mu.Unlock()
-			if agent == nil || agent.runtime == nil {
-				next.ServeHTTP(response, request)
+			agent, tracked := frontend.track(identity.UserID)
+			if !tracked {
+				http.Error(response, "MCP session is unavailable", http.StatusNotFound)
 				return
 			}
 			defer frontend.finish(identity.UserID, agent, request.Header.Get("Mcp-Session-Id"), "", request.Method == http.MethodDelete)
@@ -178,19 +155,31 @@ func (frontend *httpFrontend) acquire(ctx context.Context, allocationID string) 
 		return nil, ctx.Err()
 	}
 	frontend.mu.Lock()
-	defer frontend.mu.Unlock()
-	if agent.err != nil || agent.runtime == nil || agent.runtime.context.Err() != nil || frontend.agents[allocationID] != agent {
-		if agent.err != nil {
-			if frontend.agents[allocationID] == agent {
-				delete(frontend.agents, allocationID)
-			}
-			return nil, agent.err
-		}
+	err := agent.err
+	if err != nil && frontend.agents[allocationID] == agent {
+		delete(frontend.agents, allocationID)
+	}
+	frontend.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	tracked, ok := frontend.track(allocationID)
+	if !ok {
 		return nil, errors.New("MCP HTTP agent is closed")
+	}
+	return tracked, nil
+}
+
+func (frontend *httpFrontend) track(allocationID string) (*httpAgent, bool) {
+	frontend.mu.Lock()
+	defer frontend.mu.Unlock()
+	agent := frontend.agents[allocationID]
+	if agent == nil || agent.runtime == nil || agent.runtime.context.Err() != nil {
+		return nil, false
 	}
 	agent.active++
 	agent.lastUsed = time.Now()
-	return agent, nil
+	return agent, true
 }
 
 func (frontend *httpFrontend) removeClosed(allocationID string, agent *httpAgent, runtime *clientRuntime) {

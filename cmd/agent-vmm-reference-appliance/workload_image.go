@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -49,7 +52,9 @@ func runReferenceProcess(mode string) error {
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		select {}
+		return waitReferenceSignal()
+	case "idle":
+		return waitReferenceSignal()
 	case "task":
 		connection, err := net.DialTimeout("tcp", "reference-service:8080", 10*time.Second)
 		if err != nil {
@@ -67,6 +72,13 @@ func runReferenceProcess(mode string) error {
 	default:
 		return errors.New("unknown reference workload mode")
 	}
+}
+
+func waitReferenceSignal() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+	<-ctx.Done()
+	return nil
 }
 
 func buildReferenceOCI() ([]byte, string, error) {

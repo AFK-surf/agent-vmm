@@ -12,6 +12,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
@@ -67,7 +69,7 @@ func (store *memoryCredentials) Delete(context.Context, string) error {
 }
 
 type fakeLocal struct {
-	hostv1.UnimplementedRemoteComputeServiceServer
+	connectorv1.UnimplementedRemoteComputeServiceServer
 	mu                    sync.Mutex
 	registration          *hostv1.RemoteRegistration
 	states                []hostv1.RemoteConnectionState
@@ -78,10 +80,10 @@ type fakeLocal struct {
 	reports               []*hostv1.ConnectorStatus
 }
 
-func (server *fakeLocal) GetRemoteState(context.Context, *hostv1.GetRemoteStateRequest) (*hostv1.GetRemoteStateResponse, error) {
-	return &hostv1.GetRemoteStateResponse{Registration: server.registration}, nil
+func (server *fakeLocal) GetRemoteState(context.Context, *connectorv1.GetRemoteStateRequest) (*connectorv1.GetRemoteStateResponse, error) {
+	return &connectorv1.GetRemoteStateResponse{Registration: server.registration}, nil
 }
-func (server *fakeLocal) SetConnectionState(_ context.Context, request *hostv1.SetConnectionStateRequest) (*hostv1.GetRemoteStateResponse, error) {
+func (server *fakeLocal) SetConnectionState(_ context.Context, request *connectorv1.SetConnectionStateRequest) (*connectorv1.GetRemoteStateResponse, error) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if request.GetState() != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED && server.instance != request.GetConnectionInstance() {
@@ -95,18 +97,18 @@ func (server *fakeLocal) SetConnectionState(_ context.Context, request *hostv1.S
 	if request.GetState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED && server.connectedRegistration != nil {
 		registration = server.connectedRegistration
 	}
-	return &hostv1.GetRemoteStateResponse{Registration: registration}, nil
+	return &connectorv1.GetRemoteStateResponse{Registration: registration}, nil
 }
-func (server *fakeLocal) ReportConnectorStatus(_ context.Context, request *hostv1.ReportConnectorStatusRequest) (*hostv1.GetRemoteStateResponse, error) {
+func (server *fakeLocal) ReportConnectorStatus(_ context.Context, request *connectorv1.ReportConnectorStatusRequest) (*connectorv1.GetRemoteStateResponse, error) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if request.GetConnectionInstance() != server.instance {
 		return nil, status.Error(codes.Aborted, "stale")
 	}
 	server.reports = append(server.reports, request.GetStatus())
-	return &hostv1.GetRemoteStateResponse{Registration: server.registration}, nil
+	return &connectorv1.GetRemoteStateResponse{Registration: server.registration}, nil
 }
-func (server *fakeLocal) SetRemoteAdmissionState(_ context.Context, request *hostv1.SetRemoteAdmissionStateRequest) (*hostv1.GetRemoteStateResponse, error) {
+func (server *fakeLocal) SetRemoteAdmissionState(_ context.Context, request *connectorv1.SetRemoteAdmissionStateRequest) (*connectorv1.GetRemoteStateResponse, error) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if request.GetConnectionInstance() != server.instance {
@@ -127,13 +129,13 @@ func (server *fakeLocal) SetRemoteAdmissionState(_ context.Context, request *hos
 	if request.GetExpectedPoolPolicyRevision() != 0 && registration.GetPoolPolicyRevision() != request.GetExpectedPoolPolicyRevision() {
 		return nil, status.Error(codes.Aborted, "pool policy changed")
 	}
-	return &hostv1.GetRemoteStateResponse{Registration: registration}, nil
+	return &connectorv1.GetRemoteStateResponse{Registration: registration}, nil
 }
-func (server *fakeLocal) EnsureAllocation(_ context.Context, request *hostv1.EnsureAllocationRequest) (*hostv1.AllocationResponse, error) {
+func (server *fakeLocal) EnsureAllocation(_ context.Context, request *connectorv1.EnsureAllocationRequest) (*connectorv1.AllocationResponse, error) {
 	server.mu.Lock()
 	server.ensureCalls++
 	server.mu.Unlock()
-	return &hostv1.AllocationResponse{Allocation: &hostv1.RemoteAllocation{AllocationId: request.GetAllocationId(), DisplayLabel: request.GetDisplayLabel(), Generation: request.GetGeneration(), ResourcesV2: request.GetResourcesV2(), EgressMode: request.GetEgressMode(), State: hostv1.AllocationState_ALLOCATION_STATE_READY}}, nil
+	return &connectorv1.AllocationResponse{Allocation: &hostv1.RemoteAllocation{AllocationId: request.GetAllocationId(), DisplayLabel: request.GetDisplayLabel(), Generation: request.GetGeneration(), Limits: request.GetLimits(), EgressMode: request.GetEgressMode(), State: hostv1.AllocationState_ALLOCATION_STATE_READY}}, nil
 }
 
 type fakeController struct {
@@ -145,7 +147,7 @@ type fakeController struct {
 }
 
 func (server *fakeController) Enroll(_ context.Context, request *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || !containsAllFeatures(request.GetSupportedFeatures(), protocolFeatures) || !containsAllFeatures(request.GetSupportedFeatures(), runtimeCapabilityFeatures) || !containsAllFeatures(request.GetRequiredFeatures(), requiredProtocolFeatures) || containsAllFeatures(request.GetRequiredFeatures(), append([]string{remoteObservationFeature}, runtimeCapabilityFeatures...)) || request.GetDeviceIdentity().GetDeviceId() == "" {
+	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || request.GetDeviceIdentity().GetDeviceId() == "" {
 		return nil, status.Error(codes.Unauthenticated, "rejected")
 	}
 	if server.key == nil {
@@ -161,11 +163,11 @@ func (server *fakeController) Enroll(_ context.Context, request *remotev1.Enroll
 	input, _ := signing.CanonicalInput(credential)
 	digest := sha256.Sum256(input)
 	credential.Signature, _ = ecdsa.SignASN1(rand.Reader, server.key, digest[:])
-	return &remotev1.EnrollResponse{ProtocolVersion: ProtocolVersion, RegistrationId: request.GetRegistrationId(), ControllerDisplayName: "test", Credential: []byte("credential-one"), EnabledFeatures: append([]string(nil), requiredProtocolFeatures...), TrustAnchor: anchor, MembershipCredential: credential}, nil
+	return &remotev1.EnrollResponse{RegistrationId: request.GetRegistrationId(), ControllerDisplayName: "test", Credential: []byte("credential-one"), TrustAnchor: anchor, MembershipCredential: credential}, nil
 }
 
 type fakeEnrollmentTrust struct {
-	trustv1.UnimplementedTrustServiceServer
+	connectorv1.UnimplementedTrustServiceServer
 	identity  *trustv1.DeviceIdentity
 	installed bool
 	reject    string
@@ -194,10 +196,6 @@ func configureEnrollmentTrust(t *testing.T, config *Config) *fakeEnrollmentTrust
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
 	socket := filepath.Join(directory, "trust.sock")
-	capability := filepath.Join(directory, "trust.cap")
-	if err := os.WriteFile(capability, []byte("0123456789abcdef0123456789abcdef"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -205,14 +203,15 @@ func configureEnrollmentTrust(t *testing.T, config *Config) *fakeEnrollmentTrust
 	server := grpc.NewServer()
 	root, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	implementation := &fakeEnrollmentTrust{identity: &trustv1.DeviceIdentity{DeviceId: "device-a", RootPublicKey: elliptic.MarshalCompressed(elliptic.P256(), root.X, root.Y), RootKeyRevision: 1, SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256}}
-	trustv1.RegisterTrustServiceServer(server, implementation)
+	connectorv1.RegisterTrustServiceServer(server, implementation)
 	go server.Serve(listener)
 	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
-	config.TrustSocket = socket
-	config.TrustCapabilityFile = capability
+	external := config.external()
+	external.Trust = &TrustBoundary{Socket: socket}
+	config.Transport = external
 	return implementation
 }
-func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage]) error {
+func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
 	if server.reject != codes.OK {
 		return status.Error(server.reject, "rejected")
 	}
@@ -228,40 +227,41 @@ func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.H
 	if err := session.Ready(); err != nil {
 		return err
 	}
-	command := &remotev1.ControllerCommand{CommandId: "ensure-1", Sequence: 1, ConnectionEpoch: session.Hello().GetConnectionEpoch(), TargetRevision: 7, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", Generation: 1, DisplayLabel: "remote", ResourcesV2: &hostv1.WorkloadResourcesV2{CpuMaxMillis: 100, MemoryMaxBytes: 128 << 20, PidMax: 64, WritableQuotaBytes: 256 << 20}, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
+	command := &remotev1.ControllerCommand{CommandId: "ensure-1", Sequence: 1, ConnectionEpoch: session.Hello().GetConnectionEpoch(), TargetRevision: 7, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", Generation: 1, DisplayLabel: "remote", Limits: &remotev1.ResourceLimits{Pids: proto.Uint32(64), DiskBytes: proto.Uint64(256 << 20)}, EgressMode: remotev1.EgressMode_EGRESS_MODE_DENY_ALL, PolicyRevision: 7}}}
 	commandContext, cancel := context.WithTimeout(stream.Context(), 5*time.Second)
 	defer cancel()
 	transcript, err := session.Dispatch(commandContext, command)
 	if err != nil || transcript.Result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED || transcript.Result.GetAllocation().GetAllocationId() != "allocation-b" {
 		return status.Error(codes.Internal, "bad result")
 	}
-	if err := stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_RotateCredential{RotateCredential: &remotev1.RotateCredential{Credential: []byte("credential-two")}}}); err != nil {
-		return err
-	}
-	return stream.Send(&remotev1.ControllerControlMessage{Payload: &remotev1.ControllerControlMessage_RevokeCredential{RevokeCredential: &remotev1.RevokeCredential{Reason: "test"}}})
+	return status.Error(codes.Unavailable, "controller disconnected")
 }
 
 func TestEnrollKeepsManagedTrustFailureReason(t *testing.T) {
-	local := &fakeLocal{registration: testRegistration(ProtocolVersion)}
+	local := &fakeLocal{registration: testRegistration()}
 	socket := startLocalServer(t, local)
 	endpoint, roots := startTLSServer(t, "localhost", &fakeController{t: t})
-	store := &memoryCredentials{}
-	config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: socket, CredentialStore: store, TLSRoots: roots}
+	store := &memoryCredentials{value: []byte("previous")}
+	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: socket, Transport: ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots}}
 	trust := configureEnrollmentTrust(t, &config)
 	trust.reject = "managed trust bundle is invalid: managed trust stage=anchor_time reason=not_yet_valid excess_ms=360000"
 	_, err := Enroll(context.Background(), config, []byte("one-time"))
 	if err == nil || !strings.Contains(err.Error(), "reason=not_yet_valid") {
 		t.Fatalf("enrollment error lost the trust failure reason: %v", err)
 	}
+	retained, err := store.Load(context.Background(), "registration-a")
+	if err != nil || string(retained) != "previous" {
+		t.Fatalf("retained credential=%q error=%v", retained, err)
+	}
 }
 
 func TestEnrollAndControlTranscript(t *testing.T) {
-	local := &fakeLocal{registration: testRegistration(ProtocolVersion)}
+	local := &fakeLocal{registration: testRegistration()}
 	socket := startLocalServer(t, local)
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "localhost", controller)
 	store := &memoryCredentials{}
-	config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: socket, CredentialStore: store, TLSRoots: roots}
+	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: socket, Transport: ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots}}
 	ready := make(chan struct{})
 	admission := make(chan struct{})
 	config.OnReady = func() { close(ready) }
@@ -280,7 +280,7 @@ func TestEnrollAndControlTranscript(t *testing.T) {
 		}
 	}
 	connected := make(chan error, 1)
-	go func() { connected <- connectOnce(context.Background(), config) }()
+	go func() { connected <- runOneAttempt(context.Background(), config) }()
 	select {
 	case <-ready:
 	case err := <-connected:
@@ -295,7 +295,7 @@ func TestEnrollAndControlTranscript(t *testing.T) {
 		t.Fatal("controller command ran before admission")
 	}
 	close(admission)
-	if err := <-connected; err != ErrCredentialRevoked {
+	if err := <-connected; err == nil {
 		t.Fatalf("connectOnce error = %v", err)
 	}
 	if controller.hello.GetRegistrationId() != "registration-a" || controller.hello.GetPoolRevision() != 7 || len(controller.hello.GetInventory()) != 1 {
@@ -303,9 +303,10 @@ func TestEnrollAndControlTranscript(t *testing.T) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if len(store.replacements) != 2 || string(store.replacements[1]) != "credential-two" || !store.deleted {
-		t.Fatal("credential rotation/revoke was not atomic")
+	if len(store.replacements) != 1 || string(store.value) != "credential-one" || store.deleted {
+		t.Fatal("connection changed the credential")
 	}
+
 	local.mu.Lock()
 	defer local.mu.Unlock()
 	if len(local.states) != 2 || local.states[0] != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED || local.states[1] != hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED {
@@ -314,19 +315,19 @@ func TestEnrollAndControlTranscript(t *testing.T) {
 }
 
 func TestConnectionFenceRejectsInventoryMutationBeforeAdmission(t *testing.T) {
-	initial := testRegistration(ProtocolVersion)
+	initial := testRegistration()
 	updated := proto.Clone(initial).(*hostv1.RemoteRegistration)
 	updated.InventoryRevision++
 	local := &fakeLocal{registration: initial, connectedRegistration: updated}
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "localhost", controller)
 	config := Config{
-		Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a",
-		RemoteComputeSocket: startLocalServer(t, local), CredentialStore: &memoryCredentials{value: []byte("credential-one")}, TLSRoots: roots,
+		RegistrationID:      "registration-a",
+		RemoteComputeSocket: startLocalServer(t, local), Transport: ExternalTransport{Endpoint: endpoint, Credentials: &memoryCredentials{value: []byte("credential-one")}, Roots: roots},
 	}
 	ready := make(chan struct{})
 	config.OnReady = func() { close(ready) }
-	err := connectOnce(context.Background(), config)
+	err := runOneAttempt(context.Background(), config)
 	if err == nil || !strings.Contains(err.Error(), "changed registration snapshot") {
 		t.Fatalf("connectOnce error = %v", err)
 	}
@@ -343,19 +344,19 @@ func TestConnectionFenceRejectsInventoryMutationBeforeAdmission(t *testing.T) {
 }
 
 func TestAdmissionFenceRejectsInventoryMutationAfterConnectionFence(t *testing.T) {
-	initial := testRegistration(ProtocolVersion)
+	initial := testRegistration()
 	updated := proto.Clone(initial).(*hostv1.RemoteRegistration)
 	updated.InventoryRevision++
 	local := &fakeLocal{registration: initial, admissionRegistration: updated}
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "localhost", controller)
 	config := Config{
-		Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a",
-		RemoteComputeSocket: startLocalServer(t, local), CredentialStore: &memoryCredentials{value: []byte("credential-one")}, TLSRoots: roots,
+		RegistrationID:      "registration-a",
+		RemoteComputeSocket: startLocalServer(t, local), Transport: ExternalTransport{Endpoint: endpoint, Credentials: &memoryCredentials{value: []byte("credential-one")}, Roots: roots},
 	}
 	ready := make(chan struct{})
 	config.OnReady = func() { close(ready) }
-	err := connectOnce(context.Background(), config)
+	err := runOneAttempt(context.Background(), config)
 	if err == nil || !strings.Contains(err.Error(), "local admission fence failed") {
 		t.Fatalf("connectOnce error = %v", err)
 	}
@@ -372,19 +373,19 @@ func TestAdmissionFenceRejectsInventoryMutationAfterConnectionFence(t *testing.T
 }
 
 func TestAdmissionFenceDoesNotReopenOperatorDrain(t *testing.T) {
-	initial := testRegistration(ProtocolVersion)
+	initial := testRegistration()
 	draining := proto.Clone(initial).(*hostv1.RemoteRegistration)
 	draining.State = hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING
 	local := &fakeLocal{registration: initial, admissionRegistration: draining}
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "localhost", controller)
 	config := Config{
-		Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a",
-		RemoteComputeSocket: startLocalServer(t, local), CredentialStore: &memoryCredentials{value: []byte("credential-one")}, TLSRoots: roots,
+		RegistrationID:      "registration-a",
+		RemoteComputeSocket: startLocalServer(t, local), Transport: ExternalTransport{Endpoint: endpoint, Credentials: &memoryCredentials{value: []byte("credential-one")}, Roots: roots},
 	}
 	ready := make(chan struct{})
 	config.OnReady = func() { close(ready) }
-	err := connectOnce(context.Background(), config)
+	err := runOneAttempt(context.Background(), config)
 	if err == nil || !strings.Contains(err.Error(), "local admission fence failed") {
 		t.Fatalf("connectOnce error = %v", err)
 	}
@@ -395,29 +396,22 @@ func TestAdmissionFenceDoesNotReopenOperatorDrain(t *testing.T) {
 	}
 }
 
-func TestTLSAndVersionFailures(t *testing.T) {
+func TestTLSHostnameMismatch(t *testing.T) {
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "different.test", controller)
-	config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: "/tmp/not-used.sock", CredentialStore: &memoryCredentials{}, TLSRoots: roots}
+	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: "/tmp/not-used.sock", Transport: ExternalTransport{Endpoint: endpoint, Credentials: &memoryCredentials{}, Roots: roots}}
 	configureEnrollmentTrust(t, &config)
 	if _, err := Enroll(context.Background(), config, []byte("one-time")); err == nil {
 		t.Fatal("TLS hostname mismatch succeeded")
 	}
-	local := &fakeLocal{registration: testRegistration("2")}
-	config.RemoteComputeSocket = startLocalServer(t, local)
-	config.Endpoint, config.TLSRoots = startTLSServer(t, "localhost", controller)
-	config.CredentialStore = &memoryCredentials{value: []byte("credential-one")}
-	if err := connectOnce(context.Background(), config); err == nil {
-		t.Fatal("version mismatch succeeded")
-	}
 }
 
 func TestBearerAuthenticationFailure(t *testing.T) {
-	local := &fakeLocal{registration: testRegistration(ProtocolVersion)}
+	local := &fakeLocal{registration: testRegistration()}
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "localhost", controller)
-	config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, local), CredentialStore: &memoryCredentials{value: []byte("wrong")}, TLSRoots: roots}
-	if err := connectOnce(context.Background(), config); err == nil {
+	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, local), Transport: ExternalTransport{Endpoint: endpoint, Credentials: &memoryCredentials{value: []byte("wrong")}, Roots: roots}}
+	if err := runOneAttempt(context.Background(), config); err == nil {
 		t.Fatal("invalid bearer credential succeeded")
 	}
 }
@@ -428,31 +422,24 @@ func (*unavailableCredentials) Load(context.Context, string) ([]byte, error) {
 	return nil, ErrCredentialUnavailable
 }
 
-func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnRevocation(t *testing.T) {
+func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnContextCancellation(t *testing.T) {
 	tests := []struct {
-		name     string
-		reject   codes.Code
-		store    CredentialStore
-		state    hostv1.RemoteRegistrationState
-		version  string
-		phase    hostv1.ConnectorPhase
-		code     string
-		terminal bool
+		name   string
+		reject codes.Code
+		store  CredentialStore
+		state  hostv1.RemoteRegistrationState
+		phase  hostv1.ConnectorPhase
+		code   string
 	}{
 		{name: "unauthenticated", reject: codes.Unauthenticated, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
 		{name: "permission denied", reject: codes.PermissionDenied, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
 		{name: "credential unavailable", store: &unavailableCredentials{}, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR, code: "CREDENTIAL_UNAVAILABLE"},
-		{name: "protocol version", version: "1", phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR, code: "CONNECTOR_CONFIG_INVALID"},
-		{name: "revoked", state: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CREDENTIAL_REVOKED", terminal: true},
+		{name: "revoked", state: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			version := ProtocolVersion
-			if test.version != "" {
-				version = test.version
-			}
-			registration := testRegistration(version)
+			registration := testRegistration()
 			if test.state != 0 {
 				registration.State = test.state
 			}
@@ -462,21 +449,11 @@ func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnRevocation(t *tes
 			if store == nil {
 				store = &memoryCredentials{value: []byte("credential-one")}
 			}
-			config := Config{Endpoint: endpoint, EndpointIdentity: "localhost", RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, local), CredentialStore: store, TLSRoots: roots}
+			config := Config{RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, local), Transport: ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots}}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			done := make(chan error, 1)
 			go func() { done <- Run(ctx, config) }()
-			if test.terminal {
-				select {
-				case err := <-done:
-					if !errors.Is(err, ErrCredentialRevoked) {
-						t.Fatalf("Run error = %v", err)
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatal("revocation did not stop the connector")
-				}
-			}
 			// A retrying connector reports the failure twice with a next retry
 			// time: once for the first attempt and once after its backoff.
 			deadline := time.Now().Add(5 * time.Second)
@@ -489,12 +466,6 @@ func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnRevocation(t *tes
 					}
 				}
 				local.mu.Unlock()
-				if test.terminal {
-					if len(failures) != 1 || failures[0].GetNextRetryAt() != nil {
-						t.Fatalf("revocation reports = %v", failures)
-					}
-					return
-				}
 				if len(failures) >= 2 {
 					if failures[0].GetNextRetryAt() == nil || failures[1].GetReconnectAttempt() != 2 {
 						t.Fatalf("retry reports = %v", failures)
@@ -520,10 +491,10 @@ func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnRevocation(t *tes
 }
 
 func TestConnectorHeartbeatStopsRevokedRegistration(t *testing.T) {
-	local := &fakeLocal{instance: "connection", registration: testRegistration(ProtocolVersion)}
+	local := &fakeLocal{instance: "connection", registration: testRegistration()}
 	local.registration.EnrollmentState = hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_REVOKING
 	socket := startLocalServer(t, local)
-	connection, err := newLocalClient(context.Background(), socket, "registration-a")
+	connection, err := newLocalClient(socket, "registration-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +518,7 @@ func TestBoundsAndBackoff(t *testing.T) {
 			t.Fatalf("jitter(%s) = %s", delay, value)
 		}
 	}
-	result := commandHandler{}.handle(context.Background(), &remotev1.ControllerCommand{CommandId: string(make([]byte, 129))})
+	result := commandHandler{logger: slog.Default()}.handle(context.Background(), &remotev1.ControllerCommand{CommandId: string(make([]byte, 129))})
 	if result.GetReason() != remotev1.ErrorReason_ERROR_REASON_INVALID_ARGUMENT {
 		t.Fatalf("reason = %s", result.GetReason())
 	}
@@ -574,24 +545,8 @@ func TestConnectorFailureStatusIsBoundedAndActionable(t *testing.T) {
 	}
 }
 
-func testRegistration(version string) *hostv1.RemoteRegistration {
-	return &hostv1.RemoteRegistration{Id: "registration-a", ProtocolVersion: version, Revision: 7, PoolPolicyRevision: 7, InventoryRevision: 11, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: &hostv1.ResourceLimits{}}, Allocations: []*hostv1.RemoteAllocation{{AllocationId: "allocation-a", State: hostv1.AllocationState_ALLOCATION_STATE_READY}}}
-}
-
-func TestObserveRegistrationRequiresHostObservedReadyConnection(t *testing.T) {
-	registration := testRegistration(ProtocolVersion)
-	registration.EnrollmentState = hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY
-	registration.ConnectionState = hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
-	registration.ConnectorStatus = &hostv1.ConnectorStatus{Phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED}
-	observation, err := ObserveRegistration(context.Background(), startLocalServer(t, &fakeLocal{registration: registration}), "registration-a")
-	if err != nil || !observation.Ready || observation.Revoked {
-		t.Fatalf("ready observation=%+v err=%v", observation, err)
-	}
-	registration.State = hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED
-	observation, err = ObserveRegistration(context.Background(), startLocalServer(t, &fakeLocal{registration: registration}), "registration-a")
-	if err != nil || observation.Ready || !observation.Revoked {
-		t.Fatalf("revoked observation=%+v err=%v", observation, err)
-	}
+func testRegistration() *hostv1.RemoteRegistration {
+	return &hostv1.RemoteRegistration{Id: "registration-a", Revision: 7, PoolPolicyRevision: 7, InventoryRevision: 11, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: &hostv1.ResourceLimits{}}, Allocations: []*hostv1.RemoteAllocation{{AllocationId: "allocation-a", State: hostv1.AllocationState_ALLOCATION_STATE_READY}}}
 }
 
 func TestStoredCredentialBindsBearerToRegistrationMetadata(t *testing.T) {
@@ -601,7 +556,7 @@ func TestStoredCredentialBindsBearerToRegistrationMetadata(t *testing.T) {
 	}
 }
 
-func startLocalServer(t *testing.T, service hostv1.RemoteComputeServiceServer) string {
+func startLocalServer(t *testing.T, service connectorv1.RemoteComputeServiceServer) string {
 	t.Helper()
 	directory, err := os.MkdirTemp("/tmp", "agent-vmm-connect-")
 	if err != nil {
@@ -613,11 +568,8 @@ func startLocalServer(t *testing.T, service hostv1.RemoteComputeServiceServer) s
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	server := grpc.NewServer()
-	hostv1.RegisterRemoteComputeServiceServer(server, service)
+	connectorv1.RegisterRemoteComputeServiceServer(server, service)
 	go server.Serve(listener)
 	t.Cleanup(func() { server.Stop(); listener.Close() })
 	return path
@@ -666,37 +618,16 @@ func certificateFor(t *testing.T, name string) (tls.Certificate, *x509.CertPool)
 	return certificate, roots
 }
 
-func TestLoadTLSRootsAddsConfiguredCA(t *testing.T) {
-	certificate, _ := certificateFor(t, "controller.test")
-	path := filepath.Join(t.TempDir(), "controller-ca.pem")
-	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	roots, err := LoadTLSRoots(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := leaf.Verify(x509.VerifyOptions{DNSName: "controller.test", Roots: roots}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func uint32Pointer(value uint32) *uint32 { return &value }
-
 type unavailableAllocationClient struct {
-	hostv1.RemoteComputeServiceClient
+	connectorv1.RemoteComputeServiceClient
 }
 
-func (unavailableAllocationClient) EnsureAllocation(context.Context, *hostv1.EnsureAllocationRequest, ...grpc.CallOption) (*hostv1.AllocationResponse, error) {
+func (unavailableAllocationClient) EnsureAllocation(context.Context, *connectorv1.EnsureAllocationRequest, ...grpc.CallOption) (*connectorv1.AllocationResponse, error) {
 	return nil, status.Error(codes.Unavailable, "local remote-compute socket connection refused")
 }
 
 func TestAllocationFailureRetainsRPCMessage(t *testing.T) {
-	handler := commandHandler{client: unavailableAllocationClient{}}
+	handler := commandHandler{logger: slog.Default(), client: unavailableAllocationClient{}}
 	result := handler.handle(context.Background(), &remotev1.ControllerCommand{CommandId: "failed-ensure", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation"}}})
 	if result.GetReason() != remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE || !strings.Contains(result.GetMessage(), "local remote-compute socket connection refused") {
 		t.Fatalf("allocation failure lost RPC context: %v", result)
@@ -704,8 +635,8 @@ func TestAllocationFailureRetainsRPCMessage(t *testing.T) {
 }
 
 func TestRunnerDeadlineSurvivesLocalGRPC(t *testing.T) {
-	local := &fakeLocal{registration: testRegistration(ProtocolVersion)}
-	connection, err := newLocalClient(context.Background(), startLocalServer(t, local), "registration-a")
+	local := &fakeLocal{registration: testRegistration()}
+	connection, err := newLocalClient(startLocalServer(t, local), "registration-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -717,8 +648,8 @@ func TestRunnerDeadlineSurvivesLocalGRPC(t *testing.T) {
 			if err := ctx.Err(); err != nil {
 				t.Fatalf("deadline context expired: %v", err)
 			}
-			handler := commandHandler{client: connection.client, registrationID: "registration-a"}
-			result := handler.handle(ctx, &remotev1.ControllerCommand{CommandId: "deadline-ensure", DeadlineUnixMillis: deadline, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b"}}})
+			handler := commandHandler{logger: slog.Default(), client: connection.client, registrationID: "registration-a"}
+			result := handler.handle(ctx, &remotev1.ControllerCommand{CommandId: "deadline-ensure", TimeoutMillis: 60000, Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b"}}})
 			if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED {
 				t.Fatalf("real local gRPC rejected deadline: %v", result)
 			}
@@ -731,31 +662,31 @@ type rejectedAllocationLocal struct {
 	failure error
 }
 
-func (server *rejectedAllocationLocal) EnsureAllocation(context.Context, *hostv1.EnsureAllocationRequest) (*hostv1.AllocationResponse, error) {
+func (server *rejectedAllocationLocal) EnsureAllocation(context.Context, *connectorv1.EnsureAllocationRequest) (*connectorv1.AllocationResponse, error) {
 	return nil, server.failure
 }
 
-func TestRejectedAllocationRetainsPartialAdmissionAcrossLocalGRPC(t *testing.T) {
+func TestUnknownAllocationRetainsPartialAdmissionAcrossLocalGRPC(t *testing.T) {
 	for _, dimension := range []string{"storage_headroom", "import_slot"} {
 		t.Run(dimension, func(t *testing.T) {
 			allocation := &hostv1.RemoteAllocation{AllocationId: "allocation-b", Generation: 2, Revision: 7, State: hostv1.AllocationState_ALLOCATION_STATE_DRAINING}
-			failure, err := status.New(codes.ResourceExhausted, "guest projection rejected").WithDetails(
-				&errdetails.ErrorInfo{Reason: "RESOURCE_CAPACITY_EXHAUSTED", Metadata: map[string]string{"resource_dimension": dimension}}, allocation)
+			failure, err := status.New(codes.Unavailable, "guest projection rejected").WithDetails(
+				&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "RESOURCE_CAPACITY_EXHAUSTED", Metadata: map[string]string{"resource_dimension": dimension}}, allocation)
 			if err != nil {
 				t.Fatal(err)
 			}
 			local := &rejectedAllocationLocal{failure: failure.Err()}
-			connection, err := newLocalClient(context.Background(), startLocalServer(t, local), "registration-a")
+			connection, err := newLocalClient(startLocalServer(t, local), "registration-a")
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer connection.connection.Close()
-			handler := commandHandler{client: connection.client, registrationID: "registration-a"}
+			handler := commandHandler{logger: slog.Default(), client: connection.client, registrationID: "registration-a"}
 			result := handler.handle(context.Background(), &remotev1.ControllerCommand{CommandId: "partial-ensure", Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: "allocation-b", Generation: 2}}})
-			if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_REJECTED || result.GetReason() != remotev1.ErrorReason_ERROR_REASON_CAPACITY_EXHAUSTED {
+			if result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_UNKNOWN || result.GetReason() != remotev1.ErrorReason_ERROR_REASON_UNAVAILABLE {
 				t.Fatalf("rejection changed: %v", result)
 			}
-			if got := result.GetAllocation(); got.GetAllocationId() != "allocation-b" || got.GetGeneration() != 2 || got.GetRevision() != 7 || got.GetState() != hostv1.AllocationState_ALLOCATION_STATE_DRAINING {
+			if got := result.GetAllocation(); got.GetAllocationId() != "allocation-b" || got.GetGeneration() != 2 || got.GetRevision() != 7 || got.GetState() != remotev1.AllocationState_ALLOCATION_STATE_DRAINING {
 				t.Fatalf("partial admission lost: %v", result)
 			}
 			if result.GetCapacityDimension() != capacityDimensionFor(failure.Err()) {
@@ -779,4 +710,15 @@ func TestReconnectBackoffResetsOnlyAfterAStableConnection(t *testing.T) {
 	if wait := backoff.next(true, MaxReconnectDelay); wait != time.Second {
 		t.Fatalf("wait after a stable connection = %s, want 1s", wait)
 	}
+}
+
+func runOneAttempt(parent context.Context, config Config) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	var failure error
+	config.OnAttemptError = func(err error) { failure = err; cancel() }
+	if err := Run(ctx, config); err != nil {
+		return err
+	}
+	return failure
 }

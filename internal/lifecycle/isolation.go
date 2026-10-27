@@ -13,4 +13,4 @@ const hostLabel = productionHostLabel
 
 func serviceAccount(account *user.User) *user.User { return account }
 
-func supportedSchema() store.SchemaRange { return store.SupportedSchema() }
+func currentSchema() int { return store.CurrentSchema() }

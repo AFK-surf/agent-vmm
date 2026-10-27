@@ -13,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	guestquota "github.com/AFK-surf/agent-vmm/internal/guest/quota"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
@@ -52,11 +53,7 @@ type applianceSupervisor struct {
 }
 
 func newApplianceSupervisor(runtime *Runtime, bootID string) *applianceSupervisor {
-	device := ""
-	if runtime != nil {
-		device = runtime.stateDevice
-	}
-	return &applianceSupervisor{runtime: runtime, bootID: bootID, volumes: newApplianceVolumeManager(device), records: make(map[string]*systemApplianceRecord),
+	return &applianceSupervisor{runtime: runtime, bootID: bootID, volumes: newApplianceVolumeManager(runtime.stateDevice), records: make(map[string]*systemApplianceRecord),
 		order: btree.NewG(8, func(left, right string) bool { return left < right })}
 }
 
@@ -117,11 +114,9 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 	supervisor.order.ReplaceOrInsert(identity.GetInstallationId())
 	supervisor.mu.Unlock()
 
-	if supervisor.runtime != nil {
-		if err := supervisor.replaceStoppedContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId()); err != nil {
-			err = atRuntimeStage("stopped_container_cleanup", err)
-			return supervisor.fail(identity.GetInstallationId(), err), err
-		}
+	if err := supervisor.replaceStoppedContainer(ctx, identity.GetNamespaceId(), identity.GetContainerId()); err != nil {
+		err = atRuntimeStage("stopped_container_cleanup", err)
+		return supervisor.fail(identity.GetInstallationId(), err), err
 	}
 
 	volume, err := supervisor.prepareData(identity.GetInstallationId(), request.GetDataVolumeId(), request.GetDataVolumeBytes())
@@ -195,11 +190,26 @@ func (supervisor *applianceSupervisor) ensure(ctx context.Context, request *vmmd
 }
 
 func (supervisor *applianceSupervisor) prepareData(installationID, volumeID string, size uint64) (applianceVolume, error) {
-	if supervisor.runtime == nil {
-		return supervisor.volumes.prepare(installationID, volumeID, size)
-	}
 	var volume applianceVolume
 	err := supervisor.runtime.diskBudget.MutateInventory(func(*guestdisk.Transaction) error {
+		var old uint64
+		path := filepath.Join(supervisor.volumes.root, installationID, volumeID)
+		if _, err := os.Lstat(path); err == nil {
+			project, err := supervisor.volumes.project(path)
+			if err != nil {
+				return err
+			}
+			state, err := guestquota.Read(supervisor.volumes.device, project)
+			if err != nil {
+				return err
+			}
+			old = state.HardLimitBytes
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := supervisor.runtime.admitPoolGrowth(context.Background(), size, old); err != nil {
+			return err
+		}
 		var err error
 		volume, err = supervisor.volumes.prepare(installationID, volumeID, size)
 		return err
@@ -402,4 +412,3 @@ func boundedStatus(err error) []byte {
 
 func stringPointer(value string) *string { return &value }
 func uint32Pointer(value uint32) *uint32 { return &value }
-func uint64Pointer(value uint64) *uint64 { return &value }

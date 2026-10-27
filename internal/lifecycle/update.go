@@ -3,16 +3,18 @@
 package lifecycle
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 type updateApplicationActions struct {
-	releaseID func(string, bool) (string, error)
+	releaseID func(string) (string, error)
 	drain     func(paths) error
 	replace   func(string, string) error
 	repair    func(paths) error
-	startVM   func(paths, string) error
+	startVM   func(context.Context, paths, string) error
 	remove    func(string) error
 }
 
@@ -20,52 +22,53 @@ func updateApplicationWith(value paths, sourceApp, targetReleaseID, requestID st
 	if err := validatePreparedUpdate(value, sourceApp); err != nil {
 		return err
 	}
-	targetRelease, targetErr := actions.releaseID(value.app, false)
-	sourceRelease, sourceErr := actions.releaseID(sourceApp, true)
+	operation := readLifecycleRequest(value, requestID)
+	if operation == nil {
+		return errors.New("lifecycle update is not owned by this request")
+	}
+	progress := operation.Cutover
+	if progress == nil {
+		progress = &cutoverProgress{}
+	}
+	targetRelease, targetErr := actions.releaseID(value.app)
 	if targetErr == nil && targetRelease == targetReleaseID {
-		if err := persistUpdateStage(value, requestID, targetReleaseID, "recovery"); err != nil {
+		progress.SoftwareInstalled = true
+	}
+	save := func(stage string) error {
+		current := readLifecycleRequest(value, requestID)
+		if current == nil || current.TargetReleaseID != targetReleaseID {
+			return errors.New("lifecycle update target is not owned by this request")
+		}
+		if stage == "restore" && current.Stage != stage {
+			current.Attempt = 1
+		}
+		current.Stage, current.Cutover = stage, progress
+		current.UpdatedAt = time.Now().UnixMilli()
+		if err := persistOperationOwned(value, *current, lifecycleOperationOwner(value)); err != nil {
 			return err
 		}
-		if err := actions.repair(value); err != nil {
-			return fmt.Errorf("restore updated Host service: %w", err)
-		}
-		if err := actions.startVM(value, requestID+"-restore"); err != nil {
-			return fmt.Errorf("restore updated VM: %w", err)
-		}
+		operation = current
+		return nil
+	}
+	verify := func() error {
 		if err := actions.remove(sourceApp); err != nil {
-			return errors.New("retired Host bundle could not be removed")
+			return fmt.Errorf("remove retired Host bundle: %w", err)
 		}
-		return persistUpdateStage(value, requestID, targetReleaseID, "complete")
+		return nil
 	}
-	if targetErr != nil {
-		return fmt.Errorf("current Host release is unreadable: %w", targetErr)
+	if operation.Stage == "settled" {
+		if err := verify(); err != nil {
+			return err
+		}
+		progress.EffectsVerified = true
+		return save("settled")
 	}
-	if sourceErr != nil || sourceRelease != targetReleaseID {
-		return errors.New("prepared Host release does not match the selected target")
-	}
-	if err := persistUpdateStage(value, requestID, targetReleaseID, "stop"); err != nil {
-		return err
-	}
-	if err := actions.drain(value); err != nil {
-		return fmt.Errorf("stop current Host release: %w", err)
-	}
-	if err := persistUpdateStage(value, requestID, targetReleaseID, "replace"); err != nil {
-		return err
-	}
-	if err := actions.replace(sourceApp, value.app); err != nil {
-		return err
-	}
-	if err := persistUpdateStage(value, requestID, targetReleaseID, "recovery"); err != nil {
-		return err
-	}
-	if err := actions.repair(value); err != nil {
-		return fmt.Errorf("restore updated Host service: %w", err)
-	}
-	if err := actions.startVM(value, requestID+"-restore"); err != nil {
-		return fmt.Errorf("restore updated VM: %w", err)
-	}
-	if err := actions.remove(sourceApp); err != nil {
-		return errors.New("retired Host bundle could not be removed")
-	}
-	return persistUpdateStage(value, requestID, targetReleaseID, "complete")
+	return cutover(progress, false, false, save, cutoverActions{
+		stop:    func() error { return actions.drain(value) },
+		replace: func() error { return actions.replace(sourceApp, value.app) },
+		restore: func() error {
+			return restoreHost(value, maintenanceRestoreRequestID(requestID, uint64(operation.Attempt)), actions.repair, actions.startVM)
+		},
+		verify: verify,
+	})
 }

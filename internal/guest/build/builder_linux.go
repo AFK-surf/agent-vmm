@@ -14,17 +14,20 @@ import (
 	"sync"
 	"syscall"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guest/namespaceconfig"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	containerd "github.com/containerd/containerd/v2/client"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
+	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/opencontainers/go-digest"
 )
 
 const (
-	InternalContainerLabel = "agentvmm.afk.surf/internal-build"
+	InternalContainerLabel = namespaceconfig.LabelPrefix + "internal-build"
 	builderArchive         = "/usr/lib/agent-vmm/buildkit.oci.tar"
 	InternalImageReference = "agent-vmm.local/buildkit:0.30.0"
 	builderSnapshotter     = "overlayfs"
@@ -261,8 +264,11 @@ func (w *Workspace) RunArchive(ctx context.Context, limits *vmmdv1.NamespaceLimi
 	if !w.contextClosed || w.secretFile != nil || w.secretIndex != len(w.header.GetSecrets()) {
 		return errors.New("build upload is incomplete")
 	}
-	dockerfile := filepath.Join(w.contextRoot, filepath.FromSlash(w.header.GetDockerfilePath()))
-	if info, err := os.Stat(dockerfile); err != nil || !info.Mode().IsRegular() {
+	dockerfile, err := securejoin.SecureJoin(w.contextRoot, w.header.GetDockerfilePath())
+	if err != nil {
+		return err
+	}
+	if info, err := os.Lstat(dockerfile); err != nil || !info.Mode().IsRegular() {
 		return errors.New("Dockerfile is not a regular context file")
 	}
 	select {
@@ -284,14 +290,21 @@ func (w *Workspace) RunArchive(ctx context.Context, limits *vmmdv1.NamespaceLimi
 		return err
 	}
 	defer archive.Close()
-	result, err := copyOCIArchive(archive, io.Discard)
+	archiveSHA, archiveSize, err := hashArchive(archive)
 	if err != nil {
 		return err
 	}
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	result.CacheHit = cacheHit
+	manifestDigest, err := ociarchive.SelectSingleManifest(archive)
+	if err != nil {
+		return err
+	}
+	if _, err := archive.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	result := ArchiveResult{ArchiveSHA256: archiveSHA, Size: archiveSize, ManifestDigest: manifestDigest.String(), CacheHit: cacheHit}
 	return consume(archive, result)
 }
 

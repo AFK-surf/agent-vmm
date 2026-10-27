@@ -5,13 +5,12 @@ package vmm
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -25,7 +24,7 @@ func (manager *Manager) ListenEgress() (net.Listener, string, error) {
 	if manager.egressListener != nil {
 		return nil, "", errors.New("egress listener already active")
 	}
-	listener, err := manager.machine.Listen(netprotocol.EgressPort)
+	listener, err := manager.machine.Listen(egresslink.EgressPort)
 	if err != nil {
 		return nil, "", err
 	}
@@ -59,8 +58,25 @@ func (manager *Manager) connectVMMD(ctx context.Context, allowStopping bool) (ne
 	})
 }
 
-func (manager *Manager) DialVMMD(ctx context.Context) (*grpc.ClientConn, error) {
-	return manager.dialVMMD(ctx, false)
+func (manager *Manager) DialBoot(bootID string) (*grpc.ClientConn, error) {
+	manager.mu.Lock()
+	machine := manager.machine
+	available := machine != nil && bootID != "" && manager.bootID == bootID && (manager.state == hostv1.VMState_VM_STATE_STARTING || manager.state == hostv1.VMState_VM_STATE_RUNNING)
+	manager.mu.Unlock()
+	if !available {
+		return nil, errors.New("VM boot is not available")
+	}
+	return grpc.NewClient("passthrough:///vmmd", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+		return awaitVMMDConnection(ctx, func() (net.Conn, error) {
+			manager.mu.Lock()
+			current := manager.machine == machine && manager.bootID == bootID && (manager.state == hostv1.VMState_VM_STATE_STARTING || manager.state == hostv1.VMState_VM_STATE_RUNNING)
+			manager.mu.Unlock()
+			if !current {
+				return nil, errors.New("VM boot was replaced")
+			}
+			return machine.Dial(ctx, VMMDPort)
+		})
+	}))
 }
 
 func waitState(ctx context.Context, machine machineBackend, wanted hostv1.VMState) error {
@@ -99,7 +115,7 @@ func (manager *Manager) waitHealth(ctx context.Context) (*vmmdv1.HealthResponse,
 	lastProgress := time.Time{}
 	var lastErr error
 	for {
-		connection, err := manager.dialVMMD(ctx, false)
+		connection, err := manager.dialVMMD(false)
 		lastErr = err
 		if err == nil {
 			client := vmmdv1.NewVMMDServiceClient(connection)
@@ -111,7 +127,7 @@ func (manager *Manager) waitHealth(ctx context.Context) (*vmmdv1.HealthResponse,
 			lastErr = healthErr
 		}
 		if lastProgress.IsZero() || time.Since(lastProgress) >= 15*time.Second {
-			log.Printf("vmm guest health waiting: elapsed=%s error=%v", time.Since(startedAt).Round(time.Millisecond), lastErr)
+			manager.logger.Info("vmm guest health waiting", "elapsed", time.Since(startedAt).Round(time.Millisecond), "error", lastErr)
 			lastProgress = time.Now()
 		}
 		select {
@@ -123,7 +139,7 @@ func (manager *Manager) waitHealth(ctx context.Context) (*vmmdv1.HealthResponse,
 }
 
 func (manager *Manager) prepareShutdown(ctx context.Context) error {
-	connection, err := manager.dialVMMD(ctx, true)
+	connection, err := manager.dialVMMD(true)
 	if err != nil {
 		return err
 	}
@@ -132,7 +148,7 @@ func (manager *Manager) prepareShutdown(ctx context.Context) error {
 	return err
 }
 
-func (manager *Manager) dialVMMD(ctx context.Context, allowStopping bool) (*grpc.ClientConn, error) {
+func (manager *Manager) dialVMMD(allowStopping bool) (*grpc.ClientConn, error) {
 	return grpc.NewClient("passthrough:///vmmd", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 		return manager.connectVMMD(ctx, allowStopping)
 	}))

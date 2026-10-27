@@ -19,7 +19,6 @@ type RemoteRegistration struct {
 	ID                      string
 	Endpoint                string
 	DisplayName             string
-	ProtocolVersion         string
 	TrustBundle             []byte
 	ScopeDigest             string
 	SourcePolicyRevision    uint64
@@ -53,8 +52,7 @@ type RemoteRegistration struct {
 }
 
 func (store *Store) ListRemoteEnvironments(ctx context.Context, registrationID string) ([]Environment, error) {
-	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
-		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
 		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments
 		WHERE owner_kind = 2 AND registration_id = ? ORDER BY allocation_id`, registrationID)
 	if err != nil {
@@ -76,8 +74,7 @@ func (store *Store) ListRemoteActiveEnvironmentsBounded(ctx context.Context, reg
 	if limit <= 0 {
 		return nil, errors.New("remote environment limit must be positive")
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
-		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
 		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments
 		WHERE owner_kind = 2 AND registration_id = ? AND allocation_state IN (1, 3)
 		ORDER BY allocation_id LIMIT ?`, registrationID, limit)
@@ -100,8 +97,7 @@ func (store *Store) ListRemoteEnvironmentPage(ctx context.Context, registrationI
 	if limit <= 0 || limit > 32 {
 		limit = 32
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
-		memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
 		COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at FROM environments
 		WHERE owner_kind = 2 AND registration_id = ? AND allocation_id > ? ORDER BY allocation_id LIMIT ?`, registrationID, afterAllocationID, limit)
 	if err != nil {
@@ -131,13 +127,13 @@ func (store *Store) CreateRemoteRegistration(ctx context.Context, registration R
 	}
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `INSERT INTO remote_registrations(
-		id, endpoint, display_name, protocol_version, trust_bundle, scope_digest, source_policy_revision,
+		id, endpoint, display_name, trust_bundle, scope_digest, source_policy_revision,
 		per_env_pids, per_env_disk_bytes,
 		max_egress_mode, stop_grace_seconds,
 		state, connection_state, enrollment_state, connector_phase, connector_observed_at,
 		enrollment_request_id, owner_kind, installation_id, inventory_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
-		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
+		registration.ID, registration.Endpoint, registration.DisplayName,
 		registration.TrustBundle, registration.ScopeDigest, registration.SourcePolicyRevision,
 		registration.PerEnvPIDs, registration.PerEnvDiskBytes,
 		registration.MaxEgressMode, registration.StopGraceSeconds, registration.State, registration.ConnectionState, registration.EnrollmentState,
@@ -157,7 +153,7 @@ func (store *Store) RemoteRegistrationByEnrollmentRequest(ctx context.Context, r
 	return scanRemoteRegistration(store.db.QueryRowContext(ctx, remoteRegistrationSelect+" WHERE enrollment_request_id = ?", requestID))
 }
 
-const remoteRegistrationSelect = `SELECT id, endpoint, display_name, protocol_version, trust_bundle, scope_digest, source_policy_revision,
+const remoteRegistrationSelect = `SELECT id, endpoint, display_name, trust_bundle, scope_digest, source_policy_revision,
 	per_env_pids, per_env_disk_bytes,
 	max_egress_mode, stop_grace_seconds,
 	revision, state, connection_state, connection_instance, enrollment_state, enrollment_error_code,
@@ -168,7 +164,7 @@ const remoteRegistrationSelect = `SELECT id, endpoint, display_name, protocol_ve
 func scanRemoteRegistration(row rowScanner) (RemoteRegistration, error) {
 	var registration RemoteRegistration
 	var connectorObserved, lastConnected, disconnected, nextRetry, created, updated int64
-	err := row.Scan(&registration.ID, &registration.Endpoint, &registration.DisplayName, &registration.ProtocolVersion,
+	err := row.Scan(&registration.ID, &registration.Endpoint, &registration.DisplayName,
 		&registration.TrustBundle, &registration.ScopeDigest, &registration.SourcePolicyRevision,
 		&registration.PerEnvPIDs, &registration.PerEnvDiskBytes,
 		&registration.MaxEgressMode, &registration.StopGraceSeconds, &registration.Revision, &registration.State, &registration.ConnectionState,
@@ -284,16 +280,6 @@ func (store *Store) UpdateManagedRemoteRegistration(ctx context.Context, registr
 		return RemoteRegistration{}, ErrRemoteRegistrationRevisionConflict
 	}
 	return store.GetRemoteRegistration(ctx, registration.ID)
-}
-
-// ConvertRemoteProtocolVersion moves every live registration with an older
-// numeric protocol version to the running version. A newer or non-numeric
-// version stays unchanged and fails at connector start.
-func (store *Store) ConvertRemoteProtocolVersion(ctx context.Context, version string) error {
-	_, err := store.db.ExecContext(ctx, `UPDATE remote_registrations SET protocol_version=?, revision=revision+1, updated_at=?
-		WHERE state != 3 AND protocol_version GLOB '[1-9]*' AND protocol_version NOT GLOB '*[^0-9]*'
-		AND CAST(protocol_version AS INTEGER) < CAST(? AS INTEGER)`, version, time.Now().UnixNano(), version)
-	return err
 }
 
 func (store *Store) SetRemoteRegistrationState(ctx context.Context, id string, expectedRevision uint64, state int32) (RemoteRegistration, error) {

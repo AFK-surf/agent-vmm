@@ -4,12 +4,13 @@ package host
 
 import (
 	"context"
+	"testing"
+
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"testing"
 )
 
 func TestImageCopyRequiresCurrentOwnedAllocations(t *testing.T) {

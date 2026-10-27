@@ -16,69 +16,24 @@ import (
 	"testing"
 	"time"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
-	"github.com/AFK-surf/agent-vmm/internal/host/trustkeys"
+	"github.com/AFK-surf/agent-vmm/internal/host/testfixture"
 	"github.com/AFK-surf/agent-vmm/pkg/signing"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type memoryKeys struct {
-	keys        map[uint64]*ecdsa.PrivateKey
-	unavailable map[uint64]bool
-}
-
-func newMemoryKeys(t *testing.T) *memoryKeys {
+func newMemoryKeys(t *testing.T) *testfixture.MemoryKeys {
 	t.Helper()
-	return &memoryKeys{keys: make(map[uint64]*ecdsa.PrivateKey), unavailable: make(map[uint64]bool)}
+	return testfixture.NewMemoryKeys()
 }
 
-func (provider *memoryKeys) Ensure(_ context.Context, revision uint64) ([]byte, string, error) {
-	if provider.unavailable[revision] {
-		return nil, "", trustkeys.ErrKeyUnavailable
-	}
-	key := provider.keys[revision]
-	if key == nil {
-		var err error
-		key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			return nil, "", err
-		}
-		provider.keys[revision] = key
-	}
-	return elliptic.MarshalCompressed(elliptic.P256(), key.X, key.Y), "test", nil
-}
+var signDigest = testfixture.SignDigest
 
-func (provider *memoryKeys) Sign(_ context.Context, revision uint64, digest []byte) ([]byte, error) {
-	if provider.unavailable[revision] || provider.keys[revision] == nil {
-		return nil, trustkeys.ErrKeyUnavailable
-	}
-	return signDigest(provider.keys[revision], digest)
-}
-
-func (provider *memoryKeys) Delete(_ context.Context, revision uint64) error {
-	delete(provider.keys, revision)
-	return nil
-}
-
-func signDigest(key *ecdsa.PrivateKey, digest []byte) ([]byte, error) {
-	r, s, err := ecdsa.Sign(rand.Reader, key, digest)
-	if err != nil {
-		return nil, err
-	}
-	halfOrder := new(big.Int).Rsh(new(big.Int).Set(elliptic.P256().Params().N), 1)
-	if s.Cmp(halfOrder) > 0 {
-		s.Sub(elliptic.P256().Params().N, s)
-	}
-	result := make([]byte, 64)
-	r.FillBytes(result[:32])
-	s.FillBytes(result[32:])
-	return result, nil
-}
-
-func openManager(t *testing.T, provider *memoryKeys) (*Manager, *store.Store, string) {
+func openManager(t *testing.T, provider *testfixture.MemoryKeys) (*Manager, *store.Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "host.db")
 	database, err := store.Open(path)
@@ -94,7 +49,7 @@ func openManager(t *testing.T, provider *memoryKeys) (*Manager, *store.Store, st
 	return manager, database, path
 }
 
-func TestDeviceRootCustodyRotationAndExplicitRepair(t *testing.T) {
+func TestDeviceRootCustodyAndExplicitRepair(t *testing.T) {
 	ctx := context.Background()
 	provider := newMemoryKeys(t)
 	manager, database, path := openManager(t, provider)
@@ -102,7 +57,7 @@ func TestDeviceRootCustodyRotationAndExplicitRepair(t *testing.T) {
 	if err != nil || identity.State != store.DeviceIdentityReady || identity.Identity.GetRootKeyRevision() != 1 {
 		t.Fatalf("initial identity = %+v err=%v", identity, err)
 	}
-	privateScalar := provider.keys[1].D.Bytes()
+	privateScalar := provider.Keys[1].D.Bytes()
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -119,23 +74,7 @@ func TestDeviceRootCustodyRotationAndExplicitRepair(t *testing.T) {
 	}
 	t.Cleanup(func() { database.Close() })
 	manager.store = database
-	rotation, next, err := manager.RotateRoot(ctx, "rotate-1", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rotationInput, err := signing.CanonicalInput(rotation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rotationDigest := sha256.Sum256(rotationInput)
-	if !verifyP256(rotation.GetOldRootPublicKey(), rotationDigest[:], rotation.GetOldSignsNew()) ||
-		!verifyP256(rotation.GetNewRootPublicKey(), rotationDigest[:], rotation.GetNewSignsOld()) || next.Identity.GetRootKeyRevision() != 2 {
-		t.Fatal("root rotation is not cross-signed by old and new roots")
-	}
-	replayedRotation, _, err := manager.RotateRoot(ctx, "rotate-1", 1)
-	if err != nil || !proto.Equal(rotation, replayedRotation) {
-		t.Fatalf("idempotent rotation=%+v err=%v", replayedRotation, err)
-	}
+	next := identity
 	managedAuthority := &trustv1.AuthorityDescriptor{AuthorityId: "managed-before-repair",
 		AuthorityClass: trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER, KeyId: "controller", Revision: 1}
 	credential := &trustv1.MembershipCredential{Authority: managedAuthority, SubjectDeviceId: next.Identity.GetDeviceId(),
@@ -148,9 +87,9 @@ func TestDeviceRootCustodyRotationAndExplicitRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider.unavailable[2] = true
-	if _, _, err := manager.RotateRoot(ctx, "rotate-2", 2); !errors.Is(err, ErrNeedsRepair) {
-		t.Fatalf("rotation after old-root loss err=%v", err)
+	provider.Unavailable[1] = true
+	if err := manager.initialize(ctx); err != nil {
+		t.Fatal(err)
 	}
 	record, err := manager.Identity(ctx)
 	if err != nil || record.State != store.DeviceIdentityNeedsRepair {
@@ -159,7 +98,7 @@ func TestDeviceRootCustodyRotationAndExplicitRepair(t *testing.T) {
 	if _, err := manager.Repair(ctx, "repair-1", false); err == nil {
 		t.Fatal("repair succeeded without explicit membership reset confirmation")
 	}
-	provider.unavailable[3] = false
+	provider.Unavailable[2] = false
 	repaired, err := manager.Repair(ctx, "repair-1", true)
 	if err != nil || repaired.State != store.DeviceIdentityReady || repaired.Identity.GetDeviceId() == identity.Identity.GetDeviceId() {
 		t.Fatalf("repaired identity = %+v err=%v", repaired, err)
@@ -232,7 +171,7 @@ func TestPersonalMeshCASRemoveWinsAndFreshness(t *testing.T) {
 	if _, err := manager.ApplyMeshEndpointObservation(ctx, descriptor.GetMeshId(), forgedEndpoint); err == nil {
 		t.Fatal("forged mesh endpoint observation was accepted")
 	}
-	personalRequest := &servicev1.PersonalRouteRequest{RequestId: "personal-route-1", MeshId: descriptor.GetMeshId(), SourceDeviceId: "device-b",
+	personalRequest := &servicev1.RequestPersonalRouteRequest{RequestId: "personal-route-1", MeshId: descriptor.GetMeshId(), SourceDeviceId: "device-b",
 		SourceRootKeyRevision: 1, SourceEnvironmentId: "source-env", SourceContainerInstanceId: "source-instance",
 		DestinationExportId: "export-local", RouteGeneration: 9, PolicyEpoch: revision2.GetPolicyEpoch(),
 		RouteClass: servicev1.RouteClass_ROUTE_CLASS_COMPUTE,
@@ -246,7 +185,7 @@ func TestPersonalMeshCASRemoveWinsAndFreshness(t *testing.T) {
 	if replayed, err := manager.IssuePersonalRoute(ctx, personalRequest, destination); err != nil || !proto.Equal(replayed, issued) {
 		t.Fatalf("idempotent personal route=%+v err=%v", replayed, err)
 	}
-	forgedReplay := proto.Clone(personalRequest).(*servicev1.PersonalRouteRequest)
+	forgedReplay := proto.Clone(personalRequest).(*servicev1.RequestPersonalRouteRequest)
 	forgedReplay.SourceSignature[0] ^= 0xff
 	if _, err := manager.IssuePersonalRoute(ctx, forgedReplay, destination); err == nil {
 		t.Fatal("durable personal route response bypassed request signature verification")
@@ -258,7 +197,7 @@ func TestPersonalMeshCASRemoveWinsAndFreshness(t *testing.T) {
 		servicev1.RouteClass_ROUTE_CLASS_DEVICE,
 		servicev1.RouteClass_ROUTE_CLASS_LAN,
 	} {
-		request := proto.Clone(personalRequest).(*servicev1.PersonalRouteRequest)
+		request := proto.Clone(personalRequest).(*servicev1.RequestPersonalRouteRequest)
 		request.RequestId = fmt.Sprintf("personal-listener-%d", index)
 		request.RouteGeneration = uint64(10 + index)
 		request.RouteClass = routeClass
@@ -276,7 +215,7 @@ func TestPersonalMeshCASRemoveWinsAndFreshness(t *testing.T) {
 			t.Fatalf("listener class %s capability rejected: %v", routeClass, err)
 		}
 	}
-	invalidDevice := proto.Clone(personalRequest).(*servicev1.PersonalRouteRequest)
+	invalidDevice := proto.Clone(personalRequest).(*servicev1.RequestPersonalRouteRequest)
 	invalidDevice.RequestId = "personal-device-with-container"
 	invalidDevice.RouteClass = servicev1.RouteClass_ROUTE_CLASS_DEVICE
 	invalidDevice.SourceSignature = nil
@@ -376,8 +315,20 @@ func TestPairingProofRequiresJoinerRootAndQueuesManagerCAS(t *testing.T) {
 		RootKeyRevision: 1, RootPublicKey: elliptic.MarshalCompressed(elliptic.P256(), joiner.X, joiner.Y),
 		Permissions:   []trustv1.MeshPermission{trustv1.MeshPermission_MESH_PERMISSION_USE_SERVICES},
 		ContextDigest: make([]byte, sha256.Size), ExpiresAt: timestamppb.New(now.Add(10 * time.Minute))}
+	identity, err := manager.Identity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitation := &hostv1.PersonalMeshPairingInvitation{SessionId: proof.GetSessionId(), MeshId: proof.GetMeshId(), InviteRevision: proof.GetInviteRevision(),
+		InviteId: "invite", Nonce: make([]byte, 32), ManagerDeviceId: identity.Identity.GetDeviceId(), ManagerRootPublicKey: identity.Identity.GetRootPublicKey(),
+		Permissions: proof.GetPermissions(), ExpiresAt: proof.GetExpiresAt()}
+	contextDigest, err := PairingContext(invitation, []byte(proof.GetDeviceId()), proof.GetRootPublicKey()).Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof.ContextDigest = contextDigest[:]
 	signMessage(t, joiner, proof)
-	operation, err := manager.CreatePersonalMeshJoin(ctx, "join-operation", "invite", make([]byte, 32), proof)
+	operation, err := manager.CreatePersonalMeshJoin(ctx, "join-operation", invitation, []byte(proof.GetDeviceId()), proof.GetRootPublicKey(), proof)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,10 +336,23 @@ func TestPairingProofRequiresJoinerRootAndQueuesManagerCAS(t *testing.T) {
 		operation.GetMembership().GetDeviceId() != "joiner" || len(operation.GetSignature()) != 64 {
 		t.Fatalf("join operation = %+v", operation)
 	}
-	forged := proto.Clone(proof).(*trustv1.PairingProof)
-	forged.ContextDigest[0] = 1
-	if _, err := manager.CreatePersonalMeshJoin(ctx, "forged-join", "invite-2", make([]byte, 32), forged); !errors.Is(err, ErrRouteUnauthorized) {
-		t.Fatalf("forged proof error = %v", err)
+	for name, change := range map[string]func(*trustv1.PairingProof){
+		"session": func(value *trustv1.PairingProof) { value.SessionId = []byte("differentSession") },
+		"context": func(value *trustv1.PairingProof) { value.ContextDigest[0] ^= 1 },
+		"permissions": func(value *trustv1.PairingProof) {
+			value.Permissions = append(value.Permissions, trustv1.MeshPermission_MESH_PERMISSION_MANAGE_MEMBERS)
+		},
+		"identity": func(value *trustv1.PairingProof) { value.DeviceId = "attacker" },
+		"root":     func(value *trustv1.PairingProof) { value.RootPublicKey = make([]byte, 33) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			forged := proto.Clone(proof).(*trustv1.PairingProof)
+			change(forged)
+			signMessage(t, joiner, forged)
+			if _, err := manager.CreatePersonalMeshJoin(ctx, "forged-"+name, invitation, []byte(proof.GetDeviceId()), proof.GetRootPublicKey(), forged); !errors.Is(err, ErrPairingContextMismatch) {
+				t.Fatalf("bound proof error = %v", err)
+			}
+		})
 	}
 }
 
@@ -530,7 +494,11 @@ func TestRouteVerifierSeparatesManagedAndPersonalAuthorities(t *testing.T) {
 		t.Fatal(err)
 	}
 	issuerKey := testKey(t)
-	current := nextSnapshot(genesis, now, member(descriptor.GetMeshId(), "issuer", issuerKey, 2))
+	sourceWithoutServices := member(descriptor.GetMeshId(), "source-no-services", testKey(t), 2)
+	sourceWithoutServices.Permissions = []trustv1.MeshPermission{trustv1.MeshPermission_MESH_PERMISSION_MANAGE_MEMBERS}
+	destinationWithoutServices := member(descriptor.GetMeshId(), "destination-no-services", issuerKey, 2)
+	destinationWithoutServices.Permissions = []trustv1.MeshPermission{trustv1.MeshPermission_MESH_PERMISSION_MANAGE_MEMBERS}
+	current := nextSnapshot(genesis, now, member(descriptor.GetMeshId(), "issuer", issuerKey, 2), member(descriptor.GetMeshId(), "source", testKey(t), 2), sourceWithoutServices, destinationWithoutServices)
 	current.RegistryReceipt = &trustv1.RegistryReceipt{RegistryAudience: "registry.test", MeshId: descriptor.GetMeshId(), Revision: current.GetRevision(),
 		PolicyEpoch: current.GetPolicyEpoch(), SnapshotDigest: current.GetSnapshotDigest(), IssuedAt: timestamppb.New(now),
 		ExpiresAt: timestamppb.New(now.Add(10 * time.Minute)), KeyId: "receipt-key"}
@@ -541,10 +509,32 @@ func TestRouteVerifierSeparatesManagedAndPersonalAuthorities(t *testing.T) {
 	authority := &trustv1.AuthorityDescriptor{AuthorityId: descriptor.GetMeshId(), AuthorityClass: trustv1.AuthorityClass_AUTHORITY_CLASS_PERSONAL_MESH,
 		TrustDomainRef: []byte(descriptor.GetMeshId()), Revision: current.GetRevision()}
 	personal := route("personal-route", authority, "", "issuer", now)
+	personal.DestinationDeviceId = "issuer"
 	personal.PolicyRevision = current.GetPolicyEpoch()
 	signMessage(t, issuerKey, personal)
 	if err := manager.AuthorizeRoute(ctx, personal, routeExpectation(personal, now)); err != nil {
 		t.Fatalf("personal route rejected: %v", err)
+	}
+	for _, change := range []struct {
+		name  string
+		apply func(*trustv1.RouteCapability)
+	}{
+		{"non-destination issuer", func(value *trustv1.RouteCapability) { value.DestinationDeviceId = "source" }},
+		{"absent source", func(value *trustv1.RouteCapability) { value.SourceDeviceId = "absent" }},
+		{"source without service permission", func(value *trustv1.RouteCapability) { value.SourceDeviceId = "source-no-services" }},
+		{"destination without service permission", func(value *trustv1.RouteCapability) {
+			value.IssuerDeviceId = "destination-no-services"
+			value.DestinationDeviceId = "destination-no-services"
+		}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			value := proto.Clone(personal).(*trustv1.RouteCapability)
+			change.apply(value)
+			signMessage(t, issuerKey, value)
+			if err := manager.AuthorizeRoute(ctx, value, routeExpectation(value, now)); err == nil {
+				t.Fatal("unauthorized personal route accepted")
+			}
+		})
 	}
 	wrongMesh := proto.Clone(personal).(*trustv1.RouteCapability)
 	wrongMesh.Authority.TrustDomainRef = []byte("another-mesh")
@@ -590,7 +580,7 @@ func route(id string, authority *trustv1.AuthorityDescriptor, keyID, issuerDevic
 func routeExpectation(value *trustv1.RouteCapability, now time.Time) RouteExpectation {
 	return RouteExpectation{SourceDeviceID: value.GetSourceDeviceId(), DestinationDeviceID: value.GetDestinationDeviceId(),
 		DestinationExportID: value.GetDestinationExportId(), RouteClass: value.GetRouteClass(), Audience: value.GetAudience(), RouteGeneration: value.GetRouteGeneration(),
-		PolicyRevision: value.GetPolicyRevision(), ObservedAt: now}
+		PolicyRevision: value.GetPolicyRevision()}
 }
 
 func signMessage(t *testing.T, key *ecdsa.PrivateKey, message proto.Message) {
@@ -615,7 +605,7 @@ func signMessage(t *testing.T, key *ecdsa.PrivateKey, message proto.Message) {
 		value.DeviceSignature = signature
 	case *trustv1.PairingProof:
 		value.Signature = signature
-	case *servicev1.PersonalRouteRequest:
+	case *servicev1.RequestPersonalRouteRequest:
 		value.SourceSignature = signature
 	default:
 		t.Fatalf("unsupported signed test message %T", message)
@@ -645,11 +635,11 @@ func member(meshID, deviceID string, key *ecdsa.PrivateKey, revision uint64) *tr
 		State: trustv1.MeshMembershipState_MESH_MEMBERSHIP_STATE_ACTIVE, JoinedAtRevision: revision, OperationDigest: []byte{byte(revision)}}
 }
 
-func nextSnapshot(current *trustv1.MeshSnapshot, now time.Time, added *trustv1.MeshMembership) *trustv1.MeshSnapshot {
+func nextSnapshot(current *trustv1.MeshSnapshot, now time.Time, added ...*trustv1.MeshMembership) *trustv1.MeshSnapshot {
 	next := proto.Clone(current).(*trustv1.MeshSnapshot)
 	next.Revision++
 	next.PreviousDigest = current.GetSnapshotDigest()
-	next.ActiveMembers = append(next.ActiveMembers, added)
+	next.ActiveMembers = append(next.ActiveMembers, added...)
 	next.IssuedAt = timestamppb.New(now)
 	next.ExpiresAt = timestamppb.New(now.Add(15 * time.Minute))
 	next.RegistryReceipt = nil
@@ -682,7 +672,7 @@ func TestApplianceManagedTrustRenewalValidatesHostSignatureAndLifetime(t *testin
 	installation, _, _, err := database.InstallApplianceDomain(ctx,
 		store.ApplianceInstallation{ID: "installation", ProductID: "product", ArtifactID: "artifact", State: 1, Revision: 1, DataVolumeID: "volume", DataVolumeBytes: 1 << 20},
 		store.ApplianceGrant{Revision: 1, System: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, PerEnvironment: store.ResourceAmount{PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1},
-		store.RemoteRegistration{ID: "registration", InstallationID: "installation", OwnerKind: store.RemoteRegistrationPrivate, DisplayName: "private", ProtocolVersion: "1", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1}, nil,
+		store.RemoteRegistration{ID: "registration", InstallationID: "installation", OwnerKind: store.RemoteRegistrationPrivate, DisplayName: "private", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1}, nil,
 		store.ApplianceOperation{ID: "install", RequestID: "install", State: 1, Phase: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -803,5 +793,52 @@ func TestApplianceManagedTrustRenewalValidatesHostSignatureAndLifetime(t *testin
 		if err := manager.InstallApplianceManagedTrust(ctx, binding, a, c); err != nil {
 			t.Fatalf("ACK retry day %d: %v", days, err)
 		}
+	}
+}
+
+func TestConcurrentDeviceRepairPreservesWinningKey(t *testing.T) {
+	provider := newMemoryKeys(t)
+	manager, database, _ := openManager(t, provider)
+	if err := database.MarkDeviceIdentityNeedsRepair(t.Context(), 1); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		record store.DeviceIdentityRecord
+		err    error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, request := range []string{"repair-a", "repair-b"} {
+		go func() {
+			<-start
+			record, err := manager.Repair(t.Context(), request, true)
+			results <- result{record, err}
+		}()
+	}
+	close(start)
+	var winner store.DeviceIdentityRecord
+	successes := 0
+	for range 2 {
+		r := <-results
+		if r.err == nil {
+			successes++
+			winner = r.record
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful repairs = %d", successes)
+	}
+	current, err := manager.Identity(t.Context())
+	if err != nil || !proto.Equal(current.Identity, winner.Identity) {
+		t.Fatalf("committed identity = %v, %v", current, err)
+	}
+	digest := sha256.Sum256([]byte("winning key remains usable"))
+	signature, err := provider.Sign(t.Context(), winner.Identity.GetRootKeyRevision(), digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := provider.Keys[winner.Identity.GetRootKeyRevision()]
+	if !ecdsa.Verify(&key.PublicKey, digest[:], new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:])) {
+		t.Fatal("winning key cannot sign")
 	}
 }

@@ -6,14 +6,17 @@ import (
 	"context"
 	"errors"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/errdefs"
 )
 
 func (r *Runtime) releaseSystemInstallationImagesMaterializerHeld(ctx context.Context, installationID string) error {
 	namespaceID := systemInstallationNamespace(installationID)
-	unlock := r.lockNamespace(namespaceID)
+	unlock, err := r.lockNamespace(ctx, namespaceID)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := r.namespaceExistsForRole(ctx, namespaceID, true); err != nil {
 		if errdefs.IsNotFound(err) {

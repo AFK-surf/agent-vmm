@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 )
 
 type memoryDevice struct {
@@ -43,10 +43,10 @@ func TestPumpHandshakePacketAndCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- pump.Run(ctx) }()
-	if _, err := netprotocol.ReadHandshake(host, "boot"); err != nil {
+	if _, err := egresslink.ReadHandshake(host, "boot"); err != nil {
 		t.Fatal(err)
 	}
-	if err := netprotocol.WriteHandshake(host, netprotocol.Handshake{BootID: "boot"}); err != nil {
+	if err := egresslink.WriteHandshake(host, egresslink.Handshake{BootID: "boot"}); err != nil {
 		t.Fatal(err)
 	}
 	packet := make([]byte, 20)
@@ -55,11 +55,11 @@ func TestPumpHandshakePacketAndCancel(t *testing.T) {
 	if _, err := input.Write(packet); err != nil {
 		t.Fatal(err)
 	}
-	frameType, got, err := netprotocol.ReadFrame(host)
-	if err != nil || frameType != netprotocol.Data || !bytes.Equal(got, packet) {
+	frameType, got, err := egresslink.ReadFrame(host)
+	if err != nil || frameType != egresslink.Data || !bytes.Equal(got, packet) {
 		t.Fatalf("frame = %v %x %v", frameType, got, err)
 	}
-	if err := netprotocol.WriteFrame(host, netprotocol.Data, packet); err != nil {
+	if err := egresslink.WriteFrame(host, egresslink.Data, packet); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)

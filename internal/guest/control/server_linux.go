@@ -4,10 +4,8 @@ package control
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -15,7 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
@@ -23,7 +22,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 type HealthState struct {
@@ -205,7 +203,7 @@ func (s *Server) StopContainer(ctx context.Context, request *vmmdv1.StopContaine
 	value, err := s.mutate(ctx, "stop-container", request, func() (any, error) {
 		container, err := s.runtime.StopContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId(), timeout)
 		if err == nil && container.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_UNKNOWN {
-			err = detailedError(codes.FailedPrecondition, "CONTAINER_STATE_UNKNOWN", "sandbox teardown is unresolved; inspect or stop the current instance", "container", request.GetContainerId())
+			err = status.Error(codes.FailedPrecondition, "sandbox teardown is unresolved; inspect or stop the current instance")
 		}
 		return &vmmdv1.StopContainerResponse{Container: container}, err
 	})
@@ -234,7 +232,10 @@ func (s *Server) DeleteContainer(ctx context.Context, request *vmmdv1.DeleteCont
 }
 
 func (s *Server) InspectContainer(ctx context.Context, request *vmmdv1.InspectContainerRequest) (*vmmdv1.InspectContainerResponse, error) {
-	unlock := s.runtime.lockNamespace(request.GetActorNamespaceId())
+	unlock, err := s.runtime.lockNamespace(ctx, request.GetActorNamespaceId())
+	if err != nil {
+		return nil, rpcError(err)
+	}
 	defer unlock()
 	container, err := s.runtime.InspectContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId())
 	if err != nil {
@@ -282,35 +283,6 @@ func (s *Server) SignalContainer(ctx context.Context, request *vmmdv1.SignalCont
 	return value.(*vmmdv1.SignalContainerResponse), nil
 }
 
-func (s *Server) mutate(ctx context.Context, operation string, request proto.Message, function func() (any, error)) (any, error) {
-	if operation != "prepare" {
-		s.operationMu.Lock()
-		if s.shuttingDown.Load() {
-			s.operationMu.Unlock()
-			return nil, status.Error(codes.Unavailable, "vmmd is shutting down")
-		}
-		s.operations.Add(1)
-		s.operationMu.Unlock()
-		defer s.operations.Done()
-	}
-	requestID := mutationRequestID(request)
-	if err := validateRequestID(requestID); err != nil {
-		return nil, invalid(err)
-	}
-	bytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	fingerprint := fmt.Sprintf("%x", sha256.Sum256(bytes))
-	return s.dedupe.do(ctx, operation+"/"+requestID, fingerprint, func() (any, error) {
-		value, err := function()
-		if err == nil {
-			s.events.publish(&vmmdv1.RuntimeEvent{Type: operation, GuestBootId: s.health.BootID, RequestId: requestID, TimestampUnixNano: time.Now().UnixNano()})
-		}
-		return value, err
-	})
-}
-
 func (s *Server) beginShutdown(ctx context.Context) error {
 	s.operationMu.Lock()
 	s.shuttingDown.Store(true)
@@ -331,55 +303,6 @@ func (s *Server) beginShutdown(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-}
-
-func mutationRequestID(request proto.Message) string {
-	switch request := request.(type) {
-	case *vmmdv1.ReconcileSystemImagesRequest:
-		return request.GetRequestId()
-	case *vmmdv1.PrepareShutdownRequest:
-		return request.GetRequestId()
-	case *vmmdv1.EnsureSystemApplianceRequest:
-		return request.GetRequestId()
-	case *vmmdv1.StopSystemApplianceRequest:
-		return request.GetRequestId()
-	case *vmmdv1.DeleteSystemApplianceDataRequest:
-		return request.GetRequestId()
-	case *vmmdv1.EnsureNamespaceRequest:
-		return request.GetRequestId()
-	case *vmmdv1.DeleteNamespaceRequest:
-		return request.GetRequestId()
-	case *vmmdv1.PullImageRequest:
-		return request.GetRequestId()
-	case *vmmdv1.ImportImageHeader:
-		return request.GetRequestId()
-	case *vmmdv1.DeleteImageRequest:
-		return request.GetRequestId()
-	case *vmmdv1.CreateVolumeRequest:
-		return request.GetRequestId()
-	case *vmmdv1.DeleteVolumeRequest:
-		return request.GetRequestId()
-	case *vmmdv1.CreateContainerRequest:
-		return request.GetRequestId()
-	case *vmmdv1.StartContainerRequest:
-		return request.GetRequestId()
-	case *vmmdv1.StopContainerRequest:
-		return request.GetRequestId()
-	case *vmmdv1.DeleteContainerRequest:
-		return request.GetRequestId()
-	case *vmmdv1.SignalContainerRequest:
-		return request.GetRequestId()
-	case *vmmdv1.ApplyNetworkLinkRequest:
-		return request.GetRequestId()
-	case *vmmdv1.DeleteNetworkLinkRequest:
-		return request.GetRequestId()
-	case *vmmdv1.ApplyServiceProjectionRequest:
-		return request.GetRequestId()
-	case *vmmdv1.DeleteServiceProjectionRequest:
-		return request.GetRequestId()
-	default:
-		return ""
 	}
 }
 
@@ -434,15 +357,14 @@ func rpcError(err error) error {
 	if err == nil {
 		return nil
 	}
-	log.Printf("guest runtime operation failed: %v", err)
+	slog.Default().Warn("guest runtime operation failed", "error", err)
 	var buildExit *guestbuild.ExitError
 	if errors.As(err, &buildExit) {
-		return detailedError(codes.Internal, "RUNTIME_OPERATION_FAILED", "runtime operation failed: "+buildExit.Summary(), "runtime", "")
+		return status.Error(codes.Internal, "runtime operation failed: "+buildExit.Summary())
 	}
 	var stageError runtimeStageError
 	if errors.As(err, &stageError) && (status.Code(err) == codes.NotFound || errdefs.IsNotFound(err) || errors.Is(err, os.ErrNotExist)) {
-		return detailedErrorMetadata(codes.NotFound, "RUNTIME_RESOURCE_NOT_FOUND",
-			"runtime resource was not found during "+stageError.stage+": "+err.Error(), "runtime", "", map[string]string{"stage": stageError.stage})
+		return status.Error(codes.NotFound, "runtime resource was not found during "+stageError.stage+": "+err.Error())
 	}
 	if status.Code(err) != codes.Unknown {
 		return err
@@ -454,7 +376,7 @@ func rpcError(err error) error {
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errdefs.IsFailedPrecondition(err):
 		message := err.Error()
-		return detailedError(codes.FailedPrecondition, "RUNTIME_PRECONDITION_FAILED", "runtime precondition failed: "+message, "runtime", "")
+		return hostv1.NewError(codes.FailedPrecondition, hostv1.ErrorReason_ERROR_REASON_RUNTIME_PRECONDITION_FAILED, "runtime precondition failed: "+message, hostv1.WithResource("runtime", ""))
 	case errors.Is(err, guestdisk.ErrCapacityUnavailable):
 		stage := "storage_admission"
 		if stageError.stage != "" {
@@ -464,7 +386,7 @@ func rpcError(err error) error {
 	case errors.Is(err, errResourceExhausted):
 		return status.Error(codes.ResourceExhausted, err.Error())
 	case errors.Is(err, syscall.EAGAIN) || strings.Contains(strings.ToLower(err.Error()), "resource temporarily unavailable"):
-		return detailedError(codes.ResourceExhausted, "PID_LIMIT_EXCEEDED", "environment process limit was exhausted; stop finished execs or containers before retrying", "runtime", "")
+		return hostv1.NewError(codes.ResourceExhausted, hostv1.ErrorReason_ERROR_REASON_PID_LIMIT_EXCEEDED, "environment process limit was exhausted; stop finished execs or containers before retrying", hostv1.WithResource("runtime", ""))
 	case errors.Is(err, errPrecondition):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, context.Canceled):
@@ -473,6 +395,6 @@ func rpcError(err error) error {
 		return status.Error(codes.DeadlineExceeded, err.Error())
 	default:
 		message := err.Error()
-		return detailedError(codes.Internal, "RUNTIME_OPERATION_FAILED", "runtime operation failed: "+message, "runtime", "")
+		return status.Error(codes.Internal, "runtime operation failed: "+message)
 	}
 }

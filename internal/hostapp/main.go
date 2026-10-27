@@ -8,10 +8,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -19,10 +18,11 @@ import (
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 	"github.com/AFK-surf/agent-vmm/internal/host"
-	"github.com/AFK-surf/agent-vmm/internal/host/servicepreface"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/hostdisk"
+	"github.com/AFK-surf/agent-vmm/internal/privatefs"
 	"github.com/AFK-surf/agent-vmm/internal/vmm"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 )
@@ -33,24 +33,28 @@ const (
 	minimumNewStateBytes     = int64(16 << 30)
 )
 
-func Run(manifestDigest string) {
+var ErrSchemaRejected = errors.New("host database schema rejected")
+
+func Run(ctx context.Context, manifestDigest string) error {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := configureArchiveTransport(); err != nil {
+		return err
+	}
 	if err := validateRuntimeUID(os.Geteuid()); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := disableCoreDumps(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	var config vmm.Config
 	var newStateBytes int64
-	var migrateStateFrom string
-	var operatorSocket, remoteComputeSocket, trustSocket, serviceTunnelSocket, meshControlSocket, dataWorkerSocket, dataWorkerPath, trustCapabilityFile, databasePath, sessionDirectory string
+	var operatorSocket, remoteComputeSocket, trustSocket, serviceTunnelSocket, meshControlSocket, dataWorkerSocket, dataWorkerPath, databasePath, sessionDirectory string
 	var disablePersonalMeshPairing bool
 	flag.StringVar(&config.BundleDirectory, "bundle", "", "verified guest bundle directory")
 	flag.StringVar(&config.InstanceDirectory, "instance", "", "VM instance directory")
 	flag.UintVar(&config.CPUCount, "cpus", 0, "VM CPU count; 0 derives it from the host")
 	flag.Uint64Var(&config.MemoryBytes, "memory", 0, "VM memory bytes; 0 derives it from the host")
 	flag.Int64Var(&newStateBytes, "state-size", defaultNewStateBytes, "fully physically backed state disk bytes for a new installation")
-	flag.StringVar(&migrateStateFrom, "migrate-state-from", "", "offline legacy state disk to copy into a new state.raw in --instance")
 	flag.StringVar(&config.SerialLog, "serial-log", "", "serial log path")
 	flag.StringVar(&operatorSocket, "operator-socket", "", "operator Unix socket")
 	flag.StringVar(&remoteComputeSocket, "remote-compute-socket", "", "restricted remote connector Unix socket")
@@ -59,31 +63,21 @@ func Run(manifestDigest string) {
 	flag.StringVar(&meshControlSocket, "mesh-control-socket", "", "data-worker-only personal mesh control Unix socket")
 	flag.StringVar(&dataWorkerSocket, "data-worker-socket", "", "data worker control Unix socket")
 	flag.StringVar(&dataWorkerPath, "data-worker", "", "host-supervised Agent VMM data worker")
-	flag.StringVar(&trustCapabilityFile, "trust-capability-file", "", "install-scoped data worker capability file")
 	flag.StringVar(&databasePath, "database", "", "host control-plane SQLite database")
 	flag.StringVar(&sessionDirectory, "session-directory", "", "agent session socket directory")
 	flag.BoolVar(&disablePersonalMeshPairing, "disable-personal-mesh-pairing", false, "deny personal mesh genesis and new member admission while preserving revoke/repair")
 	flag.Parse()
 	hostCPUs, hostMemoryBytes, err := hostResources()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	config.CPUCount, config.MemoryBytes = vmResources(config.CPUCount, config.MemoryBytes, hostCPUs, hostMemoryBytes)
 	config.GuestManifestDigest = manifestDigest
-	if migrateStateFrom != "" {
-		if err := runStateMigration(config, migrateStateFrom); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
 	if operatorSocket == "" || remoteComputeSocket == "" || databasePath == "" || sessionDirectory == "" {
-		log.Fatal("operator-socket, remote-compute-socket, database, and session-directory are required")
+		return errors.New("operator-socket, remote-compute-socket, database, and session-directory are required")
 	}
 	if trustSocket == "" {
 		trustSocket = filepath.Join(filepath.Dir(operatorSocket), "trust.sock")
-	}
-	if trustCapabilityFile == "" {
-		trustCapabilityFile = filepath.Join(filepath.Dir(operatorSocket), "connector-trust.cap")
 	}
 	if serviceTunnelSocket == "" {
 		serviceTunnelSocket = filepath.Join(filepath.Dir(operatorSocket), "service-tunnel.sock")
@@ -97,142 +91,112 @@ func Run(manifestDigest string) {
 	if dataWorkerPath == "" {
 		dataWorkerPath = filepath.Join(filepath.Dir(os.Args[0]), "agent-vmm-data")
 	}
-	for _, directory := range []string{config.InstanceDirectory, filepath.Dir(operatorSocket), filepath.Dir(remoteComputeSocket), filepath.Dir(trustSocket), filepath.Dir(serviceTunnelSocket), filepath.Dir(meshControlSocket), filepath.Dir(trustCapabilityFile), filepath.Dir(databasePath), filepath.Dir(config.SerialLog), sessionDirectory} {
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			log.Fatal(err)
+	serviceDirectory := filepath.Join(filepath.Dir(operatorSocket), "services")
+	for _, directory := range []string{serviceDirectory, config.InstanceDirectory, filepath.Dir(operatorSocket), filepath.Dir(remoteComputeSocket), filepath.Dir(trustSocket), filepath.Dir(serviceTunnelSocket), filepath.Dir(meshControlSocket), filepath.Dir(databasePath), filepath.Dir(config.SerialLog), sessionDirectory} {
+		if err := privatefs.EnsureDirectory(directory); err != nil {
+			return err
 		}
 	}
 	ownerLock, err := acquireHostOwnerLock(filepath.Join(config.InstanceDirectory, "host-owner.lock"))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer ownerLock.Close()
 	stateDisk := filepath.Join(config.InstanceDirectory, "state.raw")
 	config.StateBytes, err = resolveStateDiskBytes(stateDisk, newStateBytes)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	manager, err := vmm.NewManager(config)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	controller, err := host.New(host.Config{
-		Manager: manager, DatabasePath: databasePath, SessionDirectory: sessionDirectory,
-		InstanceID: filepath.Base(config.InstanceDirectory), BundleDirectory: config.BundleDirectory,
-		InstanceDirectory: config.InstanceDirectory, StateDiskIdentity: stateDisk,
-		CPUCount: config.CPUCount, MemoryBytes: config.MemoryBytes, StateBytes: config.StateBytes,
-		TrustKeyProvider:           newTrustKeyProvider(config.InstanceDirectory),
-		DisablePersonalMeshPairing: disablePersonalMeshPairing,
-		DataWorkerSocket:           dataWorkerSocket,
-		RemoteComputeSocket:        remoteComputeSocket,
-		TrustSocket:                trustSocket,
-		TrustCapabilityFile:        trustCapabilityFile,
-		ServiceTunnelSocket:        serviceTunnelSocket,
-		MeshControlSocket:          meshControlSocket,
-	})
+	stores, err := newSecretStores(ctx, config.InstanceDirectory, databasePath)
+	var controller *host.Controller
+	if err == nil {
+		controller, err = host.New(host.Config{
+			ServiceDirectory: serviceDirectory, Manager: manager, DatabasePath: databasePath, SessionDirectory: sessionDirectory,
+			InstanceID: filepath.Base(config.InstanceDirectory), BundleDirectory: config.BundleDirectory,
+			InstanceDirectory: config.InstanceDirectory, StateDiskIdentity: stateDisk,
+			CPUCount: config.CPUCount, MemoryBytes: config.MemoryBytes, StateBytes: config.StateBytes,
+			TrustKeyProvider: stores.roots, Secrets: stores.appliance, Credentials: stores.credentials,
+			DisablePersonalMeshPairing: disablePersonalMeshPairing,
+			DataWorkerSocket:           dataWorkerSocket,
+			RemoteComputeSocket:        remoteComputeSocket,
+			TrustSocket:                trustSocket,
+			ServiceTunnelSocket:        serviceTunnelSocket,
+			MeshControlSocket:          meshControlSocket,
+		})
+	}
 	if refused, recordErr := recordStartResult(filepath.Dir(databasePath), err); refused {
-		// A restart cannot open this database. Exit successfully so that the
-		// service manager does not restart the Host, and leave the record for lifecycle.
-		log.Print(errors.Join(err, recordErr))
-		os.Exit(0)
+		return errors.Join(ErrSchemaRejected, err, recordErr)
 	} else if recordErr != nil {
-		log.Fatal(recordErr)
+		return recordErr
 	}
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer controller.Close()
-	listener, err := listenOperator(operatorSocket)
+	if err := controller.Start(ctx); err != nil {
+		return err
+	}
+	listener, err := privatefs.ListenUnix(operatorSocket)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer listener.Close()
-	remoteListener, err := listenOperator(remoteComputeSocket)
+	remoteListener, err := privatefs.ListenUnix(remoteComputeSocket)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer remoteListener.Close()
-	trustListener, err := listenOperator(trustSocket)
+	trustListener, err := privatefs.ListenUnix(trustSocket)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer trustListener.Close()
-	serviceBaseListener, err := listenOperator(serviceTunnelSocket)
+	serviceBaseListener, err := privatefs.ListenUnix(serviceTunnelSocket)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer serviceBaseListener.Close()
-	meshBaseListener, err := listenOperator(meshControlSocket)
+	meshBaseListener, err := privatefs.ListenUnix(meshControlSocket)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer meshBaseListener.Close()
-	connectorCapability, err := ensureConnectorCapability(trustCapabilityFile)
-	if err != nil {
-		log.Fatal(err)
+	if err := os.Remove(filepath.Join(filepath.Dir(operatorSocket), "connector-trust.cap")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	server := controller.NewOperatorServer()
 	remoteServer := controller.NewRemoteComputeServer()
-	trustServer, err := controller.NewTrustServer(connectorCapability)
+	trustServer, err := controller.NewTrustServer()
 	if err != nil {
-		log.Fatal(err)
-	}
-	serviceListener, err := servicepreface.New(serviceBaseListener, connectorCapability)
-	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	serviceServer, err := controller.NewServiceTunnelServer()
 	if err != nil {
-		log.Fatal(err)
-	}
-	meshListener, err := servicepreface.New(meshBaseListener, connectorCapability)
-	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	meshServer, err := controller.NewMeshControlServer()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	worker, err := dataworker.Start(ctx, dataWorkerPath, dataWorkerSocket, serviceTunnelSocket, meshControlSocket, trustCapabilityFile)
+	worker, err := dataworker.Start(ctx, dataWorkerPath, dataWorkerSocket, serviceTunnelSocket, meshControlSocket)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer func() {
 		closeContext, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer closeCancel()
 		if err := worker.Close(closeContext); err != nil {
-			log.Printf("stop data worker: %v", err)
-		}
-	}()
-	go shutdown(ctx, []*grpc.Server{server, remoteServer, trustServer, serviceServer, meshServer}, controller)
-	go func() {
-		if err := meshServer.Serve(meshListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			log.Printf("mesh control stopped: %v", err)
-			server.Stop()
-		}
-	}()
-	go func() {
-		if err := serviceServer.Serve(serviceListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			log.Printf("service tunnel stopped: %v", err)
-			server.Stop()
-		}
-	}()
-	go func() {
-		if err := trustServer.Serve(trustListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			log.Printf("trust service stopped: %v", err)
-			server.Stop()
-		}
-	}()
-	go func() {
-		if err := remoteServer.Serve(remoteListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			log.Printf("remote compute service stopped: %v", err)
-			server.Stop()
+			slog.Warn("stop data worker", "error", err)
 		}
 	}()
 	if err := controller.StartExternalConnectors(ctx); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	// Keep the operator endpoint observable while a slow Guest resumes. The
 	// lifecycle helper must be able to distinguish STARTING from an unreadable
@@ -242,12 +206,13 @@ func Run(manifestDigest string) {
 		defer resumeCancel()
 		resumeRequestID := fmt.Sprintf("host-start-resume-%d", time.Now().UnixNano())
 		if err := resumeInstalledVM(resumeContext, stateDisk, resumeRequestID, controller.StartVM); err != nil {
-			log.Printf("installed VM was not resumed: %v", err)
+			slog.Warn("installed VM was not resumed", "error", err)
 		}
 	}()
-	if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-		log.Fatal(err)
-	}
+	return serveServers(ctx, []serverListener{
+		{server, listener}, {remoteServer, remoteListener}, {trustServer, trustListener},
+		{serviceServer, serviceBaseListener}, {meshServer, meshBaseListener},
+	}, controller.Shutdown)
 }
 
 // recordStartResult writes the start failure record when the store refuses the
@@ -256,7 +221,7 @@ func recordStartResult(directory string, startErr error) (bool, error) {
 	path := filepath.Join(directory, store.StartFailureFile)
 	var schemaErr *store.SchemaError
 	if errors.As(startErr, &schemaErr) {
-		data, err := json.Marshal(store.StartFailure{Code: schemaErr.Code, DataSchema: schemaErr.DataSchema, SupportedSchema: store.SupportedSchema()})
+		data, err := json.Marshal(store.StartFailure{Code: schemaErr.Code, DataSchema: schemaErr.DataSchema, CurrentSchema: store.CurrentSchema()})
 		if err != nil {
 			return true, err
 		}
@@ -271,71 +236,6 @@ func recordStartResult(directory string, startErr error) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func runStateMigration(config vmm.Config, source string) error {
-	if config.BundleDirectory == "" || config.InstanceDirectory == "" || config.SerialLog == "" {
-		return errors.New("state migration requires bundle, instance, and serial-log")
-	}
-	sourcePath, err := filepath.Abs(source)
-	if err != nil {
-		return err
-	}
-	targetPath := filepath.Join(config.InstanceDirectory, "state.raw")
-	targetAbsolute, err := filepath.Abs(targetPath)
-	if err != nil {
-		return err
-	}
-	if sourcePath == targetAbsolute {
-		return errors.New("state migration source and target must be distinct")
-	}
-	if filepath.Dir(sourcePath) == filepath.Dir(targetAbsolute) {
-		return errors.New("state migration target must use a separate instance directory")
-	}
-	info, err := os.Lstat(sourcePath)
-	if err != nil || !info.Mode().IsRegular() || info.Size() < minimumNewStateBytes {
-		return errors.New("state migration source must be a regular disk of at least 16 GiB")
-	}
-	if _, err := os.Lstat(targetAbsolute); !errors.Is(err, os.ErrNotExist) {
-		if err == nil {
-			return errors.New("state migration target already exists")
-		}
-		return err
-	}
-	if err := os.MkdirAll(config.InstanceDirectory, 0o700); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(config.SerialLog), 0o700); err != nil {
-		return err
-	}
-	sourceLock, err := acquireHostOwnerLock(filepath.Join(filepath.Dir(sourcePath), "host-owner.lock"))
-	if err != nil {
-		return fmt.Errorf("lock legacy state owner: %w", err)
-	}
-	defer sourceLock.Close()
-	targetLock, err := acquireHostOwnerLock(filepath.Join(config.InstanceDirectory, "host-owner.lock"))
-	if err != nil {
-		return fmt.Errorf("lock migration target: %w", err)
-	}
-	defer targetLock.Close()
-	config.StateBytes = info.Size()
-	config.LegacyStatePath = sourcePath
-	manager, err := vmm.NewManager(config)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-	if _, err := manager.Start(ctx); err != nil {
-		return fmt.Errorf("migrate state: %w", err)
-	}
-	stopContext, stop := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer stop()
-	if _, err := manager.Stop(stopContext, false); err != nil {
-		return fmt.Errorf("stop migration VM: %w", err)
-	}
-	fmt.Printf("state migration complete: source=%s target=%s bytes=%d\n", sourcePath, targetAbsolute, info.Size())
-	return nil
 }
 
 func acquireHostOwnerLock(path string) (*os.File, error) {
@@ -356,7 +256,7 @@ func acquireHostOwnerLock(path string) (*os.File, error) {
 // HostVMRestartRecovery.tla owns this one-shot post-install transition. It is
 // deliberately separate from installation retries and ordinary connector
 // reconnect.
-func resumeInstalledVM(ctx context.Context, stateDisk, requestID string, start func(context.Context, string) (*hostv1.OperationResponse, error)) error {
+func resumeInstalledVM(ctx context.Context, stateDisk, requestID string, start func(context.Context, string) (*hostv1.StartVMResponse, error)) error {
 	initializingMarker := filepath.Join(filepath.Dir(stateDisk), "state.initializing")
 	if marker, markerErr := os.Lstat(initializingMarker); markerErr == nil {
 		if !marker.Mode().IsRegular() {
@@ -419,38 +319,37 @@ func disableCoreDumps() error {
 	return syscall.Setrlimit(syscall.RLIMIT_CORE, &syscall.Rlimit{Cur: 0, Max: 0})
 }
 
-func shutdown(ctx context.Context, servers []*grpc.Server, controller *host.Controller) {
-	<-ctx.Done()
-	stopContext, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-	defer cancel()
-	if err := controller.Shutdown(stopContext); err != nil {
-		log.Printf("VM shutdown did not reach a terminal state: %v", err)
-	}
-	for _, server := range servers {
-		done := make(chan struct{})
-		go func() {
-			server.GracefulStop()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-stopContext.Done():
-			server.Stop()
-		}
-	}
+type serverListener struct {
+	server   *grpc.Server
+	listener net.Listener
 }
 
-func listenOperator(path string) (net.Listener, error) {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+func serveServers(ctx context.Context, endpoints []serverListener, shutdown func(context.Context) error) error {
+	group, serving := errgroup.WithContext(ctx)
+	for _, endpoint := range endpoints {
+		group.Go(func() error {
+			err := endpoint.server.Serve(endpoint.listener)
+			if errors.Is(err, grpc.ErrServerStopped) {
+				return nil
+			}
+			return err
+		})
 	}
-	listener, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		listener.Close()
-		return nil, err
-	}
-	return listener, nil
+	group.Go(func() error {
+		<-serving.Done()
+		stopContext, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		defer cancel()
+		shutdownErr := shutdown(stopContext)
+		for _, endpoint := range endpoints {
+			done := make(chan struct{})
+			go func() { endpoint.server.GracefulStop(); close(done) }()
+			select {
+			case <-done:
+			case <-stopContext.Done():
+				endpoint.server.Stop()
+			}
+		}
+		return shutdownErr
+	})
+	return group.Wait()
 }

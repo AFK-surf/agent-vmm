@@ -13,9 +13,11 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/host/workload"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,7 +25,7 @@ import (
 )
 
 func TestContainerConfigurationFingerprintCoversCreationIntent(t *testing.T) {
-	request := &hostv1.CreateContainerRequest{RequestId: "create", ContainerId: "web", Image: "image", Env: []string{"CONFIG=first"}, Limits: &hostv1.ResourceLimits{MemoryBytes: optional(uint64(256))}, Volumes: []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}}, LogLimitBytes: 4096}
+	request := &hostv1.CreateContainerRequest{RequestId: "create", ContainerId: "web", Image: "image", Env: []string{"CONFIG=first"}, Limits: &hostv1.ResourceLimits{}, Volumes: []*hostv1.VolumeMount{{Source: &hostv1.VolumeMount_OwnedVolume{OwnedVolume: "data"}, Destination: "/data"}}, LogLimitBytes: 4096}
 	original := proto.Clone(request)
 	fingerprint := containerConfigurationFingerprint(request)
 	replay := proto.Clone(request).(*hostv1.CreateContainerRequest)
@@ -33,7 +35,7 @@ func TestContainerConfigurationFingerprintCoversCreationIntent(t *testing.T) {
 	}
 	for name, change := range map[string]func(*hostv1.CreateContainerRequest){
 		"environment value": func(r *hostv1.CreateContainerRequest) { r.Env[0] = "CONFIG=second" },
-		"resource":          func(r *hostv1.CreateContainerRequest) { r.Limits.MemoryBytes = optional(uint64(512)) },
+		"resource":          func(r *hostv1.CreateContainerRequest) { r.Limits.Pids = optional(uint32(512)) },
 		"mount source": func(r *hostv1.CreateContainerRequest) {
 			r.Volumes[0].Source = &hostv1.VolumeMount_HostShare{HostShare: "data"}
 		},
@@ -73,7 +75,7 @@ func TestContainerCreateAdmissionFailureReceiptSurvivesRestart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			server := &agentServer{controller: &Controller{store: database}}
+			server := &agentServer{controller: newTestController(&Controller{store: database})}
 			identity := auth.Identity{EnvironmentID: "environment", NamespaceID: "namespace", SessionID: "original-session"}
 			request := &hostv1.CreateContainerRequest{RequestId: "create", ContainerId: "runner"}
 			failure, err := status.New(codes.ResourceExhausted, "no physical headroom").WithDetails(&errdetails.ErrorInfo{Reason: "RESOURCE_CAPACITY_EXHAUSTED", Domain: "agent-vmm", Metadata: map[string]string{"stage": stage}})
@@ -87,7 +89,7 @@ func TestContainerCreateAdmissionFailureReceiptSurvivesRestart(t *testing.T) {
 				}
 			}
 			calls := 0
-			execute := func() (*hostv1.ContainerResponse, error) { calls++; return nil, failure.Err() }
+			execute := func() (*hostv1.CreateContainerResponse, error) { calls++; return nil, failure.Err() }
 			_, first := server.containerMutationReceipt(context.Background(), identity, "runtime-create-container", request.RequestId, request, request, "runner", execute, admitOperation(server))
 			if status.Code(first) != codes.ResourceExhausted {
 				t.Fatal(first)
@@ -97,9 +99,12 @@ func TestContainerCreateAdmissionFailureReceiptSurvivesRestart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if err := database.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
 			defer database.Close()
 			server.controller.store = database
-			key := sha256.Sum256([]byte("runtime-create-container\x00" + request.RequestId))
+			key := sha256.Sum256([]byte("runtime-create-container\x00" + identity.EnvironmentID + "\x00" + identity.NamespaceID + "\x00" + request.RequestId))
 			operation, err := database.GetOperation(context.Background(), "runtime-"+hex.EncodeToString(key[:]))
 			if err != nil {
 				t.Fatal(err)
@@ -129,27 +134,27 @@ func TestContainerMutationReceiptSurvivesDeletionAndHostRestart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			server := &agentServer{controller: &Controller{store: database}}
+			server := &agentServer{controller: newTestController(&Controller{store: database})}
 			identity := auth.Identity{EnvironmentID: "environment", NamespaceID: "namespace", SessionID: "original-session"}
 			if kind == "runtime-start-container" {
 				if _, err := database.CreateEnvironment(t.Context(), store.Environment{ID: identity.EnvironmentID, NamespaceID: identity.NamespaceID, DisplayName: "Service", OwnerKind: store.OwnerLocal, PIDs: 1, DiskBytes: 1, EgressMode: 1}); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := database.CreateAgentIntegration(t.Context(), store.AgentIntegration{ID: "service", EnvironmentID: identity.EnvironmentID, AdapterID: "agentd-service", DisplayName: "Service", Scope: 1, ConfigTarget: "image", DesiredState: 1, ConfigState: 2, PrepareRequestID: "prepare-service"}); err != nil {
+				if _, err := database.CreateAgentIntegration(t.Context(), store.AgentIntegration{ID: "service", EnvironmentID: identity.EnvironmentID, AdapterID: "client-service", DisplayName: "Service", Scope: 1, ConfigTarget: "image", DesiredState: 1, ConfigState: 2, PrepareRequestID: "prepare-service"}); err != nil {
 					t.Fatal(err)
 				}
 			}
-			request := &hostv1.ContainerMutationRequest{RequestId: "same-request", ContainerId: "runner", ExpectedGenerationId: "generation-1"}
+			request := &hostv1.StartContainerRequest{RequestId: "same-request", ContainerId: "runner", ExpectedGenerationId: "generation-1"}
 			guestRequest := &vmmdv1.StartContainerRequest{RequestId: request.RequestId, ActorNamespaceId: identity.NamespaceID, ContainerId: "runner", ExpectedGenerationId: "generation-1"}
 			calls := 0
-			execute := func() (*hostv1.ContainerResponse, error) {
+			execute := func() (*hostv1.CreateContainerResponse, error) {
 				calls++
 				if kind == "runtime-start-container" {
 					if err := database.SetManagedContainerRunning(t.Context(), identity.EnvironmentID, "runner", "generation-1", true); err != nil {
 						return nil, err
 					}
 				}
-				return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: "runner", GenerationId: "generation-1", InstanceId: "instance-1", StartRequestInstanceId: "instance-1", State: hostv1.ContainerState_CONTAINER_STATE_RUNNING, Argv: []string{"sensitive-input"}, ConfigurationMatches: optional(true)}}, nil
+				return &hostv1.CreateContainerResponse{Container: &hostv1.Container{Id: "runner", GenerationId: "generation-1", InstanceId: "instance-1", StartRequestInstanceId: "instance-1", State: hostv1.ContainerState_CONTAINER_STATE_RUNNING, Argv: []string{"sensitive-input"}, ConfigurationMatches: optional(true)}}, nil
 			}
 			first, err := server.containerMutationReceipt(context.Background(), identity, kind, request.RequestId, request, guestRequest, "runner", execute, admitOperation(server))
 			if err != nil {
@@ -174,6 +179,9 @@ func TestContainerMutationReceiptSurvivesDeletionAndHostRestart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if err := database.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
 			defer database.Close()
 			server.controller.store = database
 			identity.SessionID = "replacement-session"
@@ -188,16 +196,31 @@ func TestContainerMutationReceiptSurvivesDeletionAndHostRestart(t *testing.T) {
 					t.Fatal("old Start receipt revived stopped intent", intent, err)
 				}
 			}
-			for _, changed := range []auth.Identity{{EnvironmentID: "other", NamespaceID: "other"}, {EnvironmentID: identity.EnvironmentID, NamespaceID: "other"}} {
-				_, err := server.containerMutationReceipt(context.Background(), changed, kind, request.RequestId, request, guestRequest, "runner", execute, admitOperation(server))
-				if status.Code(err) != codes.AlreadyExists {
-					t.Fatalf("cross-owner receipt=%v", err)
+			for _, owner := range []auth.Identity{{EnvironmentID: "other", NamespaceID: "other"}, {EnvironmentID: identity.EnvironmentID, NamespaceID: "other"}} {
+				ownerCalls := 0
+				create := func() (*hostv1.CreateContainerResponse, error) {
+					ownerCalls++
+					return &hostv1.CreateContainerResponse{Container: &hostv1.Container{Id: "runner", GenerationId: owner.NamespaceID}}, nil
+				}
+				for range 2 {
+					response, err := server.containerMutationReceipt(context.Background(), owner, kind, request.RequestId, request, guestRequest, "runner", create, admitOperation(server))
+					if err != nil || response.GetContainer().GetGenerationId() != owner.NamespaceID {
+						t.Fatalf("independent owner receipt=%v err=%v", response, err)
+					}
+				}
+				if ownerCalls != 1 {
+					t.Fatalf("independent owner executed %d times", ownerCalls)
 				}
 			}
-			changed := proto.Clone(request).(*hostv1.ContainerMutationRequest)
+			changedRegistration := identity
+			changedRegistration.RegistrationID = "different-registration"
+			if _, err := server.containerMutationReceipt(context.Background(), changedRegistration, kind, request.RequestId, request, guestRequest, "runner", execute, admitOperation(server)); status.Code(err) != codes.Aborted {
+				t.Fatalf("changed registration receipt=%v", err)
+			}
+			changed := proto.Clone(request).(*hostv1.StartContainerRequest)
 			changed.ExpectedGenerationId = "replacement"
 			_, err = server.containerMutationReceipt(context.Background(), identity, kind, request.RequestId, changed, guestRequest, "runner", execute, admitOperation(server))
-			if status.Code(err) != codes.AlreadyExists || calls != 1 {
+			if status.Code(err) != codes.Aborted || calls != 1 {
 				t.Fatalf("changed payload=%v calls=%d", err, calls)
 			}
 		})
@@ -212,21 +235,21 @@ func TestContainerMutationUnknownOnlyObservesMatchingGuestReceipt(t *testing.T) 
 				t.Fatal(err)
 			}
 			defer database.Close()
-			server := &agentServer{controller: &Controller{store: database}}
+			server := &agentServer{controller: newTestController(&Controller{store: database})}
 			identity := auth.Identity{EnvironmentID: "environment", NamespaceID: "namespace"}
-			request := &hostv1.ContainerMutationRequest{RequestId: "lost-response", ContainerId: "runner", ExpectedGenerationId: "generation"}
+			request := &hostv1.StartContainerRequest{RequestId: "lost-response", ContainerId: "runner", ExpectedGenerationId: "generation"}
 			guestRequest := &vmmdv1.StartContainerRequest{RequestId: request.RequestId, ActorNamespaceId: identity.NamespaceID, ContainerId: "runner", ExpectedGenerationId: "generation"}
 			guest := &workloadGuest{states: map[string]*vmmdv1.Container{}, notFound: map[string]bool{identity.NamespaceID: true}}
 			client := workloadGuestClient(t, guest)
 			calls := 0
-			execute := func() (*hostv1.ContainerResponse, error) {
+			execute := func() (*hostv1.CreateContainerResponse, error) {
 				calls++
 				return nil, status.Error(codes.Unavailable, "lost response")
 			}
 			if _, err := server.containerMutationReceipt(context.Background(), identity, kind, request.RequestId, request, guestRequest, "runner", execute, admitOperation(server)); status.Code(err) != codes.Unavailable {
 				t.Fatal(err)
 			}
-			key := sha256.Sum256([]byte(kind + "\x00" + request.RequestId))
+			key := sha256.Sum256([]byte(kind + "\x00" + identity.EnvironmentID + "\x00" + identity.NamespaceID + "\x00" + request.RequestId))
 			accepted, err := database.GetOperation(context.Background(), "runtime-"+hex.EncodeToString(key[:]))
 			if err != nil {
 				t.Fatal(err)
@@ -279,10 +302,10 @@ func TestContainerStartPreflightCanRetrySameIdentityWithoutManagedIntent(t *test
 			if _, err := database.CreateAgentIntegration(ctx, store.AgentIntegration{ID: "integration", EnvironmentID: "environment", AdapterID: "service", DisplayName: "Service", Scope: 1, ConfigTarget: "config", DesiredState: 1, ConfigState: 2, PrepareRequestID: "prepare"}); err != nil {
 				t.Fatal(err)
 			}
-			controller := &Controller{store: database, workloadRunsRecovered: true}
+			controller := newTestControllerWithWorkloads(t, &Controller{store: database}, testWorkloadState{workloadRunsRecovered: true})
 			server := &agentServer{controller: controller}
 			identity := auth.Identity{EnvironmentID: "environment", NamespaceID: "namespace"}
-			request := &hostv1.ContainerMutationRequest{RequestId: "start", ContainerId: "runner", ExpectedGenerationId: "generation"}
+			request := &hostv1.StartContainerRequest{RequestId: "start", ContainerId: "runner", ExpectedGenerationId: "generation"}
 			guestRequest := &vmmdv1.StartContainerRequest{RequestId: request.RequestId, ActorNamespaceId: "namespace", ContainerId: "runner", ExpectedGenerationId: "generation"}
 			container := &vmmdv1.Container{Id: "runner", GenerationId: "generation", State: vmmdv1.ContainerState_CONTAINER_STATE_STOPPED}
 			guest := &workloadGuest{states: map[string]*vmmdv1.Container{"namespace": container}, notFound: map[string]bool{}}
@@ -300,31 +323,35 @@ func TestContainerStartPreflightCanRetrySameIdentityWithoutManagedIntent(t *test
 			case "share":
 				container.Volumes = []*vmmdv1.VolumeMount{{Source: &vmmdv1.VolumeMount_HostShare{HostShare: "missing"}, Destination: "/share"}}
 			case "admission":
-				controller.workloadRunsRecovered = false
+				controller.workloads.ResetWorkloadRecovery()
 			case "store":
 				if _, err := sqlClient.Exec(`CREATE TRIGGER fail_start_intent BEFORE INSERT ON managed_containers BEGIN SELECT RAISE(ABORT,'intent save failed'); END`); err != nil {
 					t.Fatal(err)
 				}
 			}
-			call := func() (*hostv1.ContainerResponse, error) {
-				unlock := controller.lockEnvironment(identity.EnvironmentID)
+			call := func() (*hostv1.CreateContainerResponse, error) {
+				unlock, lockErr := controller.workloads.LockEnvironment(context.Background(), identity.EnvironmentID)
+				if lockErr != nil {
+					t.Fatal(lockErr)
+				}
+
 				defer unlock()
-				var run *workloadRun
+				var run *workload.Run
 				var observed *vmmdv1.Container
-				return server.containerMutationReceipt(ctx, identity, "runtime-start-container", request.RequestId, request, guestRequest, "runner", func() (*hostv1.ContainerResponse, error) {
-					response, err := controller.sendWorkloadStartLocked(ctx, client, identity.EnvironmentID, guestRequest, run, observed, time.Now().Add(time.Minute))
+				return server.containerMutationReceipt(ctx, identity, "runtime-start-container", request.RequestId, request, guestRequest, "runner", func() (*hostv1.CreateContainerResponse, error) {
+					response, err := controller.workloads.SendWorkloadStartLocked(ctx, client, identity.EnvironmentID, guestRequest, run, observed, time.Now().Add(time.Minute))
 					if err != nil {
 						return nil, err
 					}
-					return &hostv1.ContainerResponse{Container: containerFromGuest(response.Container)}, nil
+					return &hostv1.CreateContainerResponse{Container: guestconn.Container(response.Container)}, nil
 				}, func(operation store.Operation) (store.Operation, bool, error) {
-					run, observed, err = controller.prepareWorkloadStartLocked(ctx, client, identity.EnvironmentID, guestRequest)
+					run, observed, err = controller.workloads.PrepareWorkloadStartLocked(ctx, client, identity.EnvironmentID, guestRequest)
 					if err != nil {
 						return store.Operation{}, false, err
 					}
 					operation, inserted, err := database.PutWorkloadStartOperation(ctx, operation, "runner", observed.GenerationId)
 					if err != nil || !inserted {
-						controller.releaseUnsentWorkloadStart(run)
+						controller.workloads.ReleaseUnsentWorkloadStart(run)
 					}
 					return operation, inserted, err
 				})
@@ -332,19 +359,19 @@ func TestContainerStartPreflightCanRetrySameIdentityWithoutManagedIntent(t *test
 			if _, err := call(); err == nil {
 				t.Fatal("preflight unexpectedly succeeded")
 			}
-			key := sha256.Sum256([]byte("runtime-start-container\x00" + request.RequestId))
+			key := sha256.Sum256([]byte("runtime-start-container\x00" + identity.EnvironmentID + "\x00" + identity.NamespaceID + "\x00" + request.RequestId))
 			if _, err := database.GetOperation(ctx, "runtime-"+hex.EncodeToString(key[:])); !errors.Is(err, sql.ErrNoRows) {
 				t.Fatal("preflight left accepted receipt", err)
 			}
 			if _, err := database.GetManagedContainer(ctx, "environment", "runner"); !errors.Is(err, sql.ErrNoRows) {
 				t.Fatal("preflight left background start intent", err)
 			}
-			if len(controller.workloadRuns) != 0 || guest.maxStarting != 0 {
+			if _, exists := controller.workloads.Instance("environment", "runner"); exists || guest.maxStarting != 0 {
 				t.Fatal("preflight retained in-flight state or sent Guest start")
 			}
 			guest.notFound["namespace"] = false
 			container.GenerationId, container.Volumes = "generation", nil
-			controller.workloadRunsRecovered = true
+			recoverTestWorkloads(t, controller)
 			if _, err := sqlClient.Exec(`DROP TRIGGER IF EXISTS fail_start_intent`); err != nil {
 				t.Fatal(err)
 			}
@@ -360,8 +387,11 @@ func TestContainerStartPreflightCanRetrySameIdentityWithoutManagedIntent(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
+			if err := database.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+				t.Fatal(err)
+			}
 			controller.store = database
-			replay, err := server.containerMutationReceipt(ctx, identity, "runtime-start-container", request.RequestId, request, guestRequest, "runner", func() (*hostv1.ContainerResponse, error) {
+			replay, err := server.containerMutationReceipt(ctx, identity, "runtime-start-container", request.RequestId, request, guestRequest, "runner", func() (*hostv1.CreateContainerResponse, error) {
 				t.Fatal("successful replay sent Guest start")
 				return nil, nil
 			}, func(store.Operation) (store.Operation, bool, error) {
@@ -392,22 +422,22 @@ func TestNewContainerStartIntentSurvivesLostReplyAndHostRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { database.Close() })
-	server := &agentServer{controller: &Controller{store: database}}
+	server := &agentServer{controller: newTestController(&Controller{store: database})}
 	identity := auth.Identity{EnvironmentID: "environment", NamespaceID: "namespace", SessionID: "first-host"}
-	request := &hostv1.ContainerMutationRequest{RequestId: "initial", ContainerId: "runner", ExpectedGenerationId: "generation"}
+	request := &hostv1.StartContainerRequest{RequestId: "initial", ContainerId: "runner", ExpectedGenerationId: "generation"}
 	guestRequest := &vmmdv1.StartContainerRequest{RequestId: request.RequestId, ActorNamespaceId: identity.NamespaceID, ContainerId: request.ContainerId, ExpectedGenerationId: request.ExpectedGenerationId}
 	current := &vmmdv1.Container{Id: "runner", GenerationId: "generation", InstanceId: "instance-1", StartRequestInstanceId: "instance-1", State: vmmdv1.ContainerState_CONTAINER_STATE_RUNNING, StartedAtUnixNano: 1}
 	starts := 0
-	execute := func() (*hostv1.ContainerResponse, error) {
+	execute := func() (*hostv1.CreateContainerResponse, error) {
 		starts++
-		return &hostv1.ContainerResponse{Container: containerFromGuest(current)}, nil
+		return &hostv1.CreateContainerResponse{Container: guestconn.Container(current)}, nil
 	}
 	first, err := server.containerMutationReceipt(t.Context(), identity, "runtime-start-container", request.RequestId, request, guestRequest, request.ContainerId, execute, admitOperation(server))
 	if err != nil {
 		t.Fatal(err)
 	}
 	current.State, current.InstanceId = vmmdv1.ContainerState_CONTAINER_STATE_STOPPED, ""
-	stopped := containerFromGuest(current)
+	stopped := guestconn.Container(current)
 	if stopped.GetInstanceId() != "" || stopped.GetStartRequestInstanceId() != "instance-1" {
 		t.Fatalf("fresh stopped observation lost the previous Start: %v", stopped)
 	}
@@ -416,13 +446,13 @@ func TestNewContainerStartIntentSurvivesLostReplyAndHostRestart(t *testing.T) {
 		t.Fatalf("stopped container changed the old receipt: %v, starts=%d, %v", old, starts, err)
 	}
 
-	request = proto.Clone(request).(*hostv1.ContainerMutationRequest)
+	request = proto.Clone(request).(*hostv1.StartContainerRequest)
 	request.RequestId = "restart-after-" + stopped.GetStartRequestInstanceId()
 	guestRequest = proto.Clone(guestRequest).(*vmmdv1.StartContainerRequest)
 	guestRequest.RequestId = request.RequestId
 	guest := &workloadGuest{states: map[string]*vmmdv1.Container{identity.NamespaceID: current}}
 	client := workloadGuestClient(t, guest)
-	lostReply := func() (*hostv1.ContainerResponse, error) {
+	lostReply := func() (*hostv1.CreateContainerResponse, error) {
 		starts++
 		current.InstanceId, current.StartRequestInstanceId = "instance-2", "instance-2"
 		current.State, current.StartedAtUnixNano = vmmdv1.ContainerState_CONTAINER_STATE_RUNNING, 2
@@ -439,9 +469,12 @@ func TestNewContainerStartIntentSurvivesLostReplyAndHostRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := database.RecoverAfterRestart(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	server.controller.store = database
 	identity.SessionID = "replacement-host"
-	key := sha256.Sum256([]byte("runtime-start-container\x00" + request.RequestId))
+	key := sha256.Sum256([]byte("runtime-start-container\x00" + identity.EnvironmentID + "\x00" + identity.NamespaceID + "\x00" + request.RequestId))
 	accepted, err := database.GetOperation(t.Context(), "runtime-"+hex.EncodeToString(key[:]))
 	if err != nil {
 		t.Fatal(err)

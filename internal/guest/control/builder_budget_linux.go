@@ -12,7 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/atomicfile"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 )
@@ -55,7 +56,8 @@ func activeBuilderQuotaLimit(root string) (uint64, error) {
 }
 
 func (r *Runtime) guardBuilderCacheGrowth(ctx context.Context, identity string, run func() error) (runErr error) {
-	unlock, err := r.materializer.LockBuild(ctx)
+	err := r.materializationSlot.Acquire(ctx, 1)
+	unlock := func() { r.materializationSlot.Release(1) }
 	if err != nil {
 		return err
 	}
@@ -85,7 +87,7 @@ func (r *Runtime) guardBuilderCacheGrowth(ctx context.Context, identity string, 
 		)
 	})
 	if err != nil {
-		settleErr := r.settleBuilderCacheReservation(ctx, identity)
+		settleErr := r.settleBuilderCacheReservation(identity)
 		reservation.Release()
 		return errors.Join(err, settleErr)
 	}
@@ -94,10 +96,10 @@ func (r *Runtime) guardBuilderCacheGrowth(ctx context.Context, identity string, 
 	if errors.As(runErr, &unsettled) {
 		return runErr
 	}
-	return errors.Join(runErr, r.settleBuilderCacheReservation(context.Background(), identity))
+	return errors.Join(runErr, r.settleBuilderCacheReservation(identity))
 }
 
-func (r *Runtime) settleBuilderCacheReservation(ctx context.Context, identity string) error {
+func (r *Runtime) settleBuilderCacheReservation(identity string) error {
 	path := builderReservationPath(identity)
 	if _, err := os.Stat(path + ".writer"); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -111,7 +113,7 @@ func (r *Runtime) settleBuilderCacheReservation(ctx context.Context, identity st
 		if err := removeImportReservation(path, path+".hold"); err != nil {
 			return err
 		}
-		return r.settleOCIProjectQuota(ctx)
+		return r.settleOCIProjectQuota()
 	})
 }
 
@@ -126,23 +128,7 @@ func transferBuilderReservation(persistCredit, openQuota, releaseHold func() err
 }
 
 func persistBuilderQuota(path string, limit uint64) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	_, err = file.WriteString(strconv.FormatUint(limit, 10))
-	if err == nil {
-		err = file.Sync()
-	}
-	err = errors.Join(err, file.Close())
-	if err != nil {
-		return err
-	}
-	directory, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	return errors.Join(directory.Sync(), directory.Close())
+	return atomicfile.PublishOnce(path, []byte(strconv.FormatUint(limit, 10)), 0600)
 }
 
 func tightenCacheProjectQuota(device string) error {

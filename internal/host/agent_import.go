@@ -14,43 +14,37 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
-	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
-)
-
-const (
-	maxImportArchiveBytes    = 8 << 30
-	importDownloadTimeout    = 10 * time.Minute
-	importReceiveIdleTimeout = 30 * time.Second
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
 )
 
 var errGuestImportCompleted = errors.New("guest image import completed")
 
 func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportImageServer) error {
-	ctx, cancel := context.WithTimeout(stream.Context(), importDownloadTimeout)
+	ctx, cancel := context.WithTimeout(stream.Context(), guestconn.ImportDownloadTimeout)
 	defer cancel()
 	identity, err := auth.AgentIdentity(ctx)
 	if err != nil {
 		return err
 	}
-	first, err := receiveImportRequest(ctx, stream.Recv, importReceiveIdleTimeout)
+	first, err := guestconn.ReceiveImportRequest(ctx, stream.Recv, guestconn.ImportReceiveIdleTimeout)
 	if err != nil {
 		return err
 	}
 	header := first.GetHeader()
 	if header == nil || header.GetRequestId() == "" || header.GetImageReference() == "" || len(header.GetArchiveSha256()) != 32 ||
-		header.GetManifestDigest() == "" || header.GetPlatform() != "linux/arm64" || header.GetArchiveSize() == 0 || header.GetArchiveSize() > maxImportArchiveBytes {
-		return invalidField("header", "complete bounded linux/arm64 OCI import metadata is required")
+		header.GetManifestDigest() == "" || header.GetPlatform() != "linux/arm64" || header.GetArchiveSize() == 0 || header.GetArchiveSize() > guestconn.MaxImportArchiveBytes {
+		return hostv1.InvalidField("header", "complete bounded linux/arm64 OCI import metadata is required")
 	}
 	if header.GetArchiveUrl() != "" {
 		if err := validateImportArchiveURL(header.GetArchiveUrl()); err != nil {
-			return invalidField("archive_url", err.Error())
+			return hostv1.InvalidField("archive_url", err.Error())
 		}
-		if request, err := receiveImportRequest(ctx, stream.Recv, importReceiveIdleTimeout); !errors.Is(err, io.EOF) || request != nil {
-			return invalidField("archive", "runtime OCI bytes must be fetched from archive_url")
+		if request, err := guestconn.ReceiveImportRequest(ctx, stream.Recv, guestconn.ImportReceiveIdleTimeout); !errors.Is(err, io.EOF) || request != nil {
+			return hostv1.InvalidField("archive", "runtime OCI bytes must be fetched from archive_url")
 		}
 	}
 	image, err := server.importToGuest(ctx, identity, header, func(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), image *vmmdv1.Image, completed bool) (*vmmdv1.Image, error) {
@@ -65,7 +59,7 @@ func (server *agentServer) ImportImage(stream hostv1.AgentRuntimeService_ImportI
 	if err != nil {
 		return err
 	}
-	return stream.SendAndClose(imageFromGuest(image))
+	return stream.SendAndClose(&hostv1.ImportImageResponse{Image: guestconn.Image(image)})
 }
 
 type importForward func(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), image *vmmdv1.Image, completed bool) (*vmmdv1.Image, error)
@@ -73,32 +67,32 @@ type importForward func(send func(*vmmdv1.ImportImageRequest) error, closeAndRec
 // importToGuest is the one immutable import path: it fences the environment,
 // sends the committed header, and lets forward supply the archive bytes.
 func (server *agentServer) importToGuest(ctx context.Context, identity auth.Identity, header *hostv1.ImportImageHeader, forward importForward) (*vmmdv1.Image, error) {
-	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	ctx, releaseInventory, err := server.controller.inventory.Enter(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer releaseInventory()
-	if err := server.controller.requireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
+	if err := server.controller.cleanup.RequireUndisposedEnvironment(ctx, identity.EnvironmentID); err != nil {
 		return nil, err
 	}
-	unlock, err := server.controller.lockEnvironmentContext(ctx, identity.EnvironmentID)
-	if err != nil {
-		return nil, err
+	unlock, lockErr := server.controller.workloads.LockEnvironment(ctx, identity.EnvironmentID)
+	if lockErr != nil {
+		return nil, lockErr
 	}
 	defer unlock()
 	if err := server.validateAgentInventoryTarget(ctx, identity.EnvironmentID, identity.NamespaceID); err != nil {
 		return nil, err
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, err
 	}
-	defer connection.Close()
+
 	guest, err := client.ImportImage(ctx)
 	if err != nil {
 		return nil, err
 	}
-	image, completed, err := sendImportHeader(guest.Send, guest.CloseAndRecv, importHeaderToGuest(header, identity.NamespaceID))
+	image, completed, err := guestconn.SendImportHeader(guest.Send, guest.CloseAndRecv, importHeaderToGuest(header, identity.NamespaceID))
 	if err != nil {
 		return nil, err
 	}
@@ -106,33 +100,12 @@ func (server *agentServer) importToGuest(ctx context.Context, identity auth.Iden
 }
 
 // Each receive starts only after the previous chunk reaches the Guest.
-func receiveImportRequest[T any](ctx context.Context, recv func() (*T, error), idle time.Duration) (*T, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	type result struct {
-		request *T
-		err     error
-	}
-	ready := make(chan result, 1)
-	go func() { request, err := recv(); ready <- result{request, err} }()
-	timer := time.NewTimer(idle)
-	defer timer.Stop()
-	select {
-	case value := <-ready:
-		return value.request, value.err
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-timer.C:
-		return nil, context.DeadlineExceeded
-	}
-}
 
 func forwardLocalImportArchive(ctx context.Context, header *hostv1.ImportImageHeader, recv func() (*hostv1.ImportImageRequest, error), send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), image *vmmdv1.Image, completed bool) (*vmmdv1.Image, error) {
 	hash := sha256.New()
 	var received uint64
 	for {
-		request, err := receiveImportRequest(ctx, recv, importReceiveIdleTimeout)
+		request, err := guestconn.ReceiveImportRequest(ctx, recv, guestconn.ImportReceiveIdleTimeout)
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -141,7 +114,7 @@ func forwardLocalImportArchive(ctx context.Context, header *hostv1.ImportImageHe
 		}
 		chunk, ok := request.GetPayload().(*hostv1.ImportImageRequest_ArchiveChunk)
 		if !ok || len(chunk.ArchiveChunk) == 0 || len(chunk.ArchiveChunk) > vmmdv1.MaxImportArchiveChunkBytes || uint64(len(chunk.ArchiveChunk)) > header.GetArchiveSize()-received {
-			return nil, invalidField("archive_chunk", "archive chunks must be non-empty, bounded, and within archive_size")
+			return nil, hostv1.InvalidField("archive_chunk", "archive chunks must be non-empty, bounded, and within archive_size")
 		}
 		received += uint64(len(chunk.ArchiveChunk))
 		_, _ = hash.Write(chunk.ArchiveChunk)
@@ -158,27 +131,12 @@ func forwardLocalImportArchive(ctx context.Context, header *hostv1.ImportImageHe
 		}
 	}
 	if received != header.GetArchiveSize() || !bytes.Equal(hash.Sum(nil), header.GetArchiveSha256()) {
-		return nil, invalidField("archive", "OCI archive size or sha256 does not match the header")
+		return nil, hostv1.InvalidField("archive", "OCI archive size or sha256 does not match the header")
 	}
 	if completed {
 		return image, nil
 	}
 	return closeAndRecv()
-}
-
-func sendImportHeader(send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error), header *vmmdv1.ImportImageHeader) (*vmmdv1.Image, bool, error) {
-	err := send(&vmmdv1.ImportImageRequest{Payload: &vmmdv1.ImportImageRequest_Header{Header: header}})
-	if err == nil {
-		return nil, false, nil
-	}
-	if !errors.Is(err, io.EOF) {
-		return nil, false, err
-	}
-	image, err := closeAndRecv()
-	if err != nil {
-		return nil, false, err
-	}
-	return image, true, nil
 }
 
 func forwardImportArchive(ctx context.Context, raw string, size uint64, send func(*vmmdv1.ImportImageRequest) error, closeAndRecv func() (*vmmdv1.Image, error)) (*vmmdv1.Image, error) {
@@ -216,7 +174,7 @@ func validateImportArchiveURL(raw string) error {
 }
 
 func downloadImportArchive(ctx context.Context, raw string, size uint64, send func([]byte) error) error {
-	ctx, cancel := context.WithTimeout(ctx, importDownloadTimeout)
+	ctx, cancel := context.WithTimeout(ctx, guestconn.ImportDownloadTimeout)
 	defer cancel()
 	client, err := importHTTPClient(ctx, raw, net.DefaultResolver, (&net.Dialer{}).DialContext)
 	if err != nil {
@@ -267,7 +225,7 @@ func importHTTPClient(ctx context.Context, raw string, resolver importAddressRes
 	}
 	return &http.Client{
 		Transport: transport,
-		Timeout:   importDownloadTimeout,
+		Timeout:   guestconn.ImportDownloadTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("runtime OCI download redirects are not allowed")
 		},

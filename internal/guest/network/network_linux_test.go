@@ -7,16 +7,18 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"golang.org/x/net/dns/dnsmessage"
@@ -72,7 +74,7 @@ func TestDialContainerFencesInstanceAndDetachClosesForward(t *testing.T) {
 	port := uint32(listener.Addr().(*net.TCPAddr).Port)
 	manager := &Manager{
 		endpoints: map[string]map[string]Endpoint{"env": {"web": {NamespaceID: "env", ContainerID: "web", InstanceID: "current", Address: netip.MustParseAddr("127.0.0.1")}}},
-		forwards:  make(map[string]map[net.Conn]struct{}),
+		forwards:  make(map[string]map[net.Conn]struct{}), logger: slog.Default().With("component", "guest-network"),
 	}
 	if _, err := manager.DialContainer(context.Background(), "env", "web", "old", port); err == nil {
 		t.Fatal("DialContainer accepted an old instance")
@@ -104,7 +106,7 @@ func TestEndpointGenerationFencesReplacementAndStaleDetach(t *testing.T) {
 		endpoints:  map[string]map[string]Endpoint{"env": {"web": endpoint}},
 		settled:    make(map[string]Counters),
 		settledOK:  map[string]bool{"env": true},
-		forwards:   make(map[string]map[net.Conn]struct{}),
+		forwards:   make(map[string]map[net.Conn]struct{}), logger: slog.Default().With("component", "guest-network"),
 	}
 	if got, err := manager.Attach(context.Background(), "env", "web", "current"); err != nil || got.InstanceID != "current" {
 		t.Fatalf("idempotent Attach() = %+v, %v", got, err)
@@ -128,7 +130,7 @@ func TestCounterDirectionAndSettledFailure(t *testing.T) {
 		namespaces: map[string]Namespace{"env": {ID: "env"}},
 		endpoints:  map[string]map[string]Endpoint{"env": {}},
 		settled:    make(map[string]Counters),
-		settledOK:  map[string]bool{"env": false},
+		settledOK:  map[string]bool{"env": false}, logger: slog.Default().With("component", "guest-network"),
 	}
 	if _, err := manager.NamespaceCounters("env"); err == nil {
 		t.Fatal("NamespaceCounters() hid a failed settled sample")
@@ -144,19 +146,19 @@ func TestDNSViewTracksEndpointProjection(t *testing.T) {
 		},
 		links: map[string]*vmmdv1.NetworkLink{
 			"link": {Id: "link", SourceNamespaceId: "source", DestinationNamespaceId: "destination", Source: allSelector(), Destination: idsSelector("web"), TcpPorts: []uint32{80}, DnsAlias: "service"},
-		},
+		}, logger: slog.Default().With("component", "guest-network"),
 	}
-	if got := manager.localDNSAddresses("source", "client.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.1.2")}) {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("source", "client.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.1.2")}) {
 		t.Fatalf("local address = %v", got)
 	}
-	if got := manager.localDNSAddresses("source", "service.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.2")}) {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("source", "service.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.2")}) {
 		t.Fatalf("linked address = %v", got)
 	}
-	if got := manager.localDNSAddresses("destination", "service.source.agent."); len(got) != 0 {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("destination", "service.source.agent."); len(got) != 0 {
 		t.Fatalf("destination saw source alias: %v", got)
 	}
 	manager.endpoints["destination"]["web"] = Endpoint{ContainerID: "web", Address: netip.MustParseAddr("10.64.2.8")}
-	if got := manager.localDNSAddresses("source", "service.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.8")}) {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("source", "service.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.8")}) {
 		t.Fatalf("address after churn = %v", got)
 	}
 }
@@ -179,12 +181,12 @@ func TestServiceProjectionIsSourceScopedAndInstanceFenced(t *testing.T) {
 			"source":      {"client": {ContainerID: "client", InstanceID: "client-v1", Address: netip.MustParseAddr("10.64.1.2")}},
 			"destination": {"server": {ContainerID: "server", InstanceID: "server-v1", Address: netip.MustParseAddr("10.64.2.2")}},
 		},
-		services: map[string]*vmmdv1.ServiceProjection{"route": projection},
+		services: map[string]*vmmdv1.ServiceProjection{"route": projection}, logger: slog.Default().With("component", "guest-network"),
 	}
-	if got := manager.localDNSAddresses("source", "database.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.2")}) {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("source", "database.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("10.64.2.2")}) {
 		t.Fatalf("source projection = %v", got)
 	}
-	if got := manager.localDNSAddresses("destination", "database.source.agent."); len(got) != 0 {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("destination", "database.source.agent."); len(got) != 0 {
 		t.Fatalf("destination namespace saw source projection: %v", got)
 	}
 	for _, test := range []struct {
@@ -196,27 +198,27 @@ func TestServiceProjectionIsSourceScopedAndInstanceFenced(t *testing.T) {
 		{"source", "neighbor.services.agent.", false},
 		{"source", "client.services.agent.", false},
 	} {
-		if got := manager.localDNSAddresses(test.namespace, test.name); (len(got) > 0) != test.want {
+		if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses(test.namespace, test.name); (len(got) > 0) != test.want {
 			t.Fatalf("source-scoped %s/%s = %v", test.namespace, test.name, got)
 		}
 	}
 	delete(manager.services, "route")
-	if got := manager.localDNSAddresses("source", "database.services.agent."); len(got) != 0 {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("source", "database.services.agent."); len(got) != 0 {
 		t.Fatalf("revoked import still resolved: %v", got)
 	}
 	manager.services["route"] = projection
 	manager.endpoints["destination"]["server"] = Endpoint{ContainerID: "server", InstanceID: "server-v2", Address: netip.MustParseAddr("10.64.2.3")}
-	if got := manager.localDNSAddresses("source", "database.source.agent."); len(got) != 0 {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("source", "database.source.agent."); len(got) != 0 {
 		t.Fatalf("stale destination instance remained projected: %v", got)
 	}
 	remote := &vmmdv1.ServiceProjection{Id: "remote-route", SourceNamespaceId: "source", SourceContainerId: "client",
 		SourceContainerInstanceId: "client-v1", DestinationPort: 8443, DnsAlias: "remote-api",
-		ExpiresUnixMillis: time.Now().Add(time.Minute).UnixMilli(), Remote: true, VirtualAddress: "198.19.4.9"}
+		ExpiresUnixMillis: time.Now().Add(time.Minute).UnixMilli(), Remote: true, VirtualAddress: "100.126.4.9"}
 	if err := validateServiceProjection(remote); err != nil {
 		t.Fatal(err)
 	}
 	manager.services[remote.GetId()] = remote
-	if got := manager.localDNSAddresses("source", "remote-api.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("198.19.4.9")}) {
+	if got := (&dnsView{state: manager.stateLocked()}).localDNSAddresses("source", "remote-api.source.agent."); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("100.126.4.9")}) {
 		t.Fatalf("remote source projection = %v", got)
 	}
 	for name, mutate := range map[string]func(*vmmdv1.ServiceProjection){
@@ -269,29 +271,39 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 	if os.Getenv("AGENT_VMM_NFTABLES_TEST") != "1" {
 		t.Skip("requires an isolated kernel network namespace")
 	}
-	runtime.LockOSThread()
-	original, err := unix.Open("/proc/thread-self/ns/net", unix.O_RDONLY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		runtime.UnlockOSThread()
-		t.Fatal(err)
-	}
-	if err := unix.Unshare(unix.CLONE_NEWNET); err != nil {
-		_ = unix.Close(original)
-		runtime.UnlockOSThread()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		defer unix.Close(original)
-		if err := unix.Setns(original, unix.CLONE_NEWNET); err != nil {
-			t.Errorf("restore network namespace: %v", err)
-			return
+	if os.Getenv("AGENT_VMM_NFTABLES_HELPER") != "1" {
+		runtime.LockOSThread()
+		original, err := unix.Open("/proc/thread-self/ns/net", unix.O_RDONLY|unix.O_CLOEXEC, 0)
+		if err != nil {
+			runtime.UnlockOSThread()
+			t.Fatal(err)
 		}
-		runtime.UnlockOSThread()
-	})
+		if err := unix.Unshare(unix.CLONE_NEWNET); err != nil {
+			_ = unix.Close(original)
+			runtime.UnlockOSThread()
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			defer unix.Close(original)
+			if err := unix.Setns(original, unix.CLONE_NEWNET); err != nil {
+				t.Errorf("restore network namespace: %v", err)
+				return
+			}
+			runtime.UnlockOSThread()
+		})
+		command := exec.Command(os.Args[0], "-test.run=^TestKernelPolicyReconcilePublicNamespaces$", "-test.v")
+		command.Env = append(os.Environ(), "AGENT_VMM_NFTABLES_HELPER=1")
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("private network helper: %v\n%s", err, output)
+		}
+		t.Logf("%s", output)
+		return
+	}
 	manager := &Manager{
 		namespaces: make(map[string]Namespace),
 		endpoints:  make(map[string]map[string]Endpoint),
-		dns:        make(map[string]*dnsServer),
+		dns:        make(map[string]*dnsServer), logger: slog.Default().With("component", "guest-network"),
 	}
 	t.Cleanup(func() {
 		connection := &nftables.Conn{}
@@ -305,7 +317,11 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 		id := fmt.Sprintf("public-%d", index)
 		manager.namespaces[id] = Namespace{ID: id, Gateway: netip.MustParseAddr(fmt.Sprintf("127.64.%d.1", index)), Bridge: fmt.Sprintf("bridge%d", index), EgressMode: vmmdv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}
 		manager.endpoints[id] = map[string]Endpoint{"worker": {Address: netip.MustParseAddr(fmt.Sprintf("10.64.%d.2", index))}}
-		if err := manager.Health(); err != nil {
+		manager.publishDNSLocked()
+		if err := manager.startDNSLocked(id); err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.reconcileLocked(); err != nil {
 			t.Fatalf("reconcile %d public namespaces: %v", index+1, err)
 		}
 	}
@@ -331,13 +347,13 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 			t.Fatalf("namespace replay changed LAN grant: %s %t", id, got)
 		}
 	}
-	// Health replaces the table again after all namespaces exist.
+	// Health reads the installed state without changing rules.
 	if err := manager.Health(); err != nil {
 		t.Fatalf("repeat policy reconciliation: %v", err)
 	}
 	manager.services = map[string]*vmmdv1.ServiceProjection{"gitea": {Id: "gitea", SourceNamespaceId: "public-0", SourceContainerId: "worker", DestinationNamespaceId: "public-1", DestinationContainerId: "worker", DestinationPort: 3000, ExpiresUnixMillis: time.Now().Add(time.Hour).UnixMilli()}}
 	manager.links = map[string]*vmmdv1.NetworkLink{"approved-link": {Id: "approved-link", SourceNamespaceId: "public-0", DestinationNamespaceId: "public-1", Source: allSelector(), Destination: allSelector(), TcpPorts: []uint32{22}}}
-	if err := manager.Health(); err != nil {
+	if err := manager.reconcileLocked(); err != nil {
 		t.Fatal(err)
 	}
 	connection := &nftables.Conn{}
@@ -374,12 +390,37 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 	if firstDrop < 0 || serviceAccept < 0 || linkAccept < 0 || serviceAccept > firstDrop || linkAccept > firstDrop {
 		t.Fatalf("installed rule order: service=%d link=%d RFC1918 deny=%d", serviceAccept, linkAccept, firstDrop)
 	}
+	manager.mu.Lock()
+	err = manager.mutateLocked(func(next *state) error {
+		projection := proto.Clone(next.services["gitea"]).(*vmmdv1.ServiceProjection)
+		projection.ExpiresUnixMillis = time.Now().Add(25 * time.Millisecond).UnixMilli()
+		next.services["gitea"] = projection
+		return nil
+	})
+	manager.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiryDeadline := time.Now().Add(time.Second)
+	for {
+		manager.mu.RLock()
+		_, pending := manager.services["gitea"]
+		settled := len(manager.revoking) == 0 && manager.lastError == nil
+		manager.mu.RUnlock()
+		if !pending && settled {
+			break
+		}
+		if time.Now().After(expiryDeadline) {
+			t.Fatalf("projection expiry did not settle: pending=%t health=%v", pending, manager.Health())
+		}
+		time.Sleep(time.Millisecond)
+	}
 	oldDNS := manager.dns["public-0"]
 	oldDNS.udp.Close()
 	deadline := time.Now().Add(time.Second)
 	for {
 		manager.mu.RLock()
-		retired := manager.dns["public-0"] == nil
+		retired := manager.dns["public-0"] != nil && manager.dns["public-0"] != oldDNS
 		manager.mu.RUnlock()
 		if retired {
 			break
@@ -397,6 +438,62 @@ func TestKernelPolicyReconcilePublicNamespaces(t *testing.T) {
 	manager.mu.RUnlock()
 	if replacementDNS == nil || replacementDNS == oldDNS {
 		t.Fatal("network reconciliation did not replace dead DNS listener")
+	}
+	// Keep nftables authority installed while conntrack loses its kernel authority.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	var capabilities [2]unix.CapUserData
+	if err := unix.Capget(&header, &capabilities[0]); err != nil {
+		t.Fatal(err)
+	}
+	restored := capabilities
+	capabilities[unix.CAP_NET_ADMIN/32].Effective &^= 1 << (unix.CAP_NET_ADMIN % 32)
+	if err := unix.Capset(&header, &capabilities[0]); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Capset(&header, &restored[0]); err != nil {
+			t.Errorf("restore kernel authority: %v", err)
+		}
+	}()
+	tuple := revokedTuple{netip.MustParseAddr("10.64.0.2"), netip.MustParseAddr("10.64.1.2"), 3000}
+	manager.mu.Lock()
+	err = manager.mutateLocked(func(next *state) error {
+		next.revoking[tuple] = struct{}{}
+		return nil
+	})
+	pending := len(manager.revoking)
+	manager.mu.Unlock()
+	if err != nil || manager.Health() == nil || pending != 1 {
+		t.Fatalf("failed revocation = %v, health = %v, pending = %d", err, manager.Health(), pending)
+	}
+	if err := manager.EnsureNamespace("system.lan-replay", "127.65.0.0/24", vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL); err != nil {
+		t.Fatalf("unrelated namespace replay returned conntrack failure: %v", err)
+	}
+	const cleanupID = "system.revocation-cleanup"
+	if err := writeResolvConf(cleanupID, netip.MustParseAddr("127.65.2.1")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(resolvPath(cleanupID)) })
+	if err := manager.DeleteNamespace(cleanupID); err != nil {
+		t.Fatalf("unrelated namespace cleanup returned conntrack failure: %v", err)
+	}
+	if _, err := os.Stat(resolvPath(cleanupID)); !os.IsNotExist(err) {
+		t.Fatalf("namespace resolver survived committed cleanup: %v", err)
+	}
+	if manager.Health() == nil {
+		t.Fatal("unrelated mutations hid the pending conntrack failure")
+	}
+	if err := unix.Capset(&header, &restored[0]); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	err = manager.mutateLocked(func(*state) error { return nil })
+	pending = len(manager.revoking)
+	manager.mu.Unlock()
+	if err != nil || manager.Health() != nil || pending != 0 {
+		t.Fatalf("revocation retry = %v, health = %v, pending = %d", err, manager.Health(), pending)
 	}
 	chains, err := connection.ListChains()
 	if err != nil {
@@ -416,7 +513,8 @@ func TestDNSListenerFailureRetiresExactServerAndRestarts(t *testing.T) {
 	}
 	for _, transport := range []string{"udp", "tcp"} {
 		t.Run(transport, func(t *testing.T) {
-			manager := &Manager{namespaces: map[string]Namespace{"dns": {ID: "dns", Gateway: netip.MustParseAddr("127.0.0.2")}}, dns: make(map[string]*dnsServer)}
+			manager := &Manager{namespaces: map[string]Namespace{"dns": {ID: "dns", Gateway: netip.MustParseAddr("127.0.0.2")}}, endpoints: map[string]map[string]Endpoint{"dns": {"worker": {}}}, dns: make(map[string]*dnsServer), logger: slog.Default().With("component", "guest-network")}
+			manager.publishDNSLocked()
 			manager.mu.Lock()
 			err := manager.startDNSLocked("dns")
 			old := manager.dns["dns"]
@@ -470,9 +568,10 @@ func TestDNSListenerFailureRetiresExactServerAndRestarts(t *testing.T) {
 			go func() { queryDNS("udp4"); close(answered) }()
 			select {
 			case <-answered:
+				// DNS reads the published view while mutations hold the lock.
+			case <-time.After(time.Second):
 				manager.mu.Unlock()
-				t.Fatal("local DNS bypassed the manager write lock")
-			case <-time.After(20 * time.Millisecond):
+				t.Fatal("local DNS blocked on the manager write lock")
 			}
 			manager.mu.Unlock()
 			select {
@@ -488,7 +587,7 @@ func TestDNSListenerFailureRetiresExactServerAndRestarts(t *testing.T) {
 			deadline := time.Now().Add(time.Second)
 			for {
 				manager.mu.RLock()
-				retired := manager.dns["dns"] == nil
+				retired := manager.dns["dns"] != nil && manager.dns["dns"] != old
 				manager.mu.RUnlock()
 				if retired {
 					break

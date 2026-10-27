@@ -21,7 +21,7 @@ func TestManagedContainerIntentSurvivesReopenWithoutExportsAndStopsWithOwner(t *
 			t.Fatal(err)
 		}
 	}
-	owner, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: "service-owner", EnvironmentID: "service", AdapterID: "agentd-service", DisplayName: "Service", Scope: 1, ConfigTarget: "image", DesiredState: 1, ConfigState: 8, PrepareRequestID: "prepare"})
+	owner, err := database.CreateAgentIntegration(ctx, AgentIntegration{ID: "service-owner", EnvironmentID: "service", AdapterID: "client-service", DisplayName: "Service", Scope: 1, ConfigTarget: "image", DesiredState: 1, ConfigState: 8, PrepareRequestID: "prepare"})
 	if err != nil {
 		t.Fatal(err)
 	}

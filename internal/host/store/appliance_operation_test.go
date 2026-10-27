@@ -32,8 +32,7 @@ func TestInstallApplianceDomainLinksRegistrationBeforeInstallation(t *testing.T)
 		ApplianceGrant{Revision: 1, LANEgress: true, HostTCPEndpoints: HostTCPEndpoints{netip.MustParseAddrPort("192.168.1.10:3000")}, System: ResourceAmount{PIDs: 1, DiskBytes: 1},
 			PerEnvironment: ResourceAmount{PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1,
 		},
-		RemoteRegistration{ID: "registration", Endpoint: "", DisplayName: "private", ProtocolVersion: "1",
-			PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
+		RemoteRegistration{ID: "registration", Endpoint: "", DisplayName: "private", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
 			StopGraceSeconds: 1, State: 1, ConnectionState: 1,
 			EnrollmentState: 3, ConnectorPhase: 1, OwnerKind: RemoteRegistrationPrivate, InstallationID: "installation"},
 		[]ApplianceFrontend{{Name: "webhook", Transport: 2, Exposure: 3, MaxFrameBytes: 1024, MaxTotalBytes: 4096, DeadlineSeconds: 10, IdleSeconds: 5, MaxConcurrentStreams: 2}}, ApplianceOperation{ID: "install-operation", RequestID: "install", State: 1, Phase: 2, ExpectedRevision: 0})
@@ -101,8 +100,7 @@ func TestNewInstallationReplacementAndRemovalLeaveOtherDomainIntact(t *testing.T
 				DataVolumeID: id + "-volume", DataVolumeBytes: 1 << 20},
 			ApplianceGrant{Revision: 1, System: amount,
 				PerEnvironment: amount, EgressMode: 1, MaxEgressMode: 1},
-			RemoteRegistration{ID: id + "-registration", DisplayName: id, ProtocolVersion: "1",
-				PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
+			RemoteRegistration{ID: id + "-registration", DisplayName: id, PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1,
 				StopGraceSeconds: 1, State: 1, ConnectionState: 1,
 				EnrollmentState: 3, ConnectorPhase: 1, OwnerKind: RemoteRegistrationPrivate, InstallationID: id}, nil,
 			ApplianceOperation{ID: id + "-install-operation", RequestID: id + "-install", State: 2, Phase: 5})

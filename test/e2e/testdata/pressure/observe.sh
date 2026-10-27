@@ -3,6 +3,8 @@ while sleep 5; do
   base=/sys/fs/cgroup/agent-vmm
   test -r "$base/workload/memory.current" || continue
   if test ! -e /run/pressure-fixture-child-done; then
+    # This 8GiB fixture leaves memory outside the workload parent for the OOM probe.
+    echo 6442450944 > "$base/workload/memory.max"
     child="$base/workload/pressure-fixture-child"
     before=$(awk '$1=="oom" {print $2}' "$base/workload/memory.events.local")
     mkdir "$child"
@@ -19,7 +21,7 @@ while sleep 5; do
   # gVisor's file-backed allocations can spend the request budget reclaiming
   # at memory.max. Once the all-busy fixture reaches 99%, add a small anonymous
   # allocation under the same parent to exercise the kernel's parent-OOM path.
-  # The normal reclaim phase targets 95% and never starts this probe.
+  # The normal reclaim phase targets 91% and never starts this probe.
   if test "$current" -gt "$((limit * 99 / 100))" && test ! -e /run/pressure-fixture-parent-done; then
     touch /run/pressure-fixture-parent-done
     child="$base/workload/pressure-fixture-parent"

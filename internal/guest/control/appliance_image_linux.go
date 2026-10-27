@@ -8,13 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"slices"
 	"strings"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -23,6 +23,7 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -61,7 +62,7 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	}
 	header := &vmmdv1.ImportImageHeader{RequestId: bundledImportRequestID(canonical), ActorNamespaceId: namespaceID,
 		ImageReference: canonical, ManifestDigest: manifestDigest.String(), Platform: "linux/arm64"}
-	unlockMaterializer, err := r.lockImportSlot(ctx, manifestDigest.String())
+	unlockMaterializer, err := r.lockImportSlot(ctx)
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -87,7 +88,7 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 	if reusableTarget == nil {
 		archive, err = os.Open(bundled.path)
 		if err != nil {
-			return "", "", 0, imageError(codes.FailedPrecondition, "APPLIANCE_IMAGE_SOURCE_UNAVAILABLE", "installed controller image is absent from cache and the bundled source is unavailable; update this appliance", canonical)
+			return "", "", 0, status.Error(codes.FailedPrecondition, "installed controller image is absent from cache and the bundled source is unavailable; update this appliance")
 		}
 		defer archive.Close()
 		info, err := archive.Stat()
@@ -97,7 +98,7 @@ func (r *Runtime) importBundledSystemImage(ctx context.Context, namespaceID, ima
 		header.ArchiveSize = uint64(info.Size())
 		manifest, err = ociarchive.Validate(archive, manifestDigest)
 		if err != nil {
-			return "", "", 0, imageError(codes.FailedPrecondition, "APPLIANCE_IMAGE_SOURCE_UNAVAILABLE", "bundled archive cannot supply the installed controller image; update this appliance: "+err.Error(), canonical)
+			return "", "", 0, status.Error(codes.FailedPrecondition, "bundled archive cannot supply the installed controller image; update this appliance: "+err.Error())
 		}
 		if err := r.prepareSystemImageImport(ctx, header, canonical, manifestDigest.String()); err != nil {
 			return "", "", 0, err
@@ -140,9 +141,9 @@ func bundledImportRequestID(imageReference string) string {
 // The caller holds this system namespace's lifecycle lock.
 func (r *Runtime) pruneSystemImages(ctx context.Context, namespaceID, currentReference, currentDigest string) (resultErr error) {
 	started := time.Now()
-	log.Printf("system image GC begin: namespace=%s digest=%s", namespaceID, currentDigest)
+	r.logger.Info("system image GC started", "namespace_id", namespaceID, "digest", currentDigest)
 	defer func() {
-		log.Printf("system image GC end: namespace=%s elapsed=%s succeeded=%t", namespaceID, time.Since(started).Round(time.Millisecond), resultErr == nil)
+		r.logger.Info("system image GC completed", "namespace_id", namespaceID, "elapsed", time.Since(started).Round(time.Millisecond), "succeeded", resultErr == nil)
 	}()
 	if err := validateSystemNamespace(namespaceID); err != nil {
 		return err
@@ -204,7 +205,7 @@ func (r *Runtime) pruneSystemImages(ctx context.Context, namespaceID, currentRef
 			return err
 		}
 	}
-	_, err = r.pruneUnreferencedRuntimeImages(ctx, maxGCDeletes, true)
+	_, err = r.pruneUnreferencedRuntimeImages(ctx, maxGCDeletes)
 	return err
 }
 
@@ -213,7 +214,10 @@ func (r *Runtime) prepareSystemImageImport(ctx context.Context, header *vmmdv1.I
 	if err := validateSystemNamespace(namespaceID); err != nil {
 		return err
 	}
-	unlock := r.lockNamespace(namespaceID)
+	unlock, err := r.lockNamespace(ctx, namespaceID)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := r.namespaceExistsForRole(ctx, namespaceID, true); err != nil {
 		return err
@@ -230,17 +234,16 @@ func (r *Runtime) prepareSystemImageImportLocked(ctx context.Context, header *vm
 	if err != nil {
 		return err
 	}
-	requestLabel := fmt.Sprintf("%s%x", importRequestLabelBase, sha256.Sum256([]byte(header.GetRequestId())))
 	records, err := r.client.ImageService().List(namespaceContext(ctx, namespaceID))
 	if err != nil {
 		return err
 	}
+	if err := checkImportIdempotency(records, header.RequestId, fingerprint, reference, digest.Digest(targetDigest)); err != nil {
+		return err
+	}
 	for _, record := range records {
-		if stored, found := record.Labels[requestLabel]; found && (stored != fingerprint || record.Name != reference || record.Target.Digest.String() != targetDigest) {
-			return imageError(codes.Aborted, "IMPORT_IDEMPOTENCY_CONFLICT", "import request ID was reused with different input", reference)
-		}
 		if record.Name == reference && record.Target.Digest.String() != targetDigest {
-			return imageError(codes.Aborted, "IMAGE_DIGEST_CONFLICT", "image reference already names different content", reference)
+			return hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_IMAGE_DIGEST_CONFLICT, "image reference already names different content", hostv1.WithResource("image", reference))
 		}
 	}
 	if header.GetSystemRetention() != nil {

@@ -14,7 +14,7 @@ struct EnvironmentListView: View {
                 } description: {
                     Text(emptyStateDescription)
                 } actions: {
-                    if model.snapshot.vmState == "Stopped" {
+                    if model.snapshot.vmState == .stopped {
                         Button("Start Virtual Machine") { Task { await model.startVM() } }
                             .buttonStyle(.borderedProminent)
                     }
@@ -101,7 +101,7 @@ struct EnvironmentListView: View {
                 .padding(.vertical, 6)
                 .contextMenu {
                     Button("Open") { model.showEnvironment(environment.id) }
-                    if model.snapshot.vmState == "Stopped" {
+                    if model.snapshot.vmState == .stopped {
                         Button("Start Virtual Machine") { Task { await model.startVM() } }
                     }
                     Divider()
@@ -119,8 +119,8 @@ struct EnvironmentListView: View {
 
     private var emptyStateDescription: String {
         switch model.snapshot.vmState {
-        case "Stopped": "Start the virtual machine to make environments available to agents."
-        case "Starting": "Environments will appear after the virtual machine finishes starting."
+        case .stopped: "Start the virtual machine to make environments available to agents."
+        case .starting: "Environments will appear after the virtual machine finishes starting."
         default: "Environments appear when agent access is added or a remote allocation is retained."
         }
     }
@@ -134,18 +134,18 @@ struct EnvironmentListView: View {
 
     private func isRetained(_ environment: AgentEnvironmentModel) -> Bool {
         if environment.origin == .remote {
-            return remoteAllocation(for: environment)?.state == "Retained"
+            return remoteAllocation(for: environment)?.state == .retained
         }
         return true
     }
 
     private func cleanupDisabledReason(for environment: AgentEnvironmentModel, mode: CleanupMode) -> String? {
         if cleanupPreparing || model.cleanupActionInProgress { return "A cleanup operation is already in progress." }
-        if model.snapshot.vmState != "Running" { return "Start the virtual machine first." }
+        if model.snapshot.vmState != .running { return "Start the virtual machine first." }
         if model.vmAction != nil { return "Wait for the virtual machine operation to finish." }
         guard mode == .discard else { return nil }
         if environment.origin == .remote {
-            guard let allocation = remoteAllocation(for: environment), allocation.state == "Retained" else {
+            guard let allocation = remoteAllocation(for: environment), allocation.state == .retained else {
                 return "Release this allocation from Remote Controller before deleting it."
             }
         }
@@ -264,7 +264,7 @@ private struct EnvironmentDetailView: View {
                 .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if model.snapshot.vmState == "Stopped" {
+            if model.snapshot.vmState == .stopped {
                 Button("Start Virtual Machine") { Task { await model.startVM() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.vmAction != nil)

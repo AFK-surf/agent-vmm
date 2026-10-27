@@ -26,8 +26,9 @@ struct PersonalMeshPairingModel: Sendable, Equatable {
     let sessionID: Data
     let invitationCode: String
     let role: String
-    let state: String
+    let state: PairingState
     let attemptsRemaining: UInt32
+    let lastFailure: String?
     let sas: String
     let registryCommitPending: Bool
 }
@@ -206,14 +207,12 @@ struct AgentEnvironmentModel: Identifiable, Sendable, Equatable {
 }
 
 struct EnvironmentLimits: Sendable, Equatable {
-    let cpuMillis: UInt32
-    let memoryBytes: UInt64
     let pids: UInt32
     let diskBytes: UInt64
 }
 
 struct SystemSnapshotModel: Sendable, Equatable {
-    let vmState: String
+    let vmState: VMState
     let bootID: String
     let health: HealthLevel
     let components: [ComponentStatus]
@@ -222,7 +221,7 @@ struct SystemSnapshotModel: Sendable, Equatable {
     let remoteRegistrations: [RemoteRegistrationModel]
     let collectedAt: Date
 
-    static let loading = SystemSnapshotModel(vmState: "Loading", bootID: "", health: .unavailable, components: [], usage: nil, environments: [], remoteRegistrations: [], collectedAt: .distantPast)
+    static let loading = SystemSnapshotModel(vmState: .loading, bootID: "", health: .unavailable, components: [], usage: nil, environments: [], remoteRegistrations: [], collectedAt: .distantPast)
 }
 
 struct RemoteRegistrationModel: Sendable, Equatable {
@@ -236,25 +235,10 @@ struct RemoteRegistrationModel: Sendable, Equatable {
     let revision: UInt64
     let inventoryRevision: UInt64
     let owner: Owner
-    let pool: RemotePoolSettings
     let allocations: [RemoteAllocationModel]
     let connector: ConnectorStatusModel
     let enrollmentError: String?
 
-}
-
-struct RemotePoolSettings: Sendable, Equatable {
-    let perEnvironmentPIDs: UInt32
-    let perEnvironmentDiskBytes: UInt64
-    let allowsPublicEgress: Bool
-    let stopGraceSeconds: Int64
-
-    static let defaults = RemotePoolSettings(
-        perEnvironmentPIDs: 256,
-        perEnvironmentDiskBytes: 2 << 30,
-        allowsPublicEgress: false,
-        stopGraceSeconds: 10
-    )
 }
 
 enum RemoteAdmissionState: String, Sendable { case accepting = "Accepting new work", draining = "Draining", revoked = "Revoked", unknown = "Unavailable" }
@@ -299,7 +283,7 @@ struct RemoteAllocationModel: Identifiable, Sendable, Equatable {
     let allocationID: String
     let environmentID: String
     let displayName: String
-    let state: String
+    let state: AllocationState
     let limits: EnvironmentLimits
     let allowsPublicEgress: Bool
 }
@@ -309,7 +293,9 @@ struct ApplianceFrontendModel: Identifiable, Sendable, Equatable {
     let name: String
     let transport: String
     let endpoint: String
+    var exposure: ApplianceFrontendExposure = .unknown
     let available: Bool
+    var errorReason: String = ""
 }
 
 struct ApplianceFrontendGrantModel: Identifiable, Sendable, Equatable {
@@ -324,7 +310,7 @@ struct ApplianceStatusModel: Identifiable, Sendable, Equatable {
     let productID: String
     let revision: UInt64
     let artifactID: String
-    let state: String
+    let state: ApplianceState
     let channelState: String
     let enabled: Bool
     let healthy: Bool
@@ -345,26 +331,6 @@ struct ApplianceStatusModel: Identifiable, Sendable, Equatable {
     }
 }
 
-enum ApplianceAction: Sendable, Equatable {
-    case installing
-    case planningRemoval
-    case removing
-    case enabling
-    case disabling
-    case restarting
-
-    var title: String {
-        switch self {
-        case .installing: "Setting up MCP…"
-        case .planningRemoval: "Preparing removal…"
-        case .removing: "Removing MCP appliance…"
-        case .enabling: "Enabling MCP…"
-        case .disabling: "Disabling MCP…"
-        case .restarting: "Restarting MCP…"
-        }
-    }
-}
-
 struct ApplianceGrantModel: Sendable, Equatable {
     var perEnvironmentPIDs: UInt32
     var perEnvironmentDiskBytes: UInt64
@@ -377,28 +343,6 @@ struct ApplianceGrantModel: Sendable, Equatable {
         allowsPublicEgress: true,
 		enabledFrontendNames: [BundledMCPAppliance.frontendName]
     )
-}
-
-struct ApplianceImpactModel: Identifiable, Sendable, Equatable {
-    var id: String { "\(resourceType):\(resourceID)" }
-    let resourceType: String
-    let resourceID: String
-    let effect: String
-    let irreversible: Bool
-    let blocker: Bool
-}
-
-struct ApplianceRemovePlanModel: Sendable, Equatable {
-    let revision: UInt64
-    let impacts: [ApplianceImpactModel]
-    var blockers: [ApplianceImpactModel] { impacts.filter(\.blocker) }
-    var requiredConfirmations: [String] { impacts.filter(\.irreversible).map(\.resourceID) }
-}
-
-struct BundledApplianceArtifact: Sendable, Equatable {
-    let manifest: Data
-    let requestedFrontends: [ApplianceFrontendGrantModel]
-    let requestsDynamicHostLoopback: Bool
 }
 
 struct ActivityEvent: Identifiable, Sendable, Equatable {
@@ -432,7 +376,7 @@ struct CleanupPreview: Sendable, Equatable {
 struct OperationModel: Identifiable, Sendable, Equatable {
     let id: String
     let kind: String
-    let state: String
+    let state: OperationState
     let stage: String
     let reason: String?
     let message: String?
@@ -440,9 +384,9 @@ struct OperationModel: Identifiable, Sendable, Equatable {
 
     var nextStep: String {
         switch state {
-        case "Running": "Keep this window open or return later; progress can be restored."
-        case "Interrupted": "Review the current resource state, then retry with a new request."
-        case "Failed": "Resolve the reported resource condition, refresh, and retry."
+        case .running: "Keep this window open or return later; progress can be restored."
+        case .interrupted: "Review the current resource state, then retry with a new request."
+        case .failed: "Resolve the reported resource condition, refresh, and retry."
         default: "No action is required."
         }
     }
@@ -454,4 +398,20 @@ struct SupportItem: Identifiable, Sendable, Equatable {
     let description: String
     let sensitive: Bool
     let includedByDefault: Bool
+}
+
+enum ApplianceFrontendExposure: Sendable { case loopback, lan, outbound, unknown }
+
+
+enum ImageInventoryPlan: Equatable {
+    case wait, retain, fetch, unavailable
+}
+
+func imageInventoryPlan(availability: InventoryAvailability, force: Bool) -> ImageInventoryPlan {
+    switch availability {
+    case .unknown: .wait
+    case .stale: force ? .fetch : .retain
+    case .available: .fetch
+    case .vmStopped, .unavailable: .unavailable
+    }
 }

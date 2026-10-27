@@ -3,12 +3,19 @@
 package control
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"syscall"
 	"testing"
+
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	containerd "github.com/containerd/containerd/v2/client"
 )
 
 func TestApplianceDataPersistsWithIndependentQuotaAndExactDeletion(t *testing.T) {
@@ -168,5 +175,75 @@ func TestApplianceQuotaProjectsStartAfterEntireNamespaceRange(t *testing.T) {
 	}
 	if touched {
 		t.Fatal("changed foreign quota")
+	}
+}
+
+func TestApplianceAndWorkloadQuotaAdmissionSharesPoolInEitherOrder(t *testing.T) {
+	device := os.Getenv("AGENT_VMM_BUILDER_BUDGET_DEVICE")
+	if device == "" {
+		t.Skip("requires a disposable /state ext4 project-quota mount")
+	}
+	if err := PrepareOCIStorage(device); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for index, workloadFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("workload-first-%t", workloadFirst), func(t *testing.T) {
+			facts := &operationNamespaces{labels: make(map[string]map[string]string)}
+			client, err := containerd.New("", containerd.WithServices(containerd.WithNamespaceService(facts)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			runtime := &Runtime{client: client, stateDevice: device, diskBudget: new(guestdisk.Budget), logger: slog.Default().With("component", "guest-control")}
+			supervisor := &applianceSupervisor{runtime: runtime, volumes: newApplianceVolumeManager(device)}
+			snapshot, err := runtime.guestDiskSnapshot(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			available, ok := snapshot.AvailableBytes()
+			if !ok || available < 2<<30 || available > 120<<30 {
+				t.Fatalf("fixture needs 2..120 GiB available: %d, %t", available, ok)
+			}
+			requested := (available/2 + (1 << 30)) &^ 1023
+			project := uint32(19000 + index)
+			namespace := fmt.Sprintf("fg04-workload-%d", index)
+			path := volumePath(namespace, "")
+			defer os.RemoveAll(path)
+			defer setProjectQuota(device, project, 0)
+			defer supervisor.volumes.delete("fg04-appliance", "data")
+			workload := func() error {
+				return runtime.diskBudget.MutateInventory(func(*guestdisk.Transaction) error {
+					if err := runtime.admitNamespaceDiskGrowth(ctx, namespace, requested, nil); err != nil {
+						return err
+					}
+					if err := os.MkdirAll(path, 0700); err != nil {
+						return err
+					}
+					if err := assignProject(path, project); err != nil {
+						return err
+					}
+					if err := setProjectQuota(device, project, requested); err != nil {
+						return err
+					}
+					facts.labels[namespace] = namespaceLabels(&vmmdv1.NamespaceLimits{Pids: 64, DiskBytes: requested}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, project, "10.42.1.0/24")
+					return nil
+				})
+			}
+			appliance := func() error {
+				_, err := supervisor.prepareData("fg04-appliance", "data", requested)
+				return err
+			}
+			first, second := appliance, workload
+			if workloadFirst {
+				first, second = workload, appliance
+			}
+			if err := first(); err != nil {
+				t.Fatalf("first admission: %v", err)
+			}
+			if err := second(); !errors.Is(err, guestdisk.ErrCapacityUnavailable) {
+				t.Fatalf("second admission exceeded shared pool: %v", err)
+			}
+		})
 	}
 }

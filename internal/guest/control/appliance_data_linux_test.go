@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,9 +14,8 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	tasksapi "github.com/containerd/containerd/api/services/tasks/v1"
@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -97,7 +98,7 @@ func TestDeleteSystemApplianceDataSlowCleanupIsInstallationLocal(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { client.Close() })
-			runtime := &Runtime{client: client, materializer: new(ocimaterializer.Manager), diskBudget: new(guestdisk.Budget), inventory: newRuntimeInventoryIndex(), waiters: make(map[string][]chan uint32)}
+			runtime := &Runtime{client: client, materializationSlot: semaphore.NewWeighted(1), diskBudget: new(guestdisk.Budget), inventory: newRuntimeInventoryIndex(), waiters: make(map[string][]chan uint32), logger: slog.Default().With("component", "guest-control")}
 			supervisor.runtime = runtime
 			t.Cleanup(func() {
 				supervisor.mu.Lock()
@@ -108,9 +109,9 @@ func TestDeleteSystemApplianceDataSlowCleanupIsInstallationLocal(t *testing.T) {
 				container.Labels[containerStateLabel] = "stopped"
 				fixture.containers[key] = container
 				fixture.mu.Unlock()
-				runtime.notifyWaiters(header.Identity.NamespaceId+"/"+header.Identity.ContainerId, 0)
+				runtime.notifyWaiters(header.Identity.NamespaceId+"/"+header.Identity.ContainerId+"/"+header.Identity.ContainerInstanceId, 0)
 			})
-			supervisor.order = newApplianceSupervisor(nil, "boot-a").order
+			supervisor.order = newApplianceSupervisor(runtime, "boot-a").order
 			supervisor.order.ReplaceOrInsert(header.Identity.InstallationId)
 			supervisor.volumes = newApplianceVolumeManager("")
 			supervisor.volumes.root = t.TempDir()
@@ -208,7 +209,7 @@ func TestDeleteSystemApplianceDataSlowCleanupIsInstallationLocal(t *testing.T) {
 				t.Fatalf("unrelated restart = %v %v", current, err)
 			}
 			// Finish the observer created by the successful restart.
-			waitKey := header.Identity.NamespaceId + "/" + header.Identity.ContainerId
+			waitKey := header.Identity.NamespaceId + "/" + header.Identity.ContainerId + "/" + header.Identity.ContainerInstanceId
 			deadline := time.Now().Add(time.Second)
 			for {
 				runtime.mu.Lock()

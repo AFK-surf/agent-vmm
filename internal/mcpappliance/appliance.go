@@ -36,7 +36,7 @@ func Run(ctx context.Context, config Config) error {
 		return err
 	}
 	identity := &Identity{}
-	controller := NewController(identity, config.StateDirectory, config.Logger)
+	controller := NewController(identity, config.Logger)
 	bootstrap := NewBootstrapServer(identity, config.StateDirectory)
 	bootstrapGRPC := grpc.NewServer(grpc.MaxRecvMsgSize(2<<20), grpc.MaxSendMsgSize(2<<20), grpc.MaxConcurrentStreams(1))
 	appliancev1.RegisterApplianceBootstrapServiceServer(bootstrapGRPC, bootstrap)

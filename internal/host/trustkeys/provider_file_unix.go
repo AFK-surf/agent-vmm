@@ -9,13 +9,14 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"errors"
-	"io"
 	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
-	"syscall"
+
+	"github.com/AFK-surf/agent-vmm/internal/atomicfile"
+	"github.com/AFK-surf/agent-vmm/internal/privatefs"
 )
 
 type fileProvider struct {
@@ -79,7 +80,7 @@ func (provider *fileProvider) key(revision uint64, create bool) (*ecdsa.PrivateK
 	} else if !create || !errors.Is(err, os.ErrNotExist) {
 		return nil, ErrKeyUnavailable
 	}
-	if err := ensurePrivateDirectory(filepath.Dir(path)); err != nil {
+	if err := privatefs.EnsureDirectory(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -90,7 +91,7 @@ func (provider *fileProvider) key(revision uint64, create bool) (*ecdsa.PrivateK
 	if err != nil {
 		return nil, err
 	}
-	if err := writePrivateKey(path, value); err != nil {
+	if err := atomicfile.PublishOnce(path, value, 0o600); err != nil {
 		return nil, err
 	}
 	return key, nil
@@ -103,75 +104,6 @@ func (provider *fileProvider) revisionPath(revision uint64) string {
 	return provider.path + "." + strconv.FormatUint(revision, 10)
 }
 
-func ensurePrivateDirectory(directory string) error {
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
-	info, err := os.Lstat(directory)
-	if err != nil {
-		return err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.IsDir() || info.Mode().Perm() != 0o700 || int(stat.Uid) != os.Geteuid() {
-		return ErrKeyUnavailable
-	}
-	return nil
-}
-
 func readPrivateKey(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || int(stat.Uid) != os.Geteuid() || stat.Nlink != 1 {
-		return nil, ErrKeyUnavailable
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, ErrKeyUnavailable
-	}
-	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil || !os.SameFile(info, opened) {
-		return nil, ErrKeyUnavailable
-	}
-	value, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
-	if err != nil || len(value) == 0 || len(value) > 1<<20 {
-		return nil, ErrKeyUnavailable
-	}
-	return value, nil
-}
-
-func writePrivateKey(path string, value []byte) error {
-	file, err := os.CreateTemp(filepath.Dir(path), ".device-root-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := file.Name()
-	defer os.Remove(temporaryPath)
-	if err := file.Chmod(0o600); err != nil {
-		file.Close()
-		return err
-	}
-	if _, err := file.Write(value); err != nil {
-		file.Close()
-		return err
-	}
-	if err := errors.Join(file.Sync(), file.Close()); err != nil {
-		return err
-	}
-	if err := PublishSecret(temporaryPath, path); err != nil {
-		return err
-	}
-	return syncDirectory(filepath.Dir(path))
-}
-
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
+	return privatefs.ReadFile(path, 1, 1<<20)
 }

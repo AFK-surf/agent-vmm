@@ -2,12 +2,14 @@ package main
 
 import (
 	"flag"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/AFK-surf/agent-vmm/test/e2e/reporting"
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	repository := flag.String("repository", ".", "repository root")
 	bundle := flag.String("bundle", "", "guest bundle directory")
 	jsonPath := flag.String("json", "", "go test JSON path")
@@ -15,9 +17,11 @@ func main() {
 	status := flag.Int("status", 0, "test exit status")
 	flag.Parse()
 	if *bundle == "" {
-		log.Fatal("bundle is required")
+		slog.Error("bundle is required")
+		os.Exit(1)
 	}
 	if err := reporting.Render(*repository, *bundle, *jsonPath, *report, *status); err != nil {
-		log.Fatal(err)
+		slog.Error("render E2E report", "error", err)
+		os.Exit(1)
 	}
 }

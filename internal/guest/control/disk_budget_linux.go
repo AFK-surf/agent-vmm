@@ -30,7 +30,7 @@ func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, er
 			return guestdisk.Snapshot{}, err
 		}
 	}
-	namespaceBefore, err := r.namespaceDiskCommitments(ctx, false)
+	namespaceBefore, err := r.poolCommitments(ctx)
 	if err != nil {
 		return guestdisk.Snapshot{}, err
 	}
@@ -42,7 +42,7 @@ func (r *Runtime) guestDiskSnapshot(ctx context.Context) (guestdisk.Snapshot, er
 	if err != nil {
 		return guestdisk.Snapshot{}, err
 	}
-	namespaceAfter, err := r.namespaceDiskCommitments(ctx, false)
+	namespaceAfter, err := r.poolCommitments(ctx)
 	if err != nil {
 		return guestdisk.Snapshot{}, err
 	}

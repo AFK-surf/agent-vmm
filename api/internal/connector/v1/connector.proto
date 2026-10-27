@@ -1,0 +1,209 @@
+syntax = "proto3";
+package agentvmm.internal.connector.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "host/v1/remote_pool.proto";
+import "host/v1/resources.proto";
+import "trust/v1/trust.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/internal/api/connector/v1;connectorv1";
+
+service RemoteComputeService {
+  rpc GetRemoteState(GetRemoteStateRequest) returns (GetRemoteStateResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc GetRemoteObservation(GetRemoteObservationRequest) returns (GetRemoteObservationResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc SetConnectionState(SetConnectionStateRequest) returns (GetRemoteStateResponse);
+  rpc SetRemoteAdmissionState(SetRemoteAdmissionStateRequest) returns (GetRemoteStateResponse);
+  rpc ReportConnectorStatus(ReportConnectorStatusRequest) returns (GetRemoteStateResponse);
+  rpc EnsureAllocation(EnsureAllocationRequest) returns (AllocationResponse);
+  rpc ReleaseAllocation(ReleaseAllocationRequest) returns (AllocationResponse);
+  rpc DisposeAllocation(DisposeAllocationRequest) returns (AllocationResponse);
+  rpc PlanCleanupAllocation(PlanCleanupAllocationRequest) returns (AllocationCleanupPlanResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc ExecuteCleanupAllocation(ExecuteCleanupAllocationRequest) returns (AllocationResponse);
+  rpc OpenRuntimeSession(OpenRuntimeSessionRequest) returns (OpenRuntimeSessionResponse);
+  rpc RevokeRuntimeSession(RevokeRuntimeSessionRequest) returns (google.protobuf.Empty);
+}
+
+service TrustService {
+  rpc GetDeviceIdentity(agentvmm.trust.v1.GetDeviceIdentityRequest) returns (agentvmm.trust.v1.DeviceIdentity);
+  rpc SignEndpointObservation(agentvmm.trust.v1.SignEndpointObservationRequest) returns (agentvmm.trust.v1.EndpointObservation);
+  rpc ApplyMeshEndpointObservation(agentvmm.trust.v1.ApplyMeshEndpointObservationRequest) returns (agentvmm.trust.v1.EndpointObservation);
+  rpc GetEndpointObservation(agentvmm.trust.v1.GetEndpointObservationRequest) returns (agentvmm.trust.v1.EndpointObservation);
+  rpc ListPersonalMeshes(agentvmm.trust.v1.ListPersonalMeshesRequest) returns (agentvmm.trust.v1.ListPersonalMeshesResponse);
+  rpc InstallManagedTrust(agentvmm.trust.v1.InstallManagedTrustRequest) returns (agentvmm.trust.v1.InstallManagedTrustResponse);
+  rpc ApplyMeshSnapshot(agentvmm.trust.v1.ApplyMeshSnapshotRequest) returns (agentvmm.trust.v1.ApplyMeshSnapshotResponse);
+  rpc PullRegistryOperations(agentvmm.trust.v1.PullRegistryOperationsRequest) returns (agentvmm.trust.v1.PullRegistryOperationsResponse);
+  rpc CommitRegistryOperation(agentvmm.trust.v1.CommitRegistryOperationRequest) returns (agentvmm.trust.v1.ApplyMeshSnapshotResponse);
+}
+
+message OpenRuntimeSessionResponse {
+  string session_id = 1;
+  string socket_path = 2;
+  agentvmm.host.v1.AgentEnvironment environment = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+// GetRemoteStateRequest selects the registration projection and whether only its bounded summary
+// is needed.
+message GetRemoteStateRequest {
+  string registration_id = 1;
+  bool summary_only = 2;
+}
+
+// GetRemoteStateResponse returns the selected registration without granting another
+// registration's authority.
+message GetRemoteStateResponse {
+  agentvmm.host.v1.RemoteRegistration registration = 1;
+}
+
+// GetRemoteObservationRequest selects one registration's current health and usage projection.
+message GetRemoteObservationRequest {
+  string registration_id = 1;
+}
+
+// GetRemoteObservationResponse reports sampled health and usage, with an optional reclaim
+// suggestion that does not authorize deletion.
+message GetRemoteObservationResponse {
+  WorkloadReclaimCandidate reclaim_candidate = 5;
+  agentvmm.host.v1.HealthStatus health = 1;
+  agentvmm.host.v1.Usage usage = 2;
+  google.protobuf.Timestamp observed_at = 3;
+}
+
+// WorkloadReclaimCandidate identifies a bounded reclaim suggestion without authorizing deletion.
+message WorkloadReclaimCandidate {
+  string registration_id = 1;
+  string allocation_id = 2;
+  string container_id = 3;
+  string container_instance_id = 4;
+  int64 expires_unix_millis = 5;
+}
+
+// SetConnectionStateRequest binds a connector transport observation to its exact registration,
+// connection identity, and epoch.
+message SetConnectionStateRequest {
+  string connection_instance = 1;
+  agentvmm.host.v1.RemoteConnectionState state = 2;
+  string registration_id = 3;
+  uint64 connection_epoch = 4;
+}
+
+// SetRemoteAdmissionStateRequest changes admission under the current connection, inventory, and
+// pool-policy fences.
+message SetRemoteAdmissionStateRequest {
+  string connection_instance = 1;
+  agentvmm.host.v1.RemoteRegistrationState state = 2;
+  string registration_id = 3;
+  uint64 expected_inventory_revision = 4;
+  uint64 expected_pool_policy_revision = 5;
+}
+
+// ReportConnectorStatusRequest reports bounded transport recovery facts for the current
+// registration connection.
+message ReportConnectorStatusRequest {
+  string connection_instance = 1;
+  agentvmm.host.v1.ConnectorStatus status = 2;
+  string registration_id = 3;
+}
+
+// EnsureAllocationRequest binds idempotent allocation inputs to one registration, connection,
+// policy, and generation.
+message EnsureAllocationRequest {
+  string allocation_id = 1;
+  string display_label = 2;
+  agentvmm.host.v1.ResourceLimits limits = 3;
+  agentvmm.host.v1.EgressMode egress_mode = 4;
+  uint64 policy_revision = 5;
+  string connection_instance = 6;
+  string registration_id = 7;
+  uint64 generation = 8;
+}
+
+// AllocationResponse returns the accepted or observed durable allocation identity and current
+// fences.
+message AllocationResponse {
+  agentvmm.host.v1.RemoteAllocation allocation = 1;
+}
+
+// ReleaseAllocationRequest selects an exact current allocation generation for retirement without
+// deleting retained private data.
+message ReleaseAllocationRequest {
+  string allocation_id = 1;
+  uint64 expected_policy_revision = 2;
+  string registration_id = 3;
+  string connection_instance = 4;
+  uint64 expected_generation = 5;
+}
+
+// DisposeAllocationRequest binds destructive allocation disposal to a stable request and current
+// registration authority.
+message DisposeAllocationRequest {
+  string registration_id = 1;
+  string connection_instance = 2;
+  string allocation_id = 3;
+  uint64 expected_policy_revision = 4;
+  uint64 expected_generation = 5;
+  string request_id = 6;
+}
+
+// PlanCleanupAllocationRequest selects a current registration-owned allocation for read-only
+// cleanup planning.
+message PlanCleanupAllocationRequest {
+  string allocation_id = 1;
+  string registration_id = 2;
+  string connection_instance = 3;
+  agentvmm.host.v1.CleanupKind kind = 4;
+}
+
+// AllocationCleanupPlan binds a remote cleanup plan to its current allocation generation.
+message AllocationCleanupPlan {
+  string allocation_id = 1;
+  uint64 revision = 2;
+  repeated string volume_ids = 3;
+  repeated agentvmm.host.v1.CleanupImpact impacts = 4;
+  agentvmm.host.v1.CleanupKind kind = 5;
+  uint64 allocation_generation = 6;
+}
+
+// AllocationCleanupPlanResponse returns the allocation generation, plan revision, and exact
+// volume confirmation set.
+message AllocationCleanupPlanResponse {
+  AllocationCleanupPlan plan = 1;
+}
+
+// ExecuteCleanupAllocationRequest confirms the plan revision and complete volume set under
+// current connection authority.
+message ExecuteCleanupAllocationRequest {
+  string allocation_id = 1;
+  uint64 plan_revision = 2;
+  repeated string confirmed_volume_ids = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
+  agentvmm.host.v1.CleanupKind kind = 6;
+}
+
+// OpenRuntimeSessionRequest requests runtime authority for the current allocation generation and
+// execution owner.
+message OpenRuntimeSessionRequest {
+  uint64 allocation_generation = 2;
+  string allocation_id = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
+  string execution_owner_id = 6;
+}
+
+// RevokeRuntimeSessionRequest revokes the named session under its exact allocation, generation,
+// registration, and connection fences.
+message RevokeRuntimeSessionRequest {
+  string session_id = 1;
+  uint64 allocation_generation = 3;
+  string registration_id = 4;
+  string connection_instance = 5;
+  string allocation_id = 6;
+}

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -16,7 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
@@ -64,13 +64,6 @@ func (r *Runtime) cleanupTasks(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			current, err := task.Status(nsctx)
-			if err != nil {
-				return err
-			}
-			if current.Status != containerd.Stopped {
-				continue
-			}
 			status, deleteErr := task.Delete(nsctx, containerd.WithProcessKill)
 			if deleteErr != nil && !errdefs.IsNotFound(deleteErr) {
 				return deleteErr
@@ -86,13 +79,15 @@ func (r *Runtime) cleanupTasks(ctx context.Context) error {
 }
 
 type recordLog struct {
-	mu       sync.Mutex
-	file     *os.File
-	metaPath string
+	mu   sync.Mutex
+	file interface {
+		Write([]byte) (int, error)
+		Truncate(int64) error
+		Close() error
+	}
 	limit    uint64
 	written  uint64
 	sequence uint64
-	dropped  uint64
 	writers  int
 }
 
@@ -102,8 +97,8 @@ type recordWriter struct {
 	once   sync.Once
 }
 
-func newRecordLog(path, metaPath string, limit uint64) (io.WriteCloser, io.WriteCloser, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o600)
+func newRecordLog(path string, limit uint64) (io.WriteCloser, io.WriteCloser, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -112,12 +107,26 @@ func newRecordLog(path, metaPath string, limit uint64) (io.WriteCloser, io.Write
 		file.Close()
 		return nil, nil, err
 	}
-	sequence, dropped, err := readLogMeta(metaPath)
-	if err != nil {
+	var sequence uint64
+	var offset int64
+	header := make([]byte, logHeaderBytes)
+	for offset+logHeaderBytes <= info.Size() {
+		if _, err := file.ReadAt(header, offset); err != nil {
+			file.Close()
+			return nil, nil, err
+		}
+		next := offset + logHeaderBytes + int64(binary.BigEndian.Uint32(header[17:21]))
+		if next > info.Size() {
+			break
+		}
+		sequence = binary.BigEndian.Uint64(header[0:8])
+		offset = next
+	}
+	if err := file.Truncate(offset); err != nil {
 		file.Close()
 		return nil, nil, err
 	}
-	log := &recordLog{file: file, metaPath: metaPath, limit: limit, written: uint64(info.Size()), sequence: sequence, dropped: dropped, writers: 2}
+	log := &recordLog{file: file, limit: limit, written: uint64(offset), sequence: sequence, writers: 2}
 	return &recordWriter{log: log, stream: vmmdv1.LogStream_LOG_STREAM_STDOUT}, &recordWriter{log: log, stream: vmmdv1.LogStream_LOG_STREAM_STDERR}, nil
 }
 
@@ -128,10 +137,12 @@ func (writer *recordWriter) Write(data []byte) (int, error) {
 	writer.log.sequence++
 	recordBytes := uint64(logHeaderBytes + len(data))
 	if writer.log.written+recordBytes > writer.log.limit {
-		writer.log.dropped++
+		if writer.log.written >= writer.log.limit {
+			return original, nil
+		}
 		available := writer.log.limit - writer.log.written
 		if available <= logHeaderBytes {
-			return original, writer.log.writeMeta()
+			return original, nil
 		}
 		data = data[:available-logHeaderBytes]
 		recordBytes = uint64(logHeaderBytes + len(data))
@@ -141,11 +152,19 @@ func (writer *recordWriter) Write(data []byte) (int, error) {
 	binary.BigEndian.PutUint64(header[8:16], uint64(time.Now().UnixNano()))
 	header[16] = byte(writer.stream)
 	binary.BigEndian.PutUint32(header[17:21], uint32(len(data)))
-	if _, err := writer.log.file.Write(append(header, data...)); err != nil {
+	count, err := writer.log.file.Write(append(header, data...))
+	if err != nil || count != int(recordBytes) {
+		rollbackErr := writer.log.file.Truncate(int64(writer.log.written))
+		if rollbackErr != nil {
+			return 0, errors.Join(err, rollbackErr)
+		}
+		if err == nil || errors.Is(err, syscall.EDQUOT) || errors.Is(err, syscall.ENOSPC) {
+			return original, nil
+		}
 		return 0, err
 	}
 	writer.log.written += recordBytes
-	return original, writer.log.writeMeta()
+	return original, nil
 }
 
 func (writer *recordWriter) Close() error {
@@ -155,39 +174,22 @@ func (writer *recordWriter) Close() error {
 		defer writer.log.mu.Unlock()
 		writer.log.writers--
 		if writer.log.writers == 0 {
-			err = errors.Join(writer.log.writeMeta(), writer.log.file.Close())
+			err = writer.log.file.Close()
 		}
 	})
 	return err
 }
 
-func (log *recordLog) writeMeta() error {
-	value := fmt.Sprintf("%d %d\n", log.sequence, log.dropped)
-	return os.WriteFile(log.metaPath, []byte(value), 0o600)
-}
-
-func readLogMeta(path string) (uint64, uint64, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, 0, nil
-	}
-	if err != nil {
-		return 0, 0, err
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) != 2 {
-		return 0, 0, errors.New("invalid structured log metadata")
-	}
-	sequence, err := strconv.ParseUint(fields[0], 10, 64)
-	if err != nil {
-		return 0, 0, err
-	}
-	dropped, err := strconv.ParseUint(fields[1], 10, 64)
-	return sequence, dropped, err
-}
-
 func (r *Runtime) StreamLogs(ctx context.Context, request *vmmdv1.LogsRequest, send func(*vmmdv1.LogsResponse) error) error {
-	container, err := r.InspectContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId())
+	nsctx, runtimeContainer, container, err := r.loadContainer(ctx, request.GetActorNamespaceId(), request.GetContainerId())
+	if err != nil {
+		return err
+	}
+	labels, err := runtimeContainer.Labels(nsctx)
+	if err != nil {
+		return err
+	}
+	limit, err := strconv.ParseUint(labels[containerLogLimitLabel], 10, 64)
 	if err != nil {
 		return err
 	}
@@ -217,12 +219,10 @@ func (r *Runtime) StreamLogs(ctx context.Context, request *vmmdv1.LogsRequest, s
 		if request.GetTailRecords() != 0 && uint64(len(filtered)) > request.GetTailRecords() && after == 0 && position == next {
 			filtered = filtered[len(filtered)-int(request.GetTailRecords()):]
 		}
-		_, dropped, metaErr := readLogMeta(logMetaPath(request.GetActorNamespaceId(), request.GetContainerId(), generationID))
-		if metaErr != nil {
-			return metaErr
-		}
+		info, statErr := os.Stat(path)
+		truncated := statErr == nil && uint64(info.Size())+logHeaderBytes >= limit
 		for _, record := range filtered {
-			if err := send(&vmmdv1.LogsResponse{Cursor: request.GetContainerId() + ":" + generationID + ":" + strconv.FormatUint(record.sequence, 10), TimestampUnixNano: record.timestamp, Stream: record.stream, Data: record.data, Truncated: dropped != 0, DroppedRecords: dropped}); err != nil {
+			if err := send(&vmmdv1.LogsResponse{Cursor: request.GetContainerId() + ":" + generationID + ":" + strconv.FormatUint(record.sequence, 10), TimestampUnixNano: record.timestamp, Stream: record.stream, Data: record.data, Truncated: truncated, DroppedRecords: record.sequence - after - 1}); err != nil {
 				return err
 			}
 			after = record.sequence
@@ -235,7 +235,7 @@ func (r *Runtime) StreamLogs(ctx context.Context, request *vmmdv1.LogsRequest, s
 			return err
 		}
 		if container.GetGenerationId() != generationID {
-			return detailedError(codes.Aborted, "LOG_CURSOR_STALE", "container was replaced while logs were streaming", "container", request.GetContainerId())
+			return hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_LOG_CURSOR_STALE, "container was replaced while logs were streaming", hostv1.WithResource("container", request.GetContainerId()))
 		}
 		if len(records) == 0 && container.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 			return nil
@@ -254,7 +254,7 @@ func parseLogCursor(cursor, containerID, generationID string) (uint64, error) {
 		return 0, errors.New("invalid log cursor")
 	}
 	if parts[1] != generationID {
-		return 0, detailedError(codes.Aborted, "LOG_CURSOR_STALE", "log cursor belongs to a replaced container", "container", containerID)
+		return 0, hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_LOG_CURSOR_STALE, "log cursor belongs to a replaced container", hostv1.WithResource("container", containerID))
 	}
 	value, err := strconv.ParseUint(parts[2], 10, 64)
 	if err != nil {
@@ -290,7 +290,9 @@ func readLogRecords(path string, offset int64) ([]storedLogRecord, int64, error)
 		}
 		length := binary.BigEndian.Uint32(header[17:21])
 		data := make([]byte, length)
-		if _, err := io.ReadFull(reader, data); err != nil {
+		if _, err := io.ReadFull(reader, data); errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			break
+		} else if err != nil {
 			return nil, offset, err
 		}
 		offset += int64(logHeaderBytes) + int64(length)
@@ -300,32 +302,24 @@ func readLogRecords(path string, offset int64) ([]storedLogRecord, int64, error)
 }
 
 func (r *Runtime) SignalContainer(ctx context.Context, namespaceID, containerID string, signal syscall.Signal) error {
+	unlock, err := r.lockContainer(ctx, namespaceID, containerID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	nsctx, container, current, err := r.loadContainer(ctx, namespaceID, containerID)
 	if err != nil {
 		return err
 	}
 	if current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-		return detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", containerID)
+		return hostv1.NewError(codes.FailedPrecondition, hostv1.ErrorReason_ERROR_REASON_CONTAINER_NOT_RUNNING, "container is not running", hostv1.WithResource("container", containerID))
 	}
 	task, err := container.Task(nsctx, nil)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
-			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-				return detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", containerID)
-			}
-		}
 		return err
 	}
-	// The task is the sandbox supervisor; the retained workload is its named
-	// exec process. Signal the workload directly so INT and TERM keep their
-	// normal application semantics instead of stopping the supervisor.
 	mainProcess, err := task.LoadProcess(nsctx, mainProcessID, nil)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
-			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-				return detailedError(codes.FailedPrecondition, "CONTAINER_NOT_RUNNING", "container is not running", "container", containerID)
-			}
-		}
 		return err
 	}
 	return mainProcess.Kill(nsctx, signal)

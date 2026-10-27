@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,6 +17,7 @@ import (
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/launchdservice"
 	"golang.org/x/sys/unix"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -25,36 +25,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestParseFuserOwners(t *testing.T) {
-	if got, want := parseFuserOwners([]byte("4044 4051\n")), []int{4044, 4051}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("owners=%v want=%v", got, want)
-	}
-	if got := parseFuserOwners(nil); len(got) != 0 {
-		t.Fatalf("empty output returned owners=%v", got)
-	}
-}
-
-func TestFuserOpenOwnersTreatsUnownedFileAsReleasedOnMacOS(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("the lifecycle helper uses the macOS fuser contract")
-	}
-	path := filepath.Join(t.TempDir(), "state.raw")
-	if err := os.WriteFile(path, []byte("state"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	owners, err := fuserOpenOwners(context.Background(), path)
-	if err != nil || len(owners) != 0 {
-		t.Fatalf("unowned state disk owners=%v err=%v", owners, err)
-	}
-}
-
-func TestXMLEscape(t *testing.T) {
-	if got := xmlEscape("/Users/a&b<c>"); got != "/Users/a&amp;b&lt;c&gt;" {
-		t.Fatalf("xmlEscape() = %q", got)
-	}
-}
-
 func TestObservationPathsDoNotRequireCompleteBundle(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	executable := filepath.Join(root, "Agent VMM Host.app", "Contents", "Helpers", "missing-lifecycle-helper")
@@ -110,6 +82,7 @@ const crashLoopLaunchctlPrint = `gui/501/com.afk-surf.agent-vmm-host = {
 `
 
 func TestParseLaunchctlServiceObservationSeparatesLoadedFromRunning(t *testing.T) {
+	t.Parallel()
 	running, err := parseLaunchctlServiceObservation([]byte(fmt.Sprintf("state = running\npid = %d\nlast exit code = 0\nresource coalition = {\n\tstate = active\n}\n", os.Getpid())))
 	if err != nil || !running.Loaded || !running.Running || running.PID != os.Getpid() {
 		t.Fatalf("running facts = %+v, err=%v", running, err)
@@ -128,12 +101,13 @@ func TestParseLaunchctlServiceObservationSeparatesLoadedFromRunning(t *testing.T
 }
 
 func TestStatusReportsCrashLoopingHostLoadedButNotRunning(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	original := launchctlServiceObserver
-	launchctlServiceObserver = func(context.Context, string) (hostServiceFacts, error) {
+	value.owner = &owner
+	owner.observe = func(context.Context, string) (hostServiceFacts, error) {
 		return parseLaunchctlServiceObservation([]byte(crashLoopLaunchctlPrint))
 	}
-	t.Cleanup(func() { launchctlServiceObserver = original })
 	status := readStatusContext(context.Background(), value)
 	if !status.HostObserved || !status.HostLoaded || status.HostRunning || status.HostPID != 0 || status.HostObservationIssue != "" ||
 		status.HostLastExitStatus == nil || *status.HostLastExitStatus != 1 {
@@ -142,12 +116,13 @@ func TestStatusReportsCrashLoopingHostLoadedButNotRunning(t *testing.T) {
 }
 
 func TestStatusDoesNotTurnLaunchctlFailureIntoKnownStoppedState(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	original := launchctlServiceObserver
-	launchctlServiceObserver = func(context.Context, string) (hostServiceFacts, error) {
+	value.owner = &owner
+	owner.observe = func(context.Context, string) (hostServiceFacts, error) {
 		return hostServiceFacts{}, errors.New("launchd query denied")
 	}
-	t.Cleanup(func() { launchctlServiceObserver = original })
 	status := readStatusContext(context.Background(), value)
 	if status.HostObserved || status.HostLoaded || status.HostRunning || status.HostObservationIssue == "" {
 		t.Fatalf("status collapsed launchd query failure: %+v", status)
@@ -155,21 +130,22 @@ func TestStatusDoesNotTurnLaunchctlFailureIntoKnownStoppedState(t *testing.T) {
 }
 
 func TestVersionAndStatusReportSchemaCompatibility(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	version, err := json.Marshal(versionReport())
-	supported := store.SupportedSchema()
-	if err != nil || !strings.Contains(string(version), fmt.Sprintf(`"supportedSchema":{"min":%d,"max":%d}`, supported.Min, supported.Max)) {
+	schema := store.CurrentSchema()
+	if err != nil || !strings.Contains(string(version), fmt.Sprintf(`"currentSchema":%d`, schema)) {
 		t.Fatalf("version = %s %v", version, err)
 	}
 	value := testPaths(t.TempDir())
-	original := launchctlServiceObserver
-	launchctlServiceObserver = func(context.Context, string) (hostServiceFacts, error) {
+	value.owner = &owner
+	owner.observe = func(context.Context, string) (hostServiceFacts, error) {
 		return hostServiceFacts{Loaded: true}, nil
 	}
-	t.Cleanup(func() { launchctlServiceObserver = original })
 	if status := readStatusContext(context.Background(), value); status.HostStartFailure != nil || status.DataSchema != 0 || status.DataSchemaIssue != "" {
 		t.Fatalf("status without a record or database = %+v", status)
 	}
-	record := `{"code":"data_newer_than_host","dataSchema":36,"supportedSchema":{"min":18,"max":35}}`
+	record := `{"code":"STATE_SCHEMA_INCOMPATIBLE","dataSchema":36,"currentSchema":35}`
 	if err := os.MkdirAll(value.applicationData, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -192,6 +168,7 @@ func TestVersionAndStatusReportSchemaCompatibility(t *testing.T) {
 }
 
 func TestAtomicReplaceAppSwapsCompleteBundles(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	target := filepath.Join(parent, "Agent VMM Host.app")
 	source := filepath.Join(parent, ".Agent VMM Host.staged.app")
@@ -217,6 +194,7 @@ func TestAtomicReplaceAppSwapsCompleteBundles(t *testing.T) {
 }
 
 func TestLifecyclePathsRejectsTheDebugAppBundle(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	_, err := lifecyclePathsFor(filepath.Join(root, "home"), filepath.Join(root, "Agent VMM.app", "Contents", "Helpers", "agent-vmm-lifecycle"))
 	if err == nil || !strings.Contains(err.Error(), "Agent VMM Host.app") {
@@ -224,27 +202,12 @@ func TestLifecyclePathsRejectsTheDebugAppBundle(t *testing.T) {
 	}
 }
 
-func TestManagedRepairArgumentIsIdempotent(t *testing.T) {
-	input := "<array>\n    <string>agent-vmm-host</string>\n  </array>"
-	once := addProgramArgument(input, "--disable-personal-mesh-pairing")
-	twice := addProgramArgument(once, "--disable-personal-mesh-pairing")
-	expected := "<array>\n    <string>agent-vmm-host</string>\n  \t\t<string>--disable-personal-mesh-pairing</string>\n\t</array>"
-	if once != expected || twice != once {
-		t.Fatalf("managed argument render is not idempotent: %q", twice)
-	}
-}
-
 func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	value := testPaths(root)
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
 		t.Fatal(err)
-	}
-	template := []byte("<plist><string>__HOME__</string><string>__APP__</string></plist>")
-	for _, name := range []string{hostTemplateResource} {
-		if err := os.WriteFile(filepath.Join(value.resources, name), template, 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
 		t.Fatal(err)
@@ -274,12 +237,10 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 }
 
 func TestRepairWaitsForBootoutToConvergeBeforeBootstrap(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	value := testPaths(root)
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte("<plist/>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
@@ -306,12 +267,10 @@ func TestRepairWaitsForBootoutToConvergeBeforeBootstrap(t *testing.T) {
 }
 
 func TestRepairFailsWhenBootoutFailsAndTheOldServiceRemainsLoaded(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	value := testPaths(root)
 	if err := os.MkdirAll(value.resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte("<plist/>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
@@ -334,6 +293,7 @@ func TestRepairFailsWhenBootoutFailsAndTheOldServiceRemainsLoaded(t *testing.T) 
 }
 
 func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
+	t.Parallel()
 	for _, purge := range []bool{false, true} {
 		t.Run(map[bool]string{false: "keep", true: "purge"}[purge], func(t *testing.T) {
 			value := testPaths(t.TempDir())
@@ -360,7 +320,7 @@ func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
 			if directory(value.app) || regular(value.hostPlist) {
 				t.Fatal("installed product files remain")
 			}
-			if directory(value.applicationData) == purge || directory(value.logs) == purge {
+			if !directory(value.applicationData) || directory(value.logs) == purge {
 				t.Fatalf("purge=%v data existence is wrong", purge)
 			}
 			if len(commands) != 2 || !strings.HasPrefix(commands[0], "bootout") || !strings.HasPrefix(commands[1], "print") {
@@ -371,6 +331,7 @@ func TestUninstallKeepsDataUnlessPurgeWasConfirmed(t *testing.T) {
 }
 
 func TestUninstallKeepsFilesWhenTheRunningServiceCannotBeStopped(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
 		t.Fatal(err)
@@ -396,6 +357,7 @@ func TestUninstallKeepsFilesWhenTheRunningServiceCannotBeStopped(t *testing.T) {
 }
 
 func TestUninstallKeepsFilesWhenServiceStatusCannotBeRead(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	if err := os.MkdirAll(value.app, 0o700); err != nil {
 		t.Fatal(err)
@@ -418,6 +380,7 @@ func TestUninstallKeepsFilesWhenServiceStatusCannotBeRead(t *testing.T) {
 }
 
 func TestStopHostServicePreservesDeadlineExceeded(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	err := stopHostService(ctx, func(_ context.Context, _ ...string) error { return nil })
@@ -427,6 +390,7 @@ func TestStopHostServicePreservesDeadlineExceeded(t *testing.T) {
 }
 
 func TestLaunchctlServiceAbsentClassifiesHeadlessGUIDomain(t *testing.T) {
+	t.Parallel()
 	for _, message := range []string{
 		`Could not find service "com.afk-surf.agent-vmm-host" in domain for system`,
 		"Could not find domain for user",
@@ -442,13 +406,11 @@ func TestLaunchctlServiceAbsentClassifiesHeadlessGUIDomain(t *testing.T) {
 }
 
 func TestRepairPreservesContextCancellationDuringLaunchctlSteps(t *testing.T) {
+	t.Parallel()
 	for _, interrupted := range []string{"bootstrap", "enable"} {
 		t.Run(interrupted, func(t *testing.T) {
 			value := testPaths(t.TempDir())
 			if err := os.MkdirAll(value.resources, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(value.resources, hostTemplateResource), []byte("<plist/>"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.MkdirAll(value.app, 0o700); err != nil {
@@ -477,6 +439,7 @@ func TestRepairPreservesContextCancellationDuringLaunchctlSteps(t *testing.T) {
 }
 
 func TestDrainStopsHost(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(value.hostPlist), 0o700); err != nil {
 		t.Fatal(err)
@@ -514,13 +477,14 @@ func TestDrainStopsHost(t *testing.T) {
 }
 
 func TestDrainWaitsForHostPIDAfterLaunchdServiceDisappears(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	originalDrain, originalPID, originalRunning := drainVMForUpdate, launchctlPID, processRunning
-	t.Cleanup(func() { drainVMForUpdate, launchctlPID, processRunning = originalDrain, originalPID, originalRunning })
-	drainVMForUpdate = func(context.Context, paths, string) error { return nil }
-	launchctlPID = func(context.Context, string) (int, error) { return 42, nil }
+	value.owner = &owner
+	owner.drainVM = func(context.Context, paths, string) error { return nil }
+	owner.system.ServicePID = func(context.Context, string) (int, error) { return 42, nil }
 	checks := 0
-	processRunning = func(pid int) bool {
+	owner.system.ProcessRunning = func(pid int) bool {
 		if pid != 42 {
 			t.Fatalf("pid=%d", pid)
 		}
@@ -546,16 +510,15 @@ func TestDrainWaitsForHostPIDAfterLaunchdServiceDisappears(t *testing.T) {
 }
 
 func TestDrainReplacesLoadedStoppedHostWhenOperatorIsUnavailable(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	originalDrain, originalPID, originalOwners := drainVMForUpdate, launchctlPID, stateDiskOpenOwners
-	t.Cleanup(func() {
-		drainVMForUpdate, launchctlPID, stateDiskOpenOwners = originalDrain, originalPID, originalOwners
-	})
-	drainVMForUpdate = func(context.Context, paths, string) error {
+	value.owner = &owner
+	owner.drainVM = func(context.Context, paths, string) error {
 		return errors.New("stale operator socket")
 	}
-	launchctlPID = func(context.Context, string) (int, error) { return 0, nil }
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	owner.system.ServicePID = func(context.Context, string) (int, error) { return 0, nil }
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
 	var commands []string
 	bootedOut := false
 	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
@@ -577,13 +540,14 @@ func TestDrainReplacesLoadedStoppedHostWhenOperatorIsUnavailable(t *testing.T) {
 }
 
 func TestDrainPreservesRunningHostWhenOperatorIsUnavailable(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	originalDrain, originalPID := drainVMForUpdate, launchctlPID
-	t.Cleanup(func() { drainVMForUpdate, launchctlPID = originalDrain, originalPID })
-	drainVMForUpdate = func(context.Context, paths, string) error {
+	value.owner = &owner
+	owner.drainVM = func(context.Context, paths, string) error {
 		return errors.New("stale operator socket")
 	}
-	launchctlPID = func(context.Context, string) (int, error) { return 42, nil }
+	owner.system.ServicePID = func(context.Context, string) (int, error) { return 42, nil }
 	bootedOut := false
 	err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
 		bootedOut = bootedOut || arguments[0] == "bootout"
@@ -598,14 +562,15 @@ func TestDrainPreservesRunningHostWhenOperatorIsUnavailable(t *testing.T) {
 }
 
 func TestDrainPreservesHostWhenPIDLookupRacesWithLaunchdRemoval(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	originalDrain, originalPID := drainVMForUpdate, launchctlPID
-	t.Cleanup(func() { drainVMForUpdate, launchctlPID = originalDrain, originalPID })
-	drainVMForUpdate = func(context.Context, paths, string) error {
+	value.owner = &owner
+	owner.drainVM = func(context.Context, paths, string) error {
 		t.Fatal("VM drain ran without a reliable Host process observation")
 		return nil
 	}
-	launchctlPID = func(context.Context, string) (int, error) {
+	owner.system.ServicePID = func(context.Context, string) (int, error) {
 		return 0, errHostServiceNotFound
 	}
 	bootedOut := false
@@ -622,15 +587,16 @@ func TestDrainPreservesHostWhenPIDLookupRacesWithLaunchdRemoval(t *testing.T) {
 }
 
 func TestServiceUserDaemonDrainStopsVMBeforeAdministratorAction(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	if os.Geteuid() == 0 {
 		t.Skip("requires non-root test process")
 	}
-	old := drainVMForUpdate
-	defer func() { drainVMForUpdate = old }()
 	called := false
-	drainVMForUpdate = func(context.Context, paths, string) error { called = true; return nil }
+	owner.drainVM = func(context.Context, paths, string) error { called = true; return nil }
 	launchctlCalled := false
 	value := testPaths(t.TempDir())
+	value.owner = &owner
 	value.service.Mode = serviceModeDaemon
 	err := drainWithContext(context.Background(), value, func(context.Context, ...string) error { launchctlCalled = true; return nil })
 	if err == nil || !strings.Contains(err.Error(), "administrator must run") || !called || !launchctlCalled {
@@ -639,15 +605,16 @@ func TestServiceUserDaemonDrainStopsVMBeforeAdministratorAction(t *testing.T) {
 }
 
 func TestDrainStopsReachableOrphanHostWithoutLaunchdJob(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	originalDrain, originalOwners := drainVMForUpdate, stateDiskOpenOwners
-	t.Cleanup(func() { drainVMForUpdate, stateDiskOpenOwners = originalDrain, originalOwners })
+	value.owner = &owner
 	stopCalls := 0
-	drainVMForUpdate = func(context.Context, paths, string) error {
+	owner.drainVM = func(context.Context, paths, string) error {
 		stopCalls++
 		return nil
 	}
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) {
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) {
 		if stopCalls == 0 {
 			return []int{456}, nil
 		}
@@ -665,7 +632,7 @@ func TestDrainStopsReachableOrphanHostWithoutLaunchdJob(t *testing.T) {
 	if stopCalls != 1 {
 		t.Fatalf("orphan Host stop attempts=%d", stopCalls)
 	}
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
 	stopCalls = 0
 	if err := drainWithContext(context.Background(), value, func(_ context.Context, arguments ...string) error {
 		if arguments[0] == "print" {
@@ -678,12 +645,13 @@ func TestDrainStopsReachableOrphanHostWithoutLaunchdJob(t *testing.T) {
 }
 
 func TestDrainWaitsForExactStateDiskOwnerAfterJobsDisappear(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	value := testPaths(t.TempDir())
-	originalDrain, originalOwners := drainVMForUpdate, stateDiskOpenOwners
-	t.Cleanup(func() { drainVMForUpdate, stateDiskOpenOwners = originalDrain, originalOwners })
-	drainVMForUpdate = func(context.Context, paths, string) error { return errors.New("stale operator socket") }
+	value.owner = &owner
+	owner.drainVM = func(context.Context, paths, string) error { return errors.New("stale operator socket") }
 	checks := 0
-	stateDiskOpenOwners = func(_ context.Context, path string) ([]int, error) {
+	owner.system.StateDiskOpenOwners = func(_ context.Context, path string) ([]int, error) {
 		want := filepath.Join(value.applicationData, "instance", "state.raw")
 		if path != want {
 			t.Fatalf("owner check path=%q want=%q", path, want)
@@ -709,22 +677,23 @@ func TestDrainWaitsForExactStateDiskOwnerAfterJobsDisappear(t *testing.T) {
 }
 
 func TestDaemonDrainContinuesOnlyAfterFixedJobIsAdministratorStopped(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	if os.Geteuid() == 0 {
 		t.Skip("requires the service-user daemon branch")
 	}
 	value := testPaths(t.TempDir())
+	value.owner = &owner
 	value.service.Mode = serviceModeDaemon
 	value.hostPlist = value.daemonPlist
-	originalDrain, originalOwners := drainVMForUpdate, stateDiskOpenOwners
-	t.Cleanup(func() { drainVMForUpdate, stateDiskOpenOwners = originalDrain, originalOwners })
 	drainCalls := 0
-	drainVMForUpdate = func(context.Context, paths, string) error {
+	owner.drainVM = func(context.Context, paths, string) error {
 		drainCalls++
 		return nil
 	}
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
 	loadedErr := drainWithContext(context.Background(), value, func(context.Context, ...string) error { return nil })
-	if loadedErr == nil || !strings.Contains(loadedErr.Error(), "agent-vmm-service-executor stop --job host") {
+	if loadedErr == nil || !strings.Contains(loadedErr.Error(), "agent-vmm-service-executor stop") {
 		t.Fatalf("loaded daemon drain error=%v", loadedErr)
 	}
 	if drainCalls != 1 {
@@ -740,6 +709,7 @@ func TestDaemonDrainContinuesOnlyAfterFixedJobIsAdministratorStopped(t *testing.
 }
 
 func TestSetRemoteRegistrationStateUsesExactRegistrationAndRevision(t *testing.T) {
+	t.Parallel()
 	registration := &hostv1.RemoteRegistration{
 		Id:       "registration-a",
 		Revision: 7,
@@ -751,15 +721,15 @@ func TestSetRemoteRegistrationStateUsesExactRegistrationAndRevision(t *testing.T
 		"registration-a",
 		hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
 		"request-a",
-		func(_ context.Context, input *hostv1.GetRemoteRegistrationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+		func(_ context.Context, input *hostv1.GetRemoteRegistrationRequest, _ ...grpc.CallOption) (*hostv1.GetRemoteRegistrationResponse, error) {
 			if input.GetRegistrationId() != "registration-a" {
 				t.Fatalf("get registration=%q", input.GetRegistrationId())
 			}
-			return &hostv1.RemoteRegistrationResponse{Registration: registration}, nil
+			return &hostv1.GetRemoteRegistrationResponse{Registration: registration}, nil
 		},
-		func(_ context.Context, input *hostv1.SetRemoteRegistrationStateRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+		func(_ context.Context, input *hostv1.SetRemoteRegistrationStateRequest, _ ...grpc.CallOption) (*hostv1.SetRemoteRegistrationStateResponse, error) {
 			request = input
-			return &hostv1.RemoteRegistrationResponse{Registration: registration}, nil
+			return &hostv1.SetRemoteRegistrationStateResponse{Registration: registration}, nil
 		},
 	)
 	if err != nil {
@@ -771,18 +741,19 @@ func TestSetRemoteRegistrationStateUsesExactRegistrationAndRevision(t *testing.T
 }
 
 func TestSetEnabledRegistrationReconcilesDisconnectedConnector(t *testing.T) {
+	t.Parallel()
 	registration := &hostv1.RemoteRegistration{Id: "registration-a", Revision: 9, State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, ConnectionState: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED}
 	called := false
 	err := setRemoteRegistrationStateWith(context.Background(), "registration-a", hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, "request-a",
-		func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
-			return &hostv1.RemoteRegistrationResponse{Registration: registration}, nil
+		func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.GetRemoteRegistrationResponse, error) {
+			return &hostv1.GetRemoteRegistrationResponse{Registration: registration}, nil
 		},
-		func(_ context.Context, request *hostv1.SetRemoteRegistrationStateRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+		func(_ context.Context, request *hostv1.SetRemoteRegistrationStateRequest, _ ...grpc.CallOption) (*hostv1.SetRemoteRegistrationStateResponse, error) {
 			called = true
 			if request.GetExpectedRevision() != 9 || request.GetRequestId() != "request-a" {
 				t.Fatalf("request=%+v", request)
 			}
-			return &hostv1.RemoteRegistrationResponse{Registration: registration}, nil
+			return &hostv1.SetRemoteRegistrationStateResponse{Registration: registration}, nil
 		},
 	)
 	if err != nil || !called {
@@ -791,8 +762,9 @@ func TestSetEnabledRegistrationReconcilesDisconnectedConnector(t *testing.T) {
 }
 
 func TestRepairWaitsForExactRegistrationConnection(t *testing.T) {
+	t.Parallel()
 	reads := 0
-	err := waitRemoteRegistrationConnectedWith(context.Background(), "registration-a", func(_ context.Context, request *hostv1.GetRemoteRegistrationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+	err := waitRemoteRegistrationConnectedWith(context.Background(), "registration-a", func(_ context.Context, request *hostv1.GetRemoteRegistrationRequest, _ ...grpc.CallOption) (*hostv1.GetRemoteRegistrationResponse, error) {
 		reads++
 		if request.GetRegistrationId() != "registration-a" {
 			t.Fatalf("request=%+v", request)
@@ -801,7 +773,7 @@ func TestRepairWaitsForExactRegistrationConnection(t *testing.T) {
 		if reads == 2 {
 			state = hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
 		}
-		return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: "registration-a", ConnectionState: state}}, nil
+		return &hostv1.GetRemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: "registration-a", ConnectionState: state}}, nil
 	}, func(context.Context) error { return nil })
 	if err != nil || reads != 2 {
 		t.Fatalf("reads=%d err=%v", reads, err)
@@ -809,6 +781,7 @@ func TestRepairWaitsForExactRegistrationConnection(t *testing.T) {
 }
 
 func TestLifecycleRootBoundaryOnlyAllowsObservation(t *testing.T) {
+	t.Parallel()
 	for _, command := range []string{"install", "install-operation-ack", "repair", "registration-state", "drain", "update", "uninstall"} {
 		if !lifecycleMutationCommand(command) {
 			t.Fatalf("%s was not classified as a business mutation", command)
@@ -822,12 +795,13 @@ func TestLifecycleRootBoundaryOnlyAllowsObservation(t *testing.T) {
 }
 
 func TestUpdateApplicationUsesOneForwardCutoverSequence(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	source := filepath.Join(filepath.Dir(value.app), ".Agent VMM Host.prepared.app")
 	var calls []string
 	actions := updateApplicationActions{
-		releaseID: func(path string, staged bool) (string, error) {
-			calls = append(calls, fmt.Sprintf("release:%s:%t", filepath.Base(path), staged))
+		releaseID: func(path string) (string, error) {
+			calls = append(calls, "release:"+filepath.Base(path))
 			if path == value.app {
 				return "release-old", nil
 			}
@@ -839,7 +813,7 @@ func TestUpdateApplicationUsesOneForwardCutoverSequence(t *testing.T) {
 			return nil
 		},
 		repair:  func(paths) error { calls = append(calls, "repair"); return nil },
-		startVM: func(paths, string) error { calls = append(calls, "start"); return nil },
+		startVM: func(context.Context, paths, string) error { calls = append(calls, "start"); return nil },
 		remove:  func(path string) error { calls = append(calls, "remove:"+filepath.Base(path)); return nil },
 	}
 	operation, err := runUpdateLifecycleOperation(value, "update-request", "release-new", func() error {
@@ -849,8 +823,7 @@ func TestUpdateApplicationUsesOneForwardCutoverSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"release:Agent VMM Host.app:false",
-		"release:.Agent VMM Host.prepared.app:true",
+		"release:Agent VMM Host.app",
 		"drain",
 		"replace:.Agent VMM Host.prepared.app:Agent VMM Host.app",
 		"repair", "start", "remove:.Agent VMM Host.prepared.app",
@@ -858,78 +831,107 @@ func TestUpdateApplicationUsesOneForwardCutoverSequence(t *testing.T) {
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls=%v want=%v", calls, want)
 	}
-	if operation.Outcome != "succeeded" || operation.Stage != "complete" {
+	if operation.Outcome != "succeeded" || operation.Stage != "settled" {
 		t.Fatalf("operation=%+v", operation)
 	}
 }
 
 func TestUpdateFailureAfterReplacementRetainsSourceAndSameRequestRepairsForward(t *testing.T) {
-	value := testPaths(t.TempDir())
-	source := filepath.Join(filepath.Dir(value.app), ".Agent VMM Host.prepared.app")
-	currentRelease := "release-old"
-	repairCalls, removeCalls := 0, 0
-	actions := updateApplicationActions{
-		releaseID: func(path string, staged bool) (string, error) {
-			if path == value.app {
-				return currentRelease, nil
+	t.Parallel()
+	for _, failRemoval := range []bool{false, true} {
+		t.Run(fmt.Sprint(failRemoval), func(t *testing.T) {
+			value := testPaths(t.TempDir())
+			source := filepath.Join(filepath.Dir(value.app), ".Agent VMM Host.prepared.app")
+			currentRelease := "release-old"
+			replaceCalls, repairCalls, removeCalls := 0, 0, 0
+			var restoreIDs []string
+			actions := updateApplicationActions{
+				releaseID: func(path string) (string, error) { return currentRelease, nil },
+				drain:     func(paths) error { return nil },
+				replace: func(string, string) error {
+					replaceCalls++
+					if replaceCalls == 1 {
+						return errors.New("replacement unavailable")
+					}
+					currentRelease = "release-new"
+					return nil
+				},
+				repair: func(paths) error { repairCalls++; return nil },
+				startVM: func(_ context.Context, _ paths, requestID string) error {
+					restoreIDs = append(restoreIDs, requestID)
+					if len(restoreIDs) == 1 || requestID == restoreIDs[0] {
+						return errors.New("Host startup failed")
+					}
+					return nil
+				},
+				remove: func(string) error {
+					removeCalls++
+					if failRemoval {
+						return errors.New("retired bundle is busy")
+					}
+					return nil
+				},
 			}
-			if currentRelease == "release-old" {
-				return "release-new", nil
+			run := func() (lifecycleOperation, error) {
+				return runUpdateLifecycleOperation(value, "update-retry", "release-new", func() error {
+					return updateApplicationWith(value, source, "release-new", "update-retry", actions)
+				})
 			}
-			return "release-old", nil // source becomes the retired release after swap
-		},
-		drain:   func(paths) error { return nil },
-		replace: func(string, string) error { currentRelease = "release-new"; return nil },
-		repair: func(paths) error {
-			repairCalls++
-			if repairCalls == 1 {
-				return errors.New("launchd unavailable")
+			first, err := run()
+			if err == nil || first.Stage != "replace" || first.Attempt != 1 || !first.Retryable {
+				t.Fatalf("first=%+v err=%v", first, err)
 			}
-			return nil
-		},
-		startVM: func(paths, string) error { return nil },
-		remove:  func(string) error { removeCalls++; return nil },
-	}
-	first, err := runUpdateLifecycleOperation(value, "update-retry", "release-new", func() error {
-		return updateApplicationWith(value, source, "release-new", "update-retry", actions)
-	})
-	if err == nil || first.Outcome != "failed" || first.Stage != "recovery" || first.FailureCode != "update_forward_repair_required" || !first.Retryable {
-		t.Fatalf("first=%+v err=%v", first, err)
-	}
-	if removeCalls != 0 {
-		t.Fatal("retired source was removed before recovery succeeded")
-	}
-	second, err := runUpdateLifecycleOperation(value, "update-retry", "release-new", func() error {
-		return updateApplicationWith(value, source, "release-new", "update-retry", actions)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Outcome != "succeeded" || second.Stage != "complete" || second.Attempt != 2 || repairCalls != 2 || removeCalls != 1 {
-		t.Fatalf("second=%+v repairCalls=%d removeCalls=%d", second, repairCalls, removeCalls)
+			second, err := run()
+			if err == nil || second.Stage != "restore" || second.Attempt != 1 || !second.Retryable || removeCalls != 0 {
+				t.Fatalf("second=%+v err=%v removals=%d", second, err, removeCalls)
+			}
+			third, err := run()
+			if failRemoval {
+				if err == nil || third.Stage != "settled" || third.Attempt != 1 || !third.Retryable {
+					t.Fatalf("first removal: %+v %v", third, err)
+				}
+				fourth, err := run()
+				if err == nil || fourth.Attempt != 2 || !fourth.Retryable {
+					t.Fatalf("second removal: %+v %v", fourth, err)
+				}
+				fifth, err := run()
+				if err == nil || fifth.Attempt != 3 || fifth.Retryable {
+					t.Fatalf("third removal: %+v %v", fifth, err)
+				}
+				if repairCalls != 2 || removeCalls != 3 {
+					t.Fatalf("settled repeated restore: repairs=%d removals=%d", repairCalls, removeCalls)
+				}
+			} else if err != nil || third.Outcome != "succeeded" || third.Stage != "settled" || third.Attempt != 2 || repairCalls != 2 || removeCalls != 1 {
+				t.Fatalf("third=%+v err=%v repairs=%d removals=%d", third, err, repairCalls, removeCalls)
+			}
+			if len(restoreIDs) != 2 || restoreIDs[0] == restoreIDs[1] {
+				t.Fatalf("restore replayed an earlier failed request: %v", restoreIDs)
+			}
+		})
 	}
 }
 
 func TestDaemonUpdateCeremonyContinuesAfterAdministratorStopsHost(t *testing.T) {
+	t.Parallel()
+	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
 	if os.Geteuid() == 0 {
 		t.Skip("requires the service-user daemon branch")
 	}
 	value := testPaths(t.TempDir())
+	value.owner = &owner
 	value.service.Mode = serviceModeDaemon
 	value.hostPlist = value.daemonPlist
 	source := filepath.Join(filepath.Dir(value.app), ".Agent VMM Host.prepared.app")
 	currentRelease := "release-old"
 	jobLoaded := true
 	drainCalls, replaceCalls, repairCalls, removeCalls := 0, 0, 0, 0
-	originalDrain, originalOwners := drainVMForUpdate, stateDiskOpenOwners
-	t.Cleanup(func() { drainVMForUpdate, stateDiskOpenOwners = originalDrain, originalOwners })
-	drainVMForUpdate = func(context.Context, paths, string) error {
+	owner.drainVM = func(context.Context, paths, string) error {
 		drainCalls++
 		return nil
 	}
-	stateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
+	owner.system.StateDiskOpenOwners = func(context.Context, string) ([]int, error) { return nil, nil }
 	actions := updateApplicationActions{
-		releaseID: func(path string, staged bool) (string, error) {
+		releaseID: func(path string) (string, error) {
 			if path == value.app {
 				return currentRelease, nil
 			}
@@ -958,7 +960,7 @@ func TestDaemonUpdateCeremonyContinuesAfterAdministratorStopsHost(t *testing.T) 
 			}
 			return nil
 		},
-		startVM: func(paths, string) error { return nil },
+		startVM: func(context.Context, paths, string) error { return nil },
 		remove:  func(string) error { removeCalls++; return nil },
 	}
 	run := func() (lifecycleOperation, error) {
@@ -972,22 +974,23 @@ func TestDaemonUpdateCeremonyContinuesAfterAdministratorStopsHost(t *testing.T) 
 	}
 	jobLoaded = false // fixed executor stopped the Host job
 	second, err := run()
-	if err == nil || second.Stage != "recovery" || second.Attempt != 1 || drainCalls != 1 || replaceCalls != 1 || repairCalls != 1 {
+	if err == nil || second.Stage != "restore" || second.Attempt != 1 || drainCalls != 1 || replaceCalls != 1 || repairCalls != 1 {
 		t.Fatalf("second=%+v err=%v drain=%d replace=%d repair=%d", second, err, drainCalls, replaceCalls, repairCalls)
 	}
 	// A failed executor installation does not consume the recovery-stage retry.
 	third, err := run()
-	if err == nil || third.Stage != "recovery" || third.Attempt != 2 || repairCalls != 2 {
+	if err == nil || third.Stage != "restore" || third.Attempt != 2 || repairCalls != 2 {
 		t.Fatalf("third=%+v err=%v drain=%d replace=%d repair=%d remove=%d", third, err, drainCalls, replaceCalls, repairCalls, removeCalls)
 	}
 	jobLoaded = true // fixed executor installed the new Host job on retry
 	fourth, err := run()
-	if err != nil || fourth.Outcome != "succeeded" || fourth.Stage != "complete" || drainCalls != 1 || replaceCalls != 1 || repairCalls != 3 || removeCalls != 1 {
+	if err != nil || fourth.Outcome != "succeeded" || fourth.Stage != "settled" || drainCalls != 1 || replaceCalls != 1 || repairCalls != 3 || removeCalls != 1 {
 		t.Fatalf("fourth=%+v err=%v drain=%d replace=%d repair=%d remove=%d", fourth, err, drainCalls, replaceCalls, repairCalls, removeCalls)
 	}
 }
 
 func TestUpdateSameRequestRejectsDifferentSelectedRelease(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	first, err := runUpdateLifecycleOperation(value, "update-stable", "release-a", func() error {
 		return errors.New("preparation interrupted")
@@ -1006,6 +1009,7 @@ func TestUpdateSameRequestRejectsDifferentSelectedRelease(t *testing.T) {
 }
 
 func TestUpdateSameRequestRejectsDifferentSelectedArtifact(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	first, err := runUpdateLifecycleOperationForArtifact(value, "update-stable", "release-a", strings.Repeat("a", 64), 1024, func() error {
 		return updatePreparationError{descriptor: updatePreparationFailureDescriptor{Version: 1, Stage: "download", Code: "update_download_unavailable", Message: "network unavailable", Retryable: true}}
@@ -1024,6 +1028,7 @@ func TestUpdateSameRequestRejectsDifferentSelectedArtifact(t *testing.T) {
 }
 
 func TestUpdatePreparationFailureRetriesAreDurablyBounded(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	digest := strings.Repeat("c", 64)
 	run := func() (lifecycleOperation, error) {
@@ -1054,6 +1059,7 @@ func TestUpdatePreparationFailureRetriesAreDurablyBounded(t *testing.T) {
 }
 
 func TestDecodeUpdatePreparationFailureRejectsUnboundedOrUnknownInput(t *testing.T) {
+	t.Parallel()
 	valid := `{"version":1,"stage":"download","code":"update_download_unavailable","message":"network unavailable","retryable":true}`
 	decoded, err := decodeUpdatePreparationFailure(strings.NewReader(valid))
 	if err != nil || decoded.Stage != "download" || !decoded.Retryable {
@@ -1070,32 +1076,8 @@ func TestDecodeUpdatePreparationFailureRejectsUnboundedOrUnknownInput(t *testing
 	}
 }
 
-func TestUpdateRejectsMismatchedPreparedTargetBeforeDrain(t *testing.T) {
-	value := testPaths(t.TempDir())
-	source := filepath.Join(filepath.Dir(value.app), ".Agent VMM Host.prepared.app")
-	mutations := 0
-	err := updateApplicationWith(value, source, "release-selected", "update-mismatch", updateApplicationActions{
-		releaseID: func(path string, staged bool) (string, error) {
-			if path == value.app {
-				return "release-current", nil
-			}
-			return "release-other", nil
-		},
-		drain:   func(paths) error { mutations++; return nil },
-		replace: func(string, string) error { mutations++; return nil },
-		repair:  func(paths) error { mutations++; return nil },
-		startVM: func(paths, string) error { mutations++; return nil },
-		remove:  func(string) error { mutations++; return nil },
-	})
-	if err == nil || !strings.Contains(err.Error(), "does not match") {
-		t.Fatalf("error=%v", err)
-	}
-	if mutations != 0 {
-		t.Fatalf("mismatched target performed %d mutations", mutations)
-	}
-}
-
 func TestLifecycleOperationIsDurableAndRequestIdempotent(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	calls := 0
 	first, err := runLifecycleOperation(value, "install", "request-1", func() error {
@@ -1118,25 +1100,27 @@ func TestLifecycleOperationIsDurableAndRequestIdempotent(t *testing.T) {
 	if second.OperationID != first.OperationID || calls != 1 {
 		t.Fatalf("duplicate operation=%+v calls=%d", second, calls)
 	}
-	observed := readOperation(value.operationFile)
+	observed := readLifecycleOperation(value)
 	if observed == nil || observed.OperationID != first.OperationID || observed.Outcome != "succeeded" {
 		t.Fatalf("durable operation=%+v", observed)
 	}
 }
 
 func TestLifecycleOperationFailureIsRecorded(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	_, err := runLifecycleOperation(value, "remove", "request-2", func() error { return os.ErrPermission })
 	if err == nil {
 		t.Fatal("expected operation failure")
 	}
-	observed := readOperation(value.operationFile)
+	observed := readLifecycleOperation(value)
 	if observed == nil || observed.Outcome != "failed" || observed.Kind != "remove" {
 		t.Fatalf("failed operation=%+v", observed)
 	}
 }
 
 func TestManagedLifecycleOperationRetriesFailedStableRequest(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	calls := 0
 	first, err := runManagedLifecycleOperation(value, "install-managed", "operation-1", func() error {
@@ -1160,6 +1144,7 @@ func TestManagedLifecycleOperationRetriesFailedStableRequest(t *testing.T) {
 }
 
 func TestManagedLifecycleOperationReportsPermanentFailureWithoutRetry(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	calls := 0
 	first, err := runManagedLifecycleOperation(value, "install-managed", "operation-terminal", func() error {
@@ -1182,6 +1167,7 @@ func TestManagedLifecycleOperationReportsPermanentFailureWithoutRetry(t *testing
 }
 
 func TestTerminalManagedLifecycleFailureRetainsPlanForServerAcknowledgement(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-terminal-cleanup"
 	planDirectory := filepath.Join(value.applicationData, "install-operations", operationID)
@@ -1206,13 +1192,14 @@ func TestTerminalManagedLifecycleFailureRetainsPlanForServerAcknowledgement(t *t
 	if _, err := os.Stat(planDirectory); err != nil {
 		t.Fatalf("terminal failure removed plan before Server acknowledgement: %v", err)
 	}
-	recorded, err := os.ReadFile(value.operationFile)
+	recorded, err := os.ReadFile(filepath.Join(value.applicationData, maintenanceReceiptName(operationID)))
 	if err != nil || strings.Contains(string(recorded), "secret-token") || !strings.Contains(string(recorded), `"outcome":"failed"`) {
 		t.Fatalf("non-secret terminal operation record missing or leaked material: %s err=%v", recorded, err)
 	}
 }
 
 func TestRetryableManagedLifecycleFailureRetainsPlan(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-retryable-plan"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -1237,6 +1224,7 @@ func TestRetryableManagedLifecycleFailureRetainsPlan(t *testing.T) {
 }
 
 func TestNonRetryableManagedFailureRetainsPlanUntilTerminalReportAck(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-storage-failure"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -1267,6 +1255,7 @@ func TestNonRetryableManagedFailureRetainsPlanUntilTerminalReportAck(t *testing.
 }
 
 func TestNonRetryableResultRecordFailureRetainsPlan(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-record-failure"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -1295,6 +1284,7 @@ func TestNonRetryableResultRecordFailureRetainsPlan(t *testing.T) {
 }
 
 func TestManagedLifecycleLockContentionRetainsPlan(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-lock-contention"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -1313,7 +1303,8 @@ func TestManagedLifecycleLockContentionRetainsPlan(t *testing.T) {
 		return nil
 	})
 	release()
-	if operationErr == nil || operation.SecretDisposition != secretDispositionRetain {
+	if !errors.Is(operationErr, errMaintenanceOwnerBusy) || operation.SecretDisposition != secretDispositionRetain ||
+		operation.OperationID != operationID || operation.FailureCode != "owner_busy" || !operation.Retryable || operation.Outcome != "unknown" {
 		t.Fatalf("lock contention disposition=%+v err=%v", operation, operationErr)
 	}
 	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
@@ -1325,6 +1316,7 @@ func TestManagedLifecycleLockContentionRetainsPlan(t *testing.T) {
 }
 
 func TestSucceededManagedOperationWithoutCompletionDispositionRetainsPlan(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-corrupt-success"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -1357,6 +1349,7 @@ func TestSucceededManagedOperationWithoutCompletionDispositionRetainsPlan(t *tes
 }
 
 func TestDestroyCompletedRequiresDurableCompletionReceipt(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-missing-receipt"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -1376,6 +1369,7 @@ func TestDestroyCompletedRequiresDurableCompletionReceipt(t *testing.T) {
 }
 
 func TestDestroyTerminalRequiresDurableTerminalResult(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operationID := "operation-missing-terminal-result"
 	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
@@ -1395,6 +1389,7 @@ func TestDestroyTerminalRequiresDurableTerminalResult(t *testing.T) {
 }
 
 func TestManagedLifecycleOperationStopsAtRetryLimit(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	calls := 0
 	fail := func() error {
@@ -1416,6 +1411,7 @@ func TestManagedLifecycleOperationStopsAtRetryLimit(t *testing.T) {
 }
 
 func TestManagedLifecycleOperationRetriesUnknownSameRequest(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	previous := lifecycleOperation{
 		OperationID: "operation-unknown", RequestID: "operation-unknown", Kind: "install-managed",
@@ -1435,6 +1431,7 @@ func TestManagedLifecycleOperationRetriesUnknownSameRequest(t *testing.T) {
 }
 
 func TestLifecycleRequestIDFencesGeneratedVMStart(t *testing.T) {
+	t.Parallel()
 	generated := lifecycleRequestID("")
 	if generated == "" || !strings.HasPrefix(generated, "req-") {
 		t.Fatalf("generated request ID = %q", generated)
@@ -1445,6 +1442,7 @@ func TestLifecycleRequestIDFencesGeneratedVMStart(t *testing.T) {
 }
 
 func TestRegistrationStateOperationRetriesTransientSameRevision(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	calls := 0
 	first, err := runRegistrationStateOperation(value, "registration-ENABLED", "operation-1-r2", func() error {
@@ -1464,6 +1462,7 @@ func TestRegistrationStateOperationRetriesTransientSameRevision(t *testing.T) {
 }
 
 func TestLifecycleOperationDoesNotReplayAnUnconfirmedPendingRequest(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	first, err := runLifecycleOperation(value, "install", "request-3", func() error { return nil })
 	if err != nil {
@@ -1481,12 +1480,13 @@ func TestLifecycleOperationDoesNotReplayAnUnconfirmedPendingRequest(t *testing.T
 	if err == nil || calls != 0 {
 		t.Fatalf("pending operation was replayed: err=%v calls=%d", err, calls)
 	}
-	if observed := readOperation(value.operationFile); observed == nil || observed.Outcome != "unknown" {
+	if observed := readLifecycleOperation(value); observed == nil || observed.Outcome != "unknown" {
 		t.Fatalf("pending operation outcome=%+v", observed)
 	}
 }
 
 func TestLifecycleOperationSerializesDuplicateRequests(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	var mu sync.Mutex
 	calls := 0
@@ -1517,6 +1517,7 @@ func TestLifecycleOperationSerializesDuplicateRequests(t *testing.T) {
 }
 
 func TestRepairRetryKeepsRegistrationTargetAndRerunsPendingStage(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	if err := persistOperation(value, lifecycleOperation{OperationID: "operation-1", RequestID: "request-1", Kind: "repair", TargetRegistrationID: "registration-a", Stage: "registration", Outcome: "pending", Attempt: 1}); err != nil {
 		t.Fatal(err)
@@ -1536,6 +1537,7 @@ func TestRepairRetryKeepsRegistrationTargetAndRerunsPendingStage(t *testing.T) {
 }
 
 func TestRepairFailureKeepsDurableRegistrationStageAndTarget(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	operation, err := runRepairLifecycleOperation(value, "request-failed", "registration-a", func() error {
 		if err := persistRepairStage(value, "request-failed", "registration-a", "registration"); err != nil {
@@ -1553,6 +1555,7 @@ func TestRepairFailureKeepsDurableRegistrationStageAndTarget(t *testing.T) {
 }
 
 func TestParseLifecycleOperationArgsRequiresOneOriginalID(t *testing.T) {
+	t.Parallel()
 	if got, err := parseLifecycleOperationArgs([]string{"--operation-id", "operation-1"}); err != nil || got != "operation-1" {
 		t.Fatalf("operation=%q err=%v", got, err)
 	}
@@ -1564,6 +1567,7 @@ func TestParseLifecycleOperationArgsRequiresOneOriginalID(t *testing.T) {
 }
 
 func TestReadLifecycleOperationByIDDoesNotSubstituteLatestOperation(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	if err := persistOperation(value, lifecycleOperation{OperationID: "operation-current", RequestID: "request-current", Kind: "repair", Outcome: "running"}); err != nil {
 		t.Fatal(err)
@@ -1589,13 +1593,13 @@ func testPaths(root string) paths {
 		agentPlist:      agentPlist,
 		daemonPlist:     filepath.Join(root, "LaunchDaemons", hostLabel+".plist"),
 		service:         serviceConfig{Version: 1, Mode: serviceModeAgent, User: "test", Group: "staff", UID: os.Getuid(), GID: os.Getgid(), ReleaseID: releaseID},
-		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"), logs: filepath.Join(home, "Library", "Logs", "AgentVMM"),
-		operationFile:     filepath.Join(home, "Library", "Application Support", "AgentVMM", "compute-node-operation.json"),
+		applicationData: filepath.Join(home, "Library", "Application Support", "AgentVMM"), logs: filepath.Join(home, "Library", "Logs", "AgentVMM"), serviceLogs: filepath.Join(home, "Library", "Logs", "AgentVMM"),
 		serviceConfigFile: filepath.Join(home, "Library", "Application Support", "AgentVMM", "service.json"),
 	}
 }
 
 func TestAtomicWriteReplacesDefinition(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "service.plist")
 	if err := atomicWrite(path, []byte("first"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1614,12 +1618,14 @@ func TestAtomicWriteReplacesDefinition(t *testing.T) {
 }
 
 func TestHostHealthDoesNotConfirmManagedInstall(t *testing.T) {
+	t.Parallel()
 	if operationConfirmed("install-managed", serviceStatus{HostInstalled: true, HostLoaded: true, HostHealthy: true}) {
 		t.Fatal("managed install recovery was confirmed without exact registration observation")
 	}
 }
 
 func TestExactRegistrationReadClassification(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		err  error
 		want string
@@ -1636,14 +1642,15 @@ func TestExactRegistrationReadClassification(t *testing.T) {
 }
 
 func TestDisposedRegistrationFailureStaysTerminalThroughLifecycleJournal(t *testing.T) {
-	failure, err := status.New(codes.NotFound, "original registration is absent").WithDetails(&errdetails.ErrorInfo{Reason: "LOCAL_DISPOSED"})
+	t.Parallel()
+	failure, err := status.New(codes.NotFound, "original registration is absent").WithDetails(&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "LOCAL_DISPOSED"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	get := func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+	get := func(context.Context, *hostv1.GetRemoteRegistrationRequest, ...grpc.CallOption) (*hostv1.GetRemoteRegistrationResponse, error) {
 		return nil, failure.Err()
 	}
-	set := func(context.Context, *hostv1.SetRemoteRegistrationStateRequest, ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+	set := func(context.Context, *hostv1.SetRemoteRegistrationStateRequest, ...grpc.CallOption) (*hostv1.SetRemoteRegistrationStateResponse, error) {
 		t.Fatal("disposed registration was mutated")
 		return nil, nil
 	}
@@ -1655,6 +1662,7 @@ func TestDisposedRegistrationFailureStaysTerminalThroughLifecycleJournal(t *test
 }
 
 func TestRevokeResumesPreviouslyFailedExactRequest(t *testing.T) {
+	t.Parallel()
 	value := testPaths(t.TempDir())
 	previous := lifecycleOperation{OperationID: "remove", RequestID: "remove", Kind: "registration-revoke", TargetRegistrationID: "failed", Outcome: "failed", Attempt: 1, FailureCode: "operation_failed", FailureMessage: "registration revision conflict"}
 	if err := persistOperation(value, previous); err != nil {
@@ -1682,32 +1690,33 @@ type revocationRaceClient struct {
 	alwaysConflict           bool
 }
 
-func (c *revocationRaceClient) GetRemoteRegistration(_ context.Context, r *hostv1.GetRemoteRegistrationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+func (c *revocationRaceClient) GetRemoteRegistration(_ context.Context, r *hostv1.GetRemoteRegistrationRequest, _ ...grpc.CallOption) (*hostv1.GetRemoteRegistrationResponse, error) {
 	c.reads++
 	if r.RegistrationId != "failed" {
 		return nil, status.Error(codes.PermissionDenied, "wrong target")
 	}
-	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: r.RegistrationId, Revision: uint64(c.reads), State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED}}, nil
+	return &hostv1.GetRemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: r.RegistrationId, Revision: uint64(c.reads), State: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED}}, nil
 }
-func (c *revocationRaceClient) BeginRemoteRevocation(_ context.Context, r *hostv1.BeginRemoteRevocationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+func (c *revocationRaceClient) BeginRemoteRevocation(_ context.Context, r *hostv1.BeginRemoteRevocationRequest, _ ...grpc.CallOption) (*hostv1.BeginRemoteRevocationResponse, error) {
 	c.begins++
 	if r.RequestId != "remove" || r.ExpectedRevision != uint64(c.reads) {
 		return nil, status.Error(codes.InvalidArgument, "wrong identity")
 	}
 	if c.begins == 1 || c.alwaysConflict {
-		conflict, _ := status.New(codes.Aborted, "registration revision changed").WithDetails(&errdetails.ErrorInfo{Reason: "REGISTRATION_REVISION_CONFLICT"})
+		conflict, _ := status.New(codes.Aborted, "registration revision changed").WithDetails(&errdetails.ErrorInfo{Domain: hostv1.ErrorDomain, Reason: "REGISTRATION_REVISION_CONFLICT"})
 		return nil, conflict.Err()
 	}
-	return &hostv1.RemoteRegistrationResponse{Registration: &hostv1.RemoteRegistration{Id: r.RegistrationId, Revision: r.ExpectedRevision + 1}}, nil
+	return &hostv1.BeginRemoteRevocationResponse{Registration: &hostv1.RemoteRegistration{Id: r.RegistrationId, Revision: r.ExpectedRevision + 1}}, nil
 }
-func (c *revocationRaceClient) CompleteRemoteRevocation(_ context.Context, r *hostv1.CompleteRemoteRevocationRequest, _ ...grpc.CallOption) (*hostv1.RemoteRegistrationResponse, error) {
+func (c *revocationRaceClient) CompleteRemoteRevocation(_ context.Context, r *hostv1.CompleteRemoteRevocationRequest, _ ...grpc.CallOption) (*hostv1.CompleteRemoteRevocationResponse, error) {
 	c.completes++
 	if r.RegistrationId != "failed" || r.RequestId != "remove" || r.ExpectedRevision != uint64(c.reads+1) {
 		return nil, status.Error(codes.InvalidArgument, "wrong completion")
 	}
-	return &hostv1.RemoteRegistrationResponse{}, nil
+	return &hostv1.CompleteRemoteRevocationResponse{}, nil
 }
 func TestRevokeRefreshesExactRevisionWithinBound(t *testing.T) {
+	t.Parallel()
 	client := &revocationRaceClient{}
 	if err := completeRemoteRevocation(context.Background(), client, "failed", "remove"); err != nil || client.reads != 2 || client.completes != 1 {
 		t.Fatalf("client=%+v err=%v", client, err)
@@ -1719,6 +1728,7 @@ func TestRevokeRefreshesExactRevisionWithinBound(t *testing.T) {
 }
 
 func TestLifecycleOperationRejectsAncestorSymlinkWithoutChangingTarget(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	value := testPaths(root)
 	value.service.Mode = serviceModeDaemon

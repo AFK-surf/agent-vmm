@@ -26,7 +26,6 @@ const (
 type Controller struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
 	identity *Identity
-	store    stateStore
 	logger   *slog.Logger
 
 	mu       sync.Mutex
@@ -41,7 +40,6 @@ type controlConnection struct {
 	done     chan struct{}
 	hello    *remotev1.HostHello
 	close    context.CancelFunc
-	sequence uint64
 }
 
 type commandRequest struct {
@@ -60,14 +58,14 @@ type sessionKey struct {
 	allocationGeneration uint64
 }
 
-func NewController(identity *Identity, stateDirectory string, logger *slog.Logger) *Controller {
+func NewController(identity *Identity, logger *slog.Logger) *Controller {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Controller{identity: identity, store: stateStore{directory: stateDirectory}, logger: logger, waiters: make(map[sessionKey]chan controllerremote.SessionConnection), runtimes: make(map[string]*clientRuntime)}
+	return &Controller{identity: identity, logger: logger, waiters: make(map[sessionKey]chan controllerremote.SessionConnection), runtimes: make(map[string]*clientRuntime)}
 }
 
-func (controller *Controller) Connect(stream grpc.BidiStreamingServer[remotev1.HostControlMessage, remotev1.ControllerControlMessage]) error {
+func (controller *Controller) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
 	registrationID := controller.identity.RegistrationID()
 	if registrationID == "" {
 		return errors.New("controller identity is not initialized")
@@ -75,9 +73,6 @@ func (controller *Controller) Connect(stream grpc.BidiStreamingServer[remotev1.H
 	session, err := controllerremote.AcceptControl(stream, registrationID)
 	if err != nil {
 		return err
-	}
-	if err := controller.store.saveInventory(session.Hello()); err != nil {
-		return fmt.Errorf("persist authoritative inventory: %w", err)
 	}
 	if err := session.Ready(); err != nil {
 		return err
@@ -94,10 +89,9 @@ func (controller *Controller) runControl(ctx context.Context, live *controlConne
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-live.session.Done():
+			return live.session.Err()
 		case request := <-live.requests:
-			live.sequence++
-			request.command.Sequence = live.sequence
-			request.command.ConnectionEpoch = live.hello.GetConnectionEpoch()
 			transcript, err := live.session.Dispatch(request.ctx, request.command)
 			result := transcript.Result
 			if err == nil && (result == nil || result.GetOutcome() != remotev1.CommandOutcome_COMMAND_OUTCOME_SUCCEEDED) {
@@ -131,16 +125,6 @@ func (controller *Controller) uninstall(live *controlConnection) {
 	close(live.done)
 }
 
-func (controller *Controller) dispatch(ctx context.Context, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
-	controller.mu.Lock()
-	live := controller.live
-	controller.mu.Unlock()
-	if live == nil {
-		return nil, errors.New("controller transport is unavailable")
-	}
-	return controller.dispatchOn(ctx, live, command)
-}
-
 func (controller *Controller) dispatchOn(ctx context.Context, live *controlConnection, command *remotev1.ControllerCommand) (*remotev1.CommandResult, error) {
 	request := commandRequest{ctx: ctx, command: command, response: make(chan commandResponse, 1)}
 	select {
@@ -167,7 +151,7 @@ func commandFailure(result *remotev1.CommandResult) error {
 	return fmt.Errorf("controller command failed: %s: %s", result.GetReason(), result.GetMessage())
 }
 
-func (controller *Controller) ServeSession(stream grpc.BidiStreamingServer[remotev1.HostSessionFrame, remotev1.ControllerSessionFrame]) error {
+func (controller *Controller) ServeSession(stream grpc.BidiStreamingServer[remotev1.ServeSessionRequest, remotev1.ServeSessionResponse]) error {
 	controller.mu.Lock()
 	live := controller.live
 	controller.mu.Unlock()
@@ -306,18 +290,20 @@ func (controller *Controller) openClientRuntime(parent context.Context, allocati
 func (client *clientRuntime) Close() {
 	client.closeOnce.Do(func() {
 		client.adapter.Close()
-		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-		_, err := client.controller.dispatchOn(ctx, client.live, &remotev1.ControllerCommand{
-			CommandId:      client.clientID + "-release",
-			TargetRevision: client.allocation.GetRevision(),
-			Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{
-				AllocationId: client.allocationID, ExpectedRevision: client.allocation.GetRevision(),
-				ExpectedGeneration: client.allocation.GetGeneration(),
-			}},
-		})
-		cancel()
-		if err != nil {
-			client.controller.logger.Warn("release MCP allocation", "allocation", client.allocationID, "error", err)
+		if !client.cleanup.completedSuccessfully() {
+			ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+			_, err := client.controller.dispatchOn(ctx, client.live, &remotev1.ControllerCommand{
+				CommandId:      client.clientID + "-release",
+				TargetRevision: client.allocation.GetRevision(),
+				Command: &remotev1.ControllerCommand_ReleaseAllocation{ReleaseAllocation: &remotev1.ReleaseAllocation{
+					AllocationId: client.allocationID, ExpectedRevision: client.allocation.GetRevision(),
+					ExpectedGeneration: client.allocation.GetGeneration(),
+				}},
+			})
+			cancel()
+			if err != nil {
+				client.controller.logger.Warn("release MCP allocation", "allocation", client.allocationID, "error", err)
+			}
 		}
 		client.cancel()
 		client.grpcConnection.Close()
@@ -342,11 +328,11 @@ func (controller *Controller) allocate(parent context.Context, clientID, allocat
 	if hello.GetCapacity() == nil || hello.GetCapacity().GetPerEnvironmentLimits() == nil {
 		return nil, nil, errors.New("controller capacity is incomplete")
 	}
-	limits := proto.Clone(hello.GetCapacity().GetPerEnvironmentLimits()).(*hostv1.ResourceLimits)
-	resources := &hostv1.WorkloadResourcesV2{CpuMaxMillis: limits.GetCpuMillis(),
-		MemoryMaxBytes: limits.GetMemoryBytes(), PidMax: limits.GetPids(), WritableQuotaBytes: limits.GetDiskBytes()}
+	limits := proto.Clone(hello.GetCapacity().GetPerEnvironmentLimits()).(*remotev1.ResourceLimits)
+	resources := &remotev1.ResourceLimits{
+		Pids: proto.Uint32(limits.GetPids()), DiskBytes: proto.Uint64(limits.GetDiskBytes())}
 	ctx, cancel := context.WithTimeout(parent, commandTimeout)
-	ensured, err := controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-ensure", TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, Generation: 1, DisplayLabel: "MCP client", ResourcesV2: resources, EgressMode: hello.GetCapacity().GetMaxEgressMode(), PolicyRevision: hello.GetPoolRevision()}}})
+	ensured, err := controller.dispatchOn(ctx, live, &remotev1.ControllerCommand{CommandId: clientID + "-ensure", TargetRevision: hello.GetPoolRevision(), Command: &remotev1.ControllerCommand_EnsureAllocation{EnsureAllocation: &remotev1.EnsureAllocation{AllocationId: allocationID, Generation: 1, DisplayLabel: "MCP client", Limits: resources, EgressMode: hello.GetCapacity().GetMaxEgressMode(), PolicyRevision: hello.GetPoolRevision()}}})
 	cancel()
 	if err != nil {
 		return nil, nil, err

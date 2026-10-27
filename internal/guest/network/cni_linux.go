@@ -102,14 +102,19 @@ func (m *Manager) Attach(ctx context.Context, namespaceID, containerID, instance
 		return Endpoint{}, errors.New("CNI returned no host interface")
 	}
 	endpoint := Endpoint{NamespaceID: namespaceID, ContainerID: containerID, InstanceID: instanceID, HostInterface: hostInterface, Address: address, NetNSPath: path}
-	m.endpoints[namespaceID][containerID] = endpoint
+	hadDNS := m.dns[namespaceID] != nil
 	if err := m.startDNSLocked(namespaceID); err != nil {
-		delete(m.endpoints[namespaceID], containerID)
 		m.detachCNI(ctx, namespace, containerID, path)
 		return Endpoint{}, err
 	}
-	if err := m.reconcileLocked(); err != nil {
-		delete(m.endpoints[namespaceID], containerID)
+	if err := m.mutateLocked(func(next *state) error { next.endpoints[namespaceID][containerID] = endpoint; return nil }); err != nil {
+		if m.endpoints[namespaceID][containerID].InstanceID == instanceID {
+			return endpoint, err
+		}
+		if !hadDNS {
+			m.dns[namespaceID].close(namespaceID)
+			delete(m.dns, namespaceID)
+		}
 		m.detachCNI(ctx, namespace, containerID, path)
 		return Endpoint{}, err
 	}
@@ -118,16 +123,16 @@ func (m *Manager) Attach(ctx context.Context, namespaceID, containerID, instance
 
 func (m *Manager) Detach(ctx context.Context, namespaceID, containerID, instanceID string) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	endpoint, ok := m.endpoints[namespaceID][containerID]
-	if !ok {
-		m.mu.Unlock()
-		return nil
-	}
-	if endpoint.InstanceID != instanceID {
-		m.mu.Unlock()
+	if !ok || endpoint.InstanceID != instanceID {
 		return nil
 	}
 	namespace := m.namespaces[namespaceID]
+	ruleErr := m.mutateLocked(func(next *state) error { delete(next.endpoints[namespaceID], containerID); return nil })
+	if _, retained := m.endpoints[namespaceID][containerID]; retained {
+		return ruleErr
+	}
 	if counters, err := interfaceCounters(endpoint.HostInterface, true); err == nil {
 		total := m.settled[namespaceID]
 		total.RXBytes += counters.RXBytes
@@ -136,18 +141,10 @@ func (m *Manager) Detach(ctx context.Context, namespaceID, containerID, instance
 	} else {
 		m.settledOK[namespaceID] = false
 	}
-	key := namespaceID + "/" + containerID
-	m.closeForwardsLocked(key)
-	delete(m.endpoints[namespaceID], containerID)
-	ruleErr := m.reconcileLocked()
-	m.mu.Unlock()
+	m.closeForwardsLocked(namespaceID + "/" + containerID)
 	cleanupContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cniErr := m.detachCNI(cleanupContext, namespace, containerID, endpoint.NetNSPath)
-	if ruleErr != nil {
-		return ruleErr
-	}
-	return cniErr
+	return errors.Join(ruleErr, m.detachCNI(cleanupContext, namespace, containerID, endpoint.NetNSPath))
 }
 
 func (m *Manager) closeForwardsLocked(key string) {

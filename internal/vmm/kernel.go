@@ -15,14 +15,3 @@ func kernelArgument(value string) bool {
 	}
 	return true
 }
-
-func parseKernelCommandLine(data string) map[string]string {
-	result := map[string]string{}
-	for _, field := range strings.Fields(data) {
-		key, value, ok := strings.Cut(field, "=")
-		if ok {
-			result[key] = value
-		}
-	}
-	return result
-}

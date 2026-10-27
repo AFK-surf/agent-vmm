@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 	"golang.org/x/net/dns/dnsmessage"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -24,7 +24,7 @@ type dnsResolver interface {
 func (subsystem *Subsystem) handleUDP(ctx context.Context, request *udp.ForwarderRequest, bootID string) {
 	id := request.ID()
 	destination, _ := addressFromTCPIP(id.LocalAddress)
-	virtualDNS := destination.String() == netprotocol.HostAddress && id.LocalPort == 53
+	virtualDNS := destination.String() == egresslink.HostAddress && id.LocalPort == 53
 	environment, infrastructure, allowed, authorizedSource := subsystem.authorizeEndpoint(bootID, id.RemoteAddress, id.LocalAddress, virtualDNS, id.LocalPort, false, false)
 	if !allowed {
 		subsystem.metrics.rejectedFlows.Add(1)
@@ -181,10 +181,6 @@ func dnsFailureResponse(query []byte) ([]byte, error) {
 	message.Authorities = nil
 	message.Additionals = nil
 	return message.Pack()
-}
-
-func (subsystem *Subsystem) resolveDNS(ctx context.Context, query []byte) ([]byte, error) {
-	return subsystem.resolveDNSAllowed(ctx, query, func(address netip.Addr) bool { return DestinationAllowed(address, nil, true) })
 }
 
 func (subsystem *Subsystem) resolveSourceDNS(ctx context.Context, query []byte, bootID string, source netip.Addr) ([]byte, error) {

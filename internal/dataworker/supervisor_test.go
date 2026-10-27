@@ -2,7 +2,6 @@ package dataworker
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,13 +13,12 @@ import (
 	"time"
 
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/servicepreface"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func TestSupervisorRequiresAbsoluteBoundaries(t *testing.T) {
-	_, err := Start(context.Background(), "worker", "socket", "service", "mesh", "capability")
+	_, err := Start(context.Background(), "worker", "socket", "service", "mesh")
 	if err == nil {
 		t.Fatal("relative process or socket path was accepted")
 	}
@@ -59,7 +57,7 @@ PY
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	supervisor, err := Start(ctx, script, socket, filepath.Join(directory, "service.sock"), filepath.Join(directory, "mesh.sock"), filepath.Join(directory, "capability"))
+	supervisor, err := Start(ctx, script, socket, filepath.Join(directory, "service.sock"), filepath.Join(directory, "mesh.sock"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,17 +92,13 @@ func TestRealIrohWorkerLifecycle(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
 	serviceA := filepath.Join(directory, "service-a.sock")
 	serviceB := filepath.Join(directory, "service-b.sock")
-	capability := filepath.Join(directory, "service.cap")
-	if err := os.WriteFile(capability, []byte("0123456789abcdef0123456789abcdef"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	startUnixEcho(t, serviceA, []byte("0123456789abcdef0123456789abcdef"))
-	startUnixEcho(t, serviceB, []byte("0123456789abcdef0123456789abcdef"))
-	supervisor, err := Start(ctx, binary, filepath.Join(directory, "worker-a.sock"), serviceA, serviceA, capability)
+	startUnixEcho(t, serviceA)
+	startUnixEcho(t, serviceB)
+	supervisor, err := Start(ctx, binary, filepath.Join(directory, "worker-a.sock"), serviceA, serviceA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, err := Start(ctx, binary, filepath.Join(directory, "worker-b.sock"), serviceB, serviceB, capability)
+	peer, err := Start(ctx, binary, filepath.Join(directory, "worker-b.sock"), serviceB, serviceB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +162,7 @@ func TestRealIrohWorkerLifecycle(t *testing.T) {
 		t.Fatal("stale endpoint remained reachable after peer sleep/rotation")
 	}
 	staleCancel()
-	peer, err = Start(ctx, binary, filepath.Join(directory, "worker-b.sock"), serviceB, serviceB, capability)
+	peer, err = Start(ctx, binary, filepath.Join(directory, "worker-b.sock"), serviceB, serviceB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,8 +184,8 @@ func TestRealIrohWorkerLifecycle(t *testing.T) {
 	}
 	_ = rotatedTunnel.Close()
 	serviceC := filepath.Join(directory, "service-c.sock")
-	startGRPCServiceEcho(t, serviceC, []byte("0123456789abcdef0123456789abcdef"))
-	grpcPeer, err := Start(ctx, binary, filepath.Join(directory, "worker-c.sock"), serviceC, serviceC, capability)
+	startGRPCServiceEcho(t, serviceC)
+	grpcPeer, err := Start(ctx, binary, filepath.Join(directory, "worker-c.sock"), serviceC, serviceC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +249,7 @@ func loopbackEndpoint(t *testing.T, raw json.RawMessage) json.RawMessage {
 	return value
 }
 
-func startUnixEcho(t *testing.T, path string, capability []byte) {
+func startUnixEcho(t *testing.T, path string) {
 	t.Helper()
 	listener, err := net.Listen("unix", path)
 	if err != nil {
@@ -270,14 +264,6 @@ func startUnixEcho(t *testing.T, path string, capability []byte) {
 			}
 			go func() {
 				defer connection.Close()
-				preface := make([]byte, 20)
-				if _, err := io.ReadFull(connection, preface); err != nil || string(preface[:16]) != "AVM-SVC-TUNNEL1\x00" || binary.BigEndian.Uint32(preface[16:]) != uint32(len(capability)) {
-					return
-				}
-				actual := make([]byte, len(capability))
-				if _, err := io.ReadFull(connection, actual); err != nil || string(actual) != string(capability) {
-					return
-				}
 				_, _ = io.Copy(connection, connection)
 			}()
 		}
@@ -304,13 +290,9 @@ func (grpcServiceEcho) OpenServiceForward(stream servicev1.ServiceRouteService_O
 	}
 }
 
-func startGRPCServiceEcho(t *testing.T, path string, capability []byte) {
+func startGRPCServiceEcho(t *testing.T, path string) {
 	t.Helper()
-	base, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener, err := servicepreface.New(base, capability)
+	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}

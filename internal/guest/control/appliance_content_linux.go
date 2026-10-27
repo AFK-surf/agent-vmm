@@ -5,26 +5,26 @@ package control
 import (
 	"context"
 	"errors"
-	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
 
 	appliancev1 "github.com/AFK-surf/agent-vmm/api/appliance/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/appliancecontent"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
+	digest "github.com/opencontainers/go-digest"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
-func receiveContentRequest(ctx context.Context, recv func() (*appliancev1.StageContentRequest, error)) (*appliancev1.StageContentRequest, error) {
+func receiveContentRequest(ctx context.Context, recv func() (*vmmdv1.StageApplianceContentRequest, error)) (*vmmdv1.StageApplianceContentRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	type result struct {
-		request *appliancev1.StageContentRequest
+		request *vmmdv1.StageApplianceContentRequest
 		err     error
 	}
 	ready := make(chan result, 1)
@@ -41,7 +41,7 @@ func receiveContentRequest(ctx context.Context, recv func() (*appliancev1.StageC
 	}
 }
 
-func (s *Server) StageApplianceContent(stream grpc.ClientStreamingServer[appliancev1.StageContentRequest, appliancev1.ApplianceContentStatus]) error {
+func (s *Server) StageApplianceContent(stream grpc.ClientStreamingServer[vmmdv1.StageApplianceContentRequest, appliancev1.ApplianceContentStatus]) error {
 	first, err := receiveContentRequest(stream.Context(), stream.Recv)
 	if err != nil {
 		return rpcError(err)
@@ -62,10 +62,10 @@ func (s *Server) StageApplianceContent(stream grpc.ClientStreamingServer[applian
 		return rpcError(err)
 	}
 	if available {
-		log.Printf("appliance content Guest cache ready: role=%s digest=%s archive_bytes=%d", content.GetRole(), content.GetImageManifestDigest(), content.GetArchiveSize())
+		s.runtime.logger.Info("appliance content cache ready", "role", content.GetRole(), "digest", content.GetImageManifestDigest(), "archive_bytes", content.GetArchiveSize())
 		return stream.SendAndClose(&appliancev1.ApplianceContentStatus{ContentRef: content, Available: true})
 	}
-	unlock, err := s.runtime.lockImportSlot(ctx, content.GetImageManifestDigest())
+	unlock, err := s.runtime.lockImportSlot(ctx)
 	if err != nil {
 		return rpcError(err)
 	}
@@ -75,7 +75,7 @@ func (s *Server) StageApplianceContent(stream grpc.ClientStreamingServer[applian
 		return rpcError(err)
 	}
 	if available {
-		log.Printf("appliance content Guest cache ready: role=%s digest=%s archive_bytes=%d", content.GetRole(), content.GetImageManifestDigest(), content.GetArchiveSize())
+		s.runtime.logger.Info("appliance content cache ready", "role", content.GetRole(), "digest", content.GetImageManifestDigest(), "archive_bytes", content.GetArchiveSize())
 		return stream.SendAndClose(&appliancev1.ApplianceContentStatus{ContentRef: content, Available: true})
 	}
 	importHeader := &vmmdv1.ImportImageHeader{RequestId: header.GetRequestId(), ManifestDigest: content.GetImageManifestDigest(), ArchiveSize: content.GetArchiveSize()}
@@ -84,50 +84,18 @@ func (s *Server) StageApplianceContent(stream grpc.ClientStreamingServer[applian
 		return rpcError(err)
 	}
 	defer reservation.Release()
-	var archive *os.File
-	err = s.runtime.diskBudget.Mutate(func(_ *guestdisk.Transaction) error {
-		if err := s.runtime.openOCIProjectAllowance(reservation); err != nil {
-			return err
+	archive, cleanup, err := s.runtime.receiveArchive(ctx, func() ([]byte, error) {
+		frame, err := receiveContentRequest(ctx, stream.Recv)
+		if err != nil {
+			return nil, err
 		}
-		if err := ensureDirectory(root, 0700); err != nil {
-			return err
-		}
-		if err := assignOCIRoot(root, projectID, assignProject); err != nil {
-			return err
-		}
-		var err error
-		archive, err = os.CreateTemp(root, ".content-stage-*")
-		return err
-	})
+		return frame.GetArchiveChunk(), nil
+	}, content.GetArchiveSize(), content.GetArchiveSha256(), reservation)
 	if err != nil {
 		return rpcError(err)
 	}
-	defer archive.Close()
-	defer os.Remove(archive.Name())
-	defer s.runtime.diskBudget.Settle(func() error { return s.runtime.settleOCIProjectQuota(context.Background()) })
-	written := uint64(0)
-	for {
-		frame, err := receiveContentRequest(ctx, stream.Recv)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return rpcError(err)
-		}
-		chunk := frame.GetArchiveChunk()
-		if !validImportArchiveChunk(chunk, content.GetArchiveSize()-written) {
-			return invalid(errors.New("archive chunk exceeds content limits"))
-		}
-		count, err := writeImportChunk(s.runtime.diskBudget, reservation, archive, chunk)
-		if err != nil {
-			return rpcError(err)
-		}
-		written += uint64(count)
-	}
-	if written != content.GetArchiveSize() {
-		return invalid(errors.New("content archive is truncated"))
-	}
-	if err := appliancecontent.ValidateArchive(ctx, archive, content); err != nil {
+	defer cleanup()
+	if _, err := ociarchive.Validate(archive, digest.Digest(content.GetImageManifestDigest())); err != nil {
 		return invalid(err)
 	}
 	err = s.runtime.diskBudget.Mutate(func(transaction *guestdisk.Transaction) error {
@@ -136,7 +104,7 @@ func (s *Server) StageApplianceContent(stream grpc.ClientStreamingServer[applian
 	if err != nil {
 		return rpcError(err)
 	}
-	log.Printf("appliance content Guest stage ready: role=%s digest=%s archive_bytes=%d", content.GetRole(), content.GetImageManifestDigest(), written)
+	s.runtime.logger.Info("appliance content stage ready", "role", content.GetRole(), "digest", content.GetImageManifestDigest(), "archive_bytes", content.GetArchiveSize())
 	return stream.SendAndClose(&appliancev1.ApplianceContentStatus{ContentRef: content, Available: true})
 }
 

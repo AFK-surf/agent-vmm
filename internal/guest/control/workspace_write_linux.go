@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path"
 	"strings"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"golang.org/x/sys/unix"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func prepareWorkspaceWriteParent(namespaceID, volumeID, relative string) (*os.File, error) {
@@ -35,7 +36,7 @@ func prepareWorkspaceWriteParent(namespaceID, volumeID, relative string) (*os.Fi
 	}
 	for _, component := range strings.Split(clean, "/") {
 		created := false
-		fd, err := unix.Openat2(int(current.Fd()), component, &unix.OpenHow{Flags: unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC, Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_SYMLINKS})
+		next, err := openBeneath(current, component, unix.O_RDONLY|unix.O_DIRECTORY)
 		if errors.Is(err, unix.ENOENT) {
 			if err = unix.Mkdirat(int(current.Fd()), component, 0700); err == nil {
 				created = true
@@ -43,15 +44,14 @@ func prepareWorkspaceWriteParent(namespaceID, volumeID, relative string) (*os.Fi
 				current.Close()
 				return nil, err
 			}
-			fd, err = unix.Openat2(int(current.Fd()), component, &unix.OpenHow{Flags: unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC, Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_SYMLINKS})
+			next, err = openBeneath(current, component, unix.O_RDONLY|unix.O_DIRECTORY)
 		}
 		if err != nil {
 			current.Close()
 			return nil, err
 		}
-		next := os.NewFile(uintptr(fd), component)
 		if created {
-			if err = unix.Fchown(fd, int(owner.Uid), int(owner.Gid)); err == nil {
+			if err = unix.Fchown(int(next.Fd()), int(owner.Uid), int(owner.Gid)); err == nil {
 				err = next.Sync()
 			}
 			if err == nil {
@@ -83,7 +83,7 @@ func (s *Server) WriteWorkspace(stream vmmdv1.VMMDService_WriteWorkspaceServer) 
 			if rawErr == nil {
 				rawErr = resultErr
 			}
-			log.Printf("workspace write failed namespace=%q volume=%q path=%q request_id=%q phase=%q: %v", header.GetActorNamespaceId(), header.GetVolumeId(), header.GetPath(), header.GetRequestId(), phase, rawErr)
+			s.runtime.logger.Warn("workspace write failed", "namespace_id", header.GetActorNamespaceId(), "volume_id", header.GetVolumeId(), "path", header.GetPath(), "request_id", header.GetRequestId(), "stage", phase, "error", rawErr)
 		}
 	}()
 	if err := validateRequestID(header.GetRequestId()); err != nil {
@@ -98,6 +98,11 @@ func (s *Server) WriteWorkspace(stream vmmdv1.VMMDService_WriteWorkspaceServer) 
 	if err != nil || clean == "." {
 		return fail(errors.New("workspace write requires a file path"))
 	}
+	key := "workspace-upload\x00" + header.GetActorNamespaceId() + "\x00" + header.GetVolumeId() + "\x00" + clean + "\x00" + header.GetRequestId()
+	if _, active := s.runtime.resourceLocks.LoadOrStore(key, struct{}{}); active {
+		return fail(status.Error(codes.Aborted, "workspace upload is already in progress"))
+	}
+	defer s.runtime.resourceLocks.Delete(key)
 	parentPath, name := path.Dir(clean), path.Base(clean)
 	phase = "parent"
 	parent, err := prepareWorkspaceWriteParent(header.GetActorNamespaceId(), header.GetVolumeId(), parentPath)

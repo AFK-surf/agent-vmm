@@ -22,7 +22,9 @@ CrossDomainRemove(i) ==
   /\ phase' = [phase EXCEPT ![Other(i)] = "REMOVED"]
   /\ removeOwner' = [removeOwner EXCEPT ![Other(i)] = i]
 
-Next == \E i \in Installations: ExecuteOwnRemove(i) \/ CrossDomainRemove(i)
+Terminated == (\A i \in Installations: phase[i] = "REMOVED") /\ UNCHANGED vars
+
+Next == Terminated \/ \E i \in Installations: ExecuteOwnRemove(i) \/ CrossDomainRemove(i)
 
 TypeOK ==
   /\ phase \in [Installations -> {"PENDING_DESTROY", "REMOVED"}]

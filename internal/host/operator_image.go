@@ -6,41 +6,41 @@ import (
 	"context"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/grpc/status"
 )
 
-func (server *operatorServer) DeleteEnvironmentImage(ctx context.Context, request *hostv1.DeleteEnvironmentImageRequest) (*emptypb.Empty, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
+func (server *operatorServer) DeleteEnvironmentImage(ctx context.Context, request *hostv1.DeleteEnvironmentImageRequest) (*hostv1.DeleteEnvironmentImageResponse, error) {
 	if request.GetRequestId() == "" || request.GetEnvironmentId() == "" || request.GetReference() == "" || request.GetExpectedGenerationId() == "" || request.GetExpectedDigest() == "" {
-		return nil, invalidField("request_id/environment_id/reference/expected_generation_id/expected_digest", "environment, image identity, and request ID are required")
+		return nil, hostv1.InvalidField("request_id/environment_id/reference/expected_generation_id/expected_digest", "environment, image identity, and request ID are required")
 	}
-	releaseInventory, err := server.controller.lockInventoryMutation(ctx)
+	ctx, releaseInventory, err := server.controller.inventory.Enter(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer releaseInventory()
-	unlock := server.controller.lockEnvironment(request.GetEnvironmentId())
+	unlock, lockErr := server.controller.workloads.LockEnvironment(ctx, request.GetEnvironmentId())
+	if lockErr != nil {
+		return nil, lockErr
+	}
+
 	defer unlock()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
 	if err != nil {
-		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+		return nil, status.Error(codes.NotFound, "agent environment does not exist")
 	}
 	if err := requireLocalOperatorEnvironment(environment); err != nil {
 		return nil, err
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, err
 	}
-	defer connection.Close()
+
 	_, err = client.DeleteImage(ctx, &vmmdv1.DeleteImageRequest{
 		RequestId: request.GetRequestId(), ActorNamespaceId: environment.NamespaceID, Reference: request.GetReference(),
 		ExpectedGenerationId: request.GetExpectedGenerationId(), ExpectedDigest: request.GetExpectedDigest(),
@@ -48,5 +48,5 @@ func (server *operatorServer) DeleteEnvironmentImage(ctx context.Context, reques
 	if err != nil {
 		return nil, err
 	}
-	return &emptypb.Empty{}, nil
+	return &hostv1.DeleteEnvironmentImageResponse{}, nil
 }

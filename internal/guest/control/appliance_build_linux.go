@@ -7,11 +7,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"io"
 	"os"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,7 +19,7 @@ import (
 
 const applianceBuildNamespace = "system.appliance-build"
 
-var applianceBuildLimits = &vmmdv1.NamespaceLimits{CpuMillis: 2000, MemoryBytes: 4 << 30, Pids: 1024}
+var applianceBuildLimits = &vmmdv1.NamespaceLimits{Pids: 1024}
 
 // BuildAppliance is an operator-only build lane. Unlike BuildImage, its OCI
 // archive is returned to the host and never becomes an allocation image.
@@ -58,7 +58,7 @@ func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApp
 		if err := workspace.RecoverClose(ctx); err != nil {
 			return err
 		}
-		return r.settleBuilderCacheReservation(ctx, "cache-write\x00"+workspace.ID())
+		return r.settleBuilderCacheReservation("cache-write\x00" + workspace.ID())
 	}
 	r.mu.Lock()
 	if r.imageOperationsClosing {
@@ -70,7 +70,7 @@ func (r *Runtime) BuildAppliance(stream grpc.BidiStreamingServer[vmmdv1.BuildApp
 	defer func() {
 		cleanupErr := workspace.Close()
 		if cleanupErr == nil {
-			cleanupErr = r.settleBuilderCacheReservation(context.Background(), "cache-write\x00"+workspace.ID())
+			cleanupErr = r.settleBuilderCacheReservation("cache-write\x00" + workspace.ID())
 		}
 		if cleanupErr == nil {
 			r.imageOperations.Delete(key)

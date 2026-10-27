@@ -4,41 +4,24 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
+	"log/slog"
 	"net"
 	"net/url"
-	"os"
 	"path/filepath"
-	"time"
 
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/grpc"
+	"time"
 )
 
-func LoadTLSRoots(path string) (*x509.CertPool, error) {
-	pem, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("controller TLS CA file is unavailable")
-	}
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		return nil, fmt.Errorf("system TLS roots are unavailable")
-	}
-	if !roots.AppendCertsFromPEM(pem) {
-		return nil, fmt.Errorf("controller TLS CA file is invalid")
-	}
-	return roots, nil
-}
-
 const (
-	ProtocolVersion  = "2"
-	HostAPIVersion   = "host.v1"
+	ProtocolVersion  = controllerremote.ProtocolVersion
 	ConnectorRelease = "0.1.0"
 	MaxControlBytes  = 1 << 20
 	// MaxActiveInventoryItems bounds one connection snapshot. It is not a
 	// registration-wide allocation limit; exact command results carry facts for
 	// allocations outside this snapshot.
-	MaxActiveInventoryItems = 64
+	MaxActiveInventoryItems = controllerremote.MaxActiveInventoryItems
 	MaxLabelBytes           = 256
 	MaxCredentialBytes      = 4096
 	FrameBytes              = 32 << 10
@@ -51,64 +34,51 @@ const (
 )
 
 type Config struct {
-	Endpoint                string
-	EndpointIdentity        string
-	RegistrationID          string
-	RemoteComputeSocket     string
-	TrustSocket             string
-	TrustCapabilityFile     string
-	ServiceTunnelSocket     string
-	MeshControlSocket       string
-	DataWorkerPath          string
-	DataWorkerSocket        string
-	UseExistingDataWorker   bool
-	CredentialStore         CredentialStore
-	PrivateControllerDialer func(context.Context) (*grpc.ClientConn, error)
-	OnReady                 func()
-	CommandAdmission        <-chan struct{}
-	OnAttemptError          func(error)
-	Logger                  Logger
-	TLSRoots                *x509.CertPool
-	endpointObservation     *trustv1.EndpointObservation
+	RegistrationID      string
+	RemoteComputeSocket string
+	Transport           Transport
+	OnReady             func()
+	CommandAdmission    <-chan struct{}
+	OnAttemptError      func(error)
+	Logger              *slog.Logger
 }
 
-type Logger interface {
-	Printf(format string, arguments ...any)
+type Transport interface{ connectorTransport() }
+
+type ExternalTransport struct {
+	Endpoint    string
+	Roots       *x509.CertPool
+	Credentials CredentialStore
+	Trust       *TrustBoundary
+	Worker      *WorkerSockets
 }
 
-// LoadConfig reads non-secret controller identity from the restricted local API.
-// The credential remains in the Host service user's protected store and is
-// loaded only when an RPC is sent.
-func LoadConfig(ctx context.Context, socket, registrationID string, store CredentialStore) (Config, error) {
-	if registrationID == "" {
-		return Config{}, fmt.Errorf("registration ID is required")
+func (ExternalTransport) connectorTransport() {}
+
+type PrivateTransport struct {
+	Dial func(context.Context) (*grpc.ClientConn, error)
+}
+
+func (PrivateTransport) connectorTransport() {}
+
+type TrustBoundary struct{ Socket string }
+type WorkerSockets struct{ Socket, ServiceTunnelSocket, MeshControlSocket string }
+
+func ParseEndpoint(endpoint string) (string, error) {
+	parsed, err := url.Parse("https://" + endpoint)
+	if err != nil || parsed.Host != endpoint || parsed.Port() == "" || parsed.Hostname() == "" || len(parsed.Hostname()) > 253 || net.ParseIP(parsed.Hostname()) != nil {
+		return "", fmt.Errorf("endpoint must be a TLS host:port with DNS identity")
 	}
-	local, err := newLocalClient(ctx, socket, registrationID)
-	if err != nil {
-		return Config{}, err
+	return parsed.Hostname(), nil
+}
+
+func (config Config) external() ExternalTransport { return config.Transport.(ExternalTransport) }
+func (config Config) trustSocket() string {
+	transport, external := config.Transport.(ExternalTransport)
+	if !external || transport.Trust == nil {
+		return ""
 	}
-	defer local.connection.Close()
-	state, err := local.client.GetRemoteState(ctx, &hostv1.GetRemoteStateRequest{RegistrationId: registrationID})
-	if err != nil {
-		return Config{}, fmt.Errorf("remote registration unavailable")
-	}
-	registration := state.GetRegistration()
-	parsed, err := url.Parse("https://" + registration.GetEndpoint())
-	if err != nil || parsed.Hostname() == "" {
-		return Config{}, fmt.Errorf("remote registration endpoint is invalid")
-	}
-	config := Config{Endpoint: registration.GetEndpoint(), EndpointIdentity: parsed.Hostname(), RegistrationID: registration.GetId(), RemoteComputeSocket: socket,
-		TrustSocket: filepath.Join(filepath.Dir(socket), "trust.sock"), TrustCapabilityFile: filepath.Join(filepath.Dir(socket), "connector-trust.cap"), CredentialStore: store}
-	if registration.GetState() == hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED {
-		return Config{}, ErrCredentialRevoked
-	}
-	if registration.GetEnrollmentState() != hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY {
-		return Config{}, fmt.Errorf("remote enrollment is not ready")
-	}
-	if err := config.validate(); err != nil {
-		return Config{}, err
-	}
-	return config, nil
+	return transport.Trust.Socket
 }
 
 func (config Config) validate() error {
@@ -118,45 +88,28 @@ func (config Config) validate() error {
 	if !filepath.IsAbs(config.RemoteComputeSocket) {
 		return fmt.Errorf("remote compute socket must be absolute")
 	}
-	if (config.TrustSocket == "") != (config.TrustCapabilityFile == "") {
-		return fmt.Errorf("trust socket and connector capability file must be configured together")
-	}
-	if config.TrustSocket != "" && (!filepath.IsAbs(config.TrustSocket) || !filepath.IsAbs(config.TrustCapabilityFile)) {
-		return fmt.Errorf("trust socket and connector capability file must be absolute")
-	}
-	if config.UseExistingDataWorker && config.DataWorkerPath != "" {
-		return fmt.Errorf("an existing data worker cannot also be started by the connector")
-	}
-	if !config.UseExistingDataWorker && (config.DataWorkerPath == "") != (config.DataWorkerSocket == "") {
-		return fmt.Errorf("data worker path and socket must be configured together")
-	}
-	if config.UseExistingDataWorker && !filepath.IsAbs(config.DataWorkerSocket) {
-		return fmt.Errorf("existing data worker socket must be absolute")
-	}
-	if config.DataWorkerPath != "" && (!filepath.IsAbs(config.DataWorkerPath) || !filepath.IsAbs(config.DataWorkerSocket)) {
-		return fmt.Errorf("data worker path and socket must be absolute")
-	}
-	if (config.DataWorkerPath != "" || config.UseExistingDataWorker) && (!filepath.IsAbs(config.ServiceTunnelSocket) || !filepath.IsAbs(config.MeshControlSocket)) {
-		return fmt.Errorf("service and mesh-control sockets must be absolute when the data worker is configured")
-	}
-	if config.PrivateControllerDialer != nil {
-		if config.Endpoint != "" || config.EndpointIdentity != "" || config.CredentialStore != nil || config.TrustSocket != "" || config.DataWorkerPath != "" || config.UseExistingDataWorker {
-			return fmt.Errorf("private controller transport cannot include external connector configuration")
+	switch transport := config.Transport.(type) {
+	case PrivateTransport:
+		if transport.Dial == nil {
+			return fmt.Errorf("private controller dialer is required")
 		}
-		return nil
-	}
-	if config.EndpointIdentity == "" || len(config.EndpointIdentity) > 253 {
-		return fmt.Errorf("endpoint identity is required and bounded")
-	}
-	parsed, err := url.Parse("https://" + config.Endpoint)
-	if err != nil || parsed.Host != config.Endpoint || parsed.Port() == "" || net.ParseIP(parsed.Hostname()) != nil {
-		return fmt.Errorf("endpoint must be a TLS host:port with DNS identity")
-	}
-	if parsed.Hostname() != config.EndpointIdentity {
-		return fmt.Errorf("endpoint identity must match endpoint hostname")
-	}
-	if config.CredentialStore == nil {
-		return fmt.Errorf("credential store is required")
+	case ExternalTransport:
+		if transport.Credentials == nil {
+			return fmt.Errorf("credential store is required")
+		}
+		if transport.Trust != nil && !filepath.IsAbs(transport.Trust.Socket) {
+			return fmt.Errorf("trust socket must be absolute")
+		}
+		if transport.Worker != nil && (!filepath.IsAbs(transport.Worker.Socket) || !filepath.IsAbs(transport.Worker.ServiceTunnelSocket) || !filepath.IsAbs(transport.Worker.MeshControlSocket)) {
+			return fmt.Errorf("worker sockets must be absolute")
+		}
+	default:
+		return fmt.Errorf("controller transport is required")
 	}
 	return nil
+}
+
+func (config Config) endpointIdentity() string {
+	hostname, _ := ParseEndpoint(config.external().Endpoint)
+	return hostname
 }

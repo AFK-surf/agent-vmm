@@ -40,7 +40,7 @@ func renewEndpointObservations(ctx context.Context, epoch uint64, state *endpoin
 			!observation.GetExpiresAt().AsTime().After(current.GetExpiresAt().AsTime()) {
 			return errors.New("endpoint observation renewal is invalid")
 		}
-		message := &remotev1.HostControlMessage{Payload: &remotev1.HostControlMessage_EndpointObservationRenewal{
+		message := &remotev1.ConnectRequest{Payload: &remotev1.ConnectRequest_EndpointObservationRenewal{
 			EndpointObservationRenewal: &remotev1.EndpointObservationRenewal{ConnectionEpoch: epoch, EndpointObservation: observation},
 		}}
 		if err := writer.Send(ctx, message); err != nil {

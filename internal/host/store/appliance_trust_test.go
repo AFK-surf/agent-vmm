@@ -28,7 +28,7 @@ func applianceTrustStore(t *testing.T) (*Store, ApplianceTrustAuthority) {
 	installation, _, _, err := database.InstallApplianceDomain(ctx,
 		ApplianceInstallation{ID: "installation", ProductID: "product", ArtifactID: "artifact", State: 1, Revision: 1, DataVolumeID: "volume", DataVolumeBytes: 1 << 20},
 		ApplianceGrant{Revision: 1, System: ResourceAmount{PIDs: 1, DiskBytes: 1}, PerEnvironment: ResourceAmount{PIDs: 1, DiskBytes: 1}, EgressMode: 1, MaxEgressMode: 1},
-		RemoteRegistration{ID: "registration", InstallationID: "installation", OwnerKind: RemoteRegistrationPrivate, DisplayName: "private", ProtocolVersion: "1", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1},
+		RemoteRegistration{ID: "registration", InstallationID: "installation", OwnerKind: RemoteRegistrationPrivate, DisplayName: "private", PerEnvPIDs: 1, PerEnvDiskBytes: 1, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 3, ConnectorPhase: 1},
 		nil, ApplianceOperation{ID: "install", RequestID: "install", State: 1, Phase: 2})
 	if err != nil {
 		t.Fatal(err)

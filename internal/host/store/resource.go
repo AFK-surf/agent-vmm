@@ -22,7 +22,7 @@ func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Envi
 		return Environment{}, fmt.Errorf("%w: %w", ErrResourceCapacityExceeded, err)
 	}
 	now := time.Now().UnixNano()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO environments(id,namespace_id,display_name,cpu_millis,memory_bytes,pids,disk_bytes,egress_mode,owner_kind,registration_id,allocation_id,allocation_generation,allocation_state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, environment.ID, environment.NamespaceID, environment.DisplayName, environment.CPUMillis, environment.MemoryBytes, environment.PIDs, environment.DiskBytes, environment.EgressMode, environment.OwnerKind, environment.RegistrationID, environment.AllocationID, environment.AllocationGeneration, environment.AllocationState, now, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO environments(id,namespace_id,display_name,pids,disk_bytes,egress_mode,owner_kind,registration_id,allocation_id,allocation_generation,allocation_state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, environment.ID, environment.NamespaceID, environment.DisplayName, environment.PIDs, environment.DiskBytes, environment.EgressMode, environment.OwnerKind, environment.RegistrationID, environment.AllocationID, environment.AllocationGeneration, environment.AllocationState, now, now); err != nil {
 		return Environment{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -32,7 +32,7 @@ func (store *Store) BeginWorkloadAdmission(ctx context.Context, environment Envi
 }
 
 func (environment Environment) Resources() resourcev2.Contract {
-	return resourcev2.Contract{CPUMaxMillis: uint64(environment.CPUMillis), MemoryMaxBytes: environment.MemoryBytes, PIDMax: uint64(environment.PIDs), WritableQuotaBytes: environment.DiskBytes}
+	return resourcev2.Contract{PIDMax: uint64(environment.PIDs), WritableQuotaBytes: environment.DiskBytes}
 }
 
 func (store *Store) CommitNamespaceProjection(ctx context.Context, environment Environment) error {
@@ -51,8 +51,8 @@ func (store *Store) CommitNamespaceProjection(ctx context.Context, environment E
 	return nil
 }
 
-func (store *Store) ListRetiringAllocations(ctx context.Context, since time.Time, limit int) ([]Environment, error) {
-	rows, err := store.db.QueryContext(ctx, environmentSelect+` WHERE owner_kind=? AND allocation_state=? AND updated_at>=? ORDER BY updated_at,id LIMIT ?`, OwnerRemoteRegistration, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), since.UnixNano(), limit)
+func (store *Store) ListRetiringAllocations(ctx context.Context, after string, limit int) ([]Environment, error) {
+	rows, err := store.db.QueryContext(ctx, environmentSelect+` WHERE owner_kind=? AND allocation_state=? AND id>? ORDER BY id LIMIT ?`, OwnerRemoteRegistration, int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -66,27 +66,6 @@ func (store *Store) ListRetiringAllocations(ctx context.Context, since time.Time
 		result = append(result, environment)
 	}
 	return result, rows.Err()
-}
-
-// RequeueAllocationRetirement starts a new bounded retirement attempt window
-// without changing the allocation fence. A retained allocation whose previous
-// window expired otherwise remains a terminal, operator-visible fact.
-func (store *Store) RequeueAllocationRetirement(ctx context.Context, id string, expectedRevision uint64) (Environment, error) {
-	result, err := store.db.ExecContext(ctx, `UPDATE environments SET updated_at=?
-		WHERE id=? AND owner_kind=? AND allocation_state=? AND policy_revision=?`,
-		time.Now().UnixNano(), id, OwnerRemoteRegistration,
-		int32(hostv1.AllocationState_ALLOCATION_STATE_RETAINED), expectedRevision)
-	if err != nil {
-		return Environment{}, err
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return Environment{}, err
-	}
-	if changed != 1 {
-		return Environment{}, errors.New("allocation retirement fence conflict")
-	}
-	return store.GetEnvironment(ctx, id)
 }
 
 // ListWorkloadEnvironmentPage lists environments that still own their running
@@ -122,8 +101,7 @@ func (store *Store) ListLocalResourceEnvironmentPage(ctx context.Context, after 
 	if limit <= 0 || limit > 32 {
 		limit = 32
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, cpu_millis,
- memory_bytes, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
+	rows, err := store.db.QueryContext(ctx, `SELECT id, namespace_id, display_name, pids, disk_bytes, egress_mode, policy_revision, owner_kind,
  COALESCE(registration_id, ''), COALESCE(allocation_id, ''), COALESCE(allocation_state, 0), allocation_generation, updated_at
  FROM environments e WHERE id>? AND namespace_id NOT LIKE 'system.%' AND (owner_kind=1 OR EXISTS(SELECT 1 FROM remote_registrations r WHERE r.id=e.registration_id AND r.owner_kind=1)) ORDER BY id LIMIT ?`, after, limit)
 	if err != nil {

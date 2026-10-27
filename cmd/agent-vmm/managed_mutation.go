@@ -157,12 +157,16 @@ func (runtime managedRuntime) repair(ctx context.Context, opts managedOptions) (
 	var operation map[string]any
 	decoded := jsonUnmarshalManaged(stdout, &operation) == nil && stringFact(operation, "requestId") == opts.requestID && stringFact(operation, "targetRegistrationId") == opts.registrationID
 	if err != nil && !decoded {
-		envelope.State = "unknown_outcome"
+		envelope.State = "transition_in_progress"
+		envelope.Disposition = managedDispositionExclusiveTransition
 		envelope.Stage = "lifecycle_response_pending"
 		envelope.Partial = true
 		envelope.Issue = managedIssue{Code: "unknown_outcome", Message: "repair may have been accepted; retry only the same request id and registration target", Layer: "lifecycle", Retryable: managedBool(true)}
 		envelope.NextAction = []managedNextAction{{Action: "retry_same_request_id", Permission: "service_user"}}
 		envelope.Facts = map[string]any{"request_id": opts.requestID, "transport_error": boundedManagedText(firstNonEmptyManaged(string(stderr), err.Error()), 256)}
+		if active := stringFact(operation, "requestId"); active != "" && active != opts.requestID {
+			envelope.Facts["active_request_id"] = active
+		}
 		return envelope, nil
 	}
 	if !decoded {
@@ -192,7 +196,7 @@ func managedVMState(vm *hostv1.VM) string {
 }
 
 func getManagedImpactSummary(ctx context.Context, socket string) (*hostv1.GetVMImpactSummaryResponse, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +204,7 @@ func getManagedImpactSummary(ctx context.Context, socket string) (*hostv1.GetVMI
 	return hostv1.NewOperatorServiceClient(connection).GetVMImpactSummary(ctx, &hostv1.GetVMImpactSummaryRequest{})
 }
 func getManagedVM(ctx context.Context, socket string) (*hostv1.VM, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +213,7 @@ func getManagedVM(ctx context.Context, socket string) (*hostv1.VM, error) {
 	return response.GetVm(), err
 }
 func startManagedVM(ctx context.Context, socket, requestID string, fence *hostv1.VMMutationFence) (*hostv1.Operation, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +222,7 @@ func startManagedVM(ctx context.Context, socket, requestID string, fence *hostv1
 	return response.GetOperation(), err
 }
 func stopManagedVM(ctx context.Context, socket, requestID string, force bool, fence *hostv1.VMMutationFence) (*hostv1.Operation, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}

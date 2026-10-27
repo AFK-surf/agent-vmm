@@ -3,30 +3,8 @@ name: Extended CI
 on:
   push:
     branches:
-      - main
-    paths:
-      - .github/workflows/extended-ci.yml
-      - api/**
-      - build/guest/**
-      - cmd/agent-vmmd/**
-      - cmd/agent-vmm-supervisor/**
-      - internal/bundle/**
-      - internal/guest/**
-      - internal/netprotocol/**
-      - go.mod
-      - go.sum
+      - master
   pull_request:
-    paths:
-      - .github/workflows/extended-ci.yml
-      - api/**
-      - build/guest/**
-      - cmd/agent-vmmd/**
-      - cmd/agent-vmm-supervisor/**
-      - internal/bundle/**
-      - internal/guest/**
-      - internal/netprotocol/**
-      - go.mod
-      - go.sum
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -40,87 +18,59 @@ concurrency:
 
 jobs:
   guest-bundle:
-    name: Guest bundle / Linux arm64
-    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
-    timeout-minutes: 45
+    name: Guest and Linux Host / Linux arm64
+    runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX_ARM || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: false
       - name: Set up persistent Guest builder
-        uses: useblacksmith/setup-docker-builder@v2
+        if: startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master'))
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2
         with:
-          cache-key: build/guest/Dockerfile
+          cache-key: build/guest/Dockerfile@trusted
           platforms: linux/arm64
-      - name: Build and verify the guest bundle
-        run: |
-          build/guest/build.sh "$RUNNER_TEMP/guest-bundle"
-          cd "$RUNNER_TEMP/guest-bundle"
-          jq -r '.artifacts | to_entries[] | "\(.value.sha256)  \(.value.path)"' manifest.json | sha256sum -c -
-          test "$(jq -r .architecture manifest.json)" = arm64
-      - name: Unpack the built Guest root filesystem
+      - name: Set up local Guest builder
+        if: ${{ !(startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master'))) }}
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build Guest bundle
+        env:
+          AGENT_VMM_REFRESH_DEPENDENCIES: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master')) && '1' || '0' }}
+        run: build/guest/build.sh "$RUNNER_TEMP/guest-bundle" release runtime
+      - name: Unpack Guest root filesystem and run sandbox smoke test
         run: |
           sudo apt-get update
           sudo apt-get install --yes squashfs-tools
           unsquashfs -d "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/guest-bundle/rootfs.squashfs"
-      - name: Generate SPDX from the built Guest root filesystem
-        uses: anchore/sbom-action@v0
-        with:
-          path: ${{ runner.temp }}/guest-rootfs
-          format: spdx-json
-          output-file: ${{ runner.temp }}/guest-bundle/sbom.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
-      - name: Check Guest dependency advisories
-        uses: aquasecurity/trivy-action@0.35.0
-        with:
-          scan-type: fs
-          scan-ref: ${{ runner.temp }}/guest-rootfs
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
-      - name: Verify Guest package and license inventory
+          build/guest/smoke.sh "$RUNNER_TEMP/guest-rootfs"
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - name: Generate Guest inventories
+        run: build/guest/sbom.sh "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/inventory/guest"
+      - name: Build Linux Host package and inventories
+        env:
+          AGENT_VMM_GUEST_BUNDLE: ${{ runner.temp }}/guest-bundle
+          AGENT_VMM_DATA_WORKER: ${{ github.workspace }}/target/release/agent-vmm-data
+          OUTPUT_DIRECTORY: ${{ runner.temp }}/host-bundle
         run: |
-          go run ./build/guest/evidence verify \
-            -bundle "$RUNNER_TEMP/guest-bundle" \
-            -rootfs "$RUNNER_TEMP/guest-rootfs"
-      - uses: actions/upload-artifact@v6
-        with:
-          name: guest-bundle-metadata
-          path: |
-            ${{ runner.temp }}/guest-bundle/manifest.json
-            ${{ runner.temp }}/guest-bundle/sbom.spdx.json
-          retention-days: 7
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
+          cargo build --release --locked --manifest-path data/agent-vmm-data/Cargo.toml --target-dir target
+          build/host-linux/package.sh
+          mkdir "$RUNNER_TEMP/host-package"
+          tar -xf "$RUNNER_TEMP"/host-bundle/*.tar.gz -C "$RUNNER_TEMP/host-package"
+          build/host/sbom.sh "$RUNNER_TEMP/host-package" "$RUNNER_TEMP/inventory/host"
 
-  macos-15:
-    name: Compatibility / macOS 15
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: blacksmith-6vcpu-macos-15
-    timeout-minutes: 25
+  dependency-advisories:
+    name: Rust dependency advisories
+    if: github.event_name == 'schedule'
+    runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX || 'ubuntu-24.04' }}
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Test with the race detector
-        run: go test -race ./... -count=1
-      - name: Vet
-        run: go vet ./...
-      - name: Expose the selected Go toolchain to Xcode tests
-        run: sudo ln -sf "$(command -v go)" /opt/homebrew/bin/go
-      - uses: actions/cache@v5
-        with:
-          path: ${{ runner.temp }}/SourcePackages
-          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-      - name: Test the macOS app
-        run: >-
-          xcodebuild test
-          -project apps/macos/AgentVMM/AgentVMM.xcodeproj
-          -scheme AgentVMM
-          -destination 'platform=macOS'
-          -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
-          -derivedDataPath "$RUNNER_TEMP/DerivedData"
-          CODE_SIGNING_ALLOWED=NO
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install audit command
+        run: cargo install cargo-audit --locked
+      - name: Check dependency advisories
+        run: make audit-data-worker

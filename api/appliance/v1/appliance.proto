@@ -3,39 +3,77 @@ syntax = "proto3";
 package agentvmm.appliance.v1;
 
 import "google/protobuf/timestamp.proto";
-import "host/v1/host.proto";
-import "trust/v1/trust.proto";
+import "host/v1/resources.proto";
 import "service/v1/service.proto";
-import "google/protobuf/empty.proto";
+import "trust/v1/trust.proto";
 
 option go_package = "github.com/AFK-surf/agent-vmm/api/appliance/v1;appliancev1";
 
+// ApplianceAdminService is the operator surface for staged artifacts, approved grants, and durable
+// installation lifecycle.
 service ApplianceAdminService {
-  rpc CreateServiceImport(CreateApplianceServiceImportRequest) returns (agentvmm.service.v1.ServiceImport);
-  rpc CreateFrontendServiceImport(CreateApplianceFrontendServiceImportRequest) returns (agentvmm.service.v1.ServiceImport);
-  rpc ListServiceImports(ListApplianceServiceImportsRequest) returns (ListApplianceServiceImportsResponse);
-  rpc RevokeServiceImport(RevokeApplianceServiceImportRequest) returns (google.protobuf.Empty);
+  // CreateApplianceServiceImport approves service access from the current installation's private
+  // controller domain.
+  rpc CreateApplianceServiceImport(CreateApplianceServiceImportRequest) returns (CreateApplianceServiceImportResponse);
+  // CreateApplianceFrontendServiceImport approves a workload service as the selected static
+  // appliance frontend target.
+  rpc CreateApplianceFrontendServiceImport(CreateApplianceFrontendServiceImportRequest) returns (CreateApplianceFrontendServiceImportResponse);
+  // ListApplianceServiceImports reads only imports owned by the selected installation.
+  rpc ListApplianceServiceImports(ListApplianceServiceImportsRequest) returns (ListApplianceServiceImportsResponse);
+  // RevokeApplianceServiceImport revokes the exact installation-owned service import revision.
+  rpc RevokeApplianceServiceImport(RevokeApplianceServiceImportRequest) returns (RevokeApplianceServiceImportResponse);
+  // BuildArtifact builds an appliance archive and streams its bytes with a final size and digest
+  // commitment.
   rpc BuildArtifact(stream BuildArtifactRequest) returns (stream BuildArtifactResponse);
-  rpc StageContent(stream StageContentRequest) returns (ApplianceOperationResponse);
+  // StageContent stages one content-addressed archive after checking its header, size, and hash.
+  rpc StageContent(stream StageContentRequest) returns (StageContentResponse);
+  // GetContentStatus reads whether the exact approved content archive is staged and available.
   rpc GetContentStatus(GetContentStatusRequest) returns (GetContentStatusResponse);
-  rpc StageArtifact(StageArtifactRequest) returns (ApplianceOperationResponse);
-  rpc PlanInstall(PlanInstallRequest) returns (AppliancePlanResponse);
-  rpc Install(InstallRequest) returns (ApplianceOperationResponse);
-  rpc PlanUpdate(PlanUpdateRequest) returns (AppliancePlanResponse);
-  rpc Update(UpdateApplianceRequest) returns (ApplianceOperationResponse);
-  rpc RecoverUpdate(RecoverApplianceUpdateRequest) returns (ApplianceOperationResponse);
-  rpc PlanActivation(PlanActivationRequest) returns (AppliancePlanResponse);
-  rpc Activate(ActivateRequest) returns (ApplianceOperationResponse);
-  rpc List(ListAppliancesRequest) returns (ListAppliancesResponse);
-  rpc GetStatus(GetApplianceStatusRequest) returns (ApplianceStatusResponse);
-  rpc WatchOperation(WatchApplianceOperationRequest) returns (stream ApplianceOperationResponse);
-  rpc Stop(StopApplianceRequest) returns (ApplianceOperationResponse);
-  rpc Restart(RestartApplianceRequest) returns (ApplianceOperationResponse);
-  rpc Revoke(RevokeApplianceRequest) returns (ApplianceOperationResponse);
-  rpc PlanRemove(PlanRemoveRequest) returns (AppliancePlanResponse);
-  rpc ExecuteRemove(ExecuteRemoveRequest) returns (ApplianceOperationResponse);
+  // StageArtifact validates and records a canonical appliance manifest without installing or
+  // activating it.
+  rpc StageArtifact(StageArtifactRequest) returns (StageArtifactResponse);
+  // PlanInstall reads installation impacts and checks the proposed grant before installation.
+  rpc PlanInstall(PlanInstallRequest) returns (PlanInstallResponse);
+  // Install creates one installation, private registration, and data-volume identity under the
+  // approved grant.
+  rpc Install(InstallRequest) returns (InstallResponse);
+  // PlanUpdate reads impacts for the selected artifact and grant at the current installation
+  // revision.
+  rpc PlanUpdate(PlanUpdateRequest) returns (PlanUpdateResponse);
+  // UpdateAppliance persists drain, stop, switch, and activation while preserving installation
+  // identity and private data.
+  rpc UpdateAppliance(UpdateApplianceRequest) returns (UpdateApplianceResponse);
+  // RecoverApplianceUpdate resumes the original failed update with a current observation fence and
+  // explicit extended deadline.
+  rpc RecoverApplianceUpdate(RecoverApplianceUpdateRequest) returns (RecoverApplianceUpdateResponse);
+  // PlanActivation reads the current installation's activation impacts without starting it.
+  rpc PlanActivation(PlanActivationRequest) returns (PlanActivationResponse);
+  // Activate activates the exact installation revision and publishes only its current boot and
+  // instance.
+  rpc Activate(ActivateRequest) returns (ActivateResponse);
+  // ListAppliances reads installation status and current frontend availability for the operator.
+  rpc ListAppliances(ListAppliancesRequest) returns (ListAppliancesResponse);
+  // GetApplianceStatus reads one installation and preserves unknown runtime-stop observations.
+  rpc GetApplianceStatus(GetApplianceStatusRequest) returns (GetApplianceStatusResponse);
+  // WatchApplianceOperation streams the original installation operation receipt through terminal
+  // state.
+  rpc WatchApplianceOperation(WatchApplianceOperationRequest) returns (stream WatchApplianceOperationResponse);
+  // StopAppliance stops one installation's runtime publication while retaining its private data
+  // and trust.
+  rpc StopAppliance(StopApplianceRequest) returns (StopApplianceResponse);
+  // RestartAppliance confirms the exact old writer stopped before launching another instance.
+  rpc RestartAppliance(RestartApplianceRequest) returns (RestartApplianceResponse);
+  // RevokeAppliance retires the installation's private controller authority and its owned
+  // workloads.
+  rpc RevokeAppliance(RevokeApplianceRequest) returns (RevokeApplianceResponse);
+  // PlanRemove reads the exact installation domain and data impacts before irreversible removal.
+  rpc PlanRemove(PlanRemoveRequest) returns (PlanRemoveResponse);
+  // ExecuteRemove accepts the reviewed revision and exact confirmed resources, retaining its
+  // receipt until cleanup completes.
+  rpc ExecuteRemove(ExecuteRemoveRequest) returns (ExecuteRemoveResponse);
 }
 
+// BuildArtifactHeader selects an appliance build request and context-relative Dockerfile options.
 message BuildArtifactHeader {
   string request_id = 1;
   string dockerfile_path = 2;
@@ -45,6 +83,8 @@ message BuildArtifactHeader {
   repeated agentvmm.host.v1.BuildSecret secrets = 6;
 }
 
+// BuildArtifactRequest carries inputs for an operation that builds an appliance archive and
+// streams its bytes with a final size and digest commitment.
 message BuildArtifactRequest {
   oneof event {
     BuildArtifactHeader header = 1;
@@ -53,6 +93,7 @@ message BuildArtifactRequest {
   }
 }
 
+// BuildArtifactResult commits the streamed archive size, SHA-256, and OCI manifest digest.
 message BuildArtifactResult {
   bytes archive_sha256 = 1;
   string manifest_digest = 2;
@@ -60,6 +101,8 @@ message BuildArtifactResult {
   bool cache_hit = 4;
 }
 
+// BuildArtifactResponse carries results from an operation that builds an appliance archive and
+// streams its bytes with a final size and digest commitment.
 message BuildArtifactResponse {
   oneof event {
     string progress = 1;
@@ -68,8 +111,12 @@ message BuildArtifactResponse {
   }
 }
 
+// ApplianceBootstrapService is the private launch-authentication surface exposed by a system
+// appliance.
 service ApplianceBootstrapService {
-  rpc Bootstrap(stream HostBootstrapFrame) returns (stream ApplianceBootstrapFrame);
+  // Bootstrap authenticates one launch, consumes an optional opaque envelope, and returns receipt
+  // and health frames in order.
+  rpc Bootstrap(stream BootstrapRequest) returns (stream BootstrapResponse);
 }
 
 enum FrontendTransport {
@@ -80,6 +127,7 @@ enum FrontendTransport {
 
 enum FrontendExposure {
   FRONTEND_EXPOSURE_UNSPECIFIED = 0;
+  // All local users can connect; the appliance protocol must authenticate clients.
   FRONTEND_EXPOSURE_HOST_LOOPBACK = 1;
   FRONTEND_EXPOSURE_OUTBOUND_ONLY = 2;
   FRONTEND_EXPOSURE_LAN_HTTP = 3;
@@ -141,7 +189,8 @@ enum ApplianceOperationKind {
 enum ApplianceOperationPhase {
   APPLIANCE_OPERATION_PHASE_UNSPECIFIED = 0;
   APPLIANCE_OPERATION_PHASE_PLANNED = 1;
-  APPLIANCE_OPERATION_PHASE_PROBATION = 2;
+  reserved 2;
+  reserved "APPLIANCE_OPERATION_PHASE_PROBATION";
   APPLIANCE_OPERATION_PHASE_REPAIRING_SEALED = 3;
   APPLIANCE_OPERATION_PHASE_PENDING_DESTROY = 4;
   APPLIANCE_OPERATION_PHASE_TERMINAL = 5;
@@ -166,6 +215,8 @@ enum ApplianceTerminalReason {
   APPLIANCE_TERMINAL_REASON_OPERATOR_STOPPED = 9;
 }
 
+// StreamBounds limits frame size, concurrency, idle time, deadline, and declared cumulative bytes
+// for one stream purpose.
 message StreamBounds {
   reserved 6;
   reserved "max_use_count";
@@ -176,6 +227,7 @@ message StreamBounds {
   uint32 max_concurrent_streams = 5;
 }
 
+// ControllerFrontend declares one static appliance endpoint, its exposure, and its stream bounds.
 message ControllerFrontend {
   string name = 1;
   FrontendTransport transport = 2;
@@ -183,16 +235,8 @@ message ControllerFrontend {
   StreamBounds bounds = 4;
 }
 
-message DynamicHostLoopbackGrant {
-  uint32 max_active_leases = 1;
-  uint32 max_active_leases_per_allocation = 2;
-  uint32 max_lease_seconds = 3;
-  uint32 max_concurrent_connections = 4;
-  uint32 max_concurrent_connections_per_lease = 5;
-  StreamBounds connection_bounds = 6;
-  uint32 max_use_count = 7;
-}
-
+// CapacityGrant bounds each environment contract requested by an appliance controller without a
+// reservation ledger.
 message CapacityGrant {
   reserved 1, 2, 5, 6;
   reserved "max_environments", "aggregate_limits", "max_lease_seconds", "disconnect_grace_seconds";
@@ -200,7 +244,11 @@ message CapacityGrant {
   agentvmm.host.v1.EgressMode max_egress_mode = 4;
 }
 
+// ControllerApplianceManifest binds a product artifact to immutable content, protocols, requested
+// limits, and static permissions.
 message ControllerApplianceManifest {
+  reserved 19;
+  reserved "requested_dynamic_host_loopback";
   reserved 3, 10, 18;
   reserved "publisher_key_id", "system_resources", "minimum_appliance_runtime";
   string contract_version = 1;
@@ -209,39 +257,41 @@ message ControllerApplianceManifest {
   string image_reference = 5;
   string image_manifest_digest = 6;
   string platform = 7;
-  string bootstrap_protocol_version = 8;
-  string controller_protocol_version = 9;
   uint64 data_volume_bytes = 11;
   CapacityGrant requested_capacity = 12;
   agentvmm.host.v1.EgressMode requested_egress_mode = 13;
   repeated ControllerFrontend requested_frontends = 14;
   uint32 startup_deadline_seconds = 15;
-  uint32 probation_seconds = 16;
-  uint32 health_timeout_seconds = 17;
-  DynamicHostLoopbackGrant requested_dynamic_host_loopback = 19;
+  reserved 16, 17;
+  reserved "probation_seconds", "health_timeout_seconds";
   agentvmm.host.v1.ResourceLimits system_limits = 20;
   bool requested_lan_egress = 21;
   repeated ApplianceContentReference content_refs = 22;
 }
 
+// HostTcpEndpoint approves one exact Host-reachable IPv4 TCP endpoint for installation egress.
 message HostTcpEndpoint {
   string ip = 1;
   uint32 port = 2;
 }
 
+// ApprovedGrant records operator-approved permissions at the Host-owned grant revision.
 message ApprovedGrant {
+  reserved 6;
+  reserved "dynamic_host_loopback";
   reserved 1;
   reserved "system_resources";
   CapacityGrant capacity = 2;
   agentvmm.host.v1.EgressMode egress_mode = 3;
   repeated ControllerFrontend frontends = 4;
   uint64 revision = 5;
-  DynamicHostLoopbackGrant dynamic_host_loopback = 6;
   agentvmm.host.v1.ResourceLimits system_limits = 7;
   bool lan_egress = 8;
   repeated HostTcpEndpoint host_tcp_endpoints = 9;
 }
 
+// ApplianceLaunchClaim signs one installation launch under its artifact, boot, instance,
+// configuration, and content fences.
 message ApplianceLaunchClaim {
   string installation_id = 1;
   string artifact_id = 2;
@@ -254,13 +304,13 @@ message ApplianceLaunchClaim {
   ApprovedGrant approved_grant = 9;
   int64 expires_unix_millis = 10;
   bytes signature = 11;
-  bytes device_root_public_key = 12;
-  uint64 device_root_revision = 13;
   string registration_id = 14;
   agentvmm.trust.v1.DeviceIdentity device_identity = 15;
   repeated ApplianceContentMount content_mounts = 16;
 }
 
+// ApplianceManagedTrustBundle binds optional managed authority to the current authenticated
+// appliance launch.
 message ApplianceManagedTrustBundle {
   string installation_id = 1;
   string registration_id = 2;
@@ -272,6 +322,8 @@ message ApplianceManagedTrustBundle {
   agentvmm.trust.v1.MembershipCredential membership_credential = 8;
 }
 
+// OpaqueBootstrapEnvelope carries opaque management seed bytes for one installation and single-use
+// bootstrap identity.
 message OpaqueBootstrapEnvelope {
   string installation_id = 1;
   string bootstrap_id = 2;
@@ -280,12 +332,14 @@ message OpaqueBootstrapEnvelope {
   int64 expires_unix_millis = 5;
 }
 
+// BootstrapReceipt acknowledges consumption of the exact bootstrap envelope nonce.
 message BootstrapReceipt {
   string installation_id = 1;
   string bootstrap_id = 2;
   bytes nonce = 3;
 }
 
+// ApplianceHealth binds appliance readiness to the current launch and its readiness nonce.
 message ApplianceHealth {
   string installation_id = 1;
   string boot_id = 2;
@@ -293,27 +347,11 @@ message ApplianceHealth {
   uint64 config_revision = 4;
   bool healthy = 5;
   string status = 6;
-  bytes readiness_nonce = 7;
   string registration_id = 8;
 }
 
-message HostBootstrapFrame {
-  oneof payload {
-    ApplianceLaunchClaim launch_claim = 1;
-    OpaqueBootstrapEnvelope envelope = 2;
-    bool close_write = 3;
-  }
-}
-
-message ApplianceBootstrapFrame {
-  oneof payload {
-    BootstrapReceipt receipt = 1;
-    ApplianceHealth health = 2;
-    bool close_write = 3;
-    ApplianceManagedTrustBundle managed_trust = 4;
-  }
-}
-
+// ApplianceFrontendStatus reports the actual static endpoint and current availability for one
+// container instance.
 message ApplianceFrontendStatus {
   string name = 1;
   FrontendTransport transport = 2;
@@ -321,8 +359,11 @@ message ApplianceFrontendStatus {
   string endpoint = 4;
   string container_instance = 5;
   bool available = 6;
+  string error_reason = 7;
 }
 
+// ApplianceStatus combines durable installation state with current launch, channel, frontend, and
+// runtime-stop observations.
 message ApplianceStatus {
   string installation_id = 1;
   string product_id = 2;
@@ -341,6 +382,7 @@ message ApplianceStatus {
   optional bool runtime_stopped = 15;
 }
 
+// ApplianceImpact declares an exact installation lifecycle effect before operator confirmation.
 message ApplianceImpact {
   string resource_type = 1;
   string resource_id = 2;
@@ -349,6 +391,8 @@ message ApplianceImpact {
   bool blocker = 5;
 }
 
+// AppliancePlan binds approved lifecycle impacts to the current installation revision and
+// artifact.
 message AppliancePlan {
   string installation_id = 1;
   AppliancePlanKind kind = 2;
@@ -357,11 +401,14 @@ message AppliancePlan {
   repeated ApplianceImpact impacts = 5;
 }
 
+// ApplianceOperationError retains a safe lifecycle failure reason and message.
 message ApplianceOperationError {
   string reason = 1;
   string message = 2;
 }
 
+// ApplianceOperation retains original lifecycle request identity, phase, deadline, and terminal
+// evidence.
 message ApplianceOperation {
   string operation_id = 1;
   string installation_id = 2;
@@ -380,19 +427,8 @@ message ApplianceOperation {
   int64 deadline_unix_millis = 15;
 }
 
-message ApplianceOperationResponse {
-  ApplianceOperation operation = 1;
-  string artifact_id = 2;
-}
-
-message AppliancePlanResponse {
-  AppliancePlan plan = 1;
-}
-
-message ApplianceStatusResponse {
-  ApplianceStatus status = 1;
-}
-
+// StageArtifactRequest carries inputs for an operation that validates and records a canonical
+// appliance manifest without installing or activating it.
 message StageArtifactRequest {
   reserved 4;
   reserved "publisher_signature";
@@ -401,6 +437,8 @@ message StageArtifactRequest {
   ControllerApplianceManifest manifest = 3;
 }
 
+// PlanInstallRequest carries inputs for an operation that reads installation impacts and checks
+// the proposed grant before installation.
 message PlanInstallRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -410,6 +448,8 @@ message PlanInstallRequest {
   ApprovedGrant approved_grant = 6;
 }
 
+// InstallRequest carries inputs for an operation that creates one installation, private
+// registration, and data-volume identity under the approved grant.
 message InstallRequest {
   reserved 6;
   string installation_id = 1;
@@ -421,6 +461,8 @@ message InstallRequest {
   bytes opaque_bootstrap_seed = 8;
 }
 
+// PlanActivationRequest carries inputs for an operation that reads the current installation's
+// activation impacts without starting it.
 message PlanActivationRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -428,6 +470,8 @@ message PlanActivationRequest {
   int64 deadline_unix_millis = 4;
 }
 
+// ActivateRequest carries inputs for an operation that activates the exact installation revision
+// and publishes only its current boot and instance.
 message ActivateRequest {
   reserved 5;
   string installation_id = 1;
@@ -436,21 +480,31 @@ message ActivateRequest {
   int64 deadline_unix_millis = 4;
 }
 
+// ListAppliancesRequest carries inputs for an operation that reads installation status and
+// current frontend availability for the operator.
 message ListAppliancesRequest {}
 
+// ListAppliancesResponse carries results from an operation that reads installation status and
+// current frontend availability for the operator.
 message ListAppliancesResponse {
   repeated ApplianceStatus appliances = 1;
 }
 
+// GetApplianceStatusRequest carries inputs for an operation that reads one installation and
+// preserves unknown runtime-stop observations.
 message GetApplianceStatusRequest {
   string installation_id = 1;
 }
 
+// WatchApplianceOperationRequest carries inputs for an operation that streams the original
+// installation operation receipt through terminal state.
 message WatchApplianceOperationRequest {
   string installation_id = 1;
   string operation_id = 2;
 }
 
+// StopApplianceRequest carries inputs for an operation that stops one installation's runtime
+// publication while retaining its private data and trust.
 message StopApplianceRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -458,6 +512,8 @@ message StopApplianceRequest {
   int64 deadline_unix_millis = 4;
 }
 
+// RestartApplianceRequest carries inputs for an operation that confirms the exact old writer
+// stopped before launching another instance.
 message RestartApplianceRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -465,6 +521,8 @@ message RestartApplianceRequest {
   int64 deadline_unix_millis = 4;
 }
 
+// RevokeApplianceRequest carries inputs for an operation that retires the installation's private
+// controller authority and its owned workloads.
 message RevokeApplianceRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -472,6 +530,8 @@ message RevokeApplianceRequest {
   int64 deadline_unix_millis = 4;
 }
 
+// PlanRemoveRequest carries inputs for an operation that reads the exact installation domain and
+// data impacts before irreversible removal.
 message PlanRemoveRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -479,6 +539,8 @@ message PlanRemoveRequest {
   int64 deadline_unix_millis = 4;
 }
 
+// ExecuteRemoveRequest carries the frozen installation revision, original deadline, and complete
+// operator-confirmed resource set.
 message ExecuteRemoveRequest {
   reserved 5;
   string installation_id = 1;
@@ -488,6 +550,8 @@ message ExecuteRemoveRequest {
   repeated string confirmed_resource_ids = 6;
 }
 
+// PlanUpdateRequest carries inputs for an operation that reads impacts for the selected artifact
+// and grant at the current installation revision.
 message PlanUpdateRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -497,6 +561,8 @@ message PlanUpdateRequest {
   ApprovedGrant approved_grant = 6;
 }
 
+// UpdateApplianceRequest carries inputs for an operation that persists drain, stop, switch, and
+// activation while preserving installation identity and private data.
 message UpdateApplianceRequest {
   string installation_id = 1;
   string request_id = 2;
@@ -504,8 +570,11 @@ message UpdateApplianceRequest {
   string artifact_id = 4;
   int64 deadline_unix_millis = 5;
   ApprovedGrant approved_grant = 6;
+  optional bytes opaque_bootstrap_seed = 7;
 }
 
+// RecoverApplianceUpdateRequest carries inputs for an operation that resumes the original failed
+// update with a current observation fence and explicit extended deadline.
 message RecoverApplianceUpdateRequest {
   string installation_id = 1;
   string operation_id = 2;
@@ -514,12 +583,16 @@ message RecoverApplianceUpdateRequest {
   int64 deadline_unix_millis = 5;
 }
 
+// ApplianceUpdateProgress reports persisted update phases for the original source and target
+// artifacts.
 message ApplianceUpdateProgress {
   UpdateApplianceRequest request = 1;
   string source_artifact_id = 2;
   uint64 installation_revision = 3;
   ApprovedGrant source_grant = 4;
   RecoverApplianceUpdateRequest recovery = 5;
+  string bootstrap_id = 6;
+  bytes bootstrap_seed_sha256 = 7;
 }
 
 enum ApplianceContentRole {
@@ -529,6 +602,8 @@ enum ApplianceContentRole {
   APPLIANCE_CONTENT_ROLE_WORKLOAD = 3;
 }
 
+// ApplianceContentReference authorizes an exact archive role, size, hash, platform, and image
+// manifest identity.
 message ApplianceContentReference {
   ApplianceContentRole role = 1;
   bytes archive_sha256 = 2;
@@ -538,17 +613,22 @@ message ApplianceContentReference {
   string image_manifest_digest = 6;
 }
 
+// ApplianceContentMount projects one authorized immutable dependency archive into the current
+// controller launch.
 message ApplianceContentMount {
   ApplianceContentReference content = 1;
   string archive_path = 2;
 }
 
+// StageContentHeader commits archive identity before bounded content chunks arrive.
 message StageContentHeader {
   string request_id = 1;
   int64 deadline_unix_millis = 2;
   ApplianceContentReference content_ref = 3;
 }
 
+// StageContentRequest carries inputs for an operation that stages one content-addressed archive
+// after checking its header, size, and hash.
 message StageContentRequest {
   oneof payload {
     StageContentHeader header = 1;
@@ -556,50 +636,216 @@ message StageContentRequest {
   }
 }
 
+// ApplianceContentStatus reports whether an exact content commitment is available in the Host
+// cache.
 message ApplianceContentStatus {
   ApplianceContentReference content_ref = 1;
   bool available = 2;
 }
 
+// GetContentStatusRequest carries inputs for an operation that reads whether the exact approved
+// content archive is staged and available.
 message GetContentStatusRequest {
   repeated ApplianceContentReference content_refs = 1;
 }
 
+// GetContentStatusResponse carries results from an operation that reads whether the exact
+// approved content archive is staged and available.
 message GetContentStatusResponse {
   repeated ApplianceContentStatus contents = 1;
 }
 
+// CreateApplianceServiceImportRequest carries inputs for an operation that approves service
+// access from the current installation's private controller domain.
 message CreateApplianceServiceImportRequest {
- string request_id = 1;
- string installation_id = 2;
- uint64 expected_revision = 3;
- uint64 expected_grant_revision = 4;
- string expected_boot_id = 5;
- string expected_container_instance_id = 6;
- string destination_export_id = 7;
- uint64 expected_export_revision = 8;
- string virtual_service_name = 9;
+  string request_id = 1;
+  string installation_id = 2;
+  uint64 expected_revision = 3;
+  uint64 expected_grant_revision = 4;
+  string expected_boot_id = 5;
+  string expected_container_instance_id = 6;
+  string destination_export_id = 7;
+  uint64 expected_export_revision = 8;
+  string virtual_service_name = 9;
 }
-message ListApplianceServiceImportsRequest { string installation_id = 1; }
-message ListApplianceServiceImportsResponse { repeated agentvmm.service.v1.ServiceImport imports = 1; }
+// ListApplianceServiceImportsRequest carries inputs for an operation that reads only imports
+// owned by the selected installation.
+message ListApplianceServiceImportsRequest {
+  string installation_id = 1;
+}
+// ListApplianceServiceImportsResponse carries results from an operation that reads only imports
+// owned by the selected installation.
+message ListApplianceServiceImportsResponse {
+  repeated agentvmm.service.v1.ServiceImport imports = 1;
+}
+// RevokeApplianceServiceImportRequest carries inputs for an operation that revokes the exact
+// installation-owned service import revision.
 message RevokeApplianceServiceImportRequest {
- string request_id = 1;
- string installation_id = 2;
- uint64 expected_installation_revision = 3;
- string import_id = 4;
- uint64 expected_revision = 5;
+  string request_id = 1;
+  string installation_id = 2;
+  uint64 expected_installation_revision = 3;
+  string import_id = 4;
+  uint64 expected_revision = 5;
 }
 
+// CreateApplianceFrontendServiceImportRequest supplies the inputs for
+// CreateApplianceFrontendServiceImport. The operation approves a workload service as the selected static
+// appliance frontend target.
 message CreateApplianceFrontendServiceImportRequest {
- string request_id = 1;
- string installation_id = 2;
- uint64 expected_revision = 3;
- uint64 expected_grant_revision = 4;
- string expected_boot_id = 5;
- string expected_container_instance_id = 6;
- string source_environment_id = 7;
- string source_container_id = 8;
- string source_container_instance_id = 9;
- string frontend_name = 10;
- string virtual_service_name = 11;
+  string request_id = 1;
+  string installation_id = 2;
+  uint64 expected_revision = 3;
+  uint64 expected_grant_revision = 4;
+  string expected_boot_id = 5;
+  string expected_container_instance_id = 6;
+  string source_environment_id = 7;
+  string source_container_id = 8;
+  string source_container_instance_id = 9;
+  string frontend_name = 10;
+  string virtual_service_name = 11;
+}
+
+// CreateApplianceServiceImportResponse carries results from an operation that approves service
+// access from the current installation's private controller domain.
+message CreateApplianceServiceImportResponse {
+  agentvmm.service.v1.ServiceImport import = 1;
+}
+
+// CreateApplianceFrontendServiceImportResponse reports the result of
+// CreateApplianceFrontendServiceImport. The operation approves a workload service as the selected static
+// appliance frontend target.
+message CreateApplianceFrontendServiceImportResponse {
+  agentvmm.service.v1.ServiceImport import = 1;
+}
+
+// RevokeApplianceServiceImportResponse carries results from an operation that revokes the exact
+// installation-owned service import revision.
+message RevokeApplianceServiceImportResponse {}
+
+// StageContentResponse carries results from an operation that stages one content-addressed
+// archive after checking its header, size, and hash.
+message StageContentResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// StageArtifactResponse carries results from an operation that validates and records a canonical
+// appliance manifest without installing or activating it.
+message StageArtifactResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// PlanInstallResponse carries results from an operation that reads installation impacts and
+// checks the proposed grant before installation.
+message PlanInstallResponse {
+  AppliancePlan plan = 1;
+}
+
+// InstallResponse carries results from an operation that creates one installation, private
+// registration, and data-volume identity under the approved grant.
+message InstallResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// PlanUpdateResponse carries results from an operation that reads impacts for the selected
+// artifact and grant at the current installation revision.
+message PlanUpdateResponse {
+  AppliancePlan plan = 1;
+}
+
+// UpdateApplianceResponse carries results from an operation that persists drain, stop, switch,
+// and activation while preserving installation identity and private data.
+message UpdateApplianceResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// RecoverApplianceUpdateResponse carries results from an operation that resumes the original
+// failed update with a current observation fence and explicit extended deadline.
+message RecoverApplianceUpdateResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// PlanActivationResponse carries results from an operation that reads the current installation's
+// activation impacts without starting it.
+message PlanActivationResponse {
+  AppliancePlan plan = 1;
+}
+
+// ActivateResponse carries results from an operation that activates the exact installation
+// revision and publishes only its current boot and instance.
+message ActivateResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// GetApplianceStatusResponse carries results from an operation that reads one installation and
+// preserves unknown runtime-stop observations.
+message GetApplianceStatusResponse {
+  ApplianceStatus status = 1;
+}
+
+// WatchApplianceOperationResponse carries results from an operation that streams the original
+// installation operation receipt through terminal state.
+message WatchApplianceOperationResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// StopApplianceResponse carries results from an operation that stops one installation's runtime
+// publication while retaining its private data and trust.
+message StopApplianceResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// RestartApplianceResponse carries results from an operation that confirms the exact old writer
+// stopped before launching another instance.
+message RestartApplianceResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// RevokeApplianceResponse carries results from an operation that retires the installation's
+// private controller authority and its owned workloads.
+message RevokeApplianceResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// PlanRemoveResponse carries results from an operation that reads the exact installation domain
+// and data impacts before irreversible removal.
+message PlanRemoveResponse {
+  AppliancePlan plan = 1;
+}
+
+// ExecuteRemoveResponse carries results from an operation that accepts the reviewed revision and
+// exact confirmed resources, retaining its receipt until cleanup completes.
+message ExecuteRemoveResponse {
+  ApplianceOperation operation = 1;
+  string artifact_id = 2;
+}
+
+// BootstrapRequest sends a launch claim, optional opaque seed envelope, then explicit write
+// closure for one launch.
+message BootstrapRequest {
+  oneof payload {
+    ApplianceLaunchClaim launch_claim = 1;
+    OpaqueBootstrapEnvelope envelope = 2;
+    bool close_write = 3;
+  }
+}
+
+// BootstrapResponse returns seed consumption receipt when needed, current health, optional
+// managed trust, and explicit write closure.
+message BootstrapResponse {
+  oneof payload {
+    BootstrapReceipt receipt = 1;
+    ApplianceHealth health = 2;
+    bool close_write = 3;
+    ApplianceManagedTrustBundle managed_trust = 4;
+  }
 }

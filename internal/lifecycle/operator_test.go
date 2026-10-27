@@ -31,9 +31,9 @@ func (client *startVMClientStub) GetVMImpactSummary(context.Context, *hostv1.Get
 	return client.summary, nil
 }
 
-func (client *startVMClientStub) StartVM(_ context.Context, request *hostv1.StartVMRequest, _ ...grpc.CallOption) (*hostv1.OperationResponse, error) {
+func (client *startVMClientStub) StartVM(_ context.Context, request *hostv1.StartVMRequest, _ ...grpc.CallOption) (*hostv1.StartVMResponse, error) {
 	client.request = request
-	return &hostv1.OperationResponse{}, nil
+	return &hostv1.StartVMResponse{}, nil
 }
 
 func TestStartVMWithProgressAcknowledgesWholeVMImpact(t *testing.T) {
@@ -49,11 +49,11 @@ func TestStartVMWithProgressAcknowledgesWholeVMImpact(t *testing.T) {
 	}
 }
 
-func (client *updateVMClientStub) GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.VMResponse, error) {
-	return &hostv1.VMResponse{Vm: &hostv1.VM{State: client.state, BootId: client.bootID}}, nil
+func (client *updateVMClientStub) GetVM(context.Context, *hostv1.GetVMRequest, ...grpc.CallOption) (*hostv1.GetVMResponse, error) {
+	return &hostv1.GetVMResponse{Vm: &hostv1.VM{State: client.state, BootId: client.bootID}}, nil
 }
 
-func (client *updateVMClientStub) StopVM(_ context.Context, request *hostv1.StopVMRequest, _ ...grpc.CallOption) (*hostv1.OperationResponse, error) {
+func (client *updateVMClientStub) StopVM(_ context.Context, request *hostv1.StopVMRequest, _ ...grpc.CallOption) (*hostv1.StopVMResponse, error) {
 	client.stopRequests = append(client.stopRequests, request)
 	if !request.GetForce() {
 		if client.replaceBoot {
@@ -65,7 +65,7 @@ func (client *updateVMClientStub) StopVM(_ context.Context, request *hostv1.Stop
 		return nil, client.forceErr
 	}
 	client.state = hostv1.VMState_VM_STATE_STOPPED
-	return &hostv1.OperationResponse{}, nil
+	return &hostv1.StopVMResponse{}, nil
 }
 
 func TestUpdateDrainForcesAndConfirmsTerminalAfterGracefulFailure(t *testing.T) {

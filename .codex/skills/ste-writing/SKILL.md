@@ -60,13 +60,13 @@ Default to STE-flavored. Use strict when the text tells a person what to do, or 
 Lint a file:
 
 ```
-python3 ~/.claude/skills/ste-writing/scripts/ste-lint.py your-draft.md
+python3 .codex/skills/ste-writing/scripts/ste-lint.py your-draft.md
 ```
 
 Lint from a pipe:
 
 ```
-cat draft.md | python3 ~/.claude/skills/ste-writing/scripts/ste-lint.py
+cat draft.md | python3 .codex/skills/ste-writing/scripts/ste-lint.py
 ```
 
 Piped input prints full JSON: per-check counts, per-100-word rates, the longest sentence, and sample hits. File arguments print one summary line per file and accept globs.

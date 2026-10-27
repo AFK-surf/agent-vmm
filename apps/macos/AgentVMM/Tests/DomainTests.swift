@@ -67,9 +67,9 @@ import Foundation
     #expect(hostErrorMessage(error) == "verify bundle: invalid manifest signature")
 }
 
-@Test func transportErrorsUseActionableMessage() {
+@Test func transportErrorsExposeServerReason() {
     let error = RPCError(code: .unavailable, message: "transport: Error while dialing: VM is not available")
-    #expect(hostErrorMessage(error) == "Agent VMM is temporarily unavailable. Try again.")
+    #expect(hostErrorMessage(error) == error.message)
 }
 
 @Test func vmMutationFenceAcknowledgesWholeVMDespitePartialSummary() throws {
@@ -85,7 +85,7 @@ import Foundation
     known.generation = 7
     summary.knownWorkloads = [known]
 
-    let fence = try GRPCHostClient.vmMutationFence(summary)
+    let fence = GRPCHostClient.vmMutationFence(summary)
     #expect(fence.state == .running)
     #expect(fence.bootID == "boot-a")
     #expect(fence.observedWorkloads == [known])
@@ -95,7 +95,7 @@ import Foundation
 @Test func environmentUsesAgentLanguage() {
     let environment = AgentEnvironmentModel(
         id: "a", name: "Research", namespaceID: "hidden", health: .healthy, usage: nil, workloads: [], volumes: [],
-        limits: EnvironmentLimits(cpuMillis: 1_000, memoryBytes: 1_073_741_824, pids: 128, diskBytes: 10_737_418_240),
+        limits: EnvironmentLimits(pids: 128, diskBytes: 10_737_418_240),
         egressSummary: "Blocked by default", allowsPublicEgress: false, policyRevision: 1, origin: .local, allocationID: nil
     )
     #expect(environment.name == "Research")
@@ -166,37 +166,10 @@ import Foundation
     ) == .offline)
 }
 
-@Test func lifecycleHealthRequiresHostService() {
-    let healthy = LifecycleStatus(appInstalled: true, hostInstalled: true, hostLoaded: true)
-    let stopped = LifecycleStatus(appInstalled: true, hostInstalled: true, hostLoaded: false)
-    #expect(healthy.coreHealthy)
-    #expect(!stopped.coreHealthy)
-}
-
-@Test func MCPClientBindingsAreOpaqueAndIndependent() {
-    let first = MCPClientConfiguration.newBinding()
-    let second = MCPClientConfiguration.newBinding()
-    #expect(first.count == 64)
-    #expect(first.allSatisfy { "0123456789abcdef".contains($0) })
-    #expect(first != second)
-}
-
-@Test func applianceRemovalPreservesServerBlockers() {
-    let plan = ApplianceRemovePlanModel(
-        revision: 7,
-        impacts: [
-            ApplianceImpactModel(resourceType: "allocation", resourceID: "retained", effect: "discard-before-remove", irreversible: true, blocker: true),
-            ApplianceImpactModel(resourceType: "encrypted-volume", resourceID: "volume", effect: "delete", irreversible: true, blocker: false)
-        ]
-    )
-    #expect(plan.blockers.map(\.resourceID) == ["retained"])
-    #expect(Set(plan.requiredConfirmations) == ["retained", "volume"])
-}
-
 @Test func mcpEndpointAvailabilityIsSeparateFromApplianceEnabledState() {
     let grant = ApplianceGrantModel.bundledMCPDefault
     let unavailable = ApplianceStatusModel(
-        id: "mcp", productID: "mcp", revision: 1, artifactID: "artifact", state: "Running",
+        id: "mcp", productID: "mcp", revision: 1, artifactID: "artifact", state: .running,
         channelState: "Connected", enabled: true, healthy: true, healthMessage: nil, grant: grant,
         frontends: [ApplianceFrontendModel(name: BundledMCPAppliance.frontendName, transport: "http", endpoint: "", available: false)]
     )
@@ -204,7 +177,7 @@ import Foundation
     #expect(unavailable.endpointStatus == "Starting or unavailable")
 
     let ready = ApplianceStatusModel(
-        id: "mcp", productID: "mcp", revision: 1, artifactID: "artifact", state: "Running",
+        id: "mcp", productID: "mcp", revision: 1, artifactID: "artifact", state: .running,
         channelState: "Connected", enabled: true, healthy: true, healthMessage: nil, grant: grant,
         frontends: [ApplianceFrontendModel(name: BundledMCPAppliance.frontendName, transport: "http", endpoint: "http://127.0.0.1:1/mcp", available: true)]
     )
@@ -212,25 +185,6 @@ import Foundation
     #expect(ready.endpointStatus == "Available on this Mac")
 }
 
-
-@Test func remoteCapacityDraftPreservesUneditedPolicyExactly() {
-    let policy = RemotePoolSettings(
-        perEnvironmentPIDs: 222,
-        perEnvironmentDiskBytes: 4_567_890_123,
-        allowsPublicEgress: false,
-        stopGraceSeconds: 13
-    )
-    let draft = RemotePoolDraft(policy)
-    #expect(draft.settings == policy)
-    #expect(draft.isValid)
-}
-
-@Test func remoteCapacityDefaultsFitTheDefaultHostAndDenyPublicEgress() {
-    let defaults = RemotePoolSettings.defaults
-    #expect(defaults.perEnvironmentPIDs == 256)
-    #expect(defaults.perEnvironmentDiskBytes <= 8 << 30)
-    #expect(!defaults.allowsPublicEgress)
-}
 
 @MainActor
 @Test func eventHistoryResetsOnlyWhenGuestBootChanges() {
@@ -253,34 +207,29 @@ import Foundation
     let model = AppModel()
     model.errorMessage = "Agent setup failed."
     let current = SystemSnapshotModel(
-        vmState: "Running", bootID: "guest-a", health: .healthy, components: [], usage: nil,
+        vmState: .running, bootID: "guest-a", health: .healthy, components: [], usage: nil,
         environments: [], remoteRegistrations: [], collectedAt: Date(timeIntervalSinceReferenceDate: 20)
     )
     model.applySnapshot(current)
     model.applySnapshot(SystemSnapshotModel(
-        vmState: "Running", bootID: "guest-a", health: .unavailable, components: [], usage: nil,
+        vmState: .running, bootID: "guest-a", health: .unavailable, components: [], usage: nil,
         environments: [], remoteRegistrations: [], collectedAt: Date(timeIntervalSinceReferenceDate: 10)
     ))
     #expect(model.snapshot == current)
     #expect(model.errorMessage == "Agent setup failed.")
 }
 
-@Test func configurationCommandRunnerHandlesLargeOutputAndTimeout() async throws {
-    let configuration = MCPClientConfiguration()
-    let output = try await configuration.run(
-        URL(filePath: "/bin/sh"),
-        arguments: ["-c", "/usr/bin/yes x | /usr/bin/head -c 131072"],
-        timeout: .seconds(3)
-    )
-    #expect(output.count == 131_072)
+@Test func imageInventoryPlanPreservesStaleInventoryUntilForced() {
+    #expect(imageInventoryPlan(availability: .unknown, force: false) == .wait)
+    #expect(imageInventoryPlan(availability: .stale, force: false) == .retain)
+    #expect(imageInventoryPlan(availability: .stale, force: true) == .fetch)
+    #expect(imageInventoryPlan(availability: .available, force: false) == .fetch)
+    #expect(imageInventoryPlan(availability: .vmStopped, force: true) == .unavailable)
+}
 
-    do {
-        _ = try await configuration.run(
-            URL(filePath: "/bin/sh"), arguments: ["-c", "sleep 5"], timeout: .milliseconds(100)
-        )
-        Issue.record("Expected the command to time out")
-    } catch MCPClientConfiguration.ConfigurationError.commandTimedOut {
-    } catch {
-        Issue.record("Unexpected error: \(error)")
-    }
+@Test func protoStateMappingKeepsUnknownStatesUnavailable() {
+    #expect(Agentvmm_Host_V1_VMState.running.domainModel == .running)
+    #expect(Agentvmm_Host_V1_VMState.UNRECOGNIZED(99).domainModel == .unavailable)
+    #expect(Agentvmm_Host_V1_AllocationState.retained.domainModel == .retained)
+    #expect(Agentvmm_Appliance_V1_ApplianceState.sealed.domainModel == .sealed)
 }

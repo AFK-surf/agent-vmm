@@ -29,24 +29,24 @@ type cliLifecycleServer struct {
 	removeRequest  *appliancev1.ExecuteRemoveRequest
 	loseRemoveACK  bool
 	removeFailure  error
-	removeResponse *appliancev1.ApplianceOperationResponse
-	watch          func(*appliancev1.WatchApplianceOperationRequest, grpc.ServerStreamingServer[appliancev1.ApplianceOperationResponse]) error
+	removeResponse *appliancev1.ApplianceOperation
+	watch          func(*appliancev1.WatchApplianceOperationRequest, grpc.ServerStreamingServer[appliancev1.WatchApplianceOperationResponse]) error
 }
 
-func (s *cliLifecycleServer) List(context.Context, *appliancev1.ListAppliancesRequest) (*appliancev1.ListAppliancesResponse, error) {
+func (s *cliLifecycleServer) ListAppliances(context.Context, *appliancev1.ListAppliancesRequest) (*appliancev1.ListAppliancesResponse, error) {
 	return &appliancev1.ListAppliancesResponse{Appliances: []*appliancev1.ApplianceStatus{{InstallationId: "installation", ProductId: "product", Revision: 7}}}, nil
 }
-func (s *cliLifecycleServer) GetStatus(context.Context, *appliancev1.GetApplianceStatusRequest) (*appliancev1.ApplianceStatusResponse, error) {
-	return &appliancev1.ApplianceStatusResponse{Status: &appliancev1.ApplianceStatus{InstallationId: "installation", Revision: 7}}, nil
+func (s *cliLifecycleServer) GetApplianceStatus(context.Context, *appliancev1.GetApplianceStatusRequest) (*appliancev1.GetApplianceStatusResponse, error) {
+	return &appliancev1.GetApplianceStatusResponse{Status: &appliancev1.ApplianceStatus{InstallationId: "installation", Revision: 7}}, nil
 }
-func (s *cliLifecycleServer) PlanRemove(_ context.Context, r *appliancev1.PlanRemoveRequest) (*appliancev1.AppliancePlanResponse, error) {
+func (s *cliLifecycleServer) PlanRemove(_ context.Context, r *appliancev1.PlanRemoveRequest) (*appliancev1.PlanRemoveResponse, error) {
 	if r.GetInstallationId() != "installation" || r.GetExpectedRevision() != 7 || r.GetRequestId() != "remove-request" {
 		return nil, status.Error(codes.InvalidArgument, "incorrect removal plan")
 	}
 	s.requests <- "remove-plan"
-	return &appliancev1.AppliancePlanResponse{Plan: &appliancev1.AppliancePlan{InstallationId: "installation", Revision: 7, Impacts: []*appliancev1.ApplianceImpact{{ResourceType: "data_volume", ResourceId: "data-to-delete", Effect: "delete", Irreversible: true}, {ResourceType: "data_volume", ResourceId: "second-data-to-delete", Effect: "delete", Irreversible: true}}}}, nil
+	return &appliancev1.PlanRemoveResponse{Plan: &appliancev1.AppliancePlan{InstallationId: "installation", Revision: 7, Impacts: []*appliancev1.ApplianceImpact{{ResourceType: "data_volume", ResourceId: "data-to-delete", Effect: "delete", Irreversible: true}, {ResourceType: "data_volume", ResourceId: "second-data-to-delete", Effect: "delete", Irreversible: true}}}}, nil
 }
-func (s *cliLifecycleServer) ExecuteRemove(_ context.Context, r *appliancev1.ExecuteRemoveRequest) (*appliancev1.ApplianceOperationResponse, error) {
+func (s *cliLifecycleServer) ExecuteRemove(_ context.Context, r *appliancev1.ExecuteRemoveRequest) (*appliancev1.ExecuteRemoveResponse, error) {
 	s.removeMu.Lock()
 	defer s.removeMu.Unlock()
 	response := s.removeResponse
@@ -61,7 +61,7 @@ func (s *cliLifecycleServer) ExecuteRemove(_ context.Context, r *appliancev1.Exe
 			return nil, status.Error(codes.AlreadyExists, "original remove fencing changed")
 		}
 		s.requests <- "remove-execute"
-		return response, nil
+		return &appliancev1.ExecuteRemoveResponse{Operation: response}, nil
 	}
 	if r.GetInstallationId() != "installation" || r.GetExpectedRevision() != 7 || r.GetRequestId() != "remove-request" || r.GetDeadlineUnixMillis() <= time.Now().UnixMilli() || len(r.GetConfirmedResourceIds()) != 2 || r.GetConfirmedResourceIds()[0] != "data-to-delete" || r.GetConfirmedResourceIds()[1] != "second-data-to-delete" {
 		return nil, status.Error(codes.InvalidArgument, "incorrect removal confirmation")
@@ -71,60 +71,60 @@ func (s *cliLifecycleServer) ExecuteRemove(_ context.Context, r *appliancev1.Exe
 	if s.loseRemoveACK {
 		return nil, status.Error(codes.Unavailable, "accepted remove response lost")
 	}
-	return response, nil
+	return &appliancev1.ExecuteRemoveResponse{Operation: response}, nil
 }
-func (s *cliLifecycleServer) PlanActivation(_ context.Context, r *appliancev1.PlanActivationRequest) (*appliancev1.AppliancePlanResponse, error) {
+func (s *cliLifecycleServer) PlanActivation(_ context.Context, r *appliancev1.PlanActivationRequest) (*appliancev1.PlanActivationResponse, error) {
 	s.requests <- "plan"
-	return &appliancev1.AppliancePlanResponse{}, nil
+	return &appliancev1.PlanActivationResponse{}, nil
 }
 func (s *cliLifecycleServer) GetContentStatus(context.Context, *appliancev1.GetContentStatusRequest) (*appliancev1.GetContentStatusResponse, error) {
 	return &appliancev1.GetContentStatusResponse{}, nil
 }
-func (s *cliLifecycleServer) StageArtifact(context.Context, *appliancev1.StageArtifactRequest) (*appliancev1.ApplianceOperationResponse, error) {
-	return &appliancev1.ApplianceOperationResponse{ArtifactId: "artifact"}, nil
+func (s *cliLifecycleServer) StageArtifact(context.Context, *appliancev1.StageArtifactRequest) (*appliancev1.StageArtifactResponse, error) {
+	return &appliancev1.StageArtifactResponse{ArtifactId: "artifact"}, nil
 }
-func (s *cliLifecycleServer) PlanInstall(_ context.Context, r *appliancev1.PlanInstallRequest) (*appliancev1.AppliancePlanResponse, error) {
+func (s *cliLifecycleServer) PlanInstall(_ context.Context, r *appliancev1.PlanInstallRequest) (*appliancev1.PlanInstallResponse, error) {
 	if r.GetApprovedGrant().GetCapacity().GetPerEnvironmentLimits().GetDiskBytes() != 4<<30 || r.GetApprovedGrant().GetSystemLimits().GetPids() != 256 {
 		return nil, status.Error(codes.InvalidArgument, "incorrect resource flags")
 	}
 	return nil, status.Error(codes.ResourceExhausted, "approved resources exceed VM capacity")
 }
-func cliOperation() *appliancev1.ApplianceOperationResponse {
-	return &appliancev1.ApplianceOperationResponse{Operation: &appliancev1.ApplianceOperation{OperationId: "operation", InstallationId: "installation", State: appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED, Phase: appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_TERMINAL}}
+func cliOperation() *appliancev1.ApplianceOperation {
+	return &appliancev1.ApplianceOperation{OperationId: "operation", InstallationId: "installation", State: appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED, Phase: appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_TERMINAL}
 }
-func (s *cliLifecycleServer) Stop(_ context.Context, r *appliancev1.StopApplianceRequest) (*appliancev1.ApplianceOperationResponse, error) {
+func (s *cliLifecycleServer) StopAppliance(_ context.Context, r *appliancev1.StopApplianceRequest) (*appliancev1.StopApplianceResponse, error) {
 	s.requests <- "stop"
 	if r.GetExpectedRevision() != 7 || r.GetRequestId() == "" || r.GetInstallationId() != "installation" {
 		panic("stop lost its CAS identity")
 	}
-	return cliOperation(), nil
+	return &appliancev1.StopApplianceResponse{Operation: cliOperation()}, nil
 }
-func (s *cliLifecycleServer) Revoke(_ context.Context, r *appliancev1.RevokeApplianceRequest) (*appliancev1.ApplianceOperationResponse, error) {
+func (s *cliLifecycleServer) RevokeAppliance(_ context.Context, r *appliancev1.RevokeApplianceRequest) (*appliancev1.RevokeApplianceResponse, error) {
 	s.requests <- "revoke"
 	if r.GetExpectedRevision() != 7 || r.GetRequestId() == "" || r.GetInstallationId() != "installation" || r.GetDeadlineUnixMillis() <= time.Now().UnixMilli() {
 		panic("revoke lost its CAS identity or deadline")
 	}
-	return cliOperation(), nil
+	return &appliancev1.RevokeApplianceResponse{Operation: cliOperation()}, nil
 }
-func (s *cliLifecycleServer) Restart(_ context.Context, r *appliancev1.RestartApplianceRequest) (*appliancev1.ApplianceOperationResponse, error) {
+func (s *cliLifecycleServer) RestartAppliance(_ context.Context, r *appliancev1.RestartApplianceRequest) (*appliancev1.RestartApplianceResponse, error) {
 	s.requests <- "restart"
 	if r.GetExpectedRevision() != 7 || r.GetRequestId() == "" {
 		panic("restart lost its CAS identity")
 	}
-	return cliOperation(), nil
+	return &appliancev1.RestartApplianceResponse{Operation: cliOperation()}, nil
 }
-func (s *cliLifecycleServer) Activate(_ context.Context, r *appliancev1.ActivateRequest) (*appliancev1.ApplianceOperationResponse, error) {
+func (s *cliLifecycleServer) Activate(_ context.Context, r *appliancev1.ActivateRequest) (*appliancev1.ActivateResponse, error) {
 	s.requests <- "activate"
 	if r.GetExpectedRevision() != 7 || r.GetRequestId() == "" {
 		panic("activate lost its CAS identity")
 	}
-	return cliOperation(), nil
+	return &appliancev1.ActivateResponse{Operation: cliOperation()}, nil
 }
-func (s *cliLifecycleServer) WatchOperation(request *appliancev1.WatchApplianceOperationRequest, stream grpc.ServerStreamingServer[appliancev1.ApplianceOperationResponse]) error {
+func (s *cliLifecycleServer) WatchApplianceOperation(request *appliancev1.WatchApplianceOperationRequest, stream grpc.ServerStreamingServer[appliancev1.WatchApplianceOperationResponse]) error {
 	if s.watch != nil {
 		return s.watch(request, stream)
 	}
-	return stream.Send(cliOperation())
+	return stream.Send(&appliancev1.WatchApplianceOperationResponse{Operation: cliOperation()})
 }
 
 func TestManagedOnlyBinaryExposesApplianceLifecycle(t *testing.T) {
@@ -271,7 +271,7 @@ func TestApplianceRemoveExpiredFrozenIntentUsesAuthoritativeAdmission(t *testing
 			}
 			service := &cliLifecycleServer{requests: make(chan string, 8), removeRequest: proto.Clone(request).(*appliancev1.ExecuteRemoveRequest)}
 			if mode == "not-accepted" {
-				failure, err := status.New(codes.DeadlineExceeded, "intent expired").WithDetails(&errdetails.ErrorInfo{Reason: "APPLIANCE_OPERATION_NOT_ADMITTED", Domain: "agentvmm.afk.surf", Metadata: map[string]string{"admission": "not_accepted"}})
+				failure, err := status.New(codes.DeadlineExceeded, "intent expired").WithDetails(&errdetails.ErrorInfo{Reason: "APPLIANCE_OPERATION_NOT_ADMITTED", Domain: "agent-vmm", Metadata: map[string]string{"admission": "not_accepted"}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -316,26 +316,26 @@ func TestApplianceRemoveWatchDeadlineRetainsOriginalCommand(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer listener.Close()
-			operation := &appliancev1.ApplianceOperationResponse{Operation: &appliancev1.ApplianceOperation{InstallationId: "installation", OperationId: "original-operation", RequestId: "remove-request", State: appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING, Phase: appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY}}
+			operation := &appliancev1.ApplianceOperation{InstallationId: "installation", OperationId: "original-operation", RequestId: "remove-request", State: appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING, Phase: appliancev1.ApplianceOperationPhase_APPLIANCE_OPERATION_PHASE_PENDING_DESTROY}
 			service := &cliLifecycleServer{requests: make(chan string, 1), removeResponse: operation}
-			service.watch = func(request *appliancev1.WatchApplianceOperationRequest, stream grpc.ServerStreamingServer[appliancev1.ApplianceOperationResponse]) error {
+			service.watch = func(request *appliancev1.WatchApplianceOperationRequest, stream grpc.ServerStreamingServer[appliancev1.WatchApplianceOperationResponse]) error {
 				if request.GetInstallationId() != "installation" || request.GetOperationId() != "original-operation" {
 					return status.Error(codes.InvalidArgument, "watch identity changed")
 				}
 				switch outcome {
 				case "succeeded":
-					return stream.Send(cliOperation())
+					return stream.Send(&appliancev1.WatchApplianceOperationResponse{Operation: cliOperation()})
 				case "failed":
-					failed := proto.Clone(operation).(*appliancev1.ApplianceOperationResponse)
-					failed.Operation.State = appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_FAILED
-					failed.Operation.Error = &appliancev1.ApplianceOperationError{Reason: "REMOVE_FAILED"}
-					return stream.Send(failed)
+					failed := proto.Clone(operation).(*appliancev1.ApplianceOperation)
+					failed.State = appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_FAILED
+					failed.Error = &appliancev1.ApplianceOperationError{Reason: "REMOVE_FAILED"}
+					return stream.Send(&appliancev1.WatchApplianceOperationResponse{Operation: failed})
 				case "unavailable":
 					return status.Error(codes.Unavailable, "watch unavailable")
 				case "server-deadline":
 					return status.Error(codes.DeadlineExceeded, "server deadline")
 				default:
-					if err := stream.Send(operation); err != nil {
+					if err := stream.Send(&appliancev1.WatchApplianceOperationResponse{Operation: operation}); err != nil {
 						return err
 					}
 					<-stream.Context().Done()

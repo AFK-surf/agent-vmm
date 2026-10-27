@@ -5,13 +5,16 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -211,7 +214,7 @@ func systemStreamProxyError(err error) error {
 
 func dialSystemEndpoint(done <-chan struct{}, path string, deadline time.Time) (net.Conn, error) {
 	for {
-		connection, err := net.DialTimeout("unix", path, 250*time.Millisecond)
+		connection, err := dialPinnedSystemSocket(path)
 		if err == nil {
 			return connection, nil
 		}
@@ -321,4 +324,25 @@ func systemSocketName(header *vmmdv1.SystemStreamHeader) string {
 	default:
 		return "frontend-" + header.GetName() + ".sock"
 	}
+}
+
+func dialPinnedSystemSocket(path string) (net.Conn, error) {
+	root, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	file, err := openBeneath(root, filepath.Base(path), unix.O_PATH|unix.O_NOFOLLOW)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return nil, errors.New("system endpoint is not a socket")
+	}
+	return net.DialTimeout("unix", fmt.Sprintf("/proc/self/fd/%d", file.Fd()), 250*time.Millisecond)
 }

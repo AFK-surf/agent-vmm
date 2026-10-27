@@ -7,19 +7,19 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
-	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
 	"time"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	"github.com/opencontainers/go-digest"
-
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Server) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRequest, vmmdv1.BuildImageResponse]) error {
@@ -44,7 +44,10 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 	if err := validateID("actor_namespace_id", header.GetActorNamespaceId()); err != nil {
 		return err
 	}
-	unlock := r.lockNamespace(header.GetActorNamespaceId())
+	unlock, err := r.lockNamespace(stream.Context(), header.GetActorNamespaceId())
+	if err != nil {
+		return err
+	}
 	labels, err := r.client.NamespaceService().Labels(stream.Context(), header.GetActorNamespaceId())
 	if err != nil {
 		unlock()
@@ -60,10 +63,7 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 	if err != nil {
 		return err
 	}
-	input := proto.Clone(header).(*vmmdv1.BuildImageHeader)
-	input.RequestId, input.ActorNamespaceId, input.ExecutionId, input.ContainerId, input.ExpectedInstanceId = "", "", "", "", ""
-	input.ExecutionDeadlineUnixNano = 0
-	input.ControllerCacheScope = ""
+	input := buildInputFingerprint(header)
 	bytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(input)
 	if err != nil {
 		_ = workspace.Close()
@@ -93,12 +93,12 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 		if err := workspace.RecoverClose(ctx); err != nil {
 			return err
 		}
-		return r.settleBuilderCacheReservation(ctx, "cache-write\x00"+workspace.ID())
+		return r.settleBuilderCacheReservation("cache-write\x00" + workspace.ID())
 	}
 	defer func() {
 		cleanupErr := workspace.Close()
 		if cleanupErr == nil {
-			cleanupErr = r.settleBuilderCacheReservation(context.Background(), "cache-write\x00"+workspace.ID())
+			cleanupErr = r.settleBuilderCacheReservation("cache-write\x00" + workspace.ID())
 		}
 		if err := r.finishImageOperation(header.ActorNamespaceId, receipt, run, operationErr, cleanupErr, operationContext.Err() != nil); err != nil {
 			operationErr = errors.Join(operationErr, err)
@@ -166,7 +166,7 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 			ImageReference: reference, ManifestDigest: result.ManifestDigest, Platform: "linux/arm64",
 			ArchiveSize: result.Size, ArchiveSha256: result.ArchiveSHA256}
 		// OCIImageMaterialization.tla: runtime import precedes unpack and tag publication.
-		err = r.guardOCIPhysicalGrowth(operationContext, "build-output\x00"+header.GetActorNamespaceId()+"\x00"+header.GetRequestId(), true, func() error {
+		err = r.guardOCIPhysicalGrowth(operationContext, "build-output\x00"+header.GetActorNamespaceId()+"\x00"+header.GetRequestId(), func() error {
 			_, importErr := r.importImage(operationContext, archive, importHeader, reference, *manifest, false, true)
 			return importErr
 		})
@@ -179,4 +179,19 @@ func (r *Runtime) BuildImage(stream grpc.BidiStreamingServer[vmmdv1.BuildImageRe
 		receipt.ManifestDigest = result.ManifestDigest
 		return nil
 	})
+}
+
+func buildInputFingerprint(header *vmmdv1.BuildImageHeader) *hostv1.BuildInputFingerprint {
+	input := &hostv1.BuildInputFingerprint{
+		DockerfilePath: header.DockerfilePath, Image: header.Image, Target: header.Target,
+		NetworkMode: hostv1.BuildNetworkMode(header.NetworkMode), BaseImageReference: header.BaseImageReference,
+		BaseManifestDigest: header.BaseManifestDigest, ContextSha256: header.ContextSha256,
+	}
+	for _, argument := range header.BuildArgs {
+		input.BuildArgs = append(input.BuildArgs, &hostv1.BuildArgument{Name: argument.Name, Value: argument.Value})
+	}
+	for _, secret := range header.Secrets {
+		input.Secrets = append(input.Secrets, &hostv1.BuildSecret{Id: secret.Id})
+	}
+	return input
 }

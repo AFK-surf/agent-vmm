@@ -3,6 +3,7 @@ package remoteconnector
 import (
 	"context"
 	"errors"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"net"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 )
 
 type registrySyncTrustServer struct {
-	trustv1.UnimplementedTrustServiceServer
+	connectorv1.UnimplementedTrustServiceServer
 	operations []*trustv1.PendingRegistryOperation
 	failCommit bool
 	committed  []string
@@ -74,11 +75,11 @@ type registrySyncServer struct {
 	byMesh    map[string][]*trustv1.EndpointObservation
 }
 
-func (server *registrySyncServer) GetSnapshot(_ context.Context, request *trustv1.GetSnapshotRequest) (*trustv1.MeshSnapshot, error) {
+func (server *registrySyncServer) GetSnapshot(_ context.Context, request *trustv1.GetSnapshotRequest) (*trustv1.GetSnapshotResponse, error) {
 	if server.snapshots != nil {
-		return server.snapshots[request.GetMeshId()], nil
+		return &trustv1.GetSnapshotResponse{Snapshot: server.snapshots[request.GetMeshId()]}, nil
 	}
-	return server.snapshot, nil
+	return &trustv1.GetSnapshotResponse{Snapshot: server.snapshot}, nil
 }
 
 func (server *registrySyncServer) PublishEndpoint(_ context.Context, _ *trustv1.PublishEndpointRequest) (*trustv1.PublishEndpointResponse, error) {
@@ -86,21 +87,21 @@ func (server *registrySyncServer) PublishEndpoint(_ context.Context, _ *trustv1.
 	return &trustv1.PublishEndpointResponse{}, nil
 }
 
-func (server *registrySyncServer) ListEndpoints(_ context.Context, request *trustv1.ListMeshEndpointsRequest) (*trustv1.ListMeshEndpointsResponse, error) {
+func (server *registrySyncServer) ListEndpoints(_ context.Context, request *trustv1.ListEndpointsRequest) (*trustv1.ListEndpointsResponse, error) {
 	if server.snapshots != nil {
-		return &trustv1.ListMeshEndpointsResponse{Observations: server.byMesh[request.GetMeshId()], MeshRevision: server.snapshots[request.GetMeshId()].GetRevision()}, nil
+		return &trustv1.ListEndpointsResponse{Observations: server.byMesh[request.GetMeshId()], MeshRevision: server.snapshots[request.GetMeshId()].GetRevision()}, nil
 	}
-	return &trustv1.ListMeshEndpointsResponse{Observations: server.endpoints, MeshRevision: server.snapshot.GetRevision()}, nil
+	return &trustv1.ListEndpointsResponse{Observations: server.endpoints, MeshRevision: server.snapshot.GetRevision()}, nil
 }
 
-func (server *registrySyncServer) CreateMesh(_ context.Context, request *trustv1.CreateMeshRequest) (*trustv1.MeshCommitResponse, error) {
+func (server *registrySyncServer) CreateMesh(_ context.Context, request *trustv1.CreateMeshRequest) (*trustv1.CreateMeshResponse, error) {
 	server.calls = append(server.calls, request.GetGenesis().GetOperationId())
-	return &trustv1.MeshCommitResponse{Snapshot: &trustv1.MeshSnapshot{MeshId: request.GetGenesis().GetMeshId(), Revision: 1}}, nil
+	return &trustv1.CreateMeshResponse{Snapshot: &trustv1.MeshSnapshot{MeshId: request.GetGenesis().GetMeshId(), Revision: 1}}, nil
 }
 
-func (server *registrySyncServer) CommitRevoke(_ context.Context, request *trustv1.CommitRevokeRequest) (*trustv1.MeshCommitResponse, error) {
+func (server *registrySyncServer) CommitRevoke(_ context.Context, request *trustv1.CommitRevokeRequest) (*trustv1.CommitRevokeResponse, error) {
 	server.calls = append(server.calls, request.GetOperation().GetOperationId())
-	return &trustv1.MeshCommitResponse{Snapshot: &trustv1.MeshSnapshot{MeshId: request.GetOperation().GetMeshId(), Revision: request.GetOperation().GetExpectedRevision() + 1}}, nil
+	return &trustv1.CommitRevokeResponse{Snapshot: &trustv1.MeshSnapshot{MeshId: request.GetOperation().GetMeshId(), Revision: request.GetOperation().GetExpectedRevision() + 1}}, nil
 }
 
 func TestRegistrySyncRetriesDurableOperationButAdvancesOnlyAfterHostCommit(t *testing.T) {
@@ -113,7 +114,7 @@ func TestRegistrySyncRetriesDurableOperationButAdvancesOnlyAfterHostCommit(t *te
 	registryServer := &registrySyncServer{}
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	trustv1.RegisterTrustServiceServer(server, trustServer)
+	connectorv1.RegisterTrustServiceServer(server, trustServer)
 	trustv1.RegisterPersonalMeshRegistryServiceServer(server, registryServer)
 	go server.Serve(listener)
 	defer server.Stop()
@@ -123,7 +124,7 @@ func TestRegistrySyncRetriesDurableOperationButAdvancesOnlyAfterHostCommit(t *te
 		t.Fatal(err)
 	}
 	defer connection.Close()
-	local := trustv1.NewTrustServiceClient(connection)
+	local := connectorv1.NewTrustServiceClient(connection)
 	registry := trustv1.NewPersonalMeshRegistryServiceClient(connection)
 	cursor, err := SyncPersonalMeshRegistry(context.Background(), local, registry, 0)
 	if err == nil || cursor != 0 || len(registryServer.calls) != 1 || len(trustServer.committed) != 0 {
@@ -152,7 +153,7 @@ func TestPersonalMeshSyncPublishesLocalAndAppliesRemoteEndpoint(t *testing.T) {
 	registryServer := &registrySyncServer{snapshot: snapshot, endpoints: []*trustv1.EndpointObservation{localEndpoint, remoteEndpoint}}
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	trustv1.RegisterTrustServiceServer(server, trustServer)
+	connectorv1.RegisterTrustServiceServer(server, trustServer)
 	trustv1.RegisterPersonalMeshRegistryServiceServer(server, registryServer)
 	go server.Serve(listener)
 	defer server.Stop()
@@ -164,14 +165,14 @@ func TestPersonalMeshSyncPublishesLocalAndAppliesRemoteEndpoint(t *testing.T) {
 	defer connection.Close()
 	published := make(map[string]string)
 	observations := newEndpointObservationState(localEndpoint)
-	if err := syncPersonalMeshesWithClients(context.Background(), observations, trustv1.NewTrustServiceClient(connection),
+	if err := syncPersonalMeshesWithClients(context.Background(), observations, connectorv1.NewTrustServiceClient(connection),
 		trustv1.NewPersonalMeshRegistryServiceClient(connection), published); err != nil {
 		t.Fatal(err)
 	}
 	if registryServer.published != 1 || published[meshID] == "" || trustServer.endpoints["device-b"].GetEndpointGeneration() != remoteEndpoint.GetEndpointGeneration() {
 		t.Fatalf("published=%d state=%v endpoints=%v", registryServer.published, published, trustServer.endpoints)
 	}
-	if err := syncPersonalMeshesWithClients(context.Background(), observations, trustv1.NewTrustServiceClient(connection),
+	if err := syncPersonalMeshesWithClients(context.Background(), observations, connectorv1.NewTrustServiceClient(connection),
 		trustv1.NewPersonalMeshRegistryServiceClient(connection), published); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +180,7 @@ func TestPersonalMeshSyncPublishesLocalAndAppliesRemoteEndpoint(t *testing.T) {
 		t.Fatalf("unchanged local endpoint republished %d times", registryServer.published)
 	}
 	observations.Store(&trustv1.EndpointObservation{DeviceId: "device-a", EndpointGeneration: 8})
-	if err := syncPersonalMeshesWithClients(context.Background(), observations, trustv1.NewTrustServiceClient(connection),
+	if err := syncPersonalMeshesWithClients(context.Background(), observations, connectorv1.NewTrustServiceClient(connection),
 		trustv1.NewPersonalMeshRegistryServiceClient(connection), published); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +204,7 @@ func TestPersonalMeshSyncDiscoversThreeDevicesWithoutCrossMeshInference(t *testi
 		}}
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	trustv1.RegisterTrustServiceServer(server, trustServer)
+	connectorv1.RegisterTrustServiceServer(server, trustServer)
 	trustv1.RegisterPersonalMeshRegistryServiceServer(server, registryServer)
 	go server.Serve(listener)
 	defer server.Stop()
@@ -213,7 +214,7 @@ func TestPersonalMeshSyncDiscoversThreeDevicesWithoutCrossMeshInference(t *testi
 		t.Fatal(err)
 	}
 	defer connection.Close()
-	if err := syncPersonalMeshesWithClients(context.Background(), newEndpointObservationState(localEndpoint), trustv1.NewTrustServiceClient(connection),
+	if err := syncPersonalMeshesWithClients(context.Background(), newEndpointObservationState(localEndpoint), connectorv1.NewTrustServiceClient(connection),
 		trustv1.NewPersonalMeshRegistryServiceClient(connection), make(map[string]string)); err != nil {
 		t.Fatal(err)
 	}

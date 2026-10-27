@@ -38,17 +38,7 @@ func Prepare() (*Result, error) {
 		return nil, err
 	}
 	controlDevice, poolDevice := partitionDevice(stateDevice, 1), partitionDevice(stateDevice, 2)
-	if migrationRequested(parameters) {
-		legacyDevice, err := deviceByIdentifier("AGENT_STATE_LEGACY")
-		if err != nil {
-			return nil, err
-		}
-		report, err := MigrateLegacyState(legacyDevice, stateDevice)
-		if err != nil {
-			return nil, fmt.Errorf("migrate legacy state: %w", err)
-		}
-		fmt.Printf("state migration complete: entries=%d logical_bytes=%d\n", report.Entries, report.LogicalBytes)
-	} else if parameters["agent.state_init"] == "1" {
+	if parameters["agent.state_init"] == "1" {
 		if err := initializeStateDisk(stateDevice); err != nil {
 			return nil, err
 		}
@@ -58,9 +48,10 @@ func Prepare() (*Result, error) {
 			return nil, err
 		}
 		if err := unix.Mount(filesystem.device, filesystem.mount, "ext4", unix.MS_NOATIME, "prjquota"); err != nil && !errors.Is(err, unix.EBUSY) {
-			return nil, fmt.Errorf("mount %s: %w. Existing single-filesystem disks require offline conversion", filesystem.mount, err)
+			return nil, fmt.Errorf("mount %s: %w", filesystem.mount, err)
 		}
 	}
+
 	for _, directory := range []string{"containerd", "volumes", "workspaces", "logs", "cni"} {
 		if err := os.MkdirAll(filepath.Join(ControlMount, directory), 0700); err != nil {
 			return nil, err

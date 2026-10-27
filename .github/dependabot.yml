@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /data/agent-vmm-data
+    groups:
+      pakery:
+        patterns:
+          - "pakery-*"
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /crates/agent-vmm-proto
+    schedule:
+      interval: weekly

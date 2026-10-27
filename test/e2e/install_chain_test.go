@@ -23,7 +23,7 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
 
-const productionHostLabel = "com.afk-surf.agent-vmm-host"
+const productionHostLabel = bundle.HostBundleIdentifier
 
 // installChain runs the e2e-tagged lifecycle helpers of real ad-hoc bundles
 // against launchd under an isolated label and service home.
@@ -112,7 +112,7 @@ func TestInstallationChainE2E(t *testing.T) {
 
 	// §3.13: a target that cannot open the local schema is refused before any
 	// effect. The current Host keeps running.
-	refused, err := chain.maintenance(appB, []string{"AGENT_VMM_E2E_SUPPORTED_SCHEMA_MAX=" + strconv.Itoa(data.schema-1)},
+	refused, err := chain.maintenance(appB, []string{"AGENT_VMM_E2E_CURRENT_SCHEMA=" + strconv.Itoa(data.schema-1)},
 		chain.updateRequest("e2e-install-chain-refused", appB, "e2e-install-chain-b"))
 	if err == nil || refused.FailureCode != "target_older_than_data" || refused.Outcome != "failed" || refused.Stage != "accepted" {
 		t.Fatalf("downgrade maintenance = %+v, %v; want target_older_than_data refusal", refused, err)
@@ -204,7 +204,7 @@ func installChainEnvironment(drop ...string) []string {
 			continue
 		}
 		switch name {
-		case "AGENT_VMM_E2E_HOST_LABEL", "AGENT_VMM_E2E_HOME", "AGENT_VMM_E2E_SUPPORTED_SCHEMA_MAX", "NOTARYTOOL_PROFILE":
+		case "AGENT_VMM_E2E_HOST_LABEL", "AGENT_VMM_E2E_HOME", "AGENT_VMM_E2E_CURRENT_SCHEMA", "NOTARYTOOL_PROFILE":
 			continue
 		}
 		result = append(result, entry)

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
@@ -114,10 +114,10 @@ func (subsystem *Subsystem) Serve(ctx context.Context, connection net.Conn, boot
 		subsystem.bootID = ""
 		subsystem.mu.Unlock()
 	}()
-	if _, err := netprotocol.ReadHandshake(connection, bootID); err != nil {
+	if _, err := egresslink.ReadHandshake(connection, bootID); err != nil {
 		return fmt.Errorf("egress handshake read: %w", err)
 	}
-	if err := netprotocol.WriteHandshake(connection, netprotocol.Handshake{BootID: bootID}); err != nil {
+	if err := egresslink.WriteHandshake(connection, egresslink.Handshake{BootID: bootID}); err != nil {
 		return fmt.Errorf("egress handshake write: %w", err)
 	}
 	_ = connection.SetDeadline(time.Time{})
@@ -169,7 +169,7 @@ func (subsystem *Subsystem) runStack(ctx context.Context, connection net.Conn, b
 	writer := &frameWriter{writer: connection}
 	networkStack := stack.New(stack.Options{NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol}, TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol}})
 	defer networkStack.Destroy()
-	endpoint := channel.New(netprotocol.QueueSize, netprotocol.MTU, "")
+	endpoint := channel.New(egresslink.QueueSize, egresslink.MTU, "")
 	defer endpoint.Close()
 	if err := networkStack.CreateNIC(1, endpoint); err != nil {
 		return fmt.Errorf("create egress NIC: %s", err)
@@ -186,24 +186,24 @@ func (subsystem *Subsystem) runStack(ctx context.Context, connection net.Conn, b
 	go func() { writeErr <- writePackets(ctx, writer, endpoint, &subsystem.metrics) }()
 	for {
 		_ = connection.SetReadDeadline(time.Now().Add(16 * time.Second))
-		frameType, payload, err := netprotocol.ReadFrame(connection)
+		frameType, payload, err := egresslink.ReadFrame(connection)
 		if err != nil {
-			if errors.Is(err, netprotocol.ErrInvalidFrame) {
+			if errors.Is(err, egresslink.ErrInvalidFrame) {
 				subsystem.metrics.invalidFrames.Add(1)
 			}
 			return fmt.Errorf("egress frame read: %w", err)
 		}
 		switch frameType {
-		case netprotocol.Data:
+		case egresslink.Data:
 			subsystem.metrics.packetsReceived.Add(1)
 			packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(payload)})
 			endpoint.InjectInbound(ipv4.ProtocolNumber, packet)
 			packet.DecRef()
-		case netprotocol.Ping:
-			if err := writer.write(netprotocol.Pong, payload); err != nil {
+		case egresslink.Ping:
+			if err := writer.write(egresslink.Pong, payload); err != nil {
 				return fmt.Errorf("egress pong write: %w", err)
 			}
-		case netprotocol.Pong:
+		case egresslink.Pong:
 		default:
 			subsystem.metrics.invalidFrames.Add(1)
 		}
@@ -220,10 +220,10 @@ type frameWriter struct {
 	writer io.Writer
 }
 
-func (writer *frameWriter) write(frameType netprotocol.Type, payload []byte) error {
+func (writer *frameWriter) write(frameType egresslink.Type, payload []byte) error {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
-	return netprotocol.WriteFrame(writer.writer, frameType, payload)
+	return egresslink.WriteFrame(writer.writer, frameType, payload)
 }
 
 func writePackets(ctx context.Context, writer *frameWriter, endpoint *channel.Endpoint, values *metrics) error {
@@ -236,11 +236,11 @@ func writePackets(ctx context.Context, writer *frameWriter, endpoint *channel.En
 		data := append([]byte(nil), view.AsSlice()...)
 		view.Release()
 		packet.DecRef()
-		if len(data) > netprotocol.MTU {
+		if len(data) > egresslink.MTU {
 			values.packetDrops.Add(1)
 			continue
 		}
-		if err := writer.write(netprotocol.Data, data); err != nil {
+		if err := writer.write(egresslink.Data, data); err != nil {
 			return err
 		}
 		values.packetsSent.Add(1)
@@ -262,7 +262,7 @@ func (subsystem *Subsystem) authorizeEndpoint(bootID string, sourceAddress, dest
 	if !ok {
 		return "", false, false, sourcePolicy
 	}
-	guest, _, _ := netprotocol.Addresses()
+	guest, _, _ := egresslink.Addresses()
 	infrastructure := source == guest
 	environment := ""
 	lan := false
@@ -288,7 +288,7 @@ func (subsystem *Subsystem) authorizeEndpoint(bootID string, sourceAddress, dest
 		lan = resolved.LANEgress
 		public = resolved.Mode == PublicInternet
 	}
-	_, host, _ := netprotocol.Addresses()
+	_, host, _ := egresslink.Addresses()
 	if virtualDNS && destination == host {
 		return environment, infrastructure, true, sourcePolicy
 	}
@@ -308,7 +308,7 @@ func (subsystem *Subsystem) authorizeEndpoint(bootID string, sourceAddress, dest
 		}
 	}
 	if isHost {
-		_, _, transport := netprotocol.Addresses()
+		_, _, transport := egresslink.Addresses()
 		if destination.IsLoopback() || destination.IsLinkLocalUnicast() || transport.Contains(destination) || namespacePool.Contains(destination) {
 			return environment, infrastructure, false, sourcePolicy
 		}

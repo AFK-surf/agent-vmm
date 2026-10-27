@@ -52,7 +52,7 @@ func TestExtractManagedUpdateStagesOnlyTheSelectedRelease(t *testing.T) {
 	if err := extractManagedUpdate(context.Background(), archive, staged, "release-2"); err != nil {
 		t.Fatal(err)
 	}
-	if release, err := managedHostReleaseID(staged, true); err != nil || release != "release-2" {
+	if release, err := managedHostReleaseID(staged); err != nil || release != "release-2" {
 		t.Fatalf("staged release = %q, %v", release, err)
 	}
 	if err := extractManagedUpdate(context.Background(), archive, managedPreparedUpdatePath(filepath.Join(root, "current"), "update-2"), "release-3"); err == nil {

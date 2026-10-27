@@ -4,11 +4,8 @@ package e2e
 
 import (
 	"context"
-	"crypto/rand"
-	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,13 +26,20 @@ func testMCPWorkflow(t *testing.T, harness *hostHarness) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	installAndActivateBundledMCP(t, harness)
-	frontendDirectory := filepath.Join(harness.instance, "support", "appliance-frontends", bundledMCPInstallationID)
-	httpEndpointFile := filepath.Join(frontendDirectory, "mcp-http.endpoint")
-	waitForPath(t, httpEndpointFile, 30*time.Second)
-	bindings := []string{strings.Repeat("1a", 32), strings.Repeat("2b", 32)}
+	admin := appliancev1.NewApplianceAdminServiceClient(harness.connection)
+	waitMCPFrontend(t, admin, true, 30*time.Second)
+	var bindings []string
+	operator := hostv1.NewOperatorServiceClient(harness.connection)
+	for range 2 {
+		issued, err := operator.CreateMCPToken(ctx, &hostv1.CreateMCPTokenRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bindings = append(bindings, issued.GetToken())
+	}
 	sessions := []*mcp.ClientSession{
-		connectHTTPMCP(t, ctx, readEndpoint(t, httpEndpointFile), bindings[0]),
-		connectHTTPMCP(t, ctx, readEndpoint(t, httpEndpointFile), bindings[1]),
+		connectHTTPMCP(t, ctx, harness, bindings[0]),
+		connectHTTPMCP(t, ctx, harness, bindings[1]),
 	}
 
 	for _, session := range sessions {
@@ -83,27 +87,70 @@ line2"`}, "env": map[string]string{"MULTI": "line1\nline2"}})
 
 	// An appliance restart replaces every installation-scoped frontend and
 	// runtime capability; no client may retain its old stream.
-	restartVictim := connectHTTPMCP(t, ctx, readEndpoint(t, httpEndpointFile), bindings[0])
+	restartVictim := connectHTTPMCP(t, ctx, harness, bindings[0])
 	mcpSuccess(t, restartVictim, ctx, "environment_get", map[string]any{})
-	admin := appliancev1.NewApplianceAdminServiceClient(harness.connection)
 	status := applianceStatus(t, admin, bundledMCPInstallationID)
-	if _, err := admin.Restart(ctx, &appliancev1.RestartApplianceRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-restart", ExpectedRevision: status.GetRevision(), DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli()}); err != nil {
+	if _, err := admin.RestartAppliance(ctx, &appliancev1.RestartApplianceRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-restart", ExpectedRevision: status.GetRevision(), DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli()}); err != nil {
 		t.Fatal(err)
 	}
 	assertMCPSessionClosed(t, restartVictim)
-	// Enabled appliances and discovery recover after an ordinary VM restart.
+	// Enabled appliances and their loopback frontends recover after a VM restart.
 	harness.stop(t, false)
 	harness.start(t)
-	waitForPath(t, httpEndpointFile, 30*time.Second)
-	recovered := connectHTTPMCP(t, ctx, readEndpoint(t, httpEndpointFile), bindings[0])
+	waitMCPFrontend(t, admin, true, 30*time.Second)
+	recovered := connectHTTPMCP(t, ctx, harness, bindings[0])
+	mcpSuccess(t, recovered, ctx, "environment_get", map[string]any{})
+	endpoint := mcpEndpoint(t, harness)
+	rotation, err := operator.RotateMCPTokenKey(ctx, &hostv1.RotateMCPTokenKeyRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	watch, err := admin.WatchApplianceOperation(ctx, &appliancev1.WatchApplianceOperationRequest{InstallationId: bundledMCPInstallationID, OperationId: rotation.GetOperationId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		frame, err := watch.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		operation := frame.GetOperation()
+		if operation.GetState() == appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_RUNNING {
+			continue
+		}
+		if operation.GetState() != appliancev1.ApplianceOperationState_APPLIANCE_OPERATION_STATE_SUCCEEDED {
+			t.Fatalf("rotation failed: %v", operation)
+		}
+		break
+	}
+	if got := mcpEndpoint(t, harness); got != endpoint {
+		t.Fatalf("rotation changed endpoint: %s -> %s", endpoint, got)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := (&http.Client{Transport: mcpAuthorizationTransport{token: bindings[0]}}).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old token status = %d", response.StatusCode)
+	}
+	issued, err := operator.CreateMCPToken(ctx, &hostv1.CreateMCPTokenRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered = connectHTTPMCP(t, ctx, harness, issued.GetToken())
 	mcpSuccess(t, recovered, ctx, "environment_get", map[string]any{})
 
 	status = applianceStatus(t, admin, bundledMCPInstallationID)
-	if _, err := admin.Stop(ctx, &appliancev1.StopApplianceRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-disable", ExpectedRevision: status.GetRevision(), DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli()}); err != nil {
+	if _, err := admin.StopAppliance(ctx, &appliancev1.StopApplianceRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-disable", ExpectedRevision: status.GetRevision(), DeadlineUnixMillis: time.Now().Add(time.Minute).UnixMilli()}); err != nil {
 		t.Fatal(err)
 	}
 	assertMCPSessionClosed(t, recovered)
-	waitForMissingPath(t, httpEndpointFile, 10*time.Second)
+	waitMCPFrontend(t, admin, false, 10*time.Second)
 	if got := applianceStatus(t, admin, bundledMCPInstallationID); got.GetEnabled() || got.GetApplianceState() == appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING {
 		t.Fatalf("disabled MCP appliance remains active: %+v", got)
 	}
@@ -114,7 +161,7 @@ func installAndActivateBundledMCP(t *testing.T, harness *hostHarness) {
 	t.Helper()
 	bundle := os.Getenv("AGENT_VMM_E2E_BUNDLE")
 	if bundle == "" {
-		bundle = "/tmp/agent-vmm-e2e-bundle"
+		t.Fatal("AGENT_VMM_E2E_BUNDLE is required")
 	}
 	directory := filepath.Join(bundle, "mcp-appliance")
 	manifestBytes, err := os.ReadFile(filepath.Join(directory, "manifest.pb"))
@@ -133,35 +180,25 @@ func installAndActivateBundledMCP(t *testing.T, harness *hostHarness) {
 	}
 	artifactID := stage.GetArtifactId()
 	current := applianceStatus(t, admin, bundledMCPInstallationID)
-	var dynamic *appliancev1.DynamicHostLoopbackGrant
-	if requested := manifest.GetRequestedDynamicHostLoopback(); requested != nil {
-		dynamic = proto.Clone(requested).(*appliancev1.DynamicHostLoopbackGrant)
-		dynamic.MaxActiveLeases = min(dynamic.GetMaxActiveLeases(), 4)
-		dynamic.MaxActiveLeasesPerAllocation = min(dynamic.GetMaxActiveLeasesPerAllocation(), 2)
-		dynamic.MaxConcurrentConnections = min(dynamic.GetMaxConcurrentConnections(), 8)
-		dynamic.MaxConcurrentConnectionsPerLease = min(dynamic.GetMaxConcurrentConnectionsPerLease(), 2)
-		dynamic.ConnectionBounds.MaxConcurrentStreams = dynamic.GetMaxConcurrentConnectionsPerLease()
-	}
+
 	grant := &appliancev1.ApprovedGrant{EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL, SystemLimits: manifest.GetSystemLimits(),
 		Capacity:  &appliancev1.CapacityGrant{PerEnvironmentLimits: isolationLimits(256, 256<<20), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL},
-		Frontends: manifest.GetRequestedFrontends(), DynamicHostLoopback: dynamic, Revision: current.GetRevision()}
+		Frontends: manifest.GetRequestedFrontends(), Revision: current.GetRevision()}
 	_, err = admin.PlanInstall(context.Background(), &appliancev1.PlanInstallRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-install-plan", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant})
 	if err != nil {
 		t.Fatal(err)
 	}
-	seed := make([]byte, 32)
-	if _, err := rand.Read(seed); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admin.Install(context.Background(), &appliancev1.InstallRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-install", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant, OpaqueBootstrapSeed: seed}); err != nil {
+	if _, err := admin.Install(context.Background(), &appliancev1.InstallRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-install", ExpectedRevision: current.GetRevision(), ArtifactId: artifactID, DeadlineUnixMillis: deadline, ApprovedGrant: grant}); err != nil {
 		t.Fatal(err)
 	}
 	current = applianceStatus(t, admin, bundledMCPInstallationID)
 	if current.GetEnabled() || current.GetApplianceState() == appliancev1.ApplianceState_APPLIANCE_STATE_RUNNING {
 		t.Fatalf("bundled MCP was enabled during installation: %+v", current)
 	}
-	if _, err := os.Stat(filepath.Join(harness.instance, "support", "appliance-frontends", bundledMCPInstallationID)); !os.IsNotExist(err) {
-		t.Fatalf("disabled MCP published frontend discovery: %v", err)
+	for _, frontend := range current.GetFrontends() {
+		if frontend.GetAvailable() {
+			t.Fatalf("disabled MCP published a frontend: %+v", frontend)
+		}
 	}
 	_, err = admin.PlanActivation(context.Background(), &appliancev1.PlanActivationRequest{InstallationId: bundledMCPInstallationID, RequestId: "mcp-activation-plan", ExpectedRevision: current.GetRevision(), DeadlineUnixMillis: deadline})
 	if err != nil {
@@ -191,7 +228,7 @@ func assertMCPSessionClosed(t *testing.T, session *mcp.ClientSession) {
 // owned and its data stays in place.
 func assertMCPAllocationsPreserved(t *testing.T, databasePath string) {
 	t.Helper()
-	database, err := sql.Open("sqlite", databasePath)
+	database, err := openE2EDatabase(databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,25 +243,38 @@ func assertMCPAllocationsPreserved(t *testing.T, databasePath string) {
 	}
 }
 
-func connectHTTPMCP(t *testing.T, ctx context.Context, endpoint, binding string) *mcp.ClientSession {
+type mcpAuthorizationTransport struct{ token string }
+
+func (transport mcpAuthorizationTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	request = request.Clone(request.Context())
+	request.Header.Set("Authorization", "Bearer "+transport.token)
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+func mcpEndpoint(t *testing.T, harness *hostHarness) string {
 	t.Helper()
-	client := &http.Client{Transport: bearerTransport{binding: binding, base: http.DefaultTransport}}
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "agent-vmm-http-e2e", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: "http://" + endpoint + "/mcp", HTTPClient: client, DisableStandaloneSSE: true}, nil)
+	status := applianceStatus(t, appliancev1.NewApplianceAdminServiceClient(harness.connection), bundledMCPInstallationID)
+	endpoint := ""
+	for _, frontend := range status.GetFrontends() {
+		if frontend.GetName() == "mcp-http" && frontend.GetAvailable() {
+			endpoint = "http://" + frontend.GetEndpoint() + "/mcp"
+		}
+	}
+	if endpoint == "" {
+		t.Fatal("MCP HTTP frontend unavailable")
+	}
+	return endpoint
+}
+
+func connectHTTPMCP(t *testing.T, ctx context.Context, harness *hostHarness, token string) *mcp.ClientSession {
+	t.Helper()
+	endpoint := mcpEndpoint(t, harness)
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "agent-vmm-http-e2e", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: &http.Client{Transport: mcpAuthorizationTransport{token: token}}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { session.Close() })
 	return session
-}
-
-type bearerTransport struct {
-	binding string
-	base    http.RoundTripper
-}
-
-func (transport bearerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	clone := request.Clone(request.Context())
-	clone.Header.Set("Authorization", "Bearer "+transport.binding)
-	return transport.base.RoundTrip(clone)
 }
 
 func assertMCPTools(t *testing.T, ctx context.Context, session *mcp.ClientSession) {
@@ -243,30 +293,25 @@ func assertMCPTools(t *testing.T, ctx context.Context, session *mcp.ClientSessio
 	}
 }
 
-func waitForMissingPath(t *testing.T, path string, timeout time.Duration) {
+func waitMCPFrontend(t *testing.T, admin appliancev1.ApplianceAdminServiceClient, available bool, timeout time.Duration) {
 	t.Helper()
+	var current *appliancev1.ApplianceStatus
 	for deadline := time.Now().Add(timeout); ; time.Sleep(50 * time.Millisecond) {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		current = applianceStatus(t, admin, bundledMCPInstallationID)
+		published, loopback := false, false
+		for _, frontend := range current.GetFrontends() {
+			if frontend.GetName() == "mcp-http" && frontend.GetAvailable() {
+				published = true
+				loopback = frontend.GetExposure() == appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK
+			}
+		}
+		if available && loopback || !available && !published {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("path still exists: %s", path)
+			t.Fatalf("MCP frontend available=%t was not observed: %+v", available, current)
 		}
 	}
-}
-
-func readEndpoint(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	endpoint := strings.TrimSpace(string(data))
-	address, err := net.ResolveTCPAddr("tcp", endpoint)
-	if err != nil || address.IP == nil || !address.IP.IsLoopback() || address.Port == 0 {
-		t.Fatalf("invalid endpoint %q: %v", endpoint, err)
-	}
-	return endpoint
 }
 
 func mcpPull(t *testing.T, session *mcp.ClientSession, ctx context.Context) {

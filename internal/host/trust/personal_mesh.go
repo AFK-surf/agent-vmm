@@ -5,12 +5,16 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"slices"
+	"time"
+
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/pkg/signing"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
 )
 
 func (manager *Manager) ListPersonalMeshes(ctx context.Context) ([]*trustv1.PersonalMeshState, error) {
@@ -173,24 +177,12 @@ func (manager *Manager) RevokePersonalMeshMember(ctx context.Context, requestID,
 	if err != nil || record.State != store.DeviceIdentityReady {
 		return nil, nil, nil, errors.Join(ErrNeedsRepair, err)
 	}
-	managerAuthorized := false
-	found := false
-	var revokedRootRevision uint64
-	for _, member := range current.GetActiveMembers() {
-		if member.GetDeviceId() == record.Identity.GetDeviceId() {
-			for _, permission := range member.GetPermissions() {
-				managerAuthorized = managerAuthorized || permission == trustv1.MeshPermission_MESH_PERMISSION_MANAGE_MEMBERS
-			}
-		}
-		if member.GetDeviceId() == deviceID {
-			found = true
-			revokedRootRevision = member.GetRootKeyRevision()
-			continue
-		}
-	}
-	if !managerAuthorized || !found {
+	local := activeMember(current, record.Identity.GetDeviceId())
+	revoked := activeMember(current, deviceID)
+	if !hasPermission(local, trustv1.MeshPermission_MESH_PERMISSION_MANAGE_MEMBERS) || revoked == nil {
 		return nil, nil, nil, ErrRouteUnauthorized
 	}
+	revokedRootRevision := revoked.GetRootKeyRevision()
 	now := manager.now()
 	operation := &trustv1.RegistryOperation{OperationId: requestID, Kind: trustv1.RegistryOperationKind_REGISTRY_OPERATION_KIND_REVOKE,
 		MeshId: meshID, ExpectedRevision: expectedRevision, PolicyEpoch: current.GetPolicyEpoch() + 1,
@@ -234,9 +226,17 @@ func (manager *Manager) SignPairingProof(ctx context.Context, proof *trustv1.Pai
 	return result, err
 }
 
-func (manager *Manager) CreatePersonalMeshJoin(ctx context.Context, requestID, inviteID string, nonce []byte, proof *trustv1.PairingProof) (*trustv1.RegistryOperation, error) {
-	if requestID == "" || inviteID == "" || len(nonce) != 32 || proof == nil {
+func (manager *Manager) CreatePersonalMeshJoin(ctx context.Context, requestID string, invitation *hostv1.PersonalMeshPairingInvitation, peerIdentity, peerRootKey []byte, proof *trustv1.PairingProof) (*trustv1.RegistryOperation, error) {
+	if requestID == "" || invitation.GetInviteId() == "" || len(invitation.GetNonce()) != 32 || proof == nil {
 		return nil, ErrRouteUnauthorized
+	}
+	contextDigest, contextErr := PairingContext(invitation, peerIdentity, peerRootKey).Digest()
+	if contextErr != nil || !equalBytes(proof.GetSessionId(), invitation.GetSessionId()) ||
+		proof.GetMeshId() != invitation.GetMeshId() || proof.GetInviteRevision() != invitation.GetInviteRevision() ||
+		!slices.Equal(proof.GetPermissions(), invitation.GetPermissions()) || len(invitation.GetPermissions()) == 0 ||
+		proof.GetDeviceId() != string(peerIdentity) || !equalBytes(proof.GetRootPublicKey(), peerRootKey) ||
+		!equalBytes(proof.GetContextDigest(), contextDigest[:]) || !proto.Equal(proof.GetExpiresAt(), invitation.GetExpiresAt()) {
+		return nil, ErrPairingContextMismatch
 	}
 	if existing, err := manager.store.GetRegistryOperation(ctx, requestID); err == nil {
 		if existing.GetKind() != trustv1.RegistryOperationKind_REGISTRY_OPERATION_KIND_JOIN {
@@ -254,16 +254,7 @@ func (manager *Manager) CreatePersonalMeshJoin(ctx context.Context, requestID, i
 	if err != nil || record.State != store.DeviceIdentityReady {
 		return nil, ErrNeedsRepair
 	}
-	managerAuthorized := false
-	for _, member := range snapshot.GetActiveMembers() {
-		if member.GetDeviceId() == record.Identity.GetDeviceId() &&
-			member.GetRootKeyRevision() == record.Identity.GetRootKeyRevision() &&
-			equalBytes(member.GetRootPublicKey(), record.Identity.GetRootPublicKey()) {
-			for _, permission := range member.GetPermissions() {
-				managerAuthorized = managerAuthorized || permission == trustv1.MeshPermission_MESH_PERMISSION_MANAGE_MEMBERS
-			}
-		}
-	}
+	managerAuthorized := CanManageMesh(snapshot, record.Identity)
 	now := manager.now()
 	proofInput, canonicalErr := signing.CanonicalInput(proof)
 	proofDigest := sha256.Sum256(proofInput)
@@ -279,11 +270,11 @@ func (manager *Manager) CreatePersonalMeshJoin(ctx context.Context, requestID, i
 	}
 	membership := &trustv1.MeshMembership{MeshId: proof.GetMeshId(), DeviceId: proof.GetDeviceId(),
 		RootPublicKey: append([]byte(nil), proof.GetRootPublicKey()...), RootKeyRevision: proof.GetRootKeyRevision(),
-		Permissions: append([]trustv1.MeshPermission(nil), proof.GetPermissions()...), State: trustv1.MeshMembershipState_MESH_MEMBERSHIP_STATE_ACTIVE}
+		Permissions: append([]trustv1.MeshPermission(nil), invitation.GetPermissions()...), State: trustv1.MeshMembershipState_MESH_MEMBERSHIP_STATE_ACTIVE}
 	operation := &trustv1.RegistryOperation{OperationId: requestID, Kind: trustv1.RegistryOperationKind_REGISTRY_OPERATION_KIND_JOIN,
 		MeshId: proof.GetMeshId(), ExpectedRevision: proof.GetInviteRevision(), PolicyEpoch: snapshot.GetPolicyEpoch(),
 		IssuerDeviceId: record.Identity.GetDeviceId(), IssuerRootKeyRevision: record.Identity.GetRootKeyRevision(), Membership: membership,
-		InviteId: inviteID, ExpiresAt: proof.GetExpiresAt(), Nonce: append([]byte(nil), nonce...), PairingProof: pairingProof}
+		InviteId: invitation.GetInviteId(), ExpiresAt: proof.GetExpiresAt(), Nonce: append([]byte(nil), invitation.GetNonce()...), PairingProof: pairingProof}
 	input, err := signing.CanonicalInput(operation)
 	if err != nil {
 		return nil, err
@@ -333,4 +324,23 @@ func validateSnapshot(snapshot *trustv1.MeshSnapshot, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+var ErrPairingContextMismatch = errors.New("pairing proof does not match the authenticated invitation")
+
+func PairingContext(invitation *hostv1.PersonalMeshPairingInvitation, peerIdentity, peerRootKey []byte) dataworker.PairingContext {
+	permissions := make([]byte, len(invitation.GetPermissions()))
+	for index, permission := range invitation.GetPermissions() {
+		permissions[index] = byte(permission)
+	}
+	return dataworker.PairingContext{SessionID: invitation.GetSessionId(), MeshID: []byte(invitation.GetMeshId()),
+		InviteRevision: invitation.GetInviteRevision(), ManagerIdentity: []byte(invitation.GetManagerDeviceId()),
+		ManagerRootKey: invitation.GetManagerRootPublicKey(), JoinerIdentity: peerIdentity, JoinerRootKey: peerRootKey,
+		RolesAndFeatures: permissions}
+}
+
+func CanManageMesh(snapshot *trustv1.MeshSnapshot, identity *trustv1.DeviceIdentity) bool {
+	member := activeMember(snapshot, identity.GetDeviceId())
+	return hasPermission(member, trustv1.MeshPermission_MESH_PERMISSION_MANAGE_MEMBERS) &&
+		member.GetRootKeyRevision() == identity.GetRootKeyRevision() && equalBytes(member.GetRootPublicKey(), identity.GetRootPublicKey())
 }

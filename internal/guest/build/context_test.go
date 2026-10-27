@@ -19,6 +19,7 @@ func TestExtractContext(t *testing.T) {
 		{name: "absolute", headers: []*tar.Header{{Name: "/escape", Typeflag: tar.TypeReg}}},
 		{name: "parent", headers: []*tar.Header{{Name: "../escape", Typeflag: tar.TypeReg}}},
 		{name: "escaping symlink", headers: []*tar.Header{{Name: "link", Linkname: "../escape", Typeflag: tar.TypeSymlink}}},
+		{name: "physical parent escape", headers: []*tar.Header{{Name: "a", Linkname: ".", Typeflag: tar.TypeSymlink}, {Name: "a/b", Linkname: "../x", Typeflag: tar.TypeSymlink}}},
 		{name: "hardlink", valid: true, headers: []*tar.Header{{Name: "source", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg}, {Name: "linked", Linkname: "source", Typeflag: tar.TypeLink}}},
 		{name: "escaping hardlink", headers: []*tar.Header{{Name: "linked", Linkname: "../escape", Typeflag: tar.TypeLink}}},
 		{name: "device", headers: []*tar.Header{{Name: "device", Typeflag: tar.TypeChar}}},

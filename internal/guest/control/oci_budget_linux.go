@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"math/bits"
 	"os"
 	"path/filepath"
@@ -18,7 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/atomicfile"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	"golang.org/x/sys/unix"
@@ -35,13 +35,14 @@ func (r *Runtime) guardBuilderOCIGrowth(ctx context.Context, identity string, ru
 	if strings.HasPrefix(identity, "cache-write\x00") {
 		return r.guardBuilderCacheGrowth(ctx, identity, run)
 	}
-	return r.guardOCIPhysicalGrowth(ctx, "builder\x00"+identity, true, run)
+	return r.guardOCIPhysicalGrowth(ctx, "builder\x00"+identity, run)
 }
 
 // lockImportSlot waits in FIFO order for the Guest-global materialization
 // slot until the request deadline.
-func (r *Runtime) lockImportSlot(ctx context.Context, digest string) (func(), error) {
-	unlock, err := r.materializer.LockImport(ctx, digest)
+func (r *Runtime) lockImportSlot(ctx context.Context) (func(), error) {
+	err := r.materializationSlot.Acquire(ctx, 1)
+	unlock := func() { r.materializationSlot.Release(1) }
 	if errors.Is(err, context.DeadlineExceeded) {
 		return nil, resourceCapacityExhausted(resourcev2.CapacityImportSlot, "import_slot", "Guest OCI import slot stayed occupied until the request deadline")
 	}
@@ -52,20 +53,13 @@ func (r *Runtime) lockImportSlot(ctx context.Context, digest string) (func(), er
 // content or overlay-snapshot blocks through the same physical I reservation
 // and project-9000 hard ceiling as image import. BuildMaterializationBudget.tla
 // keeps local reserve-to-settle indivisible to metadata and fences canceled waits.
-func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, waitForSlot bool, run func() error) error {
+func (r *Runtime) guardOCIPhysicalGrowth(ctx context.Context, identity string, run func() error) error {
 	digest := sha256.Sum256([]byte(identity))
 	digestText := "sha256:" + hex.EncodeToString(digest[:])
-	var unlock func()
-	var err error
-	if waitForSlot {
-		unlock, err = r.materializer.LockBuild(ctx)
-	} else {
-		unlock, err = r.lockImportSlot(ctx, digestText)
-	}
-	if err != nil {
+	if err := r.materializationSlot.Acquire(ctx, 1); err != nil {
 		return err
 	}
-	defer unlock()
+	defer r.materializationSlot.Release(1)
 	header := &vmmdv1.ImportImageHeader{RequestId: "oci-growth-" + hex.EncodeToString(digest[:24]), ManifestDigest: digestText}
 	return r.guardOCIPhysicalGrowthLocked(ctx, header, run)
 }
@@ -148,10 +142,10 @@ func (r *Runtime) guardOCIProjectGrowth(transaction *guestdisk.Transaction, rese
 	release := reservation.remaining
 	reservation.mu.Unlock()
 	if err := reservation.Consume(release); err != nil {
-		return errors.Join(err, transaction.Settle(func() error { return r.settleOCIProjectQuota(context.Background()) }))
+		return errors.Join(err, transaction.Settle(func() error { return r.settleOCIProjectQuota() }))
 	}
 	defer func() {
-		runErr = errors.Join(runErr, transaction.Settle(func() error { return r.settleOCIProjectQuota(context.Background()) }))
+		runErr = errors.Join(runErr, transaction.Settle(func() error { return r.settleOCIProjectQuota() }))
 	}()
 	return run()
 }
@@ -199,8 +193,8 @@ func (r *Runtime) reserveImportLocked(ctx context.Context, header *vmmdv1.Import
 	}
 	err := transaction.ReserveImportHeadroom(loadSnapshot, commit)
 	if errors.Is(err, guestdisk.ErrCapacityUnavailable) {
-		log.Printf("OCI import reservation unavailable: request_id=%q manifest_digest=%q required_bytes=%d capacity=%q", header.GetRequestId(), header.GetManifestDigest(), guestdisk.MinimumImportBytes, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot))
-		if _, gcErr := r.reclaimOCIWithMaterializerTransaction(ctx, maxGCDeletes, true, transaction, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot)); gcErr != nil {
+		r.logger.Warn("OCI import reservation unavailable", "request_id", header.GetRequestId(), "digest", header.GetManifestDigest(), "required_bytes", guestdisk.MinimumImportBytes, "capacity", ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot))
+		if _, gcErr := r.reclaimOCIMaterializerHeld(ctx, maxGCDeletes, ociReclaimCapacityReason("import_headroom_unavailable", lastSnapshot)); gcErr != nil {
 			return nil, gcErr
 		}
 		err = transaction.ReserveImportHeadroom(loadSnapshot, commit)
@@ -283,40 +277,17 @@ func writeImportReservation(path, holdPath string, value uint64) error {
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, ".reservation-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.WriteString(strconv.FormatUint(value, 10)); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return err
-	}
-	handle, err := os.Open(directory)
-	if err != nil {
-		return err
-	}
-	defer handle.Close()
-	return handle.Sync()
+	return atomicfile.ReplaceFile(path, []byte(strconv.FormatUint(value, 10)), 0o600)
 }
 
 // PrepareOCIStorage assigns immutable OCI data to the shared pool project.
 func PrepareOCIStorage(stateDevice string) error {
+	for _, name := range []string{"imports", "import-reservations"} {
+		if err := os.RemoveAll(filepath.Join(stateRoot, name)); err != nil {
+			return fmt.Errorf("clean incomplete %s: %w", name, err)
+		}
+	}
+
 	if err := prepareOCIStorage(stateDevice,
 		[]string{stateRoot + "/containerd", stateRoot + "/containerd/content", stateRoot + "/containerd/overlayfs", stateRoot + "/imports", stateRoot + "/appliance-content", stateRoot + "/appliance-content-projections"},
 		os.MkdirAll, projectID, assignProject, tightenOCIProjectQuota); err != nil {
@@ -359,7 +330,7 @@ func tightenOCIProjectQuota(stateDevice string) error {
 	return setProjectQuota(stateDevice, ociProjectID, limit)
 }
 
-func (r *Runtime) settleOCIProjectQuota(ctx context.Context) error {
+func (r *Runtime) settleOCIProjectQuota() error {
 	return retryOCIProjectQuota(func() error {
 		return errors.Join(tightenOCIProjectQuota(r.stateDevice), tightenCacheProjectQuota(r.stateDevice))
 	}, 10, 100*time.Millisecond)

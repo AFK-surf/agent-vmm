@@ -7,7 +7,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/errdefs"
 	digest "github.com/opencontainers/go-digest"
@@ -42,7 +44,10 @@ func (s *Server) copyImage(ctx context.Context, request *vmmdv1.CopyImageRequest
 	if request.ControllerCacheScope != "" {
 		sourceOwner = retainedImageOwner(request.ControllerCacheScope)
 	}
-	unlockSource := s.runtime.lockNamespace(sourceOwner)
+	unlockSource, err := s.runtime.lockNamespace(ctx, sourceOwner)
+	if err != nil {
+		return nil, err
+	}
 	defer func() {
 		if unlockSource != nil {
 			unlockSource()
@@ -84,7 +89,7 @@ func (s *Server) copyImage(ctx context.Context, request *vmmdv1.CopyImageRequest
 	}
 	if err != nil {
 		if request.ControllerCacheScope != "" && errdefs.IsNotFound(err) {
-			return nil, detailedErrorMetadata(codes.NotFound, "IMAGE_CACHE_NOT_ADMITTED", "retained source disappeared before copy admission", "image", reference, map[string]string{"admission": "not_accepted"})
+			return nil, hostv1.NewError(codes.NotFound, hostv1.ErrorReason_ERROR_REASON_IMAGE_CACHE_NOT_ADMITTED, "retained source disappeared before copy admission", hostv1.WithResource("image", reference), hostv1.WithMetadata(map[string]string{"admission": "not_accepted"}))
 		}
 		return nil, err
 	}
@@ -151,7 +156,7 @@ func (s *Server) copyImage(ctx context.Context, request *vmmdv1.CopyImageRequest
 		return importErr
 	}
 	if physicalGrowth {
-		unlock, admissionErr := s.runtime.lockImportSlot(ctx, expected.String())
+		unlock, admissionErr := s.runtime.lockImportSlot(ctx)
 		if admissionErr != nil {
 			return nil, admissionErr
 		}

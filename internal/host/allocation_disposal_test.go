@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"path/filepath"
 	"testing"
 
@@ -25,29 +26,26 @@ func TestAllocationDeletionRequiresExactConnectionAndKeepsPendingReceipt(t *test
 		t.Fatal(err)
 	}
 	defer database.Close()
-	registration, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
+	registration, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.SetRemoteConnection(ctx, registration.ID, "current", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED)); err != nil {
 		t.Fatal(err)
 	}
-	target, err := database.BeginWorkloadAdmission(ctx, store.Environment{ID: "target", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationGeneration: 7, AllocationState: 2, CPUMillis: 1000, MemoryBytes: 1 << 30, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}, resourcev2.Contract{CPUMaxMillis: 1000, MemoryMaxBytes: 1 << 30, PIDMax: 128, WritableQuotaBytes: 4 << 30})
+	target, err := database.BeginWorkloadAdmission(ctx, store.Environment{ID: "target", NamespaceID: "namespace", OwnerKind: store.OwnerRemoteRegistration, RegistrationID: registration.ID, AllocationID: "allocation", AllocationGeneration: 7, AllocationState: 2, PIDs: 128, DiskBytes: 4 << 30, EgressMode: 1}, resourcev2.Contract{PIDMax: 128, WritableQuotaBytes: 4 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := &Controller{store: database, localDisposalWake: make(chan struct{}, 1)}
+	controller := newTestController(&Controller{store: database})
 	server := &remoteComputeServer{controller: controller}
-	request := &hostv1.DisposeAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "current", AllocationId: target.AllocationID, ExpectedGeneration: target.AllocationGeneration, ExpectedPolicyRevision: target.PolicyRevision, RequestId: "delete-request"}
-	call := func(identity string) (*hostv1.AllocationResponse, error) {
+	request := &connectorv1.DisposeAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "current", AllocationId: target.AllocationID, ExpectedGeneration: target.AllocationGeneration, ExpectedPolicyRevision: target.PolicyRevision, RequestId: "delete-request"}
+	call := func(identity string) (*connectorv1.AllocationResponse, error) {
 		value, err := auth.UnaryInterceptor(auth.Identity{Role: auth.RemoteConnector, RegistrationID: identity})(ctx, request, &grpc.UnaryServerInfo{}, func(ctx context.Context, _ any) (any, error) { return server.DisposeAllocation(ctx, request) })
 		if err != nil {
 			return nil, err
 		}
-		return value.(*hostv1.AllocationResponse), nil
-	}
-	if _, err := call("other"); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("wrong owner=%v", err)
+		return value.(*connectorv1.AllocationResponse), nil
 	}
 	request.ConnectionInstance = "stale"
 	if _, err := call(registration.ID); status.Code(err) != codes.Aborted {
@@ -106,15 +104,15 @@ func TestAbsentAllocationDiscardRechecksCurrentOwnerAndCannotDeleteReplacement(t
 		t.Fatal(err)
 	}
 	defer database.Close()
-	registration, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 1, State: int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING), ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
+	registration, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 1, State: int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING), ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.SetRemoteConnection(ctx, registration.ID, "current", int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED)); err != nil {
 		t.Fatal(err)
 	}
-	server := &remoteComputeServer{controller: &Controller{store: database}}
-	planRequest := &hostv1.PlanCleanupAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "current", AllocationId: "allocation", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}
+	server := &remoteComputeServer{controller: newTestController(&Controller{store: database})}
+	planRequest := &connectorv1.PlanCleanupAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "current", AllocationId: "allocation", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}
 	authenticated := func(identity string, call func(context.Context) (any, error)) (any, error) {
 		return auth.UnaryInterceptor(auth.Identity{Role: auth.RemoteConnector, RegistrationID: identity})(ctx, planRequest, &grpc.UnaryServerInfo{}, func(callCtx context.Context, _ any) (any, error) { return call(callCtx) })
 	}
@@ -122,16 +120,13 @@ func TestAbsentAllocationDiscardRechecksCurrentOwnerAndCannotDeleteReplacement(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := value.(*hostv1.AllocationCleanupPlanResponse).GetPlan()
+	plan := value.(*connectorv1.AllocationCleanupPlanResponse).GetPlan()
 	if plan.GetAllocationId() != "allocation" || plan.GetAllocationGeneration() != 0 || plan.GetRevision() != 0 || len(plan.GetVolumeIds()) != 0 || len(plan.GetImpacts()) != 0 {
 		t.Fatalf("absence plan=%v", plan)
 	}
-	execute := &hostv1.ExecuteCleanupAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "current", AllocationId: "allocation", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}
+	execute := &connectorv1.ExecuteCleanupAllocationRequest{RegistrationId: registration.ID, ConnectionInstance: "current", AllocationId: "allocation", Kind: hostv1.CleanupKind_CLEANUP_KIND_DISCARD}
 	call := func(identity string) (any, error) {
 		return authenticated(identity, func(ctx context.Context) (any, error) { return server.ExecuteCleanupAllocation(ctx, execute) })
-	}
-	if _, err := call("other"); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("other owner=%v", err)
 	}
 	execute.ConnectionInstance = "stale"
 	if _, err := call(registration.ID); status.Code(err) != codes.Aborted {
@@ -153,7 +148,7 @@ func TestAbsentAllocationDiscardRechecksCurrentOwnerAndCannotDeleteReplacement(t
 		if err != nil {
 			t.Fatal(err)
 		}
-		allocation := value.(*hostv1.AllocationResponse).GetAllocation()
+		allocation := value.(*connectorv1.AllocationResponse).GetAllocation()
 		if allocation.GetState() != hostv1.AllocationState_ALLOCATION_STATE_DISCARDED || allocation.GetGeneration() != 0 {
 			t.Fatalf("absence receipt=%v", allocation)
 		}
@@ -170,14 +165,14 @@ func TestAbsentAllocationDiscardRechecksCurrentOwnerAndCannotDeleteReplacement(t
 	}
 }
 
-func TestEnsureDrainingRegistrationIsUnavailableWithoutAdmission(t *testing.T) {
+func TestEnsureRejectedRegistrationDoesNotPersistAdmission(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		state      hostv1.RemoteRegistrationState
 		enrollment hostv1.RemoteEnrollmentState
 		code       codes.Code
 	}{
-		{"draining", hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING, hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, codes.Unavailable},
+		{"draining", hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING, hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, codes.FailedPrecondition},
 		{"revoked", hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED, hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, codes.FailedPrecondition},
 		{"invalid-enrollment", hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING, hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL, codes.FailedPrecondition},
 	} {
@@ -188,15 +183,15 @@ func TestEnsureDrainingRegistrationIsUnavailableWithoutAdmission(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer database.Close()
-			registration, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", ProtocolVersion: "2", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 1, State: int32(test.state), ConnectionState: 1, EnrollmentState: int32(test.enrollment), ConnectorPhase: 1})
+			registration, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "registration", Endpoint: "controller", PerEnvPIDs: 128, PerEnvDiskBytes: 4 << 30, MaxEgressMode: 1, StopGraceSeconds: 1, State: int32(test.state), ConnectionState: 1, EnrollmentState: int32(test.enrollment), ConnectorPhase: 1})
 			if err != nil {
 				t.Fatal(err)
 			}
-			controller := &Controller{store: database, manager: &vmm.Manager{}}
+			controller := newTestController(&Controller{store: database, manager: &vmm.Manager{}})
 			controller.vmLifecycle = newVMLifecycleOwner(controller, controller.manager)
-			controller.vmLifecycle.admission.Store(1)
+			admitTestLifecycle(t, controller)
 			server := &remoteComputeServer{controller: controller}
-			request := &hostv1.EnsureAllocationRequest{RegistrationId: registration.ID, AllocationId: "allocation", Generation: 1}
+			request := &connectorv1.EnsureAllocationRequest{RegistrationId: registration.ID, AllocationId: "allocation", Generation: 1}
 			_, err = auth.UnaryInterceptor(auth.Identity{Role: auth.RemoteConnector, RegistrationID: registration.ID})(ctx, request, &grpc.UnaryServerInfo{}, func(callCtx context.Context, _ any) (any, error) { return server.EnsureAllocation(callCtx, request) })
 			if status.Code(err) != test.code {
 				t.Fatalf("classification=%v", err)

@@ -16,7 +16,7 @@ func Enroll(ctx context.Context, config Config, token []byte) (string, error) {
 		wipe(token)
 		return "", fmt.Errorf("enrollment token size is invalid")
 	}
-	identity, err := enrollmentIdentity(ctx, config.TrustSocket, config.TrustCapabilityFile)
+	identity, err := enrollmentIdentity(ctx, config.trustSocket())
 	if err != nil {
 		wipe(token)
 		return "", fmt.Errorf("host trust identity unavailable")
@@ -29,33 +29,28 @@ func Enroll(ctx context.Context, config Config, token []byte) (string, error) {
 	defer client.connection.Close()
 	requestToken := append([]byte(nil), token...)
 	wipe(token)
-	request := &remotev1.EnrollRequest{ProtocolVersion: ProtocolVersion, RegistrationId: config.RegistrationID, EnrollmentToken: requestToken, EndpointIdentity: config.EndpointIdentity, ConnectorRelease: ConnectorRelease, SupportedFeatures: append([]string(nil), protocolFeatures...), RequiredFeatures: append([]string(nil), requiredProtocolFeatures...), DeviceIdentity: identity}
+	request := &remotev1.EnrollRequest{ProtocolVersion: ProtocolVersion, RegistrationId: config.RegistrationID, EnrollmentToken: requestToken, DeviceIdentity: identity}
 	response, err := client.client.Enroll(ctx, request)
 	wipe(requestToken)
 	request.EnrollmentToken = nil
 	if err != nil {
 		return "", fmt.Errorf("controller enrollment failed: %w", err)
 	}
-	if response.GetProtocolVersion() != ProtocolVersion || response.GetRegistrationId() != config.RegistrationID {
+	if response.GetRegistrationId() != config.RegistrationID {
 		wipe(response.Credential)
 		return "", fmt.Errorf("controller enrollment identity mismatch")
-	}
-	if !containsAllFeatures(response.GetEnabledFeatures(), requiredProtocolFeatures) {
-		wipe(response.Credential)
-		return "", fmt.Errorf("controller feature negotiation failed")
 	}
 	if len(response.GetCredential()) == 0 || len(response.GetCredential()) > MaxCredentialBytes {
 		wipe(response.Credential)
 		return "", fmt.Errorf("controller enrollment credential is invalid")
 	}
-	if err := config.CredentialStore.Replace(ctx, config.RegistrationID, response.GetCredential()); err != nil {
-		wipe(response.Credential)
-		return "", err
-	}
-	if err := installManagedTrust(ctx, config.TrustSocket, config.TrustCapabilityFile, response.GetTrustAnchor(), response.GetMembershipCredential()); err != nil {
-		_ = config.CredentialStore.Delete(ctx, config.RegistrationID)
+	if err := installManagedTrust(ctx, config.trustSocket(), response.GetTrustAnchor(), response.GetMembershipCredential()); err != nil {
 		wipe(response.Credential)
 		return "", fmt.Errorf("controller managed trust installation failed: %w", err)
+	}
+	if err := config.external().Credentials.Replace(ctx, config.RegistrationID, response.GetCredential()); err != nil {
+		wipe(response.Credential)
+		return "", err
 	}
 	wipe(response.Credential)
 	return boundedLabel(response.GetControllerDisplayName()), nil

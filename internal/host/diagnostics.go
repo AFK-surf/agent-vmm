@@ -16,11 +16,13 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/egress"
+	opreceipt "github.com/AFK-surf/agent-vmm/internal/host/operation"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
+	"github.com/AFK-surf/agent-vmm/internal/host/workload"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type diagnosticResult struct {
@@ -30,27 +32,27 @@ type diagnosticResult struct {
 	ObservedAt string `json:"observed_at"`
 }
 
-func (server *operatorServer) GetOperation(ctx context.Context, request *hostv1.GetOperationRequest) (*hostv1.OperationResponse, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
+func (server *operatorServer) GetOperation(ctx context.Context, request *hostv1.GetOperationRequest) (*hostv1.GetOperationResponse, error) {
 	operation, err := server.controller.store.GetOperation(ctx, request.GetOperationId())
 	if err != nil {
-		return nil, resourceError(codes.NotFound, "OPERATION_NOT_FOUND", "operation", request.GetOperationId(), "operation does not exist")
+		return nil, status.Error(codes.NotFound, "operation does not exist")
 	}
-	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+	return &hostv1.GetOperationResponse{Operation: opreceipt.FromStore(operation)}, nil
 }
 
-func (server *operatorServer) RunDiagnostics(ctx context.Context, request *hostv1.RunDiagnosticsRequest) (*hostv1.OperationResponse, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
-	operation, existing, err := server.controller.beginOperation(ctx, "diagnostic", request.GetEnvironmentId(), request.GetRequestId())
+func (server *operatorServer) RunDiagnostics(ctx context.Context, request *hostv1.RunDiagnosticsRequest) (*hostv1.RunDiagnosticsResponse, error) {
+	operation, existing, err := opreceipt.Begin(ctx, server.controller.store, "diagnostic", request.GetEnvironmentId(), request.GetRequestId())
 	if err != nil {
 		return nil, err
 	}
 	if existing {
-		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+		return &hostv1.RunDiagnosticsResponse{Operation: opreceipt.FromStore(operation)}, nil
+	}
+	finish := func(err error) (*hostv1.RunDiagnosticsResponse, error) {
+		if err != nil {
+			return nil, status.Error(codes.Unavailable, err.Error())
+		}
+		return &hostv1.RunDiagnosticsResponse{Operation: opreceipt.FromStore(operation)}, nil
 	}
 	deadline, ok := ctx.Deadline()
 	if !ok || deadline.After(time.Now().Add(30*time.Second)) {
@@ -60,25 +62,21 @@ func (server *operatorServer) RunDiagnostics(ctx context.Context, request *hostv
 	defer cancel()
 	lease, err := server.controller.egress.Leases.Acquire(deadline)
 	if err != nil {
-		server.controller.failOperation(ctx, &operation, "DIAGNOSTIC_LIMIT", err)
-		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+		return finish(opreceipt.Fail(ctx, server.controller.store, &operation, "DIAGNOSTIC_LIMIT", err))
 	}
 	defer lease.Release()
 	results := server.diagnose(diagnosticCtx, request.GetEnvironmentId())
 	degraded := false
 	for _, result := range results {
 		if result.State == "unavailable" {
-			server.controller.failOperation(ctx, &operation, "DIAGNOSTIC_FAILED", errors.New(result.Layer+": "+result.Reason))
-			return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+			return finish(opreceipt.Fail(ctx, server.controller.store, &operation, "DIAGNOSTIC_FAILED", errors.New(result.Layer+": "+result.Reason)))
 		}
 		degraded = degraded || result.State == "degraded"
 	}
 	if degraded {
-		server.controller.completeOperation(ctx, &operation, "degraded")
-	} else {
-		server.controller.completeOperation(ctx, &operation, "complete")
+		return finish(opreceipt.Complete(ctx, server.controller.store, &operation, "degraded"))
 	}
-	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+	return finish(opreceipt.Complete(ctx, server.controller.store, &operation, "complete"))
 }
 
 func (server *operatorServer) diagnose(ctx context.Context, environmentID string) []diagnosticResult {
@@ -88,11 +86,11 @@ func (server *operatorServer) diagnose(ctx context.Context, environmentID string
 	if vm.GetState() != hostv1.VMState_VM_STATE_RUNNING {
 		return append(results, diagnosticResult{Layer: "host_netstack", State: "unavailable", Reason: vm.GetState().String(), ObservedAt: now})
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return append(results, diagnosticResult{Layer: "vsock_session", State: "unavailable", Reason: "guest control connection failed", ObservedAt: now})
 	}
-	defer connection.Close()
+
 	health, err := client.ComponentHealth(ctx, &vmmdv1.ComponentHealthRequest{})
 	if err != nil {
 		return append(results, diagnosticResult{Layer: "vsock_session", State: "unavailable", Reason: "guest health probe failed", ObservedAt: now})
@@ -202,11 +200,8 @@ func probeHostNetwork(ctx context.Context) (dnsErr, dialErr error) {
 	return nil, nil
 }
 
-func (server *operatorServer) PreviewSupportBundle(ctx context.Context, _ *hostv1.PreviewSupportBundleRequest) (*hostv1.SupportBundlePreview, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
-	return &hostv1.SupportBundlePreview{Items: []*hostv1.SupportBundleItem{
+func (server *operatorServer) PreviewSupportBundle(ctx context.Context, _ *hostv1.PreviewSupportBundleRequest) (*hostv1.PreviewSupportBundleResponse, error) {
+	return &hostv1.PreviewSupportBundleResponse{Items: []*hostv1.SupportBundleItem{
 		{Name: "diagnostics.json", Description: "Layered health results", IncludedByDefault: true},
 		{Name: "environment-policy.json", Description: "Limits and redacted access policy", IncludedByDefault: true},
 		{Name: "runtime-summary.json", Description: "Resource identifiers, state, and usage without environment values", IncludedByDefault: true},
@@ -214,25 +209,26 @@ func (server *operatorServer) PreviewSupportBundle(ctx context.Context, _ *hostv
 	}}, nil
 }
 
-func (server *operatorServer) ExportSupportBundle(ctx context.Context, request *hostv1.ExportSupportBundleRequest) (*hostv1.OperationResponse, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
-	operation, existing, err := server.controller.beginOperation(ctx, "support-bundle", request.GetEnvironmentId(), request.GetRequestId())
+func (server *operatorServer) ExportSupportBundle(ctx context.Context, request *hostv1.ExportSupportBundleRequest) (*hostv1.ExportSupportBundleResponse, error) {
+	operation, existing, err := opreceipt.Begin(ctx, server.controller.store, "support-bundle", request.GetEnvironmentId(), request.GetRequestId())
 	if err != nil {
 		return nil, err
 	}
 	if existing {
-		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+		return &hostv1.ExportSupportBundleResponse{Operation: opreceipt.FromStore(operation)}, nil
 	}
 	path := filepath.Join(server.controller.supportDirectory, operation.ID+".zip")
 	if err := server.writeSupportBundle(ctx, path, request.GetEnvironmentId(), request.GetIncludeSensitiveItems()); err != nil {
-		server.controller.failOperation(ctx, &operation, "SUPPORT_BUNDLE_FAILED", err)
-		return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+		if persistErr := opreceipt.Fail(ctx, server.controller.store, &operation, "SUPPORT_BUNDLE_FAILED", err); persistErr != nil {
+			return nil, status.Error(codes.Unavailable, persistErr.Error())
+		}
+		return &hostv1.ExportSupportBundleResponse{Operation: opreceipt.FromStore(operation)}, nil
 	}
 	operation.OutputPath = path
-	server.controller.completeOperation(ctx, &operation, "written")
-	return &hostv1.OperationResponse{Operation: operationFromStore(operation)}, nil
+	if err := opreceipt.Complete(ctx, server.controller.store, &operation, "written"); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	return &hostv1.ExportSupportBundleResponse{Operation: opreceipt.FromStore(operation)}, nil
 }
 
 func (server *operatorServer) writeSupportBundle(ctx context.Context, path, environmentID string, sensitiveItems []string) error {
@@ -252,10 +248,10 @@ func (server *operatorServer) writeSupportBundle(ctx context.Context, path, envi
 		if err != nil {
 			return closeWithError(err)
 		}
-		if err := writeJSON(archive, "environment-policy.json", environmentFromStore(environment)); err != nil {
+		if err := writeJSON(archive, "environment-policy.json", workload.EnvironmentFromStore(environment)); err != nil {
 			return closeWithError(err)
 		}
-		if err := writeJSON(archive, "runtime-summary.json", server.controller.environmentSnapshot(ctx, environment)); err != nil {
+		if err := writeJSON(archive, "runtime-summary.json", server.controller.services.EnvironmentSnapshot(ctx, environment)); err != nil {
 			return closeWithError(err)
 		}
 		if contains(sensitiveItems, "recent-logs") {
@@ -268,11 +264,11 @@ func (server *operatorServer) writeSupportBundle(ctx context.Context, path, envi
 }
 
 func (server *operatorServer) writeRecentLogs(ctx context.Context, archive *zip.Writer, environment store.Environment) error {
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
+
 	containers, err := client.ListContainers(ctx, &vmmdv1.ListContainersRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
 		return err

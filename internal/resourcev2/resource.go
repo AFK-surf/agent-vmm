@@ -10,8 +10,6 @@ import (
 type CapacityDimension string
 
 const (
-	CapacityCPUMax          CapacityDimension = "cpu_max"
-	CapacityMemory          CapacityDimension = "memory"
 	CapacityPIDs            CapacityDimension = "pids"
 	CapacityWritable        CapacityDimension = "writable"
 	CapacityStorageHeadroom CapacityDimension = "storage_headroom"
@@ -33,13 +31,11 @@ func ExhaustedDimension(err error) CapacityDimension {
 }
 
 type Contract struct {
-	CPUMaxMillis       uint64
-	MemoryMaxBytes     uint64
 	PIDMax             uint64
 	WritableQuotaBytes uint64
 }
 
-func (contract Contract) Validate(_ uint64) error {
+func (contract Contract) Validate() error {
 	if contract.PIDMax == 0 || contract.WritableQuotaBytes == 0 {
 		return errors.New("workload PID and writable limits must be positive")
 	}

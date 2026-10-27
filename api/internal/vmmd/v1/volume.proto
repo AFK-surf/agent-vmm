@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package agentvmm.vmmd.v1;
+
+import "internal/vmmd/v1/resources.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1;vmmdv1";
+
+message CreateVolumeRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string volume_id = 3;
+  optional uint32 owner_uid = 4;
+  optional uint32 owner_gid = 5;
+  optional uint32 mode = 6;
+}
+
+message CreateVolumeResponse {
+  Volume volume = 1;
+}
+
+message DeleteVolumeRequest {
+  string request_id = 1;
+  string actor_namespace_id = 2;
+  string volume_id = 3;
+  string expected_generation_id = 4;
+}
+
+message DeleteVolumeResponse {}
+
+message GetVolumeRequest {
+  string actor_namespace_id = 1;
+  string volume_id = 2;
+}
+
+message GetVolumeResponse {
+  Volume volume = 1;
+}
+
+message ListVolumesRequest {
+  string actor_namespace_id = 1;
+  uint32 limit = 2;
+  uint32 related_container_limit = 3;
+}
+
+message ListVolumesResponse {
+  repeated Volume volumes = 1;
+}

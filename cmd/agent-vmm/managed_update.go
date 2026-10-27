@@ -44,8 +44,8 @@ func managedUpdateFailure(stage string, err error) error {
 	return managedUpdateError{stage: stage, code: "update_" + stage + "_failed", err: err}
 }
 
-func managedRetryableUpdateFailure(stage string, err error) error {
-	return managedUpdateError{stage: stage, code: "update_" + stage + "_unavailable", retryable: true, err: err}
+func managedRetryableUpdateFailure(err error) error {
+	return managedUpdateError{stage: "download", code: "update_download_unavailable", retryable: true, err: err}
 }
 
 func managedUpdateFailureStage(err error) string {
@@ -171,33 +171,14 @@ func (runtime managedRuntime) recordUpdatePreparationFailure(opts managedOptions
 	args := []string{"update", "--preparation-failure-stdin", "--target-release-id", opts.targetRelease, "--request-id", opts.requestID,
 		"--artifact-sha256", strings.ToLower(opts.artifactSHA256), "--artifact-size", fmt.Sprint(opts.artifactSize)}
 	args = appendServiceArguments(args, opts)
-	recordCtx, cancelRecord := context.WithTimeout(context.Background(), managedInspectBudget)
+	recordCtx, cancelRecord := context.WithTimeout(context.Background(), managedObservationBudget)
 	stdout, _, runErr := runtime.runHelperInput(recordCtx, opts.lifecycle, args, descriptor)
 	cancelRecord()
 	var operation map[string]any
-	if jsonUnmarshalManaged(stdout, &operation) != nil || stringFact(operation, "requestId") != opts.requestID ||
-		stringFact(operation, "kind") != "update" || stringFact(operation, "targetReleaseId") != opts.targetRelease ||
-		stringFact(operation, "outcome") != "failed" || !strings.EqualFold(stringFact(operation, "targetArtifactSha256"), opts.artifactSHA256) ||
-		uint64(numberFact(operation, "targetArtifactSize")) != opts.artifactSize {
-		return nil, errors.New("lifecycle did not durably record the bound update preparation failure")
+	if jsonUnmarshalManaged(stdout, &operation) != nil || stringFact(operation, "requestId") != opts.requestID || stringFact(operation, "outcome") != "failed" {
+		return nil, errors.New("lifecycle did not record the update preparation failure")
 	}
-	verifyArgs := []string{"operation", "--operation-id", stringFact(operation, "operationId")}
-	verifyArgs = appendServiceArguments(verifyArgs, opts)
-	verifyCtx, cancelVerify := context.WithTimeout(context.Background(), managedInspectBudget)
-	verifiedOutput, _, verifyErr := runtime.runHelperInput(verifyCtx, opts.lifecycle, verifyArgs, nil)
-	cancelVerify()
-	var verified map[string]any
-	if verifyErr != nil || jsonUnmarshalManaged(verifiedOutput, &verified) != nil ||
-		stringFact(verified, "operationId") != stringFact(operation, "operationId") ||
-		stringFact(verified, "requestId") != opts.requestID || stringFact(verified, "kind") != "update" ||
-		stringFact(verified, "targetReleaseId") != opts.targetRelease ||
-		!strings.EqualFold(stringFact(verified, "targetArtifactSha256"), opts.artifactSHA256) ||
-		uint64(numberFact(verified, "targetArtifactSize")) != opts.artifactSize ||
-		stringFact(verified, "outcome") != "failed" || numberFact(verified, "attempt") != numberFact(operation, "attempt") ||
-		numberFact(verified, "updatedAt") != numberFact(operation, "updatedAt") ||
-		stringFact(verified, "failureCode") != stringFact(operation, "failureCode") {
-		return nil, errors.New("lifecycle did not confirm the durable update preparation failure")
-	}
+
 	return operation, runErr
 }
 
@@ -239,10 +220,10 @@ func (runtime managedRuntime) update(ctx context.Context, opts managedOptions) (
 	if handled, done := applyUpdateRetryDisposition(envelope, updateOperationFromStatus(status), opts, runtime.now().UTC()); done {
 		return handled, nil
 	}
-	stagedApp, err := runtime.prepareUpdate(ctx, opts, status)
+	stagedApp, err := runtime.prepareUpdate(context.Background(), opts, status)
 	if err != nil {
 		failure := managedUpdateFailureDetails(err)
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			failure = managedUpdateError{stage: failure.stage, code: "update_preparation_cancelled", retryable: true, err: errors.New("the update download or preparation was cancelled; the current installation was not changed")}
 		}
 		operation, recordErr := runtime.recordUpdatePreparationFailure(opts, failure)
@@ -268,7 +249,9 @@ func (runtime managedRuntime) update(ctx context.Context, opts managedOptions) (
 	args := []string{"update", "--source-app", stagedApp, "--target-release-id", opts.targetRelease, "--request-id", opts.requestID,
 		"--artifact-sha256", strings.ToLower(opts.artifactSHA256), "--artifact-size", fmt.Sprint(opts.artifactSize)}
 	args = appendServiceArguments(args, opts)
-	stdout, _, runErr := runtime.runHelper(ctx, opts.lifecycle, args)
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), managedObservationBudget)
+	defer cancelWait()
+	stdout, _, runErr := runtime.runHelper(waitCtx, opts.lifecycle, args)
 	var operation map[string]any
 	decoded := jsonUnmarshalManaged(stdout, &operation) == nil && stringFact(operation, "requestId") == opts.requestID &&
 		stringFact(operation, "kind") == "update" && stringFact(operation, "targetReleaseId") == opts.targetRelease &&
@@ -283,6 +266,9 @@ func (runtime managedRuntime) update(ctx context.Context, opts managedOptions) (
 		envelope.NextAction = []managedNextAction{{Action: "retry_same_request_id", Permission: "service_user"}}
 		envelope.Facts["request_id"] = opts.requestID
 		envelope.Facts["prepared_app"] = stagedApp
+		if active := stringFact(operation, "requestId"); active != "" && active != opts.requestID {
+			envelope.Facts["active_request_id"] = active
+		}
 		return envelope, nil
 	}
 	if !decoded {
@@ -316,17 +302,14 @@ func prepareManagedUpdate(ctx context.Context, opts managedOptions, status map[s
 		return "", managedUpdateFailure("target_selection", errors.New("installed Host target is invalid"))
 	}
 	stagedApp := managedPreparedUpdatePath(targetApp, opts.requestID)
-	if current, currentErr := managedHostReleaseID(targetApp, false); currentErr == nil && current == opts.targetRelease {
+	if current, currentErr := managedHostReleaseID(targetApp); currentErr == nil && current == opts.targetRelease {
 		if _, statErr := os.Lstat(stagedApp); statErr == nil {
 			return stagedApp, nil
 		}
 		return "", nil
 	}
 	if _, statErr := os.Lstat(stagedApp); statErr == nil {
-		if release, releaseErr := managedHostReleaseID(stagedApp, true); releaseErr == nil && release == opts.targetRelease {
-			return stagedApp, nil
-		}
-		return "", managedUpdateFailure("preparation", errors.New("prepared update path already exists with a different release"))
+		return stagedApp, nil
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return "", managedUpdateFailure("preparation", errors.New("prepared update path is not readable"))
 	}
@@ -345,13 +328,13 @@ func prepareManagedUpdate(ctx context.Context, opts managedOptions, status map[s
 	response, err := managedUpdateHTTPClient.Do(request)
 	if err != nil {
 		archive.Close()
-		return "", managedRetryableUpdateFailure("download", err)
+		return "", managedRetryableUpdateFailure(err)
 	}
 	if response.StatusCode != http.StatusOK {
 		response.Body.Close()
 		archive.Close()
 		if response.StatusCode >= 500 && response.StatusCode <= 599 {
-			return "", managedRetryableUpdateFailure("download", fmt.Errorf("Host artifact download returned HTTP %d", response.StatusCode))
+			return "", managedRetryableUpdateFailure(fmt.Errorf("Host artifact download returned HTTP %d", response.StatusCode))
 		}
 		return "", managedUpdateFailure("download", fmt.Errorf("Host artifact download returned HTTP %d", response.StatusCode))
 	}
@@ -365,7 +348,7 @@ func prepareManagedUpdate(ctx context.Context, opts managedOptions, status map[s
 	closeBodyErr := response.Body.Close()
 	closeArchiveErr := archive.Close()
 	if copyErr != nil || closeBodyErr != nil || closeArchiveErr != nil {
-		return "", managedRetryableUpdateFailure("download", errors.New("Host artifact download did not complete"))
+		return "", managedRetryableUpdateFailure(errors.New("Host artifact download did not complete"))
 	}
 	if uint64(written) != opts.artifactSize || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), opts.artifactSHA256) {
 		return "", managedUpdateFailure("download", errors.New("Host artifact bytes do not match the selected size and SHA-256"))

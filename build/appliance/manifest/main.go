@@ -25,7 +25,6 @@ func main() {
 	manifest := &appliancev1.ControllerApplianceManifest{
 		ContractVersion: "1", ProductId: "agent-vmm-mcp", Release: *release,
 		ImageReference: "agent-vmm.local/mcp@" + *imageDigest, ImageManifestDigest: *imageDigest, Platform: "linux/arm64",
-		BootstrapProtocolVersion: "appliance-v1", ControllerProtocolVersion: "controller-ready-v1",
 		SystemLimits:    limits(256, 2<<30),
 		DataVolumeBytes: 1 << 30,
 		RequestedCapacity: &appliancev1.CapacityGrant{
@@ -37,7 +36,7 @@ func main() {
 				Exposure: appliancev1.FrontendExposure_FRONTEND_EXPOSURE_HOST_LOOPBACK,
 				Bounds:   &appliancev1.StreamBounds{MaxFrameBytes: 1 << 20, MaxTotalBytes: 1 << 30, DeadlineSeconds: 3600, IdleSeconds: 300, MaxConcurrentStreams: 16}},
 		},
-		StartupDeadlineSeconds: 60, ProbationSeconds: 5, HealthTimeoutSeconds: 10,
+		StartupDeadlineSeconds: 60,
 	}
 	canonical, err := proto.MarshalOptions{Deterministic: true}.Marshal(manifest)
 	check(err)

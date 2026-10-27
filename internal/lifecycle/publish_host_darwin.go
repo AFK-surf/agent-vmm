@@ -25,18 +25,18 @@ type publishHostResult struct {
 }
 
 type publicationActions struct {
-	validate func(string, bool) (string, error)
+	validate func(string) (string, error)
 	copy     func(string, string) error
 }
 
 func defaultPublicationActions() publicationActions {
 	return publicationActions{
-		validate: func(app string, staged bool) (string, error) {
+		validate: func(app string) (string, error) {
 			canonical, err := filepath.EvalSymlinks(app)
 			if err != nil || canonical != app {
 				return "", errors.New("publication requires a canonical bundle without symlink ancestors")
 			}
-			id, err := bundle.HostReleaseID(app, staged)
+			id, err := bundle.HostReleaseID(app)
 			if err != nil {
 				return "", err
 			}
@@ -64,12 +64,12 @@ func publishHost(value paths, source string, actions publicationActions) (publis
 	if err = validateMaintenancePath(value.home, value.app); err != nil {
 		return result, err
 	}
-	result.ReleaseID, err = actions.validate(source, false)
+	result.ReleaseID, err = bundle.HostReleaseID(source)
 	if err != nil {
 		return result, fmt.Errorf("invalid publication source: %w", err)
 	}
 	if _, err = os.Lstat(value.app); err == nil {
-		id, validateErr := actions.validate(value.app, false)
+		id, validateErr := actions.validate(value.app)
 		if validateErr != nil || id != result.ReleaseID {
 			return result, errors.New("shared Host target already exists; use update or maintenance to replace it")
 		}
@@ -90,10 +90,11 @@ func publishHost(value paths, source string, actions publicationActions) (publis
 	if err = actions.copy(source, stage); err != nil {
 		return result, err
 	}
-	id, err := actions.validate(stage, false)
+	id, err := actions.validate(stage)
 	if err != nil || id != result.ReleaseID {
 		return result, errors.New("copied publication bundle failed release or signature verification")
 	}
+	result.ReleaseID = id
 	if err = unix.RenameatxNp(unix.AT_FDCWD, stage, unix.AT_FDCWD, value.app, unix.RENAME_EXCL); err != nil {
 		return result, fmt.Errorf("shared Host publication failed without replacing the existing target: %w", err)
 	}

@@ -5,13 +5,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/netip"
 	"sync"
 	"time"
 
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/waiter"
@@ -21,7 +21,7 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 	id := request.ID()
 	sourceAddress, _ := addressFromTCPIP(id.RemoteAddress)
 	destination, _ := addressFromTCPIP(id.LocalAddress)
-	virtualDNS := destination.String() == netprotocol.HostAddress && id.LocalPort == 53
+	virtualDNS := destination.String() == egresslink.HostAddress && id.LocalPort == 53
 	environment, infrastructure, allowed, authorizedSource := subsystem.authorizeEndpoint(bootID, id.RemoteAddress, id.LocalAddress, virtualDNS, id.LocalPort, true, false)
 	var service ServiceRoute
 	serviceRoute := false
@@ -165,7 +165,7 @@ func proxyTCP(ctx context.Context, guest *gonet.TCPConn, host net.Conn) {
 	go func() {
 		select {
 		case <-ctx.Done():
-			log.Printf("egress TCP flow canceled: guest=%s target=%s error=%v", guest.RemoteAddr(), host.RemoteAddr(), ctx.Err())
+			slog.Warn("egress TCP flow canceled", "guest", guest.RemoteAddr(), "target", host.RemoteAddr(), "error", ctx.Err())
 			_ = guest.SetDeadline(time.Now())
 			_ = host.SetDeadline(time.Now())
 		case <-doneContext:
@@ -176,7 +176,7 @@ func proxyTCP(ctx context.Context, guest *gonet.TCPConn, host net.Conn) {
 	done := make(chan struct{}, 2)
 	go func() {
 		bytes, err := copyWithActivity(host, guest, activity)
-		log.Printf("egress TCP copy ended: direction=guest_to_host guest=%s target=%s bytes=%d error=%v", guest.RemoteAddr(), host.RemoteAddr(), bytes, err)
+		slog.Info("egress TCP copy ended", "guest", guest.RemoteAddr(), "target", host.RemoteAddr(), "bytes", bytes, "error", err, "direction", "guest_to_host")
 		if connection, ok := host.(*net.TCPConn); ok {
 			_ = connection.CloseWrite()
 		}
@@ -184,7 +184,7 @@ func proxyTCP(ctx context.Context, guest *gonet.TCPConn, host net.Conn) {
 	}()
 	go func() {
 		bytes, err := copyWithActivity(guest, host, activity)
-		log.Printf("egress TCP copy ended: direction=host_to_guest guest=%s target=%s bytes=%d error=%v", guest.RemoteAddr(), host.RemoteAddr(), bytes, err)
+		slog.Info("egress TCP copy ended", "guest", guest.RemoteAddr(), "target", host.RemoteAddr(), "bytes", bytes, "error", err, "direction", "host_to_guest")
 		_ = guest.CloseWrite()
 		done <- struct{}{}
 	}()

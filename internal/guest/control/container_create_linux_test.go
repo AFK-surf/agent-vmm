@@ -5,13 +5,15 @@ package control
 import (
 	"context"
 	"errors"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	"log/slog"
+	"testing"
+
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"testing"
 )
 
 func TestValidateEnvironmentAllowsMultilineValues(t *testing.T) {
@@ -25,7 +27,7 @@ func TestValidateEnvironmentAllowsMultilineValues(t *testing.T) {
 
 func TestCreateContainerInvalidLogBoundsAreKnownBeforeRuntimeAccess(t *testing.T) {
 	for _, limit := range []uint64{0, 64<<20 + 1} {
-		runtime := &Runtime{}
+		runtime := &Runtime{logger: slog.Default().With("component", "guest-control")}
 		_, err := runtime.CreateContainer(context.Background(), &vmmdv1.CreateContainerRequest{ActorNamespaceId: "namespace", ContainerId: "container", Image: "base", LogLimitBytes: limit})
 		rejected := false
 		for _, detail := range status.Convert(err).Details() {
@@ -46,7 +48,7 @@ func TestCreateRollbackOutlivesCanceledRequest(t *testing.T) {
 		if err := index.addContainer("namespace", "container"); err != nil {
 			t.Fatal(err)
 		}
-		runtime := &Runtime{inventory: index}
+		runtime := &Runtime{inventory: index, logger: slog.Default().With("component", "guest-control")}
 		ctx, cancel := context.WithCancel(runtimeContext(t.Context()))
 		cancel()
 		container := &rollbackContainer{failure: failure}

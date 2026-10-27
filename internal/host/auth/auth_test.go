@@ -18,7 +18,7 @@ type agentContractServer struct {
 	hostv1.UnimplementedAgentRuntimeServiceServer
 }
 
-func (agentContractServer) GetEnvironment(ctx context.Context, _ *hostv1.GetOwnEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
+func (agentContractServer) GetEnvironment(ctx context.Context, _ *hostv1.GetEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
 	identity, err := AgentIdentity(ctx)
 	if err != nil {
 		return nil, err
@@ -32,11 +32,8 @@ type operatorContractServer struct {
 	hostv1.UnimplementedOperatorServiceServer
 }
 
-func (operatorContractServer) GetVM(ctx context.Context, _ *hostv1.GetVMRequest) (*hostv1.VMResponse, error) {
-	if _, err := OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
-	return &hostv1.VMResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_STOPPED}}, nil
+func (operatorContractServer) GetVM(ctx context.Context, _ *hostv1.GetVMRequest) (*hostv1.GetVMResponse, error) {
+	return &hostv1.GetVMResponse{Vm: &hostv1.VM{State: hostv1.VMState_VM_STATE_STOPPED}}, nil
 }
 
 func TestEndpointAndMetadataContract(t *testing.T) {
@@ -53,7 +50,7 @@ func TestEndpointAndMetadataContract(t *testing.T) {
 		"actor_namespace_id", "forged-namespace",
 		"role", "operator",
 	))
-	response, err := hostv1.NewAgentRuntimeServiceClient(agentConnection).GetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{})
+	response, err := hostv1.NewAgentRuntimeServiceClient(agentConnection).GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +60,7 @@ func TestEndpointAndMetadataContract(t *testing.T) {
 	if _, err := hostv1.NewOperatorServiceClient(agentConnection).GetVM(ctx, &hostv1.GetVMRequest{}); status.Code(err) != codes.Unimplemented {
 		t.Fatalf("operator method on agent endpoint = %v", err)
 	}
-	if _, err := hostv1.NewAgentRuntimeServiceClient(operatorConnection).GetEnvironment(ctx, &hostv1.GetOwnEnvironmentRequest{}); status.Code(err) != codes.Unimplemented {
+	if _, err := hostv1.NewAgentRuntimeServiceClient(operatorConnection).GetEnvironment(ctx, &hostv1.GetEnvironmentRequest{}); status.Code(err) != codes.Unimplemented {
 		t.Fatalf("agent method on operator endpoint = %v", err)
 	}
 }

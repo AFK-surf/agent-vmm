@@ -262,9 +262,6 @@ func (r *Runtime) rebuildRuntimeInventory(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read runtime container %q: %w", container.ID(), err)
 		}
-		if err := convertContainerMountLabel(runtimeContext(ctx), container, info.Labels); err != nil {
-			return fmt.Errorf("convert container mount label %q: %w", container.ID(), err)
-		}
 		containerRecords = append(containerRecords, info)
 	}
 

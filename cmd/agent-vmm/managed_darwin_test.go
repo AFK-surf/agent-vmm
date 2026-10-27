@@ -36,7 +36,7 @@ func TestManagedRepairTransportLossReturnsSameTargetUnknownOutcome(t *testing.T)
 		return nil, []byte("connection lost"), context.DeadlineExceeded
 	}}
 	envelope, err := runtime.repair(context.Background(), managedOptions{requestID: "request-1", registrationID: "registration-1", lifecycle: "/tmp/lifecycle"})
-	if err != nil || calls != 2 || envelope.State != "unknown_outcome" || envelope.Facts["request_id"] != "request-1" || envelope.NextAction[0].Action != "retry_same_request_id" {
+	if err != nil || calls != 2 || envelope.State != "transition_in_progress" || envelope.Facts["request_id"] != "request-1" || envelope.NextAction[0].Action != "retry_same_request_id" {
 		t.Fatalf("envelope=%+v calls=%d err=%v", envelope, calls, err)
 	}
 }
@@ -70,7 +70,7 @@ func TestManagedUpdateKeepsPreparationSeparateFromReplacement(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", strings.Repeat("a", 64), "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 0 || helperCalls != 3 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"disposition":"terminal_action_required"`) || !strings.Contains(stdout.String(), `"stage":"preparation"`) {
+	if exit != 0 || helperCalls != 2 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"disposition":"terminal_action_required"`) || !strings.Contains(stdout.String(), `"stage":"preparation"`) {
 		t.Fatalf("exit=%d helperCalls=%d stdout=%s stderr=%s", exit, helperCalls, stdout.String(), stderr.String())
 	}
 }
@@ -87,8 +87,8 @@ func TestManagedUpdateCancellationReportsUnchangedCurrentInstallation(t *testing
 			return []byte(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host"}`), nil, nil
 		},
 		prepareUpdate: func(ctx context.Context, _ managedOptions, _ map[string]any) (string, error) {
-			if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) < 19*time.Minute {
-				t.Fatalf("update did not receive its long preparation budget: deadline=%v ok=%t", deadline, ok)
+			if deadline, ok := ctx.Deadline(); ok {
+				t.Fatalf("preparation inherited an observation deadline: %v", deadline)
 			}
 			return "", managedUpdateFailure("download", context.Canceled)
 		},
@@ -106,13 +106,14 @@ func TestManagedUpdateCancellationReportsUnchangedCurrentInstallation(t *testing
 	}
 	var stdout, stderr bytes.Buffer
 	exit := runManagedCLI([]string{"update", "--request-id", "update-cancel", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", strings.Repeat("d", 64), "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 0 || helperCalls != 3 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"state":"retry_wait"`) || !strings.Contains(stdout.String(), `"disposition":"retry_same_request_at"`) || !strings.Contains(stdout.String(), "current installation was not changed") {
+	if exit != 0 || helperCalls != 2 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"state":"retry_wait"`) || !strings.Contains(stdout.String(), `"disposition":"retry_same_request_at"`) || !strings.Contains(stdout.String(), "current installation was not changed") {
 		t.Fatalf("exit=%d helperCalls=%d stdout=%s stderr=%s", exit, helperCalls, stdout.String(), stderr.String())
 	}
 }
 
 func TestManagedUpdateDoesNotInferDurabilityFromFailedHelperOutput(t *testing.T) {
 	digest := strings.Repeat("f", 64)
+	helperCalls := 0
 	runtime := managedRuntime{
 		now: time.Now,
 		runHelper: func(_ context.Context, _ string, args []string) ([]byte, []byte, error) {
@@ -122,26 +123,24 @@ func TestManagedUpdateDoesNotInferDurabilityFromFailedHelperOutput(t *testing.T)
 			return []byte(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host"}`), nil, nil
 		},
 		prepareUpdate: func(context.Context, managedOptions, map[string]any) (string, error) {
-			return "", managedRetryableUpdateFailure("download", errors.New("network unavailable"))
+			return "", managedRetryableUpdateFailure(errors.New("network unavailable"))
 		},
 		runHelperInput: func(_ context.Context, _ string, args []string, _ []byte) ([]byte, []byte, error) {
-			if args[0] == "operation" {
-				return []byte(`{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + digest + `","targetArtifactSize":1024,"stage":"download","outcome":"pending","attempt":1,"updatedAt":1789372799999}`), nil, nil
+			helperCalls++
+			if args[0] != "update" {
+				t.Fatalf("unexpected failure readback: %v", args)
 			}
-			return []byte(`{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + digest + `","targetArtifactSize":1024,"stage":"download","outcome":"failed","attempt":1,"failureStage":"download","failureCode":"update_download_unavailable","failureMessage":"network unavailable","retryable":true,"updatedAt":1789372800000}`), nil, errors.New("persistence failed")
+			return []byte(`{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","outcome":"unknown","failureCode":"update_download_unavailable","retryable":true}`), nil, errors.New("persistence failed")
 		},
 	}
 	var stdout, stderr bytes.Buffer
 	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", digest, "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"disposition":"terminal_action_required"`) || !strings.Contains(stdout.String(), "update_failure_record_unknown") {
-		t.Fatalf("exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	if exit != 0 || helperCalls != 1 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "update_failure_record_unknown") || strings.Contains(stdout.String(), `"state":"retry_wait"`) {
+		t.Fatalf("exit=%d calls=%d stdout=%s stderr=%s", exit, helperCalls, stdout.String(), stderr.String())
 	}
 }
 
-func TestManagedUpdateUsesStableOwnerOperationAndLongBudget(t *testing.T) {
-	if managedUpdateBudget < 10*time.Minute || managedUpdateBudget <= 15*time.Second {
-		t.Fatalf("managed update budget=%s", managedUpdateBudget)
-	}
+func TestManagedUpdateUsesStableOwnerOperation(t *testing.T) {
 	prepared := "/Users/runner/Library/Application Support/Agent VMM Host/current/.Agent VMM Host.update-1.app"
 	removed := ""
 	runtime := managedRuntime{

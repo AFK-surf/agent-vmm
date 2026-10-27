@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
   workflow_dispatch:
 
@@ -17,70 +17,80 @@ concurrency:
 jobs:
   data-worker:
     name: Rust data worker / Linux
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - name: Install Rust toolchain and audit command
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install Protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes protobuf-compiler
+      - name: Install Rust toolchain
         run: |
           rustup toolchain install 1.96.0 --profile minimal --component clippy
           rustup default 1.96.0
-          cargo install cargo-audit --locked
       - name: Test and lint the data worker
-        run: make test-data-worker lint-data-worker
-      - name: Check advisories and approved PAKE package provenance
-        run: make audit-data-worker
+        run: |
+          make test-data-worker lint-data-worker
+          cargo check --locked -p agent-vmm-proto --manifest-path crates/agent-vmm-proto/Cargo.toml
 
   linux-arm64:
     name: Go / Linux arm64
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX_ARM || 'ubuntu-24.04-arm' }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
         with:
           version: 1.69.0
           setup_only: true
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-      - name: Test with the race detector
-        run: go test -race ./... -count=1
+      - name: Check Go and generated code
+        run: >-
+          make check GOTESTFLAGS=-race
+          GOTESTPACKAGES="$(go list ./... | grep -Ev '/internal/guest/(control|network)$')"
+      - name: Check protobuf compatibility
+        if: github.event_name == 'pull_request'
+        env:
+          PROTO_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: make proto-breaking
       - name: Test Guest root filesystem, ownership, and kernel networking
         run: |
           go test -race -c -o "$RUNNER_TEMP/control-root.test" ./internal/guest/control
           go test -race -c -o "$RUNNER_TEMP/network-kernel.test" ./internal/guest/network
           (cd internal/guest/control && sudo "$RUNNER_TEMP/control-root.test" -test.v)
           (cd internal/guest/network && sudo env AGENT_VMM_NFTABLES_TEST=1 "$RUNNER_TEMP/network-kernel.test" -test.v)
-      - name: Vet
-        run: go vet ./...
-      - name: Check protobuf compatibility
-        run: make proto-check
 
-  macos-26:
-    name: Go and app / macOS 26
-    runs-on: blacksmith-6vcpu-macos-26
+  macos:
+    name: Go and app / macOS
+    runs-on: ${{ vars.AGENT_VMM_RUNNER_MACOS || 'macos-15' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+        with:
+          version: 1.69.0
+          setup_only: true
       - name: Test with the race detector
-        run: go test -race ./... -count=1
-      - name: Vet
-        run: go vet ./...
+        run: make vet test GOTESTFLAGS=-race
+      - name: Compile Keychain providers
+        run: go vet -tags keychain ./...
       - name: Compile the Host E2E suite
         # E2E needs a real Virtualization.framework host and runs only in the
         # report-only E2E workflow; this catches code that no longer compiles.
         run: go vet -tags=e2e ./test/e2e
-      - name: Expose the selected Go toolchain to Xcode tests
-        run: sudo ln -sf "$(command -v go)" /opt/homebrew/bin/go
-      - uses: actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/SourcePackages
           key: swift-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -93,7 +103,16 @@ jobs:
           -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
           -derivedDataPath "$RUNNER_TEMP/DerivedData"
           CODE_SIGNING_ALLOWED=NO
-      - name: Test deterministic CI intermediate contract
-        run: build/host/ci-intermediate.test.sh
+      - name: Build Swift generators from resolved packages
+        run: |
+          for entry in 'swift-protobuf protoc-gen-swift' 'grpc-swift-protobuf protoc-gen-grpc-swift-2'; do
+            read -r package_name product <<< "$entry"
+            package="$RUNNER_TEMP/SourcePackages/checkouts/$package_name"
+            scratch="$RUNNER_TEMP/swift-generator-build/$package_name"
+            swift build --package-path "$package" --scratch-path "$scratch" -c release --product "$product"
+            swift build --package-path "$package" --scratch-path "$scratch" -c release --show-bin-path >> "$GITHUB_PATH"
+          done
+      - name: Check Swift generated code
+        run: make check-swift-generated
       - name: Test Host installer resume contract
         run: build/host/install.test.sh

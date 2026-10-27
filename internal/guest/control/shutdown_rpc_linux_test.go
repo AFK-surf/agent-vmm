@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -100,7 +101,7 @@ func TestShutdownClosesWorkspaceStreamFileDescriptors(t *testing.T) {
 				t.Fatal(err)
 			}
 			file.Close()
-			server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1)}}
+			server := &Server{runtime: &Runtime{workspaceSlots: make(chan struct{}, 1), logger: slog.Default().With("component", "guest-control")}}
 			listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "vmmd.sock"))
 			if err != nil {
 				t.Fatal(err)
@@ -174,7 +175,7 @@ func shutdownHasOpenFile(t *testing.T, path string) bool {
 func TestShutdownCancelsAcceptedBuildUploadAndClosesWorkspace(t *testing.T) {
 	requireGuestRoot(t)
 	server, metadata, _, _, _ := operationFixture(t)
-	metadata.labels["owner"] = namespaceLabels(&vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 1 << 30, Pids: 100, DiskBytes: 1 << 30}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 100, "10.42.1.0/24")
+	metadata.labels["owner"] = namespaceLabels(&vmmdv1.NamespaceLimits{Pids: 100, DiskBytes: 1 << 30}, vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL, 100, "10.42.1.0/24")
 	server.runtime.builder = guestbuild.NewBuilder(server.runtime.client, nil, nil)
 	listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "vmmd.sock"))
 	if err != nil {

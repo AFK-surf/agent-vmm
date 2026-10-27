@@ -19,8 +19,8 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/netprotocol"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/egresslink"
 	"github.com/AFK-surf/agent-vmm/internal/vmmprocess"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -76,7 +76,7 @@ func guestSmoke() (result error) {
 			}
 		}
 	}()
-	listener, err := client.Listen(netprotocol.EgressPort)
+	listener, err := client.Listen(egresslink.EgressPort)
 	if err != nil {
 		return err
 	}
@@ -173,21 +173,21 @@ func serveGuestEgress(ctx context.Context, listener net.Listener) {
 		}
 		go func() {
 			defer conn.Close()
-			handshake, err := netprotocol.ReadHandshake(conn, "")
+			handshake, err := egresslink.ReadHandshake(conn, "")
 			if err != nil {
 				return
 			}
-			if err := netprotocol.WriteHandshake(conn, handshake); err != nil {
+			if err := egresslink.WriteHandshake(conn, handshake); err != nil {
 				return
 			}
 			fmt.Println("PASS Guest dedicated egress handshake", handshake.BootID)
 			for {
-				kind, payload, err := netprotocol.ReadFrameContext(ctx, conn)
+				kind, payload, err := readFrameContext(ctx, conn)
 				if err != nil {
 					return
 				}
-				if kind == netprotocol.Ping {
-					if err := netprotocol.WriteFrame(conn, netprotocol.Pong, payload); err != nil {
+				if kind == egresslink.Ping {
+					if err := egresslink.WriteFrame(conn, egresslink.Pong, payload); err != nil {
 						return
 					}
 				}
@@ -198,7 +198,7 @@ func serveGuestEgress(ctx context.Context, listener net.Listener) {
 
 func guestWorkload(ctx context.Context, api vmmdv1.VMMDServiceClient) error {
 	const namespace = "kvm-guest-smoke"
-	_, err := api.EnsureNamespace(ctx, &vmmdv1.EnsureNamespaceRequest{RequestId: "smoke-namespace", NamespaceId: namespace, Limits: &vmmdv1.NamespaceLimits{CpuMillis: 1000, MemoryBytes: 256 << 20, Pids: 64, DiskBytes: 1 << 30}, EgressMode: vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL})
+	_, err := api.EnsureNamespace(ctx, &vmmdv1.EnsureNamespaceRequest{RequestId: "smoke-namespace", NamespaceId: namespace, Limits: &vmmdv1.NamespaceLimits{Pids: 512, DiskBytes: 1 << 30}, EgressMode: vmmdv1.EgressMode_EGRESS_MODE_DENY_ALL})
 	if err != nil {
 		return fmt.Errorf("ensure namespace: %w", err)
 	}
@@ -252,7 +252,7 @@ func guestWorkload(ctx context.Context, api vmmdv1.VMMDServiceClient) error {
 		return fmt.Errorf("import image: %w", err)
 	}
 	fmt.Println("PASS current VMMD OCI import", imported.GetDigest())
-	created, err := api.CreateContainer(ctx, &vmmdv1.CreateContainerRequest{RequestId: "smoke-create", ActorNamespaceId: namespace, ContainerId: "smoke", Image: "agent.local/kvm-smoke:latest", Limits: &vmmdv1.ResourceLimits{CpuMillis: proto.Uint32(1000), MemoryBytes: proto.Uint64(128 << 20), Pids: proto.Uint32(32)}, ReadOnlyRoot: true, LogLimitBytes: 4096, CommandOverride: &vmmdv1.StringList{Values: []string{"sh", "-c", "echo KVM_CURRENT_VMMD_WORKLOAD; /bin/busybox date +%s; /bin/busybox sleep 1"}}})
+	created, err := api.CreateContainer(ctx, &vmmdv1.CreateContainerRequest{RequestId: "smoke-create", ActorNamespaceId: namespace, ContainerId: "smoke", Image: "agent.local/kvm-smoke:latest", Limits: &vmmdv1.ResourceLimits{Pids: proto.Uint32(512)}, ReadOnlyRoot: true, LogLimitBytes: 4096, CommandOverride: &vmmdv1.StringList{Values: []string{"sh", "-c", "echo KVM_CURRENT_VMMD_WORKLOAD; /bin/busybox date +%s; /bin/busybox sleep 1"}}})
 	if err != nil {
 		return fmt.Errorf("create workload: %w", err)
 	}
@@ -288,4 +288,25 @@ func guestWorkload(ctx context.Context, api vmmdv1.VMMDServiceClient) error {
 	}
 	fmt.Println("PASS current VMMD gVisor workload exited zero")
 	return nil
+}
+
+func readFrameContext(ctx context.Context, reader io.ReadCloser) (egresslink.Type, []byte, error) {
+	type result struct {
+		type_   egresslink.Type
+		payload []byte
+		err     error
+	}
+	ready := make(chan result, 1)
+	go func() {
+		frameType, payload, err := egresslink.ReadFrame(reader)
+		ready <- result{type_: frameType, payload: payload, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		_ = reader.Close()
+		<-ready
+		return 0, nil, ctx.Err()
+	case result := <-ready:
+		return result.type_, result.payload, result.err
+	}
 }

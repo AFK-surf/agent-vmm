@@ -6,20 +6,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	"github.com/AFK-surf/agent-vmm/internal/guest/containerddaemon"
 	guestnetwork "github.com/AFK-surf/agent-vmm/internal/guest/network"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/sys/unix"
 )
 
@@ -34,6 +35,7 @@ const (
 )
 
 type Runtime struct {
+	logger                   *slog.Logger
 	hostShareMu              sync.RWMutex
 	hostShares               map[string]*vmmdv1.HostShareProjection
 	client                   *containerd.Client
@@ -55,7 +57,7 @@ type Runtime struct {
 	volumeSampleSlots        chan struct{}
 	workspaceSlots           chan struct{}
 	diskBudget               *guestdisk.Budget
-	materializer             *ocimaterializer.Manager
+	materializationSlot      *semaphore.Weighted
 	inventory                *runtimeInventoryIndex
 	gcMu                     sync.Mutex
 	gcRuntimeImageCursor     string
@@ -64,14 +66,37 @@ type Runtime struct {
 	tasks                    sync.WaitGroup
 }
 
-func (r *Runtime) lockNamespace(namespaceID string) func() {
-	value, _ := r.resourceLocks.LoadOrStore(namespaceID, new(sync.Mutex))
-	lock := value.(*sync.Mutex)
-	lock.Lock()
-	return lock.Unlock
+func (r *Runtime) lockResource(ctx context.Context, key string) (func(), error) {
+	value, _ := r.resourceLocks.LoadOrStore(key, make(chan struct{}, 1))
+	lock := value.(chan struct{})
+	select {
+	case lock <- struct{}{}:
+		return func() { <-lock }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
-func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager) (*Runtime, error) {
+func (r *Runtime) tryLockResource(key string) (func(), bool) {
+	value, _ := r.resourceLocks.LoadOrStore(key, make(chan struct{}, 1))
+	lock := value.(chan struct{})
+	select {
+	case lock <- struct{}{}:
+		return func() { <-lock }, true
+	default:
+		return nil, false
+	}
+}
+
+func (r *Runtime) lockNamespace(ctx context.Context, namespaceID string) (func(), error) {
+	return r.lockResource(ctx, "namespace\x00"+namespaceID)
+}
+
+func (r *Runtime) lockContainer(ctx context.Context, namespaceID, containerID string) (func(), error) {
+	return r.lockResource(ctx, "container\x00"+namespaceID+"/"+containerID)
+}
+
+func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager, logger *slog.Logger) (*Runtime, error) {
 	if err := initializeResourcePools(); err != nil {
 		return nil, fmt.Errorf("initialize resource pools: %w", err)
 	}
@@ -79,10 +104,10 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{client: client, network: network, stateDevice: stateDevice, controlDevice: controlDevice,
+	runtime := &Runtime{logger: logger.With("component", "guest-control"), client: client, network: network, stateDevice: stateDevice, controlDevice: controlDevice,
 		waiters: make(map[string][]chan uint32), volumeUsage: make(map[string]volumeUsageEntry), volumeSampling: make(map[string]bool),
 		volumeGeneration: make(map[string]uint64), volumeSampleSlots: make(chan struct{}, 2), workspaceSlots: make(chan struct{}, 4),
-		inventory: newRuntimeInventoryIndex(), volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializer: new(ocimaterializer.Manager)}
+		inventory: newRuntimeInventoryIndex(), volumeSampler: directoryUsage, diskBudget: new(guestdisk.Budget), materializationSlot: semaphore.NewWeighted(1)}
 	writerID, err := containerddaemon.Identity(containerdSocket)
 	if err != nil {
 		client.Close()
@@ -94,6 +119,7 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		client.Close()
 		return nil, fmt.Errorf("ensure internal runtime namespace: %w", err)
 	}
+
 	if err := cleanupVolumeStaging(); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("clean incomplete volumes: %w", err)
@@ -102,19 +128,8 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		client.Close()
 		return nil, fmt.Errorf("clean stale tasks: %w", err)
 	}
-	if err := os.RemoveAll(filepath.Join(stateRoot, "imports")); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("clean incomplete image imports: %w", err)
-	}
-	if err := os.RemoveAll(filepath.Join(stateRoot, "import-reservations")); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("clean incomplete import reservations: %w", err)
-	}
 	runtime.imageOperationsRecovered = true
-	if err := runtime.completeLegacyStateMigration(context.Background()); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("complete legacy state migration: %w", err)
-	}
+
 	rebuildContext, cancelRebuild := context.WithTimeout(context.Background(), 30*time.Second)
 	if err := runtime.rebuildRuntimeInventory(rebuildContext); err != nil {
 		cancelRebuild()
@@ -126,10 +141,7 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		client.Close()
 		return nil, fmt.Errorf("rebuild namespace network: %w", err)
 	}
-	if err := runtime.recoverTaskMonitors(context.Background()); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("recover workload monitors: %w", err)
-	}
+
 	return runtime, nil
 }
 
@@ -235,10 +247,6 @@ func workspacePath(namespaceID string) string {
 
 func logPath(namespaceID, containerID, generationID string) string {
 	return filepath.Join(namespaceStateRoot(namespaceID), "logs", namespaceID, containerID, generationID, "records.log")
-}
-
-func logMetaPath(namespaceID, containerID, generationID string) string {
-	return filepath.Join(namespaceStateRoot(namespaceID), "logs", namespaceID, containerID, generationID, "records.meta")
 }
 
 func (r *Runtime) namespaceExists(ctx context.Context, namespaceID string) error {

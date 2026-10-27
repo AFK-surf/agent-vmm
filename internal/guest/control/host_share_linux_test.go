@@ -4,11 +4,12 @@ package control
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -39,7 +40,7 @@ func TestTypedMountLabelsAndRequestIdentity(t *testing.T) {
 }
 
 func TestHostShareProjectionCannotCrossNamespaceOrAmplifyWriteAccess(t *testing.T) {
-	runtime := &Runtime{hostShares: map[string]*vmmdv1.HostShareProjection{"share": {ShareId: "share", ActorNamespaceId: "approved", ReadOnly: true, Revision: 1}}}
+	runtime := &Runtime{hostShares: map[string]*vmmdv1.HostShareProjection{"share": {ShareId: "share", ActorNamespaceId: "approved", ReadOnly: true, Revision: 1}}, logger: slog.Default().With("component", "guest-control")}
 	for _, test := range []struct {
 		name, namespace, id string
 		readOnly            bool
@@ -63,33 +64,6 @@ func TestHostShareProjectionCannotCrossNamespaceOrAmplifyWriteAccess(t *testing.
 	}
 	if _, err := runtime.mountSource("approved", &vmmdv1.VolumeMount{Source: &vmmdv1.VolumeMount_HostShare{HostShare: "share"}, ReadOnly: true}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("withdrawn authority accepted: %v", err)
-	}
-}
-
-func TestOwnedMountLabelConversionUsesExistingInventoryPass(t *testing.T) {
-	for _, previous := range []string{`null`, `[]`, `[{"volume_id":"data","destination":"/data","read_only":true}]`} {
-		t.Run(previous, func(t *testing.T) {
-			labels := map[string]string{containerVolumeLabel: previous}
-			container := &recoveredContainer{}
-			if err := convertContainerMountLabel(context.Background(), container, labels); err != nil {
-				t.Fatal(err)
-			}
-			mounts, err := decodeContainerMounts(labels[containerVolumeLabel])
-			if err != nil {
-				t.Fatal(err)
-			}
-			if previous == "null" || previous == "[]" {
-				if len(mounts) != 0 {
-					t.Fatal(mounts)
-				}
-			} else if len(mounts) != 1 || mounts[0].GetOwnedVolume() != "data" || !mounts[0].GetReadOnly() {
-				t.Fatal(mounts)
-			}
-			container.labels = nil
-			if err := convertContainerMountLabel(context.Background(), container, labels); err != nil || container.labels != nil {
-				t.Fatal("converted label rewritten", err)
-			}
-		})
 	}
 }
 

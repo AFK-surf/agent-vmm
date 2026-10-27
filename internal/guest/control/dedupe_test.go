@@ -10,7 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"google.golang.org/protobuf/proto"
 )
 

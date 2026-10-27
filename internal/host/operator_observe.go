@@ -4,46 +4,41 @@ package host
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/host/auth"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func (server *operatorServer) GetSystemSnapshot(ctx context.Context, _ *hostv1.GetSystemSnapshotRequest) (*hostv1.GetSystemSnapshotResponse, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
-	return server.controller.systemSnapshot(ctx)
+	return server.systemSnapshot(ctx)
 }
 
-func (server *operatorServer) GetSystemHealthSummary(ctx context.Context, _ *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemSnapshotResponse, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
-	return server.controller.systemHealthSummary(ctx), nil
+func (server *operatorServer) GetSystemHealthSummary(ctx context.Context, _ *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemHealthSummaryResponse, error) {
+	response := server.systemHealthSummary(ctx)
+	return &hostv1.GetSystemHealthSummaryResponse{Vm: response.GetVm(), Health: response.GetHealth(), Usage: response.GetUsage(), Environments: response.GetEnvironments(), CollectedAt: response.GetCollectedAt(), RemoteRegistrations: response.GetRemoteRegistrations(), HostResources: response.GetHostResources(), GuestResources: response.GetGuestResources()}, nil
 }
 
-func (controller *Controller) systemSnapshot(ctx context.Context) (*hostv1.GetSystemSnapshotResponse, error) {
-	response := controller.systemHealthSummary(ctx)
-	if registrations, registrationErr := controller.store.ListRemoteRegistrations(ctx); registrationErr == nil {
+func (server *operatorServer) systemSnapshot(ctx context.Context) (*hostv1.GetSystemSnapshotResponse, error) {
+	response := server.systemHealthSummary(ctx)
+	if registrations, registrationErr := server.controller.store.ListRemoteRegistrations(ctx); registrationErr == nil {
 		for _, registration := range registrations {
-			response.RemoteRegistrations = append(response.RemoteRegistrations, controller.remoteRegistrationResponse(ctx, registration).GetRegistration())
+			response.RemoteRegistrations = append(response.RemoteRegistrations, server.controller.remote.RegistrationCurrent(ctx, registration))
 		}
 	}
-	environments, err := controller.store.ListEnvironments(ctx)
+	environments, err := server.controller.store.ListEnvironments(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, environment := range environments {
-		snapshot := controller.environmentSnapshot(ctx, environment)
+		snapshot := server.controller.services.EnvironmentSnapshot(ctx, environment)
 		response.Environments = append(response.Environments, snapshot)
 		addUsage(response, snapshot.GetUsage())
 	}
@@ -52,23 +47,23 @@ func (controller *Controller) systemSnapshot(ctx context.Context) (*hostv1.GetSy
 
 // systemHealthSummary performs a constant number of Host and Guest owner reads.
 // It deliberately excludes per-environment and per-registration inventory.
-func (controller *Controller) systemHealthSummary(ctx context.Context) *hostv1.GetSystemSnapshotResponse {
+func (server *operatorServer) systemHealthSummary(ctx context.Context) *hostv1.GetSystemSnapshotResponse {
 	response := &hostv1.GetSystemSnapshotResponse{
-		Vm: controller.manager.Snapshot(), CollectedAt: timestamppb.Now(),
-		HostResources:  controller.manager.ResourceSnapshot(),
+		Vm: server.controller.manager.Snapshot(), CollectedAt: timestamppb.Now(),
+		HostResources:  server.controller.manager.ResourceSnapshot(),
 		GuestResources: &hostv1.LayerResources{UnavailableReason: "guest control is unavailable"},
 	}
 	response.Health = &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_UNAVAILABLE}
 	if response.Vm.GetState() != hostv1.VMState_VM_STATE_RUNNING {
 		return response
 	}
-	admission := controller.vmLifecycle.admissionHealth(response.CollectedAt)
+	admission := server.controller.vmLifecycle.AdmissionHealth(response.CollectedAt)
 	response.Health.Components = append(response.Health.Components, admission)
-	client, connection, err := controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return response
 	}
-	defer connection.Close()
+
 	if usage, usageErr := client.GetSystemUsage(ctx, &vmmdv1.GetSystemUsageRequest{}); usageErr == nil {
 		response.GuestResources = guestLayerResources(usage)
 	}
@@ -84,7 +79,7 @@ func (controller *Controller) systemHealthSummary(ctx context.Context) *hostv1.G
 			response.Health.State = state
 		}
 	}
-	hostEgress := controller.hostEgressHealth(response.Vm, response.CollectedAt)
+	hostEgress := server.controller.services.HostEgressHealth(response.Vm, response.CollectedAt)
 	response.Health.Components = append(response.Health.Components, hostEgress)
 	if hostEgress.GetState() > response.Health.State {
 		response.Health.State = hostEgress.GetState()
@@ -93,21 +88,16 @@ func (controller *Controller) systemHealthSummary(ctx context.Context) *hostv1.G
 }
 
 func (server *operatorServer) GetVMImpactSummary(ctx context.Context, _ *hostv1.GetVMImpactSummaryRequest) (*hostv1.GetVMImpactSummaryResponse, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
-	return server.controller.vmImpactSummary(ctx)
+	return server.vmImpactSummary(ctx)
 }
 
-func (controller *Controller) vmImpactSummary(ctx context.Context) (*hostv1.GetVMImpactSummaryResponse, error) {
-	controller.inventoryTransition.Lock()
-	defer controller.inventoryTransition.Unlock()
-	return controller.vmImpactSummaryLocked(ctx), nil
+func (server *operatorServer) vmImpactSummary(ctx context.Context) (*hostv1.GetVMImpactSummaryResponse, error) {
+	return server.vmImpactSummaryLocked(ctx), nil
 }
 
-func (controller *Controller) vmImpactSummaryLocked(ctx context.Context) *hostv1.GetVMImpactSummaryResponse {
+func (server *operatorServer) vmImpactSummaryLocked(ctx context.Context) *hostv1.GetVMImpactSummaryResponse {
 	const limit = 100
-	response := &hostv1.GetVMImpactSummaryResponse{Vm: controller.manager.Snapshot(), CollectedAt: timestamppb.Now(), Complete: true}
+	response := &hostv1.GetVMImpactSummaryResponse{Vm: server.controller.manager.Snapshot(), CollectedAt: timestamppb.Now(), Complete: true}
 	appendReference := func(reference *hostv1.ResourceReference) {
 		if len(response.KnownWorkloads) == limit {
 			markImpactSummaryPartial(response, "known workload summary exceeds the 100 item bound", true)
@@ -115,7 +105,7 @@ func (controller *Controller) vmImpactSummaryLocked(ctx context.Context) *hostv1
 		}
 		response.KnownWorkloads = append(response.KnownWorkloads, reference)
 	}
-	environments, err := controller.store.ListEnvironmentsBounded(ctx, limit+1)
+	environments, err := server.controller.store.ListEnvironmentsBounded(ctx, limit+1)
 	if err != nil {
 		markImpactSummaryPartial(response, "environment summary is unavailable", false)
 	} else {
@@ -131,7 +121,7 @@ func (controller *Controller) vmImpactSummaryLocked(ctx context.Context) *hostv1
 			appendReference(&hostv1.ResourceReference{Kind: "environment", EnvironmentId: environment.ID, Generation: generation})
 		}
 	}
-	registrations, err := controller.store.ListRemoteRegistrationsBounded(ctx, limit+1)
+	registrations, err := server.controller.store.ListRemoteRegistrationsBounded(ctx, limit+1)
 	if err != nil {
 		markImpactSummaryPartial(response, "registration summary is unavailable", false)
 	} else {
@@ -184,19 +174,16 @@ func guestLayerResources(response *vmmdv1.GetUsageResponse) *hostv1.LayerResourc
 	return result
 }
 
-func (server *operatorServer) ListEnvironmentImages(ctx context.Context, request *hostv1.ListEnvironmentImagesRequest) (*hostv1.ListImagesResponse, error) {
-	if _, err := auth.OperatorIdentity(ctx); err != nil {
-		return nil, err
-	}
+func (server *operatorServer) ListEnvironmentImages(ctx context.Context, request *hostv1.ListEnvironmentImagesRequest) (*hostv1.ListEnvironmentImagesResponse, error) {
 	environment, err := server.controller.store.GetEnvironment(ctx, request.GetEnvironmentId())
 	if err != nil {
-		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+		return nil, status.Error(codes.NotFound, "agent environment does not exist")
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, err
 	}
-	defer connection.Close()
+
 	response, err := client.ListImages(ctx, &vmmdv1.ListImagesRequest{ActorNamespaceId: environment.NamespaceID})
 	if err != nil {
 		return nil, err
@@ -209,25 +196,13 @@ func (server *operatorServer) ListEnvironmentImages(ctx context.Context, request
 	for _, container := range containers.GetContainers() {
 		usedBy[container.GetImage()] = append(usedBy[container.GetImage()], container.GetId())
 	}
-	result := &hostv1.ListImagesResponse{}
+	result := &hostv1.ListEnvironmentImagesResponse{}
 	for _, image := range response.GetImages() {
-		converted := imageFromGuest(image)
+		converted := guestconn.Image(image)
 		converted.UsedByContainerIds = append([]string(nil), usedBy[image.GetReference()]...)
 		result.Images = append(result.Images, converted)
 	}
 	return result, nil
-}
-
-func (controller *Controller) hostEgressHealth(vm *hostv1.VM, observedAt *timestamppb.Timestamp) *hostv1.ComponentHealth {
-	active, bootID, revision, sources := controller.egress.Status()
-	metrics := controller.egress.Metrics()
-	state := hostv1.HealthState_HEALTH_STATE_HEALTHY
-	reason := fmt.Sprintf("policy_revision=%d sources=%d packets_rx=%d packets_tx=%d drops=%d rejected=%d dial_failures=%d active_tcp=%d active_udp=%d active_dns=%d last_error=%q last_dial_error=%q", revision, sources, metrics.PacketsReceived, metrics.PacketsSent, metrics.PacketDrops, metrics.RejectedFlows, metrics.DialFailures, metrics.ActiveTCP, metrics.ActiveUDP, metrics.ActiveDNS, metrics.LastError, metrics.LastDialError)
-	if !active || bootID != vm.GetBootId() || revision == 0 {
-		state = hostv1.HealthState_HEALTH_STATE_DEGRADED
-		reason = "egress session or source policy is not ready"
-	}
-	return &hostv1.ComponentHealth{Component: "host-egress", State: state, Reason: reason, ObservedAt: observedAt}
 }
 
 func addUsage(response *hostv1.GetSystemSnapshotResponse, usage *hostv1.Usage) {
@@ -249,14 +224,11 @@ func addUsage(response *hostv1.GetSystemSnapshotResponse, usage *hostv1.Usage) {
 }
 
 func (server *operatorServer) WatchEvents(request *hostv1.WatchEventsRequest, stream hostv1.OperatorService_WatchEventsServer) error {
-	if _, err := auth.OperatorIdentity(stream.Context()); err != nil {
-		return err
-	}
-	client, connection, err := server.controller.guestClient(stream.Context())
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
+
 	guest, err := client.WatchEvents(stream.Context(), &vmmdv1.WatchEventsRequest{AfterSequence: request.GetAfterSequence()})
 	if err != nil {
 		return err
@@ -275,22 +247,19 @@ func (server *operatorServer) WatchEvents(request *hostv1.WatchEventsRequest, st
 				resource.EnvironmentId = environment.ID
 			}
 		}
-		if err := stream.Send(&hostv1.RuntimeEvent{Sequence: event.GetSequence(), Type: event.GetType(), Resource: resource, GuestBootId: event.GetGuestBootId(), RequestId: event.GetRequestId(), OperationId: event.GetOperationId(), Timestamp: timestamppb.New(time.Unix(0, event.GetTimestampUnixNano()))}); err != nil {
+		if err := stream.Send(&hostv1.WatchEventsResponse{Sequence: event.GetSequence(), Type: event.GetType(), Resource: resource, GuestBootId: event.GetGuestBootId(), RequestId: event.GetRequestId(), OperationId: event.GetOperationId(), Timestamp: timestamppb.New(time.Unix(0, event.GetTimestampUnixNano()))}); err != nil {
 			return err
 		}
 	}
 }
 
 func (server *operatorServer) WatchMetrics(request *hostv1.WatchMetricsRequest, stream hostv1.OperatorService_WatchMetricsServer) error {
-	if _, err := auth.OperatorIdentity(stream.Context()); err != nil {
-		return err
-	}
 	interval := time.Second
 	if request.GetInterval() != nil {
 		interval = request.GetInterval().AsDuration()
 	}
 	if interval < 500*time.Millisecond || interval > time.Minute {
-		return invalidField("interval", "metrics interval must be between 500ms and 1m")
+		return hostv1.InvalidField("interval", "metrics interval must be between 500ms and 1m")
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -299,7 +268,7 @@ func (server *operatorServer) WatchMetrics(request *hostv1.WatchMetricsRequest, 
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(&hostv1.MetricsSample{Scope: request.GetScope(), Usage: usage}); err != nil {
+		if err := stream.Send(&hostv1.WatchMetricsResponse{Scope: request.GetScope(), Usage: usage}); err != nil {
 			return err
 		}
 		select {
@@ -323,13 +292,13 @@ func (server *operatorServer) collectMetrics(ctx context.Context, scope *hostv1.
 	}
 	environment, err := server.controller.store.GetEnvironment(ctx, scope.GetEnvironmentId())
 	if err != nil {
-		return nil, resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", scope.GetEnvironmentId(), "agent environment does not exist")
+		return nil, status.Error(codes.NotFound, "agent environment does not exist")
 	}
-	client, connection, err := server.controller.guestClient(ctx)
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return nil, err
 	}
-	defer connection.Close()
+
 	var response *vmmdv1.GetUsageResponse
 	if scope.GetKind() == "container" && scope.GetResourceId() != "" {
 		response, err = client.GetContainerUsage(ctx, &vmmdv1.GetContainerUsageRequest{ActorNamespaceId: environment.NamespaceID, ContainerId: scope.GetResourceId()})
@@ -339,23 +308,20 @@ func (server *operatorServer) collectMetrics(ctx context.Context, scope *hostv1.
 	if err != nil {
 		return nil, err
 	}
-	return usageFromGuest(response.GetUsage()), nil
+	return guestconn.Usage(response.GetUsage()), nil
 }
 
-func (server *operatorServer) Logs(request *hostv1.OperatorLogsRequest, stream hostv1.OperatorService_LogsServer) error {
-	if _, err := auth.OperatorIdentity(stream.Context()); err != nil {
-		return err
-	}
+func (server *operatorServer) Logs(request *hostv1.OperatorServiceLogsRequest, stream hostv1.OperatorService_LogsServer) error {
 	environment, err := server.controller.store.GetEnvironment(stream.Context(), request.GetEnvironmentId())
 	if err != nil {
-		return resourceError(codes.NotFound, "ENVIRONMENT_NOT_FOUND", "environment", request.GetEnvironmentId(), "agent environment does not exist")
+		return status.Error(codes.NotFound, "agent environment does not exist")
 	}
 	query := request.GetQuery()
-	client, connection, err := server.controller.guestClient(stream.Context())
+	client, err := server.controller.guestConnection.Client()
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
+
 	guestRequest := &vmmdv1.LogsRequest{ActorNamespaceId: environment.NamespaceID, ContainerId: query.GetContainerId(), TailRecords: query.GetTailRecords(), AfterCursor: query.GetAfterCursor(), Follow: query.GetFollow()}
 	if query.GetSince() != nil {
 		guestRequest.SinceUnixNano = query.GetSince().AsTime().UnixNano()
@@ -372,7 +338,7 @@ func (server *operatorServer) Logs(request *hostv1.OperatorLogsRequest, stream h
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(&hostv1.LogRecord{Cursor: record.GetCursor(), Timestamp: timestamppb.New(time.Unix(0, record.GetTimestampUnixNano())), Stream: hostv1.LogStream(record.GetStream()), Data: record.GetData(), Truncated: record.GetTruncated(), DroppedRecords: record.GetDroppedRecords()}); err != nil {
+		if err := stream.Send(&hostv1.OperatorServiceLogsResponse{Cursor: record.GetCursor(), Timestamp: timestamppb.New(time.Unix(0, record.GetTimestampUnixNano())), Stream: hostv1.LogStream(record.GetStream()), Data: record.GetData(), Truncated: record.GetTruncated(), DroppedRecords: record.GetDroppedRecords()}); err != nil {
 			return err
 		}
 	}

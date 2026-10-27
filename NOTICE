@@ -1,0 +1,23 @@
+Copyright (C) 2026 AFK AI, Inc.
+Licensed under AGPL-3.0-or-later. See LICENSE.
+
+This project contains modified code from tinyrange/cc:
+https://github.com/tinyrange/cc
+Commit: eed53ffb414a8bebcbb1d7934fab00558d78df00
+License: Apache-2.0, see third_party/licenses/Apache-2.0.txt
+
+The following files derive from the upstream hypervisor and virtio vsock protocol:
+  internal/hypervisor/abi_linux_arm64.go
+  internal/hypervisor/bindings_linux_arm64.go
+  internal/hypervisor/boot_aarch64.go
+  internal/hypervisor/fdt/build.go
+  internal/hypervisor/fdt/node.go
+  internal/hypervisor/kvm_linux.go
+  internal/hypervisor/platform_linux_arm64.go
+  internal/hypervisor/registers_linux_arm64.go
+  internal/hypervisor/virtio/vsock_protocol.go
+
+.codex/skills/ste-writing/ uses the MIT license. See its LICENSE.
+
+Guest distributions include third-party software. THIRD_PARTY_NOTICES lists
+the installed components and their license notices.

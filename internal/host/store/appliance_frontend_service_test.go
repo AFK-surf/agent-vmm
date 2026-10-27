@@ -20,8 +20,8 @@ func frontendServiceFixture(t *testing.T) (*Store, ApplianceInstallation, *appli
 	if _, err := database.db.ExecContext(ctx, `INSERT INTO appliance_frontends(installation_id,name,transport,exposure,max_frame_bytes,max_total_bytes,deadline_seconds,idle_seconds,max_concurrent_streams) VALUES(?,'webhook',2,3,1024,4096,10,5,2)`, installation.ID); err != nil {
 		t.Fatal(err)
 	}
-	request := &appliancev1.CreateApplianceFrontendServiceImportRequest{RequestId: "callback", InstallationId: installation.ID, ExpectedRevision: installation.Revision, ExpectedGrantRevision: 1, ExpectedBootId: installation.CurrentBootID, ExpectedContainerInstanceId: installation.CurrentContainerInstance, SourceEnvironmentId: "gitea", SourceContainerId: "gitea", SourceContainerInstanceId: "gitea-instance", FrontendName: "webhook", VirtualServiceName: "agentd-webhook"}
-	value := &servicev1.ServiceImport{ImportId: "callback", SourceEnvironmentId: "gitea", SourceContainerId: "gitea", SourceContainerInstanceId: "gitea-instance", DestinationDeviceId: "device", DestinationFrontend: &servicev1.ApplianceFrontendDestination{InstallationId: installation.ID, Name: "webhook"}, DestinationPort: 80, VirtualServiceName: "agentd-webhook"}
+	request := &appliancev1.CreateApplianceFrontendServiceImportRequest{RequestId: "callback", InstallationId: installation.ID, ExpectedRevision: installation.Revision, ExpectedGrantRevision: 1, ExpectedBootId: installation.CurrentBootID, ExpectedContainerInstanceId: installation.CurrentContainerInstance, SourceEnvironmentId: "gitea", SourceContainerId: "gitea", SourceContainerInstanceId: "gitea-instance", FrontendName: "webhook", VirtualServiceName: "client-webhook"}
+	value := &servicev1.ServiceImport{ImportId: "callback", SourceEnvironmentId: "gitea", SourceContainerId: "gitea", SourceContainerInstanceId: "gitea-instance", DestinationDeviceId: "device", DestinationFrontend: &servicev1.ApplianceFrontendDestination{InstallationId: installation.ID, Name: "webhook"}, DestinationPort: 80, VirtualServiceName: "client-webhook"}
 	route.DestinationExportId = ""
 	route.SourceInstallationId = ""
 	route.SourceBootId = ""
@@ -160,7 +160,7 @@ func TestApplianceFrontendSourceAndRemovedGrantCannotRevive(t *testing.T) {
 	}
 }
 
-func TestApplianceRemoveDeletesRevokedFrontendReferencesAndResumesOriginalReceipt(t *testing.T) {
+func TestApplianceRemoveAtomicallyDeletesDomainAndItsReceipts(t *testing.T) {
 	database, installation, request, value, route, lease := frontendServiceFixture(t)
 	ctx := context.Background()
 	if _, err := database.CreateApplianceFrontendServiceImport(ctx, request, value, route, lease); err != nil {
@@ -205,8 +205,8 @@ func TestApplianceRemoveDeletesRevokedFrontendReferencesAndResumesOriginalReceip
 	}
 	remove := ApplianceRemove{InstallationID: pending.ID, RegistrationID: pending.RegistrationID,
 		OperationID: "remove", CommitRevision: pending.Revision, Receipt: []byte("removed")}
-	if _, err := database.db.ExecContext(ctx, `CREATE TRIGGER fail_remove_receipt BEFORE UPDATE ON appliance_operations
-		WHEN NEW.id='remove' AND NEW.state=2 BEGIN SELECT RAISE(ABORT,'fixture receipt failure'); END`); err != nil {
+	if _, err := database.db.ExecContext(ctx, `CREATE TRIGGER fail_remove_receipt BEFORE DELETE ON appliance_operations
+		WHEN OLD.id='remove' BEGIN SELECT RAISE(ABORT,'fixture receipt failure'); END`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.CommitApplianceRemove(ctx, remove); err == nil || !strings.Contains(err.Error(), "fixture receipt failure") {
@@ -258,6 +258,7 @@ func TestApplianceRemoveDeletesRevokedFrontendReferencesAndResumesOriginalReceip
 		`SELECT COUNT(*) FROM service_imports WHERE import_id='callback'`,
 		`SELECT COUNT(*) FROM access_routes WHERE route_id='route'`,
 		`SELECT COUNT(*) FROM route_leases WHERE lease_id='lease'`,
+		`SELECT COUNT(*) FROM appliance_operations WHERE installation_id='installation'`,
 	} {
 		var count int
 		if err := database.db.QueryRowContext(ctx, query).Scan(&count); err != nil || count != 0 {

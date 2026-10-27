@@ -59,9 +59,3 @@ func (counters *counters) release(kind resourceKind, environment string, infrast
 		counters.environment[environment] = current
 	}
 }
-
-func (counters *counters) empty() bool {
-	counters.mu.Lock()
-	defer counters.mu.Unlock()
-	return counters.global == [3]int{}
-}

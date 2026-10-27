@@ -7,15 +7,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
 
 const (
 	version                     = "0.1.0"
-	productionHostLabel         = "com.afk-surf.agent-vmm-host"
+	productionHostLabel         = bundle.HostBundleIdentifier
 	boundedOperationMaxAttempts = 3
 	statusObservationBudget     = 4 * time.Second
 	// hostStopTimeout bounds a Host stop. The service manager kills the Host
@@ -72,27 +76,28 @@ var releaseID = version
 
 var errHostServiceNotFound = errors.New("host service not found")
 
-// The helper is the shared Cue/BFT local operation boundary. Its durable
+// The helper is the shared controller local operation boundary. Its durable
 // request identity and observation-only recovery refine the local appliance
-// lifecycle. Salix admission remains server-owned and is deliberately absent
+// lifecycle. controller admission remains server-owned and is deliberately absent
 // from this local status. The install command delegates lifecycle ordering to
 // LifecycleCoordinator; repair remains the narrow host-service repair action.
 
 type lifecycleOperation struct {
-	OperationID          string `json:"operationId"`
-	RequestID            string `json:"requestId"`
-	Kind                 string `json:"kind"`
-	TargetRegistrationID string `json:"targetRegistrationId,omitempty"`
-	TargetReleaseID      string `json:"targetReleaseId,omitempty"`
-	TargetArtifactSHA256 string `json:"targetArtifactSha256,omitempty"`
-	TargetArtifactSize   uint64 `json:"targetArtifactSize,omitempty"`
-	Stage                string `json:"stage,omitempty"`
-	Outcome              string `json:"outcome"`
-	Attempt              int    `json:"attempt,omitempty"`
-	FailureStage         string `json:"failureStage,omitempty"`
-	FailureCode          string `json:"failureCode,omitempty"`
-	FailureMessage       string `json:"failureMessage,omitempty"`
-	Retryable            bool   `json:"retryable,omitempty"`
+	Cutover              *cutoverProgress `json:"cutover,omitempty"`
+	OperationID          string           `json:"operationId"`
+	RequestID            string           `json:"requestId"`
+	Kind                 string           `json:"kind"`
+	TargetRegistrationID string           `json:"targetRegistrationId,omitempty"`
+	TargetReleaseID      string           `json:"targetReleaseId,omitempty"`
+	TargetArtifactSHA256 string           `json:"targetArtifactSha256,omitempty"`
+	TargetArtifactSize   uint64           `json:"targetArtifactSize,omitempty"`
+	Stage                string           `json:"stage,omitempty"`
+	Outcome              string           `json:"outcome"`
+	Attempt              int              `json:"attempt,omitempty"`
+	FailureStage         string           `json:"failureStage,omitempty"`
+	FailureCode          string           `json:"failureCode,omitempty"`
+	FailureMessage       string           `json:"failureMessage,omitempty"`
+	Retryable            bool             `json:"retryable,omitempty"`
 	// SecretDisposition is independent from scheduling retryability. Only an
 	// explicitly persisted terminal result or durable completion receipt may
 	// authorize destruction of the managed install plan.
@@ -108,6 +113,7 @@ const (
 )
 
 func Main() {
+	signal.Ignore(syscall.SIGPIPE, syscall.SIGHUP)
 	if len(os.Args) < 2 {
 		fatal("usage: agent-vmm-lifecycle version --json|preflight --json|status|operation|maintenance|maintenance-status|publish-host|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
 	}
@@ -314,6 +320,9 @@ func Main() {
 			completedOperationID = descriptor.OperationID
 		}
 		operation, operationErr = finalizeManagedInstallOperation(resolved, completedOperationID, operation, operationErr)
+		if os.Args[1] == "install" && operationErr == nil {
+			reconcileBuiltinMCP(resolved)
+		}
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
 		}
@@ -350,6 +359,9 @@ func Main() {
 			}
 			return updateApplication(resolved, update.sourceApp, update.targetReleaseID, update.requestID)
 		})
+		if operationErr == nil {
+			reconcileBuiltinMCP(resolved)
+		}
 		if err := writeOperation(operation); err != nil {
 			fatal("operation encoding failed")
 		}
@@ -429,6 +441,6 @@ func regular(path string) bool {
 func directory(path string) bool { info, err := os.Stat(path); return err == nil && info.IsDir() }
 
 func fatal(message string) {
-	fmt.Fprintln(os.Stderr, message)
+	slog.Error("lifecycle failed", "error", message)
 	os.Exit(1)
 }

@@ -46,16 +46,16 @@ func Attach(socket string) (*Supervisor, error) {
 // reaped, so cancellation of ctx must not kill a ready worker. The worker
 // reads its stdin as a lifeline and exits at EOF, which also happens when
 // this process dies without calling Close.
-func Start(ctx context.Context, binary, socket, serviceSocket, meshControlSocket, serviceCapabilityFile string) (*Supervisor, error) {
-	if !filepath.IsAbs(binary) || !filepath.IsAbs(socket) || !filepath.IsAbs(serviceSocket) || !filepath.IsAbs(meshControlSocket) || !filepath.IsAbs(serviceCapabilityFile) {
-		return nil, fmt.Errorf("data worker binary, control socket, service/mesh sockets, and capability file must be absolute")
+func Start(ctx context.Context, binary, socket, serviceSocket, meshControlSocket string) (*Supervisor, error) {
+	if !filepath.IsAbs(binary) || !filepath.IsAbs(socket) || !filepath.IsAbs(serviceSocket) || !filepath.IsAbs(meshControlSocket) {
+		return nil, fmt.Errorf("data worker binary, control socket, service/mesh sockets must be absolute")
 	}
 	lifeline, held, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
 	defer lifeline.Close()
-	command := exec.Command(binary, "--socket", socket, "--service-socket", serviceSocket, "--mesh-control-socket", meshControlSocket, "--service-capability-file", serviceCapabilityFile)
+	command := exec.Command(binary, "--socket", socket, "--service-socket", serviceSocket, "--mesh-control-socket", meshControlSocket)
 	command.Stdin = lifeline
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {

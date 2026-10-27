@@ -11,7 +11,6 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -20,19 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ServiceRouteService_ListServiceExports_FullMethodName  = "/agentvmm.service.v1.ServiceRouteService/ListServiceExports"
-	ServiceRouteService_GetServiceExport_FullMethodName    = "/agentvmm.service.v1.ServiceRouteService/GetServiceExport"
-	ServiceRouteService_RevokeServiceExport_FullMethodName = "/agentvmm.service.v1.ServiceRouteService/RevokeServiceExport"
-	ServiceRouteService_OpenServiceForward_FullMethodName  = "/agentvmm.service.v1.ServiceRouteService/OpenServiceForward"
+	ServiceRouteService_OpenServiceForward_FullMethodName = "/agentvmm.service.v1.ServiceRouteService/OpenServiceForward"
 )
 
 // ServiceRouteServiceClient is the client API for ServiceRouteService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// ServiceRouteService serves instance-fenced service transport.
 type ServiceRouteServiceClient interface {
-	ListServiceExports(ctx context.Context, in *ListServiceExportsRequest, opts ...grpc.CallOption) (*ListServiceExportsResponse, error)
-	GetServiceExport(ctx context.Context, in *GetServiceExportRequest, opts ...grpc.CallOption) (*ServiceExport, error)
-	RevokeServiceExport(ctx context.Context, in *RevokeServiceExportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// OpenServiceForward verifies current route, lease, generation, instances, and budgets before
+	// forwarding bytes.
 	OpenServiceForward(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OpenServiceForwardRequest, OpenServiceForwardResponse], error)
 }
 
@@ -42,36 +39,6 @@ type serviceRouteServiceClient struct {
 
 func NewServiceRouteServiceClient(cc grpc.ClientConnInterface) ServiceRouteServiceClient {
 	return &serviceRouteServiceClient{cc}
-}
-
-func (c *serviceRouteServiceClient) ListServiceExports(ctx context.Context, in *ListServiceExportsRequest, opts ...grpc.CallOption) (*ListServiceExportsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListServiceExportsResponse)
-	err := c.cc.Invoke(ctx, ServiceRouteService_ListServiceExports_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *serviceRouteServiceClient) GetServiceExport(ctx context.Context, in *GetServiceExportRequest, opts ...grpc.CallOption) (*ServiceExport, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ServiceExport)
-	err := c.cc.Invoke(ctx, ServiceRouteService_GetServiceExport_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *serviceRouteServiceClient) RevokeServiceExport(ctx context.Context, in *RevokeServiceExportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, ServiceRouteService_RevokeServiceExport_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *serviceRouteServiceClient) OpenServiceForward(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OpenServiceForwardRequest, OpenServiceForwardResponse], error) {
@@ -90,10 +57,11 @@ type ServiceRouteService_OpenServiceForwardClient = grpc.BidiStreamingClient[Ope
 // ServiceRouteServiceServer is the server API for ServiceRouteService service.
 // All implementations must embed UnimplementedServiceRouteServiceServer
 // for forward compatibility.
+//
+// ServiceRouteService serves instance-fenced service transport.
 type ServiceRouteServiceServer interface {
-	ListServiceExports(context.Context, *ListServiceExportsRequest) (*ListServiceExportsResponse, error)
-	GetServiceExport(context.Context, *GetServiceExportRequest) (*ServiceExport, error)
-	RevokeServiceExport(context.Context, *RevokeServiceExportRequest) (*emptypb.Empty, error)
+	// OpenServiceForward verifies current route, lease, generation, instances, and budgets before
+	// forwarding bytes.
 	OpenServiceForward(grpc.BidiStreamingServer[OpenServiceForwardRequest, OpenServiceForwardResponse]) error
 	mustEmbedUnimplementedServiceRouteServiceServer()
 }
@@ -105,15 +73,6 @@ type ServiceRouteServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedServiceRouteServiceServer struct{}
 
-func (UnimplementedServiceRouteServiceServer) ListServiceExports(context.Context, *ListServiceExportsRequest) (*ListServiceExportsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListServiceExports not implemented")
-}
-func (UnimplementedServiceRouteServiceServer) GetServiceExport(context.Context, *GetServiceExportRequest) (*ServiceExport, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetServiceExport not implemented")
-}
-func (UnimplementedServiceRouteServiceServer) RevokeServiceExport(context.Context, *RevokeServiceExportRequest) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "method RevokeServiceExport not implemented")
-}
 func (UnimplementedServiceRouteServiceServer) OpenServiceForward(grpc.BidiStreamingServer[OpenServiceForwardRequest, OpenServiceForwardResponse]) error {
 	return status.Error(codes.Unimplemented, "method OpenServiceForward not implemented")
 }
@@ -138,60 +97,6 @@ func RegisterServiceRouteServiceServer(s grpc.ServiceRegistrar, srv ServiceRoute
 	s.RegisterService(&ServiceRouteService_ServiceDesc, srv)
 }
 
-func _ServiceRouteService_ListServiceExports_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListServiceExportsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ServiceRouteServiceServer).ListServiceExports(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ServiceRouteService_ListServiceExports_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ServiceRouteServiceServer).ListServiceExports(ctx, req.(*ListServiceExportsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _ServiceRouteService_GetServiceExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetServiceExportRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ServiceRouteServiceServer).GetServiceExport(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ServiceRouteService_GetServiceExport_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ServiceRouteServiceServer).GetServiceExport(ctx, req.(*GetServiceExportRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _ServiceRouteService_RevokeServiceExport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RevokeServiceExportRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ServiceRouteServiceServer).RevokeServiceExport(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ServiceRouteService_RevokeServiceExport_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ServiceRouteServiceServer).RevokeServiceExport(ctx, req.(*RevokeServiceExportRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _ServiceRouteService_OpenServiceForward_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(ServiceRouteServiceServer).OpenServiceForward(&grpc.GenericServerStream[OpenServiceForwardRequest, OpenServiceForwardResponse]{ServerStream: stream})
 }
@@ -205,20 +110,7 @@ type ServiceRouteService_OpenServiceForwardServer = grpc.BidiStreamingServer[Ope
 var ServiceRouteService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agentvmm.service.v1.ServiceRouteService",
 	HandlerType: (*ServiceRouteServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "ListServiceExports",
-			Handler:    _ServiceRouteService_ListServiceExports_Handler,
-		},
-		{
-			MethodName: "GetServiceExport",
-			Handler:    _ServiceRouteService_GetServiceExport_Handler,
-		},
-		{
-			MethodName: "RevokeServiceExport",
-			Handler:    _ServiceRouteService_RevokeServiceExport_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "OpenServiceForward",
@@ -237,8 +129,13 @@ const (
 // MeshControlServiceClient is the client API for MeshControlService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// MeshControlService issues destination-authorized personal routes after current membership
+// verification.
 type MeshControlServiceClient interface {
-	RequestPersonalRoute(ctx context.Context, in *PersonalRouteRequest, opts ...grpc.CallOption) (*PersonalRouteResponse, error)
+	// RequestPersonalRoute asks the destination to verify active source membership and sign a
+	// bounded personal capability.
+	RequestPersonalRoute(ctx context.Context, in *RequestPersonalRouteRequest, opts ...grpc.CallOption) (*RequestPersonalRouteResponse, error)
 }
 
 type meshControlServiceClient struct {
@@ -249,9 +146,9 @@ func NewMeshControlServiceClient(cc grpc.ClientConnInterface) MeshControlService
 	return &meshControlServiceClient{cc}
 }
 
-func (c *meshControlServiceClient) RequestPersonalRoute(ctx context.Context, in *PersonalRouteRequest, opts ...grpc.CallOption) (*PersonalRouteResponse, error) {
+func (c *meshControlServiceClient) RequestPersonalRoute(ctx context.Context, in *RequestPersonalRouteRequest, opts ...grpc.CallOption) (*RequestPersonalRouteResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PersonalRouteResponse)
+	out := new(RequestPersonalRouteResponse)
 	err := c.cc.Invoke(ctx, MeshControlService_RequestPersonalRoute_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -262,8 +159,13 @@ func (c *meshControlServiceClient) RequestPersonalRoute(ctx context.Context, in 
 // MeshControlServiceServer is the server API for MeshControlService service.
 // All implementations must embed UnimplementedMeshControlServiceServer
 // for forward compatibility.
+//
+// MeshControlService issues destination-authorized personal routes after current membership
+// verification.
 type MeshControlServiceServer interface {
-	RequestPersonalRoute(context.Context, *PersonalRouteRequest) (*PersonalRouteResponse, error)
+	// RequestPersonalRoute asks the destination to verify active source membership and sign a
+	// bounded personal capability.
+	RequestPersonalRoute(context.Context, *RequestPersonalRouteRequest) (*RequestPersonalRouteResponse, error)
 	mustEmbedUnimplementedMeshControlServiceServer()
 }
 
@@ -274,7 +176,7 @@ type MeshControlServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMeshControlServiceServer struct{}
 
-func (UnimplementedMeshControlServiceServer) RequestPersonalRoute(context.Context, *PersonalRouteRequest) (*PersonalRouteResponse, error) {
+func (UnimplementedMeshControlServiceServer) RequestPersonalRoute(context.Context, *RequestPersonalRouteRequest) (*RequestPersonalRouteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RequestPersonalRoute not implemented")
 }
 func (UnimplementedMeshControlServiceServer) mustEmbedUnimplementedMeshControlServiceServer() {}
@@ -299,7 +201,7 @@ func RegisterMeshControlServiceServer(s grpc.ServiceRegistrar, srv MeshControlSe
 }
 
 func _MeshControlService_RequestPersonalRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PersonalRouteRequest)
+	in := new(RequestPersonalRouteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -311,7 +213,7 @@ func _MeshControlService_RequestPersonalRoute_Handler(srv interface{}, ctx conte
 		FullMethod: MeshControlService_RequestPersonalRoute_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MeshControlServiceServer).RequestPersonalRoute(ctx, req.(*PersonalRouteRequest))
+		return srv.(MeshControlServiceServer).RequestPersonalRoute(ctx, req.(*RequestPersonalRouteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

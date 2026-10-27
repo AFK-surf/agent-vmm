@@ -51,15 +51,6 @@ type ApplianceGrant struct {
 	EgressMode, MaxEgressMode int32
 	LANEgress                 bool
 	HostTCPEndpoints          HostTCPEndpoints
-	DynamicHostLoopback       HostLoopbackFrontendCapacity
-}
-
-type HostLoopbackFrontendCapacity struct {
-	MaxActiveLeases, MaxActiveLeasesPerAllocation, MaxLeaseSeconds  uint32
-	MaxConcurrentConnections, MaxConcurrentConnectionsPerLease      uint32
-	MaxFrameBytes, ConnectionDeadlineSeconds, ConnectionIdleSeconds uint32
-	MaxConnectionBytes                                              uint64
-	MaxUseCount                                                     uint32
 }
 
 type ApplianceOperation struct {
@@ -236,33 +227,18 @@ func (store *Store) GetApplianceGrant(ctx context.Context, installationID string
 
 const applianceGrantSelect = `SELECT installation_id, revision,
 	system_pids, system_disk_bytes, per_env_pids,
-	per_env_disk_bytes, egress_mode, max_egress_mode,
-	dynamic_max_active_leases, dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
-	dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease, dynamic_max_frame_bytes,
-	dynamic_max_connection_bytes, dynamic_connection_deadline_seconds, dynamic_connection_idle_seconds,
-	dynamic_max_use_count, lan_egress, host_tcp_endpoints FROM appliance_grants`
+	per_env_disk_bytes, egress_mode, max_egress_mode, lan_egress, host_tcp_endpoints FROM appliance_grants`
 
 func applianceGrantScan(grant *ApplianceGrant) []any {
 	return []any{&grant.InstallationID, &grant.Revision,
 		&grant.System.PIDs, &grant.System.DiskBytes, &grant.PerEnvironment.PIDs,
-		&grant.PerEnvironment.DiskBytes, &grant.EgressMode, &grant.MaxEgressMode,
-		&grant.DynamicHostLoopback.MaxActiveLeases,
-		&grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation, &grant.DynamicHostLoopback.MaxLeaseSeconds,
-		&grant.DynamicHostLoopback.MaxConcurrentConnections,
-		&grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, &grant.DynamicHostLoopback.MaxFrameBytes,
-		&grant.DynamicHostLoopback.MaxConnectionBytes, &grant.DynamicHostLoopback.ConnectionDeadlineSeconds,
-		&grant.DynamicHostLoopback.ConnectionIdleSeconds, &grant.DynamicHostLoopback.MaxUseCount, &grant.LANEgress, &grant.HostTCPEndpoints}
+		&grant.PerEnvironment.DiskBytes, &grant.EgressMode, &grant.MaxEgressMode, &grant.LANEgress, &grant.HostTCPEndpoints}
 }
 
 func applianceGrantArgs(grant ApplianceGrant, now int64) []any {
 	return []any{grant.InstallationID, grant.Revision,
 		grant.System.PIDs, grant.System.DiskBytes, grant.PerEnvironment.PIDs,
-		grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode,
-		grant.DynamicHostLoopback.MaxActiveLeases, grant.DynamicHostLoopback.MaxActiveLeasesPerAllocation,
-		grant.DynamicHostLoopback.MaxLeaseSeconds, grant.DynamicHostLoopback.MaxConcurrentConnections,
-		grant.DynamicHostLoopback.MaxConcurrentConnectionsPerLease, grant.DynamicHostLoopback.MaxFrameBytes,
-		grant.DynamicHostLoopback.MaxConnectionBytes, grant.DynamicHostLoopback.ConnectionDeadlineSeconds,
-		grant.DynamicHostLoopback.ConnectionIdleSeconds, grant.DynamicHostLoopback.MaxUseCount, grant.LANEgress, grant.HostTCPEndpoints, now}
+		grant.PerEnvironment.DiskBytes, grant.EgressMode, grant.MaxEgressMode, grant.LANEgress, grant.HostTCPEndpoints, now}
 }
 
 func (store *Store) InstallApplianceDomain(ctx context.Context, installation ApplianceInstallation,
@@ -291,12 +267,12 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 	// The installation's registration_id is an immediate foreign key. Create
 	// the independent registration row before linking it from the installation.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO remote_registrations(id, endpoint, display_name,
-		protocol_version, per_env_pids, per_env_disk_bytes,
+		per_env_pids, per_env_disk_bytes,
 		max_egress_mode, stop_grace_seconds, state,
 		connection_state, enrollment_state, connector_phase, connector_observed_at, enrollment_request_id,
 		owner_kind, installation_id, inventory_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		registration.ID, registration.Endpoint, registration.DisplayName, registration.ProtocolVersion,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		registration.ID, registration.Endpoint, registration.DisplayName,
 		registration.PerEnvPIDs, registration.PerEnvDiskBytes, registration.MaxEgressMode,
 		registration.StopGraceSeconds,
 		registration.State, registration.ConnectionState, registration.EnrollmentState, registration.ConnectorPhase,
@@ -317,12 +293,8 @@ func (store *Store) InstallApplianceDomain(ctx context.Context, installation App
 	grant.InstallationID = installation.ID
 	if _, err := tx.ExecContext(ctx, `INSERT INTO appliance_grants(installation_id, revision,
 		system_pids, system_disk_bytes, per_env_pids, per_env_disk_bytes,
-		egress_mode, max_egress_mode, dynamic_max_active_leases,
-		dynamic_max_active_leases_per_allocation, dynamic_max_lease_seconds,
-		dynamic_max_concurrent_connections, dynamic_max_concurrent_connections_per_lease,
-		dynamic_max_frame_bytes, dynamic_max_connection_bytes, dynamic_connection_deadline_seconds,
-		dynamic_connection_idle_seconds, dynamic_max_use_count, lan_egress, host_tcp_endpoints, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, applianceGrantArgs(grant, now)...); err != nil {
+		egress_mode, max_egress_mode, lan_egress, host_tcp_endpoints, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`, applianceGrantArgs(grant, now)...); err != nil {
 		return ApplianceInstallation{}, RemoteRegistration{}, ApplianceOperation{}, err
 	}
 	for _, frontend := range frontends {

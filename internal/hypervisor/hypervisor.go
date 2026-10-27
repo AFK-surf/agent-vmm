@@ -22,13 +22,12 @@ type MMIODevice struct {
 }
 
 type Config struct {
-	MemoryBytes  uint64
-	CPUs         int
-	EnableHyperV bool
-	Kernel       []byte
-	Initramfs    []byte
-	CommandLine  string
-	Serial       io.Writer
+	MemoryBytes uint64
+	CPUs        int
+	Kernel      []byte
+	Initramfs   []byte
+	CommandLine string
+	Serial      io.Writer
 }
 
 type VM struct{ machine *machine }

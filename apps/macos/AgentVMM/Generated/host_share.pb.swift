@@ -66,6 +66,7 @@ public nonisolated enum Agentvmm_Host_V1_HostShareState: SwiftProtobuf.Enum, Swi
 
 }
 
+/// HostShare records an operator-approved directory identity and its environment-scoped projection.
 public nonisolated struct Agentvmm_Host_V1_HostShare: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -90,6 +91,8 @@ public nonisolated struct Agentvmm_Host_V1_HostShare: Sendable {
   public init() {}
 }
 
+/// CreateHostShareRequest carries inputs for an operation that approves one checked Host
+/// directory for the selected environment.
 public nonisolated struct Agentvmm_Host_V1_CreateHostShareRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -108,6 +111,8 @@ public nonisolated struct Agentvmm_Host_V1_CreateHostShareRequest: Sendable {
   public init() {}
 }
 
+/// RebindHostShareRequest carries inputs for an operation that changes the checked source of an
+/// existing share under its revision fence.
 public nonisolated struct Agentvmm_Host_V1_RebindHostShareRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -128,6 +133,8 @@ public nonisolated struct Agentvmm_Host_V1_RebindHostShareRequest: Sendable {
   public init() {}
 }
 
+/// RevokeHostShareRequest carries inputs for an operation that revokes one share rather than
+/// granting general Host filesystem access.
 public nonisolated struct Agentvmm_Host_V1_RevokeHostShareRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -144,27 +151,8 @@ public nonisolated struct Agentvmm_Host_V1_RevokeHostShareRequest: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Host_V1_HostShareResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var share: Agentvmm_Host_V1_HostShare {
-    get {_share ?? Agentvmm_Host_V1_HostShare()}
-    set {_share = newValue}
-  }
-  /// Returns true if `share` has been explicitly set.
-  public var hasShare: Bool {self._share != nil}
-  /// Clears the value of `share`. Subsequent reads from it will return its default value.
-  public mutating func clearShare() {self._share = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _share: Agentvmm_Host_V1_HostShare? = nil
-}
-
+/// ListHostSharesRequest carries inputs for an operation that reads operator-approved directory
+/// shares and their current references.
 public nonisolated struct Agentvmm_Host_V1_ListHostSharesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -186,6 +174,8 @@ public nonisolated struct Agentvmm_Host_V1_ListHostSharesRequest: Sendable {
   fileprivate var _environmentID: String? = nil
 }
 
+/// ListHostSharesResponse carries results from an operation that reads operator-approved
+/// directory shares and their current references.
 public nonisolated struct Agentvmm_Host_V1_ListHostSharesResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -396,40 +386,6 @@ nonisolated extension Agentvmm_Host_V1_RevokeHostShareRequest: SwiftProtobuf.Mes
     if lhs.requestID != rhs.requestID {return false}
     if lhs.shareID != rhs.shareID {return false}
     if lhs.expectedRevision != rhs.expectedRevision {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_HostShareResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".HostShareResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}share\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._share) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._share {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_HostShareResponse, rhs: Agentvmm_Host_V1_HostShareResponse) -> Bool {
-    if lhs._share != rhs._share {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

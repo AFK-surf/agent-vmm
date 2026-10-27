@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	"io"
 	"path/filepath"
 	"sync"
@@ -16,8 +15,9 @@ import (
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
+	"github.com/AFK-surf/agent-vmm/internal/ociarchive"
 	coreimages "github.com/containerd/containerd/v2/core/images"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
@@ -127,7 +127,7 @@ func TestValidateOCIArchiveUsesHeaderReferenceInsteadOfBuildxAnnotations(t *test
 		t.Fatal(err)
 	}
 	var deleted []string
-	if err := cleanupImportedRecords(context.Background(), []coreimages.Image{{Name: incidentalReference, Target: *manifest}}, *manifest, "", func(_ context.Context, name string) error {
+	if err := cleanupImportedRecords(context.Background(), []coreimages.Image{{Name: incidentalReference, Target: *manifest}}, *manifest, func(_ context.Context, name string) error {
 		deleted = append(deleted, name)
 		return nil
 	}); err != nil {
@@ -141,7 +141,7 @@ func TestValidateOCIArchiveUsesHeaderReferenceInsteadOfBuildxAnnotations(t *test
 func TestCleanupImportedRecordsRejectsTargetOtherThanCommittedManifest(t *testing.T) {
 	committed := ocispec.Descriptor{Digest: digest.FromString("committed")}
 	deleted := false
-	err := cleanupImportedRecords(context.Background(), []coreimages.Image{{Name: "docker.io/buildx/generated:latest", Target: ocispec.Descriptor{Digest: digest.FromString("other")}}}, committed, "", func(context.Context, string) error {
+	err := cleanupImportedRecords(context.Background(), []coreimages.Image{{Name: "docker.io/buildx/generated:latest", Target: ocispec.Descriptor{Digest: digest.FromString("other")}}}, committed, func(context.Context, string) error {
 		deleted = true
 		return nil
 	})
@@ -243,4 +243,24 @@ func appendTarEntry(t *testing.T, archive []byte, name string, content []byte) [
 		t.Fatal(err)
 	}
 	return output.Bytes()
+}
+
+func TestImportIdempotencyUsesOneLatestRequestLabel(t *testing.T) {
+	target := digest.FromString("image")
+	reference := "example.com/image:latest"
+	records := []coreimages.Image{{Name: reference, Target: ocispec.Descriptor{Digest: target}, Labels: map[string]string{importRequestLabel: importRequestValue("newer", "input")}}}
+	if err := checkImportIdempotency(records, "newer", "input", reference, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkImportIdempotency(records, "older", "older-input", reference, target); err != nil {
+		t.Fatalf("older same-digest replay=%v", err)
+	}
+	for _, change := range []struct {
+		fingerprint, reference string
+		target                 digest.Digest
+	}{{"different", reference, target}, {"input", "example.com/other:latest", target}, {"input", reference, digest.FromString("other")}} {
+		if err := checkImportIdempotency(records, "newer", change.fingerprint, change.reference, change.target); status.Code(err) != codes.Aborted {
+			t.Fatalf("conflict=%v", err)
+		}
+	}
 }

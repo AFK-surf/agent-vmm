@@ -17,7 +17,8 @@ import (
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -47,8 +48,8 @@ func TestForwardImportArchiveForwardsGuestFailureAfterHeader(t *testing.T) {
 }
 
 func TestSendImportHeaderForwardsImmediateGuestResult(t *testing.T) {
-	want := &vmmdv1.Image{Reference: "cue.local/runtime/external:release"}
-	image, completed, err := sendImportHeader(
+	want := &vmmdv1.Image{Reference: "controller.local/runtime/external:release"}
+	image, completed, err := guestconn.SendImportHeader(
 		func(request *vmmdv1.ImportImageRequest) error {
 			if request.GetHeader().GetImageReference() != want.GetReference() {
 				t.Fatalf("header reference = %q", request.GetHeader().GetImageReference())
@@ -71,7 +72,7 @@ func TestImportImageHeaderInjectsSessionNamespaceAndPreservesContentCommitment(t
 	hash[0] = 7
 	header := &hostv1.ImportImageHeader{RequestId: "request", ImageReference: "example.com/agent/pi:latest", ArchiveSha256: hash,
 		ManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Platform: "linux/arm64", ArchiveSize: 4096,
-		ArchiveUrl: "https://cue-release.example/runtime/sha256/archive"}
+		ArchiveUrl: "https://release.example/runtime/sha256/archive"}
 	guest := importHeaderToGuest(header, "session-namespace")
 	if guest.GetActorNamespaceId() != "session-namespace" || guest.GetRequestId() != header.GetRequestId() || guest.GetImageReference() != header.GetImageReference() ||
 		guest.GetManifestDigest() != header.GetManifestDigest() || guest.GetPlatform() != "linux/arm64" || guest.GetArchiveSize() != header.GetArchiveSize() || guest.GetArchiveSha256()[0] != 7 {
@@ -84,10 +85,10 @@ func TestImportImageHeaderInjectsSessionNamespaceAndPreservesContentCommitment(t
 }
 
 func TestValidateImportArchiveURL(t *testing.T) {
-	if err := validateImportArchiveURL("https://cue-release.example/runtime/sha256/archive"); err != nil {
+	if err := validateImportArchiveURL("https://release.example/runtime/sha256/archive"); err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []string{"", "http://cue-release.example/archive", "https://user@cue-release.example/archive", "https://cue-release.example/archive?token=mutable", "https://cue-release.example/archive#fragment"} {
+	for _, value := range []string{"", "http://release.example/archive", "https://user@release.example/archive", "https://release.example/archive?token=mutable", "https://release.example/archive#fragment"} {
 		if err := validateImportArchiveURL(value); err == nil {
 			t.Fatalf("validateImportArchiveURL(%q) succeeded", value)
 		}
@@ -316,7 +317,7 @@ func TestReceiveImportRequestBoundsWait(t *testing.T) {
 			if test.cancel {
 				cancel()
 			}
-			_, err := receiveImportRequest(ctx, func() (*hostv1.ImportImageRequest, error) { <-release; return nil, io.EOF }, time.Millisecond)
+			_, err := guestconn.ReceiveImportRequest(ctx, func() (*hostv1.ImportImageRequest, error) { <-release; return nil, io.EOF }, time.Millisecond)
 			want := context.DeadlineExceeded
 			if test.cancel {
 				want = context.Canceled
@@ -336,8 +337,8 @@ type importReceiveServer struct {
 	returned chan error
 }
 
-func (server *importReceiveServer) ImportImage(stream grpc.ClientStreamingServer[hostv1.ImportImageRequest, hostv1.Image]) error {
-	_, err := receiveImportRequest(stream.Context(), func() (*hostv1.ImportImageRequest, error) {
+func (server *importReceiveServer) ImportImage(stream grpc.ClientStreamingServer[hostv1.ImportImageRequest, hostv1.ImportImageResponse]) error {
+	_, err := guestconn.ReceiveImportRequest(stream.Context(), func() (*hostv1.ImportImageRequest, error) {
 		close(server.started)
 		request, err := stream.Recv()
 		server.received <- err

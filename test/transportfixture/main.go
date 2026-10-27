@@ -27,7 +27,7 @@ func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapsh
 		Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY},
 		RemoteRegistrations: []*hostv1.RemoteRegistration{{
 			Id: "remote-fixture", Endpoint: "controller.example:443", DisplayName: "Fixture Controller",
-			ProtocolVersion: "1", Revision: 7,
+			Revision:        7,
 			State:           hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING,
 			ConnectionState: hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED,
 			EnrollmentState: hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY,
@@ -46,8 +46,8 @@ func (operatorServer) GetSystemSnapshot(context.Context, *hostv1.GetSystemSnapsh
 	}, nil
 }
 
-func (operatorServer) GetSystemHealthSummary(context.Context, *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemSnapshotResponse, error) {
-	return &hostv1.GetSystemSnapshotResponse{
+func (operatorServer) GetSystemHealthSummary(context.Context, *hostv1.GetSystemHealthSummaryRequest) (*hostv1.GetSystemHealthSummaryResponse, error) {
+	return &hostv1.GetSystemHealthSummaryResponse{
 		Vm:     &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING, BootId: "transport-fixture"},
 		Health: &hostv1.HealthStatus{State: hostv1.HealthState_HEALTH_STATE_HEALTHY},
 	}, nil
@@ -74,11 +74,11 @@ func (operatorServer) ListAgentSessions(context.Context, *hostv1.ListAgentSessio
 }
 
 func fixtureLimits(cpu uint32, memory uint64, pids uint32, disk uint64) *hostv1.ResourceLimits {
-	return &hostv1.ResourceLimits{CpuMillis: &cpu, MemoryBytes: &memory, Pids: &pids, DiskBytes: &disk}
+	return &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk}
 }
 
 func (operatorServer) WatchEvents(_ *hostv1.WatchEventsRequest, stream hostv1.OperatorService_WatchEventsServer) error {
-	if err := stream.Send(&hostv1.RuntimeEvent{Sequence: 1, Type: "fixture", GuestBootId: "transport-fixture"}); err != nil {
+	if err := stream.Send(&hostv1.WatchEventsResponse{Sequence: 1, Type: "fixture", GuestBootId: "transport-fixture"}); err != nil {
 		return err
 	}
 	<-stream.Context().Done()
@@ -89,7 +89,7 @@ type agentServer struct {
 	hostv1.UnimplementedAgentRuntimeServiceServer
 }
 
-func (agentServer) GetEnvironment(context.Context, *hostv1.GetOwnEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
+func (agentServer) GetEnvironment(context.Context, *hostv1.GetEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
 	return &hostv1.GetEnvironmentResponse{Environment: &hostv1.AgentEnvironment{Id: "fixture"}}, nil
 }
 

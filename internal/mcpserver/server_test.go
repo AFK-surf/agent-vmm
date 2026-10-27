@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type fakeRuntime struct {
@@ -41,7 +40,7 @@ type fakeRuntime struct {
 	createdExport     *hostv1.CreateServiceExportRequest
 	createdImport     *hostv1.CreateServiceImportRequest
 	createdPersonal   *hostv1.CreatePersonalServiceImportRequest
-	revokedExport     *hostv1.RevokeOwnServiceExportRequest
+	revokedExport     *hostv1.RevokeServiceExportRequest
 	revokedImport     *hostv1.RevokeServiceImportRequest
 }
 
@@ -69,15 +68,15 @@ func newTestAdapter(t *testing.T, runtime hostv1.AgentRuntimeServiceClient) *Ada
 	return New(runtime, &fakeCleanupOwner{}, nil)
 }
 
-func (server *fakeRuntime) CreatePersonalServiceImport(_ context.Context, request *hostv1.CreatePersonalServiceImportRequest) (*servicev1.ServiceImport, error) {
+func (server *fakeRuntime) CreatePersonalServiceImport(_ context.Context, request *hostv1.CreatePersonalServiceImportRequest) (*hostv1.CreatePersonalServiceImportResponse, error) {
 	server.mu.Lock()
 	server.createdPersonal = proto.Clone(request).(*hostv1.CreatePersonalServiceImportRequest)
 	server.mu.Unlock()
-	return &servicev1.ServiceImport{ImportId: "personal-import", SourceContainerId: request.GetSourceContainerId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}, nil
+	return &hostv1.CreatePersonalServiceImportResponse{Import: &servicev1.ServiceImport{ImportId: "personal-import", SourceContainerId: request.GetSourceContainerId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}}, nil
 }
 
-func (*fakeRuntime) ListServiceExports(context.Context, *hostv1.ListOwnServiceExportsRequest) (*servicev1.ListServiceExportsResponse, error) {
-	return &servicev1.ListServiceExportsResponse{Exports: []*servicev1.ServiceExport{{ExportId: "export-current", ContainerId: "api", ContainerInstanceId: "api-v1", Port: 8080, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP, Revision: 3}}}, nil
+func (*fakeRuntime) ListServiceExports(context.Context, *hostv1.ListServiceExportsRequest) (*hostv1.ListServiceExportsResponse, error) {
+	return &hostv1.ListServiceExportsResponse{Exports: &servicev1.ListServiceExportsResponse{Exports: []*servicev1.ServiceExport{{ExportId: "export-current", ContainerId: "api", ContainerInstanceId: "api-v1", Port: 8080, Protocol: servicev1.ServiceProtocol_SERVICE_PROTOCOL_HTTP, Revision: 3}}}}, nil
 }
 
 func TestPersonalMeshServiceImportUsesHostOwnedRouteRequest(t *testing.T) {
@@ -106,35 +105,35 @@ func (*fakeRuntime) ListServiceImports(context.Context, *hostv1.ListServiceImpor
 	return &hostv1.ListServiceImportsResponse{Imports: []*servicev1.ServiceImport{{ImportId: "import-current", SourceContainerId: "worker", SourceContainerInstanceId: "worker-v1", DestinationDeviceId: "device-b", DestinationExportId: "export-b", VirtualServiceName: "peer-api", Revision: 5}}}, nil
 }
 
-func (server *fakeRuntime) CreateServiceExport(_ context.Context, request *hostv1.CreateServiceExportRequest) (*servicev1.ServiceExport, error) {
+func (server *fakeRuntime) CreateServiceExport(_ context.Context, request *hostv1.CreateServiceExportRequest) (*hostv1.CreateServiceExportResponse, error) {
 	server.mu.Lock()
 	server.createdExport = proto.Clone(request).(*hostv1.CreateServiceExportRequest)
 	server.mu.Unlock()
-	return &servicev1.ServiceExport{ExportId: "export-new", ContainerId: request.GetContainerId(), ContainerInstanceId: request.GetContainerInstanceId(), Port: request.GetPort(), Protocol: request.GetProtocol(), Revision: 1}, nil
+	return &hostv1.CreateServiceExportResponse{Export: &servicev1.ServiceExport{ExportId: "export-new", ContainerId: request.GetContainerId(), ContainerInstanceId: request.GetContainerInstanceId(), Port: request.GetPort(), Protocol: request.GetProtocol(), Revision: 1}}, nil
 }
 
-func (server *fakeRuntime) CreateServiceImport(_ context.Context, request *hostv1.CreateServiceImportRequest) (*servicev1.ServiceImport, error) {
+func (server *fakeRuntime) CreateServiceImport(_ context.Context, request *hostv1.CreateServiceImportRequest) (*hostv1.CreateServiceImportResponse, error) {
 	server.mu.Lock()
 	server.createdImport = proto.Clone(request).(*hostv1.CreateServiceImportRequest)
 	server.mu.Unlock()
-	return &servicev1.ServiceImport{ImportId: "import-new", SourceContainerId: request.GetSourceContainerId(), SourceContainerInstanceId: request.GetSourceContainerInstanceId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), DestinationPort: request.GetDestinationPort(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}, nil
+	return &hostv1.CreateServiceImportResponse{Import: &servicev1.ServiceImport{ImportId: "import-new", SourceContainerId: request.GetSourceContainerId(), SourceContainerInstanceId: request.GetSourceContainerInstanceId(), DestinationDeviceId: request.GetDestinationDeviceId(), DestinationExportId: request.GetDestinationExportId(), DestinationPort: request.GetDestinationPort(), VirtualServiceName: request.GetVirtualServiceName(), Revision: 1}}, nil
 }
 
-func (server *fakeRuntime) RevokeServiceExport(_ context.Context, request *hostv1.RevokeOwnServiceExportRequest) (*emptypb.Empty, error) {
+func (server *fakeRuntime) RevokeServiceExport(_ context.Context, request *hostv1.RevokeServiceExportRequest) (*hostv1.RevokeServiceExportResponse, error) {
 	server.mu.Lock()
-	server.revokedExport = proto.Clone(request).(*hostv1.RevokeOwnServiceExportRequest)
+	server.revokedExport = proto.Clone(request).(*hostv1.RevokeServiceExportRequest)
 	server.mu.Unlock()
-	return &emptypb.Empty{}, nil
+	return &hostv1.RevokeServiceExportResponse{}, nil
 }
 
-func (server *fakeRuntime) RevokeServiceImport(_ context.Context, request *hostv1.RevokeServiceImportRequest) (*emptypb.Empty, error) {
+func (server *fakeRuntime) RevokeServiceImport(_ context.Context, request *hostv1.RevokeServiceImportRequest) (*hostv1.RevokeServiceImportResponse, error) {
 	server.mu.Lock()
 	server.revokedImport = proto.Clone(request).(*hostv1.RevokeServiceImportRequest)
 	server.mu.Unlock()
-	return &emptypb.Empty{}, nil
+	return &hostv1.RevokeServiceImportResponse{}, nil
 }
 
-func (*fakeRuntime) GetEnvironment(context.Context, *hostv1.GetOwnEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
+func (*fakeRuntime) GetEnvironment(context.Context, *hostv1.GetEnvironmentRequest) (*hostv1.GetEnvironmentResponse, error) {
 	return &hostv1.GetEnvironmentResponse{Environment: &hostv1.AgentEnvironment{Origin: hostv1.EnvironmentOrigin_ENVIRONMENT_ORIGIN_LOCAL, EgressMode: hostv1.EgressMode_EGRESS_MODE_DENY_ALL}}, nil
 }
 
@@ -142,7 +141,7 @@ func (*fakeRuntime) ListContainers(context.Context, *hostv1.ListContainersReques
 	return &hostv1.ListContainersResponse{Containers: []*hostv1.Container{{Id: "z", State: hostv1.ContainerState_CONTAINER_STATE_STOPPED}, {Id: "a", State: hostv1.ContainerState_CONTAINER_STATE_RUNNING, InstanceId: "instance-a"}}}, nil
 }
 
-func (server *fakeRuntime) GetContainer(_ context.Context, request *hostv1.ContainerRequest) (*hostv1.ContainerResponse, error) {
+func (server *fakeRuntime) GetContainer(_ context.Context, request *hostv1.GetContainerRequest) (*hostv1.GetContainerResponse, error) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if server.containerError != nil {
@@ -156,22 +155,22 @@ func (server *fakeRuntime) GetContainer(_ context.Context, request *hostv1.Conta
 	if instance == "" && state == hostv1.ContainerState_CONTAINER_STATE_RUNNING {
 		instance = "instance-" + request.GetContainerId()
 	}
-	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: state, InstanceId: instance, GenerationId: "generation-" + request.GetContainerId()}}, nil
+	return &hostv1.GetContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: state, InstanceId: instance, GenerationId: "generation-" + request.GetContainerId()}}, nil
 }
 
 func (*fakeRuntime) ListImages(context.Context, *hostv1.ListImagesRequest) (*hostv1.ListImagesResponse, error) {
 	return &hostv1.ListImagesResponse{Images: []*hostv1.Image{{Reference: "docker.io/library/test:latest", Digest: "sha256:test", GenerationId: "image-generation", LogicalBytes: 42}}}, nil
 }
 
-func (server *fakeRuntime) DeleteImage(_ context.Context, request *hostv1.DeleteImageRequest) (*emptypb.Empty, error) {
+func (server *fakeRuntime) DeleteImage(_ context.Context, request *hostv1.DeleteImageRequest) (*hostv1.DeleteImageResponse, error) {
 	server.record(request.GetRequestId())
 	server.mu.Lock()
 	server.deletedImage = request
 	server.mu.Unlock()
-	return &emptypb.Empty{}, nil
+	return &hostv1.DeleteImageResponse{}, nil
 }
 
-func (*fakeRuntime) WaitContainer(ctx context.Context, _ *hostv1.ContainerRequest) (*hostv1.WaitContainerResponse, error) {
+func (*fakeRuntime) WaitContainer(ctx context.Context, _ *hostv1.WaitContainerRequest) (*hostv1.WaitContainerResponse, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -186,14 +185,14 @@ func (server *fakeRuntime) PullImage(request *hostv1.PullImageRequest, stream gr
 	digest := "sha256:test"
 	return stream.Send(&hostv1.PullImageResponse{Status: "complete", Digest: &digest, LogicalBytes: 42})
 }
-func (server *fakeRuntime) CreateContainer(_ context.Context, request *hostv1.CreateContainerRequest) (*hostv1.ContainerResponse, error) {
+func (server *fakeRuntime) CreateContainer(_ context.Context, request *hostv1.CreateContainerRequest) (*hostv1.CreateContainerResponse, error) {
 	server.record(request.GetRequestId())
 	server.mu.Lock()
 	server.createdContainers = append(server.createdContainers, proto.Clone(request).(*hostv1.CreateContainerRequest))
 	server.mu.Unlock()
-	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), Image: request.GetImage(), State: hostv1.ContainerState_CONTAINER_STATE_CREATED, GenerationId: "generation-" + request.GetContainerId()}}, nil
+	return &hostv1.CreateContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), Image: request.GetImage(), State: hostv1.ContainerState_CONTAINER_STATE_CREATED, GenerationId: "generation-" + request.GetContainerId()}}, nil
 }
-func (server *fakeRuntime) StartContainer(_ context.Context, request *hostv1.ContainerMutationRequest) (*hostv1.ContainerResponse, error) {
+func (server *fakeRuntime) StartContainer(_ context.Context, request *hostv1.StartContainerRequest) (*hostv1.StartContainerResponse, error) {
 	server.record(request.GetRequestId())
 	// The Host starts only the exact generation that the caller observed.
 	if request.GetExpectedGenerationId() != "generation-"+request.GetContainerId() {
@@ -202,30 +201,30 @@ func (server *fakeRuntime) StartContainer(_ context.Context, request *hostv1.Con
 	if request.GetContainerId() == "partial" {
 		return nil, status.Error(codes.FailedPrecondition, "cannot start")
 	}
-	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: hostv1.ContainerState_CONTAINER_STATE_RUNNING}}, nil
+	return &hostv1.StartContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: hostv1.ContainerState_CONTAINER_STATE_RUNNING}}, nil
 }
-func (server *fakeRuntime) StopContainer(_ context.Context, request *hostv1.StopContainerRequest) (*hostv1.ContainerResponse, error) {
+func (server *fakeRuntime) StopContainer(_ context.Context, request *hostv1.StopContainerRequest) (*hostv1.StopContainerResponse, error) {
 	server.record(request.GetRequestId())
-	return &hostv1.ContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: hostv1.ContainerState_CONTAINER_STATE_STOPPED}}, nil
+	return &hostv1.StopContainerResponse{Container: &hostv1.Container{Id: request.GetContainerId(), State: hostv1.ContainerState_CONTAINER_STATE_STOPPED}}, nil
 }
-func (server *fakeRuntime) SignalContainer(_ context.Context, request *hostv1.SignalContainerRequest) (*emptypb.Empty, error) {
+func (server *fakeRuntime) SignalContainer(_ context.Context, request *hostv1.SignalContainerRequest) (*hostv1.SignalContainerResponse, error) {
 	server.record(request.GetRequestId())
-	return &emptypb.Empty{}, nil
+	return &hostv1.SignalContainerResponse{}, nil
 }
-func (server *fakeRuntime) DeleteContainer(_ context.Context, request *hostv1.ContainerMutationRequest) (*emptypb.Empty, error) {
+func (server *fakeRuntime) DeleteContainer(_ context.Context, request *hostv1.DeleteContainerRequest) (*hostv1.DeleteContainerResponse, error) {
 	server.record(request.GetRequestId())
 	server.mu.Lock()
 	server.deletedGeneration = request.GetExpectedGenerationId()
 	server.mu.Unlock()
-	return &emptypb.Empty{}, nil
+	return &hostv1.DeleteContainerResponse{}, nil
 }
-func (server *fakeRuntime) CreateVolume(_ context.Context, request *hostv1.CreateVolumeRequest) (*hostv1.VolumeResponse, error) {
+func (server *fakeRuntime) CreateVolume(_ context.Context, request *hostv1.CreateVolumeRequest) (*hostv1.CreateVolumeResponse, error) {
 	server.record(request.GetRequestId())
-	return &hostv1.VolumeResponse{Volume: &hostv1.Volume{Id: request.GetVolumeId()}}, nil
+	return &hostv1.CreateVolumeResponse{Volume: &hostv1.Volume{Id: request.GetVolumeId()}}, nil
 }
-func (server *fakeRuntime) DeleteVolume(_ context.Context, request *hostv1.DeleteVolumeRequest) (*emptypb.Empty, error) {
+func (server *fakeRuntime) DeleteVolume(_ context.Context, request *hostv1.DeleteVolumeRequest) (*hostv1.DeleteVolumeResponse, error) {
 	server.record(request.GetRequestId())
-	return &emptypb.Empty{}, nil
+	return &hostv1.DeleteVolumeResponse{}, nil
 }
 func (server *fakeRuntime) Exec(stream grpc.BidiStreamingServer[hostv1.ExecRequest, hostv1.ExecResponse]) error {
 	first, err := stream.Recv()
@@ -506,7 +505,7 @@ func TestInputSchemaRejectsUnknownAndOversizeFields(t *testing.T) {
 
 func TestErrorMappingDoesNotExposeStatusMessage(t *testing.T) {
 	errorValue := mapError(context.DeadlineExceeded)
-	if errorValue.Code != "TIMEOUT" || !errorValue.Retryable || errorValue.Message != "request timed out" {
+	if errorValue.Code != "TIMEOUT" || errorValue.Retryable || errorValue.Message != "request timed out" {
 		t.Fatalf("mapped = %#v", errorValue)
 	}
 }
@@ -522,20 +521,23 @@ func TestErrorMappingIncludesInvalidArgumentFields(t *testing.T) {
 	}
 }
 
-func TestErrorMappingPreservesPIDLimitReason(t *testing.T) {
-	value, err := status.New(codes.ResourceExhausted, "environment process limit was exhausted").WithDetails(&errdetails.ErrorInfo{Reason: "PID_LIMIT_EXCEEDED", Domain: "agent-vmm"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mapped := mapError(value.Err())
-	if mapped.Code != "PID_LIMIT_EXCEEDED" || mapped.Message != "environment process limit was exhausted" {
-		t.Fatalf("mapped = %#v", mapped)
+func TestErrorMappingPreservesCatalogReasons(t *testing.T) {
+	for name, number := range hostv1.ErrorReason_value {
+		if number == 0 {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			mapped := mapError(hostv1.NewError(codes.Aborted, hostv1.ErrorReason(number), "changed"))
+			if mapped.Code != strings.TrimPrefix(name, "ERROR_REASON_") || mapped.Message != "changed" || mapped.Retryable {
+				t.Fatalf("mapped = %#v", mapped)
+			}
+		})
 	}
 }
 
 func TestErrorMappingNamesBareInternalFailures(t *testing.T) {
 	mapped := mapError(status.Error(codes.Internal, "sqlite failure"))
-	if mapped.Code != "RUNTIME_OPERATION_FAILED" || mapped.Message != "runtime operation failed" {
+	if mapped.Code != "INTERNAL" || mapped.Message != "runtime operation failed" {
 		t.Fatalf("mapped = %#v", mapped)
 	}
 	value, err := status.New(codes.Internal, "service import could not be recorded").WithDetails(&errdetails.ErrorInfo{Reason: "SERVICE_IMPORT_PERSIST_FAILED", Domain: "agent-vmm"})
@@ -543,11 +545,11 @@ func TestErrorMappingNamesBareInternalFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	mapped = mapError(value.Err())
-	if mapped.Code != "SERVICE_IMPORT_PERSIST_FAILED" || mapped.Message != "service import could not be recorded" {
+	if mapped.Code != "INTERNAL" || mapped.Message != "runtime operation failed" {
 		t.Fatalf("structured mapped = %#v", mapped)
 	}
 	mapped = mapError(errors.New("untyped host failure"))
-	if mapped.Code != "RUNTIME_OPERATION_FAILED" || mapped.Message != "runtime operation failed" {
+	if mapped.Code != "INTERNAL" || mapped.Message != "runtime operation failed" {
 		t.Fatalf("unknown mapped = %#v", mapped)
 	}
 }
@@ -714,14 +716,7 @@ func TestMapErrorPreservesImageDeletionConflicts(t *testing.T) {
 }
 
 func TestMapErrorPreservesRetryableRegistryRateLimit(t *testing.T) {
-	value, err := status.New(codes.ResourceExhausted, "image registry rate limit was reached").WithDetails(
-		&errdetails.ErrorInfo{Reason: "IMAGE_REGISTRY_RATE_LIMITED", Domain: "agent-vmm"},
-		&errdetails.ResourceInfo{ResourceType: "image", ResourceName: "docker.io/pgvector/pgvector:pg16"},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mapped := mapError(value.Err())
+	mapped := mapError(hostv1.NewError(codes.ResourceExhausted, hostv1.ErrorReason_ERROR_REASON_IMAGE_REGISTRY_RATE_LIMITED, "image registry rate limit was reached", hostv1.WithRetry(time.Second), hostv1.WithResource("image", "docker.io/pgvector/pgvector:pg16")))
 	if mapped.Code != "IMAGE_REGISTRY_RATE_LIMITED" || mapped.Message != "image registry rate limit was reached" || !mapped.Retryable {
 		t.Fatalf("mapped error = %+v", mapped)
 	}

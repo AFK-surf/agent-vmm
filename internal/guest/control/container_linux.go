@@ -15,7 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/errdefs"
@@ -63,8 +64,15 @@ func (r *Runtime) stopContainer(ctx context.Context, namespaceID, containerID st
 	if err := validateID("container_id", containerID); err != nil {
 		return nil, err
 	}
-	unlock := r.lockNamespace(namespaceID)
-	defer unlock()
+	unlock, err := r.lockContainer(ctx, namespaceID, containerID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
 	nsctx, container, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
 	if err != nil {
 		return nil, err
@@ -81,59 +89,43 @@ func (r *Runtime) stopContainer(ctx context.Context, namespaceID, containerID st
 	if current.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
 		return current, nil
 	}
+	instanceID := current.GetInstanceId()
 	task, err := container.Task(nsctx, nil)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
-			// The monitor may have reaped the task between inspect and stop.
-			// Re-read the durable container record before exposing a transient
-			// containerd NOT_FOUND to callers.
-			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-				return latest, nil
-			}
-		}
 		return nil, err
 	}
 	mainProcess, err := task.LoadProcess(nsctx, mainProcessID, nil)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
-			if latest, inspectErr := r.inspectContainer(nsctx, namespaceID, container); inspectErr == nil && latest.GetState() != vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
-				return latest, nil
-			}
-		}
 		return nil, err
 	}
-	mainExit, err := mainProcess.Wait(runtimeContext(context.Background()))
-	if err != nil {
-		return nil, err
-	}
-	key := namespaceID + "/" + containerID
+	key := namespaceID + "/" + containerID + "/" + instanceID
 	wait := r.addWaiter(key)
 	defer r.removeWaiter(key, wait)
-	labels, err := container.Labels(nsctx)
-	if err != nil {
-		return nil, err
-	}
-	if labels[containerStateLabel] == "stopped" {
-		return r.inspectContainer(nsctx, namespaceID, container)
-	}
 	if err := mainProcess.Kill(nsctx, syscall.SIGTERM); err != nil {
 		return nil, err
 	}
+	unlock()
+	unlock = nil
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-mainExit:
-	case <-timer.C:
-		if err := mainProcess.Kill(nsctx, syscall.SIGKILL); err != nil && !errdefs.IsNotFound(err) {
-			return nil, err
-		}
-		select {
-		case <-mainExit:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	case <-wait:
+		return r.inspectContainer(nsctx, namespaceID, container)
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-timer.C:
+	}
+	killUnlock, err := r.lockContainer(ctx, namespaceID, containerID)
+	if err != nil {
+		return nil, err
+	}
+	labels, err := container.Labels(nsctx)
+	if err == nil && labels[containerInstanceLabel] == instanceID {
+		err = mainProcess.Kill(nsctx, syscall.SIGKILL)
+	}
+	killUnlock()
+	if err != nil && !errdefs.IsNotFound(err) {
+		return nil, err
 	}
 	select {
 	case <-wait:
@@ -148,21 +140,27 @@ func (r *Runtime) WaitContainer(ctx context.Context, namespaceID, containerID st
 }
 
 func (r *Runtime) waitContainerForRole(ctx context.Context, namespaceID, containerID string, system bool) (uint32, error) {
-	key := namespaceID + "/" + containerID
-	_, container, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
+	unlock, err := r.lockContainer(ctx, namespaceID, containerID)
 	if err != nil {
 		return 0, err
 	}
+	_, _, current, err := r.loadContainerForRole(ctx, namespaceID, containerID, system)
+	if err != nil {
+		unlock()
+		return 0, err
+	}
 	if current.GetState() == vmmdv1.ContainerState_CONTAINER_STATE_STOPPED && current.ExitCode != nil {
+		unlock()
 		return current.GetExitCode(), nil
 	}
-	channel := r.addWaiter(key)
-	defer r.removeWaiter(key, channel)
-	labels, err := container.Labels(runtimeContext(ctx))
-	if err == nil && labels[containerStateLabel] == "stopped" {
-		code, _ := strconv.ParseUint(labels[containerExitLabel], 10, 32)
-		return uint32(code), nil
+	if current.GetInstanceId() == "" {
+		unlock()
+		return 0, hostv1.NewError(codes.FailedPrecondition, hostv1.ErrorReason_ERROR_REASON_CONTAINER_NOT_RUNNING, "container has no running instance", hostv1.WithResource("container", containerID))
 	}
+	key := namespaceID + "/" + containerID + "/" + current.GetInstanceId()
+	channel := r.addWaiter(key)
+	unlock()
+	defer r.removeWaiter(key, channel)
 	select {
 	case code := <-channel:
 		return code, nil

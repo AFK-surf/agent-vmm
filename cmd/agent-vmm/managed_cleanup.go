@@ -126,22 +126,25 @@ func cleanupRejection(action string, err error) error {
 	}
 	reason := "UNKNOWN"
 	guidance := ""
-	if info := cleanupErrorInfo(err); info != nil {
-		switch info.GetReason() {
-		case "AGENT_ACCESS_ACTIVE":
-			reason = info.GetReason()
+	if value, ok := hostv1.ErrorReasonOf(err); ok {
+		reason = strings.TrimPrefix(value.String(), "ERROR_REASON_")
+		if value == hostv1.ErrorReason_ERROR_REASON_AGENT_ACCESS_ACTIVE {
 			guidance = "; complete removal of the exact agent integration before environment discard"
-		case "REMOTE_ALLOCATION_ACTIVE", "REMOTE_ALLOCATION_CONTROLLER_OWNED", "ENVIRONMENT_NOT_FOUND", "CLEANUP_INVENTORY_LIMIT", "CLEANUP_PLAN_STALE", "CLEANUP_ADMISSION_CANCELED", "CLEANUP_ADMISSION_OUTCOME_UNKNOWN", "CLEANUP_ADMISSION_TIMEOUT", "CLEANUP_FAILED", "CLEANUP_TERMINAL_PERSIST_FAILED", "CLEANUP_TERMINAL_RESULT_UNKNOWN", "REQUEST_ID_REUSED", "VOLUME_CONFIRMATION_REQUIRED":
-			reason = info.GetReason()
 		}
 	}
+
 	return fmt.Errorf("Host cleanup %s rejected: rpc_code=%s reason=%s%s", action, code.String(), reason, guidance)
 }
 
 func cleanupErrorInfo(err error) *errdetails.ErrorInfo {
-	for _, detail := range status.Convert(err).Details() {
-		info, ok := detail.(*errdetails.ErrorInfo)
-		if ok {
+	reason, ok := hostv1.ErrorReasonOf(err)
+	if !ok {
+		return nil
+	}
+	expected := strings.TrimPrefix(reason.String(), "ERROR_REASON_")
+	details := status.Convert(err).Details()
+	for index := len(details) - 1; index >= 0; index-- {
+		if info, ok := details[index].(*errdetails.ErrorInfo); ok && info.GetDomain() == hostv1.ErrorDomain && info.GetReason() == expected {
 			return info
 		}
 	}
@@ -163,24 +166,22 @@ func managedCleanupImpacts(impacts []*hostv1.CleanupImpact) []map[string]any {
 }
 
 func planManagedCleanup(ctx context.Context, socket, environmentID string, kind hostv1.CleanupKind) (*hostv1.CleanupPlan, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}
 	defer connection.Close()
 	client := hostv1.NewOperatorServiceClient(connection)
-	request := &hostv1.PlanEnvironmentRequest{EnvironmentId: environmentID}
-	var response *hostv1.CleanupPlanResponse
 	if kind == hostv1.CleanupKind_CLEANUP_KIND_RESET {
-		response, err = client.PlanResetEnvironment(ctx, request)
-	} else {
-		response, err = client.PlanDiscardEnvironment(ctx, request)
+		response, err := client.PlanResetEnvironment(ctx, &hostv1.PlanResetEnvironmentRequest{EnvironmentId: environmentID})
+		return response.GetPlan(), err
 	}
+	response, err := client.PlanDiscardEnvironment(ctx, &hostv1.PlanDiscardEnvironmentRequest{EnvironmentId: environmentID})
 	return response.GetPlan(), err
 }
 
 func executeManagedCleanup(ctx context.Context, socket, requestID string, plan *hostv1.CleanupPlan, confirmedVolumes []string) (*hostv1.Operation, error) {
-	connection, err := managedOperatorConnection(ctx, socket)
+	connection, err := managedOperatorConnection(socket)
 	if err != nil {
 		return nil, err
 	}

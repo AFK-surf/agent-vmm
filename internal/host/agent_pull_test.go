@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AFK-surf/agent-vmm/internal/host/guestconn"
 	"github.com/AFK-surf/agent-vmm/internal/registryarchive"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
@@ -89,7 +90,7 @@ func TestRegistryPullFailuresMapToImageReasons(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			_, err := registryarchive.Export(ctx, test.reference, t.TempDir(), maxImportArchiveBytes, test.transport)
+			_, err := registryarchive.Export(ctx, test.reference, t.TempDir(), guestconn.MaxImportArchiveBytes, test.transport)
 			if err == nil {
 				t.Fatal("export succeeded")
 			}

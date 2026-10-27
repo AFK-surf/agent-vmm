@@ -138,10 +138,8 @@ type EnvironmentData struct {
 }
 
 type LimitsData struct {
-	CPUMillis  uint32 `json:"cpu_millis,omitempty"`
-	MemoryByte uint64 `json:"memory_bytes,omitempty"`
-	PIDs       uint32 `json:"pids,omitempty"`
-	DiskBytes  uint64 `json:"disk_bytes,omitempty"`
+	PIDs      uint32 `json:"pids,omitempty"`
+	DiskBytes uint64 `json:"disk_bytes,omitempty"`
 }
 
 type UsageData struct {

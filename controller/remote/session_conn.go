@@ -12,8 +12,8 @@ import (
 )
 
 type SessionStream interface {
-	Send(*remotev1.ControllerSessionFrame) error
-	Recv() (*remotev1.HostSessionFrame, error)
+	Send(*remotev1.ServeSessionResponse) error
+	Recv() (*remotev1.ServeSessionRequest, error)
 	Context() context.Context
 }
 
@@ -67,7 +67,7 @@ func (connection *sessionConn) Write(value []byte) (int, error) {
 	total := len(value)
 	for len(value) != 0 {
 		count := min(len(value), 32<<10)
-		if err := connection.stream.Send(&remotev1.ControllerSessionFrame{Payload: &remotev1.ControllerSessionFrame_Data{Data: append([]byte(nil), value[:count]...)}}); err != nil {
+		if err := connection.stream.Send(&remotev1.ServeSessionResponse{Payload: &remotev1.ServeSessionResponse_Data{Data: append([]byte(nil), value[:count]...)}}); err != nil {
 			return total - len(value), err
 		}
 		value = value[count:]
@@ -78,7 +78,7 @@ func (connection *sessionConn) Write(value []byte) (int, error) {
 func (connection *sessionConn) Close() error {
 	connection.once.Do(func() {
 		connection.writeMu.Lock()
-		_ = connection.stream.Send(&remotev1.ControllerSessionFrame{Payload: &remotev1.ControllerSessionFrame_CloseWrite{CloseWrite: true}})
+		_ = connection.stream.Send(&remotev1.ServeSessionResponse{Payload: &remotev1.ServeSessionResponse_CloseWrite{CloseWrite: true}})
 		connection.writeMu.Unlock()
 		close(connection.closed)
 	})

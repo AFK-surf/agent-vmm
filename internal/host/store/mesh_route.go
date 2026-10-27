@@ -9,20 +9,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (store *Store) GetPersonalRouteIssuance(ctx context.Context, request *servicev1.PersonalRouteRequest) (*servicev1.PersonalRouteResponse, error) {
+func (store *Store) GetPersonalRouteIssuance(ctx context.Context, request *servicev1.RequestPersonalRouteRequest) (*servicev1.RequestPersonalRouteResponse, error) {
 	var payload []byte
 	if err := store.db.QueryRowContext(ctx, `SELECT response FROM personal_route_issuances WHERE request_id=? AND mesh_id=? AND source_device_id=? AND destination_export_id=? AND expires_at>?`,
 		request.GetRequestId(), request.GetMeshId(), request.GetSourceDeviceId(), request.GetDestinationExportId(), time.Now().UnixNano()).Scan(&payload); err != nil {
 		return nil, err
 	}
-	response := new(servicev1.PersonalRouteResponse)
+	response := new(servicev1.RequestPersonalRouteResponse)
 	if err := proto.Unmarshal(payload, response); err != nil {
 		return nil, err
 	}
 	return response, nil
 }
 
-func (store *Store) PutPersonalRouteIssuance(ctx context.Context, request *servicev1.PersonalRouteRequest, response *servicev1.PersonalRouteResponse) error {
+func (store *Store) PutPersonalRouteIssuance(ctx context.Context, request *servicev1.RequestPersonalRouteRequest, response *servicev1.RequestPersonalRouteResponse) error {
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(response)
 	if err != nil {
 		return err

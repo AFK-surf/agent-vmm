@@ -3,11 +3,12 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
+
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
 )
 
 func (store *Store) GetServiceRoute(ctx context.Context, routeID, leaseID string, generation uint64) (ServiceRouteRecord, error) {

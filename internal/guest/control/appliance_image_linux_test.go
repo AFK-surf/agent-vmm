@@ -6,12 +6,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
+	"testing"
+	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
-	"github.com/AFK-surf/agent-vmm/internal/ocimaterializer"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	tasksapi "github.com/containerd/containerd/api/services/tasks/v1"
@@ -21,16 +24,13 @@ import (
 	"github.com/containerd/typeurl/v2"
 	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
-
-	"strings"
-	"testing"
-	"time"
 )
 
 func TestBundledSystemImageClassification(t *testing.T) {
@@ -93,7 +93,7 @@ func TestSystemImagePruningUsesNamespaceRetentionAndRetriesFailures(t *testing.T
 		t.Fatal(err)
 	}
 	client := systemImageClient(t, fixture)
-	runtime := &Runtime{client: client, inventory: index}
+	runtime := &Runtime{client: client, inventory: index, logger: slog.Default().With("component", "guest-control")}
 	if err := runtime.pruneSystemImages(ctx, "system.a", "current", ""); err == nil {
 		t.Fatal("delete failure was ignored")
 	}
@@ -291,8 +291,9 @@ func TestPermanentSystemImageReleasePreservesOtherNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	index.addRuntimeImage(ownPhysical)
-	runtime := &Runtime{client: systemImageClient(t, fixture), inventory: index, materializer: new(ocimaterializer.Manager)}
-	unlockMaterializer, ok := runtime.materializer.TryLockBuild()
+	runtime := &Runtime{client: systemImageClient(t, fixture), inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
+	ok := runtime.materializationSlot.TryAcquire(1)
+	unlockMaterializer := func() { runtime.materializationSlot.Release(1) }
 	if !ok {
 		t.Fatal("materializer stayed occupied after failure")
 	}
@@ -359,7 +360,7 @@ func TestSystemRetentionSurvivesStoppedActiveAndProjectionReordering(t *testing.
 	}
 	facts := &operationNamespaces{labels: map[string]map[string]string{namespace: {}}}
 	client := systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(facts)))
-	runtime := &Runtime{client: client, inventory: index, materializer: new(ocimaterializer.Manager)}
+	runtime := &Runtime{client: client, inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	active := fixture.images[namespace]["active"].Target.Digest
 	pending := fixture.images[namespace]["pending"].Target.Digest
 	projection := &vmmdv1.SystemImageRetention{InstallationRevision: 2, ManifestDigests: []string{active, pending}}
@@ -372,7 +373,7 @@ func TestSystemRetentionSurvivesStoppedActiveAndProjectionReordering(t *testing.
 	if fixture.images[namespace]["active"] == nil || fixture.images[namespace]["pending"] == nil || fixture.images[namespace]["obsolete"] != nil {
 		t.Fatal("stopped active or pending retention lost")
 	}
-	runtime = &Runtime{client: client, inventory: index, materializer: new(ocimaterializer.Manager)}
+	runtime = &Runtime{client: client, inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	if err := runtime.projectSystemImageRetention(ctx, namespace, &vmmdv1.SystemImageRetention{InstallationRevision: 1, ManifestDigests: []string{active}}); status.Code(err) != codes.Aborted {
 		t.Fatalf("old projection=%v", err)
 	}
@@ -413,14 +414,18 @@ func TestSystemRetentionRetriesFailedPruneWithOriginalRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := systemImageClient(t, fixture)
-	server := &Server{runtime: &Runtime{client: client, inventory: index, materializer: new(ocimaterializer.Manager)}}
-	unlock, err := server.runtime.materializer.LockBuild(ctx)
+	server := &Server{runtime: &Runtime{client: client, inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}}
+	err := server.runtime.materializationSlot.Acquire(ctx, 1)
+	unlock := func() { server.runtime.materializationSlot.Release(1) }
 	if err != nil {
 		t.Fatal(err)
 	}
 	deadline, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	unlockNamespace := server.runtime.lockNamespace(namespace)
+	unlockNamespace, lockErr := server.runtime.lockNamespace(ctx, namespace)
+	if lockErr != nil {
+		t.Fatal(lockErr)
+	}
 	busy := &vmmdv1.ReconcileSystemImagesRequest{RequestId: "namespace-busy", InstallationId: "prune-retry", Retention: &vmmdv1.SystemImageRetention{InstallationRevision: 1, ManifestDigests: []string{target}}}
 	if _, err := server.ReconcileSystemImages(deadline, busy); status.Code(err) != codes.Unavailable {
 		t.Fatalf("busy namespace projection: %v", err)

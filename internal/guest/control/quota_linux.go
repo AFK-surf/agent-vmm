@@ -4,14 +4,14 @@ package control
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"runtime"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestquota "github.com/AFK-surf/agent-vmm/internal/guest/quota"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -35,8 +35,8 @@ func projectUsage(device string, projectID uint32) (uint64, error) {
 }
 
 func applyNamespaceCgroup(namespaceID string, limits *vmmdv1.NamespaceLimits) error {
-	return applyResourceCgroup(namespaceID, resourcev2.Contract{CPUMaxMillis: uint64(limits.GetCpuMillis()),
-		MemoryMaxBytes: limits.GetMemoryBytes(), PIDMax: uint64(limits.GetPids())})
+	return applyResourceCgroup(namespaceID, resourcev2.Contract{
+		PIDMax: uint64(limits.GetPids())})
 }
 
 func applyResourceCgroup(namespaceID string, contract resourcev2.Contract) error {

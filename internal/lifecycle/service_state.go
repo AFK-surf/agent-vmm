@@ -3,14 +3,13 @@
 package lifecycle
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/AFK-surf/agent-vmm/internal/atomicfile"
 	"golang.org/x/sys/unix"
 )
 
@@ -261,43 +260,11 @@ func requireRegularStateFile(file *os.File) error {
 }
 
 func atomicWriteStateFileAt(directory *os.File, name string, data []byte, mode os.FileMode, owner *operationFileOwner) error {
-	var temporaryName string
-	var temporary *os.File
-	for attempt := 0; attempt < 16; attempt++ {
-		var suffix [8]byte
-		if _, err := rand.Read(suffix[:]); err != nil {
-			return err
-		}
-		temporaryName = ".agent-vmm-" + hex.EncodeToString(suffix[:])
-		file, err := openStateFileAt(directory, temporaryName, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL, mode, owner)
-		if errors.Is(err, unix.EEXIST) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		temporary = file
-		break
+	uid, gid := -1, -1
+	if owner != nil {
+		uid, gid = owner.uid, owner.gid
 	}
-	if temporary == nil {
-		return errors.New("create lifecycle state temporary file: name space exhausted")
-	}
-	defer unix.Unlinkat(int(directory.Fd()), temporaryName, 0)
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := unix.Renameat(int(directory.Fd()), temporaryName, int(directory.Fd()), name); err != nil {
-		return err
-	}
-	return directory.Sync()
+	return atomicfile.ReplaceFileAt(directory, name, data, mode, uid, gid)
 }
 
 func handoffExistingStateFileAt(directory *os.File, name string, owner *operationFileOwner) error {
@@ -312,26 +279,6 @@ func handoffExistingStateFileAt(directory *os.File, name string, owner *operatio
 		return err
 	}
 	return file.Close()
-}
-
-func regularStateFileExistsAt(directory *os.File, name string) (bool, error) {
-	fd, err := unix.Openat(int(directory.Fd()), name, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if errors.Is(err, unix.ENOENT) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	file := os.NewFile(uintptr(fd), name)
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return false, err
-	}
-	if !info.Mode().IsRegular() {
-		return false, errors.New("lifecycle state is not a regular file")
-	}
-	return true, nil
 }
 
 func readStateFileNoFollow(path string, limit int64) ([]byte, error) {

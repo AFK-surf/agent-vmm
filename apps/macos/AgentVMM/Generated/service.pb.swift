@@ -207,6 +207,8 @@ public nonisolated enum Agentvmm_Service_V1_ServiceProtocol: SwiftProtobuf.Enum,
 
 }
 
+/// ServiceExport authorizes one owned container ID and port while tracking its current instance
+/// projection.
 public nonisolated struct Agentvmm_Service_V1_ServiceExport: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -246,6 +248,8 @@ public nonisolated struct Agentvmm_Service_V1_ServiceExport: Sendable {
   fileprivate var _createdAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
+/// ApplianceFrontendDestination selects a manifest-declared frontend on one installation rather
+/// than a raw endpoint.
 public nonisolated struct Agentvmm_Service_V1_ApplianceFrontendDestination: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -260,6 +264,8 @@ public nonisolated struct Agentvmm_Service_V1_ApplianceFrontendDestination: Send
   public init() {}
 }
 
+/// ServiceImport records a current source container's approved connection to one destination
+/// export.
 public nonisolated struct Agentvmm_Service_V1_ServiceImport: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -305,6 +311,8 @@ public nonisolated struct Agentvmm_Service_V1_ServiceImport: Sendable {
   fileprivate var _destinationFrontend: Agentvmm_Service_V1_ApplianceFrontendDestination? = nil
 }
 
+/// AccessRoute records the authorized route state and generation independently of its live
+/// transport.
 public nonisolated struct Agentvmm_Service_V1_AccessRoute: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -420,6 +428,7 @@ public nonisolated struct Agentvmm_Service_V1_AccessRoute: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// RouteLease bounds one route use under its current revision, expiry, and budgets.
 public nonisolated struct Agentvmm_Service_V1_RouteLease: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -459,56 +468,8 @@ public nonisolated struct Agentvmm_Service_V1_RouteLease: Sendable {
   fileprivate var _capability: Agentvmm_Trust_V1_RouteCapability? = nil
 }
 
-public nonisolated struct Agentvmm_Service_V1_ListServiceExportsRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var environmentID: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentvmm_Service_V1_ListServiceExportsResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var exports: [Agentvmm_Service_V1_ServiceExport] = []
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentvmm_Service_V1_GetServiceExportRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var exportID: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentvmm_Service_V1_RevokeServiceExportRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var exportID: String = String()
-
-  public var expectedRevision: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
+/// OpenServiceForwardHeader binds the first transport frame to exact route, lease, source,
+/// destination, and capability facts.
 public nonisolated struct Agentvmm_Service_V1_OpenServiceForwardHeader: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -540,6 +501,8 @@ public nonisolated struct Agentvmm_Service_V1_OpenServiceForwardHeader: Sendable
   fileprivate var _capability: Agentvmm_Trust_V1_RouteCapability? = nil
 }
 
+/// OpenServiceForwardRequest carries inputs for an operation that verifies current route, lease,
+/// generation, instances, and budgets before forwarding bytes.
 public nonisolated struct Agentvmm_Service_V1_OpenServiceForwardRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -583,6 +546,8 @@ public nonisolated struct Agentvmm_Service_V1_OpenServiceForwardRequest: Sendabl
   public init() {}
 }
 
+/// OpenServiceForwardResponse carries results from an operation that verifies current route,
+/// lease, generation, instances, and budgets before forwarding bytes.
 public nonisolated struct Agentvmm_Service_V1_OpenServiceForwardResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -617,7 +582,42 @@ public nonisolated struct Agentvmm_Service_V1_OpenServiceForwardResponse: Sendab
   public init() {}
 }
 
-public nonisolated struct Agentvmm_Service_V1_PersonalRouteRequest: @unchecked Sendable {
+/// RequestPersonalRouteResponse carries results from an operation that asks the destination to
+/// verify active source membership and sign a bounded personal capability.
+public nonisolated struct Agentvmm_Service_V1_RequestPersonalRouteResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var capability: Agentvmm_Trust_V1_RouteCapability {
+    get {_capability ?? Agentvmm_Trust_V1_RouteCapability()}
+    set {_capability = newValue}
+  }
+  /// Returns true if `capability` has been explicitly set.
+  public var hasCapability: Bool {self._capability != nil}
+  /// Clears the value of `capability`. Subsequent reads from it will return its default value.
+  public mutating func clearCapability() {self._capability = nil}
+
+  public var destinationExport: Agentvmm_Service_V1_ServiceExport {
+    get {_destinationExport ?? Agentvmm_Service_V1_ServiceExport()}
+    set {_destinationExport = newValue}
+  }
+  /// Returns true if `destinationExport` has been explicitly set.
+  public var hasDestinationExport: Bool {self._destinationExport != nil}
+  /// Clears the value of `destinationExport`. Subsequent reads from it will return its default value.
+  public mutating func clearDestinationExport() {self._destinationExport = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _capability: Agentvmm_Trust_V1_RouteCapability? = nil
+  fileprivate var _destinationExport: Agentvmm_Service_V1_ServiceExport? = nil
+}
+
+/// RequestPersonalRouteRequest carries inputs for an operation that asks the destination to
+/// verify active source membership and sign a bounded personal capability.
+public nonisolated struct Agentvmm_Service_V1_RequestPersonalRouteRequest: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -707,35 +707,17 @@ public nonisolated struct Agentvmm_Service_V1_PersonalRouteRequest: @unchecked S
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-public nonisolated struct Agentvmm_Service_V1_PersonalRouteResponse: Sendable {
+/// ListServiceExportsResponse returns the exports visible to the environment owner.
+public nonisolated struct Agentvmm_Service_V1_ListServiceExportsResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var capability: Agentvmm_Trust_V1_RouteCapability {
-    get {_capability ?? Agentvmm_Trust_V1_RouteCapability()}
-    set {_capability = newValue}
-  }
-  /// Returns true if `capability` has been explicitly set.
-  public var hasCapability: Bool {self._capability != nil}
-  /// Clears the value of `capability`. Subsequent reads from it will return its default value.
-  public mutating func clearCapability() {self._capability = nil}
-
-  public var destinationExport: Agentvmm_Service_V1_ServiceExport {
-    get {_destinationExport ?? Agentvmm_Service_V1_ServiceExport()}
-    set {_destinationExport = newValue}
-  }
-  /// Returns true if `destinationExport` has been explicitly set.
-  public var hasDestinationExport: Bool {self._destinationExport != nil}
-  /// Clears the value of `destinationExport`. Subsequent reads from it will return its default value.
-  public mutating func clearDestinationExport() {self._destinationExport = nil}
+  public var exports: [Agentvmm_Service_V1_ServiceExport] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
-
-  fileprivate var _capability: Agentvmm_Trust_V1_RouteCapability? = nil
-  fileprivate var _destinationExport: Agentvmm_Service_V1_ServiceExport? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -1221,131 +1203,6 @@ nonisolated extension Agentvmm_Service_V1_RouteLease: SwiftProtobuf.Message, Swi
   }
 }
 
-nonisolated extension Agentvmm_Service_V1_ListServiceExportsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ListServiceExportsRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}environment_id\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.environmentID) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.environmentID.isEmpty {
-      try visitor.visitSingularStringField(value: self.environmentID, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Service_V1_ListServiceExportsRequest, rhs: Agentvmm_Service_V1_ListServiceExportsRequest) -> Bool {
-    if lhs.environmentID != rhs.environmentID {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Service_V1_ListServiceExportsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ListServiceExportsResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}exports\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.exports) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.exports.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.exports, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Service_V1_ListServiceExportsResponse, rhs: Agentvmm_Service_V1_ListServiceExportsResponse) -> Bool {
-    if lhs.exports != rhs.exports {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Service_V1_GetServiceExportRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GetServiceExportRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}export_id\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.exportID) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.exportID.isEmpty {
-      try visitor.visitSingularStringField(value: self.exportID, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Service_V1_GetServiceExportRequest, rhs: Agentvmm_Service_V1_GetServiceExportRequest) -> Bool {
-    if lhs.exportID != rhs.exportID {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Service_V1_RevokeServiceExportRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".RevokeServiceExportRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}export_id\0\u{3}expected_revision\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.exportID) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.expectedRevision) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.exportID.isEmpty {
-      try visitor.visitSingularStringField(value: self.exportID, fieldNumber: 1)
-    }
-    if self.expectedRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.expectedRevision, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Service_V1_RevokeServiceExportRequest, rhs: Agentvmm_Service_V1_RevokeServiceExportRequest) -> Bool {
-    if lhs.exportID != rhs.exportID {return false}
-    if lhs.expectedRevision != rhs.expectedRevision {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentvmm_Service_V1_OpenServiceForwardHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".OpenServiceForwardHeader"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}route_id\0\u{3}lease_id\0\u{3}route_generation\0\u{3}source_environment_id\0\u{3}source_container_instance_id\0\u{1}capability\0")
@@ -1536,8 +1393,47 @@ nonisolated extension Agentvmm_Service_V1_OpenServiceForwardResponse: SwiftProto
   }
 }
 
-nonisolated extension Agentvmm_Service_V1_PersonalRouteRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".PersonalRouteRequest"
+nonisolated extension Agentvmm_Service_V1_RequestPersonalRouteResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RequestPersonalRouteResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}capability\0\u{3}destination_export\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._capability) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._destinationExport) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._capability {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._destinationExport {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Service_V1_RequestPersonalRouteResponse, rhs: Agentvmm_Service_V1_RequestPersonalRouteResponse) -> Bool {
+    if lhs._capability != rhs._capability {return false}
+    if lhs._destinationExport != rhs._destinationExport {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Service_V1_RequestPersonalRouteRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RequestPersonalRouteRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}mesh_id\0\u{3}source_device_id\0\u{3}source_root_key_revision\0\u{3}source_environment_id\0\u{3}source_container_instance_id\0\u{3}destination_export_id\0\u{3}route_generation\0\u{3}policy_epoch\0\u{1}budget\0\u{3}expires_at\0\u{1}nonce\0\u{3}source_signature\0\u{3}route_class\0")
 
   fileprivate class _StorageClass {
@@ -1669,7 +1565,7 @@ nonisolated extension Agentvmm_Service_V1_PersonalRouteRequest: SwiftProtobuf.Me
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentvmm_Service_V1_PersonalRouteRequest, rhs: Agentvmm_Service_V1_PersonalRouteRequest) -> Bool {
+  public static func ==(lhs: Agentvmm_Service_V1_RequestPersonalRouteRequest, rhs: Agentvmm_Service_V1_RequestPersonalRouteRequest) -> Bool {
     if lhs._storage !== rhs._storage {
       let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
@@ -1697,9 +1593,9 @@ nonisolated extension Agentvmm_Service_V1_PersonalRouteRequest: SwiftProtobuf.Me
   }
 }
 
-nonisolated extension Agentvmm_Service_V1_PersonalRouteResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".PersonalRouteResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}capability\0\u{3}destination_export\0")
+nonisolated extension Agentvmm_Service_V1_ListServiceExportsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListServiceExportsResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}exports\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1707,30 +1603,21 @@ nonisolated extension Agentvmm_Service_V1_PersonalRouteResponse: SwiftProtobuf.M
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._capability) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._destinationExport) }()
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.exports) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._capability {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._destinationExport {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
+    if !self.exports.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.exports, fieldNumber: 1)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentvmm_Service_V1_PersonalRouteResponse, rhs: Agentvmm_Service_V1_PersonalRouteResponse) -> Bool {
-    if lhs._capability != rhs._capability {return false}
-    if lhs._destinationExport != rhs._destinationExport {return false}
+  public static func ==(lhs: Agentvmm_Service_V1_ListServiceExportsResponse, rhs: Agentvmm_Service_V1_ListServiceExportsResponse) -> Bool {
+    if lhs.exports != rhs.exports {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

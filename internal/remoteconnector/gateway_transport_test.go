@@ -3,6 +3,7 @@ package remoteconnector
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -249,14 +250,14 @@ func TestGatewayExplicitProxyPolicy(t *testing.T) {
 	t.Setenv("https_proxy", "")
 	t.Setenv("NO_PROXY", "")
 	t.Setenv("no_proxy", "")
-	config := Config{Endpoint: "gateway.test:7443", EndpointIdentity: "gateway.test"}
+	config := Config{Transport: ExternalTransport{Endpoint: "gateway.test:7443"}}
 	target, _ := gatewayDialOptions(config)
-	if target != config.Endpoint {
+	if target != config.external().Endpoint {
 		t.Fatal("explicit proxy bypassed")
 	}
 	t.Setenv("NO_PROXY", "gateway.test")
 	target, _ = gatewayDialOptions(config)
-	if target != "passthrough:///"+config.Endpoint {
+	if target != "passthrough:///"+config.external().Endpoint {
 		t.Fatal("NO_PROXY did not select direct route")
 	}
 }
@@ -321,9 +322,13 @@ func TestGatewayConfiguredEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots, err := LoadTLSRoots(caPath)
+	pemBytes, err := os.ReadFile(caPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pemBytes) {
+		t.Fatal("invalid gateway CA")
 	}
 	transport := newGatewayTransport(credentials.NewTLS(&tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS13}))
 	routes := transport.routes

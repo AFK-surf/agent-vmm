@@ -92,8 +92,8 @@ func (q *testQueue) descriptor(index uint16, addr uint64, size uint32, flags, ne
 		q.t.Fatal(err)
 	}
 }
-func (q *testQueue) submit(head uint16) {
-	put16(q.mem, q.avail+4+uint64(q.available%8)*2, head)
+func (q *testQueue) submit() {
+	put16(q.mem, q.avail+4+uint64(q.available%8)*2, 0)
 	q.available++
 	put16(q.mem, q.avail+2, q.available)
 	writeReg(q.t, q.device, regQueueNotify, q.index)
@@ -114,7 +114,7 @@ func (q *testQueue) wait() {
 	eventually(q.t, func() bool { return get16(q.mem, q.used+2) == q.completed })
 }
 
-func blockRequest(t *testing.T, b *Block, q *testQueue, typ uint32, sector uint64, data []byte, readSize int) (byte, []byte) {
+func blockRequest(t *testing.T, q *testQueue, typ uint32, sector uint64, data []byte, readSize int) (byte, []byte) {
 	t.Helper()
 	header := make([]byte, 16)
 	binary.LittleEndian.PutUint32(header, typ)
@@ -132,7 +132,7 @@ func blockRequest(t *testing.T, b *Block, q *testQueue, typ uint32, sector uint6
 	} else {
 		q.descriptor(1, 0x15000, 1, descFWrite, 0)
 	}
-	q.submit(0)
+	q.submit()
 	q.wait()
 	status, _ := q.mem.ReadIPA(0x15000, 1)
 	out, _ := q.mem.ReadIPA(0x11000, readSize)
@@ -167,14 +167,14 @@ func TestBlockRequests(t *testing.T) {
 			if (features&(1<<5) != 0) != readOnly || features&(1<<9) == 0 {
 				t.Fatalf("wrong block features %#x", features)
 			}
-			if status, id := blockRequest(t, b, q, blockGetID, 0, nil, 20); status != blockOK || string(bytes.TrimRight(id, "\x00")) != "AGENT_STATE" {
+			if status, id := blockRequest(t, q, blockGetID, 0, nil, 20); status != blockOK || string(bytes.TrimRight(id, "\x00")) != "AGENT_STATE" {
 				t.Fatalf("get ID: %d %q", status, id)
 			}
-			if status, data := blockRequest(t, b, q, blockRead, 1, nil, 512); status != blockOK || !bytes.Equal(data, original) {
+			if status, data := blockRequest(t, q, blockRead, 1, nil, 512); status != blockOK || !bytes.Equal(data, original) {
 				t.Fatalf("read: %d", status)
 			}
 			changed := bytes.Repeat([]byte{0x42}, 512)
-			status, _ := blockRequest(t, b, q, blockWrite, 1, changed, 0)
+			status, _ := blockRequest(t, q, blockWrite, 1, changed, 0)
 			expected := byte(blockOK)
 			if readOnly {
 				expected = blockIOError
@@ -182,26 +182,26 @@ func TestBlockRequests(t *testing.T) {
 			if status != expected {
 				t.Fatalf("write: %d, want %d", status, expected)
 			}
-			if status, _ := blockRequest(t, b, q, blockFlush, 0, nil, 0); status != blockOK {
+			if status, _ := blockRequest(t, q, blockFlush, 0, nil, 0); status != blockOK {
 				t.Fatalf("flush: %d", status)
 			}
 			want := changed
 			if readOnly {
 				want = original
 			}
-			if status, data := blockRequest(t, b, q, blockRead, 1, nil, 512); status != blockOK || !bytes.Equal(data, want) {
+			if status, data := blockRequest(t, q, blockRead, 1, nil, 512); status != blockOK || !bytes.Equal(data, want) {
 				t.Fatalf("read after write: %d", status)
 			}
-			if status, _ := blockRequest(t, b, q, blockRead, ^uint64(0), nil, 512); status != blockIOError {
+			if status, _ := blockRequest(t, q, blockRead, ^uint64(0), nil, 512); status != blockIOError {
 				t.Fatalf("out of range: %d", status)
 			}
-			if status, _ := blockRequest(t, b, q, 11, 0, nil, 0); status != blockUnsupported {
+			if status, _ := blockRequest(t, q, 11, 0, nil, 0); status != blockUnsupported {
 				t.Fatalf("unsupported: %d", status)
 			}
 			if err := file.Close(); err != nil {
 				t.Fatal(err)
 			}
-			if status, _ := blockRequest(t, b, q, blockFlush, 0, nil, 0); status != blockIOError {
+			if status, _ := blockRequest(t, q, blockFlush, 0, nil, 0); status != blockIOError {
 				t.Fatalf("failed flush returned %d", status)
 			}
 		})
@@ -244,7 +244,7 @@ func TestMalformedQueueCannotWriteDisk(t *testing.T) {
 			case "ring-overrun":
 				q.available = 8
 			}
-			q.submit(0)
+			q.submit()
 			eventually(t, func() bool { return readReg(t, b.transport, regStatus)&statusNeedsReset != 0 })
 			data := make([]byte, 4096)
 			_, _ = file.ReadAt(data, 0)
@@ -262,7 +262,7 @@ func TestRNGAndQueueReset(t *testing.T) {
 	q := setupQueue(t, r.transport, mem, 0)
 	negotiate(t, r.transport)
 	q.descriptor(0, 0x10000, 512, descFWrite, 0)
-	q.submit(0)
+	q.submit()
 	q.wait()
 	data, _ := mem.ReadIPA(0x10000, 512)
 	if bytes.Equal(data, make([]byte, 512)) {

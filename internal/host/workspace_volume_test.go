@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -36,7 +37,7 @@ func TestWorkspaceVolumeRequiresCurrentNamespaceOwner(t *testing.T) {
 	if err := database.PutVolumeOwner(ctx, "foreign", "other-namespace"); err != nil {
 		t.Fatal(err)
 	}
-	server := &agentServer{controller: &Controller{store: database}}
+	server := &agentServer{controller: newTestController(&Controller{store: database})}
 	identity := auth.Identity{EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID}
 	for _, volume := range []string{"workspace", "foreign", "missing"} {
 		err := server.requireWorkspaceVolume(ctx, identity, volume)
@@ -58,7 +59,7 @@ func TestWorkspaceGuestReadErrorKeepsCodeAndExistingDetails(t *testing.T) {
 				t.Fatalf("unexpected fixed status: %v", got.Code())
 			}
 			info, ok := got.Details()[0].(*errdetails.ErrorInfo)
-			if !ok || info.Reason != "WORKSPACE_GUEST_RELAY_FAILURE" || info.Domain != "agentvmm.afk.surf" || info.Metadata["hop"] != "guest" || info.Metadata["phase"] != phase || len(info.Metadata) != 2 {
+			if !ok || info.Reason != "WORKSPACE_GUEST_RELAY_FAILURE" || info.Domain != hostv1.ErrorDomain || info.Metadata["hop"] != "guest" || info.Metadata["phase"] != phase || len(info.Metadata) != 2 {
 				t.Fatal("missing fixed relay attribution")
 			}
 		}

@@ -10,16 +10,19 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
+	"slices"
+	"sync"
+	"time"
+
 	servicev1 "github.com/AFK-surf/agent-vmm/api/service/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 	"github.com/AFK-surf/agent-vmm/internal/host/trustkeys"
+	"github.com/AFK-surf/agent-vmm/internal/keychain"
 	"github.com/AFK-surf/agent-vmm/pkg/signing"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"math/big"
-	"slices"
-	"time"
 )
 
 const maxRouteTTL = time.Hour
@@ -32,9 +35,10 @@ var (
 )
 
 type Manager struct {
-	store *store.Store
-	keys  trustkeys.Provider
-	now   func() time.Time
+	identityMu sync.Mutex
+	store      *store.Store
+	keys       trustkeys.Provider
+	now        func() time.Time
 }
 
 func New(ctx context.Context, database *store.Store, keys trustkeys.Provider) (*Manager, error) {
@@ -49,6 +53,8 @@ func New(ctx context.Context, database *store.Store, keys trustkeys.Provider) (*
 }
 
 func (manager *Manager) initialize(ctx context.Context) error {
+	manager.identityMu.Lock()
+	defer manager.identityMu.Unlock()
 	record, err := manager.store.GetDeviceIdentity(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		publicKey, custody, err := manager.keys.Ensure(ctx, 1)
@@ -72,6 +78,9 @@ func (manager *Manager) initialize(ctx context.Context) error {
 		return nil
 	}
 	publicKey, _, err := manager.keys.Ensure(ctx, record.Identity.GetRootKeyRevision())
+	if errors.Is(err, keychain.ErrUnavailable) {
+		return err
+	}
 	if err != nil || !equalBytes(publicKey, record.Identity.GetRootPublicKey()) {
 		if markErr := manager.store.MarkDeviceIdentityNeedsRepair(ctx, record.Identity.GetRootKeyRevision()); markErr != nil {
 			return errors.Join(ErrNeedsRepair, err, markErr)
@@ -84,67 +93,9 @@ func (manager *Manager) Identity(ctx context.Context) (store.DeviceIdentityRecor
 	return manager.store.GetDeviceIdentity(ctx)
 }
 
-func (manager *Manager) RotateRoot(ctx context.Context, requestID string, expectedRevision uint64) (*trustv1.DeviceRootRotation, store.DeviceIdentityRecord, error) {
-	if requestID == "" {
-		return nil, store.DeviceIdentityRecord{}, errors.New("request ID is required")
-	}
-	if existing, err := manager.store.GetDeviceRootRotation(ctx, requestID); err == nil {
-		current, currentErr := manager.store.GetDeviceIdentity(ctx)
-		if currentErr != nil {
-			return nil, store.DeviceIdentityRecord{}, currentErr
-		}
-		current.Identity = &trustv1.DeviceIdentity{DeviceId: existing.GetDeviceId(), RootPublicKey: existing.GetNewRootPublicKey(),
-			RootKeyRevision: existing.GetNewRootKeyRevision(), SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256}
-		return existing, current, nil
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, store.DeviceIdentityRecord{}, err
-	}
-	current, err := manager.store.GetDeviceIdentity(ctx)
-	if err != nil {
-		return nil, store.DeviceIdentityRecord{}, err
-	}
-	if current.State != store.DeviceIdentityReady || current.Identity.GetRootKeyRevision() != expectedRevision {
-		return nil, store.DeviceIdentityRecord{}, ErrNeedsRepair
-	}
-	newRevision := expectedRevision + 1
-	newPublicKey, custody, err := manager.keys.Ensure(ctx, newRevision)
-	if err != nil {
-		return nil, store.DeviceIdentityRecord{}, err
-	}
-	rotation := &trustv1.DeviceRootRotation{DeviceId: current.Identity.GetDeviceId(), OldRootKeyRevision: expectedRevision,
-		OldRootPublicKey: current.Identity.GetRootPublicKey(), NewRootKeyRevision: newRevision, NewRootPublicKey: newPublicKey,
-		RotatedAt: timestamppb.New(manager.now())}
-	input, err := signing.CanonicalInput(rotation)
-	if err != nil {
-		_ = manager.keys.Delete(ctx, newRevision)
-		return nil, store.DeviceIdentityRecord{}, err
-	}
-	digest := sha256.Sum256(input)
-	oldSignature, err := manager.keys.Sign(ctx, expectedRevision, digest[:])
-	if err != nil {
-		_ = manager.store.MarkDeviceIdentityNeedsRepair(ctx, expectedRevision)
-		_ = manager.keys.Delete(ctx, newRevision)
-		return nil, store.DeviceIdentityRecord{}, ErrNeedsRepair
-	}
-	newSignature, err := manager.keys.Sign(ctx, newRevision, digest[:])
-	if err != nil {
-		_ = manager.keys.Delete(ctx, newRevision)
-		return nil, store.DeviceIdentityRecord{}, err
-	}
-	rotation.OldSignsNew = oldSignature
-	rotation.NewSignsOld = newSignature
-	next := store.DeviceIdentityRecord{Identity: &trustv1.DeviceIdentity{DeviceId: current.Identity.GetDeviceId(), RootPublicKey: newPublicKey,
-		RootKeyRevision: newRevision, SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256}, Custody: custody,
-		State: store.DeviceIdentityReady, EndpointGeneration: current.EndpointGeneration}
-	if err := manager.store.RotateDeviceIdentity(ctx, requestID, expectedRevision, next, rotation); err != nil {
-		_ = manager.keys.Delete(ctx, newRevision)
-		return nil, store.DeviceIdentityRecord{}, err
-	}
-	_ = manager.keys.Delete(ctx, expectedRevision)
-	return rotation, next, nil
-}
-
 func (manager *Manager) Repair(ctx context.Context, requestID string, confirmed bool) (store.DeviceIdentityRecord, error) {
+	manager.identityMu.Lock()
+	defer manager.identityMu.Unlock()
 	if requestID == "" {
 		return store.DeviceIdentityRecord{}, errors.New("request ID is required")
 	}
@@ -180,7 +131,7 @@ func (manager *Manager) Repair(ctx context.Context, requestID string, confirmed 
 		RootKeyRevision: newRevision, SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256},
 		Custody: custody, State: store.DeviceIdentityReady}
 	if err := manager.store.RepairDeviceIdentity(ctx, requestID, next); err != nil {
-		_ = manager.keys.Delete(ctx, newRevision)
+		_ = manager.discardUncommittedKey(ctx, newRevision)
 		return store.DeviceIdentityRecord{}, err
 	}
 	return next, nil
@@ -285,7 +236,7 @@ func (manager *Manager) GetEndpointObservation(ctx context.Context, deviceID str
 	return manager.store.GetEndpointObservation(ctx, deviceID)
 }
 
-func (manager *Manager) IssuePersonalRoute(ctx context.Context, request *servicev1.PersonalRouteRequest, destination *servicev1.ServiceExport) (*servicev1.PersonalRouteResponse, error) {
+func (manager *Manager) IssuePersonalRoute(ctx context.Context, request *servicev1.RequestPersonalRouteRequest, destination *servicev1.ServiceExport) (*servicev1.RequestPersonalRouteResponse, error) {
 	now := manager.now()
 	budget := request.GetBudget()
 	if request.GetRequestId() == "" || request.GetMeshId() == "" || request.GetSourceDeviceId() == "" || request.GetSourceRootKeyRevision() == 0 ||
@@ -315,22 +266,12 @@ func (manager *Manager) IssuePersonalRoute(ctx context.Context, request *service
 	if err != nil || identity.State != store.DeviceIdentityReady {
 		return nil, ErrRouteUnauthorized
 	}
-	var source *trustv1.MeshMembership
-	localActive := false
-	for _, member := range snapshot.GetActiveMembers() {
-		allowed := false
-		for _, permission := range member.GetPermissions() {
-			allowed = allowed || permission == trustv1.MeshPermission_MESH_PERMISSION_USE_SERVICES
-		}
-		if member.GetDeviceId() == request.GetSourceDeviceId() && member.GetRootKeyRevision() == request.GetSourceRootKeyRevision() && allowed {
-			source = member
-		}
-		if member.GetDeviceId() == identity.Identity.GetDeviceId() && member.GetRootKeyRevision() == identity.Identity.GetRootKeyRevision() &&
-			equalBytes(member.GetRootPublicKey(), identity.Identity.GetRootPublicKey()) && allowed {
-			localActive = true
-		}
-	}
-	if source == nil || !localActive {
+	source := activeMember(snapshot, request.GetSourceDeviceId())
+	local := activeMember(snapshot, identity.Identity.GetDeviceId())
+	if source.GetRootKeyRevision() != request.GetSourceRootKeyRevision() ||
+		!hasPermission(source, trustv1.MeshPermission_MESH_PERMISSION_USE_SERVICES) ||
+		!hasPermission(local, trustv1.MeshPermission_MESH_PERMISSION_USE_SERVICES) ||
+		local.GetRootKeyRevision() != identity.Identity.GetRootKeyRevision() || !equalBytes(local.GetRootPublicKey(), identity.Identity.GetRootPublicKey()) {
 		return nil, ErrRouteUnauthorized
 	}
 	denied, err := manager.store.IsMeshMemberDenied(ctx, request.GetMeshId(), source.GetDeviceId(), source.GetRootKeyRevision())
@@ -370,7 +311,7 @@ func (manager *Manager) IssuePersonalRoute(ctx context.Context, request *service
 	if err != nil {
 		return nil, err
 	}
-	response := &servicev1.PersonalRouteResponse{Capability: capability, DestinationExport: proto.Clone(destination).(*servicev1.ServiceExport)}
+	response := &servicev1.RequestPersonalRouteResponse{Capability: capability, DestinationExport: proto.Clone(destination).(*servicev1.ServiceExport)}
 	if err := manager.store.PutPersonalRouteIssuance(ctx, request, response); err != nil {
 		if existing, getErr := manager.store.GetPersonalRouteIssuance(ctx, request); getErr == nil {
 			return existing, nil
@@ -397,7 +338,7 @@ func routeClassValue(value servicev1.RouteClass) string {
 	}
 }
 
-func (manager *Manager) SignPersonalRouteRequest(ctx context.Context, request *servicev1.PersonalRouteRequest) (*servicev1.PersonalRouteRequest, error) {
+func (manager *Manager) SignPersonalRouteRequest(ctx context.Context, request *servicev1.RequestPersonalRouteRequest) (*servicev1.RequestPersonalRouteRequest, error) {
 	identity, err := manager.store.GetDeviceIdentity(ctx)
 	if err != nil || identity.State != store.DeviceIdentityReady || request == nil || request.GetMeshId() == "" {
 		return nil, ErrRouteUnauthorized
@@ -418,7 +359,7 @@ func (manager *Manager) SignPersonalRouteRequest(ctx context.Context, request *s
 	if !active {
 		return nil, ErrRouteUnauthorized
 	}
-	result := proto.Clone(request).(*servicev1.PersonalRouteRequest)
+	result := proto.Clone(request).(*servicev1.RequestPersonalRouteRequest)
 	result.SourceDeviceId = identity.Identity.GetDeviceId()
 	result.SourceRootKeyRevision = identity.Identity.GetRootKeyRevision()
 	result.PolicyEpoch = snapshot.GetPolicyEpoch()
@@ -475,4 +416,15 @@ func strictlySortedStrings(values []string) bool {
 		}
 	}
 	return true
+}
+
+func (manager *Manager) discardUncommittedKey(ctx context.Context, revision uint64) error {
+	current, err := manager.store.GetDeviceIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	if current.Identity.GetRootKeyRevision() == revision {
+		return nil
+	}
+	return manager.keys.Delete(ctx, revision)
 }

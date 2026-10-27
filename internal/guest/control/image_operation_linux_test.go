@@ -6,12 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/images"
@@ -115,7 +116,7 @@ func operationFixture(t *testing.T) (*Server, *operationNamespaces, *operationLe
 	t.Cleanup(func() { _ = client.Close() })
 	receipt := &vmmdv1.ImageOperationReceipt{RequestId: "original-copy", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, InputSha256: strings.Repeat("a", 64), ImageReference: "image:test"}
 	request := &vmmdv1.ImageOperationRequest{RequestId: receipt.RequestId, Kind: receipt.Kind, InputSha256: receipt.InputSha256, ActorNamespaceId: "owner"}
-	return &Server{runtime: &Runtime{client: client, imageOperationWriterID: "same-boot:41:100"}}, metadata, leaseStore, receipt, request
+	return &Server{runtime: &Runtime{client: client, imageOperationWriterID: "same-boot:41:100", logger: slog.Default().With("component", "guest-control")}}, metadata, leaseStore, receipt, request
 }
 
 func TestImageOperationDurableIdentityAndTerminalStates(t *testing.T) {
@@ -136,7 +137,7 @@ func TestImageOperationDurableIdentityAndTerminalStates(t *testing.T) {
 		{"cleanup incomplete", context.Canceled, errors.New("task still running"), true, vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_UNKNOWN, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			server, metadata, _, receipt, request := operationFixture(t)
+			server, _, _, receipt, request := operationFixture(t)
 			run, prior, err := server.runtime.acceptImageOperation(context.Background(), "owner", receipt, "", func() {})
 			if err != nil || prior != nil {
 				t.Fatalf("accept: %v %v", prior, err)
@@ -157,21 +158,18 @@ func TestImageOperationDurableIdentityAndTerminalStates(t *testing.T) {
 					t.Fatalf("capacity detail lost: %v", persisted.Status)
 				}
 			}
-			// The original namespace is disposable; its removal cannot erase the operation.
-			delete(metadata.labels, "owner")
-			persisted, err = server.runtime.imageOperation(context.Background(), "owner", receipt.RequestId, receipt.Kind)
-			if err != nil || persisted.State != test.state {
-				t.Fatalf("namespace removal lost receipt: %v %v", persisted, err)
+			if _, err := server.ForgetImageOperation(context.Background(), request); test.settled && err != nil {
+				t.Fatal(err)
+			} else if !test.settled && status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("unsettled forget=%v", err)
 			}
-			wrong := proto.Clone(request).(*vmmdv1.ImageOperationRequest)
-			wrong.InputSha256 = strings.Repeat("b", 64)
-			if _, err := server.ObserveImageOperation(context.Background(), wrong); status.Code(err) != codes.Aborted {
-				t.Fatalf("input conflict: %v", err)
-			}
-			wrong = proto.Clone(request).(*vmmdv1.ImageOperationRequest)
-			wrong.ActorNamespaceId = "other-owner"
-			if _, err := server.ObserveImageOperation(context.Background(), wrong); status.Code(err) != codes.NotFound {
-				t.Fatalf("cross owner: %v", err)
+			if test.settled {
+				if _, err := server.ForgetImageOperation(context.Background(), request); err != nil {
+					t.Fatalf("forget replay=%v", err)
+				}
+				if _, err := server.runtime.imageOperation(context.Background(), "owner", receipt.RequestId, receipt.Kind); status.Code(err) != codes.NotFound {
+					t.Fatalf("forgotten receipt=%v", err)
+				}
 			}
 		})
 	}
@@ -220,7 +218,7 @@ func TestImageOperationRestartSettlesExactCopyWithoutInventingResult(t *testing.
 	// A new Runtime has persistent metadata but no in-memory execution handles.
 	server.runtime.imageOperationsRecovered = true
 	server.runtime.imageOperationWriterID = "same-boot:42:200"
-	server.runtime.imageOperations.Delete("owner\x00" + imageOperationKey(receipt.RequestId, receipt.Kind))
+	server.runtime.imageOperations.Delete(imageOperationRecordKey("owner", receipt.RequestId, receipt.Kind))
 	close(run.done)
 	observed, err := server.ObserveImageOperation(context.Background(), request)
 	if err != nil || !observed.WriterSettled || observed.State != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_UNKNOWN {
@@ -239,7 +237,7 @@ func TestImageOperationMissingHandlerNeedsWriterExitAndStartupCleanup(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			server.runtime.imageOperations.Delete("owner\x00" + imageOperationKey(receipt.RequestId, receipt.Kind))
+			server.runtime.imageOperations.Delete(imageOperationRecordKey("owner", receipt.RequestId, receipt.Kind))
 			close(run.done)
 			server.runtime.imageOperationsRecovered = recovered
 			observed, err := server.ObserveImageOperation(context.Background(), request)
@@ -261,7 +259,7 @@ func TestImageOperationPublishedReceiptRecoversKnownCopyWithLiveDaemon(t *testin
 		t.Fatal(err)
 	}
 	server.runtime.client.ImageService().(*operationImages).record = record
-	server.runtime.imageOperations.Delete("owner\x00" + imageOperationKey(receipt.RequestId, receipt.Kind))
+	server.runtime.imageOperations.Delete(imageOperationRecordKey("owner", receipt.RequestId, receipt.Kind))
 	close(run.done)
 	observed, err := server.ObserveImageOperation(context.Background(), request)
 	if err != nil || !observed.WriterSettled || observed.State != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED || observed.ManifestDigest != record.Target.Digest.String() || observed.Status != nil {

@@ -29,3 +29,5 @@ func managedPrivilegeIssue(command string, euid int) (managedIssue, string, bool
 	}
 	return managedIssue{Code: "needs_administrator", Message: command + " changes the Linux system service; run it as root", Layer: "service", Retryable: managedBool(true)}, "administrator", true
 }
+
+func serviceOutputLogDirectory(string) string { return "/var/log/agent-vmm" }

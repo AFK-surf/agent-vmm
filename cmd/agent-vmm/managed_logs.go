@@ -3,8 +3,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"io"
 	"os"
 	"os/user"
@@ -21,10 +23,13 @@ func readManagedLocalLogs(status map[string]any, opts managedOptions, _ time.Tim
 	if err != nil {
 		return nil, "", false, errors.New("service user log directory is unavailable")
 	}
-	base := serviceLogDirectory(account.HomeDir)
+	base := serviceOutputLogDirectory(account.HomeDir)
+	if strings.HasPrefix(stringFact(status, "hostJob"), "system/") {
+		base = "/Library/Logs/AgentVMM"
+	}
 	paths := []string{filepath.Join(base, "host.stderr.log")}
 	if opts.component == "guest" {
-		paths = []string{filepath.Join(base, "serial.log.previous"), filepath.Join(base, "serial.log")}
+		paths = []string{filepath.Join(serviceLogDirectory(account.HomeDir), "serial.log.previous"), filepath.Join(serviceLogDirectory(account.HomeDir), "serial.log")}
 	}
 	return readManagedLocalLogFiles(paths, opts)
 }
@@ -146,4 +151,44 @@ func filterManagedLogOperation(data []byte, operationID string) []byte {
 		}
 	}
 	return []byte(strings.Join(filtered, "\n"))
+}
+
+func readManagedContainerLogs(ctx context.Context, socket, environmentID, containerID, afterCursor string, limit int, follow bool) ([]managedLogRecord, string, bool, error) {
+	connection, err := managedOperatorConnection(socket)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer connection.Close()
+	stream, err := hostv1.NewOperatorServiceClient(connection).Logs(ctx, &hostv1.OperatorServiceLogsRequest{EnvironmentId: environmentID, Query: &hostv1.LogsRequest{ContainerId: containerID, TailRecords: uint64(limit), AfterCursor: afterCursor, Follow: follow}})
+	if err != nil {
+		return nil, "", false, err
+	}
+	records := make([]managedLogRecord, 0, limit)
+	total, cursor, gap := 0, afterCursor, false
+	for len(records) < limit && total < managedLogBytes {
+		record, receiveErr := stream.Recv()
+		if errors.Is(receiveErr, io.EOF) {
+			break
+		}
+		if receiveErr != nil {
+			if ctx.Err() != nil {
+				return records, cursor, gap, nil
+			}
+			return records, cursor, gap, receiveErr
+		}
+		data := []byte(redactManagedText(string(record.GetData())))
+		if len(record.GetCursor()) > 4096 {
+			return nil, "", false, errors.New("log cursor exceeded 4096 bytes")
+		}
+		truncated := record.GetTruncated()
+		if len(data) > managedLogBytes-total {
+			data = data[:managedLogBytes-total]
+			truncated = true
+		}
+		total += len(data)
+		cursor = record.GetCursor()
+		gap = gap || record.GetDroppedRecords() != 0
+		records = append(records, managedLogRecord{Cursor: cursor, Timestamp: record.GetTimestamp().AsTime().UTC().Format(time.RFC3339Nano), Stream: strings.ToLower(strings.TrimPrefix(record.GetStream().String(), "LOG_STREAM_")), Data: string(data), Truncated: truncated, Dropped: record.GetDroppedRecords()})
+	}
+	return records, cursor, gap, nil
 }

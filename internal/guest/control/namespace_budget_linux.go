@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"math/bits"
 
 	guestquota "github.com/AFK-surf/agent-vmm/internal/guest/quota"
@@ -121,12 +120,34 @@ func (r *Runtime) admitNamespaceDiskGrowth(ctx context.Context, namespace string
 		committed, overflow := systemNamespaceCommitment(facts, ownProject, labels != nil, requested)
 		if overflow || committed > guestdisk.ControlSystemBytes {
 			for project, fact := range facts {
-				log.Printf("system namespace disk commitment namespace=%s project=%d quota_bytes=%d usage_bytes=%d", fact.namespace, project, fact.limit, fact.usage)
+				r.logger.Warn("system namespace disk commitment", "namespace_id", fact.namespace, "project", project, "quota_bytes", fact.limit, "usage_bytes", fact.usage)
 			}
 			err := fmt.Errorf("%w: system namespace %q requested_quota_bytes=%d old_quota_bytes=%d committed_bytes=%d budget_bytes=%d accounting_overflow=%t", guestdisk.ErrCapacityUnavailable, namespace, requested, old, committed, guestdisk.ControlSystemBytes, overflow)
-			log.Printf("system namespace storage admission rejected: %v", err)
+			r.logger.Warn("system namespace storage admission rejected", "error", err)
 			return atRuntimeStage("system_namespace_admission", err)
 		}
+		return nil
+	}
+	return r.admitPoolGrowth(ctx, requested, old)
+}
+
+func (r *Runtime) poolCommitments(ctx context.Context) (map[uint32]namespaceDiskCommitment, error) {
+	facts, err := r.namespaceDiskCommitments(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	appliance, err := newApplianceVolumeManager(r.stateDevice).commitments()
+	if err != nil {
+		return nil, err
+	}
+	for project, fact := range appliance {
+		facts[project] = fact
+	}
+	return facts, nil
+}
+
+func (r *Runtime) admitPoolGrowth(ctx context.Context, requested, old uint64) error {
+	if requested <= old {
 		return nil
 	}
 	snapshot, err := r.guestDiskSnapshot(ctx)
@@ -135,7 +156,7 @@ func (r *Runtime) admitNamespaceDiskGrowth(ctx context.Context, namespace string
 	}
 	available, ok := snapshot.AvailableBytes()
 	if !ok || requested-old > available {
-		log.Printf("namespace storage admission rejected namespace=%s project=%d requested_quota_bytes=%d old_quota_bytes=%d requested_delta_bytes=%d available_bytes=%d available_valid=%t capacity_bytes=%d used_bytes=%d import_and_builder_reservation_bytes=%d namespace_remaining_commitment_bytes=%d emergency_bytes=%d metadata_growth_bytes=%d error=%v", namespace, ownProject, requested, old, requested-old, available, ok, snapshot.CapacityBytes, snapshot.UsedBytes, snapshot.ImportReservationBytes, snapshot.NamespaceCommitmentBytes, snapshot.EmergencyBytes, snapshot.MetadataGrowthBytes, guestdisk.ErrCapacityUnavailable)
+		r.logger.Warn("namespace storage admission rejected", "requested_quota_bytes", requested, "old_quota_bytes", old, "requested_delta_bytes", requested-old, "available_bytes", available, "available_valid", ok, "capacity_bytes", snapshot.CapacityBytes, "used_bytes", snapshot.UsedBytes, "import_and_builder_reservation_bytes", snapshot.ImportReservationBytes, "namespace_remaining_commitment_bytes", snapshot.NamespaceCommitmentBytes, "emergency_bytes", snapshot.EmergencyBytes, "metadata_growth_bytes", snapshot.MetadataGrowthBytes, "error", guestdisk.ErrCapacityUnavailable)
 		return guestdisk.ErrCapacityUnavailable
 	}
 	return nil

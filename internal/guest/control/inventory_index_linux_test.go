@@ -6,10 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	guestbuild "github.com/AFK-surf/agent-vmm/internal/guest/build"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
@@ -21,7 +22,7 @@ import (
 )
 
 func TestNamespaceExistenceRejectsAnUnindexedNamespace(t *testing.T) {
-	runtime := &Runtime{inventory: newRuntimeInventoryIndex()}
+	runtime := &Runtime{inventory: newRuntimeInventoryIndex(), logger: slog.Default().With("component", "guest-control")}
 	if err := runtime.namespaceExistsRaw(context.Background(), "missing"); !errors.Is(err, errdefs.ErrNotFound) {
 		t.Fatalf("namespace existence error = %v", err)
 	}
@@ -241,7 +242,7 @@ func TestDisposalBatchesConsumeOnlyOneNamespaceAbovePreviewLimit(t *testing.T) {
 	}
 	removed := 0
 	for {
-		batch, err := index.disposalBatch("target", false, 32)
+		batch, err := index.disposalBatch("target", false)
 		if err != nil || len(batch) > 32 {
 			t.Fatalf("batch=%d,%v", len(batch), err)
 		}
@@ -262,7 +263,7 @@ func TestDisposalBatchesConsumeOnlyOneNamespaceAbovePreviewLimit(t *testing.T) {
 	if err != nil || len(remaining) != 1 || remaining[0] != "retained" {
 		t.Fatalf("other namespace=%v,%v", remaining, err)
 	}
-	if _, err := index.disposalBatch("missing", false, 32); err == nil {
+	if _, err := index.disposalBatch("missing", false); err == nil {
 		t.Fatal("unknown namespace treated as empty")
 	}
 }
@@ -323,7 +324,7 @@ func TestRuntimeInventoryReopenKeepsBuilderCleanupOutOfLogicalImages(t *testing.
 		runtimeContainerdNamespace: {},
 	}}
 	client := systemImageClient(t, fixture, containerd.WithServices(containerd.WithNamespaceService(names)))
-	runtime := &Runtime{client: client}
+	runtime := &Runtime{client: client, logger: slog.Default().With("component", "guest-control")}
 	if err := runtime.rebuildRuntimeInventory(ctx); err != nil {
 		t.Fatal(err)
 	}

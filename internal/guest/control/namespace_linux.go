@@ -10,8 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
-	vmmdv1 "github.com/AFK-surf/agent-vmm/api/vmmd/v1"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guest/namespaceconfig"
 	"github.com/AFK-surf/agent-vmm/internal/guestdisk"
 	"github.com/AFK-surf/agent-vmm/internal/resourcev2"
@@ -44,107 +45,114 @@ func (r *Runtime) ensureNamespace(ctx context.Context, request *vmmdv1.EnsureNam
 	if request.GetEgressMode() == vmmdv1.EgressMode_EGRESS_MODE_UNSPECIFIED {
 		return nil, errors.New("egress_mode is required")
 	}
-	unlock := r.lockNamespace(request.GetNamespaceId())
-	defer unlock()
-
-	store := r.client.NamespaceService()
-	names, err := store.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	exists := false
-	for _, name := range names {
-		if name == request.GetNamespaceId() {
-			exists = true
-			break
-		}
-	}
-	var labels map[string]string
-	if exists {
-		inventory, inventoryErr := r.requireRuntimeInventory()
-		if inventoryErr != nil {
-			return nil, inventoryErr
-		}
-		if !inventory.hasNamespace(request.GetNamespaceId()) {
-			return nil, fmt.Errorf("runtime inventory namespace %q is not indexed", request.GetNamespaceId())
-		}
-		labels, err = store.Labels(ctx, request.GetNamespaceId())
+	var namespace *vmmdv1.Namespace
+	err := r.diskBudget.MutateInventory(func(transaction *guestdisk.Transaction) error {
+		unlock, err := r.lockNamespace(ctx, request.GetNamespaceId())
 		if err != nil {
-			return nil, err
-		}
-		if system && labels[labelPrefix+"role"] != "system-appliance" {
-			return nil, errors.New("system namespace role does not match")
-		}
-	}
-	commit := func(transaction *guestdisk.Transaction) error {
-		if err := r.admitNamespaceDiskGrowth(ctx, request.GetNamespaceId(), request.GetLimits().GetDiskBytes(), labels); err != nil {
 			return err
 		}
+		defer unlock()
+
+		store := r.client.NamespaceService()
+		names, err := store.List(ctx)
+		if err != nil {
+			return err
+		}
+		exists := false
+		for _, name := range names {
+			if name == request.GetNamespaceId() {
+				exists = true
+				break
+			}
+		}
+		var labels map[string]string
 		if exists {
-			projectID, current, err := namespaceFromLabels(request.GetNamespaceId(), labels)
-			if err != nil {
-				return err
-			}
-			if !sameLimits(current.GetLimits(), request.GetLimits()) || current.GetEgressMode() != request.GetEgressMode() {
-				updated := namespaceLabels(request.GetLimits(), request.GetEgressMode(), projectID, current.GetSubnet())
-				if system {
-					updated[labelPrefix+"role"] = "system-appliance"
-				}
-				if err := func() error {
-					for key, value := range updated {
-						if err := store.SetLabel(ctx, request.GetNamespaceId(), key, value); err != nil {
-							return err
-						}
-					}
-					return nil
-				}(); err != nil {
-					return err
-				}
-				labels = updated
-			}
-		} else {
-			projectID, subnet, allocationErr := r.allocateNamespace(ctx, request.GetNamespaceId())
-			if allocationErr != nil {
-				return allocationErr
-			}
-			labels = namespaceLabels(request.GetLimits(), request.GetEgressMode(), projectID, subnet)
-			if system {
-				labels[labelPrefix+"role"] = "system-appliance"
-			}
-			if err := func() error { return store.Create(ctx, request.GetNamespaceId(), labels) }(); err != nil {
-				return err
-			}
 			inventory, inventoryErr := r.requireRuntimeInventory()
 			if inventoryErr != nil {
 				return inventoryErr
 			}
-			inventory.ensureNamespace(request.GetNamespaceId())
-		}
-		projectID, namespace, err := namespaceFromLabels(request.GetNamespaceId(), labels)
-		if err != nil {
-			return err
-		}
-		for _, directory := range []string{volumePath(request.GetNamespaceId(), ""), volumeGenerationPath(request.GetNamespaceId(), ""), workspacePath(request.GetNamespaceId()),
-			namespaceStateRoot(request.GetNamespaceId()) + "/logs/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-tmp/" + request.GetNamespaceId()} {
-			if err := ensureDirectory(directory, 0o700); err != nil {
+			if !inventory.hasNamespace(request.GetNamespaceId()) {
+				return fmt.Errorf("runtime inventory namespace %q is not indexed", request.GetNamespaceId())
+			}
+			labels, err = store.Labels(ctx, request.GetNamespaceId())
+			if err != nil {
 				return err
 			}
-			if err := assignProject(directory, projectID); err != nil {
-				return err
+			if system && labels[labelPrefix+"role"] != "system-appliance" {
+				return errors.New("system namespace role does not match")
 			}
 		}
-		if err := setProjectQuota(r.namespaceStateDevice(request.GetNamespaceId()), projectID, request.GetLimits().GetDiskBytes()); err != nil {
+		commit := func(_ *guestdisk.Transaction) error {
+			if err := r.admitNamespaceDiskGrowth(ctx, request.GetNamespaceId(), request.GetLimits().GetDiskBytes(), labels); err != nil {
+				return err
+			}
+			if exists {
+				projectID, current, err := namespaceFromLabels(request.GetNamespaceId(), labels)
+				if err != nil {
+					return err
+				}
+				if !sameLimits(current.GetLimits(), request.GetLimits()) || current.GetEgressMode() != request.GetEgressMode() {
+					updated := namespaceLabels(request.GetLimits(), request.GetEgressMode(), projectID, current.GetSubnet())
+					if system {
+						updated[labelPrefix+"role"] = "system-appliance"
+					}
+					if err := func() error {
+						for key, value := range updated {
+							if err := store.SetLabel(ctx, request.GetNamespaceId(), key, value); err != nil {
+								return err
+							}
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+					labels = updated
+				}
+			} else {
+				projectID, subnet, allocationErr := r.allocateNamespace(ctx, request.GetNamespaceId())
+				if allocationErr != nil {
+					return allocationErr
+				}
+				labels = namespaceLabels(request.GetLimits(), request.GetEgressMode(), projectID, subnet)
+				if system {
+					labels[labelPrefix+"role"] = "system-appliance"
+				}
+				if err := func() error { return store.Create(ctx, request.GetNamespaceId(), labels) }(); err != nil {
+					return err
+				}
+				inventory, inventoryErr := r.requireRuntimeInventory()
+				if inventoryErr != nil {
+					return inventoryErr
+				}
+				inventory.ensureNamespace(request.GetNamespaceId())
+			}
+			projectID, namespace, err := namespaceFromLabels(request.GetNamespaceId(), labels)
+			if err != nil {
+				return err
+			}
+			for _, directory := range []string{volumePath(request.GetNamespaceId(), ""), volumeGenerationPath(request.GetNamespaceId(), ""), workspacePath(request.GetNamespaceId()),
+				namespaceStateRoot(request.GetNamespaceId()) + "/logs/" + request.GetNamespaceId(), namespaceStateRoot(request.GetNamespaceId()) + "/build-tmp/" + request.GetNamespaceId()} {
+				if err := ensureDirectory(directory, 0o700); err != nil {
+					return err
+				}
+				if err := assignProject(directory, projectID); err != nil {
+					return err
+				}
+			}
+			if err := setProjectQuota(r.namespaceStateDevice(request.GetNamespaceId()), projectID, request.GetLimits().GetDiskBytes()); err != nil {
+				return err
+			}
+			if err := applyNamespaceCgroup(request.GetNamespaceId(), request.GetLimits()); err != nil {
+				return err
+			}
+			return r.network.EnsureNamespace(namespace.GetId(), namespace.GetSubnet(), namespace.GetEgressMode())
+		}
+		if err := commit(transaction); err != nil {
 			return err
 		}
-		if err := applyNamespaceCgroup(request.GetNamespaceId(), request.GetLimits()); err != nil {
-			return err
-		}
-		return r.network.EnsureNamespace(namespace.GetId(), namespace.GetSubnet(), namespace.GetEgressMode())
-	}
-	if err := r.diskBudget.MutateInventory(commit); err != nil {
-		return nil, err
-	}
-	_, namespace, err := namespaceFromLabels(request.GetNamespaceId(), labels)
+		_, namespace, err = namespaceFromLabels(request.GetNamespaceId(), labels)
+		return err
+	})
 	return namespace, err
 }
 
@@ -152,13 +160,16 @@ func (r *Runtime) DeleteNamespace(ctx context.Context, namespaceID string) error
 	if err := validateID("namespace_id", namespaceID); err != nil {
 		return err
 	}
-	unlock := r.lockNamespace(namespaceID)
-	defer unlock()
 	return r.deleteNamespaceLocked(ctx, namespaceID)
 }
 
 func (r *Runtime) deleteNamespaceLocked(ctx context.Context, namespaceID string) error {
 	return r.mutateNamespaceInventory(func(*guestdisk.Transaction) error {
+		unlock, err := r.lockNamespace(ctx, namespaceID)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		return r.deleteNamespaceUnderBudgetLocked(ctx, namespaceID)
 	})
 }
@@ -262,6 +273,18 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	if err := r.network.DeleteNamespace(namespaceID); err != nil {
 		return err
 	}
+	operationLabels, err := r.client.NamespaceService().Labels(ctx, runtimeContainerdNamespace)
+	if err != nil {
+		return err
+	}
+	operationPrefix := fmt.Sprintf("%simage-operation.%x.", labelPrefix, sha256.Sum256([]byte(namespaceID)))
+	for key := range operationLabels {
+		if strings.HasPrefix(key, operationPrefix) {
+			if err := r.client.NamespaceService().SetLabel(ctx, runtimeContainerdNamespace, key, ""); err != nil {
+				return err
+			}
+		}
+	}
 	if err := r.client.NamespaceService().Delete(ctx, namespaceID); err != nil {
 		return err
 	}
@@ -307,8 +330,6 @@ func namespaceLabels(limits *vmmdv1.NamespaceLimits, egress vmmdv1.EgressMode, p
 	return map[string]string{
 		labelPrefix + "project-id": strconv.FormatUint(uint64(projectID), 10),
 		labelPrefix + "subnet":     subnet,
-		labelPrefix + "cpu":        strconv.FormatUint(uint64(limits.GetCpuMillis()), 10),
-		labelPrefix + "memory":     strconv.FormatUint(limits.GetMemoryBytes(), 10),
 		labelPrefix + "pids":       strconv.FormatUint(uint64(limits.GetPids()), 10),
 		labelPrefix + "disk":       strconv.FormatUint(limits.GetDiskBytes(), 10),
 		labelPrefix + "egress":     strconv.FormatInt(int64(egress), 10),
@@ -320,5 +341,5 @@ func namespaceFromLabels(id string, labels map[string]string) (uint32, *vmmdv1.N
 }
 
 func sameLimits(left, right *vmmdv1.NamespaceLimits) bool {
-	return left.GetCpuMillis() == right.GetCpuMillis() && left.GetMemoryBytes() == right.GetMemoryBytes() && left.GetPids() == right.GetPids() && left.GetDiskBytes() == right.GetDiskBytes()
+	return left.GetPids() == right.GetPids() && left.GetDiskBytes() == right.GetDiskBytes()
 }

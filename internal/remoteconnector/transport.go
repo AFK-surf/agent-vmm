@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"net"
 	"net/url"
 	"os"
 	"time"
 
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
 	"golang.org/x/net/http/httpproxy"
@@ -46,7 +46,7 @@ func dialStoredController(config Config) (*grpc.ClientConn, error) {
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxControlBytes), grpc.MaxCallSendMsgSize(MaxControlBytes)),
 		grpc.WithInitialWindowSize(StreamWindowBytes), grpc.WithInitialConnWindowSize(ConnectionWindowBytes),
 		grpc.WithConnectParams(controllerConnectParams), grpc.WithKeepaliveParams(controllerKeepalive),
-		grpc.WithPerRPCCredentials(storedCredential{store: config.CredentialStore, account: config.RegistrationID}),
+		grpc.WithPerRPCCredentials(storedCredential{store: config.external().Credentials, account: config.RegistrationID}),
 	}...)
 	return grpc.NewClient(target, options...)
 }
@@ -54,13 +54,13 @@ func dialStoredController(config Config) (*grpc.ClientConn, error) {
 // Preserve explicit HTTP CONNECT proxy policy. Interface recovery applies only to
 // direct sockets (including system-managed TUN routing).
 func gatewayDialOptions(config Config) (string, []grpc.DialOption) {
-	tlsCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.EndpointIdentity, RootCAs: config.TLSRoots})
-	proxy, err := httpproxy.FromEnvironment().ProxyFunc()(&url.URL{Scheme: "https", Host: config.Endpoint})
+	tlsCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: config.endpointIdentity(), RootCAs: config.external().Roots})
+	proxy, err := httpproxy.FromEnvironment().ProxyFunc()(&url.URL{Scheme: "https", Host: config.external().Endpoint})
 	if err != nil || proxy != nil {
-		return config.Endpoint, []grpc.DialOption{grpc.WithTransportCredentials(tlsCredentials)}
+		return config.external().Endpoint, []grpc.DialOption{grpc.WithTransportCredentials(tlsCredentials)}
 	}
 	transport := newGatewayTransport(tlsCredentials)
-	return "passthrough:///" + config.Endpoint, []grpc.DialOption{grpc.WithTransportCredentials(transport), grpc.WithContextDialer(transport.Dial)}
+	return "passthrough:///" + config.external().Endpoint, []grpc.DialOption{grpc.WithTransportCredentials(transport), grpc.WithContextDialer(transport.Dial)}
 }
 
 type bearerCredential struct {
@@ -100,7 +100,7 @@ func (credential storedCredential) GetRequestMetadata(ctx context.Context, _ ...
 }
 func (storedCredential) RequireTransportSecurity() bool { return true }
 
-func dialRemoteCompute(ctx context.Context, socket, registrationID string) (*grpc.ClientConn, error) {
+func dialRemoteCompute(socket, registrationID string) (*grpc.ClientConn, error) {
 	if err := validateSocket(socket); err != nil {
 		return nil, err
 	}
@@ -124,8 +124,8 @@ func validateSocket(path string) error {
 	if err != nil {
 		return fmt.Errorf("remote compute socket unavailable")
 	}
-	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0o600 {
-		return fmt.Errorf("remote compute socket has unsafe permissions")
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("remote compute path is not a socket")
 	}
 	return checkSocketOwner(info, "remote compute socket")
 }
@@ -153,13 +153,13 @@ func newStoredControllerClient(config Config) (*controllerClient, error) {
 
 type localClient struct {
 	connection *grpc.ClientConn
-	client     hostv1.RemoteComputeServiceClient
+	client     connectorv1.RemoteComputeServiceClient
 }
 
-func newLocalClient(ctx context.Context, socket, registrationID string) (*localClient, error) {
-	connection, err := dialRemoteCompute(ctx, socket, registrationID)
+func newLocalClient(socket, registrationID string) (*localClient, error) {
+	connection, err := dialRemoteCompute(socket, registrationID)
 	if err != nil {
 		return nil, err
 	}
-	return &localClient{connection: connection, client: hostv1.NewRemoteComputeServiceClient(connection)}, nil
+	return &localClient{connection: connection, client: connectorv1.NewRemoteComputeServiceClient(connection)}, nil
 }

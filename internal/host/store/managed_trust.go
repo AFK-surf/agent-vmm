@@ -5,8 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	"time"
+
+	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 )
 
 // InstallManagedTrust atomically advances the controller anchor and the local

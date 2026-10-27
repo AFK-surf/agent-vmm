@@ -30,12 +30,6 @@ pub mod trust {
     }
 }
 
-pub mod vmmd {
-    pub mod v1 {
-        tonic::include_proto!("agentvmm.vmmd.v1");
-    }
-}
-
 pub mod google {
     pub mod rpc {
         tonic::include_proto!("google.rpc");

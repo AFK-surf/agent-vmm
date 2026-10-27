@@ -4,6 +4,7 @@ import SwiftUI
 struct SystemStatusView: View {
     @Bindable var model: AppModel
     @State private var requestedStop: Bool?
+    @State private var requestedStart = false
 
     private let metricColumns = [GridItem(.adaptive(minimum: 180), spacing: 12)]
 
@@ -12,8 +13,8 @@ struct SystemStatusView: View {
             VStack(alignment: .leading, spacing: 20) {
                 vmCard
 
-                if let lifecycle = model.lifecycleStatus, !model.servicesHealthy {
-                    serviceRepair(lifecycle)
+                if !model.isConnected {
+                    ContentUnavailableView("Not connected", systemImage: "network.slash", description: Text("Use Agent VMM Host.app or the agent-vmm CLI to inspect and repair the Host service."))
                 }
 
                 accessSummary
@@ -47,6 +48,12 @@ struct SystemStatusView: View {
         }
         .navigationTitle("Overview")
         .overlay { if model.isLoading { ProgressView("Connecting to Agent VMM…") } }
+        .alert("Start virtual machine?", isPresented: $requestedStart) {
+            Button("Cancel", role: .cancel) {}
+            Button("Start") { Task { await model.startVM() } }
+        } message: {
+            Text("This starts the shared virtual machine." + impactSummary)
+        }
         .alert(requestedStop == true ? "Force stop virtual machine?" : "Stop virtual machine?", isPresented: Binding(
             get: { requestedStop != nil }, set: { if !$0 { requestedStop = nil } }
         )) {
@@ -57,28 +64,7 @@ struct SystemStatusView: View {
                 Task { await model.stopVM(force: force) }
             }
         } message: {
-            Text(vmStopImpact)
-        }
-    }
-
-    private func serviceRepair(_: LifecycleStatus) -> some View {
-        GroupBox {
-            HStack(spacing: 14) {
-                Image(systemName: "wrench.and.screwdriver.fill").foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Agent VMM services need repair").font(.headline)
-                    Text("One or more signed helpers or LaunchAgents are missing or stopped.").foregroundStyle(.secondary)
-                }
-                Spacer()
-                if model.lifecycleOperationInProgress {
-                    ProgressView("Repairing…")
-                        .controlSize(.small)
-                } else {
-                    Button("Repair Services") { Task { await model.repairServices() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.lifecycleOperationInProgress)
-                }
-            }.padding(6)
+            Text(vmStopImpact + impactSummary)
         }
     }
 
@@ -110,7 +96,7 @@ struct SystemStatusView: View {
 
     private var mcpAccessSummary: String {
         guard let appliance = model.bundledMCP else { return "Not created" }
-        return appliance.enabled ? "Enabled · \(model.mcpClientBindings.count) clients" : "Disabled"
+        return appliance.enabled ? "Enabled" : "Disabled"
     }
 
     private var vmCard: some View {
@@ -156,17 +142,17 @@ struct SystemStatusView: View {
                 }
             }
             .disabled(true)
-        } else if model.snapshot.vmState == "Stopped" || model.snapshot.vmState == "Failed" {
-            Button("Start", systemImage: "play.fill") { Task { await model.startVM() } }
+        } else if model.snapshot.vmState == .stopped || model.snapshot.vmState == .failed {
+            Button("Start", systemImage: "play.fill") { Task { if await model.prepareVMAction() { requestedStart = true } } }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: [.command])
-        } else if model.snapshot.vmState == "Running" {
-            Button("Stop…", systemImage: "stop.fill") { requestedStop = false }
+        } else if model.snapshot.vmState == .running {
+            Button("Stop…", systemImage: "stop.fill") { Task { if await model.prepareVMAction() { requestedStop = false } } }
                 .buttonStyle(.bordered)
         }
 
         if model.gracefulStopFailed && !isTransitioning {
-            Button("Force Stop…", role: .destructive) { requestedStop = true }
+            Button("Force Stop…", role: .destructive) { Task { if await model.prepareVMAction() { requestedStop = true } } }
         }
     }
 
@@ -290,7 +276,7 @@ struct SystemStatusView: View {
         case .stopping: "Stopping…"
         case .forceStopping: "Force stopping…"
         case .failed: "Failed"
-        case .unknown: model.snapshot.vmState
+        case .unknown: model.snapshot.vmState.label
         }
     }
 
@@ -339,11 +325,11 @@ struct SystemStatusView: View {
             }
         }
         return switch model.snapshot.vmState {
-        case "Running": .running
-        case "Stopped": .stopped
-        case "Starting": .starting
-        case "Stopping": .stopping
-        case "Failed": .failed
+        case .running: .running
+        case .stopped: .stopped
+        case .starting: .starting
+        case .stopping: .stopping
+        case .failed: .failed
         default: .unknown
         }
     }
@@ -414,6 +400,11 @@ struct SystemStatusView: View {
         case "state-disk", "state_disk": "Retained data disk"
         default: "System component"
         }
+    }
+
+    private var impactSummary: String {
+        guard let summary = model.vmImpactSummary else { return "" }
+        return "\nKnown workloads: \(summary.knownWorkloads.count). Summary complete: \(summary.complete ? "yes" : "no"). Overflow: \(summary.overflow ? "yes" : "no"). This action affects the whole VM."
     }
 
     private var vmStopImpact: String {

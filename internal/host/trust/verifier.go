@@ -21,7 +21,6 @@ type RouteExpectation struct {
 	Audience            string
 	RouteGeneration     uint64
 	PolicyRevision      uint64
-	ObservedAt          time.Time
 }
 
 func (manager *Manager) AuthorizeRoute(ctx context.Context, capability *trustv1.RouteCapability, expected RouteExpectation) error {
@@ -34,15 +33,12 @@ func (manager *Manager) AuthorizeRoute(ctx context.Context, capability *trustv1.
 	if proto.Size(capability) > 64<<10 {
 		return ErrRouteUnauthorized
 	}
-	now := expected.ObservedAt
-	if now.IsZero() {
-		now = manager.now()
-	}
+	now := manager.now()
 	if capability.GetNotBefore() == nil || capability.GetExpiresAt() == nil || now.Before(capability.GetNotBefore().AsTime()) ||
 		!now.Before(capability.GetExpiresAt().AsTime()) || capability.GetExpiresAt().AsTime().Sub(capability.GetNotBefore().AsTime()) > maxRouteTTL {
 		return ErrRouteUnauthorized
 	}
-	if capability.GetSourceDeviceId() != expected.SourceDeviceID || capability.GetDestinationDeviceId() != expected.DestinationDeviceID ||
+	if (expected.SourceDeviceID != "" && capability.GetSourceDeviceId() != expected.SourceDeviceID) || capability.GetDestinationDeviceId() != expected.DestinationDeviceID ||
 		capability.GetDestinationExportId() != expected.DestinationExportID || capability.GetAudience() != expected.Audience ||
 		(expected.RouteClass != "" && capability.GetRouteClass() != expected.RouteClass) ||
 		capability.GetRouteGeneration() != expected.RouteGeneration || capability.GetPolicyRevision() != expected.PolicyRevision {
@@ -139,7 +135,7 @@ func (manager *Manager) resolveRouteIssuer(ctx context.Context, capability *trus
 		}
 		return owner, issuerKey, nil
 	case trustv1.AuthorityClass_AUTHORITY_CLASS_PERSONAL_MESH:
-		if capability.GetIssuerDeviceId() == "" || capability.GetIssuerKeyId() != "" || capability.GetSourceMembershipCredential() != nil {
+		if capability.GetIssuerDeviceId() != capability.GetDestinationDeviceId() || capability.GetIssuerKeyId() != "" || capability.GetSourceMembershipCredential() != nil {
 			return 0, nil, ErrRouteUnauthorized
 		}
 		meshID := authority.GetAuthorityId()
@@ -154,26 +150,27 @@ func (manager *Manager) resolveRouteIssuer(ctx context.Context, capability *trus
 		if err := manager.verifyRegistryReceipt(ctx, descriptor, snapshot, now); err != nil {
 			return 0, nil, ErrRouteUnauthorized
 		}
-		for _, member := range snapshot.GetActiveMembers() {
-			if member.GetDeviceId() == capability.GetIssuerDeviceId() && member.GetState() == trustv1.MeshMembershipState_MESH_MEMBERSHIP_STATE_ACTIVE {
-				if local, err := manager.store.GetDeviceIdentity(ctx); err == nil && local.Identity.GetDeviceId() == member.GetDeviceId() &&
-					(member.GetRootKeyRevision() != local.Identity.GetRootKeyRevision() || !equalBytes(member.GetRootPublicKey(), local.Identity.GetRootPublicKey())) {
-					return 0, nil, ErrRouteUnauthorized
-				}
-				allowed := false
-				for _, permission := range member.GetPermissions() {
-					allowed = allowed || permission == trustv1.MeshPermission_MESH_PERMISSION_USE_SERVICES
-				}
-				if !allowed {
-					return 0, nil, ErrRouteUnauthorized
-				}
-				denied, err := manager.store.IsMeshMemberDenied(ctx, meshID, member.GetDeviceId(), member.GetRootKeyRevision())
-				if err != nil || denied {
-					return 0, nil, ErrRouteUnauthorized
-				}
-				return store.TrustOwnerPersonalMesh, member.GetRootPublicKey(), nil
+		issuer := activeMember(snapshot, capability.GetIssuerDeviceId())
+		source := activeMember(snapshot, capability.GetSourceDeviceId())
+		local, err := manager.store.GetDeviceIdentity(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+		for _, member := range []*trustv1.MeshMembership{issuer, source} {
+			if !hasPermission(member, trustv1.MeshPermission_MESH_PERMISSION_USE_SERVICES) {
+				return 0, nil, ErrRouteUnauthorized
+			}
+			if local.Identity.GetDeviceId() == member.GetDeviceId() &&
+				(member.GetRootKeyRevision() != local.Identity.GetRootKeyRevision() || !equalBytes(member.GetRootPublicKey(), local.Identity.GetRootPublicKey())) {
+				return 0, nil, ErrRouteUnauthorized
+			}
+			denied, err := manager.store.IsMeshMemberDenied(ctx, meshID, member.GetDeviceId(), member.GetRootKeyRevision())
+			if err != nil || denied {
+				return 0, nil, ErrRouteUnauthorized
 			}
 		}
+		return store.TrustOwnerPersonalMesh, issuer.GetRootPublicKey(), nil
+
 	}
 	return 0, nil, ErrRouteUnauthorized
 }
@@ -206,4 +203,22 @@ func (manager *Manager) verifyRegistryReceipt(ctx context.Context, descriptor *t
 		return ErrRouteUnauthorized
 	}
 	return nil
+}
+
+func activeMember(snapshot *trustv1.MeshSnapshot, id string) *trustv1.MeshMembership {
+	for _, member := range snapshot.GetActiveMembers() {
+		if member.GetDeviceId() == id && member.GetState() == trustv1.MeshMembershipState_MESH_MEMBERSHIP_STATE_ACTIVE {
+			return member
+		}
+	}
+	return nil
+}
+
+func hasPermission(member *trustv1.MeshMembership, permission trustv1.MeshPermission) bool {
+	for _, value := range member.GetPermissions() {
+		if value == permission {
+			return true
+		}
+	}
+	return false
 }
