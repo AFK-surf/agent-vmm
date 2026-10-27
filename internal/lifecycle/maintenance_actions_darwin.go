@@ -13,18 +13,21 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
 
-func targetCurrentSchema(request maintenanceRequest) (int, error) {
+type targetSchemaRange struct {
+	Current int `json:"currentSchema"`
+	Minimum int `json:"minimumSchema"`
+}
+
+func targetCurrentSchema(request maintenanceRequest) (targetSchemaRange, error) {
 	output, err := exec.Command(filepath.Join(request.SourceApp, "Contents", "Helpers", "agent-vmm-lifecycle"), "version", "--json").Output()
 	if err != nil {
-		return 0, fmt.Errorf("target Host version is unreadable: %w", err)
+		return targetSchemaRange{}, fmt.Errorf("target Host version is unreadable: %w", err)
 	}
-	var version struct {
-		CurrentSchema int `json:"currentSchema"`
-	}
+	var version targetSchemaRange
 	if err := json.Unmarshal(output, &version); err != nil {
-		return 0, errors.New("target Host version is unreadable")
+		return version, errors.New("target Host version is unreadable")
 	}
-	return version.CurrentSchema, nil
+	return version, nil
 }
 
 func defaultMaintenanceActions() maintenanceActions {
@@ -122,13 +125,10 @@ func maintenanceSchemaRefusal(value paths, request maintenanceRequest, actions m
 	if err != nil {
 		return "", err
 	}
-	if data == target {
-		return "", nil
+	if err := store.CheckSchema(data, target.Minimum, target.Current); err != nil {
+		return err.Error(), nil
 	}
-	if target == 0 {
-		return fmt.Sprintf("The selected Host release does not report its database schema, and the local data uses schema %d. Keep the current Host or confirm a reset reinstall.", data), nil
-	}
-	return fmt.Sprintf("The selected Host release opens database schema %d, but the local data uses schema %d. Keep the current Host or confirm a reset reinstall.", target, data), nil
+	return "", nil
 }
 
 // refuseMaintenance records a terminal refusal that made no effects. It does

@@ -9,7 +9,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 39
+const minimumSchema = 39
+
+var schemaMigrations = []string{}
+
+var schemaVersion = minimumSchema + len(schemaMigrations)
 
 const (
 	auditRetention  = 30 * 24 * time.Hour
@@ -27,11 +31,16 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
+	return open(path, schemaMigrations)
+}
+
+func open(path string, migrations []string) (*Store, error) {
+	target := minimumSchema + len(migrations)
 	version, err := ReadSchemaVersion(path)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkSchema(version); err != nil {
+	if err := CheckSchema(version, minimumSchema, target); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", path)
@@ -53,8 +62,8 @@ func Open(path string) (*Store, error) {
 		}
 	}
 	result := &Store{db: db}
-	if version == 0 {
-		if err := result.initialize(context.Background()); err != nil {
+	if version != target {
+		if err := result.migrate(context.Background(), version, migrations); err != nil {
 			db.Close()
 			return nil, err
 		}

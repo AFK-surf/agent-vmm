@@ -224,3 +224,19 @@ func TestAuxiliaryServerFailureShutsDownHost(t *testing.T) {
 		t.Fatal("controller shutdown was not called")
 	}
 }
+
+func TestMigrationFailureUsesExistingStartupFailureRecord(t *testing.T) {
+	directory := t.TempDir()
+	failure := &store.SchemaError{Code: store.MigrationFailed, DataSchema: store.MinimumSchema()}
+	if refused, err := recordStartResult(directory, failure); !refused || err != nil {
+		t.Fatalf("migration failure = %t, %v", refused, err)
+	}
+	data, err := os.ReadFile(filepath.Join(directory, store.StartFailureFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record store.StartFailure
+	if err := json.Unmarshal(data, &record); err != nil || record.Code != store.MigrationFailed || record.DataSchema != store.MinimumSchema() || record.CurrentSchema != store.CurrentSchema() {
+		t.Fatalf("migration record = %s, %v", data, err)
+	}
+}

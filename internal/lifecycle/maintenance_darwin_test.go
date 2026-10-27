@@ -28,7 +28,9 @@ func maintenanceFixture(t *testing.T) (paths, maintenanceRequest, maintenanceAct
 	actions := maintenanceActions{
 		commitState: writeOwnerState, commitAdmission: writeOwnerState,
 		validateSource: func(maintenanceRequest) error { return nil }, stop: func(paths) error { return nil },
-		targetSchema:   func(maintenanceRequest) (int, error) { return store.CurrentSchema(), nil },
+		targetSchema: func(maintenanceRequest) (targetSchemaRange, error) {
+			return targetSchemaRange{Current: store.CurrentSchema(), Minimum: store.MinimumSchema()}, nil
+		},
 		dataSchema:     func(paths) (int, error) { return 0, nil },
 		removeSoftware: func(p paths) error { return os.RemoveAll(p.app) },
 		resetData: func(p paths) error {
@@ -480,7 +482,9 @@ func TestMaintenancePreflightRefusesTargetOlderThanDataWithoutEffects(t *testing
 	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	a.dataSchema = func(paths) (int, error) { return 35, nil }
-	a.targetSchema = func(maintenanceRequest) (int, error) { return 25, nil }
+	a.targetSchema = func(maintenanceRequest) (targetSchemaRange, error) {
+		return targetSchemaRange{Current: 25, Minimum: 25}, nil
+	}
 	noEffect := func(paths) error { t.Fatal("refused maintenance made an effect"); return nil }
 	a.stop, a.resetData, a.removeSoftware = noEffect, noEffect, noEffect
 	a.replace = func(paths, maintenanceRequest) error { return noEffect(p) }
@@ -963,7 +967,9 @@ func TestRefusedPreserveReplacementKeepsStuckRequestForResetReplacement(t *testi
 	next := old
 	next.RequestID, next.SupersedesRequestID, next.Action = "next", old.RequestID, "update"
 	a.dataSchema = func(paths) (int, error) { return 35, nil }
-	a.targetSchema = func(maintenanceRequest) (int, error) { return 25, nil }
+	a.targetSchema = func(maintenanceRequest) (targetSchemaRange, error) {
+		return targetSchemaRange{Current: 25, Minimum: 25}, nil
+	}
 	a.stop = func(paths) error { t.Fatal("refused replacement made an effect"); return nil }
 	if got, err := runMaintenance(p, next, a); err == nil || got.FailureCode != "target_older_than_data" {
 		t.Fatalf("%+v %v", got, err)
@@ -980,5 +986,39 @@ func TestRefusedPreserveReplacementKeepsStuckRequestForResetReplacement(t *testi
 	}
 	if got, err := maintenanceStatus(p, old.RequestID); err != nil || got.SupersededByRequestID != reset.RequestID {
 		t.Fatalf("old = %+v %v", got, err)
+	}
+}
+
+func TestMaintenancePreservesSupportedMigrationSource(t *testing.T) {
+	p, r, a := maintenanceFixture(t)
+	a.dataSchema = func(paths) (int, error) { return store.MinimumSchema(), nil }
+	a.targetSchema = func(maintenanceRequest) (targetSchemaRange, error) {
+		return targetSchemaRange{Minimum: store.MinimumSchema(), Current: store.CurrentSchema() + 1}, nil
+	}
+	a.resetData = func(paths) error { t.Fatal("preserve migration reset data"); return nil }
+	got, err := runMaintenance(p, r, a)
+	if err != nil || got.Outcome != "succeeded" || got.DataPolicy != "preserve" {
+		t.Fatalf("migration admission = %+v, %v", got, err)
+	}
+}
+
+func TestMaintenanceCurrentSchemaDoesNotRequireMigrationMetadata(t *testing.T) {
+	for _, current := range []int{store.CurrentSchema(), store.CurrentSchema() + 1} {
+		t.Run(fmt.Sprint(current), func(t *testing.T) {
+			p, r, a := maintenanceFixture(t)
+			a.dataSchema = func(paths) (int, error) { return store.CurrentSchema(), nil }
+			a.targetSchema = func(maintenanceRequest) (targetSchemaRange, error) { return targetSchemaRange{Current: current}, nil }
+			if current != store.CurrentSchema() {
+				a.stop = func(paths) error { t.Fatal("unknown migration support stopped Host"); return nil }
+			}
+			got, err := runMaintenance(p, r, a)
+			if current == store.CurrentSchema() {
+				if err != nil || got.Outcome != "succeeded" {
+					t.Fatalf("same schema = %+v, %v", got, err)
+				}
+			} else if err == nil || got.FailureCode != maintenanceTargetOlderThanData {
+				t.Fatalf("unknown migration support = %+v, %v", got, err)
+			}
+		})
 	}
 }

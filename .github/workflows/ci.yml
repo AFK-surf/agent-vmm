@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -55,7 +55,7 @@ jobs:
       - name: Check Go and generated code
         run: >-
           make check GOTESTFLAGS=-race
-          GOTESTPACKAGES="$(go list ./... | grep -Ev '/internal/guest/(control|network)$')"
+          GOTESTPACKAGES="$(go list ./... | grep -Ev '/internal/guest/(control|network)$' | tr '\n' ' ')"
       - name: Check protobuf compatibility
         if: github.event_name == 'pull_request'
         env:
@@ -109,6 +109,7 @@ jobs:
             read -r package_name product <<< "$entry"
             package="$RUNNER_TEMP/SourcePackages/checkouts/$package_name"
             scratch="$RUNNER_TEMP/swift-generator-build/$package_name"
+            cp apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved "$package/Package.resolved"
             swift build --package-path "$package" --scratch-path "$scratch" -c release --product "$product"
             swift build --package-path "$package" --scratch-path "$scratch" -c release --show-bin-path >> "$GITHUB_PATH"
           done

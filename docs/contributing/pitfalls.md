@@ -25,6 +25,9 @@ Use inspectContainer task reconciliation. A missing task means stopped, not raw 
 Guest assembly pipes cpio into xz. Without cpio, the pipeline can produce a valid empty initramfs.
 Keep cpio in the Dockerfile tools stage. An empty initramfs leaves the VM in `STARTING`.
 
+Swift generator builds resolve their own transitive dependencies, even when their source checkout came from the app build.
+Copy the app’s `Package.resolved` into each generator package before building it to keep generated output consistent.
+
 ## Host store
 
 InstallApplianceDomain must insert its private registration before the installation because registration_id has an immediate foreign key.

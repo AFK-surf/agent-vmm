@@ -74,7 +74,7 @@ func readLifecycleOperation(value paths) *lifecycleOperation {
 
 // versionReport returns this build's database schema and release.
 func versionReport() map[string]any {
-	return map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID, "currentSchema": currentSchema()}
+	return map[string]any{"component": "agent-vmm-host", "version": releaseID, "release_id": releaseID, "currentSchema": currentSchema(), "minimumSchema": store.MinimumSchema()}
 }
 
 func readHostStartFailure(value paths) *store.StartFailure {

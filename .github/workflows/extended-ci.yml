@@ -3,7 +3,7 @@ name: Extended CI
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
   schedule:
     - cron: "17 3 * * 1"
@@ -28,24 +28,24 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Set up persistent Guest builder
-        if: startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master'))
+        if: startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
         uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2
         with:
           cache-key: build/guest/Dockerfile@trusted
           platforms: linux/arm64
       - name: Set up local Guest builder
-        if: ${{ !(startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master'))) }}
+        if: ${{ !(startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))) }}
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build Guest bundle
         env:
-          AGENT_VMM_REFRESH_DEPENDENCIES: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master')) && '1' || '0' }}
+          AGENT_VMM_REFRESH_DEPENDENCIES: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '1' || '0' }}
         run: build/guest/build.sh "$RUNNER_TEMP/guest-bundle" release runtime
       - name: Unpack Guest root filesystem and run sandbox smoke test
         run: |
           sudo apt-get update
           sudo apt-get install --yes squashfs-tools
           unsquashfs -d "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/guest-bundle/rootfs.squashfs"
-          build/guest/smoke.sh "$RUNNER_TEMP/guest-rootfs"
+          sudo build/guest/smoke.sh "$RUNNER_TEMP/guest-rootfs"
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - name: Generate Guest inventories
         run: build/guest/sbom.sh "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/inventory/guest"

@@ -96,7 +96,7 @@ func validateMaintenanceRequest(value paths, request maintenanceRequest) error {
 
 type maintenanceActions struct {
 	validateSource  func(maintenanceRequest) error
-	targetSchema    func(maintenanceRequest) (int, error)
+	targetSchema    func(maintenanceRequest) (targetSchemaRange, error)
 	dataSchema      func(paths) (int, error)
 	commitState     func(*os.File, maintenanceState) error
 	commitAdmission func(*os.File, maintenanceState) error

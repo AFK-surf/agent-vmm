@@ -55,9 +55,9 @@ final class AppModel {
     var supportPreviewInProgress = false
 
     var client: (any HostServing)?
-    var observationTask: Task<Void, Never>?
-    private var metricsTask: Task<Void, Never>?
-    private var snapshotRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var observationTask: Task<Void, Never>?
+    @ObservationIgnored private var metricsTask: Task<Void, Never>?
+    @ObservationIgnored private var snapshotRefreshTask: Task<Void, Never>?
     private var eventBootID = ""
     var isConnected = false
     @ObservationIgnored private lazy var refreshScheduler = RefreshScheduler { [weak self] in
@@ -69,7 +69,7 @@ final class AppModel {
         self.client = client
     }
 
-    isolated deinit {
+    deinit {
         observationTask?.cancel()
         metricsTask?.cancel()
         snapshotRefreshTask?.cancel()

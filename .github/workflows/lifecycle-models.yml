@@ -3,7 +3,7 @@ name: Lifecycle models
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - spec/tla/**
       - tools/tla/**

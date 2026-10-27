@@ -62,3 +62,15 @@ Explicit VM shutdown settles writers, stops tasks, and closes their process and 
 
 Use [backup](../operator/backup.md) for an offline copy.
 Use [cleanup](../operator/cleanup-and-local-resources.md) for exact, confirmed deletion.
+
+## Host database upgrades
+
+[Store](../../internal/host/store/schema.go) owns forward SQLite migrations from schema 39.
+The compiled catalog defines the current schema. New databases use the current schema snapshot.
+Each later change adds one ordered SQL migration and updates that snapshot.
+Migrations preserve Host identities, registrations, custody references, allocation authority, and accepted receipts.
+They perform no filesystem, credential, Guest, or remote-provider operations.
+The Host owner lock excludes another Host. A single SQLite transaction commits the complete pending chain and its version records.
+Commit completes migration. A later startup failure requires forward repair or the authorized reset policy, never automatic downgrade.
+Guest control and pool filesystems, containerd metadata, volumes, secrets, and lifecycle journals are separate storage domains.
+A future incompatible change to those domains needs a design from its owner.

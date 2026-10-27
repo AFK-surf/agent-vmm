@@ -103,12 +103,19 @@ Controllers read the public CLI envelope rather than inventing another readiness
 
 ## Database compatibility
 
-The Host accepts only its current database schema.
-A different schema returns `STATE_SCHEMA_INCOMPATIBLE` before admission.
-There is no state conversion.
-Before an incompatible upgrade, preserve required data and approve deletion of the exact installation.
-Run `agent-vmm-lifecycle uninstall --purge`.
-Then install the current package as a new installation.
+Schema 39 is the forward-migration baseline. Older data requires an approved reset of the exact installation.
+The Host migrates supported SQLite schemas before admitting controllers or runtime operations.
+One transaction commits all pending changes and version records. An interrupted transaction leaves the previous committed state.
+`version --json` reports `minimumSchema` and `currentSchema` for the target database decoder.
+Maintenance checks this range before stopping or replacing the current Host.
+Its retained `target_older_than_data` receipt code means any unsupported source schema.
+Direct Host startup applies the same compatibility rule.
+Newer data, or populated data without a schema version, returns `STATE_SCHEMA_INCOMPATIBLE` without conversion.
+Migration failure returns `STATE_MIGRATION_FAILED`. Repair the cause and retry forward, or use the controller's authorized reset reinstall policy.
+The migration code never resets data or restores an older binary.
+Reset requires the existing native maintenance authority and exact-process stop confirmation.
+Report lost local work and required sign-in or enrollment after reset.
+Guest disks, credential stores, and lifecycle journals retain their separate owners. SQLite migration does not modify them.
 
 ## Publication and uninstall
 
