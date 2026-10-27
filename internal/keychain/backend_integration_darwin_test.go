@@ -11,10 +11,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"math/big"
 	"os"
 	"testing"
 )
+
+var expectKeychain = flag.Bool("expect-keychain", true, "expect signed Keychain access")
 
 func TestSignedKeychainStorage(t *testing.T) {
 	var suffix [16]byte
@@ -22,6 +25,12 @@ func TestSignedKeychainStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	backend := New("test-" + hex.EncodeToString(suffix[:]))
+	if !*expectKeychain {
+		if err := backend.Probe(t.Context()); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("unentitled Keychain probe=%v, want unavailable", err)
+		}
+		return
+	}
 	if err := backend.Probe(t.Context()); err != nil {
 		t.Fatal(err)
 	}

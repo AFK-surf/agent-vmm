@@ -61,14 +61,15 @@ Read [the Linux Host guide](../test/kvmdev/README.md#linux-host-service) for ins
 ## Signing
 
 Release packages build with `-tags keychain`.
-Signing requires `CODE_SIGN_IDENTITY`, `NOTARYTOOL_PROFILE`, and `AGENT_VMM_PROVISIONING_PROFILE`.
-The profile must authorize `D9AAN3VJK8.com.afk-surf.agent-vmm-host`.
-The package embeds that profile and the fixed Keychain access group.
+Signing requires `CODE_SIGN_IDENTITY` and `NOTARYTOOL_PROFILE`.
+Optional `AGENT_VMM_PROVISIONING_PROFILE` enables Keychain permissions and must authorize `D9AAN3VJK8.com.afk-surf.agent-vmm-host`.
+Without a profile, the signed package has only virtualization permissions. Fresh installations select file storage.
+Existing file installations keep file storage. Existing Keychain installations require a package with Keychain permissions.
 Ad-hoc development packages use file storage and carry no Keychain permissions.
 
 The release signer runs `build/host/test-keychain.sh` in a logged-in user session.
-Supply `OUTPUT_DIRECTORY`, `CODE_SIGN_IDENTITY`, and `AGENT_VMM_PROVISIONING_PROFILE`.
-The script signs a test app and checks real Keychain storage with isolated test items.
+Supply `OUTPUT_DIRECTORY`, `CODE_SIGN_IDENTITY`, and the same optional `AGENT_VMM_PROVISIONING_PROFILE` used for the package.
+The script checks real Keychain storage with a profile, or verifies unavailable Keychain access without one.
 Ordinary CI compiles the backend without accessing Keychain.
 This repository does not publish binaries or hold signing secrets.
 

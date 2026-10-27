@@ -145,8 +145,9 @@ if [ "$phase" = assemble ]; then
 	exit 0
 fi
 entitlements="$repo/build/host/vz.entitlements.plist"
-if [ "$build_profile" = release ]; then
-	profile=${AGENT_VMM_PROVISIONING_PROFILE:?set AGENT_VMM_PROVISIONING_PROFILE to the Host provisioning profile}
+profile=${AGENT_VMM_PROVISIONING_PROFILE:-}
+rm -f "$product/Contents/embedded.provisionprofile"
+if [ "$build_profile" = release ] && [ -n "$profile" ]; then
 	test -s "$profile"
 	cp "$profile" "$product/Contents/embedded.provisionprofile"
 	entitlements="$repo/build/host/keychain.entitlements.plist"
@@ -160,10 +161,9 @@ codesign --force --sign "$identity" --options runtime --preserve-metadata=entitl
 codesign --verify --deep --strict --verbose=2 "$product"
 host_entitlements="$output/agent-vmm-host-entitlements.plist"
 codesign -d --xml --entitlements "$host_entitlements" "$host" 2>/dev/null
-if [ "$build_profile" = test ]; then
+if [ "$entitlements" = "$repo/build/host/vz.entitlements.plist" ]; then
 	plutil -convert json -o - "$host_entitlements" |
 		jq -e '.["com.apple.security.virtualization"] == true and has("keychain-access-groups") == false' >/dev/null
-	codesign -dv --verbose=4 "$host" 2>&1 | grep -q 'Signature=adhoc'
 else
 	test -s "$product/Contents/embedded.provisionprofile"
 	plutil -convert json -o - "$host_entitlements" |
@@ -171,6 +171,10 @@ else
 			.["keychain-access-groups"] == ["D9AAN3VJK8.com.afk-surf.agent-vmm-host"] and
 			.["com.apple.application-identifier"] == "D9AAN3VJK8.com.afk-surf.agent-vmm-host" and
 			.["com.apple.developer.team-identifier"] == "D9AAN3VJK8"' >/dev/null
+fi
+if [ "$build_profile" = test ]; then
+	codesign -dv --verbose=4 "$host" 2>&1 | grep -q 'Signature=adhoc'
+else
 	codesign -dv --verbose=4 "$host" 2>&1 | grep -q 'Authority=Developer ID Application'
 fi
 

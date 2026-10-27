@@ -131,6 +131,7 @@ The installed APK metadata remains the source of their package versions.
 
 ## macOS secret storage
 
-Development packages have no Keychain permissions.
+Development packages and releases without a provisioning profile have no Keychain permissions.
+A fresh installation selects file storage when its Keychain probe fails.
 Keychain and Secure Enclave need a signed release package, its provisioning profile, and a logged-in user session.
 A daemon uses file storage. The Host does not switch an existing Keychain installation to files when Keychain becomes unavailable.

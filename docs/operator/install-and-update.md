@@ -22,7 +22,8 @@ OUTPUT_DIRECTORY=HOST_DIRECTORY build/host/install.sh --service-type agent
 Agent mode uses the service user's GUI launchd domain.
 Daemon mode uses `--service-type daemon --service-user USER` and requires administrator service setup.
 The Host always runs as the configured non-root user.
-Signed agent-mode releases can use Keychain and Secure Enclave in that user's logged-in session.
+Signed agent-mode releases with a provisioning profile can use Keychain and Secure Enclave in that user's logged-in session.
+Without a profile, fresh installations use files. Existing Keychain installations report an error and preserve their storage selection.
 Daemon mode uses file secrets. Changing deployment mode requires a new installation.
 The fixed label is `com.afk-surf.agent-vmm-host`.
 Read status to resolve the actual user, application, and state paths before an operation.
