@@ -426,7 +426,10 @@ func finalizeManagedInstallOperation(value paths, operationID string, operation 
 			return retain(errors.New("managed install completion receipt is not durable; retaining install plan"))
 		}
 	} else if operation.SecretDisposition == secretDispositionDestroyTerminal {
-		recorded := readLifecycleOperation(value)
+		recorded, err := readLifecycleOperationByID(value, operationID)
+		if err != nil {
+			return retain(fmt.Errorf("verify managed install terminal result: %w", err))
+		}
 		if recorded == nil || recorded.OperationID != operationID || recorded.RequestID != operationID || recorded.Kind != "install-managed" ||
 			recorded.Outcome != "failed" || recorded.SecretDisposition != secretDispositionDestroyTerminal {
 			return retain(errors.New("managed install terminal result is not durable; retaining install plan"))

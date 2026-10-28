@@ -89,3 +89,50 @@ func TestHostResetPreservesJournalAndDoesNotFollowDataSymlinks(t *testing.T) {
 		t.Fatalf("unrelated data changed: %s %v", data, err)
 	}
 }
+
+func TestTerminalManagedInstallReceiptSurvivesLaterUpdate(t *testing.T) {
+	t.Parallel()
+	value := testPaths(t.TempDir())
+	operationID := "operation-terminal-install"
+	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	plan := []byte(`{"material":"secret-token"}`)
+	if err := os.WriteFile(planPath, plan, 0600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	first, err := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
+		calls++
+		return terminalManagedInstallError(os.ErrPermission)
+	})
+	if err == nil || first.Retryable || first.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	if _, err := runUpdateLifecycleOperation(value, "update-after-install", "release-2", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	latest := readLifecycleOperation(value)
+	if latest == nil || latest.Kind != "update" || latest.Outcome != "succeeded" {
+		t.Fatalf("latest=%+v", latest)
+	}
+	resumed, resumeErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
+		calls++
+		return nil
+	})
+	if resumeErr == nil || calls != 1 || resumed.Attempt != first.Attempt {
+		t.Fatalf("terminal action replayed: resumed=%+v calls=%d err=%v", resumed, calls, resumeErr)
+	}
+	finalized, finalErr := finalizeManagedInstallOperation(value, operationID, resumed, resumeErr)
+	if finalErr != resumeErr || finalized.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("terminal receipt lost: finalized=%+v err=%v", finalized, finalErr)
+	}
+	if retained, err := os.ReadFile(planPath); err != nil || string(retained) != string(plan) {
+		t.Fatalf("retained plan=%q err=%v", retained, err)
+	}
+	recorded, err := readLifecycleOperationByID(value, operationID)
+	if err != nil || recorded.Outcome != "failed" || recorded.Attempt != 1 || recorded.SecretDisposition != secretDispositionDestroyTerminal {
+		t.Fatalf("recorded=%+v err=%v", recorded, err)
+	}
+}
